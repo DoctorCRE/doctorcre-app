@@ -780,7 +780,6 @@
     "test/research-kind-filter-browser.test.mjs",
     "test/resource-dashboard.test.mjs",
     "test/retained-commands.test.mjs",
-    "test/review-gate.test.mjs",
     "test/review-pr299-probe.test.mjs",
     "test/room-panel-model.test.mjs",
     "test/room-stage-moons.test.mjs",

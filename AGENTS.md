@@ -32,8 +32,14 @@ doctrine section `3bb51d3e-2661-4ea2-a585-053540545b5d`.
 - Bind cross-repository changes to exact revisions and versioned contracts.
 - Publish deployment input as the deterministic static artifact produced by
   `npm run build`; consumers pin its source commit and SHA-256 digest.
-- Use an isolated branch or worktree, relevant local checks, a pull request,
-  green hosted CI, merge, and delivery verification.
+- Work starts from a GitHub issue. One issue gets one branch named
+  `<issue>-<short-name>` and one pull request that says `Closes #<issue>`.
+- Before a pull request merges, a separate Claude session that did not write
+  the change reviews it. The builder fixes what it finds, then turns on
+  auto-merge, which merges when CI is green. Never use `--admin` or any other
+  bypass, and never push to main.
+- Work is done when it is merged and you have checked the result where it
+  runs.
 - Durable application knowledge belongs in the future DoctorCRE project record
   store. Do not turn Markdown into a substitute database. This file and the
   README are lean source-controlled boot documentation.
@@ -52,7 +58,7 @@ not change CARR runtime or deployment.
 
 Every task, all required:
 
-1. Size it first under rule `8400cd3d`. One obvious change: build it. Medium or large: run `/grill-with-docs` before writing code. Bigger than one session: file a Work Request whose criteria define the slices, then size each slice again when dispatched.
+1. Size it first. One obvious change: build it. Medium or large: run `/grill-with-docs` before writing code. Bigger than one session: a parent issue with one sub-issue per pull request, each sized again when started.
 2. Work in `/poteto-mode` (pstack). Subtract before you add. Use a tool the way its own docs say, and build no proof, receipt or harness machinery nobody asked for.
 3. Code changes go test-first with `/tdd`. A bug starts with `/diagnosing-bugs`.
 4. Before the PR, run the design and debt pass below.
