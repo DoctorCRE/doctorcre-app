@@ -505,6 +505,8 @@ test('Recent move ages follow the clock without a reload',async t=>{
  await page.clock.fastForward(2*MIN);
  await page.waitForFunction(()=>/Doc flagged for attention · 2 minutes ago/.test(document.querySelector('#appTodayMoves [data-layout-deal="d02"]').textContent));
  await page.clock.fastForward(HOUR);
+ // Past the 30-minute idle cutoff, the partner's return is what resumes the clocks.
+ await page.mouse.move(10,10);
  await page.waitForFunction(()=>/Doc flagged for attention · 1 hour ago/.test(document.querySelector('#appTodayMoves [data-layout-deal="d02"]').textContent));
  assert.deepEqual(errors,[]);
 });

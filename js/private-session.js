@@ -5,8 +5,13 @@ import { mountVisibilityPoll } from './visibility-poll.mjs';
 import { resolveDealroomBoot } from './boot-mode.js';
 import { clearPrivateStorage, offlineTourSession, sessionEpoch, SESSION_EPOCH_KEY } from './offline-tour-session.js';
 
-export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '', acceptSession = async () => true, anonymousDiagnostics = false }) {
-  let binding = null, generation = 0, revoked = false, checking = null;
+// Twice the 60 s poll, so a steady tab checks once per window. Denials still
+// end the view at once, and every /mcp POST carries the verified CSRF token,
+// which the server refuses once the cookie changes.
+export const SESSION_TRUST_MS = 2 * 60_000;
+
+export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '', acceptSession = async () => true, anonymousDiagnostics = false, now = () => performance.now() }) {
+  let binding = null, generation = 0, revoked = false, checking = null, trusted = null;
   const active = new Set();
   const failure = () => Object.assign(new Error('Sign in to continue'), { status: 401, code: 'authentication_required' });
   function revoke(reason = 'denied') {
@@ -22,8 +27,9 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
   }
   async function verify({ fresh = false } = {}) {
     if (revoked) throw failure();
+    if (!fresh && trusted && now() - trusted.at < SESSION_TRUST_MS) return trusted.session;
     if (!fresh && checking) return checking;
-    const ticket = generation, startedEpoch = epoch();
+    const ticket = generation, startedEpoch = epoch(), startedAt = now();
     const pending = (async () => {
       const response = await fetchImpl('/auth/session', { credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000) });
       if ([401,403].includes(response.status)) { if (!(anonymousDiagnostics && !binding)) revoke(); throw failure(); }
@@ -35,7 +41,7 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
       if (binding && next !== binding) { revoke('session-changed'); throw failure(); }
       if (!await acceptSession(session)) { revoke('session-changed'); throw failure(); }
       current(ticket, startedEpoch);
-      binding = next;
+      binding = next; trusted = { session, at: startedAt };
       return session;
     })().finally(() => { if (checking === pending) checking = null; });
     checking = pending;
@@ -45,8 +51,10 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
     revoke, verify,
     get revoked() { return revoked; },
     async fetch(path, init = {}) {
+      // Writes read the session to scope themselves; that read is a fresh, bound check.
+      if (path === '/auth/session') return Response.json(await verify({ fresh: true }));
       const ticket = generation, startedEpoch = epoch();
-      const session = await verify({ fresh: true }); current(ticket, startedEpoch);
+      const session = await verify(); current(ticket, startedEpoch);
       const controller = new AbortController(); active.add(controller);
       const cancel = () => controller.abort();
       init.signal?.addEventListener('abort', cancel, { once: true });
@@ -69,9 +77,6 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
         } catch { /* Payload validation belongs to the existing domain adapter. */ }
         if (refused) { revoke(); throw failure(); }
         current(ticket, startedEpoch);
-        // Detect a cookie change while the request was in flight before any
-        // private body reaches a controller (or a write receipt reaches a form).
-        await verify({ fresh: true }); current(ticket, startedEpoch);
         return new Response([204,205,304].includes(response.status) ? null : bytes, {status:response.status,statusText:response.statusText,headers:response.headers});
       } finally { active.delete(controller); init.signal?.removeEventListener('abort', cancel); }
     },

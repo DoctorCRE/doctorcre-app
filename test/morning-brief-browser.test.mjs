@@ -35,6 +35,8 @@ async function setup(t,{width=1440,motion='no-preference',brief=true,coverage=fa
   if(['/api/system-work/session','/auth/session'].includes(url.pathname))return route.fulfill({json:{csrf_token:`synthetic-${scope}`,actor:{slug:scope}}});
   if(url.pathname==='/pipeline/changes') {return route.fulfill({json:{events:url.searchParams.get('cursor')!=='demo-end' ? [{id:'demo-event',subject_type:'deal',subject_id:'d20',field:'next_step',new_value:'Review revised demo terms',recorded_at:new Date().toISOString()}]:[],cursor:'demo-end'}});}
   if(url.pathname==='/mcp') {
+   // Like the old system, refuse a POST whose CSRF token is not the cookie session's.
+   if(route.request().headers()['x-carr-csrf']!==`synthetic-${scope}`)return route.fulfill({status:403,json:{error:'forbidden'}});
    const {name,arguments:args}=route.request().postDataJSON().params;calls.push({name,args});
    if(name==='morning-brief' && onBrief)await onBrief();
    if(name==='morning-brief')return fail ? route.fulfill({status:503,body:''}) : rpc(ready ? data() : {ok:true});

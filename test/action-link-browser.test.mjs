@@ -48,7 +48,9 @@ test('session refusal removes the private draft before approval can be submitted
    if(denied)deniedReads++;
    await route.fulfill(denied?{status:401,json:{error:'not_authenticated'}}:{json:{actor:{slug:'joe'},csrf_token:'synthetic-csrf'}});
   });
-  await page.route('**/mcp',route=>{
+  await page.route('**/mcp',async route=>{
+   // A signed-out cookie is refused on /mcp too, as the old system does.
+   if((await route.request().headerValue('cookie')||'').split('; ').includes('synthetic-approval-clicked=1')){deniedReads++;return route.fulfill({status:401,json:{error:'not_authenticated'}});}
    const rpc=route.request().postDataJSON();if(rpc.params.name==='approve-lead-draft')writes++;
    return route.fulfill({json:{jsonrpc:'2.0',id:rpc.id,result:{content:[{type:'text',text:JSON.stringify(rpc.params.name==='resolve-action-link'?payload:{})}]}}});
   });
@@ -73,6 +75,7 @@ test('idle approval keeps its button through session checks; background refusal 
   page=await browser.newPage();let denied=false,reads=0,writes=0;
   await page.route('**/auth/session',route=>route.fulfill(denied?{status:401,json:{error:'not_authenticated'}}:{json:{actor:{slug:'joe'},csrf_token:'synthetic-csrf'}}));
   await page.route('**/mcp',route=>{
+   if(denied)return route.fulfill({status:401,json:{error:'not_authenticated'}});
    const rpc=route.request().postDataJSON();
    if(rpc.params.name==='resolve-action-link')reads++;
    if(rpc.params.name==='approve-lead-draft')writes++;
