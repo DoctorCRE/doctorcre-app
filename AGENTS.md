@@ -34,6 +34,7 @@ doctrine section `3bb51d3e-2661-4ea2-a585-053540545b5d`.
   `npm run build`; consumers pin its source commit and SHA-256 digest.
 - Work starts from a GitHub issue. One issue gets one branch named
   `<issue>-<short-name>` and one pull request that says `Closes #<issue>`.
+  Run `npm run check` before pushing.
 - Before a pull request merges, a separate Claude session that did not write
   the change reviews it. The builder fixes what it finds, then turns on
   auto-merge, which merges when CI is green. Never use `--admin` or any other
