@@ -589,9 +589,12 @@ test('storage denial keeps the first-use walkthrough usable without reopening du
   const guide = page.getByRole('dialog', { name: 'How DoctorCRE works', exact: true });
   await guide.waitFor();
   await guide.getByRole('button', { name: 'Skip walkthrough' }).click();
-  const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/auth/session');
-  await page.evaluate(() => window.dispatchEvent(new Event('online')));
-  await refreshed;
+  // The identity refresh reuses the trusted sign-in check, so await that check rather than a request.
+  await page.evaluate(async () => {
+    window.dispatchEvent(new Event('online'));
+    await (await import('/js/private-session.js')).privateSession().verify();
+    await new Promise(requestAnimationFrame);
+  });
   await page.waitForLoadState('networkidle');
   assert.equal(await guide.count(), 0);
   assert.deepEqual(errors, []);

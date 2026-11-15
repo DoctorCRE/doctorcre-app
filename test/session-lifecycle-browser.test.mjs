@@ -24,6 +24,8 @@ async function open(t) {
  await context.route('**/auth/signout',route=>{actor=null;return route.fulfill({status:302,headers:{location:'/'}});});
  await context.route('**/auth/session',route=>route.fulfill({status:actor?200:401,json:actor?{actor:{slug:actor},csrf_token:`synthetic-${actor}`}:{}}));
  await context.route('**/mcp',async route=>{
+   // Like the old system, refuse a POST whose CSRF token is not the cookie session's.
+   if(route.request().headers()['x-carr-csrf']!==`synthetic-${actor}`)return route.fulfill({status:403,json:{error:'forbidden'}});
    const {name,arguments:args}=route.request().postDataJSON().params;
    if(name==='list-doc-conversations' && denied)return route.fulfill({status:403,json:{error:'forbidden'}});
    if(name==='rename-doc-conversation')writes++;
@@ -35,7 +37,7 @@ async function open(t) {
  await page.request.post(`${origin}/api/test/seed`,{data:{namespace:'session-test',reset:true}});
  const visit=async p=>{await p.goto(`${origin}/doc-chats?mode=live`);await p.waitForFunction(()=>document.body.textContent.includes('Demo — Crestview'));};
  await visit(page);
- return {page,context,origin,visit,errors,get writes(){return writes;},switchActor(){actor='dell';},deny(){denied=true;}};
+ return {page,context,origin,visit,errors,get writes(){return writes;},get actor(){return actor;},switchActor(){actor='dell';},deny(){denied=true;}};
 }
 async function seedPrivate(page) {
  await page.evaluate(async()=>{
@@ -231,6 +233,7 @@ test('S1 browser: revocation clears a private tab title before asynchronous stor
 test('S1/S2 browser: the shared Room writer succeeds in-session and retires an old-session retry', async t => {
  const app = await open(t), payloads = [];
  await app.context.route('**/api/room/turn', route => {
+   if(route.request().headers()['x-carr-csrf']!==`synthetic-${app.actor}`)return route.fulfill({status:403,json:{error:'forbidden'}});
    payloads.push(route.request().postDataJSON());
    return route.fulfill({json:{ok:true,seq:payloads.length}});
  });
