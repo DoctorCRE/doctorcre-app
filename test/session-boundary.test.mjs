@@ -32,9 +32,9 @@ test('F01: a newer denial aborts pending reads, and a transport ignoring abort c
  pending.resolve(Response.json({private:'Joe late content'}));
  await assert.rejects(old,{code:'authentication_required'});
 });
-test('F01: cookie change during a read cannot paint the new actor under the old view',async()=>{
+test('F01: a POST after a cookie switch is refused before it takes effect, even inside the trust window',async()=>{
  let identity=session('joe'),visible=['Joe private title'];
- const boundary=createSessionBoundary({invalidate(){visible=[];},fetchImpl:csrfServer(()=>identity,()=>{identity=session('dell');return Response.json({private:'Dell content'});})});
+ const boundary=createSessionBoundary({invalidate(){visible=[];},fetchImpl:csrfServer(()=>identity,()=>Response.json({private:'Dell content'}))});
  await boundary.verify();
  identity=session('dell');
  await assert.rejects(boundary.fetch('/mcp',{method:'POST',body:'{}'}),{code:'authentication_required'});
@@ -52,18 +52,21 @@ test('repeated requests inside the trust window share one sign-in check, and the
  clock=SESSION_TRUST_MS;await boundary.fetch('/poll');
  assert.equal(checks,2);assert.equal(sent,2+Math.ceil((SESSION_TRUST_MS-1_000)/30_000)+1);
 });
-test('a cookie switch on a GET read is caught by the first request after the trust window',async()=>{
+test('a cookie switch on a GET read is trusted inside the window and caught by the first request after it',async()=>{
  let clock=0,identity=session('joe'),reason=null,sent=0;
  const boundary=createSessionBoundary({invalidate(why){reason=why;},now:()=>clock,fetchImpl:async path=>{
    if(path==='/auth/session')return Response.json(identity);
    sent++;return Response.json({ok:true});
  }});
  await boundary.fetch('/api/private');
- identity=session('dell');clock=SESSION_TRUST_MS;
+ identity=session('dell');clock=SESSION_TRUST_MS-1;
+ await boundary.fetch('/api/private');
+ assert.equal(reason,null);
+ clock=SESSION_TRUST_MS;
  await assert.rejects(boundary.fetch('/api/private'),{code:'authentication_required'});
- assert.equal(reason,'session-changed');assert.equal(sent,1);
+ assert.equal(reason,'session-changed');assert.equal(sent,2);
 });
-test('an unauthorized answer inside the trust window ends the view and drops the trusted check',async()=>{
+test('an unauthorized answer inside the trust window ends the view and refuses later requests and checks',async()=>{
  let checks=0,reason=null,sent=0,expired=false;
  const boundary=createSessionBoundary({invalidate(why){reason=why;},fetchImpl:async path=>{
    if(path==='/auth/session'){checks++;return Response.json(session('joe'));}
@@ -88,7 +91,7 @@ test('a write reading the session inside the trust window gets a fresh check tha
  await assert.rejects(boundary.fetch('/auth/session'),{code:'authentication_required'});
  assert.equal(reason,'session-changed');assert.equal(checks,2);
 });
-test('sign-out drops the trusted check so no later request reuses it',async()=>{
+test('after sign-out no later request or check reuses the trusted session',async()=>{
  let reason=null,sent=0;
  const boundary=createSessionBoundary({invalidate(why){reason=why;},fetchImpl:async path=>{
    if(path==='/auth/session')return Response.json(session('joe'));

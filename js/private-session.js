@@ -10,7 +10,7 @@ import { clearPrivateStorage, offlineTourSession, sessionEpoch, SESSION_EPOCH_KE
 // which the server refuses once the cookie changes.
 export const SESSION_TRUST_MS = 2 * 60_000;
 
-export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '', acceptSession = async () => true, anonymousDiagnostics = false, now = () => Date.now() }) {
+export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '', acceptSession = async () => true, anonymousDiagnostics = false, now = () => performance.now() }) {
   let binding = null, generation = 0, revoked = false, checking = null, trusted = null;
   const active = new Set();
   const failure = () => Object.assign(new Error('Sign in to continue'), { status: 401, code: 'authentication_required' });
