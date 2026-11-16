@@ -14,11 +14,11 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
   const env = {
     GIT_SHA: "0".repeat(40),
     APP_ENV: "staging",
-    DEALS_ROUTING: {
+    ENGINE_ROUTING: {
       get: async (...args: unknown[]) => {
         kv.push(args);
         if (value instanceof Error) throw value;
-        return value;
+        return value instanceof Map ? (value.get(args[0]) ?? null) : value;
       },
     },
     ENGINE: {
@@ -186,7 +186,7 @@ test("foreign origin refuses before engine GET can bypass CSRF", async () => {
 test("switch is read for every request", async () => {
   const f = fixture("off");
   await f.send();
-  f.env.DEALS_ROUTING.get = async () => "on";
+  f.env.ENGINE_ROUTING.get = async () => "on";
   await f.send();
   assert.equal(f.engine.length, 1);
   assert.equal(f.carr.length, 1);
@@ -248,9 +248,9 @@ test("missing bindings and malformed JSON preserve original proxy behavior", asy
   const f = fixture();
   const response = await worker.fetch(new Request(`${origin}/mcp`, { method: "POST", body: "malformed" }), f.env);
   assert.equal(await response.text(), "old");
-  const { ENGINE, DEALS_ROUTING, ...withoutBindings } = f.env;
+  const { ENGINE, ENGINE_ROUTING, ...withoutBindings } = f.env;
   assert.ok(ENGINE);
-  assert.ok(DEALS_ROUTING);
+  assert.ok(ENGINE_ROUTING);
   const second = await worker.fetch(
     new Request(`${origin}/mcp`, { method: "POST", body: JSON.stringify(call()) }),
     withoutBindings,
@@ -270,6 +270,88 @@ test("engine failure followed by CARR failure returns server error without signi
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), { error: "carr_unavailable" });
 });
+const leadsOn = new Map([["leads-from-engine", "on"]]);
+const cursor = { occurred_at: "2026-01-02T03:04:05.123+00:00", id: "00000000-0000-4000-8000-000000000002" };
+for (const [name, args, path] of [
+  ["lead-board", { workspace: "leads" }, "/api/engine/leads?workspace=leads"],
+  [
+    "lead-board",
+    {
+      workspace: "leads",
+      lead_id: "00000000-0000-4000-8000-000000000001",
+      correspondence_cursor: cursor,
+      stage_history_cursor: "12",
+    },
+    `/api/engine/leads?workspace=leads&lead_id=00000000-0000-4000-8000-000000000001&correspondence_cursor=${encodeURIComponent(JSON.stringify(cursor))}&stage_history_cursor=12`,
+  ],
+  ["quiet-follow-ups", {}, "/api/engine/quiet-follow-ups"],
+  [
+    "quiet-follow-ups",
+    { lead_days: 45, vendor_days: 90, owner_slug: "example-partner" },
+    "/api/engine/quiet-follow-ups?lead_days=45&vendor_days=90&owner_slug=example-partner",
+  ],
+  ["list-practice-origination", { limit: 25, before_id: "7" }, "/api/engine/reasons-to-reach-out?limit=25&before_id=7"],
+  [
+    "territory-state-board",
+    { vertical: "dental", city: "Example City", state: "EX" },
+    "/api/engine/territory-state-board?vertical=dental&city=Example+City&state=EX",
+  ],
+] as const) {
+  test(`leads switch routes ${name} ${JSON.stringify(args)} to its engine read`, async () => {
+    const f = fixture(leadsOn);
+    const response = await f.send(call(name, args));
+    assert.equal(f.engine[0]?.url, `${origin}${path}`);
+    assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
+    assert.deepEqual(f.kv, [["leads-from-engine", { cacheTtl: 30 }]]);
+    assert.equal(f.carr.length, 0);
+    assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
+  });
+}
+
+for (const [name, args] of [
+  ["get-deal-room", { deal: "demo" }],
+  ["deal-room-board", {}],
+] as const) {
+  test(`leads switch alone leaves ${name} on CARR`, async () => {
+    const f = fixture(leadsOn);
+    assert.equal(await (await f.send(call(name, args))).text(), "old");
+    assert.deepEqual(f.kv, [["deals-from-engine", { cacheTtl: 30 }]]);
+    assert.equal(f.engine.length, 0);
+  });
+}
+
+for (const value of [null, "off", "ON", new Error("KV failed"), new Map([["deals-from-engine", "on"]])]) {
+  test(`leads stay on CARR while their own switch is not on (${String(value)})`, async () => {
+    const f = fixture(value);
+    const body = call("lead-board", { workspace: "leads" });
+    assert.equal(await (await f.send(body)).text(), "old");
+    assert.deepEqual(f.carr, [JSON.stringify(body)]);
+    assert.equal(f.engine.length, 0);
+  });
+}
+
+for (const body of [
+  call("lead-board", {}),
+  call("lead-board", { workspace: "other" }),
+  call("lead-board", { workspace: "leads", correspondence_cursor: "text" }),
+  call("lead-board", { workspace: "leads", correspondence_cursor: [] }),
+  call("lead-board", { workspace: "leads", correspondence_cursor: null }),
+  call("list-practice-origination", { limit: "25" }),
+  call("list-practice-origination", { limit: 25, extra: "x" }),
+  call("quiet-follow-ups", { lead_days: "45" }),
+  call("territory-state-board", { state: 5 }),
+  call("ideal-client-profile", {}),
+  call("quiet-follow-ups", { constructor: "x" }),
+  call("quiet-follow-ups", JSON.parse('{"__proto__": "x"}')),
+]) {
+  test(`ineligible leads call stays on CARR without reading the switch ${JSON.stringify(body.params)}`, async () => {
+    const f = fixture(leadsOn);
+    assert.equal(await (await f.send(body)).text(), "old");
+    assert.equal(f.engine.length, 0);
+    assert.equal(f.kv.length, 0);
+  });
+}
+
 test("numeric MCP request id survives engine wrapping", async () => {
   const f = fixture();
   const response = await f.send(call("deal-room-board", {}, { id: 0 }));
