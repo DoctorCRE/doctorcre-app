@@ -150,6 +150,7 @@ const ENGINE_READS = new Map([
   ['read-vendor-markets-v1', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-markets', args: { market: isString } }],
   ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
+  ['/api/v1/business/relationships', { key: 'relationships-from-engine', path: '/api/engine/relationships', listOnly: true }],
 ]);
 const BUSINESS_GET = /^(\/api\/v1\/business\/[a-z]+)(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
 
@@ -158,7 +159,7 @@ async function engineRead(request, url) {
   if (request.method === 'GET') {
     const [, path, record = ''] = BUSINESS_GET.exec(url.pathname) ?? [];
     const read = ENGINE_READS.get(path);
-    return read ? { read, record } : null;
+    return read && !(read.listOnly && record) ? { read, record } : null;
   }
   if (request.method !== 'POST' || url.pathname !== '/mcp') return null;
   let call;

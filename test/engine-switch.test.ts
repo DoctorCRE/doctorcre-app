@@ -608,7 +608,6 @@ for (const [method, path] of [
   ["GET", "/api/v1/business/clients/"],
   ["GET", "/api/v1/business/clients/not-a-record-id"],
   ["GET", `/api/v1/business/clients/${recordId}/extra`],
-  ["GET", "/api/v1/business/relationships?contract=relationship-network.v1"],
   ["GET", "/api/v1/business/leases"],
   ["GET", "/api/v1/business/clientsx"],
 ] as const) {
@@ -644,5 +643,70 @@ for (const path of ["/api/post-call", "/api/v1/business/clients"]) {
     assert.equal(await response.text(), "old");
     assert.deepEqual(f.carr, [body]);
     assert.equal(f.kv.length, 0);
+  });
+}
+
+const relationshipsOn = new Map([["relationships-from-engine", "on"]]);
+const relationshipRead = "/api/v1/business/relationships?contract=relationship-network.v1";
+
+test("relationships switch routes the network GET with unchanged query and response", async () => {
+  const f = fixture(relationshipsOn);
+  const response = await getRead(f, relationshipRead);
+  assert.equal(f.engine[0]?.url, `${origin}/api/engine/relationships?contract=relationship-network.v1`);
+  assert.equal(f.engine[0]?.method, "GET");
+  assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
+  assert.deepEqual(f.kv, [["relationships-from-engine", { cacheTtl: 30 }]]);
+  assert.equal(f.carr.length, 0);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), payload);
+});
+
+for (const value of [
+  null,
+  "off",
+  "ON",
+  new Error("KV failed"),
+  directoryOn,
+  leadsOn,
+  new Map([["deals-from-engine", "on"]]),
+]) {
+  test(`relationships stay on CARR unless their own switch is on (${String(value)})`, async () => {
+    const f = fixture(value);
+    assert.equal(await (await getRead(f, relationshipRead)).text(), "old");
+    assert.deepEqual(f.carr, [""]);
+    assert.equal(f.engine.length, 0);
+  });
+}
+
+for (const path of ["/api/v1/business/clients", "/api/v1/business/vendors"]) {
+  test(`relationships switch alone leaves GET ${path} on CARR`, async () => {
+    const f = fixture(relationshipsOn);
+    assert.equal(await (await getRead(f, path)).text(), "old");
+    assert.equal(f.engine.length, 0);
+  });
+}
+
+for (const [name, args] of [
+  ["deal-room-board", {}],
+  ["lead-board", { workspace: "leads" }],
+] as const) {
+  test(`relationships switch alone leaves ${name} on CARR`, async () => {
+    const f = fixture(relationshipsOn);
+    const body = call(name, args);
+    assert.equal(await (await f.send(body)).text(), "old");
+    assert.deepEqual(f.carr, [JSON.stringify(body)]);
+    assert.equal(f.engine.length, 0);
+  });
+}
+
+for (const [method, path] of [
+  ["GET", `/api/v1/business/relationships/${recordId}?contract=relationship-network.v1`],
+  ["HEAD", relationshipRead],
+] as const) {
+  test(`relationships ${method} ${path} stays on CARR without reading KV`, async () => {
+    const f = fixture(relationshipsOn);
+    assert.equal(await (await getRead(f, path, method)).text(), "old");
+    assert.equal(f.engine.length, 0);
+    assert.deepEqual(f.kv, []);
   });
 }
