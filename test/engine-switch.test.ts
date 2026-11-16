@@ -375,7 +375,16 @@ for (const [name, path] of [
     assert.deepEqual(f.carr, [JSON.stringify(body)]);
   });
 
-  for (const value of [null, "off", "ON", new Error("KV failed"), new Map([["deals-from-engine", "on"], ["leads-from-engine", "on"]])]) {
+  for (const value of [
+    null,
+    "off",
+    "ON",
+    new Error("KV failed"),
+    new Map([
+      ["deals-from-engine", "on"],
+      ["leads-from-engine", "on"],
+    ]),
+  ]) {
     test(`${name} stays on CARR while the frame switch is not on (${String(value)})`, async () => {
       const f = fixture(value);
       const body = call(name);
