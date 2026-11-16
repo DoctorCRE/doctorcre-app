@@ -132,7 +132,7 @@ const isObject = value => value !== null && typeof value === 'object' && !Array.
 const DEALS = 'deals-from-engine';
 const LEADS = 'leads-from-engine';
 const FRAME = 'frame-from-engine';
-// Each old tool the engine can answer: its screen's switch key, its engine path
+// Each old tool the engine can answer: its switch key, its engine path
 // and a check per argument. A `segment` argument becomes the last path segment.
 const ENGINE_READS = new Map([
   ['deal-room-board', { key: DEALS, path: '/api/engine/deals', args: { workspace: isString, account_client_id: isString } }],
