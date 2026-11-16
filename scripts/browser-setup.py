@@ -20,7 +20,7 @@ def run_group(command, timeout):
 
 
 def setup(browsers):
-    # No `install-deps --dry-run` probe: hosted runners always lack some of these packages, and its cold apt read sometimes took over 15 seconds.
+    # Hosted runners always lack some of these packages, so a dry-run check first saves nothing.
     if sys.platform == 'linux':
         with tempfile.TemporaryDirectory(prefix='playwright-apt-') as directory:
             config = Path(directory, 'apt.conf')
