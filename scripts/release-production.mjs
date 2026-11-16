@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 
 import { credentialFreeEnv } from "./release-environment.mjs";
 import { providerRelease } from "./provider-release.mjs";
-import { uploadedVersionId } from "./provider-version.mjs";
+import { promoteVersion, uploadedVersionId } from "./provider-version.mjs";
 
 const run = (command, args, { capture = false } = {}) => execFileSync(command, args, {
   cwd: new URL("../", import.meta.url),
@@ -65,7 +65,7 @@ const uploadOutput = provider(["versions", "upload", "--env", "", "--strict",
   "--tag", versionTag, "--message", message, "--var", `GIT_SHA:${sourceCommit}`], { capture: true });
 process.stdout.write(uploadOutput);
 const providerVersionId = uploadedVersionId(uploadOutput);
-provider(["versions", "deploy", `${providerVersionId}@100%`, "--env", "",
+await promoteVersion(provider, ["versions", "deploy", `${providerVersionId}@100%`, "--env", "",
   "--message", message, "--yes"]);
 provider(["deployments", "status", "--env", "", "--json"]);
 
