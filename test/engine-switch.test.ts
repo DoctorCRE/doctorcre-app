@@ -352,6 +352,56 @@ for (const body of [
   });
 }
 
+const frameOn = new Map([["frame-from-engine", "on"]]);
+for (const [name, path] of [
+  ["today-triage", "/api/engine/today-triage"],
+  ["calendar-meeting-prep", "/api/engine/calendar-meeting-prep"],
+] as const) {
+  test(`frame switch routes ${name} to its engine read`, async () => {
+    const f = fixture(frameOn);
+    const response = await f.send(call(name));
+    assert.equal(f.engine[0]?.url, `${origin}${path}`);
+    assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
+    assert.deepEqual(f.kv, [["frame-from-engine", { cacheTtl: 30 }]]);
+    assert.equal(f.carr.length, 0);
+    assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
+  });
+
+  test(`frame read ${name} falls back when the engine answers 500`, async () => {
+    const f = fixture(frameOn, async () => new Response("down", { status: 500 }));
+    const body = call(name);
+    assert.equal(await (await f.send(body)).text(), "old");
+    assert.equal(f.engine.length, 1);
+    assert.deepEqual(f.carr, [JSON.stringify(body)]);
+  });
+
+  for (const value of [null, "off", "ON", new Error("KV failed"), new Map([["deals-from-engine", "on"], ["leads-from-engine", "on"]])]) {
+    test(`${name} stays on CARR while the frame switch is not on (${String(value)})`, async () => {
+      const f = fixture(value);
+      const body = call(name);
+      assert.equal(await (await f.send(body)).text(), "old");
+      assert.deepEqual(f.carr, [JSON.stringify(body)]);
+      assert.equal(f.engine.length, 0);
+    });
+  }
+
+  for (const args of [{ limit: 5 }, { owners: "all" }, { cursor: "x" }]) {
+    test(`${name} with arguments ${JSON.stringify(args)} stays on CARR without reading the switch`, async () => {
+      const f = fixture(frameOn);
+      assert.equal(await (await f.send(call(name, args))).text(), "old");
+      assert.equal(f.engine.length, 0);
+      assert.equal(f.kv.length, 0);
+    });
+  }
+}
+
+test("frame switch alone leaves the Deals board on CARR", async () => {
+  const f = fixture(frameOn);
+  assert.equal(await (await f.send(call("deal-room-board", { workspace: "all" }))).text(), "old");
+  assert.deepEqual(f.kv, [["deals-from-engine", { cacheTtl: 30 }]]);
+  assert.equal(f.engine.length, 0);
+});
+
 test("numeric MCP request id survives engine wrapping", async () => {
   const f = fixture();
   const response = await f.send(call("deal-room-board", {}, { id: 0 }));

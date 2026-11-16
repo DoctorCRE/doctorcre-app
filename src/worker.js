@@ -131,6 +131,7 @@ const isString = value => typeof value === 'string';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const DEALS = 'deals-from-engine';
 const LEADS = 'leads-from-engine';
+const FRAME = 'frame-from-engine';
 // Each old tool the engine can answer: its screen's switch key, its engine path
 // and a check per argument. A `segment` argument becomes the last path segment.
 const ENGINE_READS = new Map([
@@ -143,6 +144,8 @@ const ENGINE_READS = new Map([
   ['quiet-follow-ups', { key: LEADS, path: '/api/engine/quiet-follow-ups', args: { lead_days: Number.isFinite, vendor_days: Number.isFinite, owner_slug: isString } }],
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
   ['territory-state-board', { key: LEADS, path: '/api/engine/territory-state-board', args: { vertical: isString, city: isString, state: isString } }],
+  ['today-triage', { key: FRAME, path: '/api/engine/today-triage', args: {} }],
+  ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {} }],
 ]);
 
 async function engineResponse(request, env) {
