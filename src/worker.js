@@ -49,11 +49,10 @@ function restoreOriginalReturnTo(response, request) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+
 function json(body, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
-  });
+  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
 
 function unavailable(documentRequest) {
@@ -131,8 +130,11 @@ const isString = value => typeof value === 'string';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const DEALS = 'deals-from-engine';
 const LEADS = 'leads-from-engine';
-// Each old tool the engine can answer: its screen's switch key, its engine path
-// and a check per argument. A `segment` argument becomes the last path segment.
+const CLIENTS_VENDORS = 'clients-vendors-from-engine';
+// Each old read the engine can answer, by tool name or business GET path: its
+// screen's switch key, its engine path and, for a tool, a check per argument.
+// A `segment` argument becomes the last path segment. A business GET keeps its
+// record id and query text, which the engine checks as the old door did.
 const ENGINE_READS = new Map([
   ['deal-room-board', { key: DEALS, path: '/api/engine/deals', args: { workspace: isString, account_client_id: isString } }],
   ['get-deal-room', { key: DEALS, path: '/api/engine/deals', segment: 'deal', args: { deal: isString },
@@ -143,21 +145,40 @@ const ENGINE_READS = new Map([
   ['quiet-follow-ups', { key: LEADS, path: '/api/engine/quiet-follow-ups', args: { lead_days: Number.isFinite, vendor_days: Number.isFinite, owner_slug: isString } }],
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
   ['territory-state-board', { key: LEADS, path: '/api/engine/territory-state-board', args: { vertical: isString, city: isString, state: isString } }],
+  ['find-and-catch-up', { key: CLIENTS_VENDORS, path: '/api/engine/recent-activity', args: { query: isString, limit: Number.isFinite } }],
+  ['read-vendor-meetings', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-meetings', args: { view: isString, q: isString, limit: Number.isFinite, cursor: isString } }],
+  ['read-vendor-markets-v1', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-markets', args: { market: isString } }],
+  ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
+  ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
 ]);
+const BUSINESS_GET = /^(\/api\/v1\/business\/[a-z]+)(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
 
-async function engineResponse(request, env) {
-  if (request.method !== 'POST') return null;
+// The registered read a request asks for: a business GET, or a tool call with its arguments.
+async function engineRead(request, url) {
+  if (request.method === 'GET') {
+    const [, path, record = ''] = BUSINESS_GET.exec(url.pathname) ?? [];
+    const read = ENGINE_READS.get(path);
+    return read && !read.args ? { read, record } : null;
+  }
+  if (request.method !== 'POST' || url.pathname !== '/mcp') return null;
   let call;
   try { call = await request.clone().json(); } catch { return null; }
   const read = ENGINE_READS.get(call?.params?.name);
   const args = call?.params?.arguments === undefined ? {} : call.params.arguments;
-  if (call?.method !== 'tools/call' || !read || !isObject(args)
+  if (call?.method !== 'tools/call' || !read?.args || !isObject(args)
       || Object.entries(args).some(([key, value]) => !Object.hasOwn(read.args, key) || !read.args[key](value))
       || (read.accepts && !read.accepts(args))) return null;
+  return { read, call, args };
+}
+
+async function engineResponse(request, env) {
+  const url = new URL(request.url);
+  const asked = await engineRead(request, url);
+  if (!asked) return null;
+  const { read, call, args, record } = asked;
   try {
     if (await env?.ENGINE_ROUTING?.get(read.key, { cacheTtl: 30 }) !== 'on') return null;
   } catch { return null; }
-  const url = new URL(request.url);
   const origin = request.headers.get('origin');
   if (origin && origin !== url.origin) return json({ error: 'origin_mismatch' }, 403);
   const headers = new Headers();
@@ -169,12 +190,14 @@ async function engineResponse(request, env) {
   let timer;
   let reader;
   try {
-    url.pathname = read.segment ? `${read.path}/${encodeURIComponent(args[read.segment])}` : read.path;
-    url.search = '';
-    // The engine takes the old tool's arguments as query text, an object as its JSON.
-    for (const [key, value] of Object.entries(args)) {
-      if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
-    }
+    if (call) {
+      url.pathname = read.segment ? `${read.path}/${encodeURIComponent(args[read.segment])}` : read.path;
+      url.search = '';
+      // The engine takes the old tool's arguments as query text, an object as its JSON.
+      for (const [key, value] of Object.entries(args)) {
+        if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
+      }
+    } else url.pathname = read.path + record;
     return await Promise.race([
       (async () => {
         const response = await env.ENGINE.fetch(new Request(url, { headers, signal: controller.signal, redirect: 'manual' }));
@@ -199,6 +222,7 @@ async function engineResponse(request, env) {
           }
         }
         chunks.push(decoder.decode());
+        if (!call) return copySessionCookies(response, new Response(chunks.join(''), { status: response.status, headers: JSON_HEADERS }));
         const result = { content: [{ type: 'text', text: chunks.join('') }] };
         if (response.status >= 400) result.isError = true;
         return copySessionCookies(response, json({ jsonrpc: '2.0', id: call.id ?? null, result }));
@@ -300,10 +324,8 @@ async function handleRequest(request, env) {
   }
 
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    if (pathname === '/mcp') {
-      const engine = await engineResponse(request, env);
-      if (engine) return engine;
-    }
+    const engine = await engineResponse(request, env);
+    if (engine) return engine;
     return carrResponse(request, env);
   }
   return json({ error: "not_found" }, 404);

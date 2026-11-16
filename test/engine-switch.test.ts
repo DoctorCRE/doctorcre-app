@@ -487,3 +487,151 @@ for (const path of ["/api/engine", "/api/engine-other/deals"]) {
     assert.deepEqual(f.kv, []);
   });
 }
+
+const directoryOn = new Map([["clients-vendors-from-engine", "on"]]);
+const recordId = "00000000-0000-4000-8000-0000000000aB";
+const getRead = (f: ReturnType<typeof fixture>, path: string, method = "GET") =>
+  worker.fetch(new Request(`${origin}${path}`, { method, headers: { cookie: "session=synthetic" } }), f.env);
+
+for (const [name, args, path] of [
+  [
+    "find-and-catch-up",
+    { query: "Example Clinic", limit: 10 },
+    "/api/engine/recent-activity?query=Example+Clinic&limit=10",
+  ],
+  [
+    "read-vendor-meetings",
+    { view: "suggested", q: "", limit: 5 },
+    "/api/engine/vendor-meetings?view=suggested&q=&limit=5",
+  ],
+  [
+    "read-vendor-meetings",
+    { view: "research", q: "lender", limit: 5, cursor: "c3ludGhldGlj" },
+    "/api/engine/vendor-meetings?view=research&q=lender&limit=5&cursor=c3ludGhldGlj",
+  ],
+  ["read-vendor-markets-v1", {}, "/api/engine/vendor-markets"],
+  ["read-vendor-markets-v1", { market: "Example Metro" }, "/api/engine/vendor-markets?market=Example+Metro"],
+] as const) {
+  test(`clients and vendors switch routes ${name} ${JSON.stringify(args)} to its engine read`, async () => {
+    const f = fixture(directoryOn);
+    const response = await f.send(call(name, args));
+    assert.equal(f.engine[0]?.url, `${origin}${path}`);
+    assert.deepEqual(f.kv, [["clients-vendors-from-engine", { cacheTtl: 30 }]]);
+    assert.equal(f.carr.length, 0);
+    assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
+  });
+}
+
+for (const [path, engine] of [
+  ["/api/v1/business/clients", "/api/engine/clients"],
+  [
+    "/api/v1/business/clients?contract=vendor-directory.v1&q=a%20b&page=2",
+    "/api/engine/clients?contract=vendor-directory.v1&q=a%20b&page=2",
+  ],
+  [`/api/v1/business/clients/${recordId}`, `/api/engine/clients/${recordId}`],
+  [
+    "/api/v1/business/vendors?contract=vendor-directory.v1&sort=territory",
+    "/api/engine/vendors?contract=vendor-directory.v1&sort=territory",
+  ],
+  [
+    `/api/v1/business/vendors/${recordId}?contract=vendor-directory.v2`,
+    `/api/engine/vendors/${recordId}?contract=vendor-directory.v2`,
+  ],
+] as const) {
+  test(`clients and vendors switch routes GET ${path} to the engine unchanged`, async () => {
+    const f = fixture(directoryOn, async () => new Response(payload, { headers: { "set-cookie": "session=fresh" } }));
+    const response = await getRead(f, path);
+    assert.equal(f.engine[0]?.url, `${origin}${engine}`);
+    assert.equal(f.engine[0]?.method, "GET");
+    assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
+    assert.deepEqual(f.kv, [["clients-vendors-from-engine", { cacheTtl: 30 }]]);
+    assert.equal(f.carr.length, 0);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("set-cookie"), "session=fresh");
+    assert.equal(await response.text(), payload);
+  });
+}
+
+for (const status of [400, 401, 403, 404, 409, 422, 429]) {
+  test(`business GET refusal ${status} comes back as the engine answered it`, async () => {
+    const f = fixture(directoryOn, async () => new Response('{"error":"QUERY_INVALID"}', { status }));
+    const response = await getRead(f, "/api/v1/business/vendors?page=0");
+    assert.equal(response.status, status);
+    assert.equal(await response.text(), '{"error":"QUERY_INVALID"}');
+    assert.equal(f.carr.length, 0);
+  });
+}
+
+for (const answer of [
+  async () => new Response("down", { status: 503 }),
+  async () => {
+    throw new Error("unavailable");
+  },
+  () => new Promise<Response>(() => {}),
+]) {
+  test(`business GET falls back to CARR when the engine fails (${String(answer)})`, async () => {
+    const f = fixture(directoryOn, answer);
+    const response = await getRead(f, `/api/v1/business/clients/${recordId}`);
+    assert.equal(await response.text(), "old");
+    assert.equal(f.carr.length, 1);
+  });
+}
+
+for (const value of [null, "off", "ON", new Error("KV failed"), leadsOn, new Map([["deals-from-engine", "on"]])]) {
+  test(`clients and vendors stay on CARR while their own switch is not on (${String(value)})`, async () => {
+    const f = fixture(value);
+    assert.equal(await (await getRead(f, "/api/v1/business/clients")).text(), "old");
+    const body = call("read-vendor-markets-v1", {});
+    assert.equal(await (await f.send(body)).text(), "old");
+    assert.deepEqual(f.carr, ["", JSON.stringify(body)]);
+    assert.equal(f.engine.length, 0);
+  });
+}
+
+for (const [name, args] of [
+  ["deal-room-board", {}],
+  ["lead-board", { workspace: "leads" }],
+  ["quiet-follow-ups", {}],
+] as const) {
+  test(`clients and vendors switch alone leaves ${name} on CARR`, async () => {
+    const f = fixture(directoryOn);
+    assert.equal(await (await f.send(call(name, args))).text(), "old");
+    assert.equal(f.engine.length, 0);
+  });
+}
+
+for (const [method, path] of [
+  ["HEAD", "/api/v1/business/clients"],
+  ["POST", "/api/v1/business/clients"],
+  ["GET", "/api/v1/business/clients/"],
+  ["GET", "/api/v1/business/clients/not-a-record-id"],
+  ["GET", `/api/v1/business/clients/${recordId}/extra`],
+  ["GET", "/api/v1/business/relationships?contract=relationship-network.v1"],
+  ["GET", "/api/v1/business/leases"],
+  ["GET", "/api/v1/business/clientsx"],
+] as const) {
+  test(`${method} ${path} stays on CARR without reading the switch`, async () => {
+    const f = fixture(directoryOn);
+    assert.equal(await (await getRead(f, path, method)).text(), "old");
+    assert.equal(f.engine.length, 0);
+    assert.equal(f.kv.length, 0);
+  });
+}
+
+for (const body of [
+  call("find-and-catch-up", { query: 5, limit: 10 }),
+  call("find-and-catch-up", { query: "x", limit: "10" }),
+  call("find-and-catch-up", { query: "x", extra: "y" }),
+  call("read-vendor-meetings", { cursor: {} }),
+  call("read-vendor-markets-v1", { market: null }),
+  call("/api/v1/business/clients", {}),
+]) {
+  test(`ineligible clients and vendors call stays on CARR without reading the switch ${JSON.stringify(body.params)}`, async () => {
+    const f = fixture(directoryOn);
+    assert.equal(await (await f.send(body)).text(), "old");
+    assert.equal(f.engine.length, 0);
+    assert.equal(f.kv.length, 0);
+  });
+}
