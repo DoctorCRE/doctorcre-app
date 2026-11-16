@@ -635,3 +635,14 @@ for (const body of [
     assert.equal(f.kv.length, 0);
   });
 }
+
+for (const path of ["/api/post-call", "/api/v1/business/clients"]) {
+  test(`a tool call posted to ${path} stays on CARR without reading the switch`, async () => {
+    const f = fixture("on");
+    const body = JSON.stringify(call("deal-room-board", {}));
+    const response = await worker.fetch(new Request(`${origin}${path}`, { method: "POST", body }), f.env);
+    assert.equal(await response.text(), "old");
+    assert.deepEqual(f.carr, [body]);
+    assert.equal(f.kv.length, 0);
+  });
+}

@@ -158,7 +158,7 @@ async function engineRead(request, url) {
   if (request.method === 'GET') {
     const [, path, record = ''] = BUSINESS_GET.exec(url.pathname) ?? [];
     const read = ENGINE_READS.get(path);
-    return read && !read.args ? { read, record } : null;
+    return read ? { read, record } : null;
   }
   if (request.method !== 'POST' || url.pathname !== '/mcp') return null;
   let call;
