@@ -132,8 +132,9 @@ const DEALS = 'deals-from-engine';
 const LEADS = 'leads-from-engine';
 const CLIENTS_VENDORS = 'clients-vendors-from-engine';
 const RELATIONSHIPS = 'relationships-from-engine';
+const FRAME = 'frame-from-engine';
 // Each old read the engine can answer, by tool name or business GET path: its
-// screen's switch key, its engine path and, for a tool, a check per argument.
+// switch key, its engine path and, for a tool, a check per argument.
 // A `segment` argument becomes the last path segment. A business GET keeps its
 // query text and, unless listOnly, its record id. The engine checks both.
 const ENGINE_READS = new Map([
@@ -152,6 +153,8 @@ const ENGINE_READS = new Map([
   ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
   ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true }],
+  ['today-triage', { key: FRAME, path: '/api/engine/today-triage', args: {} }],
+  ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {} }],
 ]);
 const BUSINESS_GET = /^(\/api\/v1\/business\/[a-z]+)(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
 
