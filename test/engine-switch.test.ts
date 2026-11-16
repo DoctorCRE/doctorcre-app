@@ -285,6 +285,11 @@ for (const [name, args, path] of [
     `/api/engine/leads?workspace=leads&lead_id=00000000-0000-4000-8000-000000000001&correspondence_cursor=${encodeURIComponent(JSON.stringify(cursor))}&stage_history_cursor=12`,
   ],
   ["quiet-follow-ups", {}, "/api/engine/quiet-follow-ups"],
+  [
+    "quiet-follow-ups",
+    { lead_days: 45, vendor_days: 90, owner_slug: "example-partner" },
+    "/api/engine/quiet-follow-ups?lead_days=45&vendor_days=90&owner_slug=example-partner",
+  ],
   ["list-practice-origination", { limit: 25, before_id: "7" }, "/api/engine/reasons-to-reach-out?limit=25&before_id=7"],
   [
     "territory-state-board",
@@ -336,6 +341,8 @@ for (const body of [
   call("quiet-follow-ups", { lead_days: "45" }),
   call("territory-state-board", { state: 5 }),
   call("ideal-client-profile", {}),
+  call("quiet-follow-ups", { constructor: "x" }),
+  call("quiet-follow-ups", JSON.parse('{"__proto__": "x"}')),
 ]) {
   test(`ineligible leads call stays on CARR without reading the switch ${JSON.stringify(body.params)}`, async () => {
     const f = fixture(leadsOn);
