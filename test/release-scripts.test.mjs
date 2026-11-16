@@ -23,7 +23,7 @@ test("the production release has no first-use deploy fallback and targets the ro
   assert.doesNotMatch(source, /"wrangler", "deploy"/);
   assert.doesNotMatch(source, /10007/);
   assert.match(source, /"versions", "upload", "--env", ""/);
-  assert.match(source, /"versions", "deploy", `\$\{providerVersionId\}@100%`, "--env", ""/);
+  assert.match(source, /await promoteVersion\(provider, \["versions", "deploy", `\$\{providerVersionId\}@100%`, "--env", ""/);
 });
 
 test("the production rollback deploys one exact prior version at 100% on the root environment", () => {
@@ -374,6 +374,18 @@ test('a retry after successful promotion and failed readback skips another promo
   const retry = run();
   assert.equal(retry.status, 0, retry.stderr);
   assert.match(retry.stdout, /already serves source/);
+  const rows = readFileSync(trace, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(rows.filter(row => row.tool === 'wrangler' && row.args[1] === 'deploy').length, 1);
+});
+
+test('a promotion error other than 100146 stops production at once and shows the provider message', t => {
+  const { root, trace, env } = releaseFixture(t, { failure: { tool: 'wrangler', prefix: ['versions', 'deploy'], stderr: 'Authentication error [code: 10000]' } });
+  const output = join(root, 'output');
+  writeFileSync(output, '');
+  const result = spawnSync(process.execPath, ['scripts/release-production.mjs'], { cwd: root, env: { ...env, GITHUB_OUTPUT: output }, encoding: 'utf8' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Authentication error \[code: 10000\]/);
+  assert.doesNotMatch(readFileSync(output, 'utf8'), /disposition=/);
   const rows = readFileSync(trace, 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(rows.filter(row => row.tool === 'wrangler' && row.args[1] === 'deploy').length, 1);
 });
