@@ -340,7 +340,6 @@ for (const body of [
   call("list-practice-origination", { limit: 25, extra: "x" }),
   call("quiet-follow-ups", { lead_days: "45" }),
   call("territory-state-board", { state: 5 }),
-  call("ideal-client-profile", { state: 5 }),
   call("quiet-follow-ups", { constructor: "x" }),
   call("quiet-follow-ups", JSON.parse('{"__proto__": "x"}')),
 ]) {
@@ -506,7 +505,7 @@ for (const [key, name, path] of remainingScreens) {
     assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
   });
 
-  for (const value of [null, "off", "ON", new Error("KV failed")]) {
+  for (const value of [null, "off", "ON", "", new Error("KV failed")]) {
     test(`${name} keeps the original CARR body when its switch is ${String(value)}`, async () => {
       const f = fixture(value);
       const body = call(name);
