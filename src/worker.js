@@ -131,11 +131,12 @@ const isObject = value => value !== null && typeof value === 'object' && !Array.
 const DEALS = 'deals-from-engine';
 const LEADS = 'leads-from-engine';
 const CLIENTS_VENDORS = 'clients-vendors-from-engine';
+const RELATIONSHIPS = 'relationships-from-engine';
 const FRAME = 'frame-from-engine';
 // Each old read the engine can answer, by tool name or business GET path: its
 // switch key, its engine path and, for a tool, a check per argument.
 // A `segment` argument becomes the last path segment. A business GET keeps its
-// record id and query text, which the engine checks as the old door did.
+// query text and, unless listOnly, its record id. The engine checks both.
 const ENGINE_READS = new Map([
   ['deal-room-board', { key: DEALS, path: '/api/engine/deals', args: { workspace: isString, account_client_id: isString } }],
   ['get-deal-room', { key: DEALS, path: '/api/engine/deals', segment: 'deal', args: { deal: isString },
@@ -151,6 +152,7 @@ const ENGINE_READS = new Map([
   ['read-vendor-markets-v1', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-markets', args: { market: isString } }],
   ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
+  ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true }],
   ['today-triage', { key: FRAME, path: '/api/engine/today-triage', args: {} }],
   ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {} }],
 ]);
@@ -161,7 +163,7 @@ async function engineRead(request, url) {
   if (request.method === 'GET') {
     const [, path, record = ''] = BUSINESS_GET.exec(url.pathname) ?? [];
     const read = ENGINE_READS.get(path);
-    return read ? { read, record } : null;
+    return read && !(read.listOnly && record) ? { read, record } : null;
   }
   if (request.method !== 'POST' || url.pathname !== '/mcp') return null;
   let call;
