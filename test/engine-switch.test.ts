@@ -340,7 +340,7 @@ for (const body of [
   call("list-practice-origination", { limit: 25, extra: "x" }),
   call("quiet-follow-ups", { lead_days: "45" }),
   call("territory-state-board", { state: 5 }),
-  call("ideal-client-profile", {}),
+  call("ideal-client-profile", { state: 5 }),
   call("quiet-follow-ups", { constructor: "x" }),
   call("quiet-follow-ups", JSON.parse('{"__proto__": "x"}')),
 ]) {
@@ -485,6 +485,105 @@ for (const path of ["/api/engine", "/api/engine-other/deals"]) {
     assert.equal(response.status, 404);
     assert.deepEqual(f.engine, []);
     assert.deepEqual(f.kv, []);
+  });
+}
+
+const remainingScreens = [
+  ["invoices-from-engine", "read-invoice-tracker", "/api/engine/invoices"],
+  ["charts-from-engine", "ideal-client-profile", "/api/engine/client-fit"],
+  ["national-deals-from-engine", "capture-queue", "/api/engine/capture-queue"],
+] as const;
+
+for (const [key, name, path] of remainingScreens) {
+  test(`${key} routes ${name} to its engine read`, async () => {
+    const f = fixture(new Map([[key, "on"]]));
+    const response = await f.send(call(name));
+    assert.equal(f.engine[0]?.url, `${origin}${path}`);
+    assert.equal(f.engine[0]?.method, "GET");
+    assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
+    assert.deepEqual(f.kv, [[key, { cacheTtl: 30 }]]);
+    assert.equal(f.carr.length, 0);
+    assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
+  });
+
+  for (const value of [null, "off", "ON", new Error("KV failed")]) {
+    test(`${name} keeps the original CARR body when its switch is ${String(value)}`, async () => {
+      const f = fixture(value);
+      const body = call(name);
+      assert.equal(await (await f.send(body)).text(), "old");
+      assert.deepEqual(f.carr, [JSON.stringify(body)]);
+      assert.equal(f.engine.length, 0);
+    });
+  }
+
+  for (const enabled of [
+    "deals-from-engine",
+    "leads-from-engine",
+    "clients-vendors-from-engine",
+    "relationships-from-engine",
+    ...remainingScreens.map(([screenKey]) => screenKey).filter((screenKey) => screenKey !== key),
+  ]) {
+    test(`${enabled} alone leaves ${name} on CARR`, async () => {
+      const f = fixture(new Map([[enabled, "on"]]));
+      const body = call(name);
+      assert.equal(await (await f.send(body)).text(), "old");
+      assert.deepEqual(f.carr, [JSON.stringify(body)]);
+      assert.equal(f.engine.length, 0);
+      assert.deepEqual(f.kv, [[key, { cacheTtl: 30 }]]);
+    });
+  }
+
+  for (const body of [call(name, { extra: "x" }), call(name, { workspace: "all" })]) {
+    test(`${name} rejects unsupported arguments before KV ${JSON.stringify(body.params)}`, async () => {
+      const f = fixture(new Map([[key, "on"]]));
+      assert.equal(await (await f.send(body)).text(), "old");
+      assert.deepEqual(f.carr, [JSON.stringify(body)]);
+      assert.deepEqual(f.engine, []);
+      assert.deepEqual(f.kv, []);
+    });
+  }
+
+  test(`${key} alone leaves existing reads and writes on CARR`, async () => {
+    const f = fixture(new Map([[key, "on"]]));
+    for (const body of [
+      call("deal-room-board"),
+      call("lead-board", { workspace: "leads" }),
+      call("read-vendor-markets-v1"),
+      call("find", { query: "Example Clinic" }),
+      call("record-commission-receipt", { commission_id: recordId }),
+      call("set-next-step", { deal: "example-deal", next_step: "Example step" }),
+      call("create-national-account", { name: "Example account" }),
+    ]) {
+      assert.equal(await (await f.send(body)).text(), "old");
+      assert.equal(f.carr.at(-1), JSON.stringify(body));
+    }
+    assert.equal(
+      await (await getRead(f, "/api/v1/business/relationships?contract=relationship-network.v1")).text(),
+      "old",
+    );
+    assert.equal(await (await getRead(f, "/pipeline/changes")).text(), "old");
+    assert.equal(f.engine.length, 0);
+  });
+}
+
+test("charts switch encodes every client fit filter as query text", async () => {
+  const f = fixture(new Map([["charts-from-engine", "on"]]));
+  await f.send(call("ideal-client-profile", { vertical: "example & practice", city: "Example City", state: "EX" }));
+  assert.equal(
+    f.engine[0]?.url,
+    `${origin}/api/engine/client-fit?vertical=example+%26+practice&city=Example+City&state=EX`,
+  );
+  assert.equal(f.carr.length, 0);
+});
+
+for (const args of [{ vertical: 1 }, { city: null }, { state: ["EX"] }]) {
+  test(`invalid client fit filter stays on CARR without KV ${JSON.stringify(args)}`, async () => {
+    const f = fixture(new Map([["charts-from-engine", "on"]]));
+    const body = call("ideal-client-profile", args);
+    assert.equal(await (await f.send(body)).text(), "old");
+    assert.deepEqual(f.carr, [JSON.stringify(body)]);
+    assert.deepEqual(f.kv, []);
+    assert.deepEqual(f.engine, []);
   });
 }
 
