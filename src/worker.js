@@ -127,23 +127,35 @@ function copySessionCookies(from, to) {
   return new Response(to.body, { status: to.status, statusText: to.statusText, headers });
 }
 
-const ENGINE_DEAL_READS = new Map([
-  ['deal-room-board', ['workspace', 'account_client_id']],
-  ['get-deal-room', ['deal']],
+const DEALS = 'deals-from-engine';
+const LEADS = 'leads-from-engine';
+// Each old tool the engine can answer: its screen's switch key, its engine path
+// and its arguments' types. A `segment` argument becomes the last path segment.
+const ENGINE_READS = new Map([
+  ['deal-room-board', { key: DEALS, path: '/api/engine/deals', args: { workspace: 'string', account_client_id: 'string' } }],
+  ['get-deal-room', { key: DEALS, path: '/api/engine/deals', segment: 'deal', args: { deal: 'string' },
+    accepts: ({ deal }) => !['', '.', '..', undefined].includes(deal) }],
+  // Without the workspace the old tool answers Home's legacy board, which the engine does not serve.
+  ['lead-board', { key: LEADS, path: '/api/engine/leads', accepts: ({ workspace }) => workspace === 'leads',
+    args: { workspace: 'string', lead_id: 'string', correspondence_cursor: 'object', stage_history_cursor: 'string' } }],
+  ['quiet-follow-ups', { key: LEADS, path: '/api/engine/quiet-follow-ups', args: { lead_days: 'number', vendor_days: 'number', owner_slug: 'string' } }],
+  ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: 'number', before_id: 'string' } }],
+  ['territory-state-board', { key: LEADS, path: '/api/engine/territory-state-board', args: { vertical: 'string', city: 'string', state: 'string' } }],
 ]);
+const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const ARG_TYPES = { string: value => typeof value === 'string', number: Number.isFinite, object: isObject };
 
-async function engineDealResponse(request, env) {
+async function engineResponse(request, env) {
   if (request.method !== 'POST') return null;
   let call;
   try { call = await request.clone().json(); } catch { return null; }
-  const name = call?.params?.name;
-  const declared = ENGINE_DEAL_READS.get(name);
+  const read = ENGINE_READS.get(call?.params?.name);
   const args = call?.params?.arguments === undefined ? {} : call.params.arguments;
-  if (call?.method !== 'tools/call' || !declared || !args || typeof args !== 'object'
-      || Array.isArray(args) || Object.entries(args).some(([key, value]) => !declared.includes(key) || typeof value !== 'string')) return null;
-  if (name === 'get-deal-room' && (!args.deal || args.deal === '.' || args.deal === '..')) return null;
+  if (call?.method !== 'tools/call' || !read || !isObject(args)
+      || Object.entries(args).some(([key, value]) => !ARG_TYPES[read.args[key]]?.(value))
+      || (read.accepts && !read.accepts(args))) return null;
   try {
-    if (await env?.DEALS_ROUTING?.get('deals-from-engine', { cacheTtl: 30 }) !== 'on') return null;
+    if (await env?.ENGINE_ROUTING?.get(read.key, { cacheTtl: 30 }) !== 'on') return null;
   } catch { return null; }
   const url = new URL(request.url);
   const origin = request.headers.get('origin');
@@ -157,10 +169,11 @@ async function engineDealResponse(request, env) {
   let timer;
   let reader;
   try {
-    url.pathname = name === 'get-deal-room' ? `/api/engine/deals/${encodeURIComponent(args.deal)}` : '/api/engine/deals';
+    url.pathname = read.segment ? `${read.path}/${encodeURIComponent(args[read.segment])}` : read.path;
     url.search = '';
-    if (name === 'deal-room-board') for (const key of declared) {
-      if (Object.hasOwn(args, key)) url.searchParams.set(key, args[key]);
+    // The engine takes the old tool's arguments as query text, an object as its JSON.
+    for (const [key, value] of Object.entries(args)) {
+      if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
     }
     return await Promise.race([
       (async () => {
@@ -288,7 +301,7 @@ async function handleRequest(request, env) {
 
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     if (pathname === '/mcp') {
-      const engine = await engineDealResponse(request, env);
+      const engine = await engineResponse(request, env);
       if (engine) return engine;
     }
     return carrResponse(request, env);
