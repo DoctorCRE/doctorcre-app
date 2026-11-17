@@ -372,14 +372,16 @@ for(const stalled of ['client','changes'])test(`Today settles the whole-read tim
   await new Promise(resolve=>release=resolve);
   return route.fulfill({json:{events:[{id:`synthetic-${pages}`,subject_type:'deal',subject_id:'d23',field:'next_step',actor:'doc',new_value:'Synthetic change',recorded_at:'2026-10-01T15:00:00Z'}],cursor:String(pages)}});
  });
+ // Home starts Today after a zero-delay timer; release due timers without moving the paused clock.
+ const started=check=>settles(async()=>{await page.clock.runFor(0);assert.ok(await check());});
  await page.goto('http://localhost/?mode=live');
  await page.locator('#appTodayReadStatus').waitFor();
- if(stalled==='client')await page.waitForFunction(()=>window.__heldTodayClient);
+ if(stalled==='client')await started(()=>page.evaluate(()=>window.__heldTodayClient));
  if(stalled==='changes')for(let i=1;i<=3;i++){
-  await settles(()=>assert.ok(pages>=i));
+  await started(()=>pages>=i);
   await page.clock.runFor(9_000);release();
  }
- if(stalled==='changes')await settles(()=>assert.equal(pages,4));
+ if(stalled==='changes')await started(()=>pages===4);
  await page.clock.runFor(stalled==='client'?30_001:3_001);
  await settles(async()=>assert.equal(await page.locator('#appTodayRetry').isVisible(),true),2000);
  assert.doesNotMatch(await page.locator('#appTodayReadStatus').textContent(),/Loading/);
