@@ -1697,7 +1697,7 @@ export async function createFixtureClient(opts = {}) {
       const items = [];
       for (const deal of deals.values()) {
         const day = typeof deal.next_date === 'string' ? deal.next_date.slice(0, 10) : null;
-        if (deal.next_step && day && day <= today) {
+        if (deal.next_step && day) {
           items.push({ item_kind: 'next_action', id: `a-${deal.id}`, subject_type: 'deal', subject_id: deal.id,
             owner: deal.owner, what: deal.next_step, due_on: day, subject_name: deal.name, subject_ref: null,
             business_days_overdue: null });
