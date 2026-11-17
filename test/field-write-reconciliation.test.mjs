@@ -507,42 +507,77 @@ test("through the live client: 401 is a decision, a 5xx and a dropped connection
   assert.doesNotMatch(silent.message, /HTTP/, "there was no answer to name");
 });
 
-test("through the Worker: a save the old system took, whose answer was lost, is written once however it is retried", async () => {
-  // Both systems keep one receipt per key; a key the other system holds is key_reuse.
+/**
+ * The engine and the old system behind this Worker, over one receipt table:
+ * each replays only its own receipt of the same request and refuses any other
+ * holder of the key as key_reuse, as their different request hashes do.
+ */
+function twoWriters() {
   const receipts = new Map();
-  let written = 0;
-  const save = (system, key) => {
-    const holder = receipts.get(key);
-    if (holder) return holder === system ? '{"ok":true,"replayed":true}' : '{"error":"key_reuse"}';
-    written += 1;
-    receipts.set(key, system);
+  const world = { routing: null, lost: false, written: 0 };
+  const save = (system, args) => {
+    const held = receipts.get(args.idempotency_key);
+    const request = JSON.stringify(args);
+    if (held) return held.system === system && held.request === request ? '{"ok":true,"replayed":true}' : '{"error":"key_reuse"}';
+    world.written += 1;
+    receipts.set(args.idempotency_key, { system, request });
+    if (world.lost) throw new Error("answer lost after commit");
     return '{"ok":true}';
   };
-  let savesOn = false;
-  let lost = true;
   const env = {
-    ENGINE_ROUTING: { get: async () => (savesOn ? "on" : null) },
+    ENGINE_ROUTING: { get: async () => {
+      if (world.routing instanceof Error) throw world.routing;
+      return world.routing;
+    } },
     ENGINE: { fetch: async (request) => {
-      const text = save("engine", (await request.json()).idempotency_key);
+      const text = save("engine", await request.json());
       return new Response(text, { status: text.includes("key_reuse") ? 409 : 200 });
     } },
     CARR: { fetch: async (request) => {
       const body = await request.json();
-      const text = save("old", body.params.arguments.idempotency_key);
-      if (lost) throw new Error("answer lost after commit");
-      return Response.json({ jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text }] } });
+      const text = save("old", body.params.arguments);
+      const content = [{ type: "text", text }];
+      return Response.json({ jsonrpc: "2.0", id: body.id,
+        result: text.includes("key_reuse") ? { isError: true, content } : { content } });
     } },
   };
   const origin = "https://app.example.test";
   const b = liveBoard((path, init) => worker.fetch(new Request(`${origin}${path}`,
     { ...init, headers: { ...init.headers, origin, cookie: "session=synthetic" } }), env));
+  return { world, b };
+}
 
+async function retriedAcrossTheSwitch(before, after) {
+  const { world, b } = twoWriters();
+  world.routing = before;
+  world.lost = true;
   const statuses = [(await b.write()).status];
-  savesOn = true;
-  lost = false;
+  world.routing = after;
+  world.lost = false;
   while (statuses.at(-1) !== "ok" && statuses.length < 3) statuses.push((await b.write()).status);
-  assert.equal(written, 1, "the deal is written once");
-  assert.deepEqual(statuses, ["unknown", "ok"], "the retry gets the old system's replay");
+  return { statuses, written: world.written };
+}
+
+test("through the Worker: a save whose answer was lost is written once when the switch moves before the retry", async () => {
+  for (const [before, after] of [[null, "on"], ["on", null], ["on", "off"], ["on", new Error("KV failed")]]) {
+    const { statuses, written } = await retriedAcrossTheSwitch(before, after);
+    const crossing = `${before} -> ${after}`;
+    assert.equal(written, 1, `the deal is written once (${crossing})`);
+    assert.deepEqual(statuses, ["unknown", "ok"], `the retry gets the first writer's replay (${crossing})`);
+  }
+});
+
+test("through the Worker: a key reused for a different change is refused by both writers", async () => {
+  for (const [first, then] of [[null, "on"], ["on", null]]) {
+    const { world, b } = twoWriters();
+    world.routing = first;
+    await b.client.patchDealField({ deal: "d1", field: "attention", value: true, base_event_id: null, idempotency_key: "spent" });
+    world.routing = then;
+    await assert.rejects(
+      () => b.client.patchDealField({ deal: "d1", field: "attention", value: false, base_event_id: null, idempotency_key: "spent" }),
+      (error) => error.payload?.error === "key_reuse");
+    assert.equal(world.written, 1, `nothing new is written (${first} -> ${then})`);
+  }
 });
 
 test("the board read's per-cell bases reach the caller through the live client", async () => {

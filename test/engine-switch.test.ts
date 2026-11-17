@@ -1093,3 +1093,47 @@ for (const body of [
     assert.equal(f.kv.length, 0);
   });
 }
+
+const oldReply = (text: string) =>
+  JSON.stringify({
+    jsonrpc: "2.0",
+    id: "synthetic-request",
+    result: { isError: true, content: [{ type: "text", text }] },
+  });
+const oldKeyReuse = oldReply('{"error":"key_reuse","hint":"Use a fresh idempotency_key for changed arguments."}');
+
+test("switch off: an old-system key_reuse goes to the engine, whose replay answers it", async () => {
+  const f = fixture("off", answered('{"replayed":true,"ok":true}'));
+  f.env.CARR.fetch = async () => new Response(oldKeyReuse);
+  const response = await f.send(phaseMove, saveHeaders);
+  assert.equal(await f.engine[0]?.text(), JSON.stringify(phaseMove.params.arguments));
+  assert.deepEqual(await response.json(), {
+    jsonrpc: "2.0",
+    id: "synthetic-request",
+    result: { content: [{ type: "text", text: '{"replayed":true,"ok":true}' }] },
+  });
+});
+
+test("switch off: when the engine refuses the key too, the screen gets the old system's refusal", async () => {
+  const f = fixture("off", answered('{"error":"key_reuse"}', 409));
+  f.env.CARR.fetch = async () => new Response(oldKeyReuse);
+  assert.equal(await (await f.send(phaseMove, saveHeaders)).text(), oldKeyReuse);
+  assert.equal(f.engine.length, 1);
+});
+
+test("switch off: an old-system key_reuse the engine can't answer stays uncertain", async () => {
+  const f = fixture("off", async () => {
+    throw new Error("connection reset");
+  });
+  f.env.CARR.fetch = async () => new Response(oldKeyReuse);
+  const response = await f.send(phaseMove, saveHeaders);
+  assert.deepEqual([response.status, await response.json()], [503, { error: "carr_unavailable" }]);
+});
+
+test("switch off: any other old-system refusal never reaches the engine", async () => {
+  const refusal = oldReply('{"error":"version_conflict"}');
+  const f = fixture("off");
+  f.env.CARR.fetch = async () => new Response(refusal);
+  assert.equal(await (await f.send(phaseMove, saveHeaders)).text(), refusal);
+  assert.equal(f.engine.length, 0);
+});
