@@ -13,7 +13,7 @@ before(async () => { outDir = temporaryDirectory('inline-review-'); await buildA
 after(async () => { await rm(outDir, { recursive: true, force: true }); });
 const id = '00000000-0000-0000-0000-000000000001';
 const eventId = '00000000-0000-0000-0000-000000000002';
-async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', refusal = null, reference = true, missingRecipients = false, initialBody = 'Synthetic body', writeRefusal = null, waitingPerson = false, surface = '/', sourceType = null, sourceState = 'needs_attention' } = {}) {
+async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', refusal = null, reference = true, missingRecipients = false, initialBody = 'Synthetic body', writeRefusal = null, waitingPerson = false, surface = '/', sourceType = null, sourceState = 'needs_attention', sourceUrl = null } = {}) {
   const server = await fixtureServer({ root: join(outDir, 'site') }); t.after(() => server.close());
   const browser = await chromium.launch(); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -24,6 +24,7 @@ async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', r
   if (reference) row.review_reference = { kind, item_id: row.item_id, source_version: row.source_version, operations: kind === 'action' ? ['complete-one-action'] : kind === 'reply_draft' ? ['edit-email-draft', 'dismiss-email-proposal', 'submit-email-draft'] : ['resolve-fact-review'] };
   if (sourceType) Object.assign(row, { source_type: sourceType, kind_label: sourceType === 'capture_post_call_action' ? 'Call follow-up' : sourceType === 'notification' ? 'Update' : row.kind_label, action_id: sourceType === 'capture_post_call_action' ? id : null, action_version: sourceType === 'capture_post_call_action' ? 1 : null, review_reference: null });
   row.source_state = sourceState;
+  row.open_url = sourceUrl;
   let version = 1, subject = 'Synthetic subject', body = initialBody, fail = refusal;
   const calls = [];
   await page.route('**/mcp', async route => {
@@ -63,7 +64,7 @@ async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', r
 }
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`inline reply edits, saves and explicitly submits ${width} ${theme}`, async t => {
   const { page, panel, calls } = await setup(t, { width, theme });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByLabel('Subject', { exact: true }).waitFor();
   assert.equal(await panel.getByRole('button', { name: 'Mark done', exact: true }).count(), 0);
   assert.equal(calls.filter(c => ['edit-email-draft', 'submit-email-draft'].includes(c.name)).length, 0);
@@ -88,7 +89,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`in
 });
 test('conflict keeps text and reload binds a fresh version before another deliberate save', async t => {
   const { page, panel, calls } = await setup(t, { refusal: 'version_conflict' });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByLabel('Message', { exact: true }).fill('Keep my local edits');
   await panel.getByRole('button', { name: 'Save draft', exact: true }).click();
   await panel.getByRole('button', { name: 'Review updated card', exact: true }).click();
@@ -102,7 +103,7 @@ test('conflict keeps text and reload binds a fresh version before another delibe
 });
 test('uncertain write retries only the identical frozen request', async t => {
   const { page, panel, calls } = await setup(t, { refusal: 'uncertain' });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByRole('button', { name: 'Save draft', exact: true }).click();
   await panel.getByRole('button', { name: 'Retry same review request', exact: true }).click();
   await panel.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
@@ -110,7 +111,7 @@ test('uncertain write retries only the identical frozen request', async t => {
 });
 for (const refusal of ['home_review_stale', 'home_review_resolved', 'home_review_unsupported', 'human_only_verb_requires_verified_partner']) test(`review safely refuses ${refusal}`, async t => {
   const { page, panel, calls } = await setup(t, { refusal });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByText(refusal === 'home_review_stale' ? 'This card changed. Your edits are kept. Review the updated card before submitting again.' : refusal === 'home_review_resolved' ? 'This card is already resolved. Refresh the inbox to see its current state.' : refusal === 'human_only_verb_requires_verified_partner' ? 'Sign in as the owning verified partner to review this card.' : 'This card cannot be reviewed here. Open its source record.', { exact: true }).waitFor();
   assert.equal(await panel.getByRole('button', { name: 'Save draft', exact: true }).count(), 0);
   await page.keyboard.press('Escape');
@@ -118,7 +119,7 @@ for (const refusal of ['home_review_stale', 'home_review_resolved', 'home_review
 });
 test('task review completes one canonical action and retains Undo receipt', async t => {
   const { page, panel, calls } = await setup(t, { kind: 'action' });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByRole('button', { name: 'Mark done', exact: true }).click();
   await panel.getByText('This card is confirmed. Its current state is shown in your inbox.', { exact: true }).waitFor();
   await panel.getByRole('button', { name: 'Close review', exact: true }).click();
@@ -129,7 +130,7 @@ test('task review completes one canonical action and retains Undo receipt', asyn
 });
 for (const decision of ['Approve a sourced value', 'Correct with a source', 'Reject this review']) test(`fact review ${decision} calls its existing owner`, async t => {
   const { page, panel, calls } = await setup(t, { kind: 'fact_review' });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByLabel('Decision', { exact: true }).selectOption({ label: decision });
   await panel.getByLabel('Reason', { exact: true }).fill('Synthetic reviewed source');
   if (decision === 'Correct with a source') { await panel.getByLabel('Corrected value', { exact: true }).fill('72'); await panel.getByLabel('Cited text', { exact: true }).fill('Synthetic corrected term is 72 months.'); }
@@ -142,20 +143,20 @@ for (const decision of ['Approve a sourced value', 'Correct with a source', 'Rej
 });
 test('older producer without references keeps a navigable card', async t => {
   const { page, calls } = await setup(t, { reference: false });
-  assert.equal(await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: /See details|Review reply/, exact: true }).count(), 0);
   assert.ok(await page.getByRole('link', { name: 'Synthetic review', exact: true }).getAttribute('href'));
   assert.equal(calls.filter(c => c.name === 'read-home-review').length, 0);
 });
 test('keyboard review and rapid repeated activation make one deliberate write', async t => {
   const { page, panel, calls } = await setup(t);
-  const opener = page.getByRole('button', { name: /Review (card|reply)/, exact: true });
+  const opener = page.getByRole('button', { name: /See details|Review reply/, exact: true });
   await opener.focus(); await page.keyboard.press('Enter');
   const save = panel.getByRole('button', { name: 'Save draft', exact: true });
   await save.evaluate(button => { button.click(); button.click(); });
   await panel.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
   assert.equal(calls.filter(c => c.name === 'edit-email-draft').length, 1);
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => /Review (card|reply)/.test(document.activeElement?.textContent || ''));
+  await page.waitForFunction(() => /See details|Review reply/.test(document.activeElement?.textContent || ''));
 });
 test('closing a loading review rejects late detail and sends no domain command', async t => {
   const { page, panel, calls } = await setup(t);
@@ -164,7 +165,7 @@ test('closing a loading review rejects late detail and sends no domain command',
     if (route.request().postDataJSON().params.name === 'read-home-review') { held = route; return; }
     return route.fallback();
   });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByText('Loading current evidence…', { exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await held?.fulfill({ json: { error: 'home_review_stale' } }).catch(() => {});
@@ -174,7 +175,7 @@ test('closing a loading review rejects late detail and sends no domain command',
 
 test('a newer draft after the save receipt requires explicit review and preserves local text', async t => {
   const { page, panel, calls } = await setup(t, { refusal: 'after_save_change' });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByLabel('Message', { exact: true }).fill('Keep the reviewed local body');
   await panel.getByRole('button', { name: 'Save draft', exact: true }).click();
   await panel.getByRole('button', { name: 'Review updated card', exact: true }).click();
@@ -187,7 +188,7 @@ test('a newer draft after the save receipt requires explicit review and preserve
 
 for (const initialBody of ['Synthetic body', '']) test(`decline ignores invalid content with initial body ${initialBody ? 'present' : 'empty'}`, async t => {
   const { page, panel, calls } = await setup(t, { width: 390, initialBody });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByLabel('Message', { exact: true }).fill('');
   await panel.getByLabel('Subject', { exact: true }).fill('');
   await panel.getByLabel('Reason for declining', { exact: true }).fill('Decline this synthetic draft');
@@ -200,7 +201,7 @@ for (const initialBody of ['Synthetic body', '']) test(`decline ignores invalid 
 });
 for (const action of ['Save draft', 'Decline draft']) test(`unavailable send recipients preserve ${action}`, async t => {
   const { page, panel, calls } = await setup(t, { width: 390, missingRecipients: true });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByText('Sending unavailable: email_draft_copy_address_missing', { exact: true }).waitFor();
   assert.equal(await panel.getByRole('button', { name: 'Submit reply for sending', exact: true }).count(), 0);
   assert.equal(await panel.getByRole('button', { name: 'Save draft', exact: true }).count(), 1);
@@ -216,7 +217,7 @@ for (const action of ['Save draft', 'Decline draft']) test(`unavailable send rec
 });
 for (const writeRefusal of ['human_only_verb_requires_verified_partner', 'home_review_resolved']) test(`submitted review refuses ${writeRefusal}`, async t => {
   const { page, panel, calls } = await setup(t, { writeRefusal });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByRole('button', { name: 'Save draft', exact: true }).click();
   await panel.getByText(writeRefusal === 'home_review_resolved' ? 'This card is already resolved. Refresh the inbox to see its current state.' : 'Sign in as the owning verified partner to review this card.', { exact: true }).waitFor();
   assert.equal(calls.filter(c => c.name === 'edit-email-draft').length, 1);
@@ -224,16 +225,16 @@ for (const writeRefusal of ['human_only_verb_requires_verified_partner', 'home_r
 });
 test('Escape closes unsaved edits without a write and returns focus', async t => {
   const { page, panel, calls } = await setup(t);
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByLabel('Message', { exact: true }).fill('Unsaved local changes');
   await page.keyboard.press('Escape');
   assert.equal(await panel.count(), 0);
-  await page.waitForFunction(() => /Review (card|reply)/.test(document.activeElement?.textContent || ''));
+  await page.waitForFunction(() => /See details|Review reply/.test(document.activeElement?.textContent || ''));
   assert.equal(calls.filter(c => ['edit-email-draft', 'dismiss-email-proposal', 'submit-email-draft'].includes(c.name)).length, 0);
 });
 test('save and send still require valid reply content', async t => {
   const { page, panel, calls } = await setup(t);
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   for (const field of ['Message', 'Subject']) {
     await panel.getByLabel(field, { exact: true }).fill('');
     for (const name of ['Save draft', 'Submit reply for sending']) await panel.getByRole('button', { name, exact: true }).click();
@@ -244,28 +245,49 @@ test('save and send still require valid reply content', async t => {
 
 test('decline requires a nonblank reason even when content is empty', async t => {
   const { page, panel, calls } = await setup(t, { initialBody: '' });
-  await page.getByRole('button', { name: /Review (card|reply)/, exact: true }).click();
+  await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();
   await panel.getByLabel('Reason for declining', { exact: true }).fill('   ');
   await panel.getByRole('button', { name: 'Decline draft', exact: true }).click();
   await panel.getByText('Give a reason before declining this draft.', { exact: true }).waitFor();
   assert.equal(calls.filter(c => c.name === 'dismiss-email-proposal').length, 0);
 });
 
-for (const width of [390, 1440]) for (const surface of ['/', '/inbox']) for (const [kind, sourceType, sourceState, label] of [
-  ['action', null, 'needs_attention', 'Mark done'],
-  ['action', 'capture_post_call_action', 'needs_attention', 'Mark done'],
-  ['reply_draft', null, 'needs_attention', 'Review reply'],
-  ['reply_draft', 'email_proposal', 'failed', 'This reply failed. Sending recovery is not available here.'],
-  ['action', 'notification', 'needs_attention', 'This update cannot be finished here yet.'],
-]) test(`card finish control ${width} ${surface} ${sourceType || kind} ${sourceState}`, async t => {
-  const { page, panel } = await setup(t, { width, surface, kind, sourceType, sourceState, waitingPerson: true });
+for (const width of [390, 1440]) for (const surface of ['/', '/inbox']) for (const [kind, sourceType, sourceState, label, sourceUrl] of [
+  ['action', null, 'needs_attention', 'Mark done', null],
+  ['action', 'capture_post_call_action', 'needs_attention', 'Mark done', null],
+  ['reply_draft', null, 'needs_attention', 'Review reply', null],
+  ['reply_draft', 'email_proposal', 'failed', "This reply didn't send. Send it from your email, then hide this card.", null],
+  ['action', 'notification', 'needs_attention', 'Open in Updates', '/notifications?watch=synthetic'],
+  ['action', 'notification', 'needs_attention', 'Open Updates to read and clear this.', null],
+  ['action', 'capture_session', 'needs_attention', 'Open deal', '/deals?deal=synthetic'],
+  ['action', 'capture_session', 'needs_attention', 'Nothing to do here yet.', null],
+  ['action', 'capture_session', 'working', 'Dr. CRE is working. You can come back to this.', null],
+  ['fact_review', null, 'needs_attention', 'See details', null],
+]) test(`card finish control ${width} ${surface} ${sourceType || kind} ${sourceState} ${sourceUrl ? 'linked' : 'unlinked'}`, async t => {
+  const { page, panel } = await setup(t, { width, surface, kind, sourceType, sourceState, sourceUrl, waitingPerson: true });
   const card = page.locator('[data-inbox-row="one"]');
-  const actionable = ['Mark done', 'Review reply'].includes(label);
-  assert.equal(await card.locator('.inbox-primary').count(), actionable ? 1 : 0);
-  if (actionable) assert.equal(await card.getByRole('button', { name: label, exact: true }).getAttribute('class'), 'inbox-primary');
-  else assert.equal(await card.getByText(label, { exact: true }).count(), 1);
-  assert.equal(await card.getByText(/Waiting on|Set waiting person|Correct waiting person/).count(), 0);
-  await page.screenshot({ path: `test-artifacts/inline-review/finish-${width}-${surface === '/' ? 'home' : 'inbox'}-${sourceType || kind}-${sourceState}.png`, fullPage: true });
+  const button = ['Mark done', 'Review reply', 'See details'].includes(label);
+  const link = label.startsWith('Open ') && sourceUrl;
+  assert.equal(await card.locator('.inbox-primary').count(), button || link ? 1 : 0);
+  if (button) assert.equal(await card.getByRole('button', { name: label, exact: true }).getAttribute('class'), 'inbox-primary');
+  else if (link) {
+    assert.equal(await card.getByRole('link', { name: label, exact: true }).getAttribute('href'), sourceUrl.replace('/notifications', '/updates'));
+  } else {
+    assert.equal(await card.getByText(label, { exact: true }).count(), 1);
+    if (sourceState !== 'working') {
+      const style = await card.locator('.inbox-guidance').evaluate(node => {
+        const css = getComputedStyle(node);
+        return { size: css.fontSize, basis: css.flexBasis, color: css.color };
+      });
+      assert.equal(style.size, '12px');
+      assert.equal(style.basis, '100%');
+      assert.equal(style.color, await card.locator('.inbox-copy .inbox-detail').evaluate(node => getComputedStyle(node).color));
+    }
+  }
+  assert.equal(await card.getByRole('button', { name: 'See details', exact: true }).count(), kind === 'action' && !sourceType || kind === 'fact_review' ? 1 : 0);
+  assert.equal(await card.getByText(/Work is in progress|Review card|Waiting on|Set waiting person|Correct waiting person/).count(), 0);
+  await page.screenshot({ path: `test-artifacts/inline-review/finish-${width}-${surface === '/' ? 'home' : 'inbox'}-${sourceType || kind}-${sourceState}${sourceUrl ? '-linked' : ''}.png`, fullPage: true });
+  await card.screenshot({ path: `test-artifacts/inline-review/card-finish-${width}-${surface === '/' ? 'home' : 'inbox'}-${sourceType || kind}-${sourceState}${sourceUrl ? '-linked' : ''}.png` });
   if (label === 'Review reply') {
     await card.getByRole('button', { name: label, exact: true }).click();
     await panel.getByRole('button', { name: 'Submit reply for sending', exact: true }).waitFor();

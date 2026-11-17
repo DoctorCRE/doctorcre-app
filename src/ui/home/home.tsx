@@ -18,7 +18,7 @@ import {
 } from "./inbox";
 import { MailPriorities } from "./mail-priorities";
 import { ReviewCard } from "./review-card";
-import { recordRoutes } from "./routes";
+import { recordPages, recordRoutes } from "./routes";
 import { completionLabel, HomeSections, HomeWelcome } from "./sections";
 
 type SnoozePreview = Readonly<{
@@ -330,6 +330,8 @@ function Inbox({ client }: { client: InboxClient }) {
     const primary =
       item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
     const completable = item.action_id !== null && item.source_state === "needs_attention";
+    const source = recordRoutes.source(item);
+    const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
     return (
       <article
         key={item.item_id}
@@ -433,7 +435,7 @@ function Inbox({ client }: { client: InboxClient }) {
                 setReviewing(item);
               }}
             >
-              {item.source_type === "email_proposal" ? "Review reply" : "Review card"}
+              {item.source_type === "email_proposal" ? "Review reply" : "See details"}
             </button>
           )}
           {completable && (
@@ -448,17 +450,23 @@ function Inbox({ client }: { client: InboxClient }) {
           )}
           {!completable &&
             !(item.review_reference && client.review && item.source_state === "needs_attention") &&
-            item.source_state !== "done" && (
-              <p>
-                {item.source_type === "email_proposal" && item.source_state === "failed"
-                  ? "This reply failed. Sending recovery is not available here."
-                  : item.source_type === "notification"
-                    ? "This update cannot be finished here yet."
-                    : item.source_state === "working"
-                      ? "Work is in progress. Come back when it is ready."
-                      : "Finish this on the source record."}
+            item.source_state !== "done" &&
+            item.source_state !== "working" &&
+            (item.source_type === "email_proposal" && item.source_state === "failed" ? (
+              <p className="inbox-detail inbox-guidance">
+                This reply didn't send. Send it from your email, then hide this card.
               </p>
-            )}
+            ) : source ? (
+              <a className="inbox-primary" href={source}>
+                {item.source_type === "notification" ? "Open in Updates" : `Open ${sourcePage}`}
+              </a>
+            ) : (
+              <p className="inbox-detail inbox-guidance">
+                {item.source_type === "notification"
+                  ? "Open Updates to read and clear this."
+                  : "Nothing to do here yet."}
+              </p>
+            ))}
           {item.source_state !== "working" && (
             <button
               type="button"

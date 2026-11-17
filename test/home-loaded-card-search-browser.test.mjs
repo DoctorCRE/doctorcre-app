@@ -117,7 +117,7 @@ test('pending request locks search and completion Undo preserves query', async t
 test('inline review locks search and preserves opener focus through close and unmount', async t => {
   const { page } = await setup(t, 1440, 'light', true);
   const search = page.getByRole('searchbox');
-  const opener = page.getByRole('button', { name: 'Review card', exact: true });
+  const opener = page.getByRole('button', { name: 'See details', exact: true });
   await opener.click();
   await page.getByRole('button', { name: 'Close review', exact: true }).waitFor();
   assert.equal(await search.isDisabled(), true);
