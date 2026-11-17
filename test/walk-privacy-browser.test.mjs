@@ -169,20 +169,14 @@ test('batch undo stays bound to its admitted batch', async ({page,context}) => {
   expect(await send(page,'settle-home-inbox',{undo_of:key,items:[...items,{item_id:'ordinary'}],reversible:true})).toBe(0);
   expect(await send(page,'settle-home-inbox',{undo_of:key,reversible:true})).toBe(200);
 });
-test('waiting changes stay bound to the verified item', async ({page,context}) => {
-  const item = await fixture(context,false,false,15);
-  await card(page,15);
-  expect(await send(page,'set-home-waiting',{item_id:'ordinary',items:[{item_id:item.item_id}]})).toBe(0);
-  expect(await send(page,'set-home-waiting',{item_id:item.item_id})).toBe(200);
-  expect(await send(page,'clear-home-waiting',{item_id:item.item_id})).toBe(200);
-});`);
+`);
   const config = resolve(directory, 'playwright.config.ts');
   writeFileSync(config, `export default { testDir: '.', workers: 1, retries: 0, outputDir: './results', use: { baseURL: '${server.origin}', serviceWorkers: 'block' } };`);
   const { stdout } = await promisify(execFile)(process.execPath, [require.resolve('@playwright/test/cli'), 'test', '--config', config, '--reporter=json'], { timeout: 30_000 });
   const report = JSON.parse(stdout);
-  assert.equal(report.stats.expected, 4);
+  assert.equal(report.stats.expected, 3);
   assert.equal(report.stats.skipped, 2);
-  assert.equal(writes, 7);
+  assert.equal(writes, 5);
   const skips = report.suites.flatMap(suite => suite.specs).filter(spec => spec.tests[0].results[0].status === 'skipped');
   for (const spec of skips) assert.match(JSON.stringify(spec.tests[0].annotations), /needs designated test record/);
 });
@@ -235,7 +229,7 @@ test('every mutating walk skips without a TEST fixture and sends zero writes', a
   }}} });
   t.after(() => server.close());
   const directory = temporaryDirectory('doctorcre-walk-absent-', t);
-  const specs = readdirSync('tests/walks').filter(name => /^(01|03|07|10|12|13|14|15|33)-/.test(name));
+  const specs = readdirSync('tests/walks').filter(name => /^(01|03|07|10|12|13|14|33)-/.test(name));
   for (const name of specs) writeFileSync(resolve(directory, name), `
 import { expect } from ${JSON.stringify(require.resolve('@playwright/test'))};
 import { test, inboxItems } from ${JSON.stringify(resolve('tests/walks/privacy.ts'))};
@@ -247,11 +241,11 @@ test.afterEach(async ({context}) => { expect(await inboxItems(context)).toEqual(
   writeFileSync(config, `export default { testDir: '.', workers: 1, retries: 0, outputDir: './results', use: { baseURL: '${server.origin}', serviceWorkers: 'block' } };`);
   const { stdout } = await promisify(execFile)(process.execPath, [require.resolve('@playwright/test/cli'), 'test', '--config', config, '--reporter=json'], { timeout: 30_000 });
   const report = JSON.parse(stdout);
-  assert.equal(report.stats.skipped, 9);
+  assert.equal(report.stats.skipped, 8);
   assert.equal(report.stats.unexpected, 0);
   for (const suite of report.suites) for (const spec of suite.specs) assert.match(JSON.stringify(spec.tests[0].annotations), /needs designated test record: Home card named TEST WALK/);
-  assert.ok(methods.length >= 9);
-  assert.equal(methods.filter(request => request.method === 'POST').length, 9);
+  assert.ok(methods.length >= 8);
+  assert.equal(methods.filter(request => request.method === 'POST').length, 8);
   assert.ok(methods.every(request => request.method === 'GET' || request.method === 'POST' && request.path === '/mcp' && request.name === 'read-home-inbox-v5'));
 });
 

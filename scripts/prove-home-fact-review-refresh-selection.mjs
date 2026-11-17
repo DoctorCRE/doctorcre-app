@@ -51,7 +51,7 @@ export async function observeRefresh(page, origin, mode = 'replaced') {
     await page.goto(`${origin}/inbox?mode=live`);
     await page.locator('[data-inbox-row="proof-fact"]').waitFor();
     await page.evaluate(() => { history.replaceState(null, '', '/?mode=live'); dispatchEvent(new PopStateEvent('popstate')); });
-    await page.getByRole('button', { name: 'Review card', exact: true }).click();
+    await page.getByRole('button', { name: 'See details', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Review Synthetic fact refresh', exact: true });
     const decision = panel.getByLabel('Decision', { exact: true });
     await decision.waitFor();

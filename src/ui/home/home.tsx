@@ -18,9 +18,8 @@ import {
 } from "./inbox";
 import { MailPriorities } from "./mail-priorities";
 import { ReviewCard } from "./review-card";
-import { recordRoutes } from "./routes";
+import { recordPages, recordRoutes } from "./routes";
 import { completionLabel, HomeSections, HomeWelcome } from "./sections";
-import { WaitingEditor } from "./waiting-editor";
 
 type SnoozePreview = Readonly<{
   items: readonly InboxItem[];
@@ -331,6 +330,8 @@ function Inbox({ client }: { client: InboxClient }) {
     const primary =
       item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
     const completable = item.action_id !== null && item.source_state === "needs_attention";
+    const source = recordRoutes.source(item);
+    const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
     return (
       <article
         key={item.item_id}
@@ -411,46 +412,28 @@ function Inbox({ client }: { client: InboxClient }) {
                       : "Ready for your attention"}
             {item.hold_until ? ` · On hold until ${item.hold_until}` : ""}
           </p>
-          <WaitingEditor
-            activity={(active) => {
-              inFlight.current = active;
-              setBusy(active);
-              if (active) void cache.cancelQueries({ queryKey });
-            }}
-            item={item}
-            client={client}
-            disabled={busy || !!pending || !!reviewing}
-            update={(next) =>
-              cache.setQueryData<Snapshot>(queryKey, (snapshot) =>
-                snapshot
-                  ? { ...snapshot, items: snapshot.items.map((row) => (row.item_id === next.item_id ? next : row)) }
-                  : snapshot,
-              )
-            }
-          />
-          {item_id === item.item_id && recordRoutes.source(item) && (
-            <a className="inbox-source" href={recordRoutes.source(item) || undefined}>
-              Open source record ↗
+          {item_id === item.item_id && completable && source && (
+            <a className="inbox-source" href={source}>
+              Open {sourcePage}
             </a>
           )}
           {item_id === item.item_id && item.source_type === "notification" && (
             <HomeWatchDetail open_url={item.open_url} />
           )}
-          {item_id === item.item_id && item.open_url && !recordRoutes.source(item) && (
-            <p role="status">Source record unavailable. Its destination is unsupported or invalid.</p>
-          )}
+          {item_id === item.item_id && item.open_url && !source && <p role="status">This link can't be opened here.</p>}
         </div>
         <div className="inbox-actions">
-          {home && item.review_reference && client.review && (
+          {item.review_reference && client.review && item.source_state === "needs_attention" && (
             <button
               type="button"
+              className={completable ? undefined : "inbox-primary"}
               disabled={busy || !!pending || !!reviewing}
               onClick={(event) => {
                 reviewOpener.current = event.currentTarget;
                 setReviewing(item);
               }}
             >
-              Review card
+              {item.source_type === "email_proposal" ? "Review reply" : "See details"}
             </button>
           )}
           {completable && (
@@ -463,6 +446,21 @@ function Inbox({ client }: { client: InboxClient }) {
               Mark done
             </button>
           )}
+          {!completable &&
+            !(item.review_reference && client.review && item.source_state === "needs_attention") &&
+            item.source_state !== "done" &&
+            item.source_state !== "working" &&
+            (item.source_type === "email_proposal" && item.source_state === "failed" ? (
+              <p className="inbox-detail inbox-guidance">
+                This reply didn't send. Send it from your email, then press Hide from inbox.
+              </p>
+            ) : source || item.source_type === "notification" ? (
+              <a className="inbox-primary" href={source ?? "/updates"}>
+                Open {sourcePage ?? "Updates"}
+              </a>
+            ) : (
+              <p className="inbox-detail inbox-guidance">Read it, then hide it from your inbox.</p>
+            ))}
           {item.source_state !== "working" && (
             <button
               type="button"

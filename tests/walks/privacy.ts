@@ -157,15 +157,13 @@ export const test = base.extend<{ walkPrivacy: undefined }>({
               ),
             );
             const batch = typeof args.undo_of === "string" ? batches.get(args.undo_of) : undefined;
-            const ids = ["set-home-waiting", "clear-home-waiting"].includes(name)
-              ? [args.item_id]
-              : Array.isArray(args.items)
-                ? args.items.map((item: unknown) => (object(item) ? item.item_id : null))
-                : typeof args.item_id === "string"
-                  ? [args.item_id]
-                  : typeof args.action_id === "string"
-                    ? owned.filter((item) => item.action_id === args.action_id).map((item) => item.item_id)
-                    : batch?.ids || [];
+            const ids = Array.isArray(args.items)
+              ? args.items.map((item: unknown) => (object(item) ? item.item_id : null))
+              : typeof args.item_id === "string"
+                ? [args.item_id]
+                : typeof args.action_id === "string"
+                  ? owned.filter((item) => item.action_id === args.action_id).map((item) => item.item_id)
+                  : batch?.ids || [];
             const exact =
               (args.item_id === undefined || owned.some((item) => item.item_id === args.item_id)) &&
               (args.deal_id === undefined || owned.some((item) => item.deal_id === args.deal_id)) &&

@@ -1,4 +1,12 @@
 import type { InboxItem } from "./inbox";
+export const recordPages = new Map([
+  ["/deals", "deal"],
+  ["/calls", "call"],
+  ["/updates", "Updates"],
+  ["/doc-chats", "document chat"],
+  ["/leases", "lease"],
+  ["/clients", "client"],
+]);
 export const recordRoutes = {
   card: (id: string) => `/inbox/card/${encodeURIComponent(id)}`,
   source(item: Pick<InboxItem, "open_url">): string | null {
@@ -27,7 +35,8 @@ export const recordRoutes = {
         ? url
         : null;
     }
-    const supported = ["/deals", "/calls", "/updates", "/doc-chats"].includes(parsed.pathname);
+    if (parsed.pathname === "/notifications") return `/updates${parsed.search}${parsed.hash}`;
+    const supported = recordPages.has(parsed.pathname);
     return parsed.origin === "https://doctorcre.invalid" && supported ? url : null;
   },
 };

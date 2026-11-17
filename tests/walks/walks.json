@@ -184,19 +184,6 @@
     "coverage": "implemented"
   },
   {
-    "number": 15,
-    "title": "Name who owes the next move",
-    "work_request": "WR617.S15",
-    "steps": "At phone and desktop widths, set a canonical waiting person and reason on a test Home item, reload, correct and clear it. Complete and Undo the item. Verify Done today placement and no restored waiting person; unknown held, snoozed and processing cards invent no person.",
-    "prs": [
-      "https://github.com/DoctorCRE/carr-system/pull/2961",
-      "https://github.com/jbookout/doctorcre-app/pull/664"
-    ],
-    "spec": "15-WR617-S15.spec.ts",
-    "coverage": "partial-then-skip",
-    "skip_reason": "Waiting-person test executes set, clear, completion and Undo when prerequisites exist, then requires unknown-state cohort for full acceptance."
-  },
-  {
     "number": 16,
     "title": "Review deal terms with their sources",
     "work_request": "WR39.S2",
