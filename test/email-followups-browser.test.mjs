@@ -31,10 +31,29 @@ for (const width of [1280, 390]) test(`email follow-ups fragment lands on review
   const panel = page.locator('#homeEmailFollowups');
   await panel.locator('article').first().waitFor();
   await panel.getByRole('button', { name: 'Confirm', exact: true }).first().waitFor();
-  assert.ok(await panel.evaluate(node => {
-    const rect = node.getBoundingClientRect();
-    return rect.top >= -1 && rect.top < innerHeight;
-  }), JSON.stringify(await panel.evaluate(node => ({ top: node.getBoundingClientRect().top, height: innerHeight, scrollY }))));
+  await page.waitForFunction(() => ['homeCallTasks', 'homeEmailFollowups', 'dealAttention'].every(id => document.getElementById(id)?.getAttribute('aria-busy') === 'false'));
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise(resolve => {
+      let previous, stableSince = performance.now();
+      const sample = () => {
+        const position = document.getElementById('homeEmailFollowups').getBoundingClientRect().top;
+        if (position !== previous) { previous = position; stableSince = performance.now(); }
+        if (performance.now() - stableSince >= 750) resolve();
+        else requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+  });
+  const landing = await panel.evaluate(node => {
+    const heading = node.querySelector('h2').getBoundingClientRect();
+    const card = node.querySelector('article').getBoundingClientRect();
+    const bar = document.querySelector('.app-layout-tabbar').getBoundingClientRect();
+    return { headingTop: heading.top, headingBottom: heading.bottom, cardTop: card.top, cardBottom: card.bottom, barBottom: bar.bottom, height: innerHeight, scrollY };
+  });
+  await page.screenshot({ path: `out/test-artifacts/email-followups/fragment-${width}.png` });
+  assert.ok(landing.headingTop >= landing.barBottom && landing.headingBottom <= landing.height, JSON.stringify(landing));
+  assert.ok(landing.cardTop >= landing.barBottom && landing.cardBottom <= landing.height, JSON.stringify(landing));
   assert.equal(new URL(page.url()).hash, '#homeEmailFollowups');
 });
 
