@@ -266,9 +266,14 @@ const ENGINE_SAVES = new Map([
   ['patch-deal-field', { key: DEAL_SAVES, path: '/api/engine/patch-deal-field' }],
 ]);
 
-// A save goes to the old system only while its switch is off or when the engine
-// says it wrote nothing. Any other answer may follow a commit, so the screen's
-// retry sends the same key back to the engine, whose replay answers it.
+// Engine refusals that wrote nothing and leave the answer to the old system: a
+// save it cannot make, or a key the old system's receipt holds (a retry of a
+// save that went there), which only the old system can replay.
+const OLD_SYSTEM_ANSWERS = new Map([[501, 'old_system_required'], [409, 'key_reuse']]);
+
+// A save goes to the old system only while its switch is off or after one of
+// those refusals. Any other answer may follow a commit, so the screen's retry
+// sends the same key back to the engine, whose replay answers it.
 async function engineSave(request, env) {
   const url = new URL(request.url);
   const call = await mcpCall(request, url);
@@ -289,7 +294,8 @@ async function engineSave(request, env) {
     if ([401, 403, 429].includes(response.status)) return response;
     text = await response.text();
   } catch { return unavailable(false); }
-  if (response.status === 501 && parsedError(text) === 'old_system_required') return null;
+  const handoff = OLD_SYSTEM_ANSWERS.get(response.status);
+  if (handoff && handoff === parsedError(text)) return null;
   return mcpReply(call, response, text, response.status !== 200);
 }
 
