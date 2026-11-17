@@ -196,11 +196,11 @@ for (const destination of ['00000000-0000-4000-8000-000000000002', '00000000-000
   await page.getByRole('link', { name: card.title, exact: true }).click();
   if (destination.endsWith('002')) await page.screenshot({ path: '/tmp/WR617.S1.J109-home.png', fullPage: true });
   if (destination === 'bad') {
-    await page.getByRole('status').filter({ hasText: 'Source record unavailable.' }).waitFor();
-    assert.equal(await page.getByRole('link', { name: 'Open source record' }).count(), 0);
+    await page.getByRole('status').filter({ hasText: "This link can't be opened here." }).waitFor();
+    assert.equal(await page.locator('.inbox-source').count(), 0);
     assert.deepEqual(reads, []);
   } else {
-    const link = page.getByRole('link', { name: 'Open source record' });
+    const link = page.locator('[data-current="true"]').getByRole('link', { name: /^Open / });
     assert.equal(await link.getAttribute('href'), card.open_url);
     await link.focus();
     await Promise.all([page.waitForURL('**/clients?record=*'), page.keyboard.press('Enter')]);
