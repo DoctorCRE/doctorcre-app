@@ -61,6 +61,12 @@ test("a bracketed note it cannot fully read prints as written", () => {
   assert.equal(noteText("[{'text': 'Sent the survey'}, {'text': 'Client rep"), "[{'text': 'Sent the survey'}, {'text': 'Client rep");
 });
 
+test("a braced note that is not one flat dict prints as written", () => {
+  assert.equal(noteText("{'text': 'Client rep}"), "{'text': 'Client rep}");
+  assert.equal(noteText('{"urgent"} call the broker {today}'), '{"urgent"} call the broker {today}');
+  assert.equal(noteText("{'text': 'x'} plus more {y}"), "{'text': 'x'} plus more {y}");
+});
+
 test("a Python repr's escapes read back as the characters they stand for", () => {
   assert.equal(noteText(String.raw`[{'date': '2026-07-31', 'text': 'Call\r\nback'}]`), "Call\r\nback");
   assert.equal(noteText(String.raw`[{'text': 'a\x01b c\U000e0001d\\e\'f"'}]`), "a\x01b c\u{e0001}d\\e'f\"");

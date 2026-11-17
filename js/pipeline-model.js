@@ -370,11 +370,14 @@ const NOTE_KEYS = ['text', 'note', 'body', 'summary', 'content', 'message'];
 const PY_ESCAPES = { n: '\n', t: '\t', r: '\r', '\\': '\\', "'": "'", '"': '"' };
 // The escapes Python's repr writes; a lone backslash matches the last branch.
 const PY_ESCAPE = /\\(?:([ntr\\'"])|x([\da-fA-F]{2})|u([\da-fA-F]{4})|U(000[\da-fA-F]{5}|0010[\da-fA-F]{4}))|\\/g;
+const PY_DICT = String.raw`\{(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|[^{}'"])*\}`;
+const PY_FLAT_DICT = new RegExp(`^${PY_DICT}$`);
 
 function dictSentence(raw) {
   try {
     return noteText(JSON.parse(raw));
   } catch { /* not JSON; try the Python repr */ }
+  if (!PY_FLAT_DICT.test(raw)) return null;
   for (const key of NOTE_KEYS) {
     const match = new RegExp(`['"]${key}['"]\\s*:\\s*(['"])((?:\\\\.|(?!\\1)[^\\\\])*)\\1`).exec(raw);
     if (match) return pyString(match[2]);
@@ -412,7 +415,7 @@ function jsonItemText(item) {
   return null;
 }
 
-const PY_ITEM = String.raw`(\{(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|[^{}'"])*\})|'((?:\\.|[^'\\])*)'|"((?:\\.|[^"\\])*)"`;
+const PY_ITEM = String.raw`(${PY_DICT})|'((?:\\.|[^'\\])*)'|"((?:\\.|[^"\\])*)"`;
 const PY_ITEMS = new RegExp(PY_ITEM, 'g');
 const PY_LIST = new RegExp(String.raw`^\[\s*(?:${PY_ITEM})(?:\s*,\s*(?:${PY_ITEM}))*\s*\]$`);
 
@@ -431,7 +434,8 @@ export function dealName(value) {
 
 /**
  * The sentence a note value carries, or '' when it carries none. A string
- * shaped like a dict never paints as raw braces.
+ * that is one dict never paints as raw braces; braces it cannot read print as
+ * written.
  *
  * @param {unknown} value
  * @returns {string}
