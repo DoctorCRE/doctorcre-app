@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {readFile, mkdir} from 'node:fs/promises';
 import {chromium, waitForAsync} from './browser-harness.mjs';
 import {renderClientPortalLink} from '../js/client-portal-link.js';
 const root=new URL('../',import.meta.url);
@@ -39,7 +39,7 @@ async function open(t,width=1280,{portal=null,closed=false}={}) {
 for(const width of [390,1280]) test(`a set link shows on the deal card and opens safely at ${width}px`,async t=>{
  const {page,errors}=await open(t,width,{portal:PORTAL});
  const card=page.locator('.kanban-card[data-id="d14"]');
- const link=card.getByRole('link',{name:/Client portal/});
+ const link=card.getByRole('link',{name:/Client website/});
  assert.equal(await link.getAttribute('href'),PORTAL);
  assert.equal(await link.getAttribute('target'),'_blank');
  assert.match(await link.getAttribute('rel'),/noopener/);
@@ -66,11 +66,14 @@ test('a partner registers the portal from the deal panel, a taken name is refuse
   await page.locator('#clientPortalSlug').fill(slug);
   assert.equal(await page.locator('#clientPortalPassword').getAttribute('type'),'password');
   await page.locator('#clientPortalPassword').fill(password);
-  await page.getByRole('button',{name:'Register portal'}).click();
+  await page.getByRole('button',{name:'Register website'}).click();
  };
  const card=page.locator('.kanban-card[data-id="d14"] .client-portal-link');
  await submit('taken','simple-pw');
- await page.waitForFunction(()=>document.getElementById('detailClientPortalStatus')?.textContent.includes('That portal name is already taken'));
+ await page.waitForFunction(()=>document.getElementById('detailClientPortalStatus')?.textContent.includes('That website name is already taken'));
+ assert.doesNotMatch(await page.locator('#detailClientPortalStatus').innerText(), /portal/i);
+ assert.match(await page.locator('#receiptDock').innerText(), /Client website/);
+ assert.doesNotMatch(await page.locator('#receiptDock').innerText(), /portal/i);
  assert.equal(await card.count(),0);
  await submit('demo-practice','simple-pw');
  await card.waitFor({state:'attached'});
@@ -91,15 +94,15 @@ test('a closed deal shows its portal link without board controls',async t=>{
  assert.equal(await page.locator('#detailClientPortalForm').count(),0);
 });
 
-test('a different password refusal explains the existing portal password',async t=>{
+test('a different password refusal explains the existing website password',async t=>{
  const {page}=await open(t);
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');state.client.registerClientPortal=async()=>{const error=new Error('fixture refusal');error.payload={error:'portal_password_differs'};throw error;};});
  await page.locator('.kanban-card[data-id="d14"] .card-open').click();
  await page.locator('.client-portal-register summary').click();
- await page.getByLabel('Portal name').fill('demo-practice');
+ await page.getByLabel('Website name').fill('demo-practice');
  await page.locator('#clientPortalPassword').fill('different-password');
- await page.getByRole('button',{name:'Register portal'}).click();
- await page.waitForFunction(()=>document.getElementById('detailClientPortalStatus')?.textContent.includes('That password does not match the existing portal password.'),null,{timeout:1500});
+ await page.getByRole('button',{name:'Register website'}).click();
+ await page.waitForFunction(()=>document.getElementById('detailClientPortalStatus')?.textContent.includes('That password does not match the existing website password.'),null,{timeout:1500});
 });
 
 test('an unanswered registration can be checked with its original request',async t=>{
@@ -107,9 +110,9 @@ test('an unanswered registration can be checked with its original request',async
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');const send=state.client.registerClientPortal.bind(state.client);let first=true;state.client.registerClientPortal=async request=>{if(first){first=false;throw new Error('offline');}return send(request);};});
  await page.locator('.kanban-card[data-id="d14"] .card-open').click();
  await page.locator('.client-portal-register summary').click();
- await page.getByLabel('Portal name').fill('demo-practice');
+ await page.getByLabel('Website name').fill('demo-practice');
  await page.locator('#clientPortalPassword').fill('simple-pw');
- await page.getByRole('button',{name:'Register portal'}).click();
+ await page.getByRole('button',{name:'Register website'}).click();
  await page.keyboard.press('Escape');
  await page.getByRole('button',{name:'Check outcome'}).click({timeout:2000});
  await page.locator('.kanban-card[data-id="d14"] .client-portal-link').waitFor({state:'attached',timeout:2000});
@@ -121,14 +124,54 @@ test('the command dock keeps no portal password once a registration settles',asy
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');await state.client.registerClientPortal({deal:'d20',slug:'taken',password:'other',idempotency_key:'seed-taken'});});
  await page.locator('.kanban-card[data-id="d14"] .card-open').click();
  await page.locator('.client-portal-register summary').click();
- await page.getByLabel('Portal name').fill('taken');
+ await page.getByLabel('Website name').fill('taken');
  await page.locator('#clientPortalPassword').fill('secret-pw-1');
- await page.getByRole('button',{name:'Register portal'}).click();
+ await page.getByRole('button',{name:'Register website'}).click();
  await page.waitForFunction(()=>/already taken/.test(document.getElementById('detailClientPortalStatus')?.textContent||''));
  assert.equal(await retained(),false,'a refused registration leaves no password in the dock');
- await page.getByLabel('Portal name').fill('demo-practice');
+ await page.getByLabel('Website name').fill('demo-practice');
  await page.locator('#clientPortalPassword').fill('secret-pw-1');
- await page.getByRole('button',{name:'Register portal'}).click();
+ await page.getByRole('button',{name:'Register website'}).click();
  await page.locator('.kanban-card[data-id="d14"] .client-portal-link').waitFor({state:'attached'});
  assert.equal(await retained(),false,'a confirmed registration leaves no password in the dock');
+});
+
+for (const width of [390, 1280]) {
+ for (const portal of [PORTAL, null, 'http://share.example.com/demo']) {
+  test(`the opening snapshot shows the client website state at ${width}px for ${portal ? new URL(portal).protocol : 'absent'}`, async t => {
+   const {page, errors} = await open(t, width, {portal});
+   await page.locator('.kanban-card[data-id="d14"] .card-open').click();
+   const snapshot = page.getByRole('region', {name:'Deal snapshot', exact:true});
+   await snapshot.waitFor();
+   const link = snapshot.getByRole('link', {name:/Client website/});
+   if (portal === PORTAL) {
+    assert.equal(await link.getAttribute('href'), PORTAL);
+    assert.equal(await link.getAttribute('target'), '_blank');
+    assert.match(await link.getAttribute('rel'), /noopener noreferrer/);
+    assert.equal(await page.locator('#recordPanel .client-portal-link').count(), 1);
+   } else {
+    assert.equal(await snapshot.getByRole('link').count(), 0);
+    await snapshot.getByText(portal ? 'Client website link unavailable.' : 'No client website linked.', {exact:true}).waitFor();
+   }
+   assert.equal(await snapshot.locator('#detailClientPortalForm').count(), portal ? 0 : 1);
+   if (!portal) {
+    await snapshot.getByText('Set up client website', {exact:true}).click();
+    assert.equal(await snapshot.getByLabel('Website name', {exact:true}).count(), 1);
+    assert.equal(await snapshot.getByRole('button', {name:'Register website', exact:true}).count(), 1);
+    assert.doesNotMatch(await snapshot.locator('[data-detail-read="client-portal"]').innerText(), /portal/i);
+    await mkdir('out/test-artifacts/client-website', {recursive:true});
+    await snapshot.locator('[data-detail-read="client-portal"]').screenshot({path:`out/test-artifacts/client-website/setup-${width}.png`});
+   }
+   assert.equal(await page.locator('#recordPanel [data-detail-read="client-portal"]').count(), 1);
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+   assert.deepEqual(errors, []);
+  });
+ }
+}
+
+test('a closed deal without a website explains the absence without offering registration', async t => {
+ const {page} = await open(t, 1280, {closed:true});
+ const snapshot = page.getByRole('region', {name:'Deal snapshot', exact:true});
+ await snapshot.getByText('No client website linked.', {exact:true}).waitFor();
+ assert.equal(await page.locator('#detailClientPortalForm').count(), 0);
 });
