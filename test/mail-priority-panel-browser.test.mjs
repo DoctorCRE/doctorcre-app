@@ -50,6 +50,20 @@ async function open(t, { width = 1280, theme = 'light', response = recordings.re
   await page.waitForFunction(() => window.calls === 1, null, { timeout: 2000 });
   return page;
 }
+test('unmatched possible new deal opens the email follow-ups review list', async t => {
+  const response = structuredClone(recordings.ready);
+  const row = response.items[1];
+  row.kind = 'possible_new_deal';
+  row.action.verb = 'confirm-email-filing';
+  response.items = [row];
+  const page = await open(t, { response });
+  const suggestion = page.locator(`[data-mail-proposal="${row.proposal_id}"]`);
+  await suggestion.getByRole('heading', { name: 'Possible new deal', exact: true }).waitFor();
+  const link = suggestion.getByRole('link');
+  assert.equal(await link.getAttribute('href'), '/review-workflows#homeEmailFollowups');
+  assert.equal(await link.textContent(), 'Review in email follow-ups');
+});
+
 for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`automatic ranked rows, exact join and keyboard review ${width} ${theme}`, async t => {
   const page = await open(t, { width, theme });
   await page.getByText('Only the first 25 ranked decisions are shown.').waitFor();
@@ -58,7 +72,7 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`au
   assert.match(text, /Mailbox joe.*Recorded inbound pending proposals.*As of 2026-11-06.*Recorded next date in UTC/);
   assert.match(text, /Recorded overdue.*2026-10-01/); assert.match(text, /Recorded upcoming.*2026-12-01/); assert.match(text, /Decision date unknown/); assert.match(text, /Source time unknown/);
   assert.doesNotMatch(text, /probability|Must not match/);
-  assert.equal(await page.getByRole('link', { name: 'Review in inbox' }).first().getAttribute('href'), '/inbox');
+  assert.equal(await page.getByRole('link', { name: 'Review in email follow-ups' }).first().getAttribute('href'), '/review-workflows#homeEmailFollowups');
   await page.getByRole('button', { name: 'Review Existing Home title' }).focus(); await page.keyboard.press('Enter');
   assert.deepEqual(await page.evaluate(() => window.reviews), ['existing-home-id']);
   assert.equal(await page.evaluate(() => window.calls), 1);

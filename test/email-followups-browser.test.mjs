@@ -23,6 +23,21 @@ after(async () => {
   if (outDir) await rm(outDir, { recursive: true, force: true });
 });
 
+for (const width of [1280, 390]) test(`email follow-ups fragment lands on review controls at ${width}px`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+  t.after(() => page.close());
+  assert.equal((await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `email-anchor-${width}`, viewer: 'joe', reset: true } })).status(), 200);
+  await page.goto(`${origin}/review-workflows?mode=fixture#homeEmailFollowups`);
+  const panel = page.locator('#homeEmailFollowups');
+  await panel.locator('article').first().waitFor();
+  await panel.getByRole('button', { name: 'Confirm', exact: true }).first().waitFor();
+  assert.ok(await panel.evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    return rect.top >= -1 && rect.top < innerHeight;
+  }), JSON.stringify(await panel.evaluate(node => ({ top: node.getBoundingClientRect().top, height: innerHeight, scrollY }))));
+  assert.equal(new URL(page.url()).hash, '#homeEmailFollowups');
+});
+
 for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
   test(`Home email review confirms and defers at ${width}px in ${theme}`, async t => {
     const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
