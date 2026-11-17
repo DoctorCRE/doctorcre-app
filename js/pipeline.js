@@ -1152,7 +1152,7 @@ function workspaceHtml(detail) {
 function clientPortalHtml(d, canRegister) {
   if (d.client_portal_url) return `<div data-detail-read="client-portal">${renderClientPortalLink(d.client_portal_url) || '<p>Client website link unavailable.</p>'}</div>`;
   if (!canRegister) return '<div data-detail-read="client-portal"><p>No client website linked.</p></div>';
-  return `<div data-detail-read="client-portal"><p>No client website linked.</p><details class="client-portal-register"><summary>Set up client portal</summary><form id="detailClientPortalForm" class="client-portal-form"><label for="clientPortalSlug">Portal name</label><input id="clientPortalSlug" name="slug" required maxlength="63" pattern="[a-z0-9][a-z0-9\\-]*" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="practice-name" data-detail-focus="client-portal-slug"><label for="clientPortalPassword">Password</label><input id="clientPortalPassword" type="password" name="password" required maxlength="1024" autocomplete="off" autocapitalize="none" spellcheck="false" data-detail-focus="client-portal-password"><button class="btn" type="submit">Register portal</button></form></details><p id="detailClientPortalStatus" role="status"></p></div>`;
+  return `<div data-detail-read="client-portal"><p>No client website linked.</p><details class="client-portal-register"><summary>Set up client website</summary><form id="detailClientPortalForm" class="client-portal-form"><label for="clientPortalSlug">Website name</label><input id="clientPortalSlug" name="slug" required maxlength="63" pattern="[a-z0-9][a-z0-9\\-]*" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="practice-name" data-detail-focus="client-portal-slug"><label for="clientPortalPassword">Password</label><input id="clientPortalPassword" type="password" name="password" required maxlength="1024" autocomplete="off" autocapitalize="none" spellcheck="false" data-detail-focus="client-portal-password"><button class="btn" type="submit">Register website</button></form></details><p id="detailClientPortalStatus" role="status"></p></div>`;
 }
 async function registerClientPortal(id, form) {
   const slug = String(form.get('slug')).trim().toLowerCase();
@@ -1160,13 +1160,13 @@ async function registerClientPortal(id, form) {
   status.textContent = 'Registering…';
   const result = await runFollowUp(`client-portal:${id}`, {
     verb: 'register-client-portal', args: { deal: id, slug, password: String(form.get('password')) },
-    summary: 'Client portal',
+    summary: 'Client website',
   });
   if (state.panelDeal !== id) return;
   if (result?.status === 'ok') {
     await refreshPanel();
   } else if ($('detailClientPortalStatus')) {
-    $('detailClientPortalStatus').textContent = result?.message || 'Client portal not confirmed';
+    $('detailClientPortalStatus').textContent = result?.message || 'Client website not confirmed';
   }
 }
 function refreshPanel({ changed = false } = {}) {
