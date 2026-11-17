@@ -20,7 +20,6 @@ import { MailPriorities } from "./mail-priorities";
 import { ReviewCard } from "./review-card";
 import { recordRoutes } from "./routes";
 import { completionLabel, HomeSections, HomeWelcome } from "./sections";
-import { WaitingEditor } from "./waiting-editor";
 
 type SnoozePreview = Readonly<{
   items: readonly InboxItem[];
@@ -411,23 +410,6 @@ function Inbox({ client }: { client: InboxClient }) {
                       : "Ready for your attention"}
             {item.hold_until ? ` · On hold until ${item.hold_until}` : ""}
           </p>
-          <WaitingEditor
-            activity={(active) => {
-              inFlight.current = active;
-              setBusy(active);
-              if (active) void cache.cancelQueries({ queryKey });
-            }}
-            item={item}
-            client={client}
-            disabled={busy || !!pending || !!reviewing}
-            update={(next) =>
-              cache.setQueryData<Snapshot>(queryKey, (snapshot) =>
-                snapshot
-                  ? { ...snapshot, items: snapshot.items.map((row) => (row.item_id === next.item_id ? next : row)) }
-                  : snapshot,
-              )
-            }
-          />
           {item_id === item.item_id && recordRoutes.source(item) && (
             <a className="inbox-source" href={recordRoutes.source(item) || undefined}>
               Open source record ↗
@@ -441,16 +423,17 @@ function Inbox({ client }: { client: InboxClient }) {
           )}
         </div>
         <div className="inbox-actions">
-          {home && item.review_reference && client.review && (
+          {item.review_reference && client.review && item.source_state === "needs_attention" && (
             <button
               type="button"
+              className={completable ? undefined : "inbox-primary"}
               disabled={busy || !!pending || !!reviewing}
               onClick={(event) => {
                 reviewOpener.current = event.currentTarget;
                 setReviewing(item);
               }}
             >
-              Review card
+              {item.source_type === "email_proposal" ? "Review reply" : "Review card"}
             </button>
           )}
           {completable && (
@@ -463,6 +446,19 @@ function Inbox({ client }: { client: InboxClient }) {
               Mark done
             </button>
           )}
+          {!completable &&
+            !(item.review_reference && client.review && item.source_state === "needs_attention") &&
+            item.source_state !== "done" && (
+              <p>
+                {item.source_type === "email_proposal" && item.source_state === "failed"
+                  ? "This reply failed. Sending recovery is not available here."
+                  : item.source_type === "notification"
+                    ? "This update cannot be finished here yet."
+                    : item.source_state === "working"
+                      ? "Work is in progress. Come back when it is ready."
+                      : "Finish this on the source record."}
+              </p>
+            )}
           {item.source_state !== "working" && (
             <button
               type="button"

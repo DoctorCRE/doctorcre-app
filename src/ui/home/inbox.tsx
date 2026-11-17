@@ -9,17 +9,6 @@ type WaitingIdentity = Readonly<{
   display_name: string | null;
 }>;
 type Waiting = Readonly<{ identity: WaitingIdentity; reason: string; evidence: string[]; version: number }>;
-type WaitingArgs = Readonly<{
-  idempotency_key: string;
-  item_id: string;
-  item_version: string;
-  base_version: number;
-  reason: string;
-  evidence: string[];
-}>;
-export type WaitingCommand =
-  | Readonly<{ action: "set"; args: WaitingArgs & { target: Pick<WaitingIdentity, "kind" | "id"> } }>
-  | Readonly<{ action: "clear"; args: WaitingArgs }>;
 type BaseItem = Readonly<{
   item_id: string;
   source_type: string;
@@ -120,18 +109,6 @@ export function object(value: unknown): value is Record<string, unknown> {
 }
 const text = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 const timestamp = (value: unknown) => text(value) && Number.isFinite(Date.parse(value));
-export function waitingLabel(
-  item: Pick<InboxItem, "waiting_version" | "waiting_on" | "section" | "source_state">,
-): string | null {
-  if (item.waiting_version === undefined || ["done", "settled"].includes(item.section) || item.source_state === "done")
-    return null;
-  if (!item.waiting_on && (item.section !== "inbox" || item.source_state === "working")) return null;
-  return item.waiting_on
-    ? item.waiting_on.identity.available
-      ? `Waiting on ${item.waiting_on.identity.display_name}`
-      : "Waiting on someone · Identity unavailable"
-    : "Waiting on someone · Not recorded";
-}
 function parseWaiting(value: unknown, version: number): Waiting | null {
   if (value === null) return null;
   if (
@@ -379,9 +356,6 @@ export function parseResults(
     };
   });
 }
-export type WaitingChoice = Pick<WaitingIdentity, "kind" | "id"> & { name: string };
-export type PartyCursor = Readonly<{ query: string; name: string; id: string }>;
-type PeoplePage = Readonly<{ choices: WaitingChoice[]; next_cursor: PartyCursor | null }>;
 export type InboxClient = {
   review?: {
     current(item: InboxItem): Promise<InboxItem>;
@@ -391,10 +365,6 @@ export type InboxClient = {
       request: ReviewRequest,
     ): Promise<{ item: InboxItem; receipt?: TaskReceipt; saved_version?: number }>;
   };
-  actors?(): Promise<WaitingChoice[] | null>;
-  search?(query: string, cursor?: PartyCursor): Promise<PeoplePage | null>;
-  choices?(): Promise<WaitingChoice[]>;
-  wait?(request: WaitingCommand): Promise<InboxItem>;
   read(signal?: AbortSignal): Promise<Snapshot>;
   run(request: Command): Promise<ItemResult[]>;
   batch(request: BatchRequest, expected: readonly string[]): Promise<BatchResult>;
@@ -419,116 +389,8 @@ export function createInboxClient(
     }
     throw Error("Inbox unavailable. No supported inbox could be verified.");
   }
-  const unavailable = Symbol("unknown_tool");
-  async function directory(name: string, args: unknown): Promise<unknown> {
-    try {
-      const value = await rpc(name, args);
-      return object(value) && value.error === "unknown_tool" ? unavailable : value;
-    } catch (error) {
-      if (object(error) && object(error.payload) && error.payload.error === "unknown_tool") return unavailable;
-      throw error;
-    }
-  }
   return {
     read,
-    async actors() {
-      const value = await directory("read-actor-roster-v1", {});
-      if (value === unavailable) return null;
-      if (
-        !object(value) ||
-        value.ok !== true ||
-        value.schema_version !== "actor-roster.v1" ||
-        !Array.isArray(value.actors) ||
-        value.actors.length > 1000
-      )
-        throw Error("Actor roster unavailable.");
-      const choices = new Map<string, WaitingChoice>();
-      for (const row of value.actors) {
-        if (
-          !object(row) ||
-          !uuid(row.id) ||
-          typeof row.slug !== "string" ||
-          !text(row.display_name) ||
-          !["human", "automation", "system"].includes(String(row.kind))
-        )
-          throw Error("Actor roster unreadable.");
-        if (row.kind === "human") choices.set(row.id, { kind: "actor", id: row.id, name: row.display_name });
-      }
-      return [...choices.values()];
-    },
-    async search(input, cursor) {
-      const query = input.trim();
-      if (!query || query.length > 100 || (cursor && cursor.query.toLowerCase() !== query.toLowerCase()))
-        throw Error("Enter a name prefix of 1 to 100 characters.");
-      const value = await directory("search-parties-v1", { query, limit: 25, ...(cursor ? { cursor } : {}) });
-      if (value === unavailable) return null;
-      if (
-        !object(value) ||
-        value.ok !== true ||
-        value.schema_version !== "party-search.v1" ||
-        !Array.isArray(value.parties) ||
-        value.parties.length > 25
-      )
-        throw Error("People search unavailable.");
-      const choices = new Map<string, WaitingChoice>();
-      for (const row of value.parties) {
-        if (!object(row) || !uuid(row.id) || !text(row.display_name) || !["person", "org"].includes(String(row.kind)))
-          throw Error("People search unreadable.");
-        if (row.kind === "person") choices.set(row.id, { kind: "party", id: row.id, name: row.display_name });
-      }
-      const next = value.next_cursor;
-      if (
-        next !== null &&
-        (!object(next) ||
-          typeof next.query !== "string" ||
-          next.query.toLowerCase() !== query.toLowerCase() ||
-          typeof next.name !== "string" ||
-          next.name.length > 10000 ||
-          !uuid(next.id))
-      )
-        throw Error("People search cursor unreadable.");
-      return {
-        choices: [...choices.values()],
-        next_cursor: next === null ? null : { query: String(next.query), name: String(next.name), id: String(next.id) },
-      };
-    },
-    async choices() {
-      const value = await rpc("email-match-contacts", {});
-      if (!object(value) || value.schema_version !== "email-match-contacts.v1" || !Array.isArray(value.contacts))
-        throw Error("People unavailable. Try loading again.");
-      const choices = new Map<string, WaitingChoice>();
-      for (const row of value.contacts)
-        if (
-          object(row) &&
-          row.exact === true &&
-          text(row.name) &&
-          object(row.contact_snapshot) &&
-          uuid(row.contact_snapshot.party_id)
-        )
-          choices.set(row.contact_snapshot.party_id, {
-            kind: "party",
-            id: row.contact_snapshot.party_id,
-            name: row.name,
-          });
-      return [...choices.values()];
-    },
-    async wait(request) {
-      if (navigator.onLine === false) throw Error("Offline. No change was sent.");
-      const result = await rpc(`${request.action}-home-waiting`, request.args);
-      if (
-        !object(result) ||
-        result.ok !== true ||
-        result.schema_version !== "home-waiting.v1" ||
-        result.item_id !== request.args.item_id ||
-        result.waiting_version !== request.args.base_version + 1
-      )
-        throw Error("Result uncertain. Retry the same request.");
-      const snapshot = await read();
-      const item = snapshot.items.find((item) => item.item_id === request.args.item_id);
-      if (!item || item.waiting_version === undefined || item.waiting_version < result.waiting_version)
-        throw Error("Waiting change recorded. Readback unavailable. Retry the same request.");
-      return item;
-    },
     review: {
       async current(item) {
         const current = (await read()).items.find((row) => row.item_id === item.item_id);

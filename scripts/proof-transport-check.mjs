@@ -84,7 +84,6 @@ export function checkProofSource(source, filename = 'proof.mjs') {
     }
     const browserFunction = path.findParent(parent => parent.isFunction() && browserFunctions.has(parent.node));
     if (browserFunction) return;
-    if (filename === 'prove-waiting-editor-canonical-reopen.mjs' && source.type === 'TemplateLiteral' && source.quasis[0].value.raw === 'data:text/javascript;base64,' && source.expressions[0]?.type === 'CallExpression' && source.expressions[0].callee?.property?.name === 'toString') return;
     fail(path.node, 'module loading outside the declared browser evaluation');
   }, ReferencedIdentifier(path) {
     if (subprocessNames.has(path.node.name) && !(path.parent.type === 'CallExpression' && path.parent.callee === path.node)) fail(path.node, 'cannot alias a subprocess capability');
