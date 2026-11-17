@@ -1117,7 +1117,7 @@ test('pipeline recovery reports the original activation target from Leads',async
  assert.deepEqual(writes[1],writes[0]);
 });
 
-test('phone board folds parked deals behind the Parked toggle, hides empty phases and keeps view controls visible', async t => {
+test('parked deals sit in the closed Parked lane at every width, the headline counts the cards shown, and the phone hides empty phases', async t => {
   for (const width of [390, 1440]) await t.test(String(width), async t => {
     const { page, errors } = await open(t, { width, height: 844 });
     await page.evaluate(async () => {
@@ -1135,12 +1135,13 @@ test('phone board folds parked deals behind the Parked toggle, hides empty phase
     await refresh(page);
     const parked = page.locator('[data-id="demo-parked-on-deck"]');
     const lane = page.locator('.parked-lane');
+    assert.equal(await page.locator('[data-column="pending"] [data-id="demo-parked-on-deck"]').count(), 0);
+    assert.equal(await lane.locator('[data-id="demo-parked-on-deck"]').count(), 1);
+    assert.equal(await lane.evaluate(node => node.open), false);
+    assert.equal(await parked.isVisible(), false);
+    assert.match(await lane.locator('summary').textContent(), /Parked · 1/);
+    assert.equal(await page.locator('#boardLive').textContent(), `${await page.locator('.kanban-column .kanban-card').count()} open deals · 1 parked`);
     if (width === 390) {
-      assert.equal(await page.locator('[data-column="pending"] [data-id="demo-parked-on-deck"]').count(), 0);
-      assert.equal(await lane.locator('[data-id="demo-parked-on-deck"]').count(), 1);
-      assert.equal(await lane.evaluate(node => node.open), false);
-      assert.equal(await parked.isVisible(), false);
-      assert.match(await lane.locator('summary').textContent(), /Parked · 1/);
       const shown = await page.locator('.kanban-column').evaluateAll(nodes => nodes.filter(n => n.getClientRects().length).map(n => n.dataset.column));
       assert.deepEqual(shown, ['research']);
       const tabs = await page.locator('#appTabsSlot').evaluate(node => {
@@ -1155,11 +1156,9 @@ test('phone board folds parked deals behind the Parked toggle, hides empty phase
         };
       });
       assert.deepEqual(tabs, { overflowX: 'visible', fits: true });
-      await lane.locator('summary').click();
-      assert.equal(await parked.isVisible(), true);
-    } else {
-      assert.equal(await page.locator('[data-column="pending"] [data-id="demo-parked-on-deck"]').count(), 1);
     }
+    await lane.locator('summary').click();
+    assert.equal(await parked.isVisible(), true);
     assert.deepEqual(errors, []);
   });
 });

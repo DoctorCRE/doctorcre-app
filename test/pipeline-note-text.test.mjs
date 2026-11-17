@@ -36,6 +36,58 @@ test("a dict or object with no sentence renders as nothing, never as raw braces"
   assert.equal(noteText(undefined), "");
 });
 
+test("an empty list, as a value or as text, carries no sentence", () => {
+  assert.equal(noteText("[]"), "");
+  assert.equal(noteText(" [ ] "), "");
+  assert.equal(noteText([]), "");
+});
+
+test("a list of notes, as a value or as text, reads as its sentences", () => {
+  assert.equal(noteText("[{'date': '2026-07-31', 'text': 'Sent the survey'}, {'date': '2026-08-02', 'text': 'Client replied'}]"), "Sent the survey; Client replied");
+  assert.equal(noteText('[{"text": "Sent the survey"}]'), "Sent the survey");
+  assert.equal(noteText([{ text: "Sent the survey" }, "Client replied"]), "Sent the survey; Client replied");
+});
+
+test("a Python list of quoted strings reads as those strings", () => {
+  assert.equal(noteText("['Sent survey', 'Called back']"), "Sent survey; Called back");
+  assert.equal(noteText(`["It's signed", 'Called back']`), "It's signed; Called back");
+  assert.equal(noteText("[{'text': 'a'}, 'loose']"), "a; loose");
+});
+
+test("a bracketed note it cannot fully read prints as written", () => {
+  assert.equal(noteText("['a'] then more]"), "['a'] then more]");
+  assert.equal(noteText("[{'date': '2026-07-31'}, 'loose']"), "[{'date': '2026-07-31'}, 'loose']");
+  assert.equal(noteText('[{"date": "2026-07-31"}]'), '[{"date": "2026-07-31"}]');
+  assert.equal(noteText("[{'text': 'Sent the survey'}, {'text': 'Client rep"), "[{'text': 'Sent the survey'}, {'text': 'Client rep");
+});
+
+test("a braced note that is not one flat dict prints as written", () => {
+  assert.equal(noteText("{'text': 'Client rep}"), "{'text': 'Client rep}");
+  assert.equal(noteText('{"urgent"} call the broker {today}'), '{"urgent"} call the broker {today}');
+  assert.equal(noteText("{'text': 'x'} plus more {y}"), "{'text': 'x'} plus more {y}");
+});
+
+test("a Python repr's escapes read back as the characters they stand for", () => {
+  assert.equal(noteText(String.raw`[{'date': '2026-07-31', 'text': 'Call\r\nback'}]`), "Call\r\nback");
+  assert.equal(noteText(String.raw`[{'text': 'a\x01b c\U000e0001d\\e\'f"'}]`), "a\x01b c\u{e0001}d\\e'f\"");
+  assert.equal(noteText(String.raw`['It\'s "x"']`), `It's "x"`);
+});
+
+test("a note with an escape Python never writes prints as written", () => {
+  assert.equal(noteText(String.raw`[{'text': 'a\qb'}]`), String.raw`[{'text': 'a\qb'}]`);
+  assert.equal(noteText(String.raw`['a\x0']`), String.raw`['a\x0']`);
+  assert.equal(noteText(String.raw`{'text': 'a\qb'}`), String.raw`{'text': 'a\qb'}`);
+});
+
+test("a JSON list never drops a string item that reads as no sentence", () => {
+  assert.equal(noteText(`["{'date': '2026-07-31'}", "Called back"]`), `["{'date': '2026-07-31'}", "Called back"]`);
+  assert.equal(noteText('["", "Called back"]'), "Called back");
+});
+
+test("square brackets inside an ordinary sentence are left alone", () => {
+  assert.equal(noteText("[Draft] send the LOI"), "[Draft] send the LOI");
+});
+
 test("braces inside an ordinary sentence are left alone", () => {
   assert.equal(noteText("Use the {client} template"), "Use the {client} template");
 });
