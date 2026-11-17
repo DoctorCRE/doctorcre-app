@@ -219,15 +219,17 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   };
   const renderReadStatus = () => {
     const notice = layout.querySelector('#appTodayReadStatus');
-    notice.hidden = !failedReads.length && todayReadState !== 'loading';
-    notice.textContent = failedReads.length ? `${todayItems || todayNeeds || feed.caught_up ? 'Showing last update. ' : ''}${failedReads.join(', ')} unavailable. Retry Today to update.` : todayReadState === 'loading' ? 'Loading Today…' : '';
+    const kept = todayItems || todayNeeds || feed.caught_up;
+    const loading = todayReadState === 'loading' && !kept;
+    notice.hidden = !failedReads.length && !loading;
+    notice.textContent = failedReads.length ? `${kept ? 'Showing last update. ' : ''}${failedReads.join(', ')} unavailable. Retry Today to update.` : loading ? 'Loading Today…' : '';
     layout.querySelector('#appTodayRetry').hidden = !failedReads.length;
     connection(!failedReads.length);
   };
   const failedRead = () => {
     todayReadState = 'settled';
     void calendarPanels.then(panel => panel?.clear());
-    failedReads = ['Schedule', 'Overdue', 'Dated reminders'];
+    failedReads = homeOrInbox ? ['Schedule', 'Dated reminders'] : ['Schedule', 'Overdue', 'Dated reminders'];
     if (!pageOwnsMoves) failedReads.push('Deal pulse');
     renderToday();
     if (!pageOwnsMoves && !feed.caught_up) render('#appTodayMoves', unavailable);
@@ -280,7 +282,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     connection(connected && triageValid && !failedReads.length);
     failedReads = [];
     if (interaction.current() && !scheduleValid) failedReads.push('Schedule');
-    if (!connected || !triageValid) failedReads.push('Overdue');
+    if (!homeOrInbox && (!connected || !triageValid)) failedReads.push('Overdue');
     if (!triageValid) failedReads.push('Dated reminders');
     if (connected) {
       const value = board.value;

@@ -166,7 +166,9 @@ export async function mountWorkingWeek(host: HTMLElement) {
                     {entry.deal_name && <span>{entry.deal_name}</span>}
                   </button>
                 ))}
-                {!entries.length && <p>No returned items for this day. This does not confirm availability.</p>}
+                {!entries.length && calendar?.state !== "loading" && (
+                  <p>No returned items for this day. This does not confirm availability.</p>
+                )}
               </div>
               <a href="/review-workflows#homeCalendar">Open calendar workflows</a>
             </>

@@ -278,7 +278,7 @@ test('Today retains offline rows but clears them before resume revalidation',asy
  release();await page.waitForFunction(()=>document.querySelector('#appTodayNext [data-layout-deal]'));
 });
 
-test('Home Today shows loading through initial reads, refresh and tab resume',async t=>{
+test('Home Today shows loading on first read and tab resume, and keeps rows quietly on a background refresh',async t=>{
  const {page,errors}=await open(t,{clock:true});
  let pending,release;
  let reads=0,failedSchedule=false;
@@ -295,7 +295,7 @@ test('Home Today shows loading through initial reads, refresh and tab resume',as
  });
  const loading=async()=>{
   await page.locator('.working-week').waitFor();
-  assert.doesNotMatch(await page.locator('.working-week').textContent(),/unavailable/i);
+  assert.doesNotMatch(await page.locator('.working-week').textContent(),/unavailable|No returned items/i);
   assert.doesNotMatch(await page.locator('#appToday').textContent(),/unavailable/i);
   assert.match(await page.locator('#appTodayReadStatus').textContent(),/Loading Today/);
   assert.equal(await page.locator('#appTodayRetry').isVisible(),false);
@@ -304,27 +304,37 @@ test('Home Today shows loading through initial reads, refresh and tab resume',as
  await page.locator('#appToday').waitFor();await loading();
  await captureToday(page,'initial-loading');
  release();await page.locator('#appSyncTime[datetime]').waitFor({state:'attached'});
- for(const trigger of ['refresh','resume']){
+ for(const trigger of ['poll','resume']){
   hold();const before=reads;
-  if(trigger==='refresh')await page.locator('#appSyncRefresh').click();
+  const rows=await page.locator('#appToday [data-layout-deal]').allTextContents();
+  const synced=await page.locator('#appSyncTime').getAttribute('datetime');
+  assert.ok(rows.length);
+  if(trigger==='poll')await page.clock.fastForward(61_000);
   else await page.evaluate(()=>{
    for(const state of ['hidden','visible']){
     Object.defineProperty(document,'visibilityState',{configurable:true,value:state});
     document.dispatchEvent(new Event('visibilitychange'));
    }
   });
-  await loading();
+  if(trigger==='resume'){
+   await loading();
+   assert.match(await page.locator('#appScheduleSlot').textContent(),/Loading schedule/);
+  }else{
+   await settles(()=>assert.ok(reads>before));
+   assert.equal(await page.locator('#appTodayReadStatus').isVisible(),false);
+   assert.deepEqual(await page.locator('#appToday [data-layout-deal]').allTextContents(),rows);
+  }
   await captureToday(page,trigger+'-loading');
-  if(trigger==='resume')assert.match(await page.locator('#appScheduleSlot').textContent(),/Loading schedule/);
-  release();await page.waitForFunction(()=>document.querySelector('#appTodayReadStatus').hidden);
+  release();await page.waitForFunction(synced=>document.querySelector('#appSyncTime').dateTime!==synced,synced);
   assert.ok(reads>before);
  }
- hold();await page.locator('#appSyncRefresh').click();
+ hold();const synced=await page.locator('#appSyncTime').getAttribute('datetime');
+ await page.locator('#appSyncRefresh').click();
  await page.evaluate(async()=>{
   const {meetingPreparationLifetime}=await import('/js/ui-meeting-preparation-lifetime.generated.js');
   meetingPreparationLifetime(document).retire();
  });
- release();await page.waitForFunction(()=>document.querySelector('#appTodayReadStatus').hidden);
+ release();await page.waitForFunction(synced=>document.querySelector('#appSyncTime').dateTime!==synced,synced);
  assert.equal(await page.locator('#appTodayRetry').isVisible(),false);
  failedSchedule=true;await page.clock.fastForward(61_000);
  await page.getByRole('button',{name:'Retry Today',exact:true}).waitFor();
@@ -355,7 +365,7 @@ test('Today failure notice uses visible section titles and Retry Today',async t=
  await page.route('**/pipeline/changes*',route=>route.fulfill({status:503,body:'Unavailable'}));
  await page.goto('http://localhost/?mode=live');
  await page.locator('#appTodayRetry').waitFor();
- assert.match(await page.locator('#appTodayReadStatus').textContent(),/Dated reminders, Deal pulse unavailable\. Retry Today/);
+ assert.match(await page.locator('#appTodayReadStatus').textContent(),/^(Showing last update\. )?Dated reminders, Deal pulse unavailable\. Retry Today to update\.$/);
 });
 
 for(const stalled of ['client','changes'])test(`Today settles the whole-read timeout during ${stalled} with Retry Today`,async t=>{
@@ -384,7 +394,7 @@ for(const stalled of ['client','changes'])test(`Today settles the whole-read tim
  if(stalled==='changes')await started(()=>pages===4);
  await page.clock.runFor(stalled==='client'?30_001:3_001);
  await settles(async()=>assert.equal(await page.locator('#appTodayRetry').isVisible(),true),2000);
- assert.doesNotMatch(await page.locator('#appTodayReadStatus').textContent(),/Loading/);
+ assert.doesNotMatch(await page.locator('#appTodayReadStatus').textContent(),/Loading|Overdue/);
  assert.match(await page.locator('#appTodayReadStatus').textContent(),/unavailable/);
  await captureToday(page,'timeout-'+stalled);
  assert.deepEqual(errors,[]);
