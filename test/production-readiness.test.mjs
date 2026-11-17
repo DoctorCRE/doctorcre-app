@@ -26,7 +26,8 @@ test("staging remains isolated from production CARR and production hostnames", (
     { binding: "CARR", service: "carr-mcp-staging" },
     { binding: "ENGINE", service: "doctorcre-engine-staging" },
   ]);
-  assert.deepEqual(staging.kv_namespaces, [{ binding: "ENGINE_ROUTING", id: "1b69f9569abb4f33b22356bd621349d4" }]);
+  assert.deepEqual(staging.kv_namespaces.map(({ binding }) => binding), ["ENGINE_ROUTING"]);
+  assert.notEqual(staging.kv_namespaces[0].id, config.kv_namespaces[0].id, "staging read switches must not flip production");
   assert.equal(staging.vars.APP_ENV, "staging");
 });
 
