@@ -264,8 +264,48 @@ test('Today retains offline rows but clears them before resume revalidation',asy
  assert.deepEqual(await page.locator('#appToday [data-layout-deal]').allTextContents(),before);
  hold=true;await page.context().setOffline(false);
  await page.waitForFunction(()=>!document.querySelector('#appToday [data-layout-deal]'));
- assert.doesNotMatch(await page.locator('#appToday').textContent(),/Synthetic offline move|Showing last update/);
+ assert.doesNotMatch(await page.locator('#appToday').textContent(),/Synthetic offline move|Showing last update|unavailable/i);
+ assert.match(await page.locator('#appTodayReadStatus').textContent(),/Loading Today/);
+ assert.match(await page.locator('#appScheduleSlot').textContent(),/Loading schedule/);
+ assert.equal(await page.locator('#appTodayRetry').isVisible(),false);
  release();await page.waitForFunction(()=>document.querySelector('#appTodayNext [data-layout-deal]'));
+});
+
+test('Home Today shows loading through initial reads, refresh and tab resume',async t=>{
+ const {page,errors}=await open(t,{clock:true});
+ let pending,release;
+ let reads=0;
+ const hold=()=>{pending=new Promise(resolve=>release=resolve);};
+ t.after(()=>release?.());
+ await page.route('**/mcp',async route=>{
+  if(['deal-room-board','morning-brief','calendar-meeting-prep'].includes(route.request().postDataJSON().params.name)){
+   reads++;await pending;
+  }
+  return route.fallback();
+ });
+ const loading=async()=>{
+  assert.doesNotMatch(await page.locator('#appToday').textContent(),/unavailable/i);
+  assert.match(await page.locator('#appTodayReadStatus').textContent(),/Loading Today/);
+  assert.equal(await page.locator('#appTodayRetry').isVisible(),false);
+ };
+ hold();await page.goto('http://localhost/?mode=live');
+ await page.locator('#appToday').waitFor();await loading();
+ release();await page.locator('#appSyncTime[datetime]').waitFor({state:'attached'});
+ for(const trigger of ['refresh','resume']){
+  hold();const before=reads;
+  if(trigger==='refresh')await page.locator('#appSyncRefresh').click();
+  else await page.evaluate(()=>{
+   for(const state of ['hidden','visible']){
+    Object.defineProperty(document,'visibilityState',{configurable:true,value:state});
+    document.dispatchEvent(new Event('visibilitychange'));
+   }
+  });
+  await loading();
+  if(trigger==='resume')assert.match(await page.locator('#appScheduleSlot').textContent(),/Loading schedule/);
+  release();await page.waitForFunction(()=>document.querySelector('#appTodayReadStatus').hidden);
+  assert.ok(reads>before);
+ }
+ assert.deepEqual(errors,[]);
 });
 
 test('Home, Leads and Local Deals fit desktop and phone; capture the six review renders',async t=>{
