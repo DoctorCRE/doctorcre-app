@@ -454,13 +454,9 @@ function Inbox({ client }: { client: InboxClient }) {
               <p className="inbox-detail inbox-guidance">
                 This reply didn't send. Send it from your email, then press Hide from inbox.
               </p>
-            ) : source ? (
-              <a className="inbox-primary" href={source}>
-                {item.source_type === "notification" ? "Open in Updates" : `Open ${sourcePage}`}
-              </a>
-            ) : item.source_type === "notification" ? (
-              <a className="inbox-primary" href="/updates">
-                Open Updates
+            ) : source || item.source_type === "notification" ? (
+              <a className="inbox-primary" href={source ?? "/updates"}>
+                Open {sourcePage ?? "Updates"}
               </a>
             ) : (
               <p className="inbox-detail inbox-guidance">Read it, then hide it from your inbox.</p>
