@@ -55,7 +55,18 @@ def candidate():
     main = subprocess.check_output(['git', 'rev-parse', 'origin/main'], text=True, timeout=30).strip()
     if not re.fullmatch('[0-9a-f]{40}', main):
         raise ValueError('Invalid current main identity')
-    record('eligible' if main == sha else 'superseded')
+    live = json.loads(subprocess.check_output([
+        'curl', '--fail', '--silent', '--show-error', '--max-time', '30',
+        '--header', 'x-doctorcre-release-reader: 1', 'https://app.doctorcre.com/app-release',
+    ], text=True, timeout=45))['source_commit']
+    if not re.fullmatch('[0-9a-f]{40}', live):
+        raise ValueError('Invalid live production identity')
+
+    def reaches(newer, older):
+        return subprocess.check_output(['git', 'merge-base', older, newer], text=True, timeout=30).strip() == older
+
+    # Requiring main's head starved production whenever merges outpaced CI.
+    record('eligible' if reaches(main, sha) and reaches(sha, live) else 'superseded')
 
 
 if __name__ == '__main__':

@@ -5,9 +5,8 @@ import { readFileSync } from "node:fs";
 
 const read = (name) => readFileSync(new URL(`../scripts/${name}`, import.meta.url), "utf8");
 
-test("the production release script refuses off-main and dirty checkouts, like staging", () => {
+test("the production release script refuses dirty checkouts, like staging", () => {
   const source = read("release-production.mjs");
-  assert.match(source, /sourceCommit !== mainCommit/);
   assert.match(source, /untracked-files=all/);
   assert.match(source, /production releases require a clean checkout/);
 });
@@ -54,7 +53,7 @@ test('credential-free environment stays closed when an unrelated secret is added
   assert.deepEqual(credentialFreeEnv({ PATH: '/fixture', CLOUDFLARE_API_TOKEN: canary, GH_TOKEN: canary, NEW_SECRET: canary }), { PATH: '/fixture' });
 });
 
-function releaseFixture(t, { mainCommit = '1'.repeat(40), dirty = '', failure = null, uploadOutput = 'Worker Version ID: 0f1e2d3c-4b5a-4968-8776-655443322110' } = {}) {
+function releaseFixture(t, { mainCommit = '1'.repeat(40), history = [mainCommit], dirty = '', failure = null, uploadOutput = 'Worker Version ID: 0f1e2d3c-4b5a-4968-8776-655443322110' } = {}) {
   const root = temporaryDirectory('release-env-');
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'));
@@ -76,6 +75,7 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ tool: '${tool}', args, deploy: !!process.env.CLOUDFLARE_API_TOKEN, unrelated: !!process.env.NEW_SECRET })+'\\n');
 if ('${tool}' === 'git' && args[0] === 'rev-parse') console.log(args[1] === 'origin/main' ? ${JSON.stringify(mainCommit)} : '${'1'.repeat(40)}');
 if ('${tool}' === 'git' && args[0] === 'status') console.log(${JSON.stringify(dirty)});
+if ('${tool}' === 'git' && args[0] === 'merge-base') { const order = ${JSON.stringify(history)}, [older, newer] = args.slice(2); process.exit(order.includes(older) && order.indexOf(older) <= order.indexOf(newer) ? 0 : 1); }
 for (const failure of [${JSON.stringify(failure)}].flat().filter(Boolean)) {
 const matchingCalls = failure ? fs.readFileSync(${JSON.stringify(trace)}, 'utf8').trim().split('\\n').map(JSON.parse).filter(row => row.tool === failure.tool && row.args.slice(0, failure.prefix.length).join(' ') === failure.prefix.join(' ')).length : 0;
 if (failure && failure.tool === '${tool}' && args.slice(0, failure.prefix.length).join(' ') === failure.prefix.join(' ') && matchingCalls === (failure.onCall || 1)) { console.error(failure.stderr || 'synthetic failure'); process.exit(failure.status || 1); }
@@ -105,6 +105,27 @@ test('staging accepts one exact clean candidate without weakening default main o
   assert.ok(provider.length > 0);
   assert.ok(provider.every(row => row.args[row.args.indexOf('--env') + 1] === 'staging'));
   assert.ok(rows.filter(row => row.tool !== 'wrangler').every(row => !row.deploy && !row.unrelated));
+});
+
+test('production publishes a tested main commit behind main but never one older than production', t => {
+  const [live, source, main] = ['0', '1', '2'].map(digit => digit.repeat(40));
+  const publish = (history, served) => {
+    const { root, trace, env } = releaseFixture(t, { mainCommit: main, history });
+    writeFileSync(join(root, 'published.json'), JSON.stringify({ versions: [{ version_id: '0f1e2d3c-4b5a-4968-8776-655443322110', percentage: 100 }] }));
+    writeFileSync(join(root, 'version.json'), JSON.stringify({ id: '0f1e2d3c-4b5a-4968-8776-655443322110', resources: { bindings: [{ name: 'GIT_SHA', type: 'plain_text', text: served }] } }));
+    const result = spawnSync(process.execPath, ['scripts/release-production.mjs'], { cwd: root, env, encoding: 'utf8' });
+    return { result, uploaded: readFileSync(trace, 'utf8').includes('"upload"') };
+  };
+  const forward = publish([live, source, main], live);
+  assert.equal(forward.result.status, 0, forward.result.stderr);
+  assert.equal(forward.uploaded, true);
+  const backward = publish([source, live, main], live);
+  assert.notEqual(backward.result.status, 0);
+  assert.match(backward.result.stderr, /newer source/);
+  assert.equal(backward.uploaded, false);
+  const offMain = publish([live, main], live);
+  assert.notEqual(offMain.result.status, 0);
+  assert.equal(offMain.uploaded, false);
 });
 
 test('staging rejects malformed, mismatched, unknown and dirty candidate requests before publication', t => {
@@ -331,13 +352,13 @@ test('duplicate exact-SHA wakes promote once and emit already-live receipts', t 
 });
 
 const deployedVersion = '0f1e2d3c-4b5a-4968-8776-655443322110';
-test('a different source, missing source binding or split traffic still publishes the exact candidate', t => {
+test('an older source, missing source binding or split traffic still publishes the exact candidate', t => {
   for (const [versions, bindings] of [
     [[{ version_id: deployedVersion, percentage: 100 }], [{ name: 'GIT_SHA', type: 'plain_text', text: '2'.repeat(40) }]],
     [[{ version_id: deployedVersion, percentage: 100 }], []],
     [[{ version_id: deployedVersion, percentage: 50 }, { version_id: 'another-version', percentage: 50 }], []],
   ]) {
-    const { root, trace, env } = releaseFixture(t);
+    const { root, trace, env } = releaseFixture(t, { history: ['2'.repeat(40), '1'.repeat(40)] });
     writeFileSync(join(root, 'published.json'), JSON.stringify({ versions }));
     writeFileSync(join(root, 'version.json'), JSON.stringify({ id: deployedVersion, resources: { bindings } }));
     const result = spawnSync(process.execPath, ['scripts/release-production.mjs'], { cwd: root, env, encoding: 'utf8' });

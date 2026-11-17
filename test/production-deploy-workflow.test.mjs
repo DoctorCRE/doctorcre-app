@@ -56,7 +56,7 @@ test('production waits for successful CI on that source and uses the existing pu
 });
 
 
-test('exact successful completion selects its SHA and stale completions emit superseded receipts', () => {
+test('a successful main completion publishes when it moves production forward, and never moves it back', () => {
   const script = new URL('../scripts/production-candidate.py', import.meta.url).pathname;
   const harness = `
 import importlib.util, json, os, tempfile
@@ -66,7 +66,9 @@ spec=importlib.util.spec_from_file_location('candidate', ${JSON.stringify(script
 module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
 sha='b'*40
 run=dict(id=123, run_attempt=1, name='CI', path='.github/workflows/ci.yml', head_sha=sha, head_branch='main', event='push', status='completed', conclusion='success', head_repository=dict(full_name='synthetic/app'), repository=dict(full_name='synthetic/app'))
-def execute(event=None, current=sha, latest=None, broken=None):
+history=[c*40 for c in '0abc']
+live=['0'*40]
+def execute(event=None, current=sha, latest=None, broken=None, served=None):
  with tempfile.TemporaryDirectory() as tmp:
   event=event or dict(action='completed', repository=dict(full_name='synthetic/app'), workflow_run=run)
   Path(tmp,'event').write_text(json.dumps(event)); Path(tmp,'output').write_text('')
@@ -78,6 +80,12 @@ def execute(event=None, current=sha, latest=None, broken=None):
    if args[:2]==['git','fetch']: return ''
    if args==['git','rev-parse','HEAD']: return event['workflow_run']['head_sha']
    if args==['git','rev-parse','origin/main']: return current
+   if args[:2]==['git','merge-base']:
+    if not set(args[2:])<=set(history): raise RuntimeError('unknown commit')
+    return min(args[2:], key=history.index)
+   if args[0]=='curl':
+    assert args[-1]=='https://app.doctorcre.com/app-release'
+    return served if served is not None else json.dumps(dict(service='doctorcre-app', environment='production', source_commit=live[0]))
    raise AssertionError(args)
   with patch.dict(os.environ, dict(GITHUB_EVENT_PATH=tmp+'/event', GITHUB_OUTPUT=tmp+'/output', GITHUB_REPOSITORY=event['repository']['full_name'], RUNNER_TEMP=tmp)), patch.object(module.subprocess,'check_output',side_effect=call):
    try: module.candidate(); code=0
@@ -86,29 +94,36 @@ def execute(event=None, current=sha, latest=None, broken=None):
 code, output, receipt=execute()
 assert code==0 and 'source_commit='+sha in output and 'ready=true' in output
 assert receipt['ci_run_id']==123 and receipt['ci_run_attempt']==1 and receipt['disposition']=='eligible'
-assert execute(current='c'*40)[2]['disposition']=='superseded'
+# A later merge on main does not hold back a tested commit that moves production forward.
+assert execute(current='c'*40)[2]['disposition']=='eligible'
 assert execute(current='unknown')[0]!=0
-# Revalidation after build observes a later main and suppresses the publisher.
-assert execute()[2]['disposition']=='eligible'
+live[0]='c'*40
 assert execute(current='c'*40)[2]['disposition']=='superseded'
+live[0]=sha
+assert execute()[2]['disposition']=='eligible'
+live[0]='0'*40
+for served in ['', '{}', json.dumps(dict(service='doctorcre-app', environment='production', source_commit='unknown'))]:
+ assert execute(served=served)[0]!=0, served
 for field,value in [('event','pull_request'),('event','merge_group'),('head_branch','feature'),('status','in_progress'),('conclusion','failure'),('conclusion','cancelled'),('conclusion','timed_out'),('head_repository',dict(full_name='fork/app'))]:
  altered=dict(run); altered[field]=value
  assert execute(dict(action='completed',repository=dict(full_name='synthetic/app'),workflow_run=altered))[0]!=0, (field,value)
 for altered in [dict(run,run_attempt=2,status='in_progress',conclusion=None),dict(run,run_attempt=2,conclusion='failure'),dict(run,head_sha='a'*40),dict(run,path='.github/workflows/other.yml')]:
  assert execute(latest=altered)[0]!=0
-for broken in ['gh','git']: assert execute(broken=broken)[0]!=0
-for order in [('a','b'),('b','a')]:
+for broken in ['gh','git','curl']: assert execute(broken=broken)[0]!=0
+for order,expected in [(('a','b'),['a'*40,sha]),(('b','a'),[sha])]:
+ live[0]='0'*40
  published=[]
  for candidate in order:
   event=dict(action='completed',repository=dict(full_name='synthetic/app'),workflow_run=dict(run,head_sha=candidate*40))
-  code, output, receipt=execute(event,current=sha,latest=event['workflow_run'])
+  code, output, receipt=execute(event,current='c'*40,latest=event['workflow_run'])
   assert code==0
-  if 'ready=true' in output: published.append(receipt['source_commit'])
- assert published==[sha]
+  if 'ready=true' in output: published.append(receipt['source_commit']); live[0]=receipt['source_commit']
+ assert published==expected, published
 recorded=json.loads(${JSON.stringify(readFileSync(new URL('./fixtures/workflow-run-main-success.json', import.meta.url),'utf8'))})
 recorded_run=recorded['workflow_run']
 # The same production parser contract-checks the recorded transport shape.
 run=recorded_run
+history.append(recorded_run['head_sha'])
 assert execute(recorded,current=recorded_run['head_sha'],latest=recorded_run)[0]==0
 print('candidate transitions passed')
 `;
