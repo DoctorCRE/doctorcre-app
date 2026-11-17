@@ -278,6 +278,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     const triageValid = triage.status === 'fulfilled' && validTriage(triage.value);
     connection(connected && triageValid && !failedReads.length);
     failedReads = [];
+    if (meetings.status === 'rejected') failedReads.push('Schedule');
     if (!connected || !triageValid) failedReads.push('Overdue');
     if (!triageValid) failedReads.push('Next up');
     if (connected) {
