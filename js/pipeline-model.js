@@ -71,27 +71,36 @@ export function columnLabel(value) {
 }
 
 /**
- * Group the board's rows into the seven open columns, in table order.
+ * Split the board's rows into the parked lane and the seven open columns, in
+ * table order. A parked deal goes to the lane whatever its phase.
  *
  * A record whose phase is not one of the eight is NOT dropped and NOT filed
  * under a guess: it is returned separately, so the page can say that the board
  * holds something this surface cannot place instead of quietly hiding it.
  *
  * @param {Array<Object>} deals
- * @returns {{columns: Array<PipelineColumn & {deals: Object[]}>, unplaced: Object[]}}
+ * @returns {{columns: Array<PipelineColumn & {deals: Object[]}>, parked: Object[], unplaced: Object[]}}
  */
 export function groupByColumn(deals) {
   const rows = Array.isArray(deals) ? deals : [];
   const columns = OPEN_COLUMNS.map((column) => ({ ...column, deals: [] }));
   const byValue = new Map(columns.map((column) => [column.value, column]));
+  const parked = [];
   const unplaced = [];
   for (const deal of rows) {
     if (!deal || typeof deal !== 'object') continue;
     const column = byValue.get(deal.phase);
-    if (column) column.deals.push(deal);
+    if (deal.operating_state === 'parked') parked.push(deal);
+    else if (column) column.deals.push(deal);
     else if (deal.phase !== 'Closed' && deal.phase !== 'closed') unplaced.push(deal);
   }
-  return { columns, unplaced };
+  return { columns, parked, unplaced };
+}
+
+/** The board's headline, counted from the same cards the columns and the lane show. */
+export function boardHeadline({ columns, parked }) {
+  const open = columns.reduce((sum, column) => sum + column.deals.length, 0);
+  return `${open} open deals · ${parked.length} parked`;
 }
 
 /**
@@ -354,8 +363,9 @@ export function presenceChip(presence, dealId, options = {}) {
 }
 
 // A note or next step can reach this board as a sentence, an object such as
-// {text, at}, or that object's Python repr printed into a string
-// ("{'text': '...', 'at': '...'}"). Cards and the panel show the sentence only.
+// {text, at}, a list of those, or any of them printed into a string as JSON or
+// a Python repr ("[{'text': '...', 'date': '...'}]"). Cards and the panel show
+// the sentences only.
 const NOTE_KEYS = ['text', 'note', 'body', 'summary', 'content', 'message'];
 const PY_ESCAPES = { n: '\n', t: '\t', '\\': '\\', "'": "'", '"': '"' };
 
@@ -368,6 +378,14 @@ function dictSentence(raw) {
     if (match) return match[2].replace(/\\(.)/g, (_, ch) => PY_ESCAPES[ch] ?? ch).trim();
   }
   return '';
+}
+
+function listSentence(raw) {
+  try {
+    return noteText(JSON.parse(raw));
+  } catch { /* not JSON; read each Python dict in turn */ }
+  const dicts = raw.match(/\{(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|[^{}'"])*\}/g) || [];
+  return noteText(dicts);
 }
 
 // A name written as a structured value ({"value":"…"}, seen on staging) reads
@@ -387,6 +405,7 @@ export function dealName(value) {
  */
 export function noteText(value) {
   if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) return value.map(noteText).filter(Boolean).join('; ');
   if (typeof value === 'object') {
     for (const key of NOTE_KEYS) {
       const inner = noteText(value[key]);
@@ -396,6 +415,7 @@ export function noteText(value) {
   }
   const text = String(value).trim();
   if (/^\{[\s\S]*\}$/.test(text) && (text === '{}' || /^\{\s*['"]/.test(text))) return dictSentence(text);
+  if (/^\[\s*(?:\]$|[{'"][\s\S]*\]$)/.test(text)) return listSentence(text);
   return text;
 }
 

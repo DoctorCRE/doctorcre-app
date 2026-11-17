@@ -31,7 +31,7 @@ import {
 } from './change-receipts.mjs';
 import {
   CLOSED_SLUG, COLUMNS, OPEN_COLUMNS, COMPLETION_CAPTIONS, closedColumnCaption, columnBySlug, columnByValue,
-  columnLabel, completionPlan, contextDrawerSections, groupByColumn, keyboardTarget,
+  boardHeadline, columnLabel, completionPlan, contextDrawerSections, groupByColumn, keyboardTarget,
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
@@ -102,7 +102,6 @@ function autoHtml(deal) {
   return move ? `<div class="auto-move"><span>${esc(move.text.slice(0, move.text.lastIndexOf(' ')))}</span> <time>${esc(move.text.slice(move.text.lastIndexOf(' ') + 1))}</time></div>` : '';
 }
 const dealTitle = (deal) => dealName(deal.name);
-const phoneBoard = globalThis.matchMedia?.('(max-width:480px)');
 function cardHtml(deal) {
   const today = todayIso(), overdue = overdueLabel(overdueSince(deal, today), today);
   const attention = Boolean(overdue);
@@ -207,9 +206,7 @@ function renderBoardMessage(status = state.boardSync?.status()) {
     say('The board is unavailable. Refresh to try again.');
     return;
   }
-  const rows = visibleBoardDeals();
-  const parked = rows.filter(d => d.operating_state === 'parked').length;
-  say(`${rows.length - parked} open deals · ${parked} parked`);
+  say(boardHeadline(groupByColumn(visibleBoardDeals())));
 }
 
 function renderBoard() {
@@ -230,28 +227,24 @@ function renderBoard() {
   }
   publishDocRead('getBoard', { deals: rows });
   const active = rows.filter(d => d.operating_state !== 'parked');
-  // A phone shows only work in motion; every parked deal folds into the Parked lane.
-  const foldParked = Boolean(phoneBoard?.matches);
-  const prospects = rows.filter(d => columnByValue(d.phase)?.slug === 'pending' && (!foldParked || d.operating_state !== 'parked'));
-  const parked = rows.filter(d => d.operating_state === 'parked' && (foldParked || columnByValue(d.phase)?.slug !== 'pending'));
   renderBoardMessage();
-  const grouped = groupByColumn(active);
+  const grouped = groupByColumn(rows);
   state.unplaced = grouped.unplaced.length;
   const focusedStage = board.contains(document.activeElement) ? document.activeElement?.dataset?.collapseStage : null;
   preserveBoardFocus({ board, document, announce, paint() {
     board.innerHTML = state.view === 'list' ? `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>Stage</span><span>Next step</span><span>Owner</span></div>${urgencyOrder(state.parkedOpen ? rows : active).map(d => d.operating_state === 'parked' ? parkedHtml(d) : rowHtml(d)).join('')}</div>` : grouped.columns.map((column) => {
-      const cards = urgencyOrder(column.slug === 'pending' ? prospects : column.deals);
+      const cards = urgencyOrder(column.deals);
       const collapsed = state.collapsedColumns.has(column.slug);
       const content = collapsed
         ? `<p class="stage-preview">${cards.slice(0,2).map(d => `<span>${esc(dealTitle(d))}</span>`).join('')}${cards.length > 2 ? `<span>${cards.length - 2} more</span>` : ''}</p>`
-        : cards.map(d => d.operating_state === 'parked' ? parkedHtml(d) : cardHtml(d)).join('');
+        : cards.map(cardHtml).join('');
       const chosen = state.lifted && state.target === column.slug;
       return `<section class="kanban-column glass" data-column="${esc(column.slug)}" ${!cards.length && !state.showEmptyStages ? 'data-hide-empty="true" ' : ''}data-collapsed="${collapsed}"${chosen ? ' data-drop="true"' : ''}
         aria-label="${esc(column.label)}, ${cards.length} cards">
         <h3 title="${esc(PHASE_TRIGGERS[column.slug])}"><button type="button" data-collapse-stage="${esc(column.slug)}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(column.label)}">${esc(column.label)}<small>${cards.length}</small><span aria-hidden="true">${collapsed ? '+' : '−'}</span></button></h3>
         ${content}
       </section>`;
-    }).join('') + emptyStagesNote(grouped.columns.filter(c => !(c.slug === 'pending' ? prospects : c.deals).length).length) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${parked.length}</summary><div class="parked-cards">${parked.map(parkedHtml).join('')}</div></details>`;
+    }).join('') + emptyStagesNote(grouped.columns.filter(c => !c.deals.length).length) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${grouped.parked.length}</summary><div class="parked-cards">${grouped.parked.map(parkedHtml).join('')}</div></details>`;
   } });
   const note = $('boardNote');
   if (note) {
@@ -1843,7 +1836,6 @@ function wire() {
   $('closedSearch').addEventListener('input', renderClosedDeals);
   $('boardView').addEventListener('click', () => changeView('board'));
   $('listView').addEventListener('click', () => changeView('list'));
-  phoneBoard?.addEventListener('change', renderBoard);
   $('parkedToggle').addEventListener('click', () => { state.parkedOpen = !state.parkedOpen; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); renderBoard(); });
   $('kanban').addEventListener('toggle', e => { if(e.target.classList.contains('parked-lane')) { state.parkedOpen=e.target.open; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); } },true);
   $('panelBody').addEventListener('toggle', event => {

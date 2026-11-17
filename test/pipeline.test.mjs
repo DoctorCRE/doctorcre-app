@@ -818,7 +818,7 @@ for (const status of [503, 401, 403]) test(`QA008 Deals freshness settles after 
     + source.slice(source.indexOf("function renderStatus("), source.indexOf("function renderPendingWrites("));
   const dom = new JSDOM('<p id="boardLive"></p><span id="boardAsOf"></span><span id="boardStatusLabel"></span><span id="boardOrb"></span><span id="boardStatus"></span>');
   try {
-    const paint = status => runInNewContext(`${renderer}renderStatus(status);`, { state: {deals:new Map(),filter:'all'}, HEALTH, SYNC_STATES, localDeals, status, say:text=>{dom.window.document.getElementById('boardLive').textContent=text;}, $: id => dom.window.document.getElementById(id) });
+    const paint = status => runInNewContext(`${renderer}renderStatus(status);`, { state: {deals:new Map(),filter:'all'}, HEALTH, SYNC_STATES, localDeals, boardHeadline, groupByColumn, status, say:text=>{dom.window.document.getElementById('boardLive').textContent=text;}, $: id => dom.window.document.getElementById(id) });
     const freshness = () => dom.window.document.getElementById('boardAsOf').textContent;
     const { createBoardSync } = await import('../js/board-sync.mjs');
     let failing = true;
