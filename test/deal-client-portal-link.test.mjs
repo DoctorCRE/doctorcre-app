@@ -39,7 +39,7 @@ async function open(t,width=1280,{portal=null,closed=false}={}) {
 for(const width of [390,1280]) test(`a set link shows on the deal card and opens safely at ${width}px`,async t=>{
  const {page,errors}=await open(t,width,{portal:PORTAL});
  const card=page.locator('.kanban-card[data-id="d14"]');
- const link=card.getByRole('link',{name:/Client portal/});
+ const link=card.getByRole('link',{name:/Client website/});
  assert.equal(await link.getAttribute('href'),PORTAL);
  assert.equal(await link.getAttribute('target'),'_blank');
  assert.match(await link.getAttribute('rel'),/noopener/);
@@ -131,4 +131,36 @@ test('the command dock keeps no portal password once a registration settles',asy
  await page.getByRole('button',{name:'Register portal'}).click();
  await page.locator('.kanban-card[data-id="d14"] .client-portal-link').waitFor({state:'attached'});
  assert.equal(await retained(),false,'a confirmed registration leaves no password in the dock');
+});
+
+for (const width of [390, 1280]) {
+ for (const portal of [PORTAL, null, 'http://share.example.com/demo']) {
+  test(`the opening snapshot shows the client website state at ${width}px for ${portal ? new URL(portal).protocol : 'absent'}`, async t => {
+   const {page, errors} = await open(t, width, {portal});
+   await page.locator('.kanban-card[data-id="d14"] .card-open').click();
+   const snapshot = page.getByRole('region', {name:'Deal snapshot', exact:true});
+   await snapshot.waitFor();
+   const link = snapshot.getByRole('link', {name:/Client website/});
+   if (portal === PORTAL) {
+    assert.equal(await link.getAttribute('href'), PORTAL);
+    assert.equal(await link.getAttribute('target'), '_blank');
+    assert.match(await link.getAttribute('rel'), /noopener noreferrer/);
+    assert.equal(await page.locator('#recordPanel .client-portal-link').count(), 1);
+   } else {
+    assert.equal(await snapshot.getByRole('link').count(), 0);
+    await snapshot.getByText(portal ? 'Client website link unavailable.' : 'No client website linked.', {exact:true}).waitFor();
+   }
+   assert.equal(await snapshot.locator('#detailClientPortalForm').count(), portal ? 0 : 1);
+   assert.equal(await page.locator('#recordPanel [data-detail-read="client-portal"]').count(), 1);
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+   assert.deepEqual(errors, []);
+  });
+ }
+}
+
+test('a closed deal without a website explains the absence without offering registration', async t => {
+ const {page} = await open(t, 1280, {closed:true});
+ const snapshot = page.getByRole('region', {name:'Deal snapshot', exact:true});
+ await snapshot.getByText('No client website linked.', {exact:true}).waitFor();
+ assert.equal(await page.locator('#detailClientPortalForm').count(), 0);
 });
