@@ -23,10 +23,10 @@ after(async () => {
   if (outDir) await rm(outDir, { recursive: true, force: true });
 });
 
-for (const width of [1280, 390]) test(`email follow-ups fragment lands on review controls at ${width}px`, async t => {
-  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+for (const width of [1280, 390]) for (const motion of ['no-preference', 'reduce']) test(`email follow-ups fragment lands on review controls at ${width}px with ${motion} motion`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: motion });
   t.after(() => page.close());
-  assert.equal((await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `email-anchor-${width}`, viewer: 'joe', reset: true } })).status(), 200);
+  assert.equal((await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `email-anchor-${width}-${motion}`, viewer: 'joe', reset: true } })).status(), 200);
   await page.goto(`${origin}/review-workflows?mode=fixture#homeEmailFollowups`);
   const panel = page.locator('#homeEmailFollowups');
   await panel.locator('article').first().waitFor();
@@ -51,7 +51,7 @@ for (const width of [1280, 390]) test(`email follow-ups fragment lands on review
     const bar = document.querySelector('.app-layout-tabbar').getBoundingClientRect();
     return { headingTop: heading.top, headingBottom: heading.bottom, cardTop: card.top, cardBottom: card.bottom, barBottom: bar.bottom, height: innerHeight, scrollY };
   });
-  await page.screenshot({ path: `out/test-artifacts/email-followups/fragment-${width}.png` });
+  await page.screenshot({ path: `out/test-artifacts/email-followups/fragment-${width}-${motion}.png` });
   assert.ok(landing.headingTop >= landing.barBottom && landing.headingBottom <= landing.height, JSON.stringify(landing));
   assert.ok(landing.cardTop >= landing.barBottom && landing.cardBottom <= landing.height, JSON.stringify(landing));
   assert.equal(new URL(page.url()).hash, '#homeEmailFollowups');
