@@ -23,7 +23,6 @@ async function forward(origin: string, request: Request) {
   return fetch(`${origin}${url.pathname}${url.search}`, {
     method: request.method,
     headers: request.headers,
-    signal: request.signal,
     body,
     redirect: "manual",
   });
