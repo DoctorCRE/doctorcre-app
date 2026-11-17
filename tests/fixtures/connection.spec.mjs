@@ -15,7 +15,8 @@ test('going offline clears health during a pending refresh and reconnect reads a
     if (url.pathname === '/mcp') {
       const name = route.request().postDataJSON().params.name;
       if (name === 'deal-room-board') boardReads++;
-      const payload = name === 'deal-room-board' ? { actor: 'joe', deals: [] } : { items: [] };
+      const payload = name === 'deal-room-board' ? { actor: 'joe', deals: [] }
+        : name === 'calendar-meeting-prep' ? { state: 'empty', items: [], notes: [] } : { items: [] };
       return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
     }
     if (url.pathname === '/pipeline/changes') {

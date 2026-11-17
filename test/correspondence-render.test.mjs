@@ -25,7 +25,7 @@ test('missing email thread coverage stays unavailable without reading a mailbox'
 test('email snapshots distinguish empty coverage and escape missing or untrusted subjects', async () => {
   const empty = await loadEvidence({ email_threads: [] });
   assert.equal(empty.threads.count, 0);
-  assert.match(renderEvidence(empty), /No linked evidence/);
+  assert.match(renderEvidence(empty), /No email threads/);
   const view = await loadEvidence({ email_threads: [
     { subject: '<img src=x onerror=alert(1)>', latest_message_at: '2026-12-01T12:00:00Z' },
     { subject: '', latest_message_at: '2026-12-02T12:00:00Z' },
@@ -33,7 +33,7 @@ test('email snapshots distinguish empty coverage and escape missing or untrusted
   const html = renderEvidence(view);
   assert.doesNotMatch(html, /<img/);
   assert.match(html, /&lt;img/);
-  assert.equal(view.threads.items[0].title, '(No subject)');
+  assert.equal(view.threads.items[0].title, 'No subject recorded');
 });
 
 test('email snapshots preserve meeting ordering, provenance checks and escaping', async () => {
@@ -43,4 +43,19 @@ test('email snapshots preserve meeting ordering, provenance checks and escaping'
   assert.doesNotMatch(renderEvidence(view), /<b>/);
   assert.match(renderEvidence(view), /&lt;b&gt;/);
   assert.equal((await loadEvidence({activities:[{...meeting,source:null}]})).meetings.state, 'unavailable');
+});
+
+test('a deal with no meetings says so plainly instead of unavailable', async () => {
+  const view = await loadEvidence({ email_threads: [], activities: [{ id:'demo-note', kind:'note', source:'stated', summary:'Demo note', occurred_at:'2026-12-01T12:00:00Z' }] });
+  assert.deepEqual(view.meetings, { state: 'ready', count: 0, items: [] });
+  const html = renderEvidence(view);
+  assert.match(html, /No meetings/);
+  assert.doesNotMatch(html, /unavailable/);
+});
+
+test('an unreadable read shows unavailable with Refresh deal, which re-reads the deal', async () => {
+  const doc = new JSDOM(renderEvidence(await loadEvidence({}))).window.document;
+  const groups = [...doc.querySelectorAll('[data-evidence-group]')];
+  assert.deepEqual(groups.map(group => group.querySelector('h4').textContent), ['Email threads unavailable', 'Meetings unavailable']);
+  assert.ok(groups.every(group => group.querySelector('button[data-refresh-detail]')?.textContent === 'Refresh deal'));
 });

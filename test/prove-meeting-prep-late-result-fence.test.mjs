@@ -57,9 +57,10 @@ test('proof CLI passes working-tree Home and rejects a missing layout retirement
   assert.ok(receipt.loaded_assets.some(asset => asset.path === '/js/live-client.js'));
   const path = join(out, 'site/js/app-layout.js');
   const source = await readFile(new URL('../js/app-layout.js', import.meta.url), 'utf8');
-  const broken = source.replace('const preparationSignal = AbortSignal.any([signal, interaction.signal]);', 'const preparationSignal = signal;')
-    .replace('if (interaction.current()) panels?.render', 'panels?.render');
-  assert.notEqual(broken, source, 'working-tree mutation removes the layout close fence');
+  const fences = [['const preparationSignal = AbortSignal.any([signal, interaction.signal]);', 'const preparationSignal = signal;'],
+    ['const scheduleValid = interaction.current() ? panels?.render', 'const scheduleValid = true ? panels?.render']];
+  for (const [fence] of fences) assert.ok(source.includes(fence), `working-tree mutation finds ${fence}`);
+  const broken = fences.reduce((text, [fence, open]) => text.replace(fence, open), source);
   await server.close();
   await writeFile(path, broken);
   server = await snapshot();

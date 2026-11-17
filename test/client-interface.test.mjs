@@ -373,3 +373,9 @@ test('shared reads never join across signed-in users', async () => {
   await Promise.all([pending, afterChange]);
   assert.equal(seen.filter(verb => verb === 'morning-brief').length, 2, 'the new user must not receive the previous user\'s pending read');
 });
+
+test('note authors never resolve through the object prototype', async () => {
+  const { authorLabel } = await import('../js/client.js');
+  assert.deepEqual(['joe', 'dell', 'joe-local', 'claude', 'constructor', 'toString'].map(authorLabel),
+    ['Joe', 'Dell', 'Joe', 'Doc (assistant)', 'Doc (assistant)', 'Doc (assistant)']);
+});

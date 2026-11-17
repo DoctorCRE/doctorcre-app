@@ -314,3 +314,10 @@ for(const kind of ['introduced','can_introduce']) test(`vendor ${kind} notes sho
  assert.equal(h.writes,0);
  assert.deepEqual(h.errors,[]);
 });
+for(const dataset of ['clients','vendors']) test(`${dataset} record panel shows no deal evidence block`,async t=>{
+ const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}`);await page.locator('.record-row').first().click();
+ await page.waitForFunction(()=>{const text=document.querySelector('#recordBody')?.textContent.trim();return text&&!/loading/i.test(text);});
+ assert.equal(await page.locator('#recordBody .correspondence-evidence').count(),0);
+ assert.doesNotMatch(await page.locator('#recordBody').innerText(),/Email threads|Meetings unavailable|Refresh deal|Retry evidence/);
+ assert.deepEqual(errors,[]);
+});

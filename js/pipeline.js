@@ -14,9 +14,9 @@ import { readWithDeadline } from './auto-refresh.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient } from './live-client.js';
-import { mountEvidence, loadEvidence, renderEvidence } from './correspondence.js';
+import { loadEvidence, renderEvidence } from './correspondence.js';
 import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
-import { ACTOR_LABEL, FACT_TERMS } from './client.js';
+import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
 import { formatCalendarDate } from './visual-system.js';
 import {
@@ -31,7 +31,7 @@ import {
 } from './change-receipts.mjs';
 import {
   CLOSED_SLUG, COLUMNS, OPEN_COLUMNS, COMPLETION_CAPTIONS, closedColumnCaption, columnBySlug, columnByValue,
-  columnLabel, completionPlan, contextDrawerSections, groupByColumn, keyboardTarget,
+  boardHeadline, columnLabel, completionPlan, contextDrawerSections, groupByColumn, keyboardTarget,
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
@@ -102,7 +102,6 @@ function autoHtml(deal) {
   return move ? `<div class="auto-move"><span>${esc(move.text.slice(0, move.text.lastIndexOf(' ')))}</span> <time>${esc(move.text.slice(move.text.lastIndexOf(' ') + 1))}</time></div>` : '';
 }
 const dealTitle = (deal) => dealName(deal.name);
-const phoneBoard = globalThis.matchMedia?.('(max-width:480px)');
 function cardHtml(deal) {
   const today = todayIso(), overdue = overdueLabel(overdueSince(deal, today), today);
   const attention = Boolean(overdue);
@@ -207,9 +206,7 @@ function renderBoardMessage(status = state.boardSync?.status()) {
     say('The board is unavailable. Refresh to try again.');
     return;
   }
-  const rows = visibleBoardDeals();
-  const parked = rows.filter(d => d.operating_state === 'parked').length;
-  say(`${rows.length - parked} open deals · ${parked} parked`);
+  say(boardHeadline(groupByColumn(visibleBoardDeals())));
 }
 
 function renderBoard() {
@@ -230,28 +227,24 @@ function renderBoard() {
   }
   publishDocRead('getBoard', { deals: rows });
   const active = rows.filter(d => d.operating_state !== 'parked');
-  // A phone shows only work in motion; every parked deal folds into the Parked lane.
-  const foldParked = Boolean(phoneBoard?.matches);
-  const prospects = rows.filter(d => columnByValue(d.phase)?.slug === 'pending' && (!foldParked || d.operating_state !== 'parked'));
-  const parked = rows.filter(d => d.operating_state === 'parked' && (foldParked || columnByValue(d.phase)?.slug !== 'pending'));
   renderBoardMessage();
-  const grouped = groupByColumn(active);
+  const grouped = groupByColumn(rows);
   state.unplaced = grouped.unplaced.length;
   const focusedStage = board.contains(document.activeElement) ? document.activeElement?.dataset?.collapseStage : null;
   preserveBoardFocus({ board, document, announce, paint() {
     board.innerHTML = state.view === 'list' ? `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>Stage</span><span>Next step</span><span>Owner</span></div>${urgencyOrder(state.parkedOpen ? rows : active).map(d => d.operating_state === 'parked' ? parkedHtml(d) : rowHtml(d)).join('')}</div>` : grouped.columns.map((column) => {
-      const cards = urgencyOrder(column.slug === 'pending' ? prospects : column.deals);
+      const cards = urgencyOrder(column.deals);
       const collapsed = state.collapsedColumns.has(column.slug);
       const content = collapsed
         ? `<p class="stage-preview">${cards.slice(0,2).map(d => `<span>${esc(dealTitle(d))}</span>`).join('')}${cards.length > 2 ? `<span>${cards.length - 2} more</span>` : ''}</p>`
-        : cards.map(d => d.operating_state === 'parked' ? parkedHtml(d) : cardHtml(d)).join('');
+        : cards.map(cardHtml).join('');
       const chosen = state.lifted && state.target === column.slug;
       return `<section class="kanban-column glass" data-column="${esc(column.slug)}" ${!cards.length && !state.showEmptyStages ? 'data-hide-empty="true" ' : ''}data-collapsed="${collapsed}"${chosen ? ' data-drop="true"' : ''}
         aria-label="${esc(column.label)}, ${cards.length} cards">
         <h3 title="${esc(PHASE_TRIGGERS[column.slug])}"><button type="button" data-collapse-stage="${esc(column.slug)}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(column.label)}">${esc(column.label)}<small>${cards.length}</small><span aria-hidden="true">${collapsed ? '+' : '−'}</span></button></h3>
         ${content}
       </section>`;
-    }).join('') + emptyStagesNote(grouped.columns.filter(c => !(c.slug === 'pending' ? prospects : c.deals).length).length) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${parked.length}</summary><div class="parked-cards">${parked.map(parkedHtml).join('')}</div></details>`;
+    }).join('') + emptyStagesNote(grouped.columns.filter(c => !c.deals.length).length) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${grouped.parked.length}</summary><div class="parked-cards">${grouped.parked.map(parkedHtml).join('')}</div></details>`;
   } });
   const note = $('boardNote');
   if (note) {
@@ -350,7 +343,6 @@ function applyBoardSnapshot(board) {
     state.panelDetail = null;
     disposeChecklist();
     disposeWatchControl();
-    disposeEvidence?.(); disposeEvidence = null;
     disposeActivityAttribution();
     disposePanelEmailFollowups();
     $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
@@ -824,7 +816,6 @@ function mountPanelActivityAttribution() {
   const root = $('panelBody').querySelector('.deal-updates');
   if (root) activityAttribution = mountActivityAttribution(root, { onDenied: refusePanelDetail });
 }
-let disposeEvidence = null;
 let watchControl = null, watchElement = null, watchSubject = null;
 let panelEmailFollowups = null;
 let emailMountSequence = 0;
@@ -879,7 +870,6 @@ function refusePanelDetail(error) {
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   bindDraftActor(null);
-  disposeEvidence?.(); disposeEvidence = null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   setContextOpenVisible(false);
@@ -1075,7 +1065,7 @@ function selectWorkspaceTab(id) {
   }
 }
 function workspaceNotesHtml(detail) {
-  return `<section aria-label="Deal notes"><h3>Deal notes</h3>${(detail.thread || []).map(note => `<article class="workspace-note"><b>${esc(actorName(note.actor))}</b> <time datetime="${esc(note.at || note.created_at || note.recorded_at || '')}">${esc(sourceTime(note.at || note.created_at || note.recorded_at, undefined, 'Date not recorded'))}</time><p class="note-original">${esc(noteText(note.text))}</p></article>`).join('') || '<p>No notes recorded.</p>'}</section>`;
+  return `<section aria-label="Deal notes"><h3>Deal notes</h3>${(detail.thread || []).map(note => `<article class="workspace-note"><b>${esc(authorLabel(note.actor))}</b> <time datetime="${esc(note.at || note.created_at || note.recorded_at || '')}">${esc(sourceTime(note.at || note.created_at || note.recorded_at, undefined, 'Date not recorded'))}</time><p class="note-original">${esc(noteText(note.text))}</p></article>`).join('') || '<p>No notes recorded.</p>'}</section>`;
 }
 function workspaceEventsHtml(detail) {
   const view = dealTimeline(detail);
@@ -1261,10 +1251,9 @@ async function refreshEvidence(detail, id, seq) {
   if (!$('panelEvidenceSection')?.open) return;
   const root = $('panelEvidence');
   const template = document.createElement('div'); template.innerHTML = renderEvidence(evidence);
-  if (disposeEvidence && root.innerHTML === template.innerHTML) return;
+  if (root.innerHTML === template.innerHTML) return;
   const expanded = new Set([...root.querySelectorAll('details[open]')].map(n => n.querySelector('summary')?.textContent));
-  disposeEvidence?.();
-  disposeEvidence = mountEvidence(root, {detail,initialView:evidence});
+  root.innerHTML = template.innerHTML;
   root.querySelectorAll('details').forEach(n => { if (expanded.has(n.querySelector('summary')?.textContent)) n.open = true; });
 }
 function paintPanel(detail) {
@@ -1308,7 +1297,6 @@ function paintPanel(detail) {
     refresh() { return mounted?.refresh(); },
     dispose() { disposed = true; observer.disconnect(); mounted?.dispose(); },
   };
-  disposeEvidence?.(); disposeEvidence = null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   syncUpdateForm();
@@ -1433,7 +1421,6 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   marketTermsPanel = null;
   selectDocRecord('deal', dealId);
   const panel = $('recordPanel');
-  disposeEvidence?.(); disposeEvidence = null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   setContextOpenVisible(false);
@@ -1495,7 +1482,6 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   ++panelReadSequence; ++contextReadSequence;
   $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
   const id = state.panelReturnTo;
-  disposeEvidence?.(); disposeEvidence=null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); writeWorkspaceHistory({},url); }
@@ -1843,13 +1829,11 @@ function wire() {
   $('closedSearch').addEventListener('input', renderClosedDeals);
   $('boardView').addEventListener('click', () => changeView('board'));
   $('listView').addEventListener('click', () => changeView('list'));
-  phoneBoard?.addEventListener('change', renderBoard);
   $('parkedToggle').addEventListener('click', () => { state.parkedOpen = !state.parkedOpen; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); renderBoard(); });
   $('kanban').addEventListener('toggle', e => { if(e.target.classList.contains('parked-lane')) { state.parkedOpen=e.target.open; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); } },true);
   $('panelBody').addEventListener('toggle', event => {
     if (event.target.id !== 'panelEvidenceSection') return;
-    if (!event.target.open) { disposeEvidence?.(); disposeEvidence = null; return; }
-    if (state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
+    if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
   $('panelBody').addEventListener('click', e => {
     if (e.target.closest('[data-discard-update]') && !pendingCommand(commandState, updateKey(state.panelDeal)) && !pendingCommand(commandState, nextStepKey(state.panelDeal))) { discardUpdate(state.panelDeal); syncUpdateForm(); }

@@ -1,5 +1,6 @@
 import { workCard } from './work-card.js';
 import { overdueLabel } from './deal-review-model.js';
+import { noteText } from './pipeline-model.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
@@ -53,9 +54,10 @@ export function renderDealSummary(deal, { today = '', viewer = '', board = false
     lines.push('<span class="deal-summary-line">No next step set</span>');
   }
   const last = deal.last_step;
+  const lastText = noteText(last?.summary);
   const lastDate = shortDate(last?.occurred_at, '');
-  if (last?.summary?.trim() && lastDate) {
-    lines.push(`<span class="deal-summary-line deal-summary-last"><span class="deal-summary-label">Last: </span><span class="deal-summary-text">${esc(last.summary.trim())}</span><span class="deal-summary-facts"> · <time datetime="${esc(last.occurred_at)}">${esc(lastDate)}</time></span></span>`);
+  if (lastText && lastDate) {
+    lines.push(`<span class="deal-summary-line deal-summary-last"><span class="deal-summary-label">Last: </span><span class="deal-summary-text">${esc(lastText)}</span><span class="deal-summary-facts"> · <time datetime="${esc(last.occurred_at)}">${esc(lastDate)}</time></span></span>`);
   }
   return lines.join('');
 }

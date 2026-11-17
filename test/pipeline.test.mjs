@@ -25,7 +25,7 @@ import { PHASES, PHICON, phaseLabel } from "../js/client.js";
 import {
   CLOSED_SLUG, COLUMNS, DEAL_OUTCOMES, PHASE_DATE_KIND, attachedParties, closedColumnCaption,
   columnBySlug, columnByValue, columnLabel, completionPlan, contextDrawerSections,
-  groupByColumn, isDealOutcome, keyboardTarget, loadDealContext, moveIntent, moveSummary,
+  boardHeadline, groupByColumn, isDealOutcome, keyboardTarget, loadDealContext, moveIntent, moveSummary,
   moveTitle, partyRoleLabel, presenceChip,
 } from "../js/pipeline-model.js";
 import {
@@ -101,6 +101,29 @@ test("grouping files every row under its column and never guesses at one it cann
   assert.deepEqual(columns.find((c) => c.slug === "site_selection").deals.map((d) => d.id), ["b"]);
   assert.deepEqual(unplaced.map((d) => d.id), ["c"], "an unknown phase is reported, not filed under a guess");
   assert.deepEqual(groupByColumn(null).unplaced, []);
+});
+
+test("every parked deal goes to the parked lane whatever its phase, and never into a phase column", () => {
+  const { columns, parked } = groupByColumn([
+    { id: "open-prospect", phase: "On Deck", operating_state: "active" },
+    { id: "parked-prospect", phase: "On Deck", operating_state: "parked" },
+    { id: "parked-research", phase: "Research", operating_state: "parked" },
+  ]);
+  assert.deepEqual(parked.map((d) => d.id), ["parked-prospect", "parked-research"]);
+  assert.deepEqual(columns.flatMap((c) => c.deals).map((d) => d.id), ["open-prospect"]);
+});
+
+test("the board headline counts exactly the cards in the columns and the parked lane", () => {
+  const grouped = groupByColumn([
+    { id: "a", phase: "On Deck", operating_state: "active" },
+    { id: "b", phase: "Legal", operating_state: "active" },
+    { id: "c", phase: "On Deck", operating_state: "parked" },
+    { id: "d", phase: "Closing", operating_state: "parked" },
+    { id: "e", phase: "Not a phase", operating_state: "active" },
+  ]);
+  const cards = grouped.columns.reduce((sum, c) => sum + c.deals.length, 0);
+  assert.equal(boardHeadline(grouped), `${cards} open deals · ${grouped.parked.length} parked`);
+  assert.equal(boardHeadline(grouped), "2 open deals · 2 parked");
 });
 
 test("a move intent names both ends, and a drop on the card's own column is not a move", () => {
@@ -795,7 +818,7 @@ for (const status of [503, 401, 403]) test(`QA008 Deals freshness settles after 
     + source.slice(source.indexOf("function renderStatus("), source.indexOf("function renderPendingWrites("));
   const dom = new JSDOM('<p id="boardLive"></p><span id="boardAsOf"></span><span id="boardStatusLabel"></span><span id="boardOrb"></span><span id="boardStatus"></span>');
   try {
-    const paint = status => runInNewContext(`${renderer}renderStatus(status);`, { state: {deals:new Map(),filter:'all'}, HEALTH, SYNC_STATES, localDeals, status, say:text=>{dom.window.document.getElementById('boardLive').textContent=text;}, $: id => dom.window.document.getElementById(id) });
+    const paint = status => runInNewContext(`${renderer}renderStatus(status);`, { state: {deals:new Map(),filter:'all'}, HEALTH, SYNC_STATES, localDeals, boardHeadline, groupByColumn, status, say:text=>{dom.window.document.getElementById('boardLive').textContent=text;}, $: id => dom.window.document.getElementById(id) });
     const freshness = () => dom.window.document.getElementById('boardAsOf').textContent;
     const { createBoardSync } = await import('../js/board-sync.mjs');
     let failing = true;

@@ -52,9 +52,9 @@ test('every deal snapshot opens with an empty Update above a concise overview an
   assert.equal(await page.locator('.timeline-chart').count(),0);
   assert.equal(await page.locator('[aria-label="Deal phases and timeline"]').count(),1);
   await page.getByRole('tab', {name:'Correspondence & notes'}).click();
-  await page.locator('[data-evidence-retry]').first().waitFor();
-  assert.match(await page.locator('#recordPanel').textContent(),/Threads unavailable/);
-  assert.equal(await page.locator('[data-evidence-retry]').count()>0,true);
+  await page.locator('#panelEvidence [data-refresh-detail]').first().waitFor();
+  assert.match(await page.locator('#recordPanel').textContent(),/Email threads unavailable/);
+  assert.match(await page.locator('#recordPanel').textContent(),/No meetings/);
   assert.equal(await page.locator('#recordPanel').evaluate(e=>e.scrollWidth<=e.clientWidth),true);
   await page.screenshot({path:new URL(`out/test-artifacts/deal-card-review/${width}-after.png`,root).pathname,animations:'disabled'});
   await page.getByRole('tab',{name:'Overview',exact:true}).click();
@@ -62,6 +62,24 @@ test('every deal snapshot opens with an empty Update above a concise overview an
   await page.screenshot({path:new URL(`out/test-artifacts/deal-card-review/${width}-notes-after.png`,root).pathname,animations:'disabled'});
   assert.deepEqual(errors,[]);
  });
+});
+
+test('notes and updates name the assistant as author and Correspondence Refresh deal reads the deal again',async t=>{
+ const {page,errors}=await open(t);
+ await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');const read=state.client.getDeal;window.dealReads=0;
+  state.client.getDeal=async (...args)=>{window.dealReads++;const detail=await read(...args);return {...detail,thread:[...detail.thread,{id:'demo-agent',kind:'note',actor:'claude',text:'Demo assistant note',created_at:'2026-08-01T12:00:00Z'}]};};});
+ await page.getByRole('button',{name:'Refresh deal'}).click();
+ await page.locator('.updates-history > summary').click();
+ assert.equal(await page.locator('.deal-note[data-id="demo-agent"] b').textContent(),'Doc (assistant)');
+ await page.getByRole('tab',{name:'Correspondence & notes'}).click();
+ const note=page.locator('[aria-label="Deal notes"] .workspace-note',{hasText:'Demo assistant note'});
+ assert.equal((await note.locator('b').textContent()),'Doc (assistant)');
+ await page.locator('#panelEvidence [data-refresh-detail]').first().waitFor();
+ const reads=await page.evaluate(()=>window.dealReads);
+ await page.locator('#panelEvidence [data-refresh-detail]').first().click();
+ await waitForAsync(page,reads=>window.dealReads>reads,reads);
+ assert.match(await page.locator('#panelEvidence').textContent(),/Email threads unavailable/);
+ assert.deepEqual(errors,[]);
 });
 
 test('lost deals have a searchable view and open the shared snapshot',async t=>{
