@@ -375,17 +375,39 @@ function dictSentence(raw) {
   } catch { /* not JSON; try the Python repr */ }
   for (const key of NOTE_KEYS) {
     const match = new RegExp(`['"]${key}['"]\\s*:\\s*(['"])((?:\\\\.|(?!\\1)[^\\\\])*)\\1`).exec(raw);
-    if (match) return match[2].replace(/\\(.)/g, (_, ch) => PY_ESCAPES[ch] ?? ch).trim();
+    if (match) return pyString(match[2]).trim();
   }
   return '';
 }
 
+function pyString(body) {
+  return body.replace(/\\(.)/g, (_, ch) => PY_ESCAPES[ch] ?? ch);
+}
+
+// A list it cannot read in full prints as written, so no note is silently hidden.
 function listSentence(raw) {
+  let texts;
   try {
-    return noteText(JSON.parse(raw));
-  } catch { /* not JSON; read each Python dict in turn */ }
-  const dicts = raw.match(/\{(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|[^{}'"])*\}/g) || [];
-  return noteText(dicts);
+    texts = JSON.parse(raw).map(jsonItemText);
+  } catch {
+    texts = pythonListTexts(raw);
+  }
+  return !texts || texts.includes(null) ? raw : texts.filter(Boolean).join('; ');
+}
+
+function jsonItemText(item) {
+  if (typeof item === 'string') return noteText(item);
+  if (item && typeof item === 'object' && !Array.isArray(item)) return noteText(item) || null;
+  return null;
+}
+
+const PY_ITEM = String.raw`(\{(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|[^{}'"])*\})|'((?:\\.|[^'\\])*)'|"((?:\\.|[^"\\])*)"`;
+const PY_ITEMS = new RegExp(PY_ITEM, 'g');
+const PY_LIST = new RegExp(String.raw`^\[\s*(?:${PY_ITEM})(?:\s*,\s*(?:${PY_ITEM}))*\s*\]$`);
+
+function pythonListTexts(raw) {
+  if (!PY_LIST.test(raw)) return null;
+  return [...raw.matchAll(PY_ITEMS)].map(([, dict, single, double]) => (dict ? dictSentence(dict) || null : pyString(single ?? double).trim()));
 }
 
 // A name written as a structured value ({"value":"…"}, seen on staging) reads

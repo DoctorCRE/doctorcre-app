@@ -48,6 +48,19 @@ test("a list of notes, as a value or as text, reads as its sentences", () => {
   assert.equal(noteText([{ text: "Sent the survey" }, "Client replied"]), "Sent the survey; Client replied");
 });
 
+test("a Python list of quoted strings reads as those strings", () => {
+  assert.equal(noteText("['Sent survey', 'Called back']"), "Sent survey; Called back");
+  assert.equal(noteText(`["It's signed", 'Called back']`), "It's signed; Called back");
+  assert.equal(noteText("[{'text': 'a'}, 'loose']"), "a; loose");
+});
+
+test("a bracketed note it cannot fully read prints as written", () => {
+  assert.equal(noteText("['a'] then more]"), "['a'] then more]");
+  assert.equal(noteText("[{'date': '2026-07-31'}, 'loose']"), "[{'date': '2026-07-31'}, 'loose']");
+  assert.equal(noteText('[{"date": "2026-07-31"}]'), '[{"date": "2026-07-31"}]');
+  assert.equal(noteText("[{'text': 'Sent the survey'}, {'text': 'Client rep"), "[{'text': 'Sent the survey'}, {'text': 'Client rep");
+});
+
 test("square brackets inside an ordinary sentence are left alone", () => {
   assert.equal(noteText("[Draft] send the LOI"), "[Draft] send the LOI");
 });
