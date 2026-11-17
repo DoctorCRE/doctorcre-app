@@ -34,6 +34,14 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
   const flagKeydown = event => { if (event.key === ' ' && event.target.matches('#dealFlags .deal-alert h3 a')) { event.preventDefault(); event.target.click(); } };
   document.addEventListener('keydown', flagKeydown);
   const $ = id => document.getElementById(id);
+  const fragmentLanding = new window.AbortController();
+  const cancelLanding = () => fragmentLanding.abort();
+  if (window.location.hash === '#homeEmailFollowups') {
+    for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+      // eslint-disable-next-line no-restricted-syntax -- Cancel four user-input listeners after initial fragment landing or disposal.
+      document.addEventListener(type, cancelLanding, { passive: true, signal: fragmentLanding.signal });
+    }
+  } else cancelLanding();
   let missingNextStep = null, missingNextStepLoad = null, missingNextStepAttempts = 0;
   const workingWeek = mountHomeWeek({ document, host: $('homeCalendar') });
   let overdueReviews = null, overdueEpoch = 0;
@@ -457,9 +465,16 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     return emailReview.refresh();
   });
   Promise.all([auto.refresh(), emailInitialRead]).then(() => {
-    if (!disposed && window.location.hash === '#homeEmailFollowups') $('homeEmailFollowups')?.scrollIntoView({ block: 'start', behavior: 'instant' });
+    if (fragmentLanding.signal.aborted || disposed || window.location.hash !== '#homeEmailFollowups') return;
+    const anchor = () => $('homeEmailFollowups')?.scrollIntoView({ block: 'start', behavior: 'instant' });
+    // Native smooth fragment scrolling can finish after the initial reads change the layout.
+    document.addEventListener('scrollend', () => {
+      if (!disposed && window.location.hash === '#homeEmailFollowups') anchor();
+      cancelLanding();
+    }, { once: true, signal: fragmentLanding.signal });
+    anchor();
   });
-  return { refresh: auto.refresh, dispose() { missingNextStep?.dispose(); reasons?.dispose(); document.removeEventListener('keydown', flagKeydown); disposed = true; workingWeek.dispose(); sequence++; prepEpoch++; meetingPrep?.dispose(); panelObserver?.disconnect(); emailActivity?.removeEventListener('toggle', openEmailActivity); window.removeEventListener('doctorcre-session-invalidated', retirePendingEmail); expiry.dispose(); auto.dispose(); document.removeEventListener('doctorcre:brief-calendar', updateCalendar); window.removeEventListener('doctorcre-session-invalidated', clearCalendar); relationshipDialog?.dispose(); pastWidget?.dispose(); callTasks?.dispose(); meetingReviews?.dispose(); overdueReviews?.dispose(); emailReview?.dispose(); emailFilings?.dispose(); replyOutcomes?.dispose(); } };
+  return { refresh: auto.refresh, dispose() { cancelLanding(); missingNextStep?.dispose(); reasons?.dispose(); document.removeEventListener('keydown', flagKeydown); disposed = true; workingWeek.dispose(); sequence++; prepEpoch++; meetingPrep?.dispose(); panelObserver?.disconnect(); emailActivity?.removeEventListener('toggle', openEmailActivity); window.removeEventListener('doctorcre-session-invalidated', retirePendingEmail); expiry.dispose(); auto.dispose(); document.removeEventListener('doctorcre:brief-calendar', updateCalendar); window.removeEventListener('doctorcre-session-invalidated', clearCalendar); relationshipDialog?.dispose(); pastWidget?.dispose(); callTasks?.dispose(); meetingReviews?.dispose(); overdueReviews?.dispose(); emailReview?.dispose(); emailFilings?.dispose(); replyOutcomes?.dispose(); } };
 }
 
 if (typeof document !== 'undefined' && document.getElementById('dealAttention')) {
