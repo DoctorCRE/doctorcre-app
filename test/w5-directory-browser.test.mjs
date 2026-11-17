@@ -136,6 +136,15 @@ test('W5 filters, traversal and autonomous refresh recover without losing search
   assert.ok(await page.locator('.record-row').count()>=count);assert.equal(await page.locator('#searchInput').inputValue(),'Demo');
   h.setFail(true);await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForSelector('.record-empty');h.setFail(false);await page.clock.fastForward(31000);await page.waitForSelector('.record-row');assert.deepEqual(h.errors,[]);
 });
+test('a new search puts the reader at its first result at once',async t=>{
+  const {page}=await open(t);await page.goto(origin+'/vendors?mode=live',{waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');
+  const scrollY=await page.evaluate(()=>{
+    scrollTo({top:1500,behavior:'instant'});
+    document.querySelector('#searchInput').value='Demo';document.querySelector('#searchInput').form.requestSubmit();
+    return scrollY;
+  });
+  assert.equal(scrollY,0);
+});
 test('W5 reduced motion stops hover travel and pulse while keeping content visible',async t=>{
   const {page}=await open(t);await page.emulateMedia({reducedMotion:'reduce'});await page.goto(origin+'/vendors', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.locator('.record-row').first().hover();
   const style=await page.locator('.record-row').first().evaluate(el=>({animation:getComputedStyle(el).animationName,transform:getComputedStyle(el).transform,opacity:getComputedStyle(el).opacity}));assert.deepEqual(style,{animation:'none',transform:'none',opacity:'1'});
