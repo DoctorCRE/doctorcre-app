@@ -212,7 +212,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const validTriage = value => Array.isArray(value?.items) && value.items.every(i => i
     && text(i.subject_type) && text(i.subject_id)
     && optionalText(i.subject_name) && optionalText(i.what) && optionalText(i.due_on)
-    && (text(i.subject_name) || text(i.name) || text(i.what))
+    && (i.subject_type !== 'deal' || text(i.subject_name)) && (text(i.subject_name) || text(i.what))
     && (!i.due_on || toDay(i.due_on)));
   const connection = connected => {
     connected = connected && win.navigator.onLine !== false;
