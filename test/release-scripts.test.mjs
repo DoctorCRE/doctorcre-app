@@ -53,7 +53,10 @@ test('credential-free environment stays closed when an unrelated secret is added
   assert.deepEqual(credentialFreeEnv({ PATH: '/fixture', CLOUDFLARE_API_TOKEN: canary, GH_TOKEN: canary, NEW_SECRET: canary }), { PATH: '/fixture' });
 });
 
-function releaseFixture(t, { mainCommit = '1'.repeat(40), history = [mainCommit], dirty = '', failure = null, uploadOutput = 'Worker Version ID: 0f1e2d3c-4b5a-4968-8776-655443322110' } = {}) {
+// Unless a test writes published.json, production serves liveVersion built from liveSource.
+const liveVersion = '00000000-0000-4000-8000-000000000000';
+const liveSource = '0'.repeat(40);
+function releaseFixture(t, { mainCommit = '1'.repeat(40), history = [liveSource, mainCommit], dirty = '', failure = null, uploadOutput = 'Worker Version ID: 0f1e2d3c-4b5a-4968-8776-655443322110' } = {}) {
   const root = temporaryDirectory('release-env-');
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'));
@@ -80,8 +83,8 @@ for (const failure of [${JSON.stringify(failure)}].flat().filter(Boolean)) {
 const matchingCalls = failure ? fs.readFileSync(${JSON.stringify(trace)}, 'utf8').trim().split('\\n').map(JSON.parse).filter(row => row.tool === failure.tool && row.args.slice(0, failure.prefix.length).join(' ') === failure.prefix.join(' ')).length : 0;
 if (failure && failure.tool === '${tool}' && args.slice(0, failure.prefix.length).join(' ') === failure.prefix.join(' ') && matchingCalls === (failure.onCall || 1)) { console.error(failure.stderr || 'synthetic failure'); process.exit(failure.status || 1); }
 }
-if ('${tool}' === 'wrangler' && args[0] === 'deployments') console.log(JSON.stringify(fs.existsSync(${JSON.stringify(join(root, 'published.json'))}) ? JSON.parse(fs.readFileSync(${JSON.stringify(join(root, 'published.json'))}, 'utf8')) : { versions: [] }));
-if ('${tool}' === 'wrangler' && args[0] === 'versions' && args[1] === 'view') console.log(fs.existsSync(${JSON.stringify(join(root, 'version.json'))}) ? fs.readFileSync(${JSON.stringify(join(root, 'version.json'))}, 'utf8') : JSON.stringify({ id: args[2], resources: { bindings: [{ name: 'GIT_SHA', type: 'plain_text', text: '1'.repeat(40) }] } }));
+if ('${tool}' === 'wrangler' && args[0] === 'deployments') console.log(JSON.stringify(fs.existsSync(${JSON.stringify(join(root, 'published.json'))}) ? JSON.parse(fs.readFileSync(${JSON.stringify(join(root, 'published.json'))}, 'utf8')) : { versions: [{ version_id: '${liveVersion}', percentage: 100 }] }));
+if ('${tool}' === 'wrangler' && args[0] === 'versions' && args[1] === 'view') console.log(fs.existsSync(${JSON.stringify(join(root, 'version.json'))}) ? fs.readFileSync(${JSON.stringify(join(root, 'version.json'))}, 'utf8') : JSON.stringify({ id: args[2], resources: { bindings: [{ name: 'GIT_SHA', type: 'plain_text', text: args[2] === '${liveVersion}' ? '${liveSource}' : '1'.repeat(40) }] } }));
 if ('${tool}' === 'wrangler' && args[0] === 'versions' && args[1] === 'deploy') fs.writeFileSync(${JSON.stringify(join(root, 'published.json'))}, JSON.stringify({ versions: [{ version_id: args[2].split('@')[0], percentage: 100 }] }));
 if ('${tool}' === 'wrangler' && args.includes('upload')) console.log(${JSON.stringify(uploadOutput)});
 if (fs.existsSync(${JSON.stringify(join(root, 'fail'))}) && ('${tool}' === 'node' || '${tool}' === 'npm')) { console.error('synthetic failure'); process.exit(1); }
@@ -352,21 +355,36 @@ test('duplicate exact-SHA wakes promote once and emit already-live receipts', t 
 });
 
 const deployedVersion = '0f1e2d3c-4b5a-4968-8776-655443322110';
-test('an older source, missing source binding or split traffic still publishes the exact candidate', t => {
-  for (const [versions, bindings] of [
-    [[{ version_id: deployedVersion, percentage: 100 }], [{ name: 'GIT_SHA', type: 'plain_text', text: '2'.repeat(40) }]],
-    [[{ version_id: deployedVersion, percentage: 100 }], []],
-    [[{ version_id: deployedVersion, percentage: 50 }, { version_id: 'another-version', percentage: 50 }], []],
+test('an older live source that the candidate descends from still publishes the exact candidate', t => {
+  const { root, trace, env } = releaseFixture(t, { history: ['2'.repeat(40), '1'.repeat(40)] });
+  writeFileSync(join(root, 'published.json'), JSON.stringify({ versions: [{ version_id: deployedVersion, percentage: 100 }] }));
+  writeFileSync(join(root, 'version.json'), JSON.stringify({ id: deployedVersion, resources: { bindings: [{ name: 'GIT_SHA', type: 'plain_text', text: '2'.repeat(40) }] } }));
+  const result = spawnSync(process.execPath, ['scripts/release-production.mjs'], { cwd: root, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const rows = readFileSync(trace, 'utf8').trim().split('\n').map(JSON.parse);
+  const upload = rows.find(row => row.tool === 'wrangler' && row.args[1] === 'upload');
+  assert.ok(upload?.args.includes(`GIT_SHA:${'1'.repeat(40)}`));
+  assert.equal(rows.filter(row => row.tool === 'wrangler' && row.args[1] === 'deploy').length, 1);
+});
+
+test('production refuses to publish when it cannot prove the live source is older', t => {
+  const at100 = [{ version_id: deployedVersion, percentage: 100 }];
+  const binding = text => [{ name: 'GIT_SHA', type: 'plain_text', text }];
+  for (const [label, versions, bindings, refusal] of [
+    ['missing binding', at100, [], /no GIT_SHA/],
+    ['short binding', at100, binding('2222222'), /no GIT_SHA/],
+    ['unknown source', at100, binding('3'.repeat(40)), /not an ancestor/],
+    ['split traffic', [{ version_id: deployedVersion, percentage: 50 }, { version_id: liveVersion, percentage: 50 }], binding('2'.repeat(40)), /exactly one version at 100%/],
+    ['no live version', [], [], /exactly one version at 100%/],
   ]) {
     const { root, trace, env } = releaseFixture(t, { history: ['2'.repeat(40), '1'.repeat(40)] });
     writeFileSync(join(root, 'published.json'), JSON.stringify({ versions }));
     writeFileSync(join(root, 'version.json'), JSON.stringify({ id: deployedVersion, resources: { bindings } }));
     const result = spawnSync(process.execPath, ['scripts/release-production.mjs'], { cwd: root, env, encoding: 'utf8' });
-    assert.equal(result.status, 0, result.stderr);
-    const rows = readFileSync(trace, 'utf8').trim().split('\n').map(JSON.parse);
-    const upload = rows.find(row => row.tool === 'wrangler' && row.args[1] === 'upload');
-    assert.ok(upload?.args.includes(`GIT_SHA:${'1'.repeat(40)}`));
-    assert.equal(rows.filter(row => row.tool === 'wrangler' && row.args[1] === 'deploy').length, 1);
+    assert.notEqual(result.status, 0, label);
+    assert.match(result.stderr, refusal, label);
+    assert.match(result.stderr, /rollback:production/, label);
+    assert.equal(readFileSync(trace, 'utf8').includes('"upload"'), false, label);
   }
 });
 
