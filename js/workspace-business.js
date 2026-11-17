@@ -1114,8 +1114,9 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   } else if (parsed.recordId) {
     renderRecordPanel();
   }
-  // Last, so it corrects any scroll a focus move would otherwise have caused.
-  if (typeof restoreScroll === "number") window.scrollTo({ top: restoreScroll, behavior: "auto" });
+  // Last, so it corrects any scroll a focus move would otherwise have caused. Instant, because
+  // "auto" follows the page's smooth scrolling and a new list would paint near the old bottom.
+  if (typeof restoreScroll === "number") window.scrollTo({ top: restoreScroll, behavior: "instant" });
 }
 
 function updateQuery(changes, { replace = false } = {}) {

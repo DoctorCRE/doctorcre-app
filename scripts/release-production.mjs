@@ -4,9 +4,10 @@
 // a refusal, never a creation. The hostname attachment (app.doctorcre.com)
 // lives outside this script and outside wrangler.jsonc.
 //
-// Run only from a clean checkout at exactly origin/main, under Joe's explicit
-// instruction for that release. `versions deploy ... @100%` is the one
-// irreversible step; undo it with `npm run rollback:production -- <id>`.
+// Run only from a clean checkout of a commit on origin/main that is not older
+// than the live source, under Joe's explicit instruction for that release.
+// `versions deploy ... @100%` is the one irreversible step; undo it with
+// `npm run rollback:production -- <id>`.
 import { appendFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
@@ -31,7 +32,10 @@ const mainCommit = run("git", ["rev-parse", "origin/main"], { capture: true }).t
 const status = run("git", ["status", "--porcelain", "--untracked-files=all"], { capture: true }).trim();
 
 if (!/^[0-9a-f]{40}$/.test(sourceCommit)) throw new Error("HEAD is not a full Git commit");
-if (sourceCommit !== mainCommit) throw new Error("production releases must use the exact origin/main commit");
+const reaches = (newer, older) => {
+  try { run("git", ["merge-base", "--is-ancestor", older, newer], { capture: true }); return true; } catch { return false; }
+};
+if (!reaches(mainCommit, sourceCommit)) throw new Error("production releases must use a commit on origin/main");
 if (status) throw new Error("production releases require a clean checkout");
 
 // Verification also replaces dist/site from the verified archive, so restored
@@ -49,18 +53,22 @@ if (deploymentStatus.status !== 0) {
 }
 const deployment = JSON.parse(deploymentStatus.stdout);
 if (!Array.isArray(deployment.versions)) throw new Error("invalid production deployment state");
+// Without one known live source there is no way to prove this commit is newer.
+const unprovable = reason => new Error(`${reason}; refusing so production never moves backward. ` +
+  "If that is unexpected, put one main version that carries a GIT_SHA binding at 100% (npm run rollback:production -- <id>), then run again.");
 const [active] = deployment.versions;
-if (deployment.versions.length === 1 && active.percentage === 100) {
-  if (!/^[0-9a-f-]{36}$/i.test(active.version_id)) throw new Error("invalid production version identity");
-  const version = JSON.parse(provider(["versions", "view", active.version_id, "--env", "", "--json"], { capture: true }));
-  if (version.id !== active.version_id || !Array.isArray(version.resources?.bindings)) throw new Error("invalid production version state");
-  const source = version.resources.bindings.find(binding => binding.name === "GIT_SHA" && binding.type === "plain_text");
-  if (source?.text === sourceCommit) {
-    console.log(`Production already serves source ${sourceCommit}; no publication needed.`);
-    receipt("already-live", active.version_id);
-    process.exit(0);
-  }
+if (deployment.versions.length !== 1 || active.percentage !== 100) throw unprovable("production is not serving exactly one version at 100%");
+if (!/^[0-9a-f-]{36}$/i.test(active.version_id)) throw new Error("invalid production version identity");
+const version = JSON.parse(provider(["versions", "view", active.version_id, "--env", "", "--json"], { capture: true }));
+if (version.id !== active.version_id || !Array.isArray(version.resources?.bindings)) throw new Error("invalid production version state");
+const liveSource = version.resources.bindings.find(binding => binding.name === "GIT_SHA" && binding.type === "plain_text")?.text;
+if (!/^[0-9a-f]{40}$/.test(liveSource ?? "")) throw unprovable(`production version ${active.version_id} has no GIT_SHA source binding`);
+if (liveSource === sourceCommit) {
+  console.log(`Production already serves source ${sourceCommit}; no publication needed.`);
+  receipt("already-live", active.version_id);
+  process.exit(0);
 }
+if (!reaches(sourceCommit, liveSource)) throw unprovable(`production serves ${liveSource}, which is not an ancestor of ${sourceCommit}`);
 const uploadOutput = provider(["versions", "upload", "--env", "", "--strict",
   "--tag", versionTag, "--message", message, "--var", `GIT_SHA:${sourceCommit}`], { capture: true });
 process.stdout.write(uploadOutput);

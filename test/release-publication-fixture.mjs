@@ -32,6 +32,8 @@ export function fixture(t, { browser = false } = {}) {
   const bin = join(root, 'node_modules/.bin');
   mkdirSync(bin, { recursive: true });
   for (const name of ['tsc', 'biome', 'knip']) symlinkSync(join(ROOT, 'node_modules/.bin', name), join(bin, name));
+  git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'Synthetic live source']);
+  const live = git(['rev-parse', 'HEAD']);
   git(['add', ...paths.filter(path => existsSync(join(root, path))), 'package.json']);
   git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Synthetic release source']);
   const commit = git(['rev-parse', 'HEAD']);
@@ -43,7 +45,7 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({args, deploy: !!process.env.CLOUDFLARE_API_TOKEN, unrelated: !!process.env.NEW_SECRET, color: process.env.NO_COLOR})+'\\n');
 if (args.includes('status') && fs.existsSync(${JSON.stringify(join(parent, 'bootstrap'))})) { fs.unlinkSync(${JSON.stringify(join(parent, 'bootstrap'))}); console.error('code: 10007'); process.exit(1); }
 if (args[0] === 'deployments' && args.includes('status')) console.log(JSON.stringify({ versions: [{ version_id: '${versionId}', percentage: 100 }] }));
-if (args[0] === 'versions' && args[1] === 'view') console.log(JSON.stringify({ id: args[2], resources: { bindings: [{ name: 'GIT_SHA', type: 'plain_text', text: '0'.repeat(40) }] } }));
+if (args[0] === 'versions' && args[1] === 'view') console.log(JSON.stringify({ id: args[2], resources: { bindings: [{ name: 'GIT_SHA', type: 'plain_text', text: '${live}' }] } }));
 if (args.includes('upload')) console.log('Worker Version ID: ${versionId}');
 `;
   const provider = join(root, 'node_modules/wrangler'); mkdirSync(join(provider, 'bin'), { recursive: true });
