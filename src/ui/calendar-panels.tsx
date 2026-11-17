@@ -147,7 +147,9 @@ export async function mountCalendarPanels(left: HTMLElement, right: HTMLElement,
       });
     };
     const status = !valid
-      ? "Schedule unavailable. Refresh to try again."
+      ? object(value) && value.state === "loading"
+        ? "Loading schedule…"
+        : "Schedule unavailable. Refresh to try again."
       : partial
         ? "Calendar coverage is incomplete. Check Outlook for changes."
         : null;
@@ -234,9 +236,10 @@ export async function mountCalendarPanels(left: HTMLElement, right: HTMLElement,
     });
     fitMeetings();
   }
+  render({ state: "loading" });
   return {
     render,
-    clear: () => render(null),
+    clear: (state: "loading" | "unavailable" = "unavailable") => render({ state }),
     retire: () => {
       if (retired) return;
       retired = true;

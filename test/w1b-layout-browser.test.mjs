@@ -278,9 +278,11 @@ test('Home Today shows loading through initial reads, refresh and tab resume',as
  const hold=()=>{pending=new Promise(resolve=>release=resolve);};
  t.after(()=>release?.());
  await page.route('**/mcp',async route=>{
-  if(['deal-room-board','morning-brief','calendar-meeting-prep'].includes(route.request().postDataJSON().params.name)){
+  const name=route.request().postDataJSON().params.name;
+  if(['deal-room-board','morning-brief','calendar-meeting-prep'].includes(name)){
    reads++;await pending;
   }
+  if(name==='calendar-meeting-prep')return route.fulfill({json:{result:{content:[{type:'text',text:JSON.stringify({state:'empty',items:[],notes:[]})}]}}});
   return route.fallback();
  });
  const loading=async()=>{
