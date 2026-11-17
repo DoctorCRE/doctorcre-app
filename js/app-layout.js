@@ -209,8 +209,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       && (d.attention == null || typeof d.attention === 'boolean')
       && (!d.next_date || toDay(d.next_date)));
   const validTriage = value => Array.isArray(value?.items) && value.items.every(i => i
-    && text(i.subject_type) && text(i.subject_id) && text(i.subject_name)
-    && optionalText(i.what) && optionalText(i.due_on) && (!i.due_on || toDay(i.due_on)));
+    && text(i.subject_type) && text(i.subject_id)
+    && optionalText(i.subject_name) && optionalText(i.what) && optionalText(i.due_on)
+    && (text(i.subject_name) || text(i.name) || text(i.what))
+    && (!i.due_on || toDay(i.due_on)));
   const connection = connected => {
     connected = connected && win.navigator.onLine !== false;
     const dot = root.getElementById('appConnection'); dot.dataset.state = connected ? 'healthy' : 'unknown';
