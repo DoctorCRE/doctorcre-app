@@ -408,6 +408,13 @@ export const PHICON = {
 
 export const ACTOR_LABEL = { joe: 'Joe', dell: 'Dell' };
 
+/** Who wrote a note or update, as a partner says it. Only the partners write by hand; joe-local acts as Joe, and every other author is an automation. */
+export function authorLabel(/** @type {string | null | undefined} */ slug) {
+  if (!slug) return 'Author not recorded';
+  if (Object.hasOwn(ACTOR_LABEL, slug)) return ACTOR_LABEL[slug];
+  return slug === 'joe-local' ? 'Joe' : 'Doc (assistant)';
+}
+
 /**
  * @param {'fixture'|'live'} mode
  * @param {Object} [opts]

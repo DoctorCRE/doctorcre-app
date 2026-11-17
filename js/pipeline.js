@@ -14,9 +14,9 @@ import { readWithDeadline } from './auto-refresh.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient } from './live-client.js';
-import { mountEvidence, loadEvidence, renderEvidence } from './correspondence.js';
+import { loadEvidence, renderEvidence } from './correspondence.js';
 import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
-import { ACTOR_LABEL, FACT_TERMS } from './client.js';
+import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
 import { formatCalendarDate } from './visual-system.js';
 import {
@@ -350,7 +350,6 @@ function applyBoardSnapshot(board) {
     state.panelDetail = null;
     disposeChecklist();
     disposeWatchControl();
-    disposeEvidence?.(); disposeEvidence = null;
     disposeActivityAttribution();
     disposePanelEmailFollowups();
     $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
@@ -824,7 +823,6 @@ function mountPanelActivityAttribution() {
   const root = $('panelBody').querySelector('.deal-updates');
   if (root) activityAttribution = mountActivityAttribution(root, { onDenied: refusePanelDetail });
 }
-let disposeEvidence = null;
 let watchControl = null, watchElement = null, watchSubject = null;
 let panelEmailFollowups = null;
 let emailMountSequence = 0;
@@ -879,7 +877,6 @@ function refusePanelDetail(error) {
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   bindDraftActor(null);
-  disposeEvidence?.(); disposeEvidence = null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   setContextOpenVisible(false);
@@ -1075,7 +1072,7 @@ function selectWorkspaceTab(id) {
   }
 }
 function workspaceNotesHtml(detail) {
-  return `<section aria-label="Deal notes"><h3>Deal notes</h3>${(detail.thread || []).map(note => `<article class="workspace-note"><b>${esc(actorName(note.actor))}</b> <time datetime="${esc(note.at || note.created_at || note.recorded_at || '')}">${esc(sourceTime(note.at || note.created_at || note.recorded_at, undefined, 'Date not recorded'))}</time><p class="note-original">${esc(noteText(note.text))}</p></article>`).join('') || '<p>No notes recorded.</p>'}</section>`;
+  return `<section aria-label="Deal notes"><h3>Deal notes</h3>${(detail.thread || []).map(note => `<article class="workspace-note"><b>${esc(authorLabel(note.actor))}</b> <time datetime="${esc(note.at || note.created_at || note.recorded_at || '')}">${esc(sourceTime(note.at || note.created_at || note.recorded_at, undefined, 'Date not recorded'))}</time><p class="note-original">${esc(noteText(note.text))}</p></article>`).join('') || '<p>No notes recorded.</p>'}</section>`;
 }
 function workspaceEventsHtml(detail) {
   const view = dealTimeline(detail);
@@ -1261,10 +1258,9 @@ async function refreshEvidence(detail, id, seq) {
   if (!$('panelEvidenceSection')?.open) return;
   const root = $('panelEvidence');
   const template = document.createElement('div'); template.innerHTML = renderEvidence(evidence);
-  if (disposeEvidence && root.innerHTML === template.innerHTML) return;
+  if (root.innerHTML === template.innerHTML) return;
   const expanded = new Set([...root.querySelectorAll('details[open]')].map(n => n.querySelector('summary')?.textContent));
-  disposeEvidence?.();
-  disposeEvidence = mountEvidence(root, {detail,initialView:evidence});
+  root.innerHTML = template.innerHTML;
   root.querySelectorAll('details').forEach(n => { if (expanded.has(n.querySelector('summary')?.textContent)) n.open = true; });
 }
 function paintPanel(detail) {
@@ -1308,7 +1304,6 @@ function paintPanel(detail) {
     refresh() { return mounted?.refresh(); },
     dispose() { disposed = true; observer.disconnect(); mounted?.dispose(); },
   };
-  disposeEvidence?.(); disposeEvidence = null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   syncUpdateForm();
@@ -1433,7 +1428,6 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   marketTermsPanel = null;
   selectDocRecord('deal', dealId);
   const panel = $('recordPanel');
-  disposeEvidence?.(); disposeEvidence = null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   setContextOpenVisible(false);
@@ -1495,7 +1489,6 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   ++panelReadSequence; ++contextReadSequence;
   $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
   const id = state.panelReturnTo;
-  disposeEvidence?.(); disposeEvidence=null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); writeWorkspaceHistory({},url); }
@@ -1848,8 +1841,7 @@ function wire() {
   $('kanban').addEventListener('toggle', e => { if(e.target.classList.contains('parked-lane')) { state.parkedOpen=e.target.open; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); } },true);
   $('panelBody').addEventListener('toggle', event => {
     if (event.target.id !== 'panelEvidenceSection') return;
-    if (!event.target.open) { disposeEvidence?.(); disposeEvidence = null; return; }
-    if (state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
+    if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
   $('panelBody').addEventListener('click', e => {
     if (e.target.closest('[data-discard-update]') && !pendingCommand(commandState, updateKey(state.panelDeal)) && !pendingCommand(commandState, nextStepKey(state.panelDeal))) { discardUpdate(state.panelDeal); syncUpdateForm(); }

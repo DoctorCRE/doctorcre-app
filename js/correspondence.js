@@ -2,46 +2,25 @@ import { newestFirst } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
 import { meetingEvidence, unavailableEvidence } from './correspondence-model.js';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+const GROUPS = [
+  { key: 'threads', title: 'Email threads', none: 'No email threads', kind: 'thread', label: 'Email' },
+  { key: 'meetings', title: 'Meetings', none: 'No meetings', kind: 'meeting', label: 'Meeting' },
+];
 
-function evidenceGroup(title, state) {
-  const group = title === 'Threads' ? 'threads' : 'meetings';
-  if (state.state === 'refused') return `<div class="evidence-group" data-evidence-group="${group}" data-state="refused"><h4>${title} unavailable</h4><a href="/auth/login">Sign in</a></div>`;
-  if (state.state !== 'ready') return `<div class="evidence-group" data-evidence-group="${group}" data-state="${esc(state.state)}"><h4>${title} ${state.state === 'loading' ? 'loading…' : 'unavailable'}</h4>${state.state === 'loading' ? '' : '<button type="button" data-evidence-retry>Retry evidence</button>'}</div>`;
-  if (!state.items?.length) return `<div class="evidence-group" data-evidence-group="${group}"><h4>${title}</h4><p>No linked evidence</p></div>`;
-  return `<div class="evidence-group" data-evidence-group="${group}"><h4>${title}</h4><ol class="evidence-timeline">${state.items.map(item => `<li class="evidence-item" data-kind="${item.kind === 'email-thread' ? 'thread' : esc(item.kind)}"><details><summary><span>${esc(item.title)}</span><time datetime="${esc(item.when)}">${esc(item.kind === 'thread' ? 'Read ' : '')}${esc(sourceTime(item.when))}</time></summary><p>${item.kind === 'thread' || item.kind === 'email-thread' ? 'Email' : 'Meeting'}</p></details></li>`).join('')}</ol></div>`;
+function evidenceGroup({ key, title, none, kind, label }, state) {
+  if (state.state === 'refused') return `<div class="evidence-group" data-evidence-group="${key}" data-state="refused"><h4>${title} unavailable</h4><a href="/auth/login">Sign in</a></div>`;
+  if (state.state === 'loading') return `<div class="evidence-group" data-evidence-group="${key}" data-state="loading"><h4>${title} loading…</h4></div>`;
+  if (state.state !== 'ready') return `<div class="evidence-group" data-evidence-group="${key}" data-state="${esc(state.state)}"><h4>${title} unavailable</h4><button class="btn" type="button" data-refresh-detail>Refresh deal</button></div>`;
+  if (!state.items?.length) return `<div class="evidence-group" data-evidence-group="${key}"><h4>${title}</h4><p>${none}</p></div>`;
+  return `<div class="evidence-group" data-evidence-group="${key}"><h4>${title}</h4><ol class="evidence-timeline">${state.items.map(item => `<li class="evidence-item" data-kind="${kind}"><details><summary><span>${esc(item.title)}</span><time datetime="${esc(item.when)}">${esc(sourceTime(item.when))}</time></summary><p>${label}</p></details></li>`).join('')}</ol></div>`;
 }
 export function renderEvidence(view = {}) {
-  const groups = [['Threads',view.threads],['Meetings',view.meetings]].filter(([,state]) => state?.state);
-  return groups.length ? `<section class="correspondence-evidence" aria-label="Evidence"><h3>Evidence</h3>${groups.map(([title,state]) => evidenceGroup(title,state)).join('')}</section>` : '';
+  const groups = GROUPS.filter(group => view[group.key]?.state);
+  return groups.length ? `<section class="correspondence-evidence" aria-label="Evidence"><h3>Evidence</h3>${groups.map(group => evidenceGroup(group, view[group.key])).join('')}</section>` : '';
 }
 export async function loadEvidence(detail = {}) {
   const meetings = meetingEvidence(detail.activities);
   if (!Array.isArray(detail.email_threads)) return { threads: unavailableEvidence(), meetings };
-  const items = newestFirst(detail.email_threads.map(row => ({ kind: 'email-thread', title: row.subject || '(No subject)', when: row.latest_message_at })), item => item.when);
+  const items = newestFirst(detail.email_threads.map(row => ({ title: row.subject || 'No subject recorded', when: row.latest_message_at })), item => item.when);
   return { threads: { state: 'ready', count: items.length, items }, meetings };
-}
-export function mountEvidence(root, { detail = {}, initialView } = {}) {
-  let disposed = false, generation = 0;
-  async function refresh() {
-    const current = ++generation;
-    // Replace only the thread group so meeting disclosures and focus survive.
-    paint({threads:{state:'loading',items:[]},meetings:meetingEvidence(detail.activities)});
-    const view = await loadEvidence(detail);
-    if (disposed || current !== generation) return;
-    paint(view);
-  }
-  function paint(view) {
-    if (!root.querySelector('.correspondence-evidence')) { root.innerHTML = renderEvidence(view); return; }
-    for (const [group, title] of [['threads','Threads'],['meetings','Meetings']]) {
-      const node = root.querySelector(`[data-evidence-group="${group}"]`);
-      if (group === 'meetings' && node && view.meetings.state === 'ready') continue;
-      if (node) node.outerHTML = evidenceGroup(title,view[group]);
-      else root.querySelector('.correspondence-evidence').insertAdjacentHTML('beforeend',evidenceGroup(title,view[group]));
-    }
-  }
-  const click = event => { if (event.target.closest('[data-evidence-retry]')) void refresh(); };
-  root.addEventListener('click',click);
-  if (initialView) root.innerHTML = renderEvidence(initialView);
-  else void refresh();
-  return () => { disposed = true; ++generation; root.removeEventListener('click',click); };
 }
