@@ -146,6 +146,13 @@ test('a field edit date never becomes a recorded last step', () => {
   assert.doesNotMatch(doc.body.textContent, /Last:|Contact recorded/);
 });
 
+test('an empty last step shows no Last line, never brackets', () => {
+  for (const last_step of [{ kind: 'note', summary: '[]', occurred_at: '2026-07-31T12:00:00Z' }, { kind: 'note', summary: [], occurred_at: '2026-07-31T12:00:00Z' }, { kind: 'note', summary: null, occurred_at: '2026-07-31T12:00:00Z' }, null, undefined]) {
+    const text = new JSDOM(renderDealSummary({ id: 'demo', last_step })).window.document.body.textContent;
+    assert.doesNotMatch(text, /Last:|\[\]/, JSON.stringify(last_step));
+  }
+});
+
 test('board summaries state a repeated action and its due date only once', () => {
   const row = { id: 'demo', open_actions: [{ id: 'action', description: 'Review sample documents', due_on: '2026-10-12', owner: 'joe' }],
     items: [{ id: 'item', title: 'Review sample documents', due_on: '2026-10-12', status: 'open' }] };
