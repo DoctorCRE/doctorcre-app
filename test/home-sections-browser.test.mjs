@@ -86,7 +86,7 @@ for (const state of ['empty', 'unavailable', 'partial']) test(`Home and schedule
   await page.getByRole('heading', { name: 'Welcome home.' }).waitFor();
   await page.locator('main').getByText('Nothing here right now.', { exact: true }).first().waitFor();
   assert.equal(await page.locator('main').getByText('Nothing here right now.', { exact: true }).count(), 6);
-  await page.locator('#appScheduleSlot').getByText(state === 'unavailable' ? 'Schedule unavailable. Refresh to try again.' : state === 'partial' ? 'No meetings returned for today.' : 'No meetings scheduled today.', { exact: true }).waitFor();
+  await page.locator('#appScheduleSlot').getByText(state === 'unavailable' ? 'Schedule unavailable. Retry Today to try again.' : state === 'partial' ? 'No meetings returned for today.' : 'No meetings scheduled today.', { exact: true }).waitFor();
   assert.equal(await page.locator('[data-inbox-row]').count(), 0);
 });
 
