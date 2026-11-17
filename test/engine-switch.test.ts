@@ -645,6 +645,78 @@ for (const args of [{ vertical: 1 }, { city: null }, { state: ["EX"] }]) {
   });
 }
 
+const searchOn = new Map([["search-from-engine", "on"]]);
+const find = call("find", { query: " Example & Clinic " });
+
+test("search switch routes find with its untrimmed query as query text", async () => {
+  const f = fixture(searchOn);
+  const response = await f.send(find);
+  assert.equal(f.engine[0]?.url, `${origin}/api/engine/find?query=+Example+%26+Clinic+`);
+  assert.equal(f.engine[0]?.method, "GET");
+  assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
+  assert.deepEqual(f.kv, [["search-from-engine", { cacheTtl: 30 }]]);
+  assert.equal(f.carr.length, 0);
+  assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
+});
+
+for (const value of [
+  null,
+  "off",
+  "ON",
+  "",
+  new Error("KV failed"),
+  ...[
+    "deals-from-engine",
+    "leads-from-engine",
+    "invoices-from-engine",
+    "charts-from-engine",
+    "national-deals-from-engine",
+    "clients-vendors-from-engine",
+    "relationships-from-engine",
+    "frame-from-engine",
+  ].map((key) => new Map([[key, "on"]])),
+]) {
+  test(`find keeps the original CARR body unless its own switch is on (${value instanceof Map ? [...value.keys()] : String(value)})`, async () => {
+    const f = fixture(value);
+    assert.equal(await (await f.send(find)).text(), "old");
+    assert.deepEqual(f.carr, [JSON.stringify(find)]);
+    assert.equal(f.engine.length, 0);
+    assert.deepEqual(f.kv, [["search-from-engine", { cacheTtl: 30 }]]);
+  });
+}
+
+// Search's second read, find-and-catch-up, follows the Clients and Vendors switch.
+for (const [keys, engineReads] of [
+  [["search-from-engine"], ["find"]],
+  [["clients-vendors-from-engine"], ["find-and-catch-up"]],
+  [
+    ["search-from-engine", "clients-vendors-from-engine"],
+    ["find", "find-and-catch-up"],
+  ],
+] as const) {
+  test(`with ${keys.join(" and ")} on, Search reads ${engineReads.join(" and ")} from the engine`, async () => {
+    const f = fixture(new Map(keys.map((key) => [key, "on"])));
+    await f.send(find);
+    await f.send(call("find-and-catch-up", { query: " Example & Clinic ", limit: 20 }));
+    assert.deepEqual(
+      f.engine.map((request) => new URL(request.url).pathname),
+      engineReads.map((name) => (name === "find" ? "/api/engine/find" : "/api/engine/recent-activity")),
+    );
+    assert.equal(f.carr.length, 2 - engineReads.length);
+  });
+}
+
+for (const args of [{}, { query: "" }, { query: 5 }, { query: null }, { query: "x", limit: 20 }]) {
+  test(`ineligible find stays on CARR without reading the switch ${JSON.stringify(args)}`, async () => {
+    const f = fixture(searchOn);
+    const body = call("find", args);
+    assert.equal(await (await f.send(body)).text(), "old");
+    assert.deepEqual(f.carr, [JSON.stringify(body)]);
+    assert.deepEqual(f.engine, []);
+    assert.deepEqual(f.kv, []);
+  });
+}
+
 const directoryOn = new Map([["clients-vendors-from-engine", "on"]]);
 const recordId = "00000000-0000-4000-8000-0000000000aB";
 const getRead = (f: ReturnType<typeof fixture>, path: string, method = "GET") =>
