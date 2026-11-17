@@ -252,26 +252,26 @@ test('decline requires a nonblank reason even when content is empty', async t =>
   assert.equal(calls.filter(c => c.name === 'dismiss-email-proposal').length, 0);
 });
 
-for (const width of [390, 1440]) for (const surface of ['/', '/inbox']) for (const [kind, sourceType, sourceState, label, sourceUrl] of [
+for (const width of [390, 1440]) for (const surface of ['/', '/inbox', '/inbox/card/one']) for (const [kind, sourceType, sourceState, label, sourceUrl] of [
   ['action', null, 'needs_attention', 'Mark done', null],
   ['action', 'capture_post_call_action', 'needs_attention', 'Mark done', null],
   ['reply_draft', null, 'needs_attention', 'Review reply', null],
-  ['reply_draft', 'email_proposal', 'failed', "This reply didn't send. Send it from your email, then hide this card.", null],
+  ['reply_draft', 'email_proposal', 'failed', "This reply didn't send. Send it from your email, then press Hide from inbox.", null],
   ['action', 'notification', 'needs_attention', 'Open in Updates', '/notifications?watch=synthetic'],
-  ['action', 'notification', 'needs_attention', 'Open Updates to read and clear this.', null],
+  ['action', 'notification', 'needs_attention', 'Open Updates', null],
   ['action', 'capture_session', 'needs_attention', 'Open deal', '/deals?deal=synthetic'],
-  ['action', 'capture_session', 'needs_attention', 'Nothing to do here yet.', null],
+  ['action', 'capture_session', 'needs_attention', 'Read it, then hide it from your inbox.', null],
   ['action', 'capture_session', 'working', 'Dr. CRE is working. You can come back to this.', null],
   ['fact_review', null, 'needs_attention', 'See details', null],
 ]) test(`card finish control ${width} ${surface} ${sourceType || kind} ${sourceState} ${sourceUrl ? 'linked' : 'unlinked'}`, async t => {
   const { page, panel } = await setup(t, { width, surface, kind, sourceType, sourceState, sourceUrl, waitingPerson: true });
   const card = page.locator('[data-inbox-row="one"]');
   const button = ['Mark done', 'Review reply', 'See details'].includes(label);
-  const link = label.startsWith('Open ') && sourceUrl;
+  const link = label.startsWith('Open ');
   assert.equal(await card.locator('.inbox-primary').count(), button || link ? 1 : 0);
   if (button) assert.equal(await card.getByRole('button', { name: label, exact: true }).getAttribute('class'), 'inbox-primary');
   else if (link) {
-    assert.equal(await card.getByRole('link', { name: label, exact: true }).getAttribute('href'), sourceUrl.replace('/notifications', '/updates'));
+    assert.equal(await card.getByRole('link', { name: label, exact: true }).getAttribute('href'), sourceUrl ? sourceUrl.replace('/notifications', '/updates') : '/updates');
   } else {
     assert.equal(await card.getByText(label, { exact: true }).count(), 1);
     if (sourceState !== 'working') {
@@ -284,13 +284,28 @@ for (const width of [390, 1440]) for (const surface of ['/', '/inbox']) for (con
       assert.equal(style.color, await card.locator('.inbox-copy .inbox-detail').evaluate(node => getComputedStyle(node).color));
     }
   }
+  assert.equal(await card.getByRole('link', { name: /^Open / }).count(), link ? 1 : 0);
+  if (sourceState === 'working') assert.equal(await card.locator('.inbox-guidance').count(), 0);
   assert.equal(await card.getByRole('button', { name: 'See details', exact: true }).count(), kind === 'action' && !sourceType || kind === 'fact_review' ? 1 : 0);
   assert.equal(await card.getByText(/Work is in progress|Review card|Waiting on|Set waiting person|Correct waiting person/).count(), 0);
-  await page.screenshot({ path: `test-artifacts/inline-review/finish-${width}-${surface === '/' ? 'home' : 'inbox'}-${sourceType || kind}-${sourceState}${sourceUrl ? '-linked' : ''}.png`, fullPage: true });
-  await card.screenshot({ path: `test-artifacts/inline-review/card-finish-${width}-${surface === '/' ? 'home' : 'inbox'}-${sourceType || kind}-${sourceState}${sourceUrl ? '-linked' : ''}.png` });
+  await page.screenshot({ path: `test-artifacts/inline-review/finish-${width}-${surface === '/' ? 'home' : surface === '/inbox' ? 'inbox' : 'opened'}-${sourceType || kind}-${sourceState}${sourceUrl ? '-linked' : ''}.png`, fullPage: true });
+  await card.screenshot({ path: `test-artifacts/inline-review/card-finish-${width}-${surface === '/' ? 'home' : surface === '/inbox' ? 'inbox' : 'opened'}-${sourceType || kind}-${sourceState}${sourceUrl ? '-linked' : ''}.png` });
   if (label === 'Review reply') {
     await card.getByRole('button', { name: label, exact: true }).click();
     await panel.getByRole('button', { name: 'Submit reply for sending', exact: true }).waitFor();
     assert.equal(await panel.getByRole('button', { name: 'Decline draft', exact: true }).count(), 1);
+  }
+});
+
+for (const sourceUrl of ['/deals?deal=synthetic', 'https://invalid.example.test/record']) test(`opened completable card source ${sourceUrl}`, async t => {
+  const { page } = await setup(t, { kind: 'action', surface: '/inbox/card/one', sourceUrl });
+  const card = page.locator('[data-inbox-row="one"]');
+  assert.equal(await card.getByRole('button', { name: 'Mark done', exact: true }).count(), 1);
+  if (sourceUrl.startsWith('/deals')) {
+    assert.equal(await card.getByRole('link', { name: 'Open deal', exact: true }).getAttribute('href'), sourceUrl);
+    assert.equal(await card.getByRole('link', { name: /^Open / }).count(), 1);
+  } else {
+    assert.equal(await card.getByText("This link can't be opened here.", { exact: true }).count(), 1);
+    assert.equal(await card.getByRole('link', { name: /^Open / }).count(), 0);
   }
 });

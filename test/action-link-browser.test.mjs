@@ -132,3 +132,17 @@ test('recorded reply action link renders exact review and session retirement cle
   assert.equal(await page.locator('#actionLink').textContent(),'');assert.equal(writes,0);
  }finally{await page?.unrouteAll({behavior:'ignoreErrors'});await browser.close();await server.close();}
 });
+
+test('exact action page keeps its Review card heading', async () => {
+ const {readFile}=await import('node:fs/promises');
+ const [target]=JSON.parse(await readFile(new URL('./fixtures/action-card-targets.v2.json',import.meta.url)));
+ const server=await fixtureServer(),browser=await chromium.launch();
+ try {
+  const page=await browser.newPage();
+  await page.route('**/auth/session',route=>route.fulfill({json:{actor:{slug:'joe'},csrf_token:'synthetic'}}));
+  await page.route('**/mcp',route=>route.fulfill({json:{result:{content:[{type:'text',text:JSON.stringify(target)}]}}}));
+  await page.goto(`${server.origin}/a/${target.ref}?mode=live`);
+  await page.locator('[data-exact-card-id]').waitFor();
+  assert.equal(await page.getByRole('heading',{name:'Review card',level:1,exact:true}).count(),1);
+ } finally {await browser.close();await server.close();}
+});
