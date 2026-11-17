@@ -960,40 +960,51 @@ const answered =
   async () =>
     new Response(text, { status });
 
-for (const value of [null, "off", new Error("KV failed"), new Map([["deals-from-engine", "on"]])]) {
-  test(`save switch off sends the save to the old system (${String(value)})`, async () => {
-    const f = fixture(value);
-    assert.equal(await (await f.send(phaseMove, saveHeaders)).text(), "old");
-    assert.deepEqual(f.carr, [JSON.stringify(phaseMove)]);
-    assert.deepEqual(f.kv, [[saveKey, { cacheTtl: 30 }]]);
-    assert.equal(f.engine.length, 0);
+// The board's closing save, as runOutcomeWrite sends it.
+const closing = call("update-deal", {
+  deal: "synthetic-deal",
+  fields: { outcome: "won", closed_on: "2026-09-30", won_value: 125000 },
+  base_version: 7,
+  idempotency_key: "00000000-0000-4000-8000-000000000002",
+});
+
+for (const save of [phaseMove, closing]) {
+  const verb = save.params.name;
+  for (const value of [null, "off", new Error("KV failed"), new Map([["deals-from-engine", "on"]])]) {
+    test(`save switch off sends ${verb} to the old system (${String(value)})`, async () => {
+      const f = fixture(value);
+      assert.equal(await (await f.send(save, saveHeaders)).text(), "old");
+      assert.deepEqual(f.carr, [JSON.stringify(save)]);
+      assert.deepEqual(f.kv, [[saveKey, { cacheTtl: 30 }]]);
+      assert.equal(f.engine.length, 0);
+    });
+  }
+
+  test(`save switch on sends ${verb} with the same arguments and key to the engine with the session headers`, async () => {
+    const f = fixture(savesOn, answered('{"ok":true,"updated":["outcome"]}'));
+    const response = await f.send(save, saveHeaders);
+    assert.equal(f.carr.length, 0);
+    const request = f.engine[0];
+    assert.ok(request);
+    assert.equal(request.url, `${origin}/api/engine/${verb}`);
+    assert.equal(request.method, "POST");
+    assert.equal(await request.text(), JSON.stringify(save.params.arguments));
+    assert.equal(request.headers.get("content-type"), "application/json");
+    for (const [key, value] of Object.entries(saveHeaders)) assert.equal(request.headers.get(key), value);
+    assert.deepEqual(await response.json(), {
+      jsonrpc: "2.0",
+      id: "synthetic-request",
+      result: { content: [{ type: "text", text: '{"ok":true,"updated":["outcome"]}' }] },
+    });
+  });
+
+  test(`engine 501 old_system_required sends the original ${verb} to the old system`, async () => {
+    const f = fixture(savesOn, answered('{"error":"old_system_required","correlation_id":"c"}', 501));
+    assert.equal(await (await f.send(save, saveHeaders)).text(), "old");
+    assert.equal(f.engine.length, 1);
+    assert.deepEqual(f.carr, [JSON.stringify(save)]);
   });
 }
-
-test("save switch on sends the same arguments and key to the engine with the session headers", async () => {
-  const f = fixture(savesOn, answered('{"ok":true,"field":"phase"}'));
-  const response = await f.send(phaseMove, saveHeaders);
-  assert.equal(f.carr.length, 0);
-  const request = f.engine[0];
-  assert.ok(request);
-  assert.equal(request.url, `${origin}/api/engine/patch-deal-field`);
-  assert.equal(request.method, "POST");
-  assert.equal(await request.text(), JSON.stringify(phaseMove.params.arguments));
-  assert.equal(request.headers.get("content-type"), "application/json");
-  for (const [key, value] of Object.entries(saveHeaders)) assert.equal(request.headers.get(key), value);
-  assert.deepEqual(await response.json(), {
-    jsonrpc: "2.0",
-    id: "synthetic-request",
-    result: { content: [{ type: "text", text: '{"ok":true,"field":"phase"}' }] },
-  });
-});
-
-test("engine 501 old_system_required sends the original save to the old system", async () => {
-  const f = fixture(savesOn, answered('{"error":"old_system_required","correlation_id":"c"}', 501));
-  assert.equal(await (await f.send(phaseMove, saveHeaders)).text(), "old");
-  assert.equal(f.engine.length, 1);
-  assert.deepEqual(f.carr, [JSON.stringify(phaseMove)]);
-});
 
 for (const [status, text] of [
   [500, '{"error":"unhandled_verb_failure","verb":"patch-deal-field"}'],

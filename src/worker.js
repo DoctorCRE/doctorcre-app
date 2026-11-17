@@ -267,6 +267,7 @@ const DEAL_SAVES = 'deal-saves-to-engine';
 // Each old save the engine can answer, by tool name: its switch key and engine path.
 const ENGINE_SAVES = new Map([
   ['patch-deal-field', { key: DEAL_SAVES, path: '/api/engine/patch-deal-field' }],
+  ['update-deal', { key: DEAL_SAVES, path: '/api/engine/update-deal' }],
 ]);
 
 // Engine refusals that wrote nothing and leave the answer to the old system: a
@@ -275,8 +276,9 @@ const OLD_SYSTEM_ANSWERS = new Map([[501, 'old_system_required'], [409, 'key_reu
 
 // The switch picks which system takes a save first. Each replays only its own
 // receipt and refuses the other's as key_reuse, so a retry that crossed the
-// switch goes on to the other one. Both look the key up in one table under one
-// lock before writing, so the second replays or refuses and never writes.
+// switch goes on to the other one. Both read the key's receipt before writing,
+// and tool_call's primary key refuses a second one, so the second replays or
+// refuses and never writes.
 async function engineSave(request, env) {
   const url = new URL(request.url);
   const call = await mcpCall(request, url);
@@ -308,8 +310,7 @@ async function engineAnswer(request, env, call, save) {
 
 async function oldRefusal(response) {
   try {
-    const { result } = await response.json();
-    return result?.isError ? parsedError(result.content?.[0]?.text) : undefined;
+    return parsedError((await response.json()).result?.content?.[0]?.text);
   } catch { return undefined; }
 }
 
