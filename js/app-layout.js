@@ -182,7 +182,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const renderToday = () => {
     layout.querySelector('#appTodayNeeds').closest('section').hidden = homeOrInbox;
     const next = todayItems && filterBriefOwners(todayItems, owners.current()).filter(i => i.subject_type === 'deal' && i.due_on).sort((a, b) => a.due_on.localeCompare(b.due_on));
-    render('#appTodayNext', next ? (nextExpanded ? next : next.slice(0,3)).map(i => row(i,`${i.what || 'Due'} · ${shortDay(i.due_on || '', localToday())}`)).join('') || '<span class="app-layout-empty">No dated reminders returned.</span>' : pendingRead('Next up'));
+    render('#appTodayNext', next ? (nextExpanded ? next : next.slice(0,3)).map(i => row(i,`${i.what || 'Due'} · ${shortDay(i.due_on || '', localToday())}`)).join('') || '<span class="app-layout-empty">No dated reminders returned.</span>' : pendingRead('Dated reminders'));
     const showAll = layout.querySelector('#appTodayShowAll');
     showAll.hidden = !next || next.length <= 3 || nextExpanded;
     showAll.textContent = `Show all ${next?.length || 0}`;
@@ -220,14 +220,15 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const renderReadStatus = () => {
     const notice = layout.querySelector('#appTodayReadStatus');
     notice.hidden = !failedReads.length && todayReadState !== 'loading';
-    notice.textContent = failedReads.length ? `${todayItems || todayNeeds || feed.caught_up ? 'Showing last update. ' : ''}${failedReads.join(', ')} unavailable. Retry to update.` : todayReadState === 'loading' ? 'Loading Today…' : '';
+    notice.textContent = failedReads.length ? `${todayItems || todayNeeds || feed.caught_up ? 'Showing last update. ' : ''}${failedReads.join(', ')} unavailable. Retry Today to update.` : todayReadState === 'loading' ? 'Loading Today…' : '';
     layout.querySelector('#appTodayRetry').hidden = !failedReads.length;
     connection(!failedReads.length);
   };
   const failedRead = () => {
+    todayReadState = 'settled';
     void calendarPanels.then(panel => panel?.clear());
-    failedReads = ['Overdue', 'Next up'];
-    if (!pageOwnsMoves) failedReads.push('Recent moves');
+    failedReads = ['Schedule', 'Overdue', 'Dated reminders'];
+    if (!pageOwnsMoves) failedReads.push('Deal pulse');
     renderToday();
     if (!pageOwnsMoves && !feed.caught_up) render('#appTodayMoves', unavailable);
     renderReadStatus();
@@ -273,14 +274,14 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     if (signal?.aborted || win.navigator.onLine === false) return;
     const panels = await calendarPanels;
     if (signal.aborted) return;
-    if (interaction.current()) panels?.render(meetings.status === 'fulfilled' ? meetings.value : null, agenda.status === 'fulfilled' ? agenda.value : null);
+    const scheduleValid = interaction.current() ? panels?.render(meetings.status === 'fulfilled' ? meetings.value : null, agenda.status === 'fulfilled' ? agenda.value : null) : true;
     const connected = board.status === 'fulfilled' && validBoard(board.value);
     const triageValid = triage.status === 'fulfilled' && validTriage(triage.value);
     connection(connected && triageValid && !failedReads.length);
     failedReads = [];
-    if (interaction.current() && meetings.status === 'rejected') failedReads.push('Schedule');
+    if (interaction.current() && !scheduleValid) failedReads.push('Schedule');
     if (!connected || !triageValid) failedReads.push('Overdue');
-    if (!triageValid) failedReads.push('Next up');
+    if (!triageValid) failedReads.push('Dated reminders');
     if (connected) {
       const value = board.value;
       if (feedActor !== value.actor) {
@@ -319,7 +320,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
           renderMoves();
         } catch {
           if (signal?.aborted) return;
-          failedReads.push('Recent moves');
+          failedReads.push('Deal pulse');
           if (!feed.caught_up) render('#appTodayMoves', unavailable);
         }
       }
@@ -327,7 +328,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       if (triageValid) todayItems = triage.value.items;
       if (!vendorDirectory && !todayNeeds) render('#appWorkingList', unavailable);
       if (!pageOwnsMoves) {
-        failedReads.push('Recent moves');
+        failedReads.push('Deal pulse');
         if (!feed.caught_up) render('#appTodayMoves', unavailable);
       }
       renderToday();
@@ -348,7 +349,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     else globalThis.location.assign(`/deals?deal=${encodeURIComponent(id)}`);
   });
   win.addEventListener('offline', failedRead);
-  const auto = mountAutoRefresh({ document:root, window:win, refresh, onResume:loadingRead });
+  const auto = mountAutoRefresh({ document:root, window:win, refresh, onResume:loadingRead, onError:failedRead });
   layout.querySelector('#appTodayRetry').onclick = () => auto.refresh();
   let fanOut = false;
   status.querySelector('#appSyncRefresh').onclick = () => {

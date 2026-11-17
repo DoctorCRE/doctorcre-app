@@ -120,7 +120,9 @@ export async function mountCalendarPanels(left: HTMLElement, right: HTMLElement,
             })),
             ...(Array.isArray(value.notes) ? { notes: value.notes } : {}),
           }
-        : null,
+        : object(value) && value.state === "loading"
+          ? { state: "loading", items: [] }
+          : null,
       agenda,
     );
     const now = Date.now();
@@ -149,7 +151,7 @@ export async function mountCalendarPanels(left: HTMLElement, right: HTMLElement,
     const status = !valid
       ? object(value) && value.state === "loading"
         ? "Loading schedule…"
-        : "Schedule unavailable. Refresh to try again."
+        : "Schedule unavailable. Retry Today to try again."
       : partial
         ? "Calendar coverage is incomplete. Check Outlook for changes."
         : null;
@@ -235,6 +237,7 @@ export async function mountCalendarPanels(left: HTMLElement, right: HTMLElement,
       );
     });
     fitMeetings();
+    return valid;
   }
   render({ state: "loading" });
   return {
