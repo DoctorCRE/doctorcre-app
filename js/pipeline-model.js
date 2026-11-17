@@ -367,7 +367,9 @@ export function presenceChip(presence, dealId, options = {}) {
 // a Python repr ("[{'text': '...', 'date': '...'}]"). Cards and the panel show
 // the sentences only.
 const NOTE_KEYS = ['text', 'note', 'body', 'summary', 'content', 'message'];
-const PY_ESCAPES = { n: '\n', t: '\t', '\\': '\\', "'": "'", '"': '"' };
+const PY_ESCAPES = { n: '\n', t: '\t', r: '\r', '\\': '\\', "'": "'", '"': '"' };
+// The escapes Python's repr writes; a lone backslash matches the last branch.
+const PY_ESCAPE = /\\(?:([ntr\\'"])|x([\da-fA-F]{2})|u([\da-fA-F]{4})|U(000[\da-fA-F]{5}|0010[\da-fA-F]{4}))|\\/g;
 
 function dictSentence(raw) {
   try {
@@ -375,13 +377,22 @@ function dictSentence(raw) {
   } catch { /* not JSON; try the Python repr */ }
   for (const key of NOTE_KEYS) {
     const match = new RegExp(`['"]${key}['"]\\s*:\\s*(['"])((?:\\\\.|(?!\\1)[^\\\\])*)\\1`).exec(raw);
-    if (match) return pyString(match[2]).trim();
+    if (match) return pyString(match[2]);
   }
   return '';
 }
 
+// The text a repr string body stands for, or null when an escape is not one Python writes.
 function pyString(body) {
-  return body.replace(/\\(.)/g, (_, ch) => PY_ESCAPES[ch] ?? ch);
+  let known = true;
+  const text = body.replace(PY_ESCAPE, (_, ch, x, u, U) => {
+    const code = x ?? u ?? U;
+    if (ch) return PY_ESCAPES[ch];
+    if (code) return String.fromCodePoint(parseInt(code, 16));
+    known = false;
+    return '';
+  });
+  return known ? text.trim() : null;
 }
 
 // A list it cannot read in full prints as written, so no note is silently hidden.
@@ -396,7 +407,7 @@ function listSentence(raw) {
 }
 
 function jsonItemText(item) {
-  if (typeof item === 'string') return noteText(item);
+  if (typeof item === 'string') return noteText(item) || (item.trim() ? null : '');
   if (item && typeof item === 'object' && !Array.isArray(item)) return noteText(item) || null;
   return null;
 }
@@ -407,7 +418,7 @@ const PY_LIST = new RegExp(String.raw`^\[\s*(?:${PY_ITEM})(?:\s*,\s*(?:${PY_ITEM
 
 function pythonListTexts(raw) {
   if (!PY_LIST.test(raw)) return null;
-  return [...raw.matchAll(PY_ITEMS)].map(([, dict, single, double]) => (dict ? dictSentence(dict) || null : pyString(single ?? double).trim()));
+  return [...raw.matchAll(PY_ITEMS)].map(([, dict, single, double]) => (dict ? dictSentence(dict) || null : pyString(single ?? double)));
 }
 
 // A name written as a structured value ({"value":"…"}, seen on staging) reads
@@ -436,7 +447,7 @@ export function noteText(value) {
     return '';
   }
   const text = String(value).trim();
-  if (/^\{[\s\S]*\}$/.test(text) && (text === '{}' || /^\{\s*['"]/.test(text))) return dictSentence(text);
+  if (/^\{[\s\S]*\}$/.test(text) && (text === '{}' || /^\{\s*['"]/.test(text))) return dictSentence(text) ?? text;
   if (/^\[\s*(?:\]$|[{'"][\s\S]*\]$)/.test(text)) return listSentence(text);
   return text;
 }
