@@ -274,7 +274,7 @@ test('Today retains offline rows but clears them before resume revalidation',asy
 test('Home Today shows loading through initial reads, refresh and tab resume',async t=>{
  const {page,errors}=await open(t,{clock:true});
  let pending,release;
- let reads=0;
+ let reads=0,failedSchedule=false;
  const hold=()=>{pending=new Promise(resolve=>release=resolve);};
  t.after(()=>release?.());
  await page.route('**/mcp',async route=>{
@@ -282,6 +282,7 @@ test('Home Today shows loading through initial reads, refresh and tab resume',as
   if(['deal-room-board','morning-brief','calendar-meeting-prep'].includes(name)){
    reads++;await pending;
   }
+  if(name==='calendar-meeting-prep' && failedSchedule)return route.fulfill({status:503,body:'Unavailable'});
   if(name==='calendar-meeting-prep')return route.fulfill({json:{result:{content:[{type:'text',text:JSON.stringify({state:'empty',items:[],notes:[]})}]}}});
   return route.fallback();
  });
@@ -307,6 +308,11 @@ test('Home Today shows loading through initial reads, refresh and tab resume',as
   release();await page.waitForFunction(()=>document.querySelector('#appTodayReadStatus').hidden);
   assert.ok(reads>before);
  }
+ failedSchedule=true;await page.clock.fastForward(61_000);
+ await page.getByRole('button',{name:'Retry Today',exact:true}).waitFor();
+ assert.match(await page.locator('#appScheduleSlot').textContent(),/Schedule unavailable/);
+ failedSchedule=false;await page.locator('#appTodayRetry').click();
+ await page.locator('#appTodayRetry').waitFor({state:'hidden'});
  assert.deepEqual(errors,[]);
 });
 
