@@ -308,6 +308,13 @@ test('Home Today shows loading through initial reads, refresh and tab resume',as
   release();await page.waitForFunction(()=>document.querySelector('#appTodayReadStatus').hidden);
   assert.ok(reads>before);
  }
+ hold();await page.locator('#appSyncRefresh').click();
+ await page.evaluate(async()=>{
+  const {meetingPreparationLifetime}=await import('/js/ui-meeting-preparation-lifetime.generated.js');
+  meetingPreparationLifetime(document).retire();
+ });
+ release();await page.waitForFunction(()=>document.querySelector('#appTodayReadStatus').hidden);
+ assert.equal(await page.locator('#appTodayRetry').isVisible(),false);
  failedSchedule=true;await page.clock.fastForward(61_000);
  await page.getByRole('button',{name:'Retry Today',exact:true}).waitFor();
  assert.match(await page.locator('#appScheduleSlot').textContent(),/Schedule unavailable/);
