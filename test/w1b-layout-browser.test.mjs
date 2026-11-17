@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
-import { animationsSettled, chromium, waitForAsync, WAIT_MS } from './browser-harness.mjs';
+import { animationsSettled, chromium, waitForAsync, settles, WAIT_MS } from './browser-harness.mjs';
 import { createFixtureClient } from '../js/fixture-client.js';
 import { workspace, detail, id, emptyQuietFollowUps } from './leads-workspace-fixture.mjs';
 import { atlasFixtureResponse } from '../scripts/atlas-fixture.mjs';
@@ -35,6 +35,7 @@ async function open(t,{holdPipelineBoot=false,width=1440,height=960,hasTouch=fal
       else if(name==='lead-board') body={...liveBoard,...(args.lead_id?{detail:detail(liveBoard.leads.find(l=>l.id===args.lead_id))}:{})};
       else if(name==='update-lead') {writes.push(name);const lead=liveBoard.leads.find(l=>l.registry_ref===args.lead);Object.assign(lead,args.fields,{base_version:lead.base_version+1});body={ok:true};}
       else if(name==='deal-room-board') body=await fixture.getBoard();
+      else if(name==='calendar-meeting-prep') body={state:'empty',items:[],notes:[]};
       else if(name==='read-home-agenda') body=await fixture.getHomeAgenda();
       else if(name==='today-triage') body=await fixture.todayTriage();
       else if(name==='get-deal-room') body=await fixture.getDeal(args.deal || args.deal_id);
@@ -67,6 +68,12 @@ async function open(t,{holdPipelineBoot=false,width=1440,height=960,hasTouch=fal
   };
   return{page,goto,errors,writes,close:()=>browser.close()};
 }
+const captureToday=async(page,name)=>{
+ if(!process.env.W1B_SCREENSHOT_DIR)return;
+ if(await page.getByRole('button',{name:'Skip walkthrough',exact:true}).isVisible())await page.getByRole('button',{name:'Skip walkthrough',exact:true}).click();
+ await mkdir(process.env.W1B_SCREENSHOT_DIR,{recursive:true});
+ await page.screenshot({animations:'disabled',path:`${process.env.W1B_SCREENSHOT_DIR}/${name}.png`});
+};
 const fits=async(page,label)=>assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,label);
 
 test('five regions, rail destinations, Leads filters and per-page sidebar memory',async t=>{
@@ -287,12 +294,15 @@ test('Home Today shows loading through initial reads, refresh and tab resume',as
   return route.fallback();
  });
  const loading=async()=>{
+  await page.locator('.working-week').waitFor();
+  assert.doesNotMatch(await page.locator('.working-week').textContent(),/unavailable/i);
   assert.doesNotMatch(await page.locator('#appToday').textContent(),/unavailable/i);
   assert.match(await page.locator('#appTodayReadStatus').textContent(),/Loading Today/);
   assert.equal(await page.locator('#appTodayRetry').isVisible(),false);
  };
  hold();await page.goto('http://localhost/?mode=live');
  await page.locator('#appToday').waitFor();await loading();
+ await captureToday(page,'initial-loading');
  release();await page.locator('#appSyncTime[datetime]').waitFor({state:'attached'});
  for(const trigger of ['refresh','resume']){
   hold();const before=reads;
@@ -304,6 +314,7 @@ test('Home Today shows loading through initial reads, refresh and tab resume',as
    }
   });
   await loading();
+  await captureToday(page,trigger+'-loading');
   if(trigger==='resume')assert.match(await page.locator('#appScheduleSlot').textContent(),/Loading schedule/);
   release();await page.waitForFunction(()=>document.querySelector('#appTodayReadStatus').hidden);
   assert.ok(reads>before);
@@ -318,8 +329,62 @@ test('Home Today shows loading through initial reads, refresh and tab resume',as
  failedSchedule=true;await page.clock.fastForward(61_000);
  await page.getByRole('button',{name:'Retry Today',exact:true}).waitFor();
  assert.match(await page.locator('#appScheduleSlot').textContent(),/Schedule unavailable/);
+ await captureToday(page,'schedule-503');
  failedSchedule=false;await page.locator('#appTodayRetry').click();
  await page.locator('#appTodayRetry').waitFor({state:'hidden'});
+ assert.deepEqual(errors,[]);
+});
+
+test('Home malformed schedule offers Retry Today and names Schedule',async t=>{
+ const {page,errors}=await open(t,{clock:true});
+ await page.route('**/mcp',route=>route.request().postDataJSON().params.name==='calendar-meeting-prep'
+  ?route.fulfill({json:{result:{content:[{type:'text',text:'{"ok":true}'}]}}}):route.fallback());
+ await page.goto('http://localhost/?mode=live');
+ await page.waitForFunction(()=>document.querySelector('#appScheduleSlot')?.textContent.includes('Schedule unavailable'));
+ assert.equal(await page.locator('#appTodayRetry').isVisible(),true);
+ assert.match(await page.locator('#appTodayReadStatus').textContent(),/Schedule unavailable/);
+ assert.match(await page.locator('#appScheduleSlot').textContent(),/Retry Today/);
+ await captureToday(page,'malformed-schedule');
+ assert.deepEqual(errors,[]);
+});
+
+test('Today failure notice uses visible section titles and Retry Today',async t=>{
+ const {page}=await open(t,{clock:true});
+ await page.route('**/mcp',route=>['morning-brief','today-triage'].includes(route.request().postDataJSON().params.name)
+  ?route.fulfill({status:503,body:'Unavailable'}):route.fallback());
+ await page.route('**/pipeline/changes*',route=>route.fulfill({status:503,body:'Unavailable'}));
+ await page.goto('http://localhost/?mode=live');
+ await page.locator('#appTodayRetry').waitFor();
+ assert.match(await page.locator('#appTodayReadStatus').textContent(),/Dated reminders, Deal pulse unavailable\. Retry Today/);
+});
+
+for(const stalled of ['client','changes'])test(`Today settles the whole-read timeout during ${stalled} with Retry Today`,async t=>{
+ const {page,errors}=await open(t,{clock:true});
+ await page.clock.pauseAt(new Date('2026-10-01T15:00:01Z'));
+ if(stalled==='client')await page.route('**/js/app-layout.js',async route=>{
+  const source=await readFile(new URL('js/app-layout.js',root),'utf8');
+  return route.fulfill({contentType:'text/javascript',body:source.replace('client ||= await createClient','client ||= await (window.__heldTodayClient=true,new Promise(() => {})); await createClient')});
+ });
+ let pages=0,release;
+ t.after(()=>release?.());
+ if(stalled==='changes')await page.route('**/pipeline/changes*',async route=>{
+  pages++;
+  await new Promise(resolve=>release=resolve);
+  return route.fulfill({json:{events:[{id:`synthetic-${pages}`,subject_type:'deal',subject_id:'d23',field:'next_step',actor:'doc',new_value:'Synthetic change',recorded_at:'2026-10-01T15:00:00Z'}],cursor:String(pages)}});
+ });
+ await page.goto('http://localhost/?mode=live');
+ await page.locator('#appTodayReadStatus').waitFor();
+ if(stalled==='client')await page.waitForFunction(()=>window.__heldTodayClient);
+ if(stalled==='changes')for(let i=1;i<=3;i++){
+  await settles(()=>assert.ok(pages>=i));
+  await page.clock.runFor(9_000);release();
+ }
+ if(stalled==='changes')await settles(()=>assert.equal(pages,4));
+ await page.clock.runFor(stalled==='client'?30_001:3_001);
+ await settles(async()=>assert.equal(await page.locator('#appTodayRetry').isVisible(),true),2000);
+ assert.doesNotMatch(await page.locator('#appTodayReadStatus').textContent(),/Loading/);
+ assert.match(await page.locator('#appTodayReadStatus').textContent(),/unavailable/);
+ await captureToday(page,'timeout-'+stalled);
  assert.deepEqual(errors,[]);
 });
 
