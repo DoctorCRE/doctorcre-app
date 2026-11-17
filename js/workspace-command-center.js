@@ -456,7 +456,9 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     } });
     return emailReview.refresh();
   });
-  auto.refresh();
+  Promise.all([auto.refresh(), emailInitialRead]).then(() => {
+    if (!disposed && window.location.hash === '#homeEmailFollowups') $('homeEmailFollowups')?.scrollIntoView({ block: 'start', behavior: 'instant' });
+  });
   return { refresh: auto.refresh, dispose() { missingNextStep?.dispose(); reasons?.dispose(); document.removeEventListener('keydown', flagKeydown); disposed = true; workingWeek.dispose(); sequence++; prepEpoch++; meetingPrep?.dispose(); panelObserver?.disconnect(); emailActivity?.removeEventListener('toggle', openEmailActivity); window.removeEventListener('doctorcre-session-invalidated', retirePendingEmail); expiry.dispose(); auto.dispose(); document.removeEventListener('doctorcre:brief-calendar', updateCalendar); window.removeEventListener('doctorcre-session-invalidated', clearCalendar); relationshipDialog?.dispose(); pastWidget?.dispose(); callTasks?.dispose(); meetingReviews?.dispose(); overdueReviews?.dispose(); emailReview?.dispose(); emailFilings?.dispose(); replyOutcomes?.dispose(); } };
 }
 
