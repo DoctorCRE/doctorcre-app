@@ -412,17 +412,15 @@ function Inbox({ client }: { client: InboxClient }) {
                       : "Ready for your attention"}
             {item.hold_until ? ` · On hold until ${item.hold_until}` : ""}
           </p>
-          {item_id === item.item_id && recordRoutes.source(item) && (
-            <a className="inbox-source" href={recordRoutes.source(item) || undefined}>
-              Open source record ↗
+          {item_id === item.item_id && completable && source && (
+            <a className="inbox-source" href={source}>
+              Open {sourcePage}
             </a>
           )}
           {item_id === item.item_id && item.source_type === "notification" && (
             <HomeWatchDetail open_url={item.open_url} />
           )}
-          {item_id === item.item_id && item.open_url && !recordRoutes.source(item) && (
-            <p role="status">Source record unavailable. Its destination is unsupported or invalid.</p>
-          )}
+          {item_id === item.item_id && item.open_url && !source && <p role="status">This link can't be opened here.</p>}
         </div>
         <div className="inbox-actions">
           {item.review_reference && client.review && item.source_state === "needs_attention" && (
@@ -454,18 +452,18 @@ function Inbox({ client }: { client: InboxClient }) {
             item.source_state !== "working" &&
             (item.source_type === "email_proposal" && item.source_state === "failed" ? (
               <p className="inbox-detail inbox-guidance">
-                This reply didn't send. Send it from your email, then hide this card.
+                This reply didn't send. Send it from your email, then press Hide from inbox.
               </p>
             ) : source ? (
               <a className="inbox-primary" href={source}>
                 {item.source_type === "notification" ? "Open in Updates" : `Open ${sourcePage}`}
               </a>
+            ) : item.source_type === "notification" ? (
+              <a className="inbox-primary" href="/updates">
+                Open Updates
+              </a>
             ) : (
-              <p className="inbox-detail inbox-guidance">
-                {item.source_type === "notification"
-                  ? "Open Updates to read and clear this."
-                  : "Nothing to do here yet."}
-              </p>
+              <p className="inbox-detail inbox-guidance">Read it, then hide it from your inbox.</p>
             ))}
           {item.source_state !== "working" && (
             <button

@@ -426,7 +426,7 @@ function ActionLink({ ref, request, principal }: Options) {
         <p className="action-link-eyebrow">{state.kind === "exact" ? "Review" : reply ? "Reply" : "First contact"}</p>
         <h1>
           {state.kind === "exact"
-            ? "See details"
+            ? "Review card"
             : state.kind === "approved"
               ? reply
                 ? "Reply submitted"
