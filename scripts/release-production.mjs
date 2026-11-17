@@ -53,19 +53,22 @@ if (deploymentStatus.status !== 0) {
 }
 const deployment = JSON.parse(deploymentStatus.stdout);
 if (!Array.isArray(deployment.versions)) throw new Error("invalid production deployment state");
+// Without one known live source there is no way to prove this commit is newer.
+const unprovable = reason => new Error(`${reason}; refusing so production never moves backward. ` +
+  "If that is unexpected, put one main version that carries a GIT_SHA binding at 100% (npm run rollback:production -- <id>), then run again.");
 const [active] = deployment.versions;
-if (deployment.versions.length === 1 && active.percentage === 100) {
-  if (!/^[0-9a-f-]{36}$/i.test(active.version_id)) throw new Error("invalid production version identity");
-  const version = JSON.parse(provider(["versions", "view", active.version_id, "--env", "", "--json"], { capture: true }));
-  if (version.id !== active.version_id || !Array.isArray(version.resources?.bindings)) throw new Error("invalid production version state");
-  const source = version.resources.bindings.find(binding => binding.name === "GIT_SHA" && binding.type === "plain_text");
-  if (source?.text === sourceCommit) {
-    console.log(`Production already serves source ${sourceCommit}; no publication needed.`);
-    receipt("already-live", active.version_id);
-    process.exit(0);
-  }
-  if (source && !reaches(sourceCommit, source.text)) throw new Error(`production already serves a newer source than ${sourceCommit}`);
+if (deployment.versions.length !== 1 || active.percentage !== 100) throw unprovable("production is not serving exactly one version at 100%");
+if (!/^[0-9a-f-]{36}$/i.test(active.version_id)) throw new Error("invalid production version identity");
+const version = JSON.parse(provider(["versions", "view", active.version_id, "--env", "", "--json"], { capture: true }));
+if (version.id !== active.version_id || !Array.isArray(version.resources?.bindings)) throw new Error("invalid production version state");
+const liveSource = version.resources.bindings.find(binding => binding.name === "GIT_SHA" && binding.type === "plain_text")?.text;
+if (!/^[0-9a-f]{40}$/.test(liveSource ?? "")) throw unprovable(`production version ${active.version_id} has no GIT_SHA source binding`);
+if (liveSource === sourceCommit) {
+  console.log(`Production already serves source ${sourceCommit}; no publication needed.`);
+  receipt("already-live", active.version_id);
+  process.exit(0);
 }
+if (!reaches(sourceCommit, liveSource)) throw unprovable(`production serves ${liveSource}, which is not an ancestor of ${sourceCommit}`);
 const uploadOutput = provider(["versions", "upload", "--env", "", "--strict",
   "--tag", versionTag, "--message", message, "--var", `GIT_SHA:${sourceCommit}`], { capture: true });
 process.stdout.write(uploadOutput);

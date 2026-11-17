@@ -124,7 +124,7 @@ test('production publishes a tested main commit behind main but never one older 
   assert.equal(forward.uploaded, true);
   const backward = publish([source, live, main], live);
   assert.notEqual(backward.result.status, 0);
-  assert.match(backward.result.stderr, /newer source/);
+  assert.match(backward.result.stderr, /not an ancestor/);
   assert.equal(backward.uploaded, false);
   const offMain = publish([live, main], live);
   assert.notEqual(offMain.result.status, 0);
