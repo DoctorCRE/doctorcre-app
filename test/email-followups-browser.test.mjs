@@ -23,6 +23,40 @@ after(async () => {
   if (outDir) await rm(outDir, { recursive: true, force: true });
 });
 
+for (const width of [1280, 390]) for (const motion of ['no-preference', 'reduce']) test(`email follow-ups fragment lands on review controls at ${width}px with ${motion} motion`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: motion });
+  t.after(() => page.close());
+  assert.equal((await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `email-anchor-${width}-${motion}`, viewer: 'joe', reset: true } })).status(), 200);
+  await page.goto(`${origin}/review-workflows?mode=fixture#homeEmailFollowups`);
+  const panel = page.locator('#homeEmailFollowups');
+  await panel.locator('article').first().waitFor();
+  await panel.getByRole('button', { name: 'Confirm', exact: true }).first().waitFor();
+  await page.waitForFunction(() => ['homeCallTasks', 'homeEmailFollowups', 'dealAttention'].every(id => document.getElementById(id)?.getAttribute('aria-busy') === 'false'));
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise(resolve => {
+      let previous, stableSince = performance.now();
+      const sample = () => {
+        const position = document.getElementById('homeEmailFollowups').getBoundingClientRect().top;
+        if (position !== previous) { previous = position; stableSince = performance.now(); }
+        if (performance.now() - stableSince >= 750) resolve();
+        else requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+  });
+  const landing = await panel.evaluate(node => {
+    const heading = node.querySelector('h2').getBoundingClientRect();
+    const card = node.querySelector('article').getBoundingClientRect();
+    const bar = document.querySelector('.app-layout-tabbar').getBoundingClientRect();
+    return { headingTop: heading.top, headingBottom: heading.bottom, cardTop: card.top, cardBottom: card.bottom, barBottom: bar.bottom, height: innerHeight, scrollY };
+  });
+  await page.screenshot({ path: `out/test-artifacts/email-followups/fragment-${width}-${motion}.png` });
+  assert.ok(landing.headingTop >= landing.barBottom && landing.headingBottom <= landing.height, JSON.stringify(landing));
+  assert.ok(landing.cardTop >= landing.barBottom && landing.cardBottom <= landing.height, JSON.stringify(landing));
+  assert.equal(new URL(page.url()).hash, '#homeEmailFollowups');
+});
+
 for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
   test(`Home email review confirms and defers at ${width}px in ${theme}`, async t => {
     const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
