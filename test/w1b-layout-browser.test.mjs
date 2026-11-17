@@ -252,6 +252,58 @@ test('Today offers retry after its first read fails without claiming an empty re
  assert.ok(await page.locator('#appTodayNext [data-layout-deal]').count());assert.deepEqual(errors,[]);
 });
 
+test('Home shows a dated deal reminder when the brief also has a nameless inbox row',async t=>{
+ const {page,errors}=await open(t);
+ await page.route('**/mcp',route=>{
+  const name=route.request().postDataJSON()?.params?.name;
+  if(name!=='morning-brief') return route.fallback();
+  const body={sponsor:'joe',sections:{
+   today:{state:'ready',items:[
+    {item_kind:'critical_date',id:'date-1',owner:null,owner_partner:null,subject_type:'deal',subject_id:'d01',subject_name:'Demo Dental North',what:'Notice deadline',due_on:'2026-11-18'},
+    {item_kind:'ingest',id:'inbox-1',owner:null,owner_partner:null,subject_type:'inbox',subject_id:'00000000-0000-4000-8000-000000000099',subject_name:null,what:'Demo item awaiting triage',due_on:'2026-11-17'},
+   ]},
+   deals:{state:'empty',items:[]},
+   loops:{state:'empty',items:[]},
+  }};
+  return route.fulfill({json:{result:{content:[{type:'text',text:JSON.stringify(body)}]}}});
+ });
+ const dated=async()=>{
+  await page.locator('#appTodayNext').waitFor();
+  await page.waitForFunction(()=>/Demo Dental North|Unavailable/.test(document.querySelector('#appTodayNext')?.textContent||''));
+  assert.equal(await page.locator('#appTodayReadStatus').isVisible(),false);
+  assert.match(await page.locator('#appTodayNext').innerText(),/Demo Dental North/);
+  assert.doesNotMatch(await page.locator('#appTodayNext').innerText(),/Unavailable/);
+ };
+ await page.goto('http://localhost/?mode=live');
+ await dated();
+ await page.goto('http://localhost/inbox?mode=live');
+ await dated();
+ assert.deepEqual(errors,[]);
+});
+
+test('Today stays unavailable when a brief row has no name and no label',async t=>{
+ const {page,errors}=await open(t);
+ await page.route('**/mcp',route=>{
+  const name=route.request().postDataJSON()?.params?.name;
+  if(name!=='morning-brief') return route.fallback();
+  const body={sponsor:'joe',sections:{
+   today:{state:'ready',items:[
+    {item_kind:'critical_date',id:'date-1',owner:null,owner_partner:null,subject_type:'deal',subject_id:'d01',subject_name:'Demo Dental North',what:'Notice deadline',due_on:'2026-11-18'},
+    {item_kind:'ingest',id:'inbox-1',owner:null,owner_partner:null,subject_type:'inbox',subject_id:'00000000-0000-4000-8000-000000000099',subject_name:null,what:null,due_on:'2026-11-17'},
+   ]},
+   deals:{state:'empty',items:[]},
+   loops:{state:'empty',items:[]},
+  }};
+  return route.fulfill({json:{result:{content:[{type:'text',text:JSON.stringify(body)}]}}});
+ });
+ await page.goto('http://localhost/?mode=live');
+ await page.locator('#appTodayReadStatus').waitFor();
+ assert.match(await page.locator('#appTodayReadStatus').innerText(),/Overdue, Next up unavailable/);
+ assert.match(await page.locator('#appTodayNext').innerText(),/Unavailable/);
+ assert.doesNotMatch(await page.locator('#appTodayNext').innerText(),/Demo Dental North/);
+ assert.deepEqual(errors,[]);
+});
+
 test('Today retains offline rows but clears them before resume revalidation',async t=>{
  const events=[{id:'offline-private',subject_type:'deal',subject_id:'d23',field:'next_step',actor:'doc',new_value:'Synthetic offline move',recorded_at:'2026-10-01T15:00:00Z'}];
  const {page,goto}=await open(t,{clock:true,events});let hold=false,release;
