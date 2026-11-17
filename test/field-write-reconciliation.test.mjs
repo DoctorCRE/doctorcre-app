@@ -1,4 +1,4 @@
-import { classifyCommandOutcome, pendingCommand } from "../js/command-feedback.mjs";
+import { classifyCommandOutcome, pendingCommand, performCommand } from "../js/command-feedback.mjs";
 // Deal Room board cells: what one intended change does when the answer is late,
 // lost, refused, or never comes at all.
 //
@@ -514,12 +514,12 @@ test("through the live client: 401 is a decision, a 5xx and a dropped connection
  */
 function twoWriters() {
   const receipts = new Map();
-  const world = { routing: null, lost: false, written: 0 };
+  const world = { routing: null, lost: false, written: [] };
   const save = (system, args) => {
     const held = receipts.get(args.idempotency_key);
     const request = JSON.stringify(args);
     if (held) return held.system === system && held.request === request ? '{"ok":true,"replayed":true}' : '{"error":"key_reuse"}';
-    world.written += 1;
+    world.written.push(system);
     receipts.set(args.idempotency_key, { system, request });
     if (world.lost) throw new Error("answer lost after commit");
     return '{"ok":true}';
@@ -544,41 +544,58 @@ function twoWriters() {
   const origin = "https://app.example.test";
   const b = liveBoard((path, init) => worker.fetch(new Request(`${origin}${path}`,
     { ...init, headers: { ...init.headers, origin, cookie: "session=synthetic" } }), env));
-  return { world, b };
+  let commands = {};
+  let minted = 0;
+  // The board's closing save: one outcome command per deal, as runOutcomeWrite sends it.
+  const closing = () => performCommand({
+    operationKey: "outcome:d1",
+    args: { deal: "d1", fields: { outcome: "won", closed_on: "2026-09-30" }, base_version: 7 },
+    getState: () => commands, setState: (next) => { commands = next; },
+    newKey: () => `key-close-${++minted}`,
+    call: (request) => b.client.updateDeal(request),
+  });
+  return { world, b, saves: { field: () => b.write(), closing } };
 }
 
-async function retriedAcrossTheSwitch(before, after) {
-  const { world, b } = twoWriters();
+async function retriedAcrossTheSwitch(save, before, after) {
+  const { world, saves } = twoWriters();
   world.routing = before;
   world.lost = true;
-  const statuses = [(await b.write()).status];
+  const statuses = [(await saves[save]()).status];
   world.routing = after;
   world.lost = false;
-  while (statuses.at(-1) !== "ok" && statuses.length < 3) statuses.push((await b.write()).status);
+  while (statuses.at(-1) !== "ok" && statuses.length < 3) statuses.push((await saves[save]()).status);
   return { statuses, written: world.written };
 }
 
-test("through the Worker: a save whose answer was lost is written once when the switch moves before the retry", async () => {
-  for (const [before, after] of [[null, "on"], ["on", null], ["on", "off"], ["on", new Error("KV failed")]]) {
-    const { statuses, written } = await retriedAcrossTheSwitch(before, after);
-    const crossing = `${before} -> ${after}`;
-    assert.equal(written, 1, `the deal is written once (${crossing})`);
-    assert.deepEqual(statuses, ["unknown", "ok"], `the retry gets the first writer's replay (${crossing})`);
-  }
-});
+for (const save of ["field", "closing"]) {
+  test(`through the Worker: a ${save} save whose answer was lost is written once when the switch moves before the retry`, async () => {
+    for (const [before, after] of [[null, "on"], ["on", null], ["on", "off"], ["on", new Error("KV failed")]]) {
+      const { statuses, written } = await retriedAcrossTheSwitch(save, before, after);
+      const crossing = `${before} -> ${after}`;
+      assert.deepEqual(written, [before === "on" ? "engine" : "old"], `the switch's writer writes the deal once (${crossing})`);
+      assert.deepEqual(statuses, ["unknown", "ok"], `the retry gets the first writer's replay (${crossing})`);
+    }
+  });
+}
 
-test("through the Worker: a key reused for a different change is refused by both writers", async () => {
-  for (const [first, then] of [[null, "on"], ["on", null]]) {
-    const { world, b } = twoWriters();
-    world.routing = first;
-    await b.client.patchDealField({ deal: "d1", field: "attention", value: true, base_event_id: null, idempotency_key: "spent" });
-    world.routing = then;
-    await assert.rejects(
-      () => b.client.patchDealField({ deal: "d1", field: "attention", value: false, base_event_id: null, idempotency_key: "spent" }),
-      (error) => error.payload?.error === "key_reuse");
-    assert.equal(world.written, 1, `nothing new is written (${first} -> ${then})`);
-  }
-});
+const reuses = {
+  field: (client, value) => client.patchDealField({ deal: "d1", field: "attention", value, base_event_id: null, idempotency_key: "spent" }),
+  closing: (client, won) => client.updateDeal({ deal: "d1", fields: { outcome: won ? "won" : "lost" }, base_version: 7, idempotency_key: "spent" }),
+};
+
+for (const [save, send] of Object.entries(reuses)) {
+  test(`through the Worker: a ${save} save key reused for a different change is refused by both writers`, async () => {
+    for (const [first, then] of [[null, "on"], ["on", null]]) {
+      const { world, b } = twoWriters();
+      world.routing = first;
+      await send(b.client, true);
+      world.routing = then;
+      await assert.rejects(() => send(b.client, false), (error) => error.payload?.error === "key_reuse");
+      assert.equal(world.written.length, 1, `nothing new is written (${first} -> ${then})`);
+    }
+  });
+}
 
 test("the board read's per-cell bases reach the caller through the live client", async () => {
   const base = { phase: { id: "e5", recorded_at: "2026-09-10T14:00:00.123456+00:00" } };
