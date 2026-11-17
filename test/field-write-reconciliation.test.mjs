@@ -19,6 +19,7 @@ import { readFile } from "node:fs/promises";
 
 import { createLiveClient } from "../js/live-client.js";
 import { createFixtureClient } from "../js/fixture-client.js";
+import worker from "../src/worker.js";
 
 /**
  * A board that owns one write-state and one scripted transport. `sent` is what
@@ -441,6 +442,7 @@ const rpcAnswer = (payload) => ({
 /** One cell, written through the real live client over a scripted transport. */
 function liveBoard(fetchImpl) {
   let writes = {};
+  let minted = 0;
   const client = createLiveClient({ fetchImpl });
   return {
     client,
@@ -448,7 +450,7 @@ function liveBoard(fetchImpl) {
     write: (value = true) => performFieldWrite({
       deal: "d1", field: "attention", value, base: "e0",
       getState: () => writes, setState: (next) => { writes = next; },
-      newKey: () => "key-live",
+      newKey: () => `key-live-${++minted}`,
       patch: (request) => client.patchDealField(request),
     }),
   };
@@ -503,6 +505,44 @@ test("through the live client: 401 is a decision, a 5xx and a dropped connection
   assert.equal(silent.http_status, null);
   assert.match(silent.message, /nothing came back from the server/);
   assert.doesNotMatch(silent.message, /HTTP/, "there was no answer to name");
+});
+
+test("through the Worker: a save the old system took, whose answer was lost, is written once however it is retried", async () => {
+  // Both systems keep one receipt per key; a key the other system holds is key_reuse.
+  const receipts = new Map();
+  let written = 0;
+  const save = (system, key) => {
+    const holder = receipts.get(key);
+    if (holder) return holder === system ? '{"ok":true,"replayed":true}' : '{"error":"key_reuse"}';
+    written += 1;
+    receipts.set(key, system);
+    return '{"ok":true}';
+  };
+  let savesOn = false;
+  let lost = true;
+  const env = {
+    ENGINE_ROUTING: { get: async () => (savesOn ? "on" : null) },
+    ENGINE: { fetch: async (request) => {
+      const text = save("engine", (await request.json()).idempotency_key);
+      return new Response(text, { status: text.includes("key_reuse") ? 409 : 200 });
+    } },
+    CARR: { fetch: async (request) => {
+      const body = await request.json();
+      const text = save("old", body.params.arguments.idempotency_key);
+      if (lost) throw new Error("answer lost after commit");
+      return Response.json({ jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text }] } });
+    } },
+  };
+  const origin = "https://app.example.test";
+  const b = liveBoard((path, init) => worker.fetch(new Request(`${origin}${path}`,
+    { ...init, headers: { ...init.headers, origin, cookie: "session=synthetic" } }), env));
+
+  const statuses = [(await b.write()).status];
+  savesOn = true;
+  lost = false;
+  while (statuses.at(-1) !== "ok" && statuses.length < 3) statuses.push((await b.write()).status);
+  assert.equal(written, 1, "the deal is written once");
+  assert.deepEqual(statuses, ["unknown", "ok"], "the retry gets the old system's replay");
 });
 
 test("the board read's per-cell bases reach the caller through the live client", async () => {
