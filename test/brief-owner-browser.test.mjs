@@ -17,7 +17,7 @@ for (const width of [390,1280]) test(`partner brief controls work at ${width}px`
     const deals=['joe','dell'].map(owner=>({id:owner,name:'Example '+owner,owner,attention:true,phase:'legal',operating_state:'active',next_step:'Example step',next_date:day}));
     const items=deals.map(deal=>({id:'action-'+deal.id,item_kind:'next_action',subject_type:'deal',subject_id:deal.id,subject_name:deal.name,what:deal.next_step,due_on:day+'T00:00:00.000Z',owner_partner:deal.owner}));
     const brief={sponsor:'joe',sections:{today:{state:'ready',items},deals:{state:'ready',items:deals},loops:{state:'empty',items:[]}}};
-    window.exampleClient={getBoard:async()=>({actor:'joe',deals}),morningBrief:async()=>brief,getChanges:async()=>({events:[],cursor:'end'})};
+    window.exampleClient={calendarMeetingPrep:async()=>({state:'empty',items:[],notes:[]}),getBoard:async()=>({actor:'joe',deals}),morningBrief:async()=>brief,getChanges:async()=>({events:[],cursor:'end'})};
     mountAppLayout(document,document.getElementById('host'),'/example');
     window.brief=mountMorningBrief({document,window,getClient:async()=>window.exampleClient});
     await window.brief.refresh();

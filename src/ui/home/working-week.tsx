@@ -111,12 +111,14 @@ export async function mountWorkingWeek(host: HTMLElement) {
                 Returned work · {days[0]?.day} to {days.at(-1)?.day} · America/Chicago
               </p>
               <p role="status">
-                {calendar
-                  ? calendar.state === "partial"
-                    ? "Calendar coverage is incomplete. Check Outlook for changes."
-                    : "Upcoming calendar snapshot. Coverage outside returned meetings is not confirmed."
-                  : "Calendar unavailable. Check Outlook for meetings."}
-                {!agendaAvailable && " Dated deal work unavailable."}
+                {calendar?.state === "loading"
+                  ? "Loading your week…"
+                  : calendar
+                    ? calendar.state === "partial"
+                      ? "Calendar coverage is incomplete. Check Outlook for changes."
+                      : "Upcoming calendar snapshot. Coverage outside returned meetings is not confirmed."
+                    : "Calendar unavailable. Check Outlook for meetings."}
+                {calendar?.state !== "loading" && !agendaAvailable && " Dated deal work unavailable."}
               </p>
               {calendar?.notes?.length ? (
                 <details>
@@ -164,7 +166,9 @@ export async function mountWorkingWeek(host: HTMLElement) {
                     {entry.deal_name && <span>{entry.deal_name}</span>}
                   </button>
                 ))}
-                {!entries.length && <p>No returned items for this day. This does not confirm availability.</p>}
+                {!entries.length && calendar?.state !== "loading" && (
+                  <p>No returned items for this day. This does not confirm availability.</p>
+                )}
               </div>
               <a href="/review-workflows#homeCalendar">Open calendar workflows</a>
             </>

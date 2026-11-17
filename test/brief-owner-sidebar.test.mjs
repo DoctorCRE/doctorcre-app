@@ -20,14 +20,14 @@ for (const legacy of [false,true]) for (const shared of [false,true]) test(`Toda
   globalThis.fetch = async (path,init) => {
     calls.push(String(path));
     const name=init?.body ? JSON.parse(init.body).params.name : '';
-    const value = name==='deal-room-board' ? {actor:'joe',deals} : name==='morning-brief' ? brief : name==='today-triage' ? {items} : {events:[],cursor:'end'};
+    const value = name==='deal-room-board' ? {actor:'joe',deals} : name==='morning-brief' ? brief : name==='today-triage' ? {items} : name==='calendar-meeting-prep' ? {state:'empty',items:[],notes:[]} : {events:[],cursor:'end'};
     return new Response(JSON.stringify(init?.body?{result:{content:[{type:'text',text:JSON.stringify(value)}]}}:value));
   };
   let morning;
   t.after(()=>{morning?.dispose();win.dispatchEvent(new win.Event('pagehide'));dom.window.close();globalThis.fetch=previousFetch;globalThis.location=previousLocation;});
   mountAppLayout(root,root.getElementById('host'),'/example');
-  for(let i=0;i<100 && !root.querySelector('#appSyncTime[datetime]');i++)await new Promise(resolve=>setTimeout(resolve,5));
-  assert.ok(root.querySelector('#appSyncTime[datetime]'));
+  for(let i=0;i<100 && !root.querySelector('#appTodayNext [data-layout-deal]');i++)await new Promise(resolve=>setTimeout(resolve,5));
+  assert.ok(root.querySelector('#appTodayNext [data-layout-deal]'));
   const rows=selector=>[...root.querySelectorAll(`${selector} [data-layout-deal]`)].map(node=>node.dataset.layoutDeal);
   assert.deepEqual(rows('#appTodayNeeds'),shared?['demo-joe','demo-joe']:['demo-joe','demo-dell']);
   assert.deepEqual(rows('#appTodayNext'),shared?['demo-joe','demo-joe']:['demo-joe','demo-dell']);
