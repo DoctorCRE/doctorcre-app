@@ -939,3 +939,157 @@ for (const [method, path] of [
     assert.deepEqual(f.kv, []);
   });
 }
+
+const saveKey = "deal-saves-to-engine";
+const savesOn = new Map([[saveKey, "on"]]);
+const phaseMove = call("patch-deal-field", {
+  deal: "synthetic-deal",
+  field: "phase",
+  value: "negotiation",
+  base_event_id: null,
+  idempotency_key: "00000000-0000-4000-8000-000000000001",
+});
+const saveHeaders = {
+  origin,
+  cookie: "session=synthetic",
+  "sec-fetch-site": "same-origin",
+  "x-carr-csrf": "synthetic-token",
+};
+const answered =
+  (text: string, status = 200) =>
+  async () =>
+    new Response(text, { status });
+
+for (const value of [null, "off", new Error("KV failed"), new Map([["deals-from-engine", "on"]])]) {
+  test(`save switch off sends the save to the old system (${String(value)})`, async () => {
+    const f = fixture(value);
+    assert.equal(await (await f.send(phaseMove, saveHeaders)).text(), "old");
+    assert.deepEqual(f.carr, [JSON.stringify(phaseMove)]);
+    assert.deepEqual(f.kv, [[saveKey, { cacheTtl: 30 }]]);
+    assert.equal(f.engine.length, 0);
+  });
+}
+
+test("save switch on sends the same arguments and key to the engine with the session headers", async () => {
+  const f = fixture(savesOn, answered('{"ok":true,"field":"phase"}'));
+  const response = await f.send(phaseMove, saveHeaders);
+  assert.equal(f.carr.length, 0);
+  const request = f.engine[0];
+  assert.ok(request);
+  assert.equal(request.url, `${origin}/api/engine/patch-deal-field`);
+  assert.equal(request.method, "POST");
+  assert.equal(await request.text(), JSON.stringify(phaseMove.params.arguments));
+  assert.equal(request.headers.get("content-type"), "application/json");
+  for (const [key, value] of Object.entries(saveHeaders)) assert.equal(request.headers.get(key), value);
+  assert.deepEqual(await response.json(), {
+    jsonrpc: "2.0",
+    id: "synthetic-request",
+    result: { content: [{ type: "text", text: '{"ok":true,"field":"phase"}' }] },
+  });
+});
+
+test("engine 501 old_system_required sends the original save to the old system", async () => {
+  const f = fixture(savesOn, answered('{"error":"old_system_required","correlation_id":"c"}', 501));
+  assert.equal(await (await f.send(phaseMove, saveHeaders)).text(), "old");
+  assert.equal(f.engine.length, 1);
+  assert.deepEqual(f.carr, [JSON.stringify(phaseMove)]);
+});
+
+for (const [status, text] of [
+  [500, '{"error":"unhandled_verb_failure","verb":"patch-deal-field"}'],
+  [503, '{"error":"internal_error"}'],
+  [501, '{"error":"not_implemented"}'],
+  [409, '{"error":"key_reuse"}'],
+  [422, '{"error":"actor_not_provisioned"}'],
+  [202, "{}"],
+] as const) {
+  test(`engine ${status} save answer is surfaced as an old-system refusal and never resent`, async () => {
+    const f = fixture(savesOn, answered(text, status));
+    const response = await f.send(phaseMove, saveHeaders);
+    assert.equal(response.status, 200);
+    assert.equal(
+      await response.text(),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: "synthetic-request",
+        result: { isError: true, content: [{ type: "text", text }] },
+      }),
+    );
+    assert.equal(f.carr.length, 0);
+  });
+}
+
+test("a lost engine save answers like a lost old-system save and is not resent", async () => {
+  const lost = fixture(savesOn, async () => {
+    throw new Error("connection reset");
+  });
+  const engineAnswer = await lost.send(phaseMove, saveHeaders);
+  assert.equal(lost.carr.length, 0);
+  const old = fixture("off");
+  old.env.CARR.fetch = async () => {
+    throw new Error("connection reset");
+  };
+  const oldAnswer = await old.send(phaseMove, saveHeaders);
+  assert.equal(engineAnswer.status, 503);
+  assert.deepEqual([engineAnswer.status, await engineAnswer.text()], [oldAnswer.status, await oldAnswer.text()]);
+});
+
+test("a retried save sends the same key to the engine again", async () => {
+  const f = fixture(savesOn, answered('{"replayed":true,"ok":true}'));
+  await f.send(phaseMove, saveHeaders);
+  await f.send(phaseMove, saveHeaders);
+  assert.deepEqual(await Promise.all(f.engine.map((request) => request.text())), [
+    JSON.stringify(phaseMove.params.arguments),
+    JSON.stringify(phaseMove.params.arguments),
+  ]);
+});
+
+for (const status of [401, 403, 429]) {
+  test(`engine ${status} save answer passes through without resending`, async () => {
+    const f = fixture(
+      savesOn,
+      async () => new Response(payload, { status, headers: { "set-cookie": "session=fresh" } }),
+    );
+    const response = await f.send(phaseMove, saveHeaders);
+    assert.equal(response.status, status);
+    assert.equal(await response.text(), payload);
+    assert.equal(response.headers.get("set-cookie"), "session=fresh");
+    assert.equal(f.carr.length, 0);
+  });
+}
+
+for (const [text, status] of [
+  ['{"ok":true,"deal_id":"synthetic-deal","event_id":"e1"}', 200],
+  ['{"error":"unhandled_verb_failure","verb":"patch-deal-field"}', 500],
+] as const) {
+  test(`the screen gets the old system's envelope for the same answer (${status})`, async () => {
+    const f = fixture(savesOn, answered(text, status));
+    const engineAnswer = await (await f.send(phaseMove, saveHeaders)).text();
+    const old = fixture("off");
+    // The old system's tools/call reply, as its record layer writes it.
+    const result =
+      status === 200 ? { content: [{ type: "text", text }] } : { isError: true, content: [{ type: "text", text }] };
+    old.env.CARR.fetch = async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: "synthetic-request", result }));
+    assert.equal(engineAnswer, await (await old.send(phaseMove, saveHeaders)).text());
+  });
+}
+
+test("the engine save sets renewed session cookies on the wrapped answer", async () => {
+  const f = fixture(savesOn, async () => new Response("{}", { headers: [["set-cookie", "session=fresh"]] }));
+  assert.deepEqual((await f.send(phaseMove, saveHeaders)).headers.getSetCookie(), ["session=fresh"]);
+});
+
+for (const body of [
+  call("patch-deal-field", null),
+  call("patch-deal-field", []),
+  call("set-next-step", { deal: "synthetic-deal" }),
+  call("add-deal-note", { deal: "synthetic-deal" }),
+  call("patch-deal-field", {}, { method: "initialize" }),
+]) {
+  test(`save the engine does not take stays on the old system ${JSON.stringify(body)}`, async () => {
+    const f = fixture(savesOn);
+    assert.equal(await (await f.send(body, saveHeaders)).text(), "old");
+    assert.equal(f.engine.length, 0);
+    assert.equal(f.kv.length, 0);
+  });
+}

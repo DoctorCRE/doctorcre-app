@@ -167,6 +167,17 @@ const ENGINE_READS = new Map([
 ]);
 const BUSINESS_GET = /^(\/api\/v1\/business\/[a-z]+)(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
 
+async function mcpCall(request, url) {
+  if (request.method !== 'POST' || url.pathname !== '/mcp') return null;
+  try { return await request.clone().json(); } catch { return null; }
+}
+
+// The old system's tools/call reply around an engine answer's exact text.
+function mcpReply(call, response, text, isError) {
+  const content = [{ type: 'text', text }];
+  return copySessionCookies(response, json({ jsonrpc: '2.0', id: call.id ?? null, result: isError ? { isError, content } : { content } }));
+}
+
 // The registered read a request asks for: a business GET, or a tool call with its arguments.
 async function engineRead(request, url) {
   if (request.method === 'GET') {
@@ -174,9 +185,7 @@ async function engineRead(request, url) {
     const read = ENGINE_READS.get(path);
     return read && !(read.listOnly && record) ? { read, record } : null;
   }
-  if (request.method !== 'POST' || url.pathname !== '/mcp') return null;
-  let call;
-  try { call = await request.clone().json(); } catch { return null; }
+  const call = await mcpCall(request, url);
   const read = ENGINE_READS.get(call?.params?.name);
   const args = call?.params?.arguments === undefined ? {} : call.params.arguments;
   if (call?.method !== 'tools/call' || !read?.args || !isObject(args)
@@ -237,9 +246,7 @@ async function engineResponse(request, env) {
         }
         chunks.push(decoder.decode());
         if (!call) return copySessionCookies(response, new Response(chunks.join(''), { status: response.status, headers: JSON_HEADERS }));
-        const result = { content: [{ type: 'text', text: chunks.join('') }] };
-        if (response.status >= 400) result.isError = true;
-        return copySessionCookies(response, json({ jsonrpc: '2.0', id: call.id ?? null, result }));
+        return mcpReply(call, response, chunks.join(''), response.status >= 400);
       })(),
       new Promise(resolve => {
         // eslint-disable-next-line no-restricted-syntax -- One engine deadline fires after two seconds and is cleared when the response settles.
@@ -251,6 +258,43 @@ async function engineResponse(request, env) {
     ]);
   } catch { return null; }
   finally { clearTimeout(timer); reader?.releaseLock(); }
+}
+
+const DEAL_SAVES = 'deal-saves-to-engine';
+// Each old save the engine can answer, by tool name: its switch key and engine path.
+const ENGINE_SAVES = new Map([
+  ['patch-deal-field', { key: DEAL_SAVES, path: '/api/engine/patch-deal-field' }],
+]);
+
+// A save goes to the old system only while its switch is off or when the engine
+// says it wrote nothing. Any other answer may follow a commit, so the screen's
+// retry sends the same key back to the engine, whose replay answers it.
+async function engineSave(request, env) {
+  const url = new URL(request.url);
+  const call = await mcpCall(request, url);
+  const save = ENGINE_SAVES.get(call?.params?.name);
+  if (call?.method !== 'tools/call' || !save || !isObject(call.params.arguments)) return null;
+  try {
+    if (await env?.ENGINE_ROUTING?.get(save.key, { cacheTtl: 30 }) !== 'on') return null;
+  } catch { return null; }
+  const headers = new Headers({ 'content-type': 'application/json' });
+  for (const key of ['cookie', 'origin', 'sec-fetch-site', 'x-carr-csrf']) {
+    const value = request.headers.get(key);
+    if (value !== null) headers.set(key, value);
+  }
+  url.pathname = save.path;
+  let response, text;
+  try {
+    response = await env.ENGINE.fetch(new Request(url, { method: 'POST', headers, body: JSON.stringify(call.params.arguments), redirect: 'manual' }));
+    if ([401, 403, 429].includes(response.status)) return response;
+    text = await response.text();
+  } catch { return unavailable(false); }
+  if (response.status === 501 && parsedError(text) === 'old_system_required') return null;
+  return mcpReply(call, response, text, response.status !== 200);
+}
+
+function parsedError(text) {
+  try { return JSON.parse(text)?.error; } catch { return undefined; }
 }
 
 function release(env) {
@@ -338,7 +382,7 @@ async function handleRequest(request, env) {
   }
 
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    const engine = await engineResponse(request, env);
+    const engine = await engineSave(request, env) ?? await engineResponse(request, env);
     if (engine) return engine;
     return carrResponse(request, env);
   }
