@@ -35,7 +35,6 @@ import {
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge } from "./shell.js";
 import { activityCopy, activityRequest, activityState } from "./record-activity-model.js";
-import { loadEvidence, renderEvidence } from "./correspondence.js";
 
 const EXPIRY_TICK_MS = 5_000;
 const SEARCH_DEBOUNCE_MS = 350;
@@ -99,7 +98,6 @@ const view = Object.assign(createBusinessState(), { freshnessKey: null, returnFo
 // js/record-activity-model.js). Its own sequence, so a slow answer for a record
 // that has since been closed or replaced never paints.
 view.activity = { id: null, sequence: 0, result: null };
-view.evidence = { id: null, sequence: 0, result: null };
 view.sessionGeneration = 0;
 view.panelState = null;
 view.trustOperation = null;
@@ -839,10 +837,6 @@ function renderRecordPanel() {
       } else dom.panelBody.prepend(vendorClientNeedsHost);
     }
     restorePanelState();
-
-    const evidence = document.createElement('div');
-    evidence.innerHTML = renderEvidence(view.evidence.id === payload.record.id ? view.evidence.result || { threads: { state: 'loading' } } : {});
-    dom.panelBody.append(evidence);
   }
 }
 
@@ -900,7 +894,6 @@ function expireNow() {
   view.loadedRows = []; view.loadedPageCount = 0;
   view.pendingTrust = null; view.trustStatus = null;
   view.activity = { id: null, sequence: view.activity.sequence + 1, result: null };
-  view.evidence = { id: null, sequence: view.evidence.sequence + 1, result: null };
   Object.assign(view, expireSession(view));
   renderControls();
   renderChips();
@@ -1001,9 +994,6 @@ function settleList({ status, payload = null, code = null }, sequence) {
 async function loadRecord(id, { focusOnOpen = false } = {}) {
   if (view.signedOut || view.recordId !== id) return;
   const pending = view.pendingTrust;
-  const evidenceSequence = ++view.evidence.sequence;
-  view.evidence.id = id;
-  view.evidence.result = null;
   const sequence = ++view.record.sequence;
   selectDocRecord(view.dataset, id);
   const docTicket = pageDocContext?.begin('businessRecord', [{ dataset:view.dataset, id }]);
@@ -1040,15 +1030,6 @@ async function loadRecord(id, { focusOnOpen = false } = {}) {
       if (payload.record.record_version > pending.base_version && (expected ? saved?.tier === expected.tier && saved?.reason === expected.reason && saved?.recorded_by === payload.viewer : saved === null)) { view.pendingTrust = null; view.trustStatus = { id: payload.record.id, text: 'Rating confirmed' }; }
     }
     settle("ready", null, payload);
-    loadEvidence().then(result => {
-      if (view.evidence.sequence !== evidenceSequence || view.recordId !== id || view.signedOut) return;
-      view.evidence.result = result;
-      renderRecordPanel();
-    }).catch(() => {
-      if (view.evidence.sequence !== evidenceSequence || view.recordId !== id || view.signedOut) return;
-      view.evidence.result = {threads:{state:'unavailable',items:[],count:null}};
-      renderRecordPanel();
-    });
     if (acceptsResponse(view.record.sequence, sequence) && view.recordId === id) loadActivity(id, payload.record);
   } catch {
     settle("error", "DEPENDENCY_UNAVAILABLE");
@@ -1249,7 +1230,6 @@ function wireControls() {
 
   dom.panelClose?.addEventListener("click", () => closeRecord());
   dom.panelBody?.addEventListener("click", (event) => {
-    if (event.target.closest("[data-evidence-retry]") && view.recordId) loadRecord(view.recordId);
     if (event.target.closest("[data-retry='record']") && view.recordId) loadRecord(view.recordId);
   });
 
