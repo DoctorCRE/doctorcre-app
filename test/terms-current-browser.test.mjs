@@ -112,7 +112,7 @@ test('workspace reopen and subject switches retain each cached comparison focus'
       assert.equal(await toggle.isChecked(), true, 'reopening reattaches the focused comparison');
       assert.equal(await page.locator('#workspace-market-terms tbody').textContent(), rows);
       await page.locator('#panelClose').click();
-      await page.locator('.kanban-card[data-id="d08"]').click();
+      await page.locator('.kanban-card[data-id="d20"]').click();
       await page.locator('#tab-market-terms').click();
       assert.equal(await toggle.isChecked(), false, 'new subject starts unfocused');
       await toggle.check();
@@ -137,7 +137,7 @@ test('workspace access retirement disposes cached comparisons and ignores late r
       await page.locator('#tab-market-terms').click();
       await toggle.check();
       await page.locator('#panelClose').click();
-      await page.locator('.kanban-card[data-id="d08"]').click();
+      await page.locator('.kanban-card[data-id="d20"]').click();
       await page.locator('#tab-market-terms').click();
       await toggle.check();
       await page.evaluate(async () => {
