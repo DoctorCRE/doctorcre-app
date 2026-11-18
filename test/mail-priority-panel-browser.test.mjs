@@ -22,16 +22,16 @@ before(async () => {
   const result = await build({ stdin: { contents: `export {createRoot} from 'react-dom/client'; export {createElement} from 'react'; export {MailPriorities} from './src/ui/home/mail-priorities'; export {mountMailPriorities} from './src/ui/home/mail-priorities'; export {parseMailPage, startEarlyMailPriorities} from './src/ui/home/mail-priorities-client';`, resolveDir: process.cwd() }, bundle: true, write: false, format: 'esm' });
   bundle = result.outputFiles[0].text;
 });
-async function open(t, { width = 1280, theme = 'light', response = recordings.ready, failure, pending = false, early = false, beforeMount } = {}) {
+async function open(t, { width = 1280, theme = 'light', response = recordings.ready, failure, pending = false, early = false, beforeMount, inbox } = {}) {
   const browser = await chromium.launch(); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   await componentDocument(page, 'http://localhost', { html: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mail panel</title><body><div id="panel"></div>', dispose: p => p.evaluate(() => window.view?.dispose()) });
   await page.route('http://localhost/panel.js', route => route.fulfill({ contentType: 'text/javascript', body: bundle }));
-  await page.evaluate(async ({ response, theme, failure, pending, joinItems, early, beforeMount }) => {
+  await page.evaluate(async ({ response, theme, failure, pending, joinItems, early, beforeMount, inbox }) => {
     document.documentElement.style.colorScheme = theme;
     const { mountMailPriorities, parseMailPage, startEarlyMailPriorities } = await import('/panel.js');
     window.response = response; window.failure = failure; window.pending = pending; window.calls = 0; window.reviews = [];
-    const items = [{ source_type: 'email_proposal', source_id: joinItems[0].proposal_id, item_id: 'existing-home-id', title: 'Existing Home title', review_reference: { kind: 'next_step' } }, { source_type: 'next_action', source_id: joinItems[1].proposal_id, item_id: 'wrong-source', title: 'Must not match' }];
+    const items = inbox || [{ source_type: 'email_proposal', source_id: joinItems[0].proposal_id, merged_source_ids: [], item_id: 'existing-home-id', title: 'Existing Home title', review_reference: { kind: 'next_step' } }, { source_type: 'next_action', source_id: joinItems[1].proposal_id, merged_source_ids: [joinItems[1].proposal_id], item_id: 'wrong-source', title: 'Must not match' }];
     const read = async signal => {
       window.calls++; window.signal = signal;
       if (window.pending) await new Promise(resolve => window.release = resolve);
@@ -46,7 +46,7 @@ async function open(t, { width = 1280, theme = 'light', response = recordings.re
       if (beforeMount === 'hidden') { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); }
     }
     window.view = mountMailPriorities(document.getElementById('panel'), { items, review: item => window.reviews.push(item.item_id), read });
-  }, { response, theme, failure, pending, early, beforeMount, joinItems: recordings.ready.items });
+  }, { response, theme, failure, pending, early, beforeMount, inbox, joinItems: recordings.ready.items });
   await page.waitForFunction(() => window.calls === 1, null, { timeout: 2000 });
   return page;
 }
@@ -64,13 +64,26 @@ test('unmatched possible new deal opens the email follow-ups review list', async
   assert.equal(await link.textContent(), 'Review in email follow-ups');
 });
 
+test('a conversation with several reply drafts shows once and opens its inbox card', async t => {
+  const response = structuredClone(recordings.ready);
+  const drafts = response.items.slice(0, 3).map(row => ({ ...row, kind: 'reply_draft', action: { ...row.action, verb: 'submit-email-draft' } }));
+  response.items = [drafts[1], drafts[0], response.items[3], drafts[2]];
+  const ids = drafts.map(row => row.proposal_id);
+  const title = 'Sample Sender · Reply needed (2 earlier emails)';
+  const page = await open(t, { response, inbox: [{ source_type: 'email_proposal', source_id: ids[0], merged_source_ids: ids, item_id: 'conversation-card', title }] });
+  await page.getByRole('heading', { name: title }).waitFor();
+  assert.deepEqual(await page.locator('[data-mail-proposal]').evaluateAll(nodes => nodes.map(n => n.dataset.mailProposal)), [ids[1], response.items[2].proposal_id]);
+  assert.equal(await page.getByRole('heading', { name: 'Reply draft', exact: true }).count(), 0);
+  assert.equal(await page.locator(`[data-mail-proposal="${ids[1]}"]`).getByRole('link', { name: 'Review in inbox' }).getAttribute('href'), '/?card=conversation-card');
+});
+
 for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`automatic ranked rows, exact join and keyboard review ${width} ${theme}`, async t => {
   const page = await open(t, { width, theme });
   await page.getByText('Only the first 25 ranked decisions are shown.').waitFor();
   assert.deepEqual(await page.locator('[data-mail-proposal]').evaluateAll(nodes => nodes.map(n => n.dataset.mailProposal)), recordings.ready.items.map(row => row.proposal_id));
   const text = await page.getByRole('region', { name: 'Mail priorities' }).textContent();
   assert.match(text, /Mailbox joe.*Recorded inbound pending proposals.*As of 2026-11-06.*Recorded next date in UTC/);
-  assert.match(text, /Recorded overdue.*2026-10-01/); assert.match(text, /Recorded upcoming.*2026-12-01/); assert.match(text, /Decision date unknown/); assert.match(text, /Source time unknown/);
+  assert.match(text, /Recorded overdue.*2026-10-01/); assert.match(text, /Recorded upcoming.*2026-12-01/); assert.match(text, /Decision date unknown/); assert.doesNotMatch(text, /Decision date unknown · Decision date unknown/); assert.match(text, /Source time unknown/);
   assert.doesNotMatch(text, /probability|Must not match/);
   assert.equal(await page.getByRole('link', { name: 'Review in email follow-ups' }).first().getAttribute('href'), '/review-workflows#homeEmailFollowups');
   await page.getByRole('button', { name: 'Review Existing Home title' }).focus(); await page.keyboard.press('Enter');

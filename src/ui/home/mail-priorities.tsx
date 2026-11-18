@@ -26,6 +26,22 @@ const fromOutcome = (outcome: { page?: MailPage; error?: unknown }): State => {
   return { kind: denied ? "auth-retired" : "unavailable" };
 };
 
+// A Home card stands for every draft in its email conversation, so one card gives one row.
+const cardRows = (rows: MailPage["items"], items: readonly InboxItem[]) => {
+  const shown = new Set<string>();
+  return rows.flatMap((row) => {
+    const matched = items.find(
+      (item) =>
+        item.source_type === "email_proposal" &&
+        (item.source_id === row.proposal_id || item.merged_source_ids.includes(row.proposal_id)),
+    );
+    const key = matched?.item_id ?? row.proposal_id;
+    if (shown.has(key)) return [];
+    shown.add(key);
+    return [{ row, matched }];
+  });
+};
+
 export function MailPriorities({ items, review, locked = false, read = readMailPriorities }: Props) {
   const [early] = useState(takeEarlyMailPriorities);
   const [state, setState] = useState<State>(() =>
@@ -139,43 +155,39 @@ export function MailPriorities({ items, review, locked = false, read = readMailP
             {state.kind === "empty" && <p role="status">No recorded pending mail decisions.</p>}
             {state.page.more && <p>Only the first 25 ranked decisions are shown.</p>}
             <ol>
-              {state.page.items.map((row) => {
-                const matched = items.find(
-                  (item) => item.source_type === "email_proposal" && item.source_id === row.proposal_id,
-                );
-                return (
-                  <li key={row.proposal_id} data-mail-proposal={row.proposal_id} style={{ overflowWrap: "anywhere" }}>
-                    <h3>{matched?.title || row.kindLabel}</h3>
-                    <p>
-                      {row.reasonLabel} ·{" "}
-                      {row.decision_date ? (
+              {cardRows(state.page.items, items).map(({ row, matched }) => (
+                <li key={row.proposal_id} data-mail-proposal={row.proposal_id} style={{ overflowWrap: "anywhere" }}>
+                  <h3>{matched?.title || row.kindLabel}</h3>
+                  <p>
+                    {row.reasonLabel}
+                    {row.decision_date && (
+                      <>
+                        {" · "}
                         <time dateTime={row.decision_date}>{row.decision_date}</time>
-                      ) : (
-                        "Decision date unknown"
-                      )}
-                    </p>
-                    <p>
-                      Source time{" "}
-                      {row.occurred_at ? <time dateTime={row.occurred_at}>{row.occurred_at}</time> : "unknown"}
-                    </p>
-                    {matched?.review_reference ? (
-                      <button type="button" disabled={locked} onClick={(event) => review(matched, event.currentTarget)}>
-                        Review {matched.title}
-                      </button>
-                    ) : (
-                      <a
-                        href={
-                          matched
-                            ? `/?card=${encodeURIComponent(matched.item_id)}`
-                            : "/review-workflows#homeEmailFollowups"
-                        }
-                      >
-                        {matched ? "Review in inbox" : "Review in email follow-ups"}
-                      </a>
+                      </>
                     )}
-                  </li>
-                );
-              })}
+                  </p>
+                  <p>
+                    Source time{" "}
+                    {row.occurred_at ? <time dateTime={row.occurred_at}>{row.occurred_at}</time> : "unknown"}
+                  </p>
+                  {matched?.review_reference ? (
+                    <button type="button" disabled={locked} onClick={(event) => review(matched, event.currentTarget)}>
+                      Review {matched.title}
+                    </button>
+                  ) : (
+                    <a
+                      href={
+                        matched
+                          ? `/?card=${encodeURIComponent(matched.item_id)}`
+                          : "/review-workflows#homeEmailFollowups"
+                      }
+                    >
+                      {matched ? "Review in inbox" : "Review in email follow-ups"}
+                    </a>
+                  )}
+                </li>
+              ))}
             </ol>
             <button type="button" onClick={() => void load()}>
               Refresh mail priorities
