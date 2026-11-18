@@ -192,11 +192,8 @@ function kindLabel(kind) {
 }
 
 /**
- * One deal's critical_date rows as calendar entries. The live adapter passes
- * the record layer's own row ({id, kind, due_on, note, source, status}) plus a
- * label/date pair; the fixture adapter passes only {label, date}. Both read the
- * same way here, and nothing absent is filled in: a missing status is unknown,
- * not open.
+ * One deal's critical_date rows as calendar entries. The adapters may add a
+ * label/date pair. A missing status stays unknown.
  */
 export function criticalDateEntries(deal, detail) {
   const entries = [];

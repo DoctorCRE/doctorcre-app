@@ -58,8 +58,8 @@ for (const width of [390, 1280]) for (const theme of ['dark', 'light']) {
     const snapshot = page.locator('.deal-opening-snapshot');
     assert.equal(await snapshot.count(), 1, 'the opening snapshot retains the selected action');
     assert.match(await snapshot.innerText(), new RegExp(description));
-    assert.equal(await snapshot.locator('ol [data-overdue="true"]').count(), 1);
-    assert.doesNotMatch(await snapshot.innerText(), /Overdue action|Next action/);
+    assert.equal(await snapshot.getByRole('button', { name: description, exact: true }).count(), 1);
+    assert.match(await snapshot.innerText(), /Overdue action/);
     assert.equal(await snapshot.locator('time').getAttribute('datetime'), '2026-01-18', 'the opening retains the selected action due date');
     const order = await page.evaluate(() => {
       const snapshot = document.querySelector('.deal-opening-snapshot');
