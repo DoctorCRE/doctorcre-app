@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
+import { CardDetails } from "./card-details";
 import {
   type Action,
   type Command,
@@ -17,7 +18,6 @@ import {
   taskCommand,
 } from "./inbox";
 import { MailPriorities } from "./mail-priorities";
-import { ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { completionLabel, HomeSections, HomeWelcome } from "./sections";
 
@@ -29,6 +29,17 @@ type SnoozePreview = Readonly<{
 type Pending = { request: Command; before: readonly InboxItem[]; undoing?: true };
 type Undo = { action: Action | "reopen"; items: readonly InboxItem[]; until?: string; receipt?: TaskReceipt };
 const queryKey = ["home-inbox"];
+const cardDate = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+const snoozeDate = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Chicago",
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 const visibleRow = (node: HTMLElement) => !node.closest("details:not([open])") && node.getClientRects().length > 0;
 export function inboxRefusal(code: unknown): string {
   switch (code) {
@@ -330,8 +341,19 @@ function Inbox({ client }: { client: InboxClient }) {
     const primary =
       item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
     const completable = item.action_id !== null && item.source_state === "needs_attention";
-    const source = recordRoutes.source(item);
+    const open = reviewing?.item_id === item.item_id;
+    const reviewClient =
+      reviewing?.review_reference && reviewing.source_state === "needs_attention" ? client.review : undefined;
+    const source = recordRoutes.source({
+      open_url: item.open_url ?? (item.deal_id ? `/deals?deal=${item.deal_id}` : null),
+    });
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
+    const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
+    const linkedRecord = source && (
+      <a className="inbox-source" href={source}>
+        {item.context_label || `Open ${sourcePage}`}
+      </a>
+    );
     return (
       <article
         key={item.item_id}
@@ -389,18 +411,19 @@ function Inbox({ client }: { client: InboxClient }) {
               {item.title}
             </Link>
           </h3>
-          <p className="inbox-context">
-            {item.context_label || "No linked deal"}
-            {item.due_on && (
-              <>
-                {" "}
-                · Due <time dateTime={item.due_on}>{item.due_on}</time>
-              </>
-            )}
-          </p>
+          {(item.context_label || due) && (
+            <p className="inbox-context">
+              {item.context_label}
+              {due && (
+                <>
+                  {item.context_label && " · "}Due {due}
+                </>
+              )}
+            </p>
+          )}
           <p className="inbox-detail">
             {item.disposition === "snoozed" && item.snoozed_until
-              ? `Snoozed until ${new Date(item.snoozed_until).toLocaleString()}`
+              ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
               : item.auto_settled || item.section === "done"
                 ? completionLabel(item)
                 : item.disposition === "settled"
@@ -410,32 +433,27 @@ function Inbox({ client }: { client: InboxClient }) {
                     : item.source_state === "done"
                       ? completionLabel(item)
                       : "Ready for your attention"}
-            {item.hold_until ? ` · On hold until ${item.hold_until}` : ""}
+            {item.hold_until ? ` · On hold until ${cardDate.format(new Date(item.hold_until))}` : ""}
           </p>
-          {item_id === item.item_id && completable && source && (
-            <a className="inbox-source" href={source}>
-              Open {sourcePage}
-            </a>
-          )}
-          {item_id === item.item_id && item.source_type === "notification" && (
+          {item_id === item.item_id && !open && linkedRecord}
+          {item_id === item.item_id && !open && item.source_type === "notification" && (
             <HomeWatchDetail open_url={item.open_url} />
           )}
           {item_id === item.item_id && item.open_url && !source && <p role="status">This link can't be opened here.</p>}
         </div>
         <div className="inbox-actions">
-          {item.review_reference && client.review && item.source_state === "needs_attention" && (
-            <button
-              type="button"
-              className={completable ? undefined : "inbox-primary"}
-              disabled={busy || !!pending || !!reviewing}
-              onClick={(event) => {
-                reviewOpener.current = event.currentTarget;
-                setReviewing(item);
-              }}
-            >
-              {item.source_type === "email_proposal" ? "Review reply" : "See details"}
-            </button>
-          )}
+          <button
+            type="button"
+            className={completable ? undefined : "inbox-primary"}
+            aria-expanded={open}
+            disabled={busy || !!pending || !!reviewing}
+            onClick={(event) => {
+              reviewOpener.current = event.currentTarget;
+              setReviewing(item);
+            }}
+          >
+            Open
+          </button>
           {completable && (
             <button
               type="button"
@@ -446,21 +464,11 @@ function Inbox({ client }: { client: InboxClient }) {
               Mark done
             </button>
           )}
-          {!completable &&
-            !(item.review_reference && client.review && item.source_state === "needs_attention") &&
-            item.source_state !== "done" &&
-            item.source_state !== "working" &&
-            (item.source_type === "email_proposal" && item.source_state === "failed" ? (
-              <p className="inbox-detail inbox-guidance">
-                This reply didn't send. Send it from your email, then press Hide from inbox.
-              </p>
-            ) : source || item.source_type === "notification" ? (
-              <a className="inbox-primary" href={source ?? "/updates"}>
-                Open {sourcePage ?? "Updates"}
-              </a>
-            ) : (
-              <p className="inbox-detail inbox-guidance">Read it, then hide it from your inbox.</p>
-            ))}
+          {item.source_type === "email_proposal" && item.source_state === "failed" && (
+            <p className="inbox-detail inbox-guidance">
+              This reply didn't send. Send it from your email, then press Hide from inbox.
+            </p>
+          )}
           {item.source_state !== "working" && (
             <button
               type="button"
@@ -481,10 +489,10 @@ function Inbox({ client }: { client: InboxClient }) {
             Snooze
           </button>
         </div>
-        {reviewing?.item_id === item.item_id && client.review && (
-          <ReviewCard
+        {open && (
+          <CardDetails
             item={item}
-            client={client.review}
+            client={reviewClient}
             close={() => {
               setReviewing(null);
             }}
@@ -510,7 +518,20 @@ function Inbox({ client }: { client: InboxClient }) {
                 setNotice(`Marked done: ${current.title}. You can undo this change.`);
               }
             }}
-          />
+          >
+            {due && <p>Due {due}</p>}
+            {linkedRecord ||
+              (item.source_type !== "email_proposal" && (
+                <>
+                  {item.context_label && item.context_label !== item.title && <p>About {item.context_label}</p>}
+                  <p>No linked record.</p>
+                </>
+              ))}
+            {item.source_type === "email_proposal" && !reviewClient && (
+              <p>The email and draft are unavailable for this card.</p>
+            )}
+            {item.source_type === "notification" && <HomeWatchDetail open_url={item.open_url} />}
+          </CardDetails>
         )}
       </article>
     );

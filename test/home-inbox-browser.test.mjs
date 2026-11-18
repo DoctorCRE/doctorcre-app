@@ -169,7 +169,7 @@ test('undoing one bulk result keeps the Undo for every other confirmed card', as
 test('date-only task holds keep the recorded day in the partner timezone', async t => {
   const { page } = await open(t, { holdUntil: '2026-10-30' });
   const row = page.locator('[data-inbox-row="a"]'); await row.waitFor();
-  assert.match(await row.textContent(), /On hold until 2026-10-30/);
+  assert.match(await row.textContent(), /On hold until Oct 30, 2026/);
 });
 
 test('a command receipt does not make an old inbox snapshot look fresh', async t => {
@@ -211,7 +211,7 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`v2
   await page.locator('[data-current="true"]').waitFor();
   assert.equal(await link.evaluate(node => node === document.activeElement), true);
   assert.equal(await held.locator('h3').evaluate(node => node.scrollHeight <= node.clientHeight), true);
-  assert.match(await held.textContent(), /Demo practice.*Due 2026-11-05/s);
+  assert.match(await held.textContent(), /Demo practice.*Due Nov 5, 2026/s);
   assert.match(await page.locator('[data-inbox-row="loop"]').textContent(), /Demo loop context/);
   await page.locator('[data-inbox-row="loop"] h3 a').click();
   assert.equal(await page.locator('[data-inbox-row="loop"] .inbox-source').count(), 0);
@@ -245,7 +245,7 @@ for (const intervening of ['snooze', 'source edit']) for (const uncertain of [fa
     assert.match(await card.textContent(), /Snoozed until/);
     assert.equal(await card.locator('xpath=..').getAttribute('class'), 'inbox-shelf');
   } else {
-    assert.match(await card.textContent(), /Edited elsewhere.*New deal.*Due 2026-11-06/s);
+    assert.match(await card.textContent(), /Edited elsewhere.*New deal.*Due Nov 6, 2026/s);
   }
   if (uncertain) {
     const writes = calls.filter(call => call.name === 'settle-home-inbox');
@@ -261,7 +261,7 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`Ma
   await page.keyboard.press('Enter');
   await page.getByText('Marked done: Synthetic a.', { exact: false }).waitFor();
   await page.waitForFunction(() => document.activeElement.closest('[data-inbox-row]')?.dataset.inboxRow === 'b');
-  assert.equal(await page.locator('[data-inbox-row="working"] .inbox-primary').count(), 0);
+  assert.equal(await page.locator('[data-inbox-row="working"]').getByRole('button', { name: 'Mark done', exact: true }).count(), 0);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: `test-artifacts/home-inbox/complete-${width}-${theme}.png`, fullPage: true });
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
@@ -399,7 +399,7 @@ test('lease watch card opens the exact lease and snooze or settle never removes 
  const notification=row('lease-alert',{source_type:'notification',kind_label:'Update',action_id:null,action_version:null,deal_id:null,open_url:`/leases?lease=${lease}`});
  const {page,calls}=await open(t,{card:'lease-alert',extra:[notification]});
  const card=page.locator('[data-inbox-row="lease-alert"]');
- assert.equal(await card.getByRole('link',{name:/^Open /}).getAttribute('href'),`/leases?lease=${lease}`);
+ assert.equal(await card.locator('.inbox-source').getAttribute('href'),`/leases?lease=${lease}`);
  await card.getByText('This alert is separate from its watch. Snoozing or settling the card keeps the watch.',{exact:true}).waitFor();
  await card.getByRole('button',{name:'Snooze',exact:true}).click();
  await page.getByRole('button',{name:/^1 hour/}).click();
@@ -407,10 +407,10 @@ test('lease watch card opens the exact lease and snooze or settle never removes 
  await card.getByRole('button',{name:'Hide from inbox',exact:true}).click();
  await page.getByRole('button',{name:'Undo',exact:true}).click();
  assert.equal(calls.some(call=>/^(unwatch|pause|resume|replace-subject-watch|watch-subject)/.test(call.name)),false);
- assert.equal(await card.getByRole('link',{name:/^Open /}).getAttribute('href'),`/leases?lease=${lease}`);
+ assert.equal(await card.locator('.inbox-source').getAttribute('href'),`/leases?lease=${lease}`);
  const fixture=(await readFile(new URL('../js/lease-radar-fixture.js',import.meta.url),'utf8')).replace('id:`demo-lease-${i}`',`id:i===1?'${lease}':\`demo-lease-\${i}\``);
  await page.route('**/js/lease-radar-fixture.js',route=>route.fulfill({body:fixture,contentType:'text/javascript'}));
- await card.getByRole('link',{name:/^Open /}).click();
+ await card.locator('.inbox-source').click();
  await page.locator('#leaseDetail[open]').waitFor();
  assert.equal(new URL(page.url()).searchParams.get('lease'),lease);
  assert.equal(await page.locator('#leaseDetail h2').textContent(),'Demo Practice 1');

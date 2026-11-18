@@ -117,7 +117,7 @@ test('pending request locks search and completion Undo preserves query', async t
 test('inline review locks search and preserves opener focus through close and unmount', async t => {
   const { page } = await setup(t, 1440, 'light', true);
   const search = page.getByRole('searchbox');
-  const opener = page.getByRole('button', { name: 'See details', exact: true });
+  const opener = page.locator('[data-inbox-row="demo-review"]').getByRole('button', { name: 'Open', exact: true });
   await opener.click();
   await page.getByRole('button', { name: 'Close review', exact: true }).waitFor();
   assert.equal(await search.isDisabled(), true);
@@ -194,13 +194,13 @@ for (const destination of ['00000000-0000-4000-8000-000000000002', '00000000-000
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
   await page.getByRole('link', { name: card.title, exact: true }).click();
-  if (destination.endsWith('002')) await page.screenshot({ path: '/tmp/WR617.S1.J109-home.png', fullPage: true });
+  if (destination.endsWith('002')) await page.screenshot({ path: 'test-artifacts/home-loaded-card-search/watch-home.png', fullPage: true });
   if (destination === 'bad') {
     await page.getByRole('status').filter({ hasText: "This link can't be opened here." }).waitFor();
     assert.equal(await page.locator('.inbox-source').count(), 0);
     assert.deepEqual(reads, []);
   } else {
-    const link = page.locator('[data-current="true"]').getByRole('link', { name: /^Open / });
+    const link = page.locator('[data-current="true"] .inbox-source');
     assert.equal(await link.getAttribute('href'), card.open_url);
     await link.focus();
     await Promise.all([page.waitForURL('**/clients?record=*'), page.keyboard.press('Enter')]);
@@ -210,7 +210,7 @@ for (const destination of ['00000000-0000-4000-8000-000000000002', '00000000-000
       await page.locator('#recordBody[data-record-id]').waitFor();
       assert.equal(await page.locator('#recordBody').getAttribute('data-record-id'), destination);
       assert.equal(await page.locator('#recordTitle').innerText(), 'Demo Practice 02');
-      await page.screenshot({ path: '/tmp/WR617.S1.J109-client.png', fullPage: true });
+      await page.screenshot({ path: 'test-artifacts/home-loaded-card-search/watch-client.png', fullPage: true });
     }
     assert.deepEqual(reads, [destination]);
   }
