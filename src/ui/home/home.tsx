@@ -4,7 +4,8 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
-import { completionReview, type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
+import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
+import { hasEngineReview, openStepRefusal } from "./engine-review.ts";
 import {
   type Action,
   type Command,
@@ -12,6 +13,7 @@ import {
   type InboxClient,
   type InboxItem,
   type ItemResult,
+  object,
   type Snapshot,
   shelves,
   type TaskReceipt,
@@ -252,9 +254,7 @@ function Inbox({ client }: { client: InboxClient }) {
             if (undo)
               return [{ mark: undo, items: [{ ...item, item_id: undo.item_id, base_version: undo.base_version }] }];
             if (operation.request.action === "complete")
-              return result?.ok && result.receipt?.completion_event_id
-                ? [{ action: "reopen" as const, items: [item], receipt: result.receipt }]
-                : [];
+              return result.receipt ? [{ action: "reopen" as const, items: [item], receipt: result.receipt }] : [];
             const previous = operation.before.find((before) => before.item_id === result.item_id);
             return previous
               ? [
@@ -275,11 +275,8 @@ function Inbox({ client }: { client: InboxClient }) {
       }
       const completion =
         operation.request.action === "complete" ? successes.map((item) => `Marked done: ${item.title}.`).join(" ") : "";
-      const legacy = results.some((result) => result.ok && result.receipt && !result.receipt.completion_event_id)
-        ? " Can't undo this completion. Its original receipt has no completion event."
-        : "";
       setNotice(
-        `${completion}${legacy} ${successes.length + changed.length} confirmed. ${changed.length ? `${changed.length} changed again after confirmation. Showing the latest state. Undo is unavailable for those cards. ` : ""}${failed.length ? `${failed.length} failed or uncertain. Kept for review.` : successes.length ? (operation.undoing ? "Undone." : legacy ? "Completion confirmed." : "You can undo this change.") : ""}`,
+        `${completion} ${successes.length + changed.length} confirmed. ${changed.length ? `${changed.length} changed again after confirmation. Showing the latest state. Undo is unavailable for those cards. ` : ""}${failed.length ? `${failed.length} failed or uncertain. Kept for review.` : successes.length ? (operation.undoing ? "Undone." : "You can undo this change.") : ""}`,
       );
       if (!failed.length) setPending(null);
       focusRow(operation.undoing ? operation.before.map((item) => item.item_id) : neighbours);
@@ -304,11 +301,16 @@ function Inbox({ client }: { client: InboxClient }) {
           "home_item_not_found",
           "invalid_snooze_time",
           "home_routing_changed",
+          "step_ended",
+          "step_open",
+          "open_step_exists",
         ].includes(code)
       ) {
         setPending(null);
         if (code === "home_routing_changed") {
           setNotice("Home changed. Refreshing your inbox.");
+        } else if (code === "open_step_exists") {
+          setNotice(openStepRefusal);
         } else if ("engine_marks" in operation.request && operation.request.engine_marks) {
           setNotice(
             code === "invalid_snooze_time"
@@ -375,12 +377,21 @@ function Inbox({ client }: { client: InboxClient }) {
     const markAction = item.disposition === "inbox" ? "settle" : "unsettle";
     const markable =
       !item.engine_marks ||
-      (markTarget(item.item_id) && (item.source_type !== "notification" || item.kind_label === "Update"));
-    const snoozable = markable || completionReview(item.item_id);
+      (item.source_state !== "done" &&
+        item.source_state !== "working" &&
+        markTarget(item.item_id) &&
+        (!item.item_id.startsWith("notification:") || item.kind_label === "Update"));
     const completable = item.action_id !== null && item.source_state === "needs_attention";
     const open = reviewing?.item_id === item.item_id;
     const reviewClient =
-      reviewing?.review_reference && reviewing.source_state === "needs_attention" ? client.review : undefined;
+      reviewing &&
+      (hasEngineReview(reviewing) || (reviewing.review_reference && reviewing.source_state === "needs_attention"))
+        ? client.review
+        : undefined;
+    const activity =
+      item.engine_marks && !reviewClient && "source_activity" in item && object(item.source_activity)
+        ? item.source_activity
+        : null;
     const deal = item.deal_id ? `/deals?deal=${encodeURIComponent(item.deal_id)}` : null;
     const source = recordRoutes.source(item) ?? deal;
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
@@ -415,7 +426,7 @@ function Inbox({ client }: { client: InboxClient }) {
           )
             return;
           if (touch.clientX > start.x && markable && item.source_state !== "working") act(markAction, [item]);
-          else if (touch.clientX < start.x && snoozable) {
+          else if (touch.clientX < start.x && markable) {
             snoozeOpener.current = event.currentTarget.querySelector("h3 a");
             openSnooze([item]);
           }
@@ -426,7 +437,7 @@ function Inbox({ client }: { client: InboxClient }) {
             type="checkbox"
             aria-label={`Select ${item.title}`}
             checked={selected.has(item.item_id)}
-            disabled={busy || !!reviewing || !snoozable || item.source_state === "working"}
+            disabled={busy || !!reviewing || !markable || item.source_state === "working"}
             onChange={(event) =>
               select((previous) => {
                 const next = new Set(previous);
@@ -518,7 +529,7 @@ function Inbox({ client }: { client: InboxClient }) {
               {primary}
             </button>
           )}
-          {snoozable && (
+          {markable && (
             <button
               type="button"
               disabled={busy || !!reviewing}
@@ -533,7 +544,7 @@ function Inbox({ client }: { client: InboxClient }) {
         </div>
         {open && (
           <ReviewCard
-            item={item}
+            item={reviewing}
             client={reviewClient}
             close={() => setReviewing(null)}
             busy={(value) => {
@@ -541,7 +552,12 @@ function Inbox({ client }: { client: InboxClient }) {
               setBusy(value);
               if (value) void cache.cancelQueries({ queryKey });
             }}
-            confirmed={(current, receipt) => {
+            confirmed={(current, receipt, snapshot) => {
+              if (snapshot) cache.setQueryData(queryKey, snapshot);
+              if (!current) {
+                setReviewing(null);
+                return;
+              }
               cache.setQueryData<Snapshot>(queryKey, (snapshot) =>
                 snapshot
                   ? {
@@ -550,7 +566,7 @@ function Inbox({ client }: { client: InboxClient }) {
                     }
                   : snapshot,
               );
-              if (receipt?.completion_event_id) {
+              if (receipt) {
                 setUndo((entries) => [
                   ...entries.filter((entry) => entry.items[0]?.item_id !== current.item_id),
                   { action: "reopen", items: [current], receipt },
@@ -561,6 +577,18 @@ function Inbox({ client }: { client: InboxClient }) {
           >
             {due && <p>Due {due}</p>}
             {linkedRecord}
+            {activity && (
+              <>
+                {typeof activity.contact === "string" && <p>Call with {activity.contact}</p>}
+                {typeof activity.happened_at === "string" && Number.isFinite(Date.parse(activity.happened_at)) && (
+                  <time dateTime={activity.happened_at}>
+                    {snoozeDate.format(new Date(activity.happened_at))} Central
+                  </time>
+                )}
+                {typeof activity.summary === "string" && <p>{activity.summary}</p>}
+                {typeof activity.quote === "string" && <blockquote>{activity.quote}</blockquote>}
+              </>
+            )}
             {deal && sourcePage !== "deal" && (
               <p>
                 <a className="inbox-source" href={deal}>

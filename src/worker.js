@@ -134,6 +134,13 @@ const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
 const LEADS = 'leads-from-engine';
 const HOME = 'home-from-engine';
 const LEGACY_HOME_MARKS = new Set(['snooze-home-inbox', 'settle-home-inbox', 'unsettle-home-inbox']);
+const HOME_WRITES = new Map([
+  ['end-engine-home-step', ['next-steps', 'end']],
+  ['reopen-engine-home-step', ['next-steps', 'reopen']],
+  ['decide-engine-home-proposal', ['proposals', 'decision']],
+]);
+const homeDetail = path => ({ key: HOME, path: '/api/engine/' + path, segment: 'id',
+  args: { id: value => isUuid(value) }, accepts: ({ id }) => isUuid(id) });
 const INVOICES = 'invoices-from-engine';
 const CHARTS = 'charts-from-engine';
 const NATIONAL_DEALS = 'national-deals-from-engine';
@@ -149,6 +156,8 @@ const ENGINE_READS = new Map([
   ['deal-room-board', { key: DEALS, path: '/api/engine/deals', args: { workspace: isString, account_client_id: isString } }],
   ['get-deal-room', { key: DEALS, path: '/api/engine/deals', segment: 'deal', args: { deal: isString },
     accepts: ({ deal }) => !['', '.', '..', undefined].includes(deal) }],
+  ['search-parties-v1', { key: DEALS, path: '/api/engine/parties/search', search: 'kind=person',
+    args: { query: isString }, accepts: ({ query }) => Boolean(query?.trim()) }],
   // Without the workspace the old tool answers Home's legacy board, which the engine does not serve.
   ['lead-board', { key: LEADS, path: '/api/engine/leads', accepts: ({ workspace }) => workspace === 'leads',
     args: { workspace: isString, lead_id: isString, correspondence_cursor: isObject, stage_history_cursor: isString } }],
@@ -156,6 +165,7 @@ const ENGINE_READS = new Map([
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
   ['territory-state-board', { key: LEADS, path: '/api/engine/territory-state-board', args: { vertical: isString, city: isString, state: isString } }],
   ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {} }],
+  ['read-engine-home-proposal', homeDetail('proposals')],
   ['read-invoice-tracker', { key: INVOICES, path: '/api/engine/invoices', args: {} }],
   ['ideal-client-profile', { key: CHARTS, path: '/api/engine/client-fit', args: { vertical: isString, city: isString, state: isString } }],
   ['capture-queue', { key: NATIONAL_DEALS, path: '/api/engine/capture-queue', args: {} }],
@@ -223,7 +233,7 @@ async function engineResponse(request, env) {
   try {
     if (call) {
       url.pathname = read.segment ? `${read.path}/${encodeURIComponent(args[read.segment])}` : read.path;
-      url.search = '';
+      url.search = read.search ?? '';
       // The engine takes the old tool's arguments as query text, an object as its JSON.
       for (const [key, value] of Object.entries(args)) {
         if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
@@ -511,11 +521,18 @@ async function engineSave(request, env) {
     if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     return engineAnswer(request, env, call, { path: '/api/engine/home/marks' }, { allowHandoff: false });
   }
+  const homeSave = HOME_WRITES.get(call.params.name);
+  if (homeSave) {
+    const { id, ...body } = call.params.arguments;
+    if (!isUuid(id)) return saveRefusal(call, 'not_found', 'Refresh Home and try again.');
+    if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+    const [record, action] = homeSave;
+    return engineAnswer(request, env, call, { path: `/api/engine/${record}/${id}/${action}` },
+      { allowHandoff: false, body, rawClientError: record === 'proposals' });
+  }
   if (LEGACY_HOME_MARKS.has(call.params.name)) {
     const { items, undo_of } = call.params.arguments;
-    const reviewSnooze = call.params.name !== 'settle-home-inbox' && Array.isArray(items) && items.length > 0 &&
-      items.every(item => typeof item?.item_id === 'string' && item.item_id.startsWith('next_step_done:'));
-    if (!reviewSnooze && (Array.isArray(items) || undo_of) && await switchedOn(env, HOME))
+    if ((Array.isArray(items) || undo_of) && await switchedOn(env, HOME))
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
   }
   if (call.params.name === 'record-commission-receipt') {
@@ -546,12 +563,12 @@ async function sendEngineSave(request, env, path, body) {
 }
 
 // Only the legacy-schema saves share a receipt with CARR.
-async function engineAnswer(request, env, call, save, { allowHandoff = true } = {}) {
-  const response = await sendEngineSave(request, env, save.path, call.params.arguments);
+async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments, rawClientError = false } = {}) {
+  const response = await sendEngineSave(request, env, save.path, body);
   if (!response) return unavailable(false);
   let text;
   try {
-    if ([401, 403, 429].includes(response.status)) return response;
+    if ((rawClientError && response.status >= 400 && response.status < 500) || [401, 403, 429].includes(response.status)) return response;
     text = await response.text();
   } catch { return unavailable(false); }
   const handoff = OLD_SYSTEM_ANSWERS.get(response.status);
