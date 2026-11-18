@@ -97,8 +97,15 @@ test("deal email decisions use the engine only with both Deals switches on", asy
   const settled = fixture("on", async () => Response.json({ error: "already_decided" }, { status: 409 }));
   const conflict = await (await settled.send(decision)).json();
   assert.equal(conflict.result.isError, true);
-  assert.equal(JSON.parse(conflict.result.content[0].text).error, "version_conflict");
+  assert.equal(JSON.parse(conflict.result.content[0].text).error, "already_decided");
   assert.deepEqual(settled.carr, []);
+
+  const openStep = fixture("on", async () => Response.json({ error: "open_step_exists" }, { status: 409 }));
+  const refusal = await (await openStep.send(decision)).json();
+  assert.equal(
+    JSON.parse(refusal.result.content[0].text).hint,
+    "You already have an open step on this deal. Finish or change it first, or dismiss this suggestion.",
+  );
 
   const unconfirmed = fixture("on", async () => Response.json({ proposal_id: id, status: "dismissed" }));
   assert.equal((await unconfirmed.send(decision)).status, 503);

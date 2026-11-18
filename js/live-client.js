@@ -436,8 +436,8 @@ export function createLiveClient(opts = {}) {
     async readDealUpdateReviews(args = {}) { return rpc('read-deal-update-reviews', args); },
     async reviewDealUpdate(args) { return write('review-deal-update', args); },
     async listEmailProposals(args = {}, signal) { return rpc('list-email-proposals', args, signal); },
-    async decideDealEmail({ proposal_id, decision, idempotency_key }) {
-      return write('decide-engine-deal-email', { proposal_id, decision, idempotency_key });
+    async decideDealEmail({ proposal_id, decision, idempotency_key, edits }) {
+      return write('decide-engine-deal-email', { proposal_id, decision, idempotency_key, ...(edits && { edits }) });
     },
     async previewEmailNextStep(args) { return rpc('preview-email-next-step', args); },
     async previewEmailDealProgress(args) { return rpc('preview-email-deal-progress', args); },
