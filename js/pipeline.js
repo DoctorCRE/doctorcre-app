@@ -511,7 +511,7 @@ async function runFollowUp(operationKey, step) {
   if (!send) return null;
   const pending = pendingCommand(commandState, operationKey);
   let args = step.args;
-  const currentDeal = state.panelDetail?.deal?.id === args.deal ? state.panelDetail.deal : state.deals.get(args.deal);
+  const currentDeal = args.deal && (state.panelDeal === args.deal ? state.panelDetail?.deal : state.deals.get(args.deal));
   const seen = pending ? pending.request.seen_change_id : currentDeal?.seen;
   if (Number.isSafeInteger(seen)) {
     args = { ...args, seen_change_id: seen };
