@@ -548,7 +548,14 @@ test('switched-on Deals selects an existing market agent and decides critical da
   const env = {
     ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' || (savesOn && key === 'deals-saves-from-engine') ? 'on' : null },
     ENGINE: { fetch: async request => {
-      const path = new URL(request.url).pathname;
+      const url = new URL(request.url);
+      const path = url.pathname;
+      if (path === '/api/engine/parties/search') {
+        assert.deepEqual(Object.fromEntries(url.searchParams), { kind: 'person', query: 'Example' });
+        return Response.json({ ok: true, schema_version: 'party-search.v1', parties: [
+          { id: person, display_name: 'Example Market Agent', kind: 'person' },
+        ] });
+      }
       if (request.method === 'GET') return Response.json(path.endsWith(deal)
         ? { ...row, deal_id: deal, critical_dates: dates, participants }
         : { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row],
@@ -591,13 +598,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
     const request = route.request();
     const body = request.postDataJSON();
     const verb = body?.params?.name;
-    if (verb === 'search-parties-v1') return route.fulfill({ json: { jsonrpc: '2.0', id: body.id, result: { content: [{
-      type: 'text', text: JSON.stringify({ ok: true, schema_version: 'party-search.v1', parties: [
-        { id: person, display_name: 'Example Market Agent', kind: 'person' },
-        { id: account, display_name: 'Example Agency', kind: 'org' },
-      ] }),
-    }] } } });
-    if (!['deal-room-board', 'get-deal-room', 'set-market-agent', 'confirm-critical-date',
+    if (!['deal-room-board', 'get-deal-room', 'search-parties-v1', 'set-market-agent', 'confirm-critical-date',
       'resolve-critical-date', 'patch-deal-field', 'add-critical-date', 'remove-deal-participant'].includes(verb)) return route.continue();
     const response = await handleDoctorcreRequest(new Request(request.url(), {
       method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
