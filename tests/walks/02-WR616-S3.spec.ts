@@ -11,7 +11,7 @@ test("02 WR616.S3", async ({ page }) => {
     await visible(page.locator(".home-week"));
     await row.locator("h3 a").click();
     const selected = new URL(page.url()).pathname;
-    const source = row.getByRole("link", { name: /^Open / });
+    const source = row.locator(".inbox-source");
     needs(!(await source.count()), "Home card linked to a designated test deal");
     const href = await source.getAttribute("href");
     needs(!href?.startsWith("/deals"), "Home card linked to a designated test deal");
