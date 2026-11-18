@@ -176,10 +176,10 @@ async function submitDeal(event) {
   } catch (error) {
     if (error.creationRefused) {
       dealCreation = null;
-      const clientOptions = 'Pick an existing client, or add the client first.';
+      const clientOptions = 'Check the spelling or pick an existing client.';
       const reasons = {
         deal_save_unavailable: 'Adding a deal is temporarily unavailable.',
-        subject_not_found: `There’s no client named “${request.client}” yet. ${clientOptions}`,
+        subject_not_found: `There’s no client named “${request.client}”. ${clientOptions}`,
         not_a_client: `“${request.client}” is not an existing client. ${clientOptions}`,
         needs_disambiguation: 'More than one client matches. Use the client reference.',
         deal_name_exists: 'A deal with this name already exists. Use a distinct name.',
