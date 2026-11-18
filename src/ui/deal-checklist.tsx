@@ -100,9 +100,8 @@ function Checklist({ checklist, showProgress = false }: Props) {
     .filter((p) => p.items.length);
   const matching = phases.reduce((n, p) => n + p.items.length, 0);
   const complete = items.filter((i) => i.status === "complete" || i.status === "received").length;
-  const labelFor = (label: string) =>
-    showProgress ? label.replace(/\s+recorded\b/i, "").replace(/^./, (first) => first.toUpperCase()) : label;
   const statuses = showProgress ? PROGRESS_STATUS : STATUS;
+  const showLabel = showProgress ? "Show" : "Requirements view";
   const progress = showProgress
     ? `${complete} of ${total} complete.`
     : `${matching} matching of ${total} recorded requirements.`;
@@ -122,7 +121,7 @@ function Checklist({ checklist, showProgress = false }: Props) {
         <span>Deal checklist{checklist.due_items.length ? ` · ${checklist.due_items.length} due` : ""}</span>
         {next && (!showProgress || !expanded) && (
           <span className="checklist-next">
-            <strong>{labelFor(next.label)}</strong>
+            <strong>{next.label}</strong>
             <span>
               {statuses[next.status]} · <time dateTime={next.due_on ?? undefined}>{date(next.due_on || "")}</time>
             </span>
@@ -133,10 +132,10 @@ function Checklist({ checklist, showProgress = false }: Props) {
         <p>Confirm the deal type to see its full checklist.</p>
       ) : null}
       <label>
-        Requirements view{" "}
-        <select aria-label="Requirements view" value={selection} onChange={(e) => select(e.target.value)}>
-          <option value="all">All requirements</option>
-          <option value="outstanding">Outstanding requirements</option>
+        {showLabel}{" "}
+        <select aria-label={showLabel} value={selection} onChange={(e) => select(e.target.value)}>
+          <option value="all">{showProgress ? "All" : "All requirements"}</option>
+          <option value="outstanding">{showProgress ? "To do" : "Outstanding requirements"}</option>
         </select>
       </label>
       <p data-checklist-count role="status">
@@ -149,7 +148,7 @@ function Checklist({ checklist, showProgress = false }: Props) {
           <ul>
             {phase.items.map((i) => (
               <li key={i.id} data-checklist-item={i.id} data-state={i.status}>
-                <span>{labelFor(i.label)}</span>
+                <span>{i.label}</span>
                 <strong>{statuses[i.status]}</strong>
                 {i.due_on ? <time dateTime={i.due_on}>{date(i.due_on)}</time> : null}
                 <details

@@ -2,6 +2,7 @@ import { validEmailDraftReceipt, validEmailDraftSaveReceipt } from './email-draf
 import { sessionFetch } from './private-session.js';
 import { PHASE_BY_SLUG } from './client.js';
 import { requireReviewReceipt } from './deal-review-model.js';
+import { isEngineDealDetail } from './local-deals-model.js';
 /**
  * Live client: same interface as fixture, against the deployed Worker.
  * Verbs travel as MCP JSON-RPC tools/call over the cookie-authenticated /mcp
@@ -369,7 +370,7 @@ export function createLiveClient(opts = {}) {
         premises: page.premises || [],
         negotiation_rounds: page.negotiation_rounds || [],
         documents: page.documents || [],
-        ...(Object.hasOwn(page, 'email_follow_ups') ? {
+        ...(isEngineDealDetail(page) ? {
           email_follow_ups: page.email_follow_ups, next_deal_saves: page.next_deal_saves === true,
         } : {}),
         lease: page.lease ?? null,
