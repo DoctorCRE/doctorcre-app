@@ -48,50 +48,57 @@ const brief = {
   },
 };
 
+async function mountToday(t: test.TestContext, path: string) {
+  const dom = new JSDOM('<nav id="host"></nav><main><h1>Example</h1></main>', {
+    url: "http://localhost/?mode=live",
+    pretendToBeVisual: true,
+  });
+  const win = dom.window,
+    root = win.document;
+  Object.defineProperty(win, "matchMedia", {
+    value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+  });
+  const previousFetch = globalThis.fetch,
+    previousLocation = globalThis.location;
+  globalThis.location = win.location;
+  globalThis.fetch = async (_path, init) => {
+    const name: string = typeof init?.body === "string" ? JSON.parse(init.body).params.name : "";
+    const value =
+      name === "deal-room-board"
+        ? { actor: "joe", deals }
+        : name === "morning-brief"
+          ? brief
+          : name === "calendar-meeting-prep"
+            ? { state: "empty", items: [], notes: [] }
+            : { events: [], cursor: "end" };
+    return new Response(
+      JSON.stringify(init?.body ? { result: { content: [{ type: "text", text: JSON.stringify(value) }] } } : value),
+    );
+  };
+  t.after(() => {
+    win.dispatchEvent(new win.Event("pagehide"));
+    win.close();
+    globalThis.fetch = previousFetch;
+    globalThis.location = previousLocation;
+  });
+  mountAppLayout(root, root.getElementById("host"), path);
+  for (let i = 0; i < 200 && !root.querySelector("#appTodayNext [data-layout-deal]"); i++)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  const cards = (list: string) =>
+    [...root.querySelectorAll<HTMLElement>(`${list} [data-layout-deal]`)].map((card) => ({
+      deal: card.dataset.layoutDeal,
+      whose: card.querySelector(".morning-owner")?.textContent,
+      name: card.querySelector("strong")?.textContent,
+      detail: card.querySelector("span")?.textContent,
+    }));
+  const listsOverdue = (ids: string[]) =>
+    root.dispatchEvent(new win.CustomEvent("doctorcre:overdue-shown", { detail: ids }));
+  return { root, cards, listsOverdue };
+}
+
 for (const path of ["/", "/example"])
   test(`Today on ${path} lists past reminders as overdue and keeps today and later as dated`, async (t) => {
-    const dom = new JSDOM('<nav id="host"></nav><main><h1>Example</h1></main>', {
-      url: "http://localhost/?mode=live",
-      pretendToBeVisual: true,
-    });
-    const win = dom.window,
-      root = win.document;
-    Object.defineProperty(win, "matchMedia", {
-      value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-    });
-    const previousFetch = globalThis.fetch,
-      previousLocation = globalThis.location;
-    globalThis.location = win.location;
-    globalThis.fetch = async (_path, init) => {
-      const name: string = typeof init?.body === "string" ? JSON.parse(init.body).params.name : "";
-      const value =
-        name === "deal-room-board"
-          ? { actor: "joe", deals }
-          : name === "morning-brief"
-            ? brief
-            : name === "calendar-meeting-prep"
-              ? { state: "empty", items: [], notes: [] }
-              : { events: [], cursor: "end" };
-      return new Response(
-        JSON.stringify(init?.body ? { result: { content: [{ type: "text", text: JSON.stringify(value) }] } } : value),
-      );
-    };
-    t.after(() => {
-      win.dispatchEvent(new win.Event("pagehide"));
-      win.close();
-      globalThis.fetch = previousFetch;
-      globalThis.location = previousLocation;
-    });
-    mountAppLayout(root, root.getElementById("host"), path);
-    for (let i = 0; i < 200 && !root.querySelector("#appTodayNext [data-layout-deal]"); i++)
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    const cards = (list: string) =>
-      [...root.querySelectorAll<HTMLElement>(`${list} [data-layout-deal]`)].map((card) => ({
-        deal: card.dataset.layoutDeal,
-        whose: card.querySelector(".morning-owner")?.textContent,
-        name: card.querySelector("strong")?.textContent,
-        detail: card.querySelector("span")?.textContent,
-      }));
+    const { root, cards } = await mountToday(t, path);
     assert.equal(root.querySelector("#appTodayNeeds")?.closest("section")?.hidden, false);
     assert.deepEqual(cards("#appTodayNeeds"), [
       { deal: "d2", whose: "Shared", name: "Demo deal d2", detail: "Demo notice deadline 89 days overdue" },
@@ -107,3 +114,26 @@ for (const path of ["/", "/example"])
       },
     ]);
   });
+
+test("Today on Home leaves out a late action that Home's Overdue slice already shows", async (t) => {
+  const { cards, listsOverdue } = await mountToday(t, "/");
+  listsOverdue(["action-past"]);
+  assert.deepEqual(
+    cards("#appTodayNeeds").map((card) => card.deal),
+    ["d2"],
+  );
+  listsOverdue([]);
+  assert.deepEqual(
+    cards("#appTodayNeeds").map((card) => card.deal),
+    ["d2", "d1"],
+  );
+});
+
+test("Today on the review page leaves out a deal the Overdue deals board already shows", async (t) => {
+  const { cards, listsOverdue } = await mountToday(t, "/review-workflows");
+  listsOverdue(["d2"]);
+  assert.deepEqual(
+    cards("#appTodayNeeds").map((card) => card.deal),
+    ["d1"],
+  );
+});

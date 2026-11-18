@@ -11,7 +11,7 @@ import { overdueFixture } from '../scripts/prove-home-overdue-task-slice.mjs';
 let root;
 before(async () => {
   root = temporaryDirectory('overdue-browser-');
-  await build({ stdin: { contents: `import React, {useState} from 'react'; import {createRoot} from 'react-dom/client'; import {HomeSections} from './src/ui/home/sections'; import {parseSnapshot} from './src/ui/home/inbox'; const root=createRoot(document.getElementById('root')); function Harness({snapshot,extra}){const [search,changeSearch]=useState('');return React.createElement(HomeSections,{items:snapshot.items,current:undefined,search,changeSearch,locked:false,...extra,row:item=>React.createElement('p',{'data-id':item.item_id},item.title)});} window.render=(snapshot,extra={})=>root.render(React.createElement(Harness,{snapshot:parseSnapshot(snapshot),extra})); window.dispose=()=>root.unmount();`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, jsx: 'automatic', format: 'esm', outfile: join(root, 'test.js') });
+  await build({ stdin: { contents: `import React, {useState} from 'react'; import {createRoot} from 'react-dom/client'; import {HomeSections} from './src/ui/home/sections'; import {parseSnapshot} from './src/ui/home/inbox'; const root=createRoot(document.getElementById('root')); function Harness({snapshot,extra}){const [search,changeSearch]=useState('');return React.createElement(HomeSections,{items:snapshot.items,current:undefined,search,changeSearch,locked:false,...extra,row:item=>React.createElement('p',{'data-id':item.item_id},item.title)});} window.render=(snapshot,extra={})=>root.render(React.createElement(Harness,{snapshot:parseSnapshot(snapshot),extra})); window.dispose=()=>root.unmount(); document.addEventListener('doctorcre:overdue-shown',event=>{window.shown=event.detail;});`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, jsx: 'automatic', format: 'esm', outfile: join(root, 'test.js') });
   await writeFile(join(root, 'overdue-test.html'), '<div id="root"></div><script type="module" src="/test.js"></script>');
 });
 after(async () => rm(root, { recursive: true, force: true }));
@@ -30,9 +30,11 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`ov
   await page.goto(`${server.origin}/overdue-test.html`);
   await page.waitForFunction(() => window.render);
   const snapshot = overdueFixture();
+  snapshot.items[1].action_id = '00000000-0000-0000-0000-000000000002';
   await page.evaluate(snapshot => window.render(snapshot), snapshot);
   const overdue = page.getByRole('region', { name: 'Overdue', exact: true });
   await page.getByRole('region', { name: 'Today', exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.shown), ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002'], 'Home names its late actions so Today leaves them out');
   assert.equal(await overdue.count(), 1);
   assert.equal(await overdue.locator('[data-id]').count(), 1);
   await overdue.getByRole('button', { name: 'See all 2' }).click();
@@ -78,6 +80,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`ov
   assert.equal(await overdue.getByRole('button').getAttribute('aria-expanded'), 'true');
   await page.evaluate(() => { window.clockClears = 0; const clear = window.clearTimeout; window.clearTimeout = id => { window.clockClears++; clear(id); }; window.dispose(); });
   assert.ok(await page.evaluate(() => window.clockClears > 0 && document.getElementById('root').childElementCount === 0));
+  assert.deepEqual(await page.evaluate(() => window.shown), []);
   await page.clock.fastForward(120000);
   assert.equal(await page.locator('section').count(), 0);
 });
