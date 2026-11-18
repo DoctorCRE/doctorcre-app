@@ -132,6 +132,7 @@ const DEALS = 'deals-from-engine';
 const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
 const LEADS = 'leads-from-engine';
 const HOME = 'home-from-engine';
+const LEGACY_HOME_MARKS = new Set(['snooze-home-inbox', 'settle-home-inbox', 'unsettle-home-inbox']);
 const INVOICES = 'invoices-from-engine';
 const CHARTS = 'charts-from-engine';
 const NATIONAL_DEALS = 'national-deals-from-engine';
@@ -258,6 +259,10 @@ async function engineResponse(request, env) {
           if (board?.schema_version === 'local-deals-board.v2' && await switchedOn(env, NEXT_DEAL_SAVES)) {
             text = JSON.stringify({ ...board, next_deal_saves: true });
           }
+        }
+        if (call.params.name === 'read-home-inbox-v5' && response.ok) {
+          const inbox = JSON.parse(text);
+          if (inbox?.schema_version === 'home-inbox.v5') text = JSON.stringify({ ...inbox, engine_marks: true });
         }
         return mcpReply(call, response, text, response.status >= 400);
       })(),
@@ -456,6 +461,17 @@ async function engineSave(request, env) {
   const url = new URL(request.url);
   const call = await mcpCall(request, url);
   if (call?.method !== 'tools/call' || !isObject(call.params?.arguments)) return null;
+  if (call.params.name === 'save-engine-home-mark') {
+    if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+    return engineAnswer(request, env, call, { path: '/api/engine/home/marks' }, { allowHandoff: false });
+  }
+  if (LEGACY_HOME_MARKS.has(call.params.name)) {
+    const { items, undo_of } = call.params.arguments;
+    const reviewSnooze = call.params.name !== 'settle-home-inbox' && Array.isArray(items) && items.length > 0 &&
+      items.every(item => typeof item?.item_id === 'string' && item.item_id.startsWith('next_step_done:'));
+    if (!reviewSnooze && (Array.isArray(items) || undo_of) && await switchedOn(env, HOME))
+      return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+  }
   if (call.params.name === 'record-commission-receipt') {
     if (!await switchedOn(env, INVOICES)) return null;
     return engineAnswer(request, env, call, { path: '/api/engine/invoices/mark-paid' }, { allowHandoff: false });

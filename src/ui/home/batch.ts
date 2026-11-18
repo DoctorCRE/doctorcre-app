@@ -1,18 +1,23 @@
+import { type MarkSelection, type MarkUndo, restoreMark } from "./engine-marks.ts";
 import { type InboxItem, object, type Snapshot } from "./inbox.tsx";
 export type BatchAction = "snooze" | "settle";
 type BatchIdentity = Readonly<{ reversible: true; idempotency_key: string }>;
 type ApplyArgs = BatchIdentity & Readonly<{ items: ReadonlyArray<Pick<InboxItem, "item_id" | "base_version">> }>;
-export type BatchRequest =
+type LegacyReviewUndo = { item_id: string; legacy_key: string };
+type BatchRestore = (Pick<InboxItem, "item_id" | "base_version"> & MarkSelection) | LegacyReviewUndo;
+export type BatchRequest = { engine_marks?: true; restore?: readonly BatchRestore[] } & (
   | Readonly<{ action: "snooze"; args: ApplyArgs & { until: string } }>
   | Readonly<{ action: "settle"; args: ApplyArgs }>
   | Readonly<{
       action: BatchAction;
       args: BatchIdentity & { undo_of: string; items?: ReadonlyArray<Pick<InboxItem, "item_id">> };
-    }>;
+    }>
+);
 export type BatchReceipt = Readonly<{
   item_id: string;
   status: "applied" | "already" | "not_found" | "not_allowed";
   error?: string;
+  undo?: MarkUndo | LegacyReviewUndo;
 }>;
 export type BatchResult = Readonly<{ batch_key: string; results: readonly BatchReceipt[]; snapshot: Snapshot | null }>;
 export type Batch = Readonly<{
@@ -99,22 +104,32 @@ export function batchRequest(action: BatchAction, items: readonly InboxItem[], u
     idempotency_key: crypto.randomUUID(),
     items: items.map(({ item_id, base_version }) => ({ item_id, base_version })),
   };
+  const engine = items.some((item) => item.engine_marks) ? { engine_marks: true as const } : {};
   if (action === "snooze") {
     if (!until) throw Error("Choose a future Central time.");
-    return { action, args: { ...args, until } };
+    return { ...engine, action, args: { ...args, until } };
   }
-  return { action, args };
+  return { ...engine, action, args };
 }
 export function undoRequest(batch: Batch, subset?: readonly string[]): BatchRequest {
   if (subset && (!subset.length || subset.some((id) => !batch.remaining.includes(id))))
     throw Error("Select applied cards to undo.");
+  const restore = batch.request.engine_marks
+    ? batch.result.results.flatMap<BatchRestore>(({ undo }) => {
+        if (!undo || !(subset ?? batch.remaining).includes(undo.item_id)) return [];
+        if ("legacy_key" in undo) return [undo];
+        return [{ item_id: undo.item_id, base_version: undo.base_version, ...restoreMark(undo) }];
+      })
+    : undefined;
+  const items = restore?.map(({ item_id }) => ({ item_id })) ?? subset?.map((item_id) => ({ item_id }));
   return {
     action: batch.request.action,
+    ...(restore && { engine_marks: true, restore }),
     args: {
       reversible: true,
       idempotency_key: crypto.randomUUID(),
       undo_of: batch.result.batch_key,
-      ...(subset ? { items: subset.map((item_id) => ({ item_id })) } : {}),
+      ...(items && { items }),
     },
   };
 }

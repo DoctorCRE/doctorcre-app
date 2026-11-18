@@ -17,6 +17,7 @@ after(async () => { await rm(outDir, { recursive: true, force: true }); });
 
 for (const enabled of [false, true]) test(`Home opens inbox cards with the engine switch ${enabled ? 'on' : 'off'}`, async t => {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW });
+  page.setDefaultTimeout(5000);
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
   await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
 
@@ -28,35 +29,71 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
     { title: 'Send the sample floor plan', label: 'Call summary', path: `/calls?session=${callId}`, dealId, call: true },
     { title: 'Check in about the sample site', label: 'Example Contact', path: `/relationships?node=party:${partyId}` },
   ];
-  const snapshot = reader => ({
+  const records = () => ({
     ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true, auto_settle_enabled: true,
     items: tasks.map((task, index) => {
       const id = `00000000-0000-0000-0000-00000000001${index}`;
       const source = task.call ? 'capture_post_call_action' : 'next_action';
       return {
-        item_id: `${source}:${id}`, source_type: source, source_id: id, source_version: '7',
-        source_state: 'needs_attention', base_version: '7:0:inbox', title: `${task.title} (${reader})`,
+        item_id: `${source}:${id}`, source_type: source, source_id: id, source_version: enabled ? '2147483648' : '7',
+        source_state: 'needs_attention', base_version: enabled ? '2147483648:0:inbox' : 'legacy:7', title: task.title,
         activity_at: '2026-11-02T12:00:00.000Z', completed_at: null, due_on: '2026-11-03',
         hold_until: null, snoozed_until: null, disposition: 'inbox', section: 'inbox', unseen: false,
         explicit_unsettle: false, auto_settled: false, context_label: task.call ? 'Example Dental' : task.label,
-        open_url: task.path, kind_label: task.call ? 'Call follow-up' : 'Task', action_id: id, action_version: 7,
+        open_url: task.path, kind_label: task.call ? 'Call follow-up' : 'Task', action_id: id, action_version: enabled ? 2147483648 : 7,
         deal_id: task.dealId ?? null, merged_source_ids: [id], waiting_version: 0, waiting_on: null,
         source_activity: task.call ? { kind: 'call', id: callId, happened_at: '2026-11-02T11:00:00.000Z',
           contact: 'Example Contact', summary: 'Discussed the floor plan.', quote: 'Please send the floor plan.' } : null,
       };
     }),
   });
+  const state = records();
+  if (enabled) state.items.push({
+    ...state.items[0], item_id: `notification:${partyId}`, source_type: 'notification', source_id: partyId,
+    action_id: null, action_version: null, due_on: null, kind_label: 'Update', title: 'The sample deal moved ahead',
+  });
+  const snapshot = reader => ({ ...state, items: state.items.map(item => ({ ...item, title: `${item.title} (${reader})` })) });
   const reads = [];
+  const writes = [];
+  let conflict = false;
+  function mark({ item_id, action, until }, reader) {
+    const item = state.items.find(item => item.item_id === item_id);
+    const previous = { disposition: item.disposition === 'inbox' ? null : item.disposition, snoozed_until: item.snoozed_until };
+    const disposition = action === 'snooze' ? 'snoozed' : action === 'settle' ? 'settled' : 'inbox';
+    const base_version = `2147483648:${writes.length}:${disposition}`;
+    Object.assign(item, { disposition, section: disposition, base_version, snoozed_until: until ?? null });
+    return { ok: true, item_id, base_version, previous, item: snapshot(reader).items.find(item => item.item_id === item_id) };
+  }
   const env = {
     ENGINE_ROUTING: { get: async key => key === 'home-from-engine' && enabled ? 'on' : null },
     ENGINE: { fetch: async request => {
-      reads.push(`${request.method} ${new URL(request.url).pathname}`);
-      return Response.json(snapshot('new inbox'));
+      const path = new URL(request.url).pathname;
+      if (path === '/api/engine/home/inbox') {
+        reads.push('GET /api/engine/home/inbox');
+        return Response.json(snapshot('new inbox'));
+      }
+      assert.equal(path, '/api/engine/home/marks');
+      const args = await request.json();
+      writes.push([path, args]);
+      assert.equal(args.base_version, state.items.find(item => item.item_id === args.item_id)?.base_version);
+      if (conflict) {
+        conflict = false;
+        const item = state.items.find(item => item.item_id === args.item_id);
+        item.title = 'Read the revised sample lease';
+        item.base_version = '2147483649:0:inbox';
+        return Response.json({ error: 'version_conflict', current_version: item.base_version }, { status: 409 });
+      }
+      return Response.json(mark(args, 'new inbox'));
     } },
     CARR: { fetch: async request => {
-      const { id, params: { name } } = await request.json();
+      const { id, params: { name, arguments: args } } = await request.json();
       if (name === 'read-home-inbox-v5') reads.push(name);
-      const payload = name === 'read-home-inbox-v5' ? snapshot('current inbox') : { ok: true, items: [], deals: [] };
+      let payload = name === 'read-home-inbox-v5' ? snapshot('current inbox') : { ok: true, items: [], deals: [] };
+      if (['snooze-home-inbox', 'settle-home-inbox', 'unsettle-home-inbox'].includes(name)) {
+        writes.push([name, args]);
+        payload = { ok: true, schema_version: 'home-inbox-command.v1',
+          results: args.items.map(item => mark({ ...item, action: name.split('-')[0], until: args.until }, 'current inbox')) };
+      }
       return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } });
     } },
   };
@@ -73,7 +110,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await first.waitFor();
   assert.equal(await first.textContent(), `${tasks[0].title} (${reader})`);
   await inbox.getByRole('region', { name: 'Today', exact: true }).getByRole('button', { name: 'See all 3', exact: true }).click();
-  assert.equal(await inbox.locator('[data-inbox-row]').count(), tasks.length);
+  assert.equal(await inbox.locator('[data-inbox-row]').count(), state.items.length);
   for (const task of tasks) {
     const title = `${task.title} (${reader})`;
     const link = inbox.getByRole('link', { name: title, exact: true });
@@ -87,6 +124,91 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
     await details.getByRole('button', { name: 'Close', exact: true }).click();
   }
   assert.deepEqual(reads, [enabled ? 'GET /api/engine/home/inbox' : 'read-home-inbox-v5']);
+  const today = inbox.getByRole('region', { name: 'Today', exact: true });
+  const card = today.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /^Read the sample lease/ }) });
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  const clickSnooze = async () => {
+    await card.getByRole('button', { name: 'Snooze', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  };
+  const original = state.items[0].base_version;
+  const id = state.items[0].item_id;
+  await clickSnooze();
+  await card.waitFor({ state: 'detached' });
+  assert.equal(writes.length, 1);
+  const [door, applied] = writes[0];
+  if (enabled) assert.deepEqual(applied, { item_id: id, base_version: original, action: 'snooze', until: applied.until, idempotency_key: applied.idempotency_key });
+  else assert.deepEqual(applied.items, [{ item_id: id, base_version: original }]);
+  assert.equal(door, enabled ? '/api/engine/home/marks' : 'snooze-home-inbox');
+  const snoozedVersion = state.items[0].base_version;
+  await undo.click();
+  await card.waitFor();
+  assert.equal(writes.length, 2);
+  assert.notEqual(writes[1][1].idempotency_key, applied.idempotency_key);
+  if (!enabled) {
+    assert.equal(writes[1][0], 'unsettle-home-inbox');
+    assert.deepEqual(writes[1][1].items, [{ item_id: id, base_version: snoozedVersion }]);
+    return;
+  }
+  assert.deepEqual(writes[1][1], { item_id: id, base_version: snoozedVersion, action: 'unsettle', idempotency_key: writes[1][1].idempotency_key });
+  for (const task of tasks.slice(0, 2)) await inbox.getByRole('checkbox', { name: `Select ${task.title} (${reader})` }).check();
+  const before = reads.length;
+  await page.getByRole('button', { name: 'Settle selected', exact: true }).click();
+  await page.locator('[data-batch-state="results"]').waitFor();
+  assert.equal(reads.length, before + 1);
+  assert.equal(writes.length, 4);
+  assert.deepEqual(new Set(writes.slice(2).map(([, args]) => args.item_id)), new Set(state.items.slice(0, 2).map(item => item.item_id)));
+  assert.equal(new Set(writes.slice(2).map(([, args]) => args.idempotency_key)).size, 2);
+  await card.waitFor({ state: 'detached' });
+  const batchVersions = new Map(state.items.slice(0, 2).map(item => [item.item_id, item.base_version]));
+  await page.getByRole('button', { name: 'Undo whole batch' }).click();
+  await page.locator('[data-batch-state="undone"]').waitFor();
+  await card.waitFor();
+  assert.equal(writes.length, 6);
+  for (const [, args] of writes.slice(4)) {
+    assert.equal(args.base_version, batchVersions.get(args.item_id));
+    assert.equal(args.action, 'unsettle');
+    assert.equal('until' in args, false);
+  }
+  assert.equal(new Set(writes.slice(2).map(([, args]) => args.idempotency_key)).size, 4);
+  await page.getByRole('button', { name: 'Finish reviewing batch' }).click();
+  conflict = true;
+  await clickSnooze();
+  await page.getByText('This card changed. Refreshing your inbox. Your change was not saved.', { exact: true }).waitFor();
+  await today.getByRole('link', { name: /Read the revised sample lease/ }).waitFor();
+  assert.equal(writes.length, 7);
+  const update = inbox.getByRole('region', { name: 'Needs your attention', exact: true }).locator('[data-inbox-row]')
+    .filter({ has: page.getByRole('link', { name: /The sample deal moved ahead/ }) });
+  await update.getByRole('button', { name: 'Got it', exact: true }).click();
+  await update.waitFor({ state: 'detached' });
+  assert.equal(writes[7][1].action, 'settle');
+  assert.equal(writes[7][1].item_id, `notification:${partyId}`);
+  await undo.click();
+  await update.waitFor();
+
+  const lease = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
+  await lease.getByRole('button', { name: 'Snooze', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
+  await waiting.getByRole('button', { name: /^See all/ }).click();
+  const earlierUntil = writes.at(-1)[1].until;
+  async function undoRestore(label, action, until, advanceClock = false) {
+    await lease.getByRole('button', { name: label, exact: true }).click();
+    await today.getByRole('link', { name: /Read the revised sample lease/ }).waitFor();
+    const version = state.items[0].base_version;
+    const key = writes.at(-1)[1].idempotency_key;
+    if (advanceClock) await page.clock.setFixedTime(new Date(Date.parse(earlierUntil) + 60_000));
+    await undo.click();
+    await page.getByText(/1 confirmed\. Undone\./).waitFor();
+    const restored = writes.at(-1)[1];
+    assert.deepEqual(restored, { item_id: id, base_version: version, action, idempotency_key: restored.idempotency_key,
+      ...(until && { until }) });
+    assert.notEqual(restored.idempotency_key, key);
+  }
+  await undoRestore('Wake', 'snooze', earlierUntil);
+  await undoRestore('Wake', 'unsettle', undefined, true);
+  await lease.getByRole('button', { name: 'Hide from inbox', exact: true }).click();
+  await undoRestore('Show in inbox', 'settle');
 });
 
 for (const width of [390, 1024, 1280, 1440]) for (const theme of ['light', 'dark']) test(`sectioned Home and shared panels ${width} ${theme}`, async t => {

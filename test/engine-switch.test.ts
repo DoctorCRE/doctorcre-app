@@ -553,24 +553,40 @@ const remainingScreens = [
   ["national-deals-from-engine", "capture-queue", "/api/engine/capture-queue"],
 ] as const;
 
-test("Home's read switch leaves other inbox versions, review and saves on CARR", async () => {
+test("Home keeps completion, review and other inbox versions on CARR while their engine wiring is pending", async () => {
   const f = fixture(new Map([["home-from-engine", "on"]]));
   const bodies = [
     "read-home-inbox-v4",
     "read-home-review",
     "complete-one-action",
     "reopen-one-action",
-    "snooze-home-inbox",
-    "settle-home-inbox",
-    "unsettle-home-inbox",
     "edit-email-draft",
   ].map((name) => call(name));
+  bodies.push(
+    call("snooze-home-inbox", {
+      idempotency_key: "4c719df9-2168-4b5a-a26b-95b20376a75f",
+      until: "2099-01-01T00:00:00Z",
+      items: [{ item_id: "next_step_done:00000000-0000-0000-0000-000000000001", base_version: "7:0:inbox" }],
+    }),
+  );
   for (const body of bodies) assert.equal(await (await f.send(body)).text(), "old");
   assert.deepEqual(
     f.carr,
     bodies.map((body) => JSON.stringify(body)),
   );
   assert.deepEqual(f.engine, []);
+});
+
+test("Home refuses old mark writes from a snapshot loaded before the switch", async () => {
+  const f = fixture(new Map([["home-from-engine", "on"]]));
+  const response = await f.send(
+    call("settle-home-inbox", {
+      idempotency_key: "4c719df9-2168-4b5a-a26b-95b20376a75f",
+      items: [{ item_id: "next_action:00000000-0000-0000-0000-000000000001", base_version: "legacy" }],
+    }),
+  );
+  assert.equal(JSON.parse((await response.json()).result.content[0].text).error, "home_routing_changed");
+  assert.equal(f.engine.length + f.carr.length, 0);
 });
 
 for (const [key, name, path] of remainingScreens) {
@@ -1572,4 +1588,39 @@ test("the new save switch refuses saves loaded before the read cutover", async (
   assert.equal(JSON.parse(result.content[0].text).error, "version_conflict");
   assert.deepEqual(f.engine, []);
   assert.deepEqual(f.carr, []);
+});
+
+test("the Home switch gates the single-card engine marks door", async () => {
+  const args = {
+    idempotency_key: "4c719df9-2168-4b5a-a26b-95b20376a75f",
+    item_id: "next_action:00000000-0000-0000-0000-000000000001",
+    base_version: "2147483648:0:inbox",
+    action: "snooze",
+    until: "2099-01-01T00:00:00Z",
+  };
+  const refused = { error: "version_conflict", current_version: "2147483649:0:inbox" };
+  const f = fixture(new Map([["home-from-engine", "on"]]), async () => Response.json(refused, { status: 409 }));
+  const response = await f.send(call("save-engine-home-mark", args));
+  assert.equal(f.carr.length, 0);
+  const [request] = f.engine;
+  assert.ok(request);
+  assert.equal(new URL(request.url).pathname, "/api/engine/home/marks");
+  assert.deepEqual(await request.json(), args);
+  assert.equal(request.headers.get("cookie"), "session=synthetic");
+  assert.deepEqual((await response.json()).result, {
+    isError: true,
+    content: [{ type: "text", text: JSON.stringify(refused) }],
+  });
+  const off = fixture(null);
+  const offReply = await off.send(call("save-engine-home-mark", args));
+  assert.equal((await offReply.json()).result.isError, true);
+  assert.equal(off.engine.length + off.carr.length, 0);
+});
+
+test("Home identifies a successful engine snapshot for the app's save routing", async () => {
+  const f = fixture(new Map([["home-from-engine", "on"]]), async () =>
+    Response.json({ ok: true, schema_version: "home-inbox.v5", items: [] }),
+  );
+  const reply = await (await f.send(call("read-home-inbox-v5"))).json();
+  assert.equal(JSON.parse(reply.result.content[0].text).engine_marks, true);
 });
