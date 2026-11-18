@@ -165,6 +165,10 @@ test('all seven phases fit in one row beside Today at 1440px', async t => {
  const boxes=await headings.evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().toJSON()));
  assert.equal(new Set(boxes.map(box=>box.top)).size,1,'all phase headings share one row');
  assert.ok(boxes.every(box=>box.left>=0&&box.right<=today.x),'every heading fits before the visible Today panel');
+ await page.setViewportSize({width:1280,height:960});
+ const overflowingCards=await board.locator('.kanban-column .kanban-card').evaluateAll(cards=>
+  cards.filter(card=>card.scrollWidth>card.clientWidth).map(card=>card.getAttribute('aria-label')));
+ assert.deepEqual(overflowingCards,[],'card content wraps within its own card');
 });
 
 test('the look-ahead label lines up with the Today headings', async t => {
