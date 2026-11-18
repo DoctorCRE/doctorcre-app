@@ -50,6 +50,38 @@ for (const width of [390, 1440]) {
   });
 }
 
+test('a filed call item is the next step when its saved action has moved to the checklist', async ({ page }) => {
+  const savedStep = 'Send the sample lease to the demo landlord';
+  const item = { id: 'filed-item', title: 'Send the sample lease', status: 'open', due_on: '2026-11-20',
+    bullets: [{ kind: 'promised', text: savedStep }] };
+  const seed = JSON.parse(await readFile(new URL('../../data/board-seed.json', import.meta.url), 'utf8'));
+  Object.assign(seed.deals.find(deal => deal.id === 'd14'), { next_step: null, next_date: null, items: [item] });
+  await page.route('**/data/board-seed.json', route => route.fulfill({ json: seed }));
+  await page.clock.install({ time: new Date('2026-11-18T17:00:00Z') });
+  await page.goto(`${server.url}/deals`);
+  const card = page.locator('.kanban-column [data-id="d14"]');
+  await expect(card.getByRole('button', { name: item.title, exact: true })).toBeVisible();
+  await page.evaluate(async ({ savedStep, item }) => {
+    const { state } = await import('/js/pipeline.js');
+    const read = state.client.getDeal.bind(state.client);
+    state.client.getDeal = async id => {
+      const detail = await read(id);
+      return { ...detail, deal: { ...detail.deal, next_step: savedStep, next_date: item.due_on },
+        next_actions: [{ id: 'saved-step', status: 'dropped', description: savedStep, due_on: item.due_on },
+          { ...item, description: item.title }] };
+    };
+  }, { savedStep, item });
+  await card.locator('.card-open').click();
+  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  await expect(snapshot).toContainText(`Next action: ${item.title} · Due`);
+  await expect(snapshot.locator(`time[datetime="${item.due_on}"]`)).toHaveCount(1);
+  await snapshot.getByRole('button', { name: item.title, exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText(savedStep);
+  await page.keyboard.press('Escape');
+  await page.getByRole('tab', { name: 'Timeline', exact: true }).click();
+  await expect(page.locator(`#workspace-timeline time[datetime="${item.due_on}"]`)).toHaveCount(0);
+});
+
 test('opening a deal replaces the board with a workspace and Back restores its scroll', async ({ page }) => {
   // A late web font can change layout after fonts.ready resolves and invalidate the scroll baseline.
   await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route => route.abort());

@@ -70,7 +70,7 @@ test('a filed call shows its decisions and tasks on Home and updates the deal pa
   await page.goto(`/deals?deal=${carr.deals[BAYSIDE]}&mode=live`);
   const fact = (term: string) => page.locator('#workspaceFacts div').filter({ has: page.locator('dt', { hasText: term }) }).locator('dd');
   await expect(fact('Phase')).toHaveText('Negotiating');
-  await expect(page.locator('.deal-current-action')).toContainText('Next action: Send the lease draft to the landlord');
+  await expect(page.locator('.deal-current-action').getByRole('button', { name: 'Send the lease draft', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Timeline' }).click();
   const timeline = page.locator('#workspace-timeline');
   await expect(timeline).toContainText('patch deal field · phase → Negotiation');
@@ -91,7 +91,7 @@ test('the filed action follows its due date in Chicago on any runner date', asyn
       await page.clock.setFixedTime(at);
       await page.goto(`/deals?deal=${carr.deals[BAYSIDE]}&mode=live`);
       await expect(page.locator('.deal-current-action'))
-        .toHaveText(`${label}: Send the lease draft to the landlord · Due Fri, Nov 6, 2026`);
+        .toHaveText(`${label}: Send the lease draft · Due Fri, Nov 6, 2026`);
     });
   }
 });

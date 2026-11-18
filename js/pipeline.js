@@ -1073,7 +1073,7 @@ function workspaceEventsHtml(detail, nextItem) {
     ...(detail.items || detail.deal.items || []).filter(e => e !== nextItem && calendarDay(e.due_on)).map(e => ({type:'Deal item', day:calendarDay(e.due_on), text:noteText(e.title)})),
     ...view.dates.map(e => ({type:'Critical date', day:e.day, text:[e.label,e.original].filter(Boolean).join(' · ')})),
     ...view.phases.filter(e => e.day).map(e => ({type:'Phase', day:e.day, text:e.label})),
-    ...(detail.next_actions || []).flatMap(e => [['due_on','Due'],['hold_until','Held until']].filter(([key]) => (key !== 'due_on' || e.status !== 'open') && calendarDay(e[key])).map(([key,label]) => ({type:'Action', day:calendarDay(e[key]), text:`${label} · ${noteText(e.description)}`}))),
+    ...(detail.next_actions || []).flatMap(e => [['due_on','Due'],['hold_until','Held until']].filter(([key]) => (key !== 'due_on' || e.status === 'done') && calendarDay(e[key])).map(([key,label]) => ({type:'Action', day:calendarDay(e[key]), text:`${label} · ${noteText(e.description)}`}))),
     ...(detail.history || []).filter(e => calendarDay(e.recorded_at) && !view.entries.some(entry => entry.id === e.id)).map(e => ({type:'Change', day:calendarDay(e.recorded_at), text:noteText(e.summary) || `${fieldLabel(e.field)} · ${readableValue(e.field, e.new_value)}`})),
   ].sort((a,b) => b.day.localeCompare(a.day));
   if (!events.some(event => event.type === timelineType)) timelineType = '';
@@ -1103,13 +1103,25 @@ function clearMarketTermsViews() {
   marketTermsViews.clear();
 }
 
+function filedStepItem(deal, items) {
+  const step = noteText(deal.next_step).trim();
+  if (!step) return;
+  const day = calendarDay(deal.next_date);
+  // Filing a call can keep the saved wording in the item's promised work.
+  return items.find(item => item.status === 'open' && calendarDay(item.due_on) === day
+    && (item.title.trim() === step || item.bullets?.some(bullet => bullet.kind === 'promised' && noteText(bullet.text).trim() === step)));
+}
+
 function workspaceHtml(detail) {
   const d = detail.deal;
   const next = nextOpenAction((detail.next_actions || []).filter(action => action.status === 'open' && action.title == null));
-  const nextStep = next?.description.trim();
-  const keyDate = calendarDay(next?.due_on);
+  const actionText = next?.description.trim();
   const items = detail.items || d.items || [];
-  const nextItem = nextStep && items.find(item => item.status === 'open' && item.title.trim() === nextStep);
+  const nextItem = actionText
+    ? items.find(item => item.status === 'open' && item.title.trim() === actionText)
+    : filedStepItem(d, items);
+  const nextStep = actionText || nextItem?.title;
+  const keyDate = calendarDay(next ? next.due_on : nextItem?.due_on);
   const today = todayIso();
   // Older reads can mirror the saved next step as an untyped critical date.
   const datedDetail = { ...detail, critical_dates: (detail.critical_dates || []).filter(date => date.kind
@@ -1120,7 +1132,7 @@ function workspaceHtml(detail) {
   const controlsAvailable = state.deals.has(d.id) && !isClosedDeal(d);
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
-      ${next ? `<p class="deal-current-action"><span>${keyDate && keyDate < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? `<button class="btn btn-quiet" type="button" data-deal-item="${esc(nextItem.id)}" data-item-deal="${esc(d.id)}">${esc(nextStep)}</button>` : esc(nextStep)}</strong>${keyDate ? ` · <span>Due <time datetime="${esc(keyDate)}">${esc(dateWords(keyDate))}</time></span>` : ' · No key date set.'}</p>` : '<p>No next step or key date set.</p>'}
+      ${nextStep ? `<p class="deal-current-action"><span>${keyDate && keyDate < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? `<button class="btn btn-quiet" type="button" data-deal-item="${esc(nextItem.id)}" data-item-deal="${esc(d.id)}">${esc(nextStep)}</button>` : esc(nextStep)}</strong>${keyDate ? ` · <span>Due <time datetime="${esc(keyDate)}">${esc(dateWords(keyDate))}</time></span>` : ' · No key date set.'}</p>` : '<p>No next step or key date set.</p>'}
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
       <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${d.type ? `<div><dt>Type</dt><dd>${esc(d.type)}</dd></div>` : ''}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
       ${d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
