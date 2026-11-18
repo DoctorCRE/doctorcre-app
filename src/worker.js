@@ -276,7 +276,8 @@ async function engineResponse(request, env) {
 // New-schema receipts are separate from the legacy tool receipts.
 const CUTOVER_SAVES = new Set([
   'patch-deal-field', 'update-deal', 'set-next-step', 'complete-deal-item', 'record-deal-item',
-  'add-deal-note', 'new-deal', 'set-lead', 'set-market-agent', 'add-critical-date',
+  'add-deal-note', 'new-deal', 'set-market-agent', 'add-critical-date',
+  'remove-deal-participant', 'confirm-critical-date', 'resolve-critical-date',
   'instruct-deal-item', 'revert-deal-field', 'resolve-conflict',
 ]);
 const isUuid = value => isString(value) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -292,6 +293,30 @@ function nextDealSave(verb, args) {
   if (!isUuid(deal)) return null;
   const changes = patch => post(`/deals/${deal}/changes`, { seen_change_id, ...patch });
   switch (verb) {
+    case 'set-market-agent':
+    case 'remove-deal-participant': {
+      const party_id = verb === 'set-market-agent' ? args.agent_party_id : args.party_id;
+      const role = verb === 'set-market-agent' ? 'market_agent' : args.role;
+      if (!isUuid(party_id)) return null;
+      const suffix = verb === 'remove-deal-participant' ? '/remove' : '';
+      return post(`/deals/${deal}/parties${suffix}`, { party_id, role });
+    }
+    case 'add-critical-date': {
+      const { kind, due_on, source, note } = args;
+      const phaseDate = kind === 'phase_effective_date';
+      return post(`/deals/${deal}/critical-dates`, {
+        kind: phaseDate ? 'other' : kind, due_on, source,
+        note: phaseDate ? 'Phase effective date' : note,
+      });
+    }
+    case 'confirm-critical-date':
+    case 'resolve-critical-date': {
+      const { critical_date_id, resolution, reason } = args;
+      if (!isUuid(critical_date_id)) return null;
+      return verb === 'confirm-critical-date'
+        ? post(`/critical-dates/${critical_date_id}/confirm`, {})
+        : post(`/critical-dates/${critical_date_id}/resolve`, { resolution, reason });
+    }
     case 'update-deal': {
       const { outcome, closed_on, won_value, lost_reason } = args.fields || {};
       const from = args.phase_from;
@@ -344,6 +369,29 @@ const DEAL_CREATE_REFUSALS = new Map([
   ['deal_name_exists', 'A deal with this name already exists.'],
 ]);
 
+function dealPeopleAndDateHint(name, body) {
+  const rule = body.error === 'database_refused_the_statement' ? body.rule : body.error;
+  switch (rule) {
+    case 'deal_party_pkey': return 'This person or company already has that role on the deal.';
+    case 'deal_party_party_id_fkey': return 'Choose an existing person or company.';
+    case 'deal_party_role_fkey': return 'Choose a role for this person or company.';
+    case 'critical_date_status_moves': return 'This date cannot be marked that way.';
+    case 'invalid_field_value':
+    case 'missing_required':
+      if (name === 'add-critical-date') return 'Enter a valid date and where it came from.';
+      if (name === 'resolve-critical-date') return 'Choose how to mark this date and enter a reason.';
+      break;
+    case 'not_found':
+      if (name === 'remove-deal-participant') return 'That person or company is no longer in that role on the deal.';
+      if (name.endsWith('-critical-date') && name !== 'add-critical-date') return 'That date is no longer on the deal.';
+      break;
+    case 'version_conflict':
+      if (name === 'confirm-critical-date' || name === 'resolve-critical-date') return 'Reload the deal to see the current state of this date.';
+      return 'Reload the deal before saving again.';
+  }
+  return null;
+}
+
 async function cutoverSave(request, env, call) {
   const { name, arguments: args } = call.params;
   const on = await switchedOn(env, NEXT_DEAL_SAVES);
@@ -354,7 +402,8 @@ async function cutoverSave(request, env, call) {
   if (creating && (!on || !fromNext)) return saveRefusal(call, 'reload_deals', 'Reload Deals before adding a deal.');
   if (on && !await switchedOn(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
   const save = nextDealSave(name, args);
-  if (on && !save) return saveRefusal(call, 'deal_save_unavailable', 'This change is temporarily unavailable.');
+  if (on && !save) return saveRefusal(call, 'deal_save_unavailable', name === 'set-market-agent' && fromNext
+    ? 'Choose an existing person as the market agent.' : 'This change is temporarily unavailable.');
   // A retained request may outlive a switch change. Its snapshot pins the destination.
   if (!on || !fromNext) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
   const response = await sendEngineSave(request, env, save.path, save.body);
@@ -363,12 +412,14 @@ async function cutoverSave(request, env, call) {
   const body = await response.json().catch(() => null);
   if (!isObject(body)) return unavailable(false);
   if (!response.ok) {
+    const peopleOrDate = name === 'set-market-agent' || name === 'remove-deal-participant' || name.endsWith('-critical-date');
     const invalidClosingDate = name === 'update-deal' && body.error === 'invalid_field_value'
       && Array.isArray(body.fields) && body.fields.length === 1 && body.fields[0] === 'phase';
     const hint = creating
       ? DEAL_CREATE_REFUSALS.get(body.error === 'database_refused_the_statement' ? body.rule : body.error)
         ?? 'Check the deal details and try again.'
       : invalidClosingDate ? 'Choose a closing date between the day the deal reached its current phase and today.'
+      : peopleOrDate ? dealPeopleAndDateHint(name, body) ?? 'Review the deal and try saving again.'
       : body.error === 'version_conflict' ? 'This deal changed. Reload the deal before saving.'
       : body.error === 'step_ended' ? 'This step was already closed. Reload the deal to see its current steps.'
       : 'The change could not be saved. Review the deal and try again.';
@@ -376,6 +427,10 @@ async function cutoverSave(request, env, call) {
   }
   const saved = creating ? isUuid(body.deal_id) && Number.isSafeInteger(body.change_id) && body.change_id >= 0
     : save.path.endsWith('/changes') ? body.deal_id === args.deal
+    : save.body.party_id ? body.deal_id === args.deal && body.party_id === save.body.party_id && body.role === save.body.role
+    : name.endsWith('-critical-date') ? isUuid(body.critical_date_id)
+      && (name === 'add-critical-date' || body.critical_date_id === args.critical_date_id)
+      && body.status === (name === 'resolve-critical-date' ? args.resolution : 'open')
     : save.path.endsWith('/activities') ? isUuid(body.activity_id) : isUuid(body.next_step_id);
   if (!saved || body.error) return unavailable(false);
   return mcpReply(call, response, JSON.stringify({ ...body, ok: true }), false);

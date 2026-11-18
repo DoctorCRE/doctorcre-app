@@ -1,0 +1,14 @@
+{
+  "producer": {
+    "repository": "DoctorCRE/doctorcre-engine",
+    "source_commit": "88aedba613a43657d70c5eb315ceb123703585fd"
+  },
+  "switch": "deals-saves-from-engine",
+  "post": {
+    "add-critical-date": "/api/engine/deals/{deal_id}/critical-dates",
+    "confirm-critical-date": "/api/engine/critical-dates/{critical_date_id}/confirm",
+    "remove-deal-participant": "/api/engine/deals/{deal_id}/parties/remove",
+    "resolve-critical-date": "/api/engine/critical-dates/{critical_date_id}/resolve",
+    "set-market-agent": "/api/engine/deals/{deal_id}/parties"
+  }
+}
