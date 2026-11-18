@@ -54,6 +54,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   });
   const details = new Map();
   let mailRows = [];
+  const proposalRefusals = new Map();
   const snapshot = reader => ({ ...state, items: state.items.map(item => ({
     ...item, title: `${item.title} (${reader})`,
     ...(item.completion_review && item.disposition === 'inbox' && { title: 'Did this happen? Review the sample site', source_type: 'notification', action_id: null }),
@@ -99,6 +100,11 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
           return Response.json({ next_step_id: id, status: done ? 'done' : 'open', ...(done && { change_id }) });
         }
         if (collection === 'proposals') {
+          if (args.decision === 'accept' && proposalRefusals.has(id)) {
+            const [error, status] = proposalRefusals.get(id);
+            proposalRefusals.delete(id);
+            return Response.json({ error }, { status });
+          }
           mailRows = mailRows.filter(row => row.proposal_id !== id);
           if (item.completion_review) delete item.completion_review;
           else {
@@ -252,13 +258,14 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   const next = '00000000-0000-0000-0000-000000000023';
   const decline = '00000000-0000-0000-0000-000000000024';
   const leading = '00000000-0000-0000-0000-000000000025';
-  const evidence = { evidence: 'Discussed next steps.', source_activity: { summary: 'The sample call summary.', happened_at: NOW.toISOString() } };
-  state.items[2].completion_review = { proposal_id: proposal, can_resolve: true };
+  const phase = '00000000-0000-0000-0000-000000000026';
+  const evidence = { evidence: 'Discussed next steps.', source_activity: { kind: 'call', summary: 'The sample call summary.', happened_at: NOW.toISOString() } };
+  state.items[2].completion_review = { proposal_id: proposal, can_resolve: false };
   details.set(proposal, { ...evidence, proposal_id: proposal, kind: 'next_step_done' });
   const notice = state.items[3];
   state.items.push(
     { ...notice, title: 'Call suggestions', item_id: `suggestion:${log}`, source_id: log, source_type: 'capture_session',
-      deal_id: null, kind_label: 'Call', suggestions: [{ id: log }] },
+      deal_id: null, kind_label: 'Call', suggestions: [{ id: log }, { id: phase }] },
     { ...notice, title: 'Email suggestions', item_id: `suggestion:${leading}`, source_id: leading, source_type: 'email_proposal',
       deal_id: null, kind_label: 'Task', suggestions: [{ id: leading }, { id: next }] },
     { ...notice, title: 'Reply to the sample email', item_id: `reply_draft:${draft}`, source_id: draft, source_type: 'email_proposal',
@@ -266,6 +273,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   );
   details.set(log, { ...evidence, proposal_id: log, kind: 'log_call', target_name: 'Example Dental', what: 'Log the sample call' });
   details.set(next, { ...evidence, proposal_id: next, kind: 'next_step', what: 'Share the plan', due_on: '2026-11-04' });
+  details.set(phase, { ...evidence, proposal_id: phase, kind: 'phase_move', to_phase: 'legal' });
   details.set(leading, { ...evidence, proposal_id: leading, kind: 'possible_new_deal' });
   details.set(draft, { draft_id: draft, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
     to: 'sender@example.test', cc: 'partner@example.test', attachments: [{ document_id: dealId, name: 'Sample plan' }],
@@ -280,6 +288,10 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await undo.click();
   await review.getByRole('button', { name: 'Open', exact: true }).click();
   await review.getByText('Discussed next steps.', { exact: true }).waitFor();
+  await review.getByText(/From your call on/).waitFor();
+  await review.getByText('Words that prompted this suggestion', { exact: true }).waitFor();
+  await review.getByText(/This step changed after the suggestion/).waitFor();
+  assert.equal(await review.getByRole('button', { name: 'Yes, it’s done' }).isDisabled(), true);
   await review.getByRole('button', { name: 'Not yet', exact: true }).click();
   await review.waitFor({ state: 'detached' });
   assert.equal(writes.at(-1)[1].decision, 'dismiss');
@@ -298,9 +310,16 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   }
   await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
-  await suggestions.getByRole('button', { name: 'Accept', exact: true }).click();
-  await suggestions.waitFor({ state: 'detached' });
+  await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
+  await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
   assert.equal(writes.at(-1)[1].decision, 'accept');
+  proposalRefusals.set(phase, ['version_conflict', 409]);
+  await suggestions.getByRole('button', { name: 'Accept', exact: true }).click();
+  await suggestions.getByRole('alert').filter({ hasText: /This deal has moved since the suggestion/ }).waitFor();
+  assert.equal(await suggestions.getByRole('button', { name: 'Review updated card' }).count(), 0);
+  await suggestions.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await suggestions.waitFor({ state: 'detached' });
+  assert.equal(writes.at(-1)[1].decision, 'dismiss');
   const priority = { item_id: `suggestion:${leading}`, base_version: notice.base_version, conversation_id: 'sample-conversation',
     proposal_id: next, reply_draft_id: null, sender: 'Sample Sender', subject: 'Sample message', suggestion: 'Share the plan',
     due_on: '2026-11-04', source_activity: { kind: 'email', id: log, happened_at: NOW.toISOString() } };
@@ -310,6 +329,17 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await mail.getByRole('button', { name: 'Sample Sender · Sample message', exact: true }).click();
   assert.equal(await mail.locator('li').count(), 1);
   const email = cardFor(/Email suggestions/);
+  for (const [error, status, message] of [
+    ['open_step_exists', 409, /You already have an open step for this client or deal/],
+    ['invalid_field_value', 422, /This suggestion could not be saved/],
+  ]) {
+    proposalRefusals.set(next, [error, status]);
+    await email.getByRole('button', { name: 'Accept', exact: true }).click();
+    await email.getByRole('alert').filter({ hasText: message }).waitFor();
+    assert.equal(await email.getByRole('button', { name: 'Retry same review request' }).count(), 0);
+    await page.keyboard.press('Escape');
+    await mail.getByRole('button', { name: 'Sample Sender · Sample message', exact: true }).click();
+  }
   await email.getByRole('textbox', { name: 'Next step', exact: true }).fill('Share the revised plan');
   assert.equal(await email.getByRole('heading', { name: 'Possible new deal', exact: true }).count(), 0);
   await email.getByRole('button', { name: 'Accept', exact: true }).click();

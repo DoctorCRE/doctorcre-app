@@ -20,6 +20,7 @@ import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
 import { formatCalendarDate } from './visual-system.js';
 import { businessDay } from './business-date.js';
+import { daysBetween } from './calendar-model.js';
 import {
   createBoardSync, batchTouchesBoard, HEALTH, SYNC_STATES,
 } from './board-sync.mjs';
@@ -36,7 +37,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, prepareDealDetail, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceClose, prepareDealDetail, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
 import { mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates, dealTimeline, dateCaption, calendarDay } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
@@ -320,16 +321,16 @@ function renderPendingWrites() {
 function renderReceipts() {
   const list = $('receiptsList');
   if (!list) return;
-  const views = state.feed.caught_up
+  const views = !state.nextDealSaves && state.feed.caught_up
     ? receiptViews(state.receipts, { selfActor: state.selfActor, undo: state.undo, now: Date.now() })
     : [];
   const count = $('receiptsCount');
   if (count) count.textContent = String(views.length);
-  const signature = receiptsSignature(views);
+  const signature = state.nextDealSaves ? 'engine-deals' : receiptsSignature(views);
   if (signature === state.receiptSignature) return;
   state.receiptSignature = signature;
   list.innerHTML = views.length ? receiptListHtml(views.map(view => ({...view, can_undo:false})))
-    : '<li class="receipt"><p class="receipt-line">Nothing has changed in this session yet.</p></li>';
+    : `<li class="receipt"><p class="receipt-line">${state.nextDealSaves ? 'Open a deal to see its recent changes.' : 'Nothing has changed in this session yet.'}</p></li>`;
 }
 
 
@@ -345,6 +346,7 @@ function applyBoardSnapshot(board) {
   const saveSwitchChanged = Boolean(state.nextDealSaves) !== (board.next_deal_saves === true);
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
+  if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
   if (actorChanged) {
@@ -434,6 +436,7 @@ function confirmLocalWrite(dealId, patch) {
   if (deal) Object.assign(deal, patch);
   state.boardSync.noteLocalWrite(dealId, patch);
   state.boardSync.requestRefresh('after-write');
+  if (state.panelDeal === dealId && Number.isSafeInteger(state.panelDetail?.deal?.seen)) void refreshPanel({ changed: true });
   return deal;
 }
 
@@ -473,6 +476,7 @@ const FOLLOW_UP_SENDERS = {
   'resolve-critical-date': request => state.client.resolveCriticalDate(request),
   'update-deal': (request) => state.client.updateDeal(request),
   'register-client-portal': (request) => state.client.registerClientPortal(request),
+  'undo-invoice-close': (request) => state.client.undoInvoiceClose(request),
 };
 const newItemKey = deal => `new-item:${deal}`;
 
@@ -528,8 +532,6 @@ async function runFollowUp(operationKey, step) {
   if (!send) return null;
   const pending = pendingCommand(commandState, operationKey);
   let args = step.args;
-  const closingInEngine = step.verb === 'update-deal' && Number.isSafeInteger(args.seen_change_id);
-  const decidesDate = step.verb === 'confirm-critical-date' || step.verb === 'resolve-critical-date';
   if (['add-deal-note', 'set-next-step', 'record-deal-item', 'complete-deal-item', 'add-critical-date'].includes(step.verb)) {
     const deal = state.panelDeal === args.deal ? state.panelDetail?.deal : state.deals.get(args.deal);
     const seen = pending ? pending.request.seen_change_id
@@ -564,6 +566,7 @@ async function runFollowUp(operationKey, step) {
       if (!Number.isSafeInteger(args.seen_change_id)) args = { ...args, base_version: current.version };
     }
   }
+  const fromEngine = Number.isSafeInteger(args.seen_change_id);
   if (!pending) operations.set(operationKey, { kind: 'command', verb: step.verb, args, send, summary: step.summary });
   dock.record(operationKey, { summary: step.summary, status: 'sending', undo: false });
   const updateActor = isUpdate ? state.selfActor : null;
@@ -585,23 +588,23 @@ async function runFollowUp(operationKey, step) {
     dockRequest = { ...dockRequest };
     delete dockRequest.password;
   }
+  const reload = fromEngine && result.code === 'version_conflict';
   dock.record(operationKey, {
     summary: operations.get(operationKey).summary,
     status: result.status === 'blocked' ? 'unknown' : result.status,
-    reason: ((closingInEngine || (step.verb.endsWith('-critical-date') && Number.isSafeInteger(args.seen_change_id))) && result.hint) || result.message || null,
+    reason: (fromEngine && result.hint) || result.message || null,
     // eslint-disable-next-line no-restricted-syntax -- Only another dock action can resend the retained follow-up; this receipt exposes retry state.
-    retry: result.status === 'blocked' || result.retry, undo: false, request: dockRequest,
+    retry: !reload && (result.status === 'blocked' || result.retry), reload, undo: false, request: dockRequest,
   });
   if (step.verb === 'register-client-portal' && result.status === 'ok') state.boardSync.requestRefresh('client-portal');
-  if (closingInEngine && result.status === 'ok') state.boardSync.requestRefresh('after-write');
-  if (decidesDate && result.status === 'ok') {
+  if (fromEngine && result.status === 'ok') {
     state.boardSync.requestRefresh('after-write');
-    if (state.panelDeal === args.deal) await refreshPanel();
+    if (state.panelDeal === args.deal) await refreshPanel({ changed: true });
   }
   if (step.verb === 'add-deal-note' && operationKey === updateKey(state.panelDeal) && state.panelDetail) {
     if ([401,403].includes(result.http_status)) { refusePanelDetail({status:result.http_status}); return result; }
     syncUpdateForm();
-    if (result.status === 'ok' && !isUpdate) await refreshPanel();
+    if (!fromEngine && result.status === 'ok' && !isUpdate) await refreshPanel();
   }
   if (step.verb === 'resolve-conflict') await settleConflictChoice(step.args.conflict_id, result);
   return result;
@@ -614,6 +617,7 @@ async function runMove(intent, form) {
   const [phaseStep, ...followUps] = plan.steps;
   if (phaseStep.verb === 'update-deal') {
     const result = await runFollowUp(`close-deal:${intent.deal}`, phaseStep);
+    if (result.code === 'version_conflict') return { ok: false, errors: [], reload: true };
     if (result.status !== 'ok') return { ok: false, errors: [result.hint || result.message] };
     showToast(phaseStep.args.fields.outcome === 'won' ? 'Deal marked won' : 'Deal marked lost');
     return { ok: true, errors: [] };
@@ -1155,8 +1159,20 @@ function clearMarketTermsViews() {
   marketTermsViews.clear();
 }
 
-function dueDateHtml(day) {
-  return day ? `Due <time datetime="${esc(day)}">${esc(dateWords(day))}</time>` : 'No due date';
+function dueDateHtml(day, today) {
+  if (!day) return 'No due date';
+  const daysLate = today && day < today ? daysBetween(day, today) : 0;
+  return `Due <time datetime="${esc(day)}">${esc(dateWords(day))}</time>${daysLate ? ` · ${daysLate} day${daysLate === 1 ? '' : 's'} late` : ''}`;
+}
+
+function undoInvoiceClose() {
+  const deal = state.panelDetail?.deal;
+  const invoice = invoiceClose(deal);
+  if (!state.nextDealSaves || !invoice) return;
+  return runFollowUp(`invoice-undo:${invoice.event_id}`, {
+    verb: 'undo-invoice-close', summary: 'Undo invoice close',
+    args: { deal: deal.id, invoice_id: invoice.event_id, seen_change_id: deal.seen },
+  });
 }
 
 function workspaceHtml(detail) {
@@ -1167,13 +1183,17 @@ function workspaceHtml(detail) {
   const prospect = state.deals.get(d.id);
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
   const parked = d.operating_state === 'parked';
-  const controlsAvailable = state.deals.has(d.id) && !isClosedDeal(d);
+  const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !isClosedDeal(d);
   const closedValue = Number(d.closed_value);
+  const invoice = invoiceClose(d);
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
+      ${invoice ? `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${esc(invoice.evidence_date)}">${esc(dateWords(invoice.evidence_date))}</time>${state.nextDealSaves ? ' <button class="btn" type="button" data-undo-invoice>Undo invoice close</button>' : ''}</div>` : ''}
       ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${dueDateHtml(dueOn)}</span></p>` : '<p>No next step or key date set.</p>'}
-      ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action =>
-        `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(calendarDay(action.due_on))}</li>`).join('')}</ul>` : ''}
+      ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
+        const day = calendarDay(action.due_on);
+        return `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
+      }).join('')}</ul>` : ''}
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
       <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${d.type ? `<div><dt>Type</dt><dd>${esc(d.type)}</dd></div>` : ''}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
       ${closedValue > 0 ? `<dl class="deal-snapshot-facts"><div><dt>Closed value</dt><dd>${closedValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</dd></div></dl>` : ''}
@@ -1561,7 +1581,9 @@ async function setOperatingState(id, value) {
     showToast(accepted.state === 'active' ? 'Deal revived' : 'Deal parked');
     if (state.panelDeal === id) closeWorkspace();
   } else if (result.conflict) showConflict(result.conflict);
-  else { showToast(fieldWriteMessage(result,'Operating state') || 'Change not confirmed', {error:true}); state.boardSync.requestRefresh('operating-state'); }
+  else if (result.code === 'version_conflict' && Number.isSafeInteger(result.request?.seen_change_id)) {
+    recordFieldReceipt(cellKey(id, 'operating_state'), 'Park or revive deal', 'Operating state', result);
+  } else { showToast(fieldWriteMessage(result,'Operating state') || 'Change not confirmed', {error:true}); state.boardSync.requestRefresh('operating-state'); }
   renderPendingWrites();
 }
 
@@ -1627,6 +1649,7 @@ async function openContextDrawer() {
 
 
 function leasePhase(dealId) {
+  if (state.nextDealSaves) return;
   state.client.presenceLease({ deal: dealId, field: 'phase', idempotency_key: uuidv4() })
     .catch(() => { /* a courtesy, never a requirement */ });
 }
@@ -1894,6 +1917,7 @@ function wire() {
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
   $('panelBody').addEventListener('click', e => {
+    if (e.target.closest('[data-undo-invoice]')) void undoInvoiceClose();
     if (e.target.closest('[data-discard-update]') && !pendingCommand(commandState, updateKey(state.panelDeal)) && !pendingCommand(commandState, nextStepKey(state.panelDeal))) { discardUpdate(state.panelDeal); syncUpdateForm(); }
     if (e.target.closest('[data-review-update-step]') && updateDraft?.conflict) {
       const draft = updateDraft;
@@ -1948,11 +1972,19 @@ function wire() {
 
     if (e.target.id === 'detailPhase') {
       const destination = e.target.value;
-      e.target.value = columnByValue(state.deals.get(id)?.phase)?.slug || '';
       const detail = state.panelDetail?.deal;
+      e.target.value = columnByValue(detail?.phase ?? state.deals.get(id)?.phase)?.slug || '';
       beginMove(id, destination, Number.isSafeInteger(detail?.seen) ? detail : undefined);
     }
-    if (e.target.id === 'detailOwner') { const value = e.target.value || null; const result = await sendFieldWrite(id,'owner',value); if(result.status === 'ok' && !result.superseded) confirmLocalWrite(id,{owner:result.request.value}); else if(result.conflict) showConflict(result.conflict); else showToast(fieldWriteMessage(result,'Owner') || 'Change not confirmed', {error:true}); renderPendingWrites(); }
+    if (e.target.id === 'detailOwner') {
+      const result = await sendFieldWrite(id, 'owner', e.target.value || null);
+      if (result.status === 'ok' && !result.superseded) confirmLocalWrite(id, { owner: result.request.value });
+      else if (result.conflict) showConflict(result.conflict);
+      else if (result.code === 'version_conflict' && Number.isSafeInteger(result.request?.seen_change_id)) {
+        recordFieldReceipt(cellKey(id, 'owner'), 'Change deal owner', 'Owner', result);
+      } else showToast(fieldWriteMessage(result, 'Owner') || 'Change not confirmed', { error: true });
+      renderPendingWrites();
+    }
   });
   $('panelBody').addEventListener('submit', async e => {
     e.preventDefault(); const id=state.panelDeal; const form = new FormData(e.target);
@@ -2034,6 +2066,7 @@ async function boot() {
   state.boardSync = createBoardSync({
     readBoard: () => state.client.getBoard({ workspace: 'team' }),
     readChanges: (cursor) => state.client.getChanges(cursor),
+    usesChangeFeed: () => !state.nextDealSaves,
     applyBoard: (board) => { applyBoardSnapshot(board); },
     onStatus: renderStatus,
   });
@@ -2042,10 +2075,21 @@ async function boot() {
   $('lostView').setAttribute('aria-pressed',String(state.view === 'lost'));
   $('closedView').setAttribute('aria-pressed',String(state.view === 'closed'));
   const linkedDeal = incomingScope.get('deal');
-  if (linkedDeal) void openWorkspace(linkedDeal).then(() => {
-    if (incomingScope.get('item') && state.panelDeal === linkedDeal) void itemSheet.open(linkedDeal,incomingScope.get('item'));
+  const opening = linkedDeal && openWorkspace(linkedDeal);
+  const board = loadBoard();
+  if (opening) void opening.then(async () => {
+    if (state.panelDeal !== linkedDeal) return;
+    if (incomingScope.get('close') === '1') {
+      const url = new URL(location.href);
+      url.searchParams.delete('close');
+      writeWorkspaceHistory(history.state, url);
+      await board;
+      const deal = state.panelDetail?.deal;
+      if (state.panelDeal === linkedDeal && state.nextDealSaves && Number.isSafeInteger(deal?.seen) && !isClosedDeal(deal)) {
+        beginMove(linkedDeal, CLOSED_SLUG, deal);
+      }
+    } else if (incomingScope.get('item')) void itemSheet.open(linkedDeal, incomingScope.get('item'));
   });
-  void loadBoard();
   mountVisibilityPoll({ lifecycle: true, poll: refreshPanel });
   mountVisibilityPoll({ poll: () => { return pollOnce().catch(() => false); } });
   mountVisibilityPoll({ poll: () => state.boardSync.requestRefresh('periodic') });

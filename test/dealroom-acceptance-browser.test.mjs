@@ -230,6 +230,150 @@ for (const { code, hint, message } of [
   assert.notEqual(requests[0].idempotency_key, requests[1].idempotency_key);
 });
 
+test('Deals shows late steps and can undo a close reported by the engine', async t => {
+  const page = await browser.newPage({ timezoneId: 'America/Chicago' });
+  t.after(() => page.close());
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-invoice-undo', viewer: 'joe', reset: true } });
+  await page.clock.setFixedTime(new Date('2026-11-18T18:00:00Z'));
+  const id = '00000000-0000-4000-8000-000000000061';
+  const invoiceId = '00000000-0000-4000-8000-000000000062';
+  const name = 'Example Invoice Deal';
+  let switchesOn = false;
+  let seen = 23;
+  let undone = false;
+  const undoRequests = [];
+  const oldReads = [];
+  const deal = () => ({ id, deal_id: id, name, owner: 'joe', phase: undone ? 'legal' : 'closed',
+    ...(switchesOn && { seen, phase_change: undone ? null : { automatic: true, event_id: invoiceId,
+      prior_phase: 'legal', phase: 'closed', evidence_date: '2026-11-17', reason: 'Example nightly close' } }),
+    ...(undone ? {} : { outcome: 'won', closed_on: '2026-11-17' }),
+    next_actions: [
+      { id: 'first', description: 'Check floor plan', due_on: '2026-11-15', status: 'open', owner: 'joe' },
+      { id: 'second', description: seen === 23 ? 'Call the architect' : 'Call the architect again', due_on: '2026-11-16', status: 'open', owner: 'dell' },
+    ] });
+  const board = () => ({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: undone ? [deal()] : [],
+    closed_deals: undone ? [] : [deal()], lost_deals: [] });
+  const env = {
+    ENGINE_ROUTING: { get: async () => switchesOn ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      if (path === `/api/engine/deals/${id}`) return Response.json(deal());
+      if (path === '/api/engine/deals') return Response.json(board());
+      assert.equal(path, `/api/engine/invoice-emails/${invoiceId}/undo`);
+      const body = await request.json();
+      undoRequests.push(body);
+      if (undoRequests.length === 1) {
+        seen++;
+        return Response.json({ error: 'version_conflict' }, { status: 409 });
+      }
+      undone = true;
+      return Response.json({ invoice_id: invoiceId, status: 'undone' });
+    } },
+    CARR: { fetch: async request => {
+      const { id: requestId, params } = await request.json();
+      if (switchesOn) oldReads.push(params.name);
+      return Response.json({ jsonrpc: '2.0', id: requestId, result: { content: [
+        { type: 'text', text: JSON.stringify(params.name === 'deal-room-board' ? board() : deal()) },
+      ] } });
+    } },
+  };
+  await page.route('**/mcp', async route => {
+    const request = route.request(), body = request.postDataJSON();
+    if (!['deal-room-board', 'get-deal-room', 'undo-invoice-close'].includes(body?.params?.name)) return route.continue();
+    if (body.params.name === 'undo-invoice-close') assert.equal(body.params.arguments.seen_change_id, seen);
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
+    }), env);
+    return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+  });
+
+  const otherSteps = page.getByRole('list', { name: 'Other open steps' });
+  const undo = page.getByRole('button', { name: 'Undo invoice close' });
+  const openClosedDeal = async () => {
+    await page.goto(`${origin}/deals?mode=live`);
+    if (switchesOn) await page.locator('#appTodayMoves').getByText('Open a deal to see its recent changes.', { exact: true }).waitFor({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Closed deals', exact: true }).click();
+    await page.getByRole('button', { name, exact: true }).click();
+    await page.getByRole('heading', { name, exact: true }).waitFor();
+    await otherSteps.getByText(/Call the architect.*2 days late/).waitFor({ timeout: 5000 });
+    assert.match(await page.locator('.deal-current-action').textContent(), /^Overdue action: Check floor plan · Due .+2026$/);
+  };
+  await openClosedDeal();
+  assert.equal(await undo.count(), 0);
+  await page.goto('about:blank');
+  switchesOn = true;
+  await openClosedDeal();
+  await page.getByRole('region', { name: 'Deal snapshot' }).getByText('Closed automatically: Invoice received', { exact: true }).waitFor();
+  await undo.click();
+  await page.getByText('This deal changed. Reload the deal before saving.', { exact: true }).waitFor();
+  assert.equal(undoRequests.length, 1);
+  await page.getByRole('button', { name: 'Reload deal', exact: true }).click();
+  await otherSteps.getByText(/Call the architect again/).waitFor();
+  await undo.click();
+  await page.locator('#detailPhase').waitFor();
+  assert.equal(await page.locator('#detailPhase').inputValue(), 'legal');
+  assert.equal(await undo.count(), 0);
+  await page.getByRole('button', { name: 'Back to deals' }).click();
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+  await page.getByRole('button', { name, exact: true }).waitFor();
+  assert.notEqual(undoRequests[0].idempotency_key, undoRequests[1].idempotency_key);
+  assert.deepEqual(oldReads, []);
+});
+
+test('National Accounts saves inline changes using the version on the deal board', async t => {
+  const page = await browser.newPage();
+  t.after(() => page.close());
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-national-fields', viewer: 'joe', reset: true } });
+  const id = '00000000-0000-4000-8000-000000000071';
+  const account = '00000000-0000-4000-8000-000000000072';
+  const name = 'Example Market Deal';
+  const row = { id, name, phase: 'research', seen: 23, owner: 'joe', account_client_id: account, workspace_kind: 'national_account' };
+  const writes = [];
+  const env = {
+    ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      if (new URL(request.url).pathname === `/api/engine/deals/${id}`) return Response.json({ ...row, deal_id: id });
+      if (request.method === 'GET') return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row],
+        accounts: [{ account_client_id: account, account_name: 'Example National Account', account_owner: 'joe' }] });
+      assert.equal(new URL(request.url).pathname, `/api/engine/deals/${id}/changes`);
+      const body = await request.json();
+      writes.push(body);
+      if (writes.length === 1) {
+        row.seen++;
+        row.phase = 'negotiation';
+        return Response.json({ error: 'version_conflict' }, { status: 409 });
+      }
+      row.phase = body.phase.to;
+      return Response.json({ deal_id: id, change_id: ++row.seen });
+    } },
+    CARR: { fetch: async () => new Response(null, { status: 502 }) },
+  };
+  await page.route('**/mcp', async route => {
+    const request = route.request(), body = request.postDataJSON();
+    if (!['deal-room-board', 'get-deal-room', 'patch-deal-field'].includes(body?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
+    }), env);
+    return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+  });
+  await page.goto(`${origin}/deals?view=national&mode=live`);
+  await page.getByRole('button', { name: /Example National Account/ }).click();
+  const phase = page.getByLabel(`Phase for ${name}`);
+  await phase.focus();
+  await phase.selectOption('Legal');
+  await page.getByText('This deal changed. Reload the deal before saving.', { exact: true }).waitFor({ timeout: 5000 });
+  await phase.locator('option:checked').filter({ hasText: 'Negotiating' }).waitFor({ state: 'attached', timeout: 5000 });
+  await phase.selectOption('Legal');
+  await page.getByText(`${name} updated`, { exact: true }).waitFor();
+  assert.deepEqual(writes.map(({ seen_change_id, phase }) => [seen_change_id, phase]), [
+    [23, { from: 'research', to: 'legal' }], [24, { from: 'negotiation', to: 'legal' }],
+  ]);
+  assert.equal(await phase.inputValue(), 'Legal');
+  await phase.selectOption('Closed');
+  await page.getByRole('dialog', { name: `Close ${name}` }).getByRole('button', { name: 'Save outcome' }).waitFor({ timeout: 5000 });
+  assert.equal(writes.length, 2);
+});
+
 test('Add deal and Won or Lost save through the new database switch', async t => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 960 }, timezoneId: 'America/Chicago' });
   t.after(() => page.close());
@@ -404,7 +548,14 @@ test('switched-on Deals selects an existing market agent and decides critical da
   const env = {
     ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' || (savesOn && key === 'deals-saves-from-engine') ? 'on' : null },
     ENGINE: { fetch: async request => {
-      const path = new URL(request.url).pathname;
+      const url = new URL(request.url);
+      const path = url.pathname;
+      if (path === '/api/engine/parties/search') {
+        assert.deepEqual(Object.fromEntries(url.searchParams), { kind: 'person', query: 'Example' });
+        return Response.json({ ok: true, schema_version: 'party-search.v1', parties: [
+          { id: person, display_name: 'Example Market Agent', kind: 'person' },
+        ] });
+      }
       if (request.method === 'GET') return Response.json(path.endsWith(deal)
         ? { ...row, deal_id: deal, critical_dates: dates, participants }
         : { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row],
@@ -447,13 +598,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
     const request = route.request();
     const body = request.postDataJSON();
     const verb = body?.params?.name;
-    if (verb === 'search-parties-v1') return route.fulfill({ json: { jsonrpc: '2.0', id: body.id, result: { content: [{
-      type: 'text', text: JSON.stringify({ ok: true, schema_version: 'party-search.v1', parties: [
-        { id: person, display_name: 'Example Market Agent', kind: 'person' },
-        { id: account, display_name: 'Example Agency', kind: 'org' },
-      ] }),
-    }] } } });
-    if (!['deal-room-board', 'get-deal-room', 'set-market-agent', 'confirm-critical-date',
+    if (!['deal-room-board', 'get-deal-room', 'search-parties-v1', 'set-market-agent', 'confirm-critical-date',
       'resolve-critical-date', 'patch-deal-field', 'add-critical-date', 'remove-deal-participant'].includes(verb)) return route.continue();
     const response = await handleDoctorcreRequest(new Request(request.url(), {
       method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),

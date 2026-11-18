@@ -158,6 +158,8 @@ const ENGINE_READS = new Map([
   ['deal-room-board', { key: DEALS, path: '/api/engine/deals', args: { workspace: isString, account_client_id: isString } }],
   ['get-deal-room', { key: DEALS, path: '/api/engine/deals', segment: 'deal', args: { deal: isString },
     accepts: ({ deal }) => !['', '.', '..', undefined].includes(deal) }],
+  ['search-parties-v1', { key: DEALS, path: '/api/engine/parties/search', search: 'kind=person',
+    args: { query: isString }, accepts: ({ query }) => Boolean(query?.trim()) }],
   // Without the workspace the old tool answers Home's legacy board, which the engine does not serve.
   ['lead-board', { key: LEADS, path: '/api/engine/leads', accepts: ({ workspace }) => workspace === 'leads',
     args: { workspace: isString, lead_id: isString, correspondence_cursor: isObject, stage_history_cursor: isString } }],
@@ -235,7 +237,7 @@ async function engineResponse(request, env) {
   try {
     if (call) {
       url.pathname = read.segment ? `${read.path}/${encodeURIComponent(args[read.segment])}` : read.path;
-      url.search = '';
+      url.search = read.search ?? '';
       // The engine takes the old tool's arguments as query text, an object as its JSON.
       for (const [key, value] of Object.entries(args)) {
         if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
@@ -244,7 +246,7 @@ async function engineResponse(request, env) {
       url.pathname = read.path + record;
       if (read.clearQuery) url.search = '';
     }
-    const answer = await Promise.race([
+    const response = await Promise.race([
       (async () => {
         const response = await env.ENGINE.fetch(new Request(url, { headers, signal: controller.signal, redirect: 'manual' }));
         if (controller.signal.aborted) {
@@ -290,9 +292,11 @@ async function engineResponse(request, env) {
         resolve(null);
       }, 2000); }),
     ]);
-    return answer ?? (read.clearQuery ? unavailable(false) : null);
-  } catch { return read.clearQuery ? unavailable(false) : null; }
+    if (response) return response;
+  } catch { /* The switch below decides whether this read can fall back. */ }
   finally { clearTimeout(timer); reader?.releaseLock(); }
+  return read.clearQuery || (read.key === DEALS && await switchedOn(env, NEXT_DEAL_SAVES))
+    ? json({ error: 'engine_unavailable' }, 503) : null;
 }
 
 // New-schema receipts are separate from the legacy tool receipts.
@@ -300,7 +304,7 @@ const CUTOVER_SAVES = new Set([
   'patch-deal-field', 'update-deal', 'set-next-step', 'complete-deal-item', 'record-deal-item',
   'add-deal-note', 'new-deal', 'set-market-agent', 'add-critical-date',
   'remove-deal-participant', 'confirm-critical-date', 'resolve-critical-date',
-  'instruct-deal-item', 'revert-deal-field', 'resolve-conflict',
+  'instruct-deal-item', 'revert-deal-field', 'resolve-conflict', 'undo-invoice-close',
 ]);
 const isUuid = value => isString(value) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 
@@ -315,6 +319,8 @@ function nextDealSave(verb, args) {
   if (!isUuid(deal)) return null;
   const changes = patch => post(`/deals/${deal}/changes`, { seen_change_id, ...patch });
   switch (verb) {
+    case 'undo-invoice-close':
+      return isUuid(args.invoice_id) ? post(`/invoice-emails/${args.invoice_id}/undo`) : null;
     case 'set-market-agent':
     case 'remove-deal-participant': {
       const party_id = verb === 'set-market-agent' ? args.agent_party_id : args.party_id;
@@ -434,6 +440,7 @@ async function cutoverSave(request, env, call) {
   const body = await response.json().catch(() => null);
   if (!isObject(body)) return unavailable(false);
   if (!response.ok) {
+    if (name === 'undo-invoice-close' && body.rule === 'invoice_email_undo_current') body.error = 'version_conflict';
     const peopleOrDate = name === 'set-market-agent' || name === 'remove-deal-participant' || name.endsWith('-critical-date');
     const invalidClosingDate = name === 'update-deal' && body.error === 'invalid_field_value'
       && Array.isArray(body.fields) && body.fields.length === 1 && body.fields[0] === 'phase';
@@ -443,11 +450,13 @@ async function cutoverSave(request, env, call) {
       : invalidClosingDate ? 'Choose a closing date between the day the deal reached its current phase and today.'
       : peopleOrDate ? dealPeopleAndDateHint(name, body) ?? 'Review the deal and try saving again.'
       : body.error === 'version_conflict' ? 'This deal changed. Reload the deal before saving.'
+      : body.error === 'invoice_already_paid' ? 'The invoice has been paid, so the close cannot be undone.'
       : body.error === 'step_ended' ? 'This step was already closed. Reload the deal to see its current steps.'
       : 'The change could not be saved. Review the deal and try again.';
     return mcpReply(call, response, JSON.stringify({ ...body, hint }), true);
   }
   const saved = creating ? isUuid(body.deal_id) && Number.isSafeInteger(body.change_id) && body.change_id >= 0
+    : name === 'undo-invoice-close' ? body.invoice_id === args.invoice_id && body.status === 'undone'
     : save.path.endsWith('/changes') ? body.deal_id === args.deal
     : save.body.party_id ? body.deal_id === args.deal && body.party_id === save.body.party_id && body.role === save.body.role
     : name.endsWith('-critical-date') ? isUuid(body.critical_date_id)
@@ -488,7 +497,8 @@ async function engineSave(request, env) {
     if (!isUuid(id)) return saveRefusal(call, 'not_found', 'Refresh Home and try again.');
     if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     const [record, action] = homeSave;
-    return engineAnswer(request, env, call, { path: `/api/engine/${record}/${id}/${action}` }, { allowHandoff: false, body });
+    return engineAnswer(request, env, call, { path: `/api/engine/${record}/${id}/${action}` },
+      { allowHandoff: false, body, rawClientError: record === 'proposals' });
   }
   if (LEGACY_HOME_MARKS.has(call.params.name)) {
     const { items, undo_of } = call.params.arguments;
@@ -523,12 +533,12 @@ async function sendEngineSave(request, env, path, body) {
 }
 
 // Only the legacy-schema saves share a receipt with CARR.
-async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments } = {}) {
+async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments, rawClientError = false } = {}) {
   const response = await sendEngineSave(request, env, save.path, body);
   if (!response) return unavailable(false);
   let text;
   try {
-    if ([401, 403, 429].includes(response.status)) return response;
+    if ((rawClientError && response.status >= 400 && response.status < 500) || [401, 403, 429].includes(response.status)) return response;
     text = await response.text();
   } catch { return unavailable(false); }
   const handoff = OLD_SYSTEM_ANSWERS.get(response.status);

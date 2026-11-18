@@ -49,8 +49,20 @@ export const hasEngineReview = (item: InboxItem) =>
 function source(value: unknown) {
   if (!object(value)) return null;
   const happened = string(value.happened_at);
+  const sender = string(value.sender_name) || string(value.sender) || string(value.contact);
+  const from =
+    value.kind === "call"
+      ? `From your call${sender ? ` with ${sender}` : ""}`
+      : value.kind === "meeting"
+        ? "From this meeting"
+        : value.kind === "email"
+          ? sender
+            ? `From ${sender}`
+            : "From this email"
+          : "From this note";
   return {
-    sender: string(value.sender_name) || string(value.sender),
+    sender,
+    from,
     subject: string(value.subject),
     excerpt: string(value.body) || string(value.summary) || "",
     occurredAt: happened && Number.isFinite(Date.parse(happened)) ? happened : null,
@@ -62,17 +74,37 @@ async function answer(rpc: Rpc, name: string, args: unknown, signal?: AbortSigna
     if (object(error) && object(error.payload)) return error.payload;
     throw error;
   });
-  if (object(value) && typeof value.error === "string") {
-    const resolved = ["draft_changed", "already_decided", "not_found"].includes(value.error);
-    const code = resolved
-      ? "home_review_resolved"
-      : value.error === "not_mailbox_owner"
-        ? "email_draft_not_owner"
-        : value.error;
+  if (object(value) && (typeof value.error === "string" || typeof value.http_status === "number")) {
+    const error = string(value.error) ?? "suggestion_refused";
+    const resolved = ["draft_changed", "already_decided", "not_found"].includes(error);
+    const code = resolved ? "home_review_resolved" : error === "not_mailbox_owner" ? "email_draft_not_owner" : error;
     throw Object.assign(Error(code), { payload: { ...value, error: code } });
   }
   if (!object(value)) throw unreadable();
   return value;
+}
+export const openStepRefusal =
+  "You already have an open step for this client or deal. Finish or change that step first.";
+
+export function proposalRefusal(error: unknown) {
+  const payload = object(error) && object(error.payload) ? error.payload : null;
+  const status = payload?.http_status;
+  if (payload?.error === "home_routing_changed") return "Home changed. Refresh the inbox and try again.";
+  if (!payload || typeof status !== "number" || status < 400 || status >= 500) return null;
+  switch (payload.error) {
+    case "open_step_exists":
+      return `${openStepRefusal} Or dismiss this suggestion.`;
+    case "version_conflict":
+      return "current_stage" in payload
+        ? "This lead has moved since the suggestion. Dismiss it, or open the lead."
+        : "This deal has moved since the suggestion. Dismiss it, or open the deal.";
+    case "home_review_resolved":
+      return "This suggestion is already gone. Refresh the inbox to see what remains.";
+    default:
+      return status === 401 || status === 403
+        ? "Sign in as the partner who can decide this suggestion."
+        : "This suggestion could not be saved. Review the linked record or dismiss the suggestion.";
+  }
 }
 export type Suggestion = {
   id: string;
