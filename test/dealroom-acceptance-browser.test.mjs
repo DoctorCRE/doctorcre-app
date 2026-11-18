@@ -176,9 +176,17 @@ for (const width of [390, 1280]) test(`signed-in Add deal persists through reloa
   assert.deepEqual(errors,[]);
 });
 
-for (const [code, message] of [
-  ['subject_not_found', 'There’s no client named “Sample Cafe” yet. Pick an existing client, or add the client first.'],
-  ['not_a_client', '“Sample Cafe” is not an existing client. Pick an existing client, or add the client first.'],
+for (const { code, hint, message } of [
+  {
+    code: 'subject_not_found',
+    hint: 'No record matched the supplied reference or name. Check it and try again.',
+    message: 'There’s no client named “Sample Cafe” yet. Pick an existing client, or add the client first.',
+  },
+  {
+    code: 'not_a_client',
+    hint: 'Choose an existing client by reference or exact name.',
+    message: '“Sample Cafe” is not an existing client. Pick an existing client, or add the client first.',
+  },
 ]) test(`Add deal stays editable after ${code}`, async t => {
   const page = await browser.newPage();
   t.after(() => page.close());
@@ -190,9 +198,7 @@ for (const [code, message] of [
     requests.push(params.arguments);
     if (params.arguments.client !== 'Sample Cafe') return route.continue();
     return route.fulfill({ json: { jsonrpc: '2.0', id, result: { isError: true, content: [{
-      type: 'text', text: JSON.stringify({ error: code,
-        correlation_id: '00000000-0000-4000-8000-000000000001',
-        hint: 'Choose an existing client.' }),
+      type: 'text', text: JSON.stringify({ error: code, correlation_id: '00000000-0000-4000-8000-000000000001', hint }),
     }] } } });
   });
 
