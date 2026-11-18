@@ -126,7 +126,7 @@
  * @property {(args:{candidate_id:string, accept:boolean, idempotency_key:string}) => Promise<WriteResult>} [resolvePostCallCandidate]
  * @property {(args:{proposal_id:string,base_version:number,subject:string,body:string,idempotency_key:string}) => Promise<Object>} editEmailDraft saves owned draft text without sending
  * @property {(args:{proposal_id:string,base_version:number,subject:string,body:string,to:string[],cc:string[],idempotency_key:string}) => Promise<Object>} submitEmailDraft queues exact partner-reviewed reply text for sending
- * @property {(args?:{deal?:string,limit?:number,cursor?:string,include_non_deal?:boolean}) => Promise<{schema_version:'email-proposals.v1', proposals:Object[], send:false, more?:boolean, next_cursor?:string|null}>} listEmailProposals pending email proposals, oldest first
+ * @property {(args?:{deal?:string,limit?:number,cursor?:string,include_non_deal?:boolean},signal?:AbortSignal) => Promise<{schema_version:'email-proposals.v1', proposals:Object[], send:false, more?:boolean, next_cursor?:string|null}>} listEmailProposals pending email proposals, oldest first
  * @property {(args:{proposal_id:string,deal:string,correction_reason?:string}) => Promise<Object>} previewEmailFiling exact-target v2 review
  * @property {(proposalId:string) => {method:string,request:Object}|null} [getPendingEmailAction] retained email action for panel recovery
  * @property {(args:{proposal_id:string,base_version:number,deferred_until:string,note?:string,idempotency_key:string}) => Promise<Object>} snoozeEmailProposal durable deferral

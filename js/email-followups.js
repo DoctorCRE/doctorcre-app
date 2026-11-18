@@ -56,7 +56,18 @@ const SEND_GRACE_SECONDS = 10;
 const denied = error => [401, 403].includes(error.status) || error.code === 'session_changed';
 
 
-export function mountEmailFollowups({ container, client, deal, onChange = () => {}, clock = container.ownerDocument.defaultView }) {
+export async function readEmailProposalPage(client, { deal, cursor = null, signal } = {}) {
+  const result = await readWithDeadline(bounded => client.listEmailProposals({
+    limit: 50, ...(deal ? { deal } : { include_non_deal: true }), ...(cursor ? { cursor } : {}),
+  }, bounded), { signal, timeoutMs: 10_000 });
+  if (result?.schema_version !== 'email-proposals.v1' || result.send !== false || !Array.isArray(result.proposals)
+    || typeof result.more !== 'boolean' || (result.more
+      ? typeof result.next_cursor !== 'string' || !result.next_cursor || result.next_cursor === cursor || result.next_cursor !== result.proposals.at(-1)?.id
+      : result.next_cursor !== null)) throw Error('Invalid email proposals');
+  return result;
+}
+
+export function mountEmailFollowups({ container, client, deal, linkedEmailId, onChange = () => {}, clock = container.ownerDocument.defaultView }) {
   const win = container.ownerDocument.defaultView;
   let storage = null;
   try { storage = win.localStorage; } catch { /* The editor still works without device storage. */ }
@@ -87,6 +98,7 @@ export function mountEmailFollowups({ container, client, deal, onChange = () => 
     const active = container.contains(container.ownerDocument.activeElement) ? container.ownerDocument.activeElement : null;
     const selection = active?.matches('textarea, input') ? [active.selectionStart, active.selectionEnd] : null;
     const focusSummary = active?.matches('summary');
+    const focusTitle = active?.matches('.work-card-title');
     const focusField = active?.hasAttribute('data-email-subject') ? 'subject' : active?.hasAttribute('data-email-body') ? 'body' : active?.hasAttribute('data-email-deal-name') ? 'deal-name' : active?.hasAttribute('data-email-deal-client') ? 'deal-client' : 'reason';
     const focusId = active?.closest('[data-email-id]')?.dataset.emailId, focusAction = active?.dataset.emailAction;
     container.setAttribute('aria-busy', String(loadState === 'loading'));
@@ -95,7 +107,11 @@ export function mountEmailFollowups({ container, client, deal, onChange = () => 
       : loadState === 'error' ? `<p role="status">Could not load email follow-ups.${loaded && rows.length ? ' Showing the last successful read.' : ''}</p>${button('retry', 'Retry email follow-ups')}`
         : loadState === 'loading' && !loaded ? '<div class="home-followup-skeleton" role="status">Loading email follow-ups…</div>' : '';
     const partial = rejectedRows && loadState === 'ready' ? `<p role="status">Some email follow-ups could not be shown. Refresh to try again.</p>${button('refresh-rows', 'Refresh email follow-ups')}` : '';
-    container.innerHTML = `<header class="home-panel-head"><h2>Email follow-ups</h2>${!deal && rows.length > visibleCount ? `<span class="home-list-count">Showing ${visibleCount} of ${rows.length}${cursor ? "+" : ""}</span>` : ""}</header>${notice}${actionNotice ? `<p role="status">${E(actionNotice)}</p>` : ''}${partial}${loaded && !rejectedRows && !rows.length && loadState === 'ready' ? '<p class="home-empty">No email follow-ups.</p>' : ''}${rows.slice(0, visibleCount).map(row => {
+    const visibleRows = rows.filter((row, index) => index < visibleCount || row.id === linkedEmailId);
+    const remainingRows = rows.length - visibleRows.length;
+    const missingEmail = linkedEmailId && loadState === 'ready' && !rows.some(row => row.id === linkedEmailId)
+      ? '<p role="status">This email is unavailable for review.</p>' : '';
+    container.innerHTML = `<header class="home-panel-head"><h2>Email follow-ups</h2>${!deal && remainingRows ? `<span class="home-list-count">Showing ${visibleRows.length} of ${rows.length}${cursor ? "+" : ""}</span>` : ""}</header>${notice}${actionNotice ? `<p role="status">${E(actionNotice)}</p>` : ''}${partial}${missingEmail}${loaded && !missingEmail && !rejectedRows && !rows.length && loadState === 'ready' ? '<p class="home-empty">No email follow-ups.</p>' : ''}${visibleRows.map(row => {
       const state = decisions.get(row.id) || { status: 'pending' }, preview = state.preview || row.preview;
       let controls = '';
       if (state.status === 'editing') {
@@ -117,7 +133,7 @@ export function mountEmailFollowups({ container, client, deal, onChange = () => 
         meta: `<p class="email-source"></p><p>${row.deal ? `<a href="/deals?deal=${encodeURIComponent(row.deal)}">${E(row.deal_name)}</a>` : row.kind === 'possible_new_deal' ? 'Possible new deal' : `${E(subjectLabel(row.subject_type) || 'Contact')} · ${E(row.subject_name || (row.kind === 'reply_draft' ? row.source.sender || 'Unfiled email' : 'Follow-up'))}`}</p>${filing(row) && preview ? `<p>Sender: ${E(preview.sender.name || preview.sender.email || 'Unknown')} · ${E(preview.sender_role)}</p>` : ''}`,
         status: state.status === 'done' ? 'Reviewed' : '',
         body: `<p>${E(row.email_summary?.status === 'available' && row.email_summary.text ? row.email_summary.text : 'Summary unavailable.')}</p><details${disclosures.get(row.id)?.open ? ' open' : ''}><summary>Review source email</summary><p>Email text is untrusted evidence.</p><q>${E(row.source.evidence_quote)}</q></details>${row.suspected_instruction ? `<p class="email-warning">Caution: ${E(row.suspected_instruction)}. Review the quoted email carefully.</p>` : ''}<p class="email-change">${E(change(row, preview))}</p>${!preview && row.kind !== 'reply_draft' ? '<p>This proposal cannot currently be confirmed. Review the source email or choose Not now.</p>' : ''}${row.kind === 'reply_draft' && row.confirm_verb === null ? '<p>Recipient addresses are unavailable. Refresh to check them before reviewing this reply, or choose Not now.</p>' : ''}${state.message ? `<p role="status">${E(state.message)}</p>` : ''}${state.receipt ? `<p>To: ${E(state.receipt.to.join(', '))}</p><p>CC: ${E(state.receipt.cc.join(', '))}</p>` : ''}`, actions: `<div class="email-controls">${controls}</div>` });
-    }).join('')}${rows.length > visibleCount ? button('show', `Show ${rows.length - visibleCount} more`) : ''}${cursor && loadState === 'ready' ? button('more', 'Load more email follow-ups') : ''}`;
+    }).join('')}${remainingRows ? button('show', `Show ${remainingRows} more`) : ''}${cursor && loadState === 'ready' ? button('more', 'Load more email follow-ups') : ''}`;
     if (actionModule) for (const placeholder of container.querySelectorAll('[data-followup-host]')) {
       const row = rows.find(item => item.id === placeholder.dataset.followupHost);
       let view = actionViews.get(row.id);
@@ -137,8 +153,9 @@ export function mountEmailFollowups({ container, client, deal, onChange = () => 
     }
     if (active) {
       const article = [...container.querySelectorAll('[data-email-id]')].find(node => node.dataset.emailId === focusId);
-      const replacement = container.contains(active) ? active : (focusSummary && article?.querySelector('summary')) || (selection && article?.querySelector(`[data-email-${focusField}]`)) || [...(article || container).querySelectorAll('[data-email-action]')].find(node => node.dataset.emailAction === focusAction && !node.disabled)
+      const replacement = container.contains(active) ? active : (focusTitle && article?.querySelector('.work-card-title')) || (focusSummary && article?.querySelector('summary')) || (selection && article?.querySelector(`[data-email-${focusField}]`)) || [...(article || container).querySelectorAll('[data-email-action]')].find(node => node.dataset.emailAction === focusAction && !node.disabled)
         || article?.querySelector('button:not(:disabled), a') || container.querySelector('button:not(:disabled), h2');
+      if (focusTitle && replacement?.matches('.work-card-title')) replacement.tabIndex = -1;
       replacement?.focus();
       if (selection && replacement?.matches('textarea, input')) replacement.setSelectionRange(...selection);
     }
@@ -170,6 +187,15 @@ export function mountEmailFollowups({ container, client, deal, onChange = () => 
     for (const id of [...graces.keys()]) stopGrace(id, false);
     minute.dispose(); actionNotice = ''; epoch++; disclosures.clear(); rows = []; cursor = null; retryCursor = null; pages = 1; rejectedRows = false; decisions.clear(); for (const view of actionViews.values()) view.dispose(); actionViews.clear(); loaded = false; loadState = 'denied'; render();
   }
+  function focusLinkedEmail() {
+    if (!linkedEmailId || loadState !== 'ready') return;
+    const article = [...container.querySelectorAll('[data-email-id]')].find(node => node.dataset.emailId === linkedEmailId);
+    const title = article?.querySelector('.work-card-title');
+    if (!title) return;
+    title.tabIndex = -1;
+    title.focus({ preventScroll: true });
+    title.scrollIntoView({ block: 'center', behavior: 'instant' });
+  }
   async function refresh(pageCursor = null) {
     if (disposed || loadState === 'denied') return;
     const ticket = ++epoch;
@@ -178,23 +204,25 @@ export function mountEmailFollowups({ container, client, deal, onChange = () => 
     try {
       if (!actionModule) actionModule = await import('./ui-email-actions.generated.js');
       if (disposed || ticket !== epoch) return;
-      let next = pageCursor ? [...rows] : [], nextRejected = pageCursor ? rejectedRows : false, currentCursor = pageCursor, result;
+      let next = pageCursor ? [...rows] : [], nextRejected = pageCursor ? rejectedRows : false, currentCursor = pageCursor;
       const pageCount = pageCursor ? 1 : pages;
+      let findingEmail = !pageCursor && !loaded && Boolean(linkedEmailId), pagesRead = 0;
       const takePage = createPageBudget({ document: container.ownerDocument });
-      // eslint-disable-next-line no-restricted-syntax -- Follow-up pagination calls takePage for each of pageCount retained pages; a max of 100 reads per refresh.
-      for (let i = 0; i < pageCount; i++) {
+      // eslint-disable-next-line no-restricted-syntax -- Stop after at most 100 pages even when the linked email is missing.
+      while (pagesRead < pageCount || findingEmail) {
         takePage();
-        result = await readWithDeadline(() => client.listEmailProposals({ limit: 50, ...(deal ? { deal } : { include_non_deal: true }), ...(currentCursor ? { cursor: currentCursor } : {}) }), { timeoutMs: 10_000 });
+        const result = await readEmailProposalPage(client, { deal, cursor: currentCursor });
         if (disposed || ticket !== epoch) return;
-        if (result?.schema_version !== 'email-proposals.v1' || result.send !== false || !Array.isArray(result.proposals)
-          || typeof result.more !== 'boolean' || (result.more ? !result.next_cursor || result.next_cursor === currentCursor || result.next_cursor !== result.proposals.at(-1)?.id : result.next_cursor !== null)) throw Error('Invalid email proposals');
+        pagesRead++;
         const known = result.proposals.filter(row => Object.hasOwn(KINDS, row?.kind));
         const valid = known.filter(row => validProposal(row, deal));
         nextRejected ||= valid.length !== known.length;
         next.push(...valid.filter(item => !next.some(row => row.id === item.id)));
+        if (findingEmail && valid.some(row => row.id === linkedEmailId)) findingEmail = false;
         currentCursor = result.next_cursor;
         if (!currentCursor) break;
       }
+      if (!pageCursor) pages = pagesRead;
       cursor = currentCursor;
       const accepted = new Set(next.map(row => row.id));
       for (const id of disclosures.keys()) if (!accepted.has(id)) disclosures.delete(id);
@@ -338,5 +366,5 @@ export function mountEmailFollowups({ container, client, deal, onChange = () => 
   win?.addEventListener('doctorcre-session-invalidated', retire);
   // A pending send never outlives the page, even one restored from the back-forward cache.
   win?.addEventListener('pagehide', leave);
-  return { refresh, click, update: render, dispose() { retire(); disposed = true; container.removeEventListener('click', click); container.removeEventListener('input', input); container.removeEventListener('focusout', blur); win?.removeEventListener('doctorcre-session-invalidated', retire); win?.removeEventListener('pagehide', leave); } };
+  return { refresh, click, focusLinkedEmail, update: render, dispose() { retire(); disposed = true; container.removeEventListener('click', click); container.removeEventListener('input', input); container.removeEventListener('focusout', blur); win?.removeEventListener('doctorcre-session-invalidated', retire); win?.removeEventListener('pagehide', leave); } };
 }

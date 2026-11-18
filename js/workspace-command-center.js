@@ -35,8 +35,9 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
   document.addEventListener('keydown', flagKeydown);
   const $ = id => document.getElementById(id);
   const fragmentLanding = new window.AbortController();
+  const linkedEmailId = new URLSearchParams(window.location.search).get('email');
   const cancelLanding = () => fragmentLanding.abort();
-  if (window.location.hash === '#homeEmailFollowups') {
+  if (linkedEmailId || window.location.hash === '#homeEmailFollowups') {
     for (const type of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
       // eslint-disable-next-line no-restricted-syntax -- Cancel four user-input listeners after initial fragment landing or disposal.
       document.addEventListener(type, cancelLanding, { passive: true, signal: fragmentLanding.signal });
@@ -460,13 +461,18 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
   emailActivity?.addEventListener('toggle', openEmailActivity);
   if ($('homeEmailFollowups') && client.listEmailProposals) emailInitialRead = import('./email-followups.js').then(({ mountEmailFollowups }) => {
     if (disposed || emailRetired) return;
-    emailReview = mountEmailFollowups({ container: $('homeEmailFollowups'), client, onChange: () => {
+    emailReview = mountEmailFollowups({ container: $('homeEmailFollowups'), client, linkedEmailId, onChange: () => {
       if (emailActivity?.open) void replyOutcomes?.refresh(); readQueue.request(readHomeAgenda); auto.refresh();
     } });
     return emailReview.refresh();
   });
   Promise.all([auto.refresh(), emailInitialRead]).then(() => {
-    if (fragmentLanding.signal.aborted || disposed || window.location.hash !== '#homeEmailFollowups') return;
+    if (fragmentLanding.signal.aborted || disposed) return;
+    if (linkedEmailId) {
+      cancelLanding();
+      return emailReview?.focusLinkedEmail();
+    }
+    if (window.location.hash !== '#homeEmailFollowups') return;
     const anchor = () => $('homeEmailFollowups')?.scrollIntoView({ block: 'start', behavior: 'instant' });
     // Native smooth fragment scrolling can finish after the initial reads change the layout.
     document.addEventListener('scrollend', () => {

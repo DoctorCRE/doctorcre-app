@@ -1,7 +1,7 @@
 import { temporaryDirectory } from '../scripts/temp-directory.mjs';
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildArtifact } from '../scripts/artifact.mjs';
@@ -21,6 +21,57 @@ after(async () => {
   await browser?.close();
   if (server) { await server.close(); }
   if (outDir) await rm(outDir, { recursive: true, force: true });
+});
+
+test('mail priority names the suggestion and opens its email past the first page', async t => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 900 }, reducedMotion: 'reduce' });
+  t.after(() => page.close());
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'mail-priority-email-link', viewer: 'joe', reset: true } });
+  await page.addInitScript(() => {
+    localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } }));
+    const url = new URL(location.href);
+    if (url.searchParams.has('email')) {
+      url.searchParams.set('mode', 'live');
+      history.replaceState(null, '', url);
+    }
+  });
+  const { ready } = JSON.parse(await readFile(new URL('./fixtures/mail-priority-panel/recordings.json', import.meta.url)));
+  const ranked = { ...ready.items[1], decision_date: '2027-01-05' };
+  const target = {
+    id: ranked.proposal_id, version: ranked.version, kind: 'next_step', deal: null,
+    subject_type: 'client', subject_id: 'sample-contact', subject_name: 'Sample Practice',
+    confirm_verb: 'confirm-email-next-step', preview: null, proposed_next_step: { text: 'Send the revised plan' },
+    source: { activity_id: ranked.source.activity_id, sender: 'Pat Sample <pat@example.test>',
+      subject: 'Second-floor plans', evidence_quote: 'Please send the plan.', occurred_at: '2026-10-26T12:00:00Z' },
+  };
+  const first = { ...target, id: '30000000-0000-4000-8000-000000000098', source: { ...target.source, subject: 'Earlier email' } };
+  await page.route('**/api/v1/intelligence/mail-needs-partner*', route =>
+    route.fulfill({ json: { ...ready, items: [ranked] } }));
+  await page.route('**/mcp', route => {
+    const { name, arguments: args } = route.request().postDataJSON().params;
+    if (name !== 'list-email-proposals') return route.continue();
+    assert.equal(args.include_non_deal, true);
+    const result = { schema_version: 'email-proposals.v1', send: false, ...(args.cursor
+      ? { proposals: [target], more: false, next_cursor: null }
+      : { proposals: [first], more: true, next_cursor: first.id }) };
+    return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(result) }] } } });
+  });
+  await page.goto(`${origin}/?mode=live`);
+  const priorities = page.getByRole('region', { name: 'Mail priorities' });
+  const open = priorities.getByRole('link', { name: 'Pat Sample · Second-floor plans', exact: true });
+  await open.waitFor({ timeout: 5_000 });
+  assert.match(await priorities.innerText(), /Suggested next step · Send the revised plan · Sample Practice/);
+  assert.match(await priorities.innerText(), /Due Jan 5, 2027/);
+  assert.match(await priorities.innerText(), /Showing the 25 most urgent/);
+  await open.click();
+  const title = page.locator('#homeEmailFollowups').getByRole('heading', { name: 'Second-floor plans', exact: true });
+  await title.waitFor({ timeout: 5_000 });
+  await settles(async () => assert.equal(await title.evaluate(node => node === document.activeElement), true));
+  assert.equal(new URL(page.url()).searchParams.get('email'), target.id);
+  assert.ok(await title.evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= innerHeight;
+  }));
 });
 
 for (const width of [1280, 390]) for (const motion of ['no-preference', 'reduce']) test(`email follow-ups fragment lands on review controls at ${width}px with ${motion} motion`, async t => {
