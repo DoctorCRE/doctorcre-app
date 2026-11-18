@@ -630,26 +630,6 @@ test('closing a deal from its details removes the card and retains its close dat
  assert.deepEqual(errors,[]);
 });
 
-test('a refused client stays editable with a clear error and a fresh creation key', async t=>{
- const {page,errors}=await open(t);
- await page.evaluate(async()=>{
-  const {state}=await import('/js/pipeline.js');const create=state.client.createDeal.bind(state.client);window.createKeys=[];
-  state.client.createDeal=async args=>{window.createKeys.push(args.idempotency_key);if(window.createKeys.length===1)throw Object.assign(new Error('Refused'),{creationRefused:true,payload:{error:'subject_not_found'}});return create(args);};
- });
- await page.getByRole('button',{name:'Add deal',exact:true}).click();
- await page.getByLabel('Deal name',{exact:true}).fill('Demo Corrected Deal');
- await page.getByLabel('Client',{exact:true}).fill('Unknown demo');
- await page.getByRole('button',{name:'Create deal',exact:true}).click();
- await waitForAsync(page,()=>document.querySelector('#addDealError').textContent.includes('Client not found'));
- assert.equal(await page.getByLabel('Client',{exact:true}).isEnabled(),true);
- await page.getByLabel('Client',{exact:true}).fill('C-demo');
- await page.getByRole('button',{name:'Create deal',exact:true}).click();
- await waitForAsync(page,()=>!document.querySelector('#addDealDialog').open);
- const keys=await page.evaluate(()=>window.createKeys);assert.notEqual(keys[0],keys[1]);
- assert.deepEqual(errors,[]);
-});
-
-
 test('failed board reads remain unavailable after local view repaints',async t=>{
  const {page,errors}=await open(t);
  await page.evaluate(async()=>{

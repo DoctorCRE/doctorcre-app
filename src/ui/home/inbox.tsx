@@ -1,4 +1,5 @@
 import { type BatchRequest, type BatchResult, parseBatch } from "./batch.ts";
+import { cardKey, completionReview, type MarkUndo, markArgs, markTarget } from "./engine-marks.ts";
 import { parseReference, parseReview, type ReviewReference, type ReviewRequest } from "./review.ts";
 import { completeAction, parseActionReceipt, type TaskReceipt } from "./task-done.ts";
 
@@ -28,6 +29,7 @@ type BaseItem = Readonly<{
 export type InboxItem = BaseItem &
   Readonly<{
     waiting_version?: number;
+    engine_marks?: true;
     waiting_on?: Waiting | null;
     completed_at: string | null;
     auto_settled: boolean;
@@ -68,9 +70,10 @@ type CommandArgs = Readonly<{
   idempotency_key: string;
   items: ReadonlyArray<Pick<InboxItem, "item_id" | "base_version">>;
 }>;
-type DispositionCommand =
+type DispositionCommand = { engine_marks?: true } & (
   | Readonly<{ action: "snooze"; args: CommandArgs & Readonly<{ until: string }> }>
-  | Readonly<{ action: "settle" | "unsettle"; args: CommandArgs }>;
+  | Readonly<{ action: "settle" | "unsettle"; args: CommandArgs }>
+);
 
 export type { TaskReceipt } from "./task-done.ts";
 
@@ -101,9 +104,10 @@ export function taskCommand(action: "complete" | "reopen", item: InboxItem, rece
   };
 }
 
-export type ItemResult =
-  | { item_id: string; ok: true; item: InboxItem; receipt?: TaskReceipt }
-  | { item_id: string; ok: false; error: string; current_version?: string; current_item?: InboxItem };
+export type ItemResult = { snapshot?: Snapshot } & (
+  | { item_id: string; ok: true; item: InboxItem; receipt?: TaskReceipt; undo?: MarkUndo }
+  | { item_id: string; ok: false; error: string; current_version?: string; current_item?: InboxItem }
+);
 export function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -161,7 +165,7 @@ const day = (value: unknown) =>
   /^\d{4}-\d{2}-\d{2}$/.test(value) &&
   Number.isFinite(Date.parse(value)) &&
   new Date(value).toISOString().slice(0, 10) === value;
-export function parseItem(value: unknown, v3 = false, v4 = false): InboxItem {
+export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = false): InboxItem {
   const legacy = parseBaseItem(value);
   if (
     !object(value) ||
@@ -189,10 +193,9 @@ export function parseItem(value: unknown, v3 = false, v4 = false): InboxItem {
   if (
     task
       ? !uuid(value.action_id) ||
-        !Number.isSafeInteger(value.action_version) ||
         typeof value.action_version !== "number" ||
-        value.action_version < 1 ||
-        value.action_version > 2147483647
+        !Number.isInteger(value.action_version) ||
+        (engineMarks ? value.action_version < 0 : value.action_version < 1 || value.action_version > 2147483647)
       : ![
           "capture_session",
           "email_proposal",
@@ -232,6 +235,7 @@ export function parseItem(value: unknown, v3 = false, v4 = false): InboxItem {
   // Version-specific checks above validate the item before normalized optional fields are added.
   return {
     ...value,
+    ...(engineMarks && { engine_marks: true }),
     ...(value.review_reference === undefined
       ? {}
       : {
@@ -265,7 +269,7 @@ export function parseSnapshot(value: unknown): Snapshot {
   )
     throw Error("Inbox unavailable. The server could not provide the complete inbox.");
   const items = value.items.map((item) => {
-    const parsed = parseItem(item, contract.settlement, contract.completion);
+    const parsed = parseItem(item, contract.settlement, contract.completion, value.engine_marks === true);
     if (!contract.waiting) {
       const { waiting_version, waiting_on, ...legacy } = parsed;
       return legacy;
@@ -317,11 +321,15 @@ export function command(action: Action, items: readonly InboxItem[], until?: str
     idempotency_key: crypto.randomUUID(),
     items: items.map(({ item_id, base_version }) => ({ item_id, base_version })),
   };
+  // Completion reviews still use the legacy snooze route until the inbox supplies their mark target.
+  const engine = items.some((item) => item.engine_marks && (action === "settle" || !completionReview(item.item_id)))
+    ? { engine_marks: true as const }
+    : {};
   if (action === "snooze") {
     if (!until) throw Error("Choose a future snooze time.");
-    return { action, args: { ...args, until } };
+    return { ...engine, action, args: { ...args, until } };
   }
-  return { action, args };
+  return { ...engine, action, args };
 }
 export function parseResults(
   value: unknown,
@@ -394,6 +402,27 @@ export type InboxClient = {
 export function createInboxClient(
   rpc: (name: string, args: unknown, signal?: AbortSignal) => Promise<unknown>,
 ): InboxClient {
+  async function saveMark(args: ReturnType<typeof markArgs>): Promise<MarkUndo> {
+    const value = await rpc("save-engine-home-mark", args);
+    if (object(value) && typeof value.error === "string") throw Object.assign(Error(value.error), { payload: value });
+    const previous = object(value) ? value.previous : null;
+    if (
+      !object(value) ||
+      value.ok !== true ||
+      value.item_id !== args.item_id ||
+      !text(value.base_version) ||
+      !object(previous) ||
+      (previous.disposition !== null && previous.disposition !== "settled" && previous.disposition !== "snoozed") ||
+      (previous.snoozed_until !== null && (!text(previous.snoozed_until) || !timestamp(previous.snoozed_until)))
+    )
+      throw Error("Home change could not be confirmed. Retry the same request.");
+    return {
+      item_id: args.item_id,
+      base_version: value.base_version,
+      disposition: previous.disposition,
+      snoozed_until: previous.snoozed_until,
+    };
+  }
   async function read(signal?: AbortSignal): Promise<Snapshot> {
     // eslint-disable-next-line no-restricted-syntax -- At most four version reads; only unknown_tool advances to the next version.
     for (const { version } of inboxVersions) {
@@ -495,7 +524,57 @@ export function createInboxClient(
     },
     async batch(request, expected) {
       if (navigator.onLine === false) throw Error("Offline. No change was sent. Reconnect and retry manually.");
-      const receipt = parseBatch(await rpc(`${request.action}-home-inbox`, request.args), request, expected);
+      let receipt: Omit<BatchResult, "snapshot">;
+      if (request.engine_marks) {
+        const { args } = request;
+        const change = { action: request.action, ...("until" in args && { until: args.until }) };
+        const attempts =
+          "undo_of" in args ? (request.restore ?? []) : args.items.map((target) => ({ ...target, ...change }));
+        async function saveCard(target: (typeof attempts)[number], index: number) {
+          const item_id = target.item_id;
+          if (completionReview(item_id)) {
+            const key = cardKey(args.idempotency_key, index);
+            const identity = { reversible: true as const, idempotency_key: key };
+            const legacy: BatchRequest | null =
+              "legacy_key" in target
+                ? { action: "snooze", args: { ...identity, items: [{ item_id }], undo_of: target.legacy_key } }
+                : "until" in args
+                  ? {
+                      action: "snooze",
+                      args: {
+                        ...identity,
+                        items: [{ item_id, base_version: target.base_version }],
+                        until: args.until,
+                      },
+                    }
+                  : null;
+            if (legacy) {
+              const result = parseBatch(await rpc("snooze-home-inbox", legacy.args), legacy, [item_id]);
+              const row = result.results[0];
+              if (row) return { ...row, undo: { item_id, legacy_key: result.batch_key } };
+            }
+          }
+          if (!markTarget(item_id) || !("action" in target)) return { item_id, status: "not_allowed" as const };
+          try {
+            const undo = await saveMark(markArgs(target, target, args.idempotency_key, index));
+            return { item_id, status: "applied" as const, undo };
+          } catch (error) {
+            const code = object(error) && object(error.payload) ? error.payload.error : null;
+            if (code === "home_item_not_found") return { item_id, status: "not_found" as const };
+            if (code === "version_conflict" || code === "invalid_snooze_time" || code === "home_routing_changed")
+              return { item_id, status: "not_allowed" as const, error: code };
+            throw error;
+          }
+        }
+        const outcomes = await Promise.allSettled(attempts.map(saveCard));
+        const results = outcomes.map((outcome) => {
+          if (outcome.status === "rejected") throw outcome.reason;
+          return outcome.value;
+        });
+        receipt = { batch_key: "undo_of" in args ? args.undo_of : args.idempotency_key, results };
+      } else {
+        receipt = parseBatch(await rpc(`${request.action}-home-inbox`, request.args), request, expected);
+      }
       let snapshot: Snapshot | null = null;
       try {
         snapshot = await read();
@@ -507,6 +586,7 @@ export function createInboxClient(
     async run(request) {
       if (navigator.onLine === false) throw Error("Offline. No change was sent. Reconnect and retry manually.");
       if (request.action === "complete" || request.action === "reopen") {
+        // The step door needs guarded completion and Undo before these calls can move.
         const { items, ...args } = request.args;
         const receipt =
           request.action === "complete"
@@ -525,6 +605,33 @@ export function createInboxClient(
         )
           return [{ item_id, ok: false, error: "intervening_change", current_item: item }];
         return [{ item_id, ok: true, item, receipt }];
+      }
+      if ("engine_marks" in request && request.engine_marks) {
+        const { args } = request;
+        const change = { action: request.action, ...("until" in args && { until: args.until }) };
+        const marks = await Promise.all(
+          args.items.map(async (target, index) =>
+            markTarget(target.item_id) ? saveMark(markArgs(target, change, args.idempotency_key, index)) : null,
+          ),
+        );
+        const snapshot = await read();
+        return request.args.items.map(({ item_id }, index) => {
+          const undo = marks[index];
+          if (!undo) return { item_id, ok: false, error: "home_item_not_found", snapshot };
+          // Waking a held step can bring back its completion review for the same underlying step.
+          const item = snapshot.items.find(
+            (item) =>
+              item.item_id === item_id ||
+              (item.engine_marks &&
+                "completion_review" in item &&
+                object(item.completion_review) &&
+                item.completion_review.next_step_id === item_id.split(":")[1]),
+          );
+          if (!item) return { item_id, ok: false, error: "home_item_not_found", snapshot };
+          return item.base_version === undo.base_version
+            ? { item_id, ok: true, item, undo, snapshot }
+            : { item_id, ok: false, error: "intervening_change", current_item: item, snapshot };
+        });
       }
       const results = parseResults(await rpc(`${request.action}-home-inbox`, request.args), request);
       if (!results.some((result) => result.ok)) return results.flatMap((result) => (result.ok ? [] : [result]));

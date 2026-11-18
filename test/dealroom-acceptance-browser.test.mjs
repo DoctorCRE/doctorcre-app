@@ -176,6 +176,60 @@ for (const width of [390, 1280]) test(`signed-in Add deal persists through reloa
   assert.deepEqual(errors,[]);
 });
 
+for (const { code, hint, message } of [
+  {
+    code: 'subject_not_found',
+    hint: 'No record matched the supplied reference or name. Check it and try again.',
+    message: 'There’s no client named “Sample Cafe”. Check the spelling or pick an existing client.',
+  },
+  {
+    code: 'not_a_client',
+    hint: 'Choose an existing client by reference or exact name.',
+    message: '“Sample Cafe” is not an existing client. Check the spelling or pick an existing client.',
+  },
+]) test(`Add deal stays editable after ${code}`, async t => {
+  const page = await browser.newPage();
+  t.after(() => page.close());
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `add-deal-${code}`, viewer: 'joe', reset: true } });
+  const requests = [];
+  await page.route('**/mcp', route => {
+    const { id, params } = route.request().postDataJSON();
+    if (params.name !== 'new-deal') return route.continue();
+    requests.push(params.arguments);
+    if (params.arguments.client !== 'Sample Cafe') return route.continue();
+    return route.fulfill({ json: { jsonrpc: '2.0', id, result: { isError: true, content: [{
+      type: 'text', text: JSON.stringify({ error: code, correlation_id: '00000000-0000-4000-8000-000000000001', hint }),
+    }] } } });
+  });
+
+  await page.goto(`${origin}/deals?mode=live`);
+  await page.locator('.kanban-card').first().waitFor();
+  await page.getByRole('button', { name: 'Add deal', exact: true }).click();
+  const client = page.getByLabel('Client', { exact: true });
+  await page.getByLabel('Deal name', { exact: true }).fill('Sample Cafe');
+  await client.fill('Sample Cafe');
+  await page.getByLabel('Owner', { exact: true }).selectOption('dell');
+  await page.getByLabel('Type', { exact: true }).selectOption('other');
+  await page.getByLabel('Notes', { exact: true }).fill('Discuss the first location.');
+  const submit = page.getByRole('button', { name: 'Create deal', exact: true });
+  await submit.click();
+  const feedback = page.locator('#addDealError').filter({ hasText: /\S/ });
+  await feedback.waitFor();
+  assert.equal(await feedback.textContent(), message);
+  assert.equal(await client.isEnabled(), true);
+  assert.equal(await client.inputValue(), 'Sample Cafe');
+  await client.fill('C-demo');
+  await submit.click();
+  const card = page.locator('[data-column="pending"]').getByRole('button', { name: 'Sample Cafe', exact: true });
+  await card.click();
+  const updates = page.getByRole('region', { name: 'Deal updates', exact: true });
+  await updates.locator('.updates-history > summary').click();
+  await updates.getByText('Discuss the first location.', { exact: true }).waitFor();
+  assert.equal(await page.locator('#detailOwner').inputValue(), 'dell');
+  assert.equal(requests.length, 2);
+  assert.notEqual(requests[0].idempotency_key, requests[1].idempotency_key);
+});
+
 test('Deals shows late steps and can undo a close reported by the engine', async t => {
   const page = await browser.newPage({ timezoneId: 'America/Chicago' });
   t.after(() => page.close());
@@ -400,14 +454,17 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   await page.getByRole('button', { name: 'Add deal', exact: true }).click();
   await page.getByLabel('Deal name').fill('Example Unmatched Deal');
   for (const [list, name, hint] of [
-    ['available', 'Example Unknown', 'Choose an existing client.'],
+    ['available', 'Example Unknown', 'There’s no client named “Example Unknown”. Check the spelling or pick an existing client.'],
     ['multiple', 'Example Practice', 'More than one client has that name, so use the full client reference.'],
     ['unavailable', 'Example Practice', 'The client list is unavailable, so try again in a moment.'],
   ]) {
     clientList = list;
     await page.getByLabel('Client', { exact: true }).fill(name);
     await page.getByRole('button', { name: 'Create deal' }).click();
-    await page.locator('#addDealError').getByText(hint, { exact: true }).waitFor();
+    const feedback = page.locator('#addDealError').filter({ hasText: /\S/ });
+    await feedback.waitFor();
+    assert.equal(await feedback.textContent(), hint);
+    assert.equal(await page.getByLabel('Client', { exact: true }).isEnabled(), true);
     assert.equal(writes.length, 0);
   }
   clientList = 'available';
