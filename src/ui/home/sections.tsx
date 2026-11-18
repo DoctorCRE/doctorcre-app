@@ -38,7 +38,8 @@ export function completionGroups(items: readonly InboxItem[], now: Date) {
 }
 export function completionLabel(item: InboxItem) {
   if (!item.completed_at) return "Done, time not recorded";
-  return `Done ${completionFormat.format(new Date(item.completed_at))}`;
+  const label = item.engine_marks && item.kind_label === "Reply draft" ? "Sent" : "Done";
+  return `${label} ${completionFormat.format(new Date(item.completed_at))}`;
 }
 
 function Slice({

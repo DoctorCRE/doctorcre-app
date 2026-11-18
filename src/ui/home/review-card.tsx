@@ -140,7 +140,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
         return;
       }
       if (request.verb === "edit-email-draft") {
-        if (!result.item)
+        if (!result.item || (result.snapshot && result.item.source_version !== String(result.saved_version)))
           throw Object.assign(Error("The saved draft changed."), { payload: { error: "version_conflict" } });
         anchor.current = result.item;
         const next = await client.load(result.item);
@@ -159,7 +159,9 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
           phase: "done",
           message:
             request.verb === "submit-email-draft"
-              ? "Reply submitted to the existing sender. Delivery is not yet confirmed."
+              ? item.engine_marks
+                ? "Sending"
+                : "Reply submitted to the existing sender. Delivery is not yet confirmed."
               : "This card is confirmed. Its current state is shown in your inbox.",
         });
         setMessage("");
@@ -180,7 +182,14 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
     if (!review || !editable || lock.current || !form.current) return;
     if (op.verb !== "dismiss-email-proposal" && !form.current.reportValidity()) return;
     let input: Record<string, unknown> = {};
-    if (op.verb === "edit-email-draft" || op.verb === "submit-email-draft") input = { subject, body };
+    if (op.verb === "edit-email-draft" || op.verb === "submit-email-draft")
+      input = {
+        subject,
+        body,
+        ...(op.verb === "submit-email-draft" &&
+          review.kind === "reply_draft" &&
+          review.attachments && { document_ids: review.attachments.map((row) => row.id) }),
+      };
     if (op.verb === "dismiss-email-proposal") {
       if (!reason.trim()) {
         setMessage("Give a reason before declining this draft.");
@@ -291,7 +300,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
             setMessage("");
           }}
         >
-          <fieldset disabled={!editable}>
+          <fieldset disabled={!editable || (review.kind === "reply_draft" && !review.operations.length)}>
             <legend>
               {review.kind === "reply_draft"
                 ? "Exact reply for review"
@@ -352,7 +361,12 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
               ))}
             {review.kind === "reply_draft" && (
               <>
-                {review.recipients ? (
+                {review.addresses ? (
+                  <>
+                    <p>To: {review.addresses.to || "Unavailable"}</p>
+                    <p>CC: {review.addresses.cc || "Unavailable"}</p>
+                  </>
+                ) : review.recipients ? (
                   <>
                     <p>To: {review.recipients.to.join(", ")}</p>
                     <p>CC: {review.recipients.cc.join(", ")}</p>
@@ -360,12 +374,21 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                 ) : (
                   <p>Send recipients are unavailable.</p>
                 )}
-                {!review.operations.some((op) => op.verb === "submit-email-draft") && (
-                  <p>
-                    Sending unavailable:{" "}
-                    {review.sendUnavailableReason || "The source record does not allow sending this draft."}
-                  </p>
+                {review.statusMessage ? (
+                  <p role="status">{review.statusMessage}</p>
+                ) : (
+                  !review.operations.some((op) => op.verb === "submit-email-draft") && (
+                    <p>
+                      Sending unavailable:{" "}
+                      {review.sendUnavailableReason || "The source record does not allow sending this draft."}
+                    </p>
+                  )
                 )}
+                {review.attachments?.map((attachment) => (
+                  <p key={attachment.id}>
+                    <a href={`/api/engine/documents/${encodeURIComponent(attachment.id)}`}>{attachment.name}</a>
+                  </p>
+                ))}
                 <details>
                   <summary>Current saved reply</summary>
                   <p>{review.subject}</p>
@@ -392,8 +415,9 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                   />
                 </label>
                 <p>
-                  Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to
-                  these recipients.
+                  {item.engine_marks
+                    ? "Save draft keeps your edits. Send reply approves this exact text from your mailbox."
+                    : "Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to these recipients."}
                 </p>
                 <label>
                   Reason for declining
@@ -536,7 +560,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                 }
                 onClick={() => choose(op)}
               >
-                {labels[op.verb]}
+                {item.engine_marks && op.verb === "submit-email-draft" ? "Send reply" : labels[op.verb]}
               </button>
             ))}
           </div>

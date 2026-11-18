@@ -4,8 +4,9 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
+import { EngineMailPriorities } from "./engine-mail-priorities.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
-import { hasEngineReview } from "./engine-review.ts";
+import { draftCardStatus, hasEngineReview } from "./engine-review.ts";
 import {
   type Action,
   type Command,
@@ -356,11 +357,21 @@ function Inbox({ client }: { client: InboxClient }) {
     }
   }
   const items = query.data?.items || [];
+  const availableUndo = undo.filter((entry) => {
+    if (!("mark" in entry)) return true;
+    return items.some(
+      (item) =>
+        item.item_id === entry.mark.item_id &&
+        item.base_version === entry.mark.base_version &&
+        item.source_state !== "done" &&
+        item.source_state !== "working",
+    );
+  });
   const placed = shelves(items, item_id);
   const picked = items.filter((item) => selected.has(item.item_id));
-  function openCard(item: InboxItem, opener: HTMLElement) {
+  function openCard(item: InboxItem, opener: HTMLElement, proposal?: string) {
     reviewOpener.current = opener;
-    setReviewing(item);
+    setReviewing(proposal ? { ...item, review_proposal: proposal } : item);
   }
   const openingLocked = busy || !!pending || !!reviewing;
   function row(item: InboxItem) {
@@ -375,10 +386,7 @@ function Inbox({ client }: { client: InboxClient }) {
     const markAction = item.disposition === "inbox" ? "settle" : "unsettle";
     const markable =
       !item.engine_marks ||
-      (item.source_state !== "done" &&
-        item.source_state !== "working" &&
-        markTarget(item.item_id) &&
-        (!item.item_id.startsWith("notification:") || item.kind_label === "Update"));
+      (item.source_state !== "done" && item.source_state !== "working" && markTarget(item.item_id));
     const completable = item.action_id !== null && item.source_state === "needs_attention";
     const open = reviewing?.item_id === item.item_id;
     const reviewClient =
@@ -478,17 +486,20 @@ function Inbox({ client }: { client: InboxClient }) {
             </p>
           )}
           <p className="inbox-detail">
-            {item.disposition === "snoozed" && item.snoozed_until
-              ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
-              : item.auto_settled || item.section === "done"
-                ? completionLabel(item)
-                : item.disposition === "settled"
-                  ? "Hidden from inbox by you"
-                  : item.source_state === "working"
-                    ? "Dr. CRE is working. You can come back to this."
-                    : item.source_state === "done"
-                      ? completionLabel(item)
-                      : "Ready for your attention"}
+            {draftCardStatus(item) ||
+              (item.disposition === "snoozed" && item.snoozed_until
+                ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
+                : item.auto_settled || item.section === "done"
+                  ? completionLabel(item)
+                  : item.disposition === "settled"
+                    ? "Hidden from inbox by you"
+                    : item.source_state === "working"
+                      ? item.engine_marks && item.kind_label === "Reply draft"
+                        ? "Sending"
+                        : "Dr. CRE is working. You can come back to this."
+                      : item.source_state === "done"
+                        ? completionLabel(item)
+                        : "Ready for your attention")}
             {item.hold_until ? ` · On hold until ${cardDate.format(new Date(item.hold_until))}` : ""}
           </p>
           {item_id === item.item_id && !open && linkedRecord}
@@ -517,7 +528,7 @@ function Inbox({ client }: { client: InboxClient }) {
               Mark done
             </button>
           )}
-          {item.source_type === "email_proposal" && item.source_state === "failed" && (
+          {!item.engine_marks && item.source_type === "email_proposal" && item.source_state === "failed" && (
             <p className="inbox-detail inbox-guidance">
               This reply didn't send. Send it from your email, then press Hide from inbox.
             </p>
@@ -630,7 +641,11 @@ function Inbox({ client }: { client: InboxClient }) {
       {home && (
         <>
           <HomeWelcome />
-          <MailPriorities items={items} locked={openingLocked} review={openCard} />
+          {query.data?.engine_marks ? (
+            <EngineMailPriorities items={items} locked={openingLocked} review={openCard} />
+          ) : (
+            <MailPriorities items={items} locked={openingLocked} review={openCard} />
+          )}
         </>
       )}
       <header className="inbox-header">
@@ -696,7 +711,7 @@ function Inbox({ client }: { client: InboxClient }) {
             </>
           )}
           {!pending &&
-            undo.map((previous) => (
+            availableUndo.map((previous) => (
               <button
                 type="button"
                 key={previous.items[0]?.item_id}
@@ -713,7 +728,7 @@ function Inbox({ client }: { client: InboxClient }) {
                   );
                 }}
               >
-                {undo.length === 1 ? "Undo" : `Undo ${previous.items[0]?.title}`}
+                {availableUndo.length === 1 ? "Undo" : `Undo ${previous.items[0]?.title}`}
               </button>
             ))}
         </div>

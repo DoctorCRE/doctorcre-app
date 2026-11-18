@@ -36,6 +36,7 @@ export type InboxItem = BaseItem &
   Readonly<{
     waiting_version?: number;
     engine_marks?: true;
+    review_proposal?: string;
     waiting_on?: Waiting | null;
     completed_at: string | null;
     auto_settled: boolean;
@@ -65,6 +66,7 @@ export type Snapshot = Readonly<{
   truncated: boolean;
   limit: 1000;
   items: InboxItem[];
+  engine_marks?: true;
   working_collapsed: true;
 }> &
   (
@@ -318,6 +320,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     truncated: value.truncated,
     limit: 1000,
     items,
+    ...(value.engine_marks === true && { engine_marks: true as const }),
     working_collapsed: true,
   } as const;
   return contract.settlement
@@ -407,7 +410,12 @@ export type ReviewRequest =
 export type CardReview =
   | Exclude<Review, { kind: "reply_draft" }>
   | { kind: "suggestions"; operations: []; proposals: Suggestion[] }
-  | (Extract<Review, { kind: "reply_draft" }> & { email: IncomingEmail | null });
+  | (Extract<Review, { kind: "reply_draft" }> & {
+      email: IncomingEmail | null;
+      addresses?: { to: string | null; cc: string | null };
+      attachments?: { id: string; name: string }[];
+      statusMessage?: string | null;
+    });
 
 function incomingEmail(value: unknown): IncomingEmail | null {
   const source = object(value) && object(value.detail) ? value.detail.source : null;
@@ -481,7 +489,7 @@ export function createInboxClient(
         const current = (await read()).items.find((row) => row.item_id === item.item_id);
         if (!current)
           throw Object.assign(Error("Card no longer available."), { payload: { error: "home_review_not_found" } });
-        return current;
+        return item.review_proposal ? { ...current, review_proposal: item.review_proposal } : current;
       },
       async load(item, signal) {
         if (hasEngineReview(item)) return loadEngineReview(rpc, item, signal);
@@ -509,11 +517,12 @@ export function createInboxClient(
       async run(item, request) {
         if (navigator.onLine === false) throw Error("Offline. Nothing was sent.");
         if (hasEngineReview(item)) {
-          await saveEngineReview(rpc, item, request);
+          const version = await saveEngineReview(rpc, item, request);
           const snapshot = await read();
           return {
             item: snapshot.items.find((row) => row.item_id === item.item_id) ?? null,
             snapshot,
+            ...(version === undefined ? {} : { saved_version: version }),
           };
         }
         const value = await rpc(request.verb, request.args);
