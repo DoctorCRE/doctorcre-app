@@ -34,7 +34,7 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
       },
     },
   };
-  const send = (body = call(), headers = { origin, cookie: "session=synthetic" }) =>
+  const send = (body = call(), headers: HeadersInit = { origin, cookie: "session=synthetic" }) =>
     worker.fetch(
       new Request(`${origin}/mcp`, {
         method: "POST",
@@ -608,7 +608,7 @@ for (const [key, name, path] of remainingScreens) {
       call("lead-board", { workspace: "leads" }),
       call("read-vendor-markets-v1"),
       call("find", { query: "Example Clinic" }),
-      call("record-commission-receipt", { commission_id: recordId }),
+      ...(key === "invoices-from-engine" ? [] : [markPaid]),
       call("set-next-step", { deal: "example-deal", next_step: "Example step" }),
       call("create-national-account", { name: "Example account" }),
     ]) {
@@ -621,6 +621,67 @@ for (const [key, name, path] of remainingScreens) {
     );
     assert.equal(await (await getRead(f, "/pipeline/changes")).text(), "old");
     assert.equal(f.engine.length, 0);
+  });
+}
+
+const markPaidArgs = {
+  commission_id: "00000000-0000-4000-8000-000000000001",
+  base_version: 0,
+  received_on: "2026-10-02",
+  idempotency_key: "00000000-0000-4000-8000-000000000002",
+};
+const markPaid = call("record-commission-receipt", markPaidArgs);
+const invoicesOn = new Map([["invoices-from-engine", "on"]]);
+
+test("Mark paid follows the invoice tracker switch", async () => {
+  const receipt = { ok: true, id: markPaidArgs.commission_id, received_on: markPaidArgs.received_on, base_version: 1 };
+  const f = fixture(invoicesOn, async () => Response.json(receipt));
+  const response = await f.send(markPaid, {
+    origin,
+    cookie: "session=synthetic",
+    "sec-fetch-site": "same-origin",
+    "x-carr-csrf": "synthetic",
+  });
+  const request = f.engine[0];
+  assert.ok(request, "Mark paid must reach the engine with the invoice switch on");
+  assert.equal(request.url, `${origin}/api/engine/invoices/mark-paid`);
+  assert.equal(request.method, "POST");
+  assert.equal(request.headers.get("cookie"), "session=synthetic");
+  assert.equal(request.headers.get("origin"), origin);
+  assert.equal(request.headers.get("sec-fetch-site"), "same-origin");
+  assert.equal(request.headers.get("x-carr-csrf"), "synthetic");
+  assert.deepEqual(await request.json(), markPaidArgs);
+  assert.deepEqual(f.kv, [["invoices-from-engine", { cacheTtl: 30 }]]);
+  assert.deepEqual(f.carr, []);
+  assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: JSON.stringify(receipt) }] });
+});
+
+test("Mark paid keeps the original CARR call with the invoice switch off", async () => {
+  const f = fixture(new Map([["invoices-from-engine", "off"]]));
+  assert.equal(await (await f.send(markPaid)).text(), "old");
+  assert.deepEqual(f.carr, [JSON.stringify(markPaid)]);
+  assert.deepEqual(f.kv, [["invoices-from-engine", { cacheTtl: 30 }]]);
+  assert.deepEqual(f.engine, []);
+});
+
+for (const [status, error] of [
+  [400, "invalid_field_value"],
+  [409, "version_conflict"],
+  [409, "key_reuse"],
+  [422, "invoice_not_unpaid"],
+  [422, "payment_date_out_of_range"],
+  [501, "old_system_required"],
+  [503, "database_unavailable"],
+] as const) {
+  test(`Mark paid returns the engine's ${error} without trying CARR`, async () => {
+    const refusal = { error };
+    const f = fixture(invoicesOn, async () => Response.json(refusal, { status }));
+    const response = await f.send(markPaid);
+    assert.deepEqual(f.carr, []);
+    assert.deepEqual((await response.json()).result, {
+      isError: true,
+      content: [{ type: "text", text: JSON.stringify(refusal) }],
+    });
   });
 }
 
