@@ -59,14 +59,16 @@ export async function prove({ origin, expectedCommit, cdpUrl, timeoutMs = 30000,
       if (!host) throw Error('Mail priorities panel missing');
       if (host.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded') !== 'true') throw Error('Mail priorities must open automatically');
       const rows = [...host.querySelectorAll('[data-mail-proposal]')];
-      const expected = snapshot.items;
-      if (rows.length !== expected.length || rows.some((row, index) => {
-        const item = expected[index];
+      // One inbox card covers every draft in its conversation, so rows are the read in rank order, minus covered drafts.
+      let next = 0;
+      if (!rows.every(row => {
+        while (next < snapshot.items.length && snapshot.items[next].proposal_id !== row.dataset.mailProposal) next++;
+        const item = snapshot.items[next++];
         const paragraphs = [...row.querySelectorAll('p')].map(node => node.textContent);
-        return row.dataset.mailProposal !== item.proposal_id
-          || paragraphs[0] !== `${item.reasonLabel} · ${item.decision_date || 'Decision date unknown'}`
-          || paragraphs[1] !== `Source time ${item.occurred_at || 'unknown'}`;
-      })) throw Error('Visible ranked decisions differ from registered read');
+        return item
+          && paragraphs[0] === (item.decision_date ? `${item.reasonLabel} · ${item.decision_date}` : item.reasonLabel)
+          && paragraphs[1] === `Source time ${item.occurred_at || 'unknown'}`;
+      }) || (snapshot.items.length && !rows.length)) throw Error('Visible ranked decisions differ from registered read');
       const coverage = `Mailbox ${snapshot.coverage.mailbox} · Recorded inbound pending proposals · As of ${snapshot.coverage.as_of_day} · Recorded next date in UTC`;
       const expectedParagraphs = [coverage,
         ...(snapshot.state === 'empty' ? ['No recorded pending mail decisions.'] : []),
