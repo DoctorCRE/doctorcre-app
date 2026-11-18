@@ -176,6 +176,52 @@ for (const width of [390, 1280]) test(`signed-in Add deal persists through reloa
   assert.deepEqual(errors,[]);
 });
 
+for (const [code, message] of [
+  ['subject_not_found', 'There’s no client named “Sample Cafe” yet. Pick an existing client, or add the client first.'],
+  ['not_a_client', '“Sample Cafe” is not an existing client. Pick an existing client, or add the client first.'],
+]) test(`Add deal stays editable after ${code}`, async t => {
+  const page = await browser.newPage();
+  t.after(() => page.close());
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `add-deal-${code}`, viewer: 'joe', reset: true } });
+  const requests = [];
+  await page.route('**/mcp', route => {
+    const { id, params } = route.request().postDataJSON();
+    if (params.name !== 'new-deal') return route.continue();
+    requests.push(params.arguments);
+    if (params.arguments.client !== 'Sample Cafe') return route.continue();
+    return route.fulfill({ json: { jsonrpc: '2.0', id, result: { isError: true, content: [{
+      type: 'text', text: JSON.stringify({ error: code,
+        correlation_id: '00000000-0000-4000-8000-000000000001',
+        hint: 'Choose an existing client.' }),
+    }] } } });
+  });
+
+  await page.goto(`${origin}/deals?mode=live`);
+  await page.locator('.kanban-card').first().waitFor();
+  await page.getByRole('button', { name: 'Add deal', exact: true }).click();
+  const client = page.getByLabel('Client', { exact: true });
+  await page.getByLabel('Deal name', { exact: true }).fill('Sample Cafe');
+  await client.fill('Sample Cafe');
+  await page.getByLabel('Owner', { exact: true }).selectOption('dell');
+  await page.getByLabel('Type', { exact: true }).selectOption('other');
+  await page.getByLabel('Notes', { exact: true }).fill('Discuss the first location.');
+  const submit = page.getByRole('button', { name: 'Create deal', exact: true });
+  await submit.click();
+  const feedback = page.locator('#addDealError').filter({ hasText: /\S/ });
+  await feedback.waitFor();
+  assert.equal(await feedback.textContent(), message);
+  assert.equal(await client.isEnabled(), true);
+  assert.equal(await client.inputValue(), 'Sample Cafe');
+  await client.fill('C-demo');
+  await submit.click();
+  const card = page.getByRole('button', { name: 'Sample Cafe', exact: true });
+  await card.click();
+  await page.getByText('Discuss the first location.', { exact: true }).waitFor();
+  assert.equal(await page.locator('#detailOwner').inputValue(), 'dell');
+  assert.equal(requests.length, 2);
+  assert.notEqual(requests[0].idempotency_key, requests[1].idempotency_key);
+});
+
 test('Add deal and Won or Lost save through the new database switch', async t => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 960 }, timezoneId: 'America/Chicago' });
   t.after(() => page.close());
