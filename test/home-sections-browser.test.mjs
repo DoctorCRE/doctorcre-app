@@ -268,6 +268,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   const phase = '00000000-0000-0000-0000-000000000026';
   const nested = '00000000-0000-0000-0000-000000000027';
   const remaining = '00000000-0000-0000-0000-000000000028';
+  const dismissNested = '00000000-0000-0000-0000-000000000029';
   const evidence = { evidence: 'Discussed next steps.', source_activity: { kind: 'call', summary: 'The sample call summary.', happened_at: NOW.toISOString() } };
   state.items[2].completion_review = { proposal_id: proposal, can_resolve: false };
   details.set(proposal, { ...evidence, proposal_id: proposal, kind: 'next_step_done' });
@@ -279,7 +280,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
       deal_id: null, kind_label: 'Task', suggestions: [{ id: leading }, { id: next }] },
     { ...notice, title: 'Reply to the sample email', item_id: `reply_draft:${draft}`, source_id: draft, source_type: 'email_proposal',
       deal_id: null, kind_label: 'Reply draft', source_version: '1', reply_draft_id: draft,
-      suggestions: [{ id: nested }, { id: remaining }] },
+      suggestions: [{ id: nested }, { id: dismissNested }, { id: remaining }] },
   );
   details.set(log, { ...evidence, proposal_id: log, kind: 'log_call', target_name: 'Example Dental', what: 'Log the sample call' });
   details.set(next, { ...evidence, proposal_id: next, kind: 'next_step', what: 'Share the plan', due_on: '2026-11-04' });
@@ -287,6 +288,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   details.set(leading, { ...evidence, proposal_id: leading, kind: 'possible_new_deal' });
   details.set(nested, { ...evidence, proposal_id: nested, kind: 'next_step', what: 'Share the sample plan' });
   details.set(remaining, { ...evidence, proposal_id: remaining, kind: 'possible_new_deal' });
+  details.set(dismissNested, { ...evidence, proposal_id: dismissNested, kind: 'file_to_deal' });
   details.set(draft, { draft_id: draft, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
     to: 'sender@example.test', cc: 'partner@example.test', attachments: [{ document_id: dealId, name: 'Sample plan' }],
     source_activity: { sender: 'sender@example.test', subject: 'Sample email', body: 'Please share the sample plan.', happened_at: NOW.toISOString() } });
@@ -370,6 +372,10 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await reply.getByRole('button', { name: 'Accept', exact: true }).first().click();
   await reply.getByText('Suggestion accepted.', { exact: true }).waitFor();
   assert.match(writes.at(-1)[0], new RegExp(`/proposals/${nested}/decision$`));
+  await reply.getByRole('button', { name: 'Dismiss', exact: true }).first().click();
+  await reply.getByText('Suggestion dismissed.', { exact: true }).waitFor();
+  assert.match(writes.at(-1)[0], new RegExp(`/proposals/${dismissNested}/decision$`));
+  assert.equal(writes.at(-1)[1].decision, 'dismiss');
   assert.equal(await reply.getByRole('textbox', { name: 'Message', exact: true }).inputValue(), 'Edited reply.');
   await reply.getByRole('button', { name: 'Save draft', exact: true }).click();
   await reply.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
