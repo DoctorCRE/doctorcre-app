@@ -39,6 +39,14 @@ test('conflicting contract dates remain visible; co-located originals survive; k
  const statuses=dealTimeline({...detail,critical_dates:[{kind:'loi_expiry',due_on:'2026-10-03',status:'cleared'},{kind:'loi_expiry',due_on:'2026-10-03',status:'open'}]},now);
  assert.equal(statuses.dates.filter(d=>d.kind==='loi_expiry').length,2);
 });
+test('other dates show each saved name when they share a day', () => {
+  const critical_dates = ['Phase effective date', 'Permit review'].map(note => ({
+    kind: 'other', due_on: '2026-10-04', note,
+  }));
+  const root = new JSDOM(renderCriticalDates({ ...detail, critical_dates }, now)).window.document;
+  const names = [...root.querySelectorAll('.critical-date > span')].map(label => label.textContent);
+  assert.deepEqual(names.filter(name => critical_dates.some(date => date.note === name)), ['Phase effective date', 'Permit review']);
+});
 test('countdowns cross midnight and distinguish deadlines, cleared dates and past commencement',()=>{
  assert.deepEqual(countdown({day:'2026-10-04',deadline:true},now),{state:'today',text:'Due today'});
  assert.deepEqual(countdown({day:'2026-10-05',deadline:true},now),{state:'soon',text:'1 day'});

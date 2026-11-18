@@ -336,6 +336,7 @@ function noteCellBase(cell, event) {
 function applyBoardSnapshot(board) {
   const previousPanelRow = state.deals.get(state.panelDeal);
   const previousActor = state.selfActor;
+  const saveSwitchChanged = Boolean(state.nextDealSaves) !== (board.next_deal_saves === true);
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
   const actorChanged = previousActor && previousActor !== state.selfActor;
@@ -379,8 +380,10 @@ function applyBoardSnapshot(board) {
       $('panelBody').querySelector(selector)?.replaceWith(template.querySelector(selector));
     }
   }
-  if (state.panelDeal && !$('recordPanel')?.hidden && previousPanelRow
-    && JSON.stringify(previousPanelRow) !== JSON.stringify(state.deals.get(state.panelDeal))) void refreshPanel({changed:true});
+  if (state.panelDeal && !$('recordPanel')?.hidden && ((state.panelDetail && saveSwitchChanged)
+    || (previousPanelRow && JSON.stringify(previousPanelRow) !== JSON.stringify(state.deals.get(state.panelDeal))))) {
+    void refreshPanel({changed:true});
+  }
 }
 
 async function loadBoard() {
@@ -461,6 +464,8 @@ const FOLLOW_UP_SENDERS = {
   'complete-deal-item': request => state.client.completeDealItem(request),
   'record-deal-item': (request) => state.client.recordDealItem(request),
   'add-critical-date': (request) => state.client.addCriticalDate(request),
+  'confirm-critical-date': request => state.client.confirmCriticalDate(request),
+  'resolve-critical-date': request => state.client.resolveCriticalDate(request),
   'update-deal': (request) => state.client.updateDeal(request),
   'register-client-portal': (request) => state.client.registerClientPortal(request),
   'undo-invoice-close': (request) => state.client.undoInvoiceClose(request),
@@ -519,9 +524,10 @@ async function runFollowUp(operationKey, step) {
   if (!send) return null;
   const pending = pendingCommand(commandState, operationKey);
   let args = step.args;
-  if (['add-deal-note', 'set-next-step', 'record-deal-item', 'complete-deal-item'].includes(step.verb)) {
+  if (['add-deal-note', 'set-next-step', 'record-deal-item', 'complete-deal-item', 'add-critical-date'].includes(step.verb)) {
     const deal = state.panelDeal === args.deal ? state.panelDetail?.deal : state.deals.get(args.deal);
-    const seen = pending ? pending.request.seen_change_id : deal?.seen;
+    const seen = pending ? pending.request.seen_change_id
+      : step.verb === 'add-critical-date' && !state.nextDealSaves ? undefined : deal?.seen;
     if (Number.isSafeInteger(seen)) {
       args = { ...args, seen_change_id: seen };
       if (step.verb === 'add-deal-note') args.happened_at = pending?.request.happened_at ?? new Date().toISOString();
@@ -1194,7 +1200,7 @@ function workspaceHtml(detail) {
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}">${parked ? `<p>${esc(concise(d.parking_note) || 'Parked')}</p><button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm"><label>Park reason<input name="reason" maxlength="500" required></label><button class="btn park-control" type="submit">Park deal</button></form></details>`}</div></div>` : ''}</div>
     <div data-detail-read="prospect">${controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
     <div data-detail-read="client-portal">${!d.client_portal_url && controlsAvailable ? clientPortalSetupHtml() : ''}</div>
-    <h2>Critical dates</h2>${renderCriticalDates(detail)}
+    <h2>Critical dates</h2>${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden></section>
@@ -1974,6 +1980,20 @@ function wire() {
   });
   $('panelBody').addEventListener('submit', async e => {
     e.preventDefault(); const id=state.panelDeal; const form = new FormData(e.target);
+    const date = e.target.dataset.dateDecision;
+    if (date && state.nextDealSaves && Number.isSafeInteger(state.panelDetail?.deal?.seen)) {
+      const decision = e.submitter?.value;
+      const reason = String(form.get('reason') || '').trim();
+      if (decision !== 'confirm' && (!['done', 'dropped', 'passed'].includes(decision) || !reason)) {
+        showToast('Enter a reason for changing this date.', {error:true});
+        return;
+      }
+      const args = { deal:id, seen_change_id:state.panelDetail.deal.seen, critical_date_id:date,
+        ...(decision !== 'confirm' && {resolution:decision, reason}) };
+      await runFollowUp(`critical-date:${id}:${date}`, {
+        verb:decision === 'confirm' ? 'confirm-critical-date' : 'resolve-critical-date', args, summary:'Critical date',
+      });
+    }
     if (e.target.id === 'detailParkForm') await setOperatingState(id,{state:'parked',reason:'other',note:String(form.get('reason'))});
     if (e.target.id === 'detailInactiveForm') await markProspectInactive(e.target,id,String(form.get('reason')).trim());
     if (e.target.id === 'detailUpdateForm') await saveUpdate(id);

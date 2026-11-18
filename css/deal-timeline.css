@@ -30,6 +30,8 @@
 :root[data-color-assist="on"] .critical-date[data-state='today'],:root[data-color-assist="on"] .critical-date[data-state='soon'] { border-left:3px dashed var(--status-warn); }
 .critical-date summary { cursor:pointer; color:var(--fg-muted); min-height:var(--touch); display:flex; align-items:center; font-size:var(--font-size-1); }
 .critical-date p { font-size:var(--font-size-1); }
+.critical-date form { display:flex; flex-wrap:wrap; gap:var(--space-1); }
+.critical-date form label, .critical-date form input { width:100%; min-width:0; }
 /* A missing date is an empty slot: dashed, quiet, and only the label reads as action. */
 .add-date { cursor:pointer; border-style:dashed; background:transparent; }
 .add-date strong { font-size:var(--font-size-1); font-weight:var(--font-weight-strong); color:var(--fg-muted); margin-top:var(--space-2); }

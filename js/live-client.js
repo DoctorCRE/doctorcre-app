@@ -168,6 +168,40 @@ export function createLiveClient(opts = {}) {
     });
   }
 
+  function replaceMarketAgent(args) {
+    let removals, added;
+    return sessionCommands.send(JSON.stringify(['replace-market-agent', args.deal]), args, async (request, binding) => {
+      if (!online()) throw Object.assign(new Error('Offline. Reconnect before saving.'), { payload: { error: 'offline' } });
+      const { deal, agent_party_id, seen_change_id } = request;
+      const headers = { 'x-carr-csrf': binding.slice(binding.indexOf(':') + 1) };
+      const save = async (verb, body, party) => {
+        const receipt = await rawRpc(verb, body, undefined, opts.writeTimeoutMs || 10_000, headers);
+        if (receipt?.ok !== true || receipt.deal_id !== deal || receipt.party_id !== party || receipt.role !== 'market_agent')
+          throw unknownMcpOutcome(new Error('Market agent receipt unavailable'));
+        return receipt;
+      };
+      if (!removals) {
+        const detail = await rpc('get-deal-room', { deal }).catch(() => null);
+        if (detail?.deal_id !== deal || !Number.isSafeInteger(detail.seen) || !Array.isArray(detail.participants))
+          throw Object.assign(new Error('Could not read the current market agents. Reload the deal and try again.'), { code: 'not_sent' });
+        removals = new Map();
+        for (const { party_id, role } of detail.participants) {
+          if (role !== 'market_agent') continue;
+          if (party_id === agent_party_id) added = { ok: true, deal_id: deal, party_id, role };
+          else if (!removals.has(party_id))
+            removals.set(party_id, { deal, party_id, role, seen_change_id, idempotency_key: uuidv4() });
+        }
+      }
+      added ??= await save('set-market-agent', request, agent_party_id);
+      // eslint-disable-next-line no-restricted-syntax -- Send a removal once per distinct prior agent in the retained snapshot for each click.
+      for (const [party, removal] of removals) {
+        await save('remove-deal-participant', removal, party);
+        removals.delete(party);
+      }
+      return added;
+    }, 'replace-market-agent');
+  }
+
   function emailAction(method, verb, args, context) {
     const activityId = context?.activityId;
     return sessionCommands.send(JSON.stringify(['email-action', args.proposal_id]), args, async (request, binding) => {
@@ -523,6 +557,8 @@ export function createLiveClient(opts = {}) {
     async addCriticalDate(args) {
       return write('add-critical-date', args);
     },
+    async confirmCriticalDate(args) { return write('confirm-critical-date', args); },
+    async resolveCriticalDate(args) { return write('resolve-critical-date', args); },
 
     async createDeal(args) {
       const key = args.idempotency_key || uuidv4();
@@ -844,7 +880,15 @@ export function createLiveClient(opts = {}) {
     async startReview(args) { return write('start-deal-review', args); },
     async reviewDeal(args) { return write('review-deal', args); },
     async endReview(args) { return write('end-deal-review', args); },
-    async setMarketAgent(args) { return write('set-market-agent', args); },
+    async setMarketAgent(args) {
+      return args.agent_party_id ? replaceMarketAgent(args) : write('set-market-agent', args);
+    },
+    async searchPeople(query, signal) {
+      const result = await rpc('search-parties-v1', { query }, signal);
+      if (result?.schema_version !== 'party-search.v1' || !Array.isArray(result.parties))
+        throw new Error('People could not be loaded.');
+      return result.parties.filter(row => row?.kind === 'person').map(row => [row.id, row.display_name]);
+    },
     async setNationalAccountOwner(args) { return write('set-national-account-owner', args); },
     async createNationalAccount(args) { return write('create-national-account', args); },
     async createNationalMarketDeal(args) { return write('create-national-market-deal', args); },

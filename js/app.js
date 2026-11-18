@@ -219,8 +219,8 @@ async function loadHome() {
 
 function applyBoardSnapshot(home) {
   if (state.accessDenied) return;
-  state.selfActor = home.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = home.next_deal_saves === true;
+  state.selfActor = home.actor || state.client.selfActor || state.selfActor;
   state.deals = new Map((home.deals || []).map((deal) => [deal.id, {
     workspace_kind: deal.account_client_id ? 'national_account' : 'team', ...deal,
   }]));
@@ -1000,7 +1000,10 @@ function openForm({ context='Deal Room', title, submit='Save', form, national, o
   $('#dialogTitle').textContent = title;
   $('#dialogSubmit').textContent = submit;
   formView?.dispose();
-  formView = mountDealRoomForm($('#dialogBody'), form, national);
+  if (typeof form === 'string') {
+    $('#dialogBody').innerHTML = form;
+    formView = null;
+  } else formView = mountDealRoomForm($('#dialogBody'), form, national);
   $('#formError').hidden = true;
   let draft = null;
   if (draftKey) {
@@ -1104,7 +1107,7 @@ function nextStepForm(dealId) {
           const current = (await state.client.getDeal(dealId))?.deal;
           if (current?.id !== dealId) throw new Error('The current record could not be verified. No write was sent.');
           state.deals.set(dealId, { ...deal, ...current });
-          const reviewed = state.formDrafts.get(draftKey)?.reviewed || deal;
+          const reviewed = state.formDrafts?.get(draftKey)?.reviewed || deal;
           const fromEngine = Number.isSafeInteger(reviewed.seen) && Number.isSafeInteger(current.seen);
           if (fromEngine && ((current.next_step || '') !== (reviewed.next_step || '')
             || (current.next_date || '') !== (reviewed.next_date || ''))) {
@@ -1273,10 +1276,24 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
 function marketAgentForm(dealId) {
   const operationKey = `market-agent:${dealId}`;
   const deal = state.deals.get(dealId);
-  openForm({ operationKey, draftKey:operationKey, title:`Market assignment — ${deal.name}`, submit:'Save assignment', form:{ kind:'market-agent', agent:deal.market_agent || '', market:deal.market || '' },
+  const next = state.nextDealSaves;
+  const form = next ? `<p>Current agent: ${esc(deal.market_agent || 'Unassigned')}</p>
+    <div class="field"><label for="agentSearch">Search people</label>
+    <input id="agentSearch" maxlength="100">
+    <button id="agentFind" type="button" class="btn">Find people</button>
+    <small id="agentSearchStatus" role="status"></small></div>
+    <div class="field"><label for="agentPerson">Market agent</label>
+    <select id="agentPerson" name="agent_party_id" required><option value="">Choose a person</option></select></div>`
+    : { kind:'market-agent', agent:deal.market_agent || '', market:deal.market || '' };
+  openForm({ operationKey, draftKey:next ? null : operationKey,
+    title:`${next ? 'Market agent' : 'Market assignment'} — ${deal.name}`, submit:next ? 'Save market agent' : 'Save assignment', form,
     onSubmit:async (data) => {
       let request = state.commands?.pending(operationKey);
-      if (!request) {
+      if (!request && next) {
+        const party = data.get('agent_party_id');
+        if (!party) throw new Error('Choose an existing person as the market agent.');
+        request = { deal:dealId, agent_party_id:party, seen_change_id:deal.seen };
+      } else if (!request) {
         const current = (await state.client.getDeal(dealId))?.deal;
         if (current?.id !== dealId) throw new Error('The current record could not be verified. No write was sent.');
         state.deals.set(dealId, { ...deal, ...current });
@@ -1292,6 +1309,32 @@ function marketAgentForm(dealId) {
       });
       await loadHome(); showToast(`Market agent confirmed on ${deal.name}`);
     } });
+  if (next) {
+    const input = $('#agentSearch'), people = $('#agentPerson'), status = $('#agentSearchStatus');
+    let search;
+    const clear = () => {
+      search?.abort();
+      people.replaceChildren(new Option('Choose a person', ''));
+      status.textContent = '';
+    };
+    input.oninput = clear;
+    $('#agentFind').onclick = async () => {
+      clear();
+      const query = input.value.trim();
+      if (!query) { status.textContent = 'Enter a name to find people.'; return; }
+      const request = new AbortController();
+      search = request;
+      status.textContent = 'Finding people…';
+      try {
+        const matches = await state.client.searchPeople(query, request.signal);
+        if (request.signal.aborted) return;
+        people.append(...matches.map(([id, name]) => new Option(name, id)));
+        status.textContent = matches.length ? '' : 'No people matched that name.';
+      } catch {
+        if (!request.signal.aborted) status.textContent = 'People could not be loaded, so try again.';
+      }
+    };
+  }
 }
 
 function addTeamDealForm() {
