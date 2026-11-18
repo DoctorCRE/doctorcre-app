@@ -1000,7 +1000,6 @@
     "tests/journeys/w14-relationships.e2e.ts": "17ffdf0f1224f9e5555b5f6b13842327cf3ac29ba7ab56a85c499c92d89f5d03",
     "tests/journeys/w15-invoices.e2e.ts": "e0c005443f3d0f6932bed3374b64473f86ee9fd0db22d5b6e04e214a5437ffa9",
     "tests/journeys/w16-charts-map-vision.e2e.ts": "ec06265b33355eed6a2edc5f9d37995f150587c2ea061b575d498cb63aafba12",
-    "tests/live/call-journey.spec.ts": "50a685a399dfe7cd913743ab686ef210afb84c3d176c1c33e911ddd3aa2da0bd",
     "tests/regressions/network-isolation.e2e.ts": "62cfb3ba12a83f864c6c2d1947d7abe1c9b190f7544b52c90f65b9c6d04d3236",
     "tests/regressions/qa-001-account-menu.e2e.ts": "7ff115b31db0a4e4cb7566fdbabde4cc1582d8d7f3dc702ff7c70b2600c9b5a7",
     "tests/regressions/qa-002-light-titles.e2e.ts": "68b49845bd98b3521f79b46e273e598077fa915b045c7b6cb62ea3003e1fdead",
