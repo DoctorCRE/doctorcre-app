@@ -1,5 +1,6 @@
 import importlib.util
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -16,6 +17,8 @@ class BrowserSetupTest(unittest.TestCase):
 
         def run(command, **options):
             calls.append(command)
+            config_path = next(arg.removeprefix('APT_CONFIG=') for arg in command if arg.startswith('APT_CONFIG='))
+            self.assertIn(f'Dir::Cache::archives "{home / ".cache" / "playwright-apt"}";', Path(config_path).read_text())
             return subprocess.CompletedProcess(command, install)
 
         def popen(command, **options):
@@ -24,15 +27,22 @@ class BrowserSetupTest(unittest.TestCase):
             child.__enter__.return_value.wait.return_value = 0
             return child
 
-        with patch.object(self.module.subprocess, 'Popen', side_effect=popen), patch.object(self.module.subprocess, 'run', side_effect=run), patch.object(self.module.sys, 'platform', 'linux'):
-            result = self.module.setup(['chromium', 'webkit'])
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            with (
+                patch.object(self.module.subprocess, 'Popen', side_effect=popen),
+                patch.object(self.module.subprocess, 'run', side_effect=run),
+                patch.object(self.module.sys, 'platform', 'linux'),
+                patch.object(Path, 'home', return_value=home),
+            ):
+                result = self.module.setup(['chromium', 'webkit'])
         return result, calls
 
     def test_os_dependencies_get_one_bounded_install_before_browsers(self):
         result, calls = self.run_setup()
         self.assertEqual(result, 0)
         self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[0][:6], ['sudo', '-n', 'timeout', '--kill-after=5s', '115s', 'env'])
+        self.assertEqual(calls[0][:6], ['sudo', '-n', 'timeout', '--kill-after=5s', '10m', 'env'])
         self.assertIn('APT_CONFIG=', ' '.join(calls[0]))
         self.assertEqual(calls[0][-3:], ['install-deps', 'chromium', 'webkit'])
         self.assertEqual(calls[1][-3:], ['install', 'chromium', 'webkit'])
