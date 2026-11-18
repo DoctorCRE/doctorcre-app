@@ -180,12 +180,12 @@ for (const { code, hint, message } of [
   {
     code: 'subject_not_found',
     hint: 'No record matched the supplied reference or name. Check it and try again.',
-    message: 'There’s no client named “Sample Cafe” yet. Pick an existing client, or add the client first.',
+    message: 'There’s no client named “Sample Cafe”. Check the spelling or pick an existing client.',
   },
   {
     code: 'not_a_client',
     hint: 'Choose an existing client by reference or exact name.',
-    message: '“Sample Cafe” is not an existing client. Pick an existing client, or add the client first.',
+    message: '“Sample Cafe” is not an existing client. Check the spelling or pick an existing client.',
   },
 ]) test(`Add deal stays editable after ${code}`, async t => {
   const page = await browser.newPage();
@@ -310,14 +310,17 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   await page.getByRole('button', { name: 'Add deal', exact: true }).click();
   await page.getByLabel('Deal name').fill('Example Unmatched Deal');
   for (const [list, name, hint] of [
-    ['available', 'Example Unknown', 'Choose an existing client.'],
+    ['available', 'Example Unknown', 'There’s no client named “Example Unknown”. Check the spelling or pick an existing client.'],
     ['multiple', 'Example Practice', 'More than one client has that name, so use the full client reference.'],
     ['unavailable', 'Example Practice', 'The client list is unavailable, so try again in a moment.'],
   ]) {
     clientList = list;
     await page.getByLabel('Client', { exact: true }).fill(name);
     await page.getByRole('button', { name: 'Create deal' }).click();
-    await page.locator('#addDealError').getByText(hint, { exact: true }).waitFor();
+    const feedback = page.locator('#addDealError').filter({ hasText: /\S/ });
+    await feedback.waitFor();
+    assert.equal(await feedback.textContent(), hint);
+    assert.equal(await page.getByLabel('Client', { exact: true }).isEnabled(), true);
     assert.equal(writes.length, 0);
   }
   clientList = 'available';
