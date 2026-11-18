@@ -13,22 +13,23 @@ const kinds = new Map([
   ["lead_stage_move", "Lead progress"],
   ["new_lead", "New lead"],
 ]);
-const mayApproveFailedDraft = (failure: string | null) =>
-  failure === "aborted_before_dispatch" || failure === "submission_recipients_invalid";
+const mayApproveFailedDraft = (failure: string | null) => failure === "aborted_before_dispatch";
 function draftStatus(status: unknown, failure: string | null) {
   if (status === "approved") return "Sending";
   if (status === "sent") return "Sent";
   if (status !== "failed") return null;
   if (failure?.startsWith("unconfirmed_after_")) return "Checking the Sent folder";
-  if (failure === "submission_recipients_invalid") return "Didn't send. Check the recipients.";
+  if (failure === "submission_recipients_invalid")
+    return "Didn't send. The saved recipients couldn't be used. Reply from Outlook.";
   return mayApproveFailedDraft(failure)
-    ? "Didn't send. Sending stopped before delivery. Try again."
+    ? "Didn't send. Sending stopped before delivery."
     : "Didn't send. Reply from Outlook.";
 }
-export const draftCardStatus = (item: InboxItem) =>
-  item.engine_marks && item.source_state !== "done" && "reply_draft_status" in item
-    ? draftStatus(item.reply_draft_status, "failure_reason" in item ? string(item.failure_reason) : null)
-    : null;
+export function draftCardStatus(item: InboxItem) {
+  if (!item.engine_marks || item.source_state === "done") return null;
+  const draft = draftReference(item);
+  return draft ? draftStatus(draft.status, draft.failureReason) : null;
+}
 
 function proposalIds(item: InboxItem) {
   const review = "completion_review" in item ? item.completion_review : null;
@@ -39,12 +40,18 @@ function proposalIds(item: InboxItem) {
     : [];
 }
 export function matchesProposal(item: InboxItem, id: string) {
-  return (!item.review_proposal || item.review_proposal === id) && proposalIds(item).includes(id);
+  return proposalIds(item).includes(id);
 }
 
 export function draftReference(item: InboxItem) {
   const id = "reply_draft_id" in item ? string(item.reply_draft_id) : null;
-  if (id) return { id, version: item.source_version };
+  if (id)
+    return {
+      id,
+      version: item.source_version,
+      status: "reply_draft_status" in item ? string(item.reply_draft_status) : null,
+      failureReason: "failure_reason" in item ? string(item.failure_reason) : null,
+    };
   const fallback = "fallback_reply_draft" in item ? item.fallback_reply_draft : null;
   if (
     object(fallback) &&
@@ -52,7 +59,12 @@ export function draftReference(item: InboxItem) {
     typeof fallback.version === "string" &&
     (fallback.status === "approved" || fallback.status === "failed")
   )
-    return { id: fallback.id, version: fallback.version };
+    return {
+      id: fallback.id,
+      version: fallback.version,
+      status: fallback.status,
+      failureReason: string(fallback.failure_reason),
+    };
   return null;
 }
 export const hasEngineReview = (item: InboxItem) =>
@@ -133,10 +145,10 @@ export type Suggestion = {
 
 export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: AbortSignal): Promise<CardReview> {
   const draft = draftReference(item);
-  const selected = proposalIds(item).filter((id) => !item.review_proposal || id === item.review_proposal);
-  if (!draft && !selected.length) throw unreadable();
+  const ids = proposalIds(item);
+  if (!draft && !ids.length) throw unreadable();
   const pending = Promise.all(
-    selected.map(async (id) => {
+    ids.map(async (id) => {
       const value = await answer(rpc, "read-engine-home-proposal", { id }, signal);
       const label = kinds.get(string(value.kind) ?? "");
       if (value.proposal_id !== id || typeof value.evidence !== "string" || !label) throw unreadable();

@@ -92,7 +92,7 @@ function Inbox({ client }: { client: InboxClient }) {
     const host = document.getElementById("homeRoot");
     if (home && !query.isPending && host) markHomeReady(host);
   }, [home, query.isPending]);
-  const [reviewing, setReviewing] = useState<InboxItem | null>(null);
+  const [reviewing, setReviewing] = useState<(InboxItem & { focusedSuggestionId?: string }) | null>(null);
   const reviewOpener = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     if (!reviewing && reviewOpener.current) {
@@ -373,7 +373,7 @@ function Inbox({ client }: { client: InboxClient }) {
   const picked = items.filter((item) => selected.has(item.item_id));
   function openCard(item: InboxItem, opener: HTMLElement, proposal?: string) {
     reviewOpener.current = opener;
-    setReviewing(proposal ? { ...item, review_proposal: proposal } : item);
+    setReviewing(proposal ? { ...item, focusedSuggestionId: proposal } : item);
   }
   const openingLocked = busy || !!pending || !!reviewing;
   function row(item: InboxItem) {
@@ -496,9 +496,7 @@ function Inbox({ client }: { client: InboxClient }) {
                   : item.disposition === "settled"
                     ? "Hidden from inbox by you"
                     : item.source_state === "working"
-                      ? item.engine_marks && item.kind_label === "Reply draft"
-                        ? "Sending"
-                        : "Dr. CRE is working. You can come back to this."
+                      ? "Dr. CRE is working. You can come back to this."
                       : item.source_state === "done"
                         ? completionLabel(item)
                         : "Ready for your attention")}
@@ -556,6 +554,7 @@ function Inbox({ client }: { client: InboxClient }) {
         {open && (
           <ReviewCard
             item={reviewing}
+            focusedSuggestionId={reviewing.focusedSuggestionId}
             client={reviewClient}
             close={() => setReviewing(null)}
             busy={(value) => {

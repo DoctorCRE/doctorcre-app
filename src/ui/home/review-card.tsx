@@ -34,13 +34,14 @@ const emailDate = new Intl.DateTimeFormat("en-US", {
 });
 type Props = {
   item: InboxItem;
+  focusedSuggestionId: string | undefined;
   client: InboxClient["review"];
   children: ReactNode;
   close(): void;
   busy(value: boolean): void;
   confirmed(item: InboxItem | null, receipt?: TaskReceipt, snapshot?: Snapshot): void;
 };
-export function ReviewCard({ item, client, close, busy, confirmed, children }: Props) {
+export function ReviewCard({ item, focusedSuggestionId, client, close, busy, confirmed, children }: Props) {
   const [state, setState] = useState<State>({ phase: "loading" });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -53,6 +54,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
   const host = useRef<HTMLElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const anchor = useRef(item);
+  const focusSuggestion = useCallback((section: HTMLElement | null) => section?.focus(), []);
   const reconcileFacts = useCallback((detail: Review) => {
     if (detail.kind !== "fact_review") return;
     const choices = detail.operations[0] ? availableDecisions(detail.operations[0], detail) : [];
@@ -104,6 +106,8 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
   const review = "review" in state ? state.review : null;
   const proposals = review && "proposals" in review ? (review.proposals ?? []) : [];
   const proposalLed = item.item_id.startsWith("suggestion:");
+  const canSaveDraft = review?.operations.some((op) => op.verb === "edit-email-draft");
+  const canDeclineDraft = review?.operations.some((op) => op.verb === "dismiss-email-proposal");
   const editable = state.phase === "ready" || state.phase === "editing" || state.phase === "proposal-refused";
   async function reload() {
     if (!client || lock.current) return;
@@ -283,7 +287,12 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
       {review?.kind === "reply_draft" && proposals.length > 0 && <h4>Suggestions</h4>}
       {proposals.length > 0 &&
         proposals.map((proposal) => (
-          <section key={proposal.id}>
+          <section
+            key={proposal.id}
+            aria-label={proposal.label}
+            tabIndex={focusedSuggestionId === proposal.id ? -1 : undefined}
+            ref={focusedSuggestionId === proposal.id ? focusSuggestion : undefined}
+          >
             <h4>
               {proposal.label}
               {proposal.target ? ` · ${proposal.target}` : ""}
@@ -469,20 +478,19 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                     required
                   />
                 </label>
-                <p>
-                  {item.engine_marks
-                    ? "Save draft keeps your edits. Send reply approves this exact text from your mailbox."
-                    : "Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to these recipients."}
-                </p>
-                <label>
-                  Reason for declining
-                  <input
-                    value={reason}
-                    maxLength={500}
-                    disabled={!review.operations.length}
-                    onChange={(event) => setReason(event.target.value)}
-                  />
-                </label>
+                {canSaveDraft && (
+                  <p>
+                    {item.engine_marks
+                      ? "Save draft keeps your edits. Send reply approves this exact text from your mailbox."
+                      : "Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to these recipients."}
+                  </p>
+                )}
+                {canDeclineDraft && (
+                  <label>
+                    Reason for declining
+                    <input value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} />
+                  </label>
+                )}
               </>
             )}
             {!proposalLed && suggestionFields}

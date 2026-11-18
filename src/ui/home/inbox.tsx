@@ -36,7 +36,6 @@ export type InboxItem = BaseItem &
   Readonly<{
     waiting_version?: number;
     engine_marks?: true;
-    review_proposal?: string;
     waiting_on?: Waiting | null;
     completed_at: string | null;
     auto_settled: boolean;
@@ -490,7 +489,7 @@ export function createInboxClient(
         const current = (await read()).items.find((row) => row.item_id === item.item_id);
         if (!current)
           throw Object.assign(Error("Card no longer available."), { payload: { error: "home_review_not_found" } });
-        return item.review_proposal ? { ...current, review_proposal: item.review_proposal } : current;
+        return current;
       },
       async load(item, signal) {
         if (hasEngineReview(item)) return loadEngineReview(rpc, item, signal);

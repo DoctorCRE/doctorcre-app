@@ -37,8 +37,7 @@ async function readPriorities(signal: AbortSignal) {
     typeof value.more !== "boolean"
   )
     throw invalid();
-  const seen = new Set<string>();
-  const items = value.items.flatMap((row: unknown) => {
+  const items = value.items.map((row: unknown) => {
     if (
       !object(row) ||
       typeof row.item_id !== "string" ||
@@ -51,35 +50,28 @@ async function readPriorities(signal: AbortSignal) {
     )
       throw invalid();
     const proposal =
+      row.kind !== "reply_draft" &&
       typeof row.proposal_id === "string" &&
       row.reply_draft_id === null &&
-      (row.item_id.startsWith("suggestion:") || row.item_id.startsWith("reply_draft:"))
+      row.item_id.startsWith("suggestion:")
         ? row.proposal_id
         : null;
     const draft =
+      row.kind === "reply_draft" &&
       typeof row.reply_draft_id === "string" &&
       row.proposal_id === null &&
       row.item_id === `reply_draft:${row.reply_draft_id}`;
     if (!proposal && !draft) throw invalid();
-    const conversation =
-      typeof row.conversation_id === "string"
-        ? `conversation:${row.conversation_id}`
-        : `email:${row.source_activity.id}`;
-    if (seen.has(conversation)) return [];
-    seen.add(conversation);
-    return [
-      {
-        item_id: row.item_id,
-        base_version: row.base_version,
-        proposal,
-        conversation,
-        sender: typeof row.sender === "string" ? row.sender : "Sender unavailable",
-        subject: typeof row.subject === "string" ? row.subject : "Subject unavailable",
-        suggestion: typeof row.suggestion === "string" ? row.suggestion : "",
-        dueOn: typeof row.due_on === "string" && Number.isFinite(Date.parse(row.due_on)) ? row.due_on : null,
-        happenedAt: row.source_activity.happened_at,
-      },
-    ];
+    return {
+      item_id: row.item_id,
+      base_version: row.base_version,
+      proposal,
+      sender: typeof row.sender === "string" ? row.sender : "Sender unavailable",
+      subject: typeof row.subject === "string" ? row.subject : "Subject unavailable",
+      suggestion: typeof row.suggestion === "string" ? row.suggestion : "",
+      dueOn: typeof row.due_on === "string" && Number.isFinite(Date.parse(row.due_on)) ? row.due_on : null,
+      happenedAt: row.source_activity.happened_at,
+    };
   });
   return { items, more: value.more };
 }
@@ -128,7 +120,7 @@ export function EngineMailPriorities({
                       (!row.proposal || matchesProposal(item, row.proposal)),
                   );
                   return (
-                    <li key={row.conversation}>
+                    <li key={row.item_id}>
                       <button
                         type="button"
                         disabled={locked || !match}
