@@ -383,7 +383,7 @@ export function createLiveClient(opts = {}) {
 
     async readDealUpdateReviews(args = {}) { return rpc('read-deal-update-reviews', args); },
     async reviewDealUpdate(args) { return write('review-deal-update', args); },
-    async listEmailProposals(args = {}) { return rpc('list-email-proposals', args); },
+    async listEmailProposals(args = {}, signal) { return rpc('list-email-proposals', args, signal); },
     async previewEmailNextStep(args) { return rpc('preview-email-next-step', args); },
     async previewEmailDealProgress(args) { return rpc('preview-email-deal-progress', args); },
     async previewEmailFiling(args) { return rpc('preview-email-filing', args); },

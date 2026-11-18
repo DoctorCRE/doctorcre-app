@@ -151,16 +151,18 @@ for (const width of [390, 1280]) {
     assert.equal(await page.locator('#recordPanel .client-portal-link').count(), 1);
    } else {
     assert.equal(await snapshot.getByRole('link').count(), 0);
-    await snapshot.getByText(portal ? 'Client website link unavailable.' : 'No client website linked.', {exact:true}).waitFor();
+    if (portal) await snapshot.getByText('Client website link is invalid.', {exact:true}).waitFor();
+    else assert.equal(await snapshot.getByText('No client website linked.', {exact:true}).count(), 0);
    }
-   assert.equal(await snapshot.locator('#detailClientPortalForm').count(), portal ? 0 : 1);
+   const setup = page.locator('#recordPanel [data-detail-read="client-portal"]');
+   assert.equal(await setup.locator('#detailClientPortalForm').count(), portal ? 0 : 1);
    if (!portal) {
-    await snapshot.getByText('Set up client website', {exact:true}).click();
-    assert.equal(await snapshot.getByLabel('Website name', {exact:true}).count(), 1);
-    assert.equal(await snapshot.getByRole('button', {name:'Register website', exact:true}).count(), 1);
-    assert.doesNotMatch(await snapshot.locator('[data-detail-read="client-portal"]').innerText(), /portal/i);
+    await setup.getByText('Set up client website', {exact:true}).click();
+    assert.equal(await setup.getByLabel('Website name', {exact:true}).count(), 1);
+    assert.equal(await setup.getByRole('button', {name:'Register website', exact:true}).count(), 1);
+    assert.doesNotMatch(await setup.innerText(), /portal/i);
     await mkdir('out/test-artifacts/client-website', {recursive:true});
-    await snapshot.locator('[data-detail-read="client-portal"]').screenshot({path:`out/test-artifacts/client-website/setup-${width}.png`});
+    await setup.screenshot({path:`out/test-artifacts/client-website/setup-${width}.png`});
    }
    assert.equal(await page.locator('#recordPanel [data-detail-read="client-portal"]').count(), 1);
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
@@ -169,9 +171,10 @@ for (const width of [390, 1280]) {
  }
 }
 
-test('a closed deal without a website explains the absence without offering registration', async t => {
+test('a closed deal without a website has no website placeholder or setup', async t => {
  const {page} = await open(t, 1280, {closed:true});
  const snapshot = page.getByRole('region', {name:'Deal snapshot', exact:true});
- await snapshot.getByText('No client website linked.', {exact:true}).waitFor();
+ await snapshot.waitFor();
+ assert.equal(await snapshot.getByText('No client website linked.', {exact:true}).count(), 0);
  assert.equal(await page.locator('#detailClientPortalForm').count(), 0);
 });

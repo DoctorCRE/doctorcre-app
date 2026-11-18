@@ -904,7 +904,7 @@ for (const width of [390, 1440]) test(`missing action items stay visible across 
     await row.click();
     const snapshot = page.locator('.deal-opening-snapshot');
     await snapshot.waitFor();
-    assert.equal(await snapshot.getByText('No action items recorded', { exact: true }).isVisible(), true);
+    assert.equal(await snapshot.getByText('No next step or key date set.', { exact: true }).isVisible(), true);
     for (const known of ['Call the demo lender', { text: 'Review the demo lease' }]) {
       await page.evaluate(value => { window.demoNextStep = value; window.demoItems = [{ id: 'demo-gap-item', title: typeof value === 'string' ? value : value.text, status: 'open', due_on: null, bullets: [] }]; }, known);
       await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
@@ -914,7 +914,7 @@ for (const width of [390, 1440]) test(`missing action items stay visible across 
     }
     await page.evaluate(value => { window.demoNextStep = value; window.demoItems = []; }, value);
     await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
-    await snapshot.getByText('No action items recorded', { exact: true }).waitFor();
+    await snapshot.getByText('No next step or key date set.', { exact: true }).waitFor();
     await mkdir(new URL('out/test-artifacts/next-step-gap/', root), { recursive: true });
     if (value === null) await page.screenshot({ path: new URL(`out/test-artifacts/next-step-gap/${width}-detail.png`, root).pathname });
     await page.getByRole('button', { name: 'Back to deals', exact: true }).click();

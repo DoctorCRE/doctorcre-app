@@ -164,7 +164,7 @@ export function WatchControl({ subject, client }: { subject: Subject; client: Wa
   const busy = phase !== "ready";
   const confirmed =
     watch === undefined
-      ? "Watch state not confirmed"
+      ? ""
       : watch === null || watch.state === "removed"
         ? "Not watching"
         : watch.state === "paused"
@@ -181,10 +181,10 @@ export function WatchControl({ subject, client }: { subject: Subject; client: Wa
       }}
     >
       <summary>
-        {subject.subject_type === "deal" ? "Deal" : "Lease"} watch settings · {confirmed}
+        {subject.subject_type === "deal" ? "Deal" : "Lease"} watch settings{confirmed && ` · ${confirmed}`}
       </summary>
       <section aria-label={`${subject.subject_type === "deal" ? "Deal" : "Lease"} watch`} className="watch-panel">
-        <h3>{confirmed}</h3>
+        {confirmed && <h3>{confirmed}</h3>}
         {watch && phase !== "retired" && (
           <section aria-label="Confirmed watch policy">
             <p className="watch-detail">

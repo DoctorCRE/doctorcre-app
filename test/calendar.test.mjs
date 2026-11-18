@@ -302,8 +302,9 @@ test("the calendar reads through the fixture adapter's real getBoard/getDeal sha
   const result = await readCalendar(client);
   assert.equal(result.status, "ready");
   assert.ok(result.dealCount > 0);
-  assert.ok(result.entries.length > 0, "the synthetic board carries dated rows");
-  assert.ok(result.entries.every((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry.day)));
+  assert.deepEqual(result.entries.map(({ key, day, kind }) => ({ key, day, kind })), [
+    { key: "demo-option-notice", day: "2026-10-15", kind: "option_notice" },
+  ]);
 });
 
 /* ----------------------------------------------------------------- the page */

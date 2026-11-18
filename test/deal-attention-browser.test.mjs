@@ -17,7 +17,9 @@ test('Home counts overdue agenda dates while board badges retain next-step atten
   Object.assign(seed.deals[0], { next_date: '2026-09-30' });
   Object.assign(seed.deals[1], { next_date: '2026-09-29' });
   Object.assign(seed.deals[2], { next_date: '2026-10-01', attention: true });
-  Object.assign(seed.deals[3], { next_date: '2026-09-01', next_step: '' });
+  Object.assign(seed.deals[3], { next_date: null, next_step: '' });
+  const optionNotice = { id: 'demo-overdue-option', kind: 'option_notice', due_on: '2026-09-01', status: 'open' };
+  seed.critical_dates = { [seed.deals[3].id]: [optionNotice] };
   Object.assign(seed.deals[4], { next_date: null, attention: false, updated_at: '2026-10-01T14:00:00Z' });
   Object.assign(seed.deals[5], { next_date: '2026-09-01', operating_state: 'parked' });
   Object.assign(seed.deals[6], { next_date: '2026-09-01', phase: 'Closed' });
@@ -62,6 +64,7 @@ test('Home counts overdue agenda dates while board badges retain next-step atten
   assert.ok(todayRows.length >= 2 && todayRows.every(text => /\d+ days? overdue$/.test(text)), JSON.stringify(todayRows));
   assert.deepEqual(days(todayRows), [...days(todayRows)].sort((a, b) => b - a));
   seed.deals.forEach(deal => { deal.next_date = '2026-10-20'; deal.items.forEach(item => {item.due_on = '2026-10-20';}); });
+  optionNotice.due_on = '2026-10-20';
   await page.goto('http://localhost/review-workflows');
   await page.waitForFunction(() => /Active deals: \d/.test(document.querySelector('#dealCounts')?.textContent || ''));
   assert.equal(await page.locator('#dealFlags .home-flag').count(), 0);

@@ -23,6 +23,7 @@ async function open(t, path = '/deals', time = undefined) {
 async function room(page, id = 'd14') {
   await page.locator(`.kanban-card[data-id="${id}"] .card-open`).click();
   await page.locator('#dealUpdate').waitFor();
+  await page.getByText('Change next step', { exact: true }).click();
 }
 
 test('unsent deal updates survive close, another deal, refresh, and reopen without sending', async t => {

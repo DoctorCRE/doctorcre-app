@@ -32,7 +32,8 @@ export function createFixtureDealStore(seed) {
     }])),
     threads: new Map(Object.entries(structuredClone(seed.threads || {}))),
     history: new Map(Object.entries(structuredClone(seed.history || {}))),
-    events, leases:new Map(), idem:new Map(), conflicts:new Map(), criticalDates:new Map(),
+    events, leases:new Map(), idem:new Map(), conflicts:new Map(),
+    criticalDates: new Map(Object.entries(structuredClone(seed.critical_dates || {}))),
     lastFieldEvent:new Map(events.filter(e => e.field).map(e => [`${e.subject_id}|${e.field}`, e.id])),
     seq:events.length + 1, conflictSeq:1, noteSeq:1, criticalDateSeq:1, histSeq:1,
   };
@@ -1260,8 +1261,7 @@ export async function createFixtureClient(opts = {}) {
       }
       return { ...board, schema_version: 'home-agenda.v1', missing_next_action: [...missing].map(([owner, deal_ids]) => ({ owner, deal_ids })).sort((a, b) => a.owner === null ? 1 : b.owner === null ? -1 : a.owner.localeCompare(b.owner)), deals: board.deals.map(deal => ({
         ...deal,
-        critical_dates: [...(deal.next_date ? [{ label: deal.next_step || 'Follow-up due', date: deal.next_date }] : []),
-          ...(criticalDates.get(deal.id) || []).map(row => ({ ...row }))],
+        critical_dates: (criticalDates.get(deal.id) || []).map(row => ({ ...row })),
         next_actions: actionsFor(deal),
       })) };
     },
@@ -1281,14 +1281,7 @@ export async function createFixtureClient(opts = {}) {
       const hist = (history.get(dealId) || [])
         .slice()
         .sort((a, b) => b.recorded_at.localeCompare(a.recorded_at));
-      const critical_dates = [];
-      if (deal.next_date) {
-        critical_dates.push({
-          label: deal.next_step || 'Follow-up due',
-          date: deal.next_date,
-        });
-      }
-      for (const entry of criticalDates.get(dealId) || []) critical_dates.push({ ...entry });
+      const critical_dates = (criticalDates.get(dealId) || []).map(row => ({ ...row }));
       return { items: structuredClone(deal.items || []), item_schema_version: 'deal-items.v1', deal: {...deal, phase_change: phaseChangeFor(dealId)}, thread, critical_dates, history: hist,
         next_actions: actionsFor(deal),
         activities: activitiesFor(dealId).slice(0, 4),

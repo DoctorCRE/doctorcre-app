@@ -22,3 +22,8 @@ async function createHomeClient(boot) {
 }
 
 export const homeClient = typeof location === 'undefined' ? null : createHomeClient(resolveDealroomBoot(location));
+
+export async function readHomeEmailProposalPage(options) {
+  const [{ readEmailProposalPage }, client] = await Promise.all([import('./email-followups.js'), homeClient]);
+  return readEmailProposalPage(client, options);
+}
