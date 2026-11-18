@@ -479,7 +479,8 @@ async function engineSave(request, env) {
     if (!isUuid(id)) return saveRefusal(call, 'not_found', 'Refresh Home and try again.');
     if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     const [record, action] = homeSave;
-    return engineAnswer(request, env, call, { path: `/api/engine/${record}/${id}/${action}` }, { allowHandoff: false, body });
+    return engineAnswer(request, env, call, { path: `/api/engine/${record}/${id}/${action}` },
+      { allowHandoff: false, body, rawClientError: record === 'proposals' });
   }
   if (LEGACY_HOME_MARKS.has(call.params.name)) {
     const { items, undo_of } = call.params.arguments;
@@ -514,12 +515,12 @@ async function sendEngineSave(request, env, path, body) {
 }
 
 // Only the legacy-schema saves share a receipt with CARR.
-async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments } = {}) {
+async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments, rawClientError = false } = {}) {
   const response = await sendEngineSave(request, env, save.path, body);
   if (!response) return unavailable(false);
   let text;
   try {
-    if ([401, 403, 429].includes(response.status)) return response;
+    if ((rawClientError && response.status >= 400 && response.status < 500) || [401, 403, 429].includes(response.status)) return response;
     text = await response.text();
   } catch { return unavailable(false); }
   const handoff = OLD_SYSTEM_ANSWERS.get(response.status);

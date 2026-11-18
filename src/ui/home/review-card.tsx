@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import type { Suggestion } from "./engine-review.ts";
+import { proposalRefusal, type Suggestion } from "./engine-review.ts";
 import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
 import { type Operation, reviewError } from "./review";
 
@@ -8,6 +8,7 @@ type State =
   | { phase: "ready" | "editing"; review: Review }
   | { phase: "submitting" | "uncertain"; review: Review; request: ReviewRequest }
   | { phase: "conflict"; review: Review; message: string }
+  | { phase: "proposal-refused"; review: Review; message: string; id: string }
   | { phase: "refused" | "done"; message: string };
 const labels: Record<Operation["verb"], string> = {
   "complete-one-action": "Mark done",
@@ -101,7 +102,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
   }, [client, reconcileFacts]);
   const waiting = state.phase === "submitting" || lock.current;
   const review = "review" in state ? state.review : null;
-  const editable = state.phase === "ready" || state.phase === "editing";
+  const editable = state.phase === "ready" || state.phase === "editing" || state.phase === "proposal-refused";
   async function reload() {
     if (!client || lock.current) return;
     lock.current = true;
@@ -166,6 +167,18 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
       }
     } catch (error) {
       if (!alive.current) return;
+      const refusal = request.verb === "decide-engine-home-proposal" ? proposalRefusal(error) : null;
+      if (refusal) {
+        const { id, decision } = request.args;
+        setMessage("");
+        setState(
+          decision === "accept" && typeof id === "string"
+            ? { phase: "proposal-refused", review: detail, message: refusal, id }
+            : { phase: "refused", message: refusal },
+        );
+        host.current?.focus();
+        return;
+      }
       const failure = reviewError(error);
       setMessage("");
       if (failure.kind === "uncertain") setState({ phase: "uncertain", review: detail, request });
@@ -282,6 +295,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
         ))}
       {client && state.phase === "loading" && <p role="status">Loading current evidence…</p>}
       {(state.phase === "refused" || state.phase === "done") && <p role="status">{state.message}</p>}
+      {state.phase === "proposal-refused" && <p role="alert">{state.message}</p>}
       {review && (
         <form
           ref={form}
@@ -309,14 +323,25 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                     {proposal.label}
                     {proposal.target ? ` · ${proposal.target}` : ""}
                   </h4>
-                  {proposal.source?.sender && <p>From: {proposal.source.sender}</p>}
-                  {proposal.source?.subject && <p>{proposal.source.subject}</p>}
-                  {proposal.source?.occurredAt && (
-                    <time dateTime={proposal.source.occurredAt}>
-                      {emailDate.format(new Date(proposal.source.occurredAt))}
-                    </time>
+                  {proposal.source && (
+                    <>
+                      <p>
+                        {proposal.source.from}
+                        {proposal.source.occurredAt && (
+                          <>
+                            {" "}
+                            on{" "}
+                            <time dateTime={proposal.source.occurredAt}>
+                              {emailDate.format(new Date(proposal.source.occurredAt))}
+                            </time>
+                          </>
+                        )}
+                      </p>
+                      {proposal.source.subject && <p>{proposal.source.subject}</p>}
+                      {proposal.source.excerpt && <blockquote>{proposal.source.excerpt}</blockquote>}
+                    </>
                   )}
-                  {proposal.source?.excerpt && <blockquote>{proposal.source.excerpt}</blockquote>}
+                  <p>Words that prompted this suggestion</p>
                   <blockquote>{proposal.evidence}</blockquote>
                   {proposal.editable ? (
                     <>
@@ -330,12 +355,18 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                   ) : (
                     proposal.what && <p>{proposal.what}</p>
                   )}
+                  {!proposal.canAccept && (
+                    <p>This step changed after the suggestion. Mark it done from the step, or choose Not yet.</p>
+                  )}
                   <div className="inbox-actions">
                     {(["accept", "dismiss"] as const).map((decision) => (
                       <button
                         key={decision}
                         type="button"
-                        disabled={decision === "accept" && !proposal.canAccept}
+                        disabled={
+                          decision === "accept" &&
+                          (!proposal.canAccept || (state.phase === "proposal-refused" && state.id === proposal.id))
+                        }
                         onClick={() => decideSuggestion(proposal, decision)}
                       >
                         {proposal.completion

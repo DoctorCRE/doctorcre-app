@@ -5,7 +5,7 @@ import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "reac
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
-import { hasEngineReview } from "./engine-review.ts";
+import { hasEngineReview, openStepRefusal } from "./engine-review.ts";
 import {
   type Action,
   type Command,
@@ -309,6 +309,8 @@ function Inbox({ client }: { client: InboxClient }) {
         setPending(null);
         if (code === "home_routing_changed") {
           setNotice("Home changed. Refreshing your inbox.");
+        } else if (code === "open_step_exists") {
+          setNotice(openStepRefusal);
         } else if ("engine_marks" in operation.request && operation.request.engine_marks) {
           setNotice(
             code === "invalid_snooze_time"

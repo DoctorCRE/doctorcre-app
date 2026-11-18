@@ -313,13 +313,7 @@ export function parseSnapshot(value: unknown): Snapshot {
   });
   if (new Set(items.map((item) => item.item_id)).size !== items.length)
     throw Error("Inbox returned duplicate items. Refresh to try again.");
-  const shared = {
-    ok: true,
-    truncated: value.truncated,
-    limit: 1000,
-    items,
-    working_collapsed: true,
-  } as const;
+  const shared = { ok: true, truncated: value.truncated, limit: 1000, items, working_collapsed: true } as const;
   return contract.settlement
     ? { ...shared, schema_version: contract.schema, auto_settle_enabled: true }
     : { ...shared, schema_version: "home-inbox.v2", auto_settle_enabled: false };

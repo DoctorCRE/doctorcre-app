@@ -53,6 +53,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
     action_id: null, action_version: null, due_on: null, kind_label: 'Update', title: 'The sample deal moved ahead',
   });
   const details = new Map();
+  const proposalRefusals = new Map();
   const snapshot = reader => ({ ...state, items: state.items.map(item => ({
     ...item, title: `${item.title} (${reader})`,
     ...(item.completion_review && item.disposition === 'inbox' && { title: 'Did this happen? Review the sample site', source_type: 'notification', action_id: null }),
@@ -94,6 +95,11 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
           return Response.json({ next_step_id: id, status: done ? 'done' : 'open', ...(done && { change_id }) });
         }
         if (collection === 'proposals') {
+          if (args.decision === 'accept' && proposalRefusals.has(id)) {
+            const [error, status] = proposalRefusals.get(id);
+            proposalRefusals.delete(id);
+            return Response.json({ error }, { status });
+          }
           if (item.completion_review) delete item.completion_review;
           else {
             item.suggestions = item.suggestions.filter(row => row.id !== id);
@@ -231,16 +237,18 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   const proposal = '00000000-0000-0000-0000-000000000020';
   const log = '00000000-0000-0000-0000-000000000021';
   const next = '00000000-0000-0000-0000-000000000023';
-  const evidence = { evidence: 'Discussed next steps.', source_activity: { summary: 'The sample call summary.', happened_at: NOW.toISOString() } };
-  state.items[2].completion_review = { proposal_id: proposal, can_resolve: true };
+  const phase = '00000000-0000-0000-0000-000000000026';
+  const evidence = { evidence: 'Discussed next steps.', source_activity: { kind: 'call', summary: 'The sample call summary.', happened_at: NOW.toISOString() } };
+  state.items[2].completion_review = { proposal_id: proposal, can_resolve: false };
   details.set(proposal, { ...evidence, proposal_id: proposal, kind: 'next_step_done' });
   const notice = state.items[3];
   state.items.push(
     { ...notice, title: 'Call suggestions', item_id: `capture_session:${log}`, source_id: log, source_type: 'capture_session',
-      deal_id: null, kind_label: 'Call', suggestions: [{ id: log }, { id: next }] },
+      deal_id: null, kind_label: 'Call', suggestions: [{ id: log }, { id: next }, { id: phase }] },
   );
   details.set(log, { ...evidence, proposal_id: log, kind: 'log_call', target_name: 'Example Dental', what: 'Log the sample call' });
   details.set(next, { ...evidence, proposal_id: next, kind: 'next_step', what: 'Share the plan', due_on: '2026-11-04' });
+  details.set(phase, { ...evidence, proposal_id: phase, kind: 'phase_move', to_phase: 'legal' });
   await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
   const cardFor = name => inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name }) });
   const review = cardFor(/Did this happen\? Review the sample site/);
@@ -251,6 +259,10 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await undo.click();
   await review.getByRole('button', { name: 'Open', exact: true }).click();
   await review.getByText('Discussed next steps.', { exact: true }).waitFor();
+  await review.getByText(/From your call on/).waitFor();
+  await review.getByText('Words that prompted this suggestion', { exact: true }).waitFor();
+  await review.getByText(/This step changed after the suggestion/).waitFor();
+  assert.equal(await review.getByRole('button', { name: 'Yes, it’s done' }).isDisabled(), true);
   await review.getByRole('button', { name: 'Not yet', exact: true }).click();
   await review.waitFor({ state: 'detached' });
   assert.equal(writes.at(-1)[1].decision, 'dismiss');
@@ -261,10 +273,27 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
   await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
   assert.equal(writes.at(-1)[1].decision, 'accept');
+  for (const [error, status, message] of [
+    ['open_step_exists', 409, /You already have an open step for this client or deal/],
+    ['invalid_field_value', 422, /This suggestion could not be saved/],
+  ]) {
+    proposalRefusals.set(next, [error, status]);
+    await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
+    await suggestions.getByRole('alert').filter({ hasText: message }).waitFor();
+    assert.equal(await suggestions.getByRole('button', { name: 'Retry same review request' }).count(), 0);
+    await page.keyboard.press('Escape');
+    await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
+  }
   await suggestions.getByRole('textbox', { name: 'Next step', exact: true }).fill('Share the revised plan');
-  await suggestions.getByRole('button', { name: 'Accept', exact: true }).click();
-  await suggestions.waitFor({ state: 'detached' });
+  await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
+  await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
   assert.deepEqual(writes.at(-1)[1].edits, { what: 'Share the revised plan', due_on: '2026-11-04' });
+  proposalRefusals.set(phase, ['version_conflict', 409]);
+  await suggestions.getByRole('button', { name: 'Accept', exact: true }).click();
+  await suggestions.getByRole('alert').filter({ hasText: /This deal has moved since the suggestion/ }).waitFor();
+  assert.equal(await suggestions.getByRole('button', { name: 'Review updated card' }).count(), 0);
+  await suggestions.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await suggestions.waitFor({ state: 'detached' });
 
   const lease = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
   await lease.getByRole('button', { name: 'Snooze', exact: true }).click();
