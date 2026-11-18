@@ -60,7 +60,8 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
       assert.equal(await page.locator('.app-layout-working').isVisible(), false, 'Inbox hides the left Overdue list');
       if (width === 390) await page.keyboard.press('Escape');
       if (width === 390) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
-      assert.equal(await page.locator('#appTodayNeeds').isVisible(), false, 'Inbox hides the repeated right Overdue list');
+      assert.equal(await page.locator('#appTodayNeeds [data-layout-deal="synthetic-deal"]').isVisible(), true, 'Inbox lists the late reminder under Overdue');
+      assert.equal(await page.locator('#appTodayNext [data-layout-deal]').count(), 0, 'a late reminder is not a dated reminder');
       assert.equal(await page.locator('#appScheduleSlot a').isVisible(), true);
       if (width === 390) {
         await page.keyboard.press('Escape');
@@ -82,7 +83,7 @@ test('Inbox respects closed sidebar preferences, opens Today by keyboard, and cl
   assert.equal(await page.locator('#appLayout').getAttribute('data-today'), 'closed');
   await page.locator('#appTodayToggle').focus(); await page.keyboard.press('Enter');
   await page.locator('#appScheduleSlot a').waitFor();
-  assert.equal(await page.locator('#appTodayNeeds').isVisible(), false);
+  await page.locator('#appTodayNeeds [data-layout-deal="synthetic-deal"]').waitFor();
   await page.locator('#selfAvatar').click();
   await page.locator('#accountSignOut').click();
   await page.locator('#appLayout').waitFor({ state: 'detached' });
@@ -94,7 +95,7 @@ test('Inbox loading preserves one workspace until its read resolves', async t =>
   assert.equal(await page.locator('[data-inbox-row]').count(), 0);
   await page.locator('#appTodayToggle').click();
   assert.equal(await page.locator('#appScheduleSlot a').isVisible(), true);
-  assert.equal(await page.locator('#appTodayNeeds').isVisible(), false);
+  assert.equal(await page.locator('#appTodayNeeds').isVisible(), true);
   await page.keyboard.press('Escape');
   releaseInbox();
   await page.locator('[data-inbox-row="synthetic-action"]').waitFor();
@@ -105,7 +106,7 @@ test('Inbox read error keeps the same Calendar day treatment', async t => {
   const { page } = await open(t, { inboxError: true });
   await page.getByRole('alert').filter({ hasText: 'Inbox unavailable' }).waitFor();
   assert.equal(await page.locator('.app-layout-working').isVisible(), false);
-  assert.equal(await page.locator('#appTodayNeeds').isVisible(), false);
+  assert.equal(await page.locator('#appTodayNeeds').isVisible(), true);
   assert.equal(await page.locator('#appScheduleSlot a').isVisible(), true);
 });
 
@@ -113,11 +114,10 @@ for (const path of ['/', '/deals', '/calendar', '/vendors']) test(`${path} retai
   const { page } = await open(t, { path });
   if (path === '/') {
     assert.equal(await page.locator('.app-layout-working').isVisible(), false);
-    assert.equal(await page.locator('#appTodayNeeds').isVisible(), false);
     assert.equal(await page.locator('#appScheduleSlot a').count(), 1);
   } else {
     assert.equal(await page.locator('.app-layout-working').count(), path === '/vendors' ? 0 : 1);
-    assert.equal(await page.locator('#appTodayNeeds [data-layout-deal="synthetic-deal"]').count(), 1);
-    assert.equal(await page.locator('#appTodayNext [data-layout-deal="synthetic-deal"]').count(), 1);
   }
+  assert.equal(await page.locator('#appTodayNeeds [data-layout-deal="synthetic-deal"]').count(), 1);
+  assert.equal(await page.locator('#appTodayNext [data-layout-deal]').count(), 0);
 });

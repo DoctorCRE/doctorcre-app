@@ -964,7 +964,6 @@
     "src/ui/home/missing-next-step.tsx": "affff6e7e10d4bb727f5d328836d95a67f5946382be4fa18725a114455f7cc6e",
     "src/ui/home/review-card.tsx": "86d8e9adcc7c9f7a6442f9fbea8c4eeeff5aeb531fbf806dfba5bb5576e7de39",
     "src/ui/home/review.ts": "685c6a8ca5edf60bd1f0b320d72d30cc3999eae956aa0362282df5eb635c8b59",
-    "src/ui/home/sections.tsx": "064e38d38e412cccb03dba92d5f71e5af5e9a97240d3d03afbbb553aa5bbdb4b",
     "src/ui/home/task-done.ts": "4eba2be5bd2bd8704a40991418473f8a72b6be576dcdd68671c5dac163240e1b",
     "src/ui/host-node.tsx": "cce222391d1cd57f37c6d7026ff4bfdd579b2b73879f01e82ab335ef11fd4bbc",
     "src/ui/ideal-client-profile.tsx": "1441c995afe9afa8fe1bbbe121d29c8aacb176de0ecb0ded185beea05e3796a6",

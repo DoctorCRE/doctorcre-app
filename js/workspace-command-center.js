@@ -181,6 +181,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     const summary = signedOut ? null : dealSnapshot(snapshot?.board, scope, agenda);
     $('dealAttention').setAttribute('aria-busy', String(snapshot?.loading ?? true));
     $('dealCounts').innerHTML = `<span>Active deals: <b>${count(summary?.active ?? null)}</b></span> <span>In market: <b>${count(summary?.inMarket ?? null)}</b></span> <span>National accounts: <b>${count(summary?.national ?? null)}</b></span> <span>Overdue deals: <b>${count(summary?.flagged?.length ?? null)}</b></span>`;
+    document.dispatchEvent(new window.CustomEvent('doctorcre:overdue-shown', { detail: summary?.flagged?.map(deal => deal.id) || [] }));
     paint($('dealFlags'), summary?.flagged ? (summary.flagged.length ? summary.flagged.map(deal => renderDealAlert(deal, { today })).join('') : '<p class="home-empty">No overdue next steps</p>') : `<p class="home-empty">${signedOut ? 'Sign in to view deals' : snapshot?.reads?.board?.state === 'error' ? 'Deals unavailable' : summary ? 'Overdue deals unavailable' : 'Updating…'}</p>`);
     if ($('homeInvoices')) {
       const invoices = signedOut ? null : projectInvoices(snapshot?.invoices, { scope, today: localToday(new Date(now())) });

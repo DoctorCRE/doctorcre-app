@@ -38,6 +38,10 @@ test('Home counts overdue agenda dates while board badges retain next-step atten
   const home = await page.locator('#dealFlags .home-flag').count();
   const homeOverdue = await page.locator('#dealFlags .home-flag .work-card-status').allTextContents();
   const homeCounts = await page.locator('#dealCounts').textContent();
+  await page.waitForFunction(() => !/Loading/.test(document.querySelector('#appTodayNeeds')?.textContent || 'Loading'));
+  const flaggedDeals = await page.locator('#dealFlags .deal-alert [data-home-key]').evaluateAll(links => links.map(link => link.dataset.homeKey.slice('deal:'.length)));
+  const todayDeals = await page.locator('#appTodayNeeds [data-layout-deal]').evaluateAll(cards => cards.map(card => card.dataset.layoutDeal));
+  assert.deepEqual(todayDeals.filter(id => flaggedDeals.includes(id)), [], 'a deal on the Overdue deals board is not listed again in Today');
   await page.getByRole('button', { name: 'Just me', exact: true }).click();
   const mine = await page.locator('#dealFlags .home-flag').count();
   await page.goto('http://localhost/deals');
