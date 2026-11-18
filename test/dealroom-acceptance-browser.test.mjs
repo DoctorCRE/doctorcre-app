@@ -330,24 +330,44 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
 test('switched-on Deals selects an existing market agent and decides critical dates', async t => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
   t.after(() => page.close());
-  const [deal, account, person, date] = Array.from({ length: 4 }, () => crypto.randomUUID());
-  const row = { id: deal, name: 'Example Market Deal', phase: 'research', seen: 1, owner: 'joe', account_client_id: account };
+  const [deal, account, person, date, prior, older] = Array.from({ length: 6 }, () => crypto.randomUUID());
+  const row = { id: deal, name: 'Example Market Deal', phase: 'research', seen: 1, owner: 'joe', account_client_id: account, market_agent: 'Previous Agent' };
   const critical = { id: date, kind: 'lease_end', due_on: '2027-01-02', status: 'proposed' };
   const dates = [critical];
+  let participants = [
+    { party_id: prior, role: 'market_agent' },
+    { party_id: older, role: 'market_agent' },
+    { party_id: older, role: 'market_agent' },
+    { party_id: account, role: 'listing_side' },
+  ];
   const writes = [];
+  const partyKeys = [];
+  let droppedRemovalReceipt = false;
   let savesOn = false;
   const env = {
     ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' || (savesOn && key === 'deals-saves-from-engine') ? 'on' : null },
     ENGINE: { fetch: async request => {
       const path = new URL(request.url).pathname;
       if (request.method === 'GET') return Response.json(path.endsWith(deal)
-        ? { ...row, deal_id: deal, critical_dates: dates }
+        ? { ...row, deal_id: deal, critical_dates: dates, participants }
         : { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row],
           accounts: [{ account_client_id: account, account_name: 'Example National Account', account_owner: 'joe' }] });
       const { idempotency_key, ...body } = await request.json();
       assert.match(idempotency_key, /^[\da-f-]{36}$/i);
       writes.push([path, body]);
+      if (path.includes('/parties')) partyKeys.push(idempotency_key);
+      if (path.endsWith('/parties/remove')) {
+        participants = participants.filter(p => p.party_id !== body.party_id || p.role !== body.role);
+        if (body.party_id === older && !droppedRemovalReceipt) {
+          droppedRemovalReceipt = true;
+          return new Response(null, { status: 503 });
+        }
+        return Response.json({ deal_id: deal, ...body });
+      }
       if (path.endsWith('/parties')) {
+        if (participants.some(p => p.party_id === body.party_id && p.role === body.role))
+          return Response.json({ error: 'database_refused_the_statement' }, { status: 422 });
+        participants.push(body);
         row.market_agent = 'Example Market Agent';
         return Response.json({ deal_id: deal, ...body }, { status: 201 });
       }
@@ -377,7 +397,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
       ] }),
     }] } } });
     if (!['deal-room-board', 'get-deal-room', 'set-market-agent', 'confirm-critical-date',
-      'resolve-critical-date', 'patch-deal-field', 'add-critical-date'].includes(verb)) return route.continue();
+      'resolve-critical-date', 'patch-deal-field', 'add-critical-date', 'remove-deal-participant'].includes(verb)) return route.continue();
     const response = await handleDoctorcreRequest(new Request(request.url(), {
       method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
     }), env);
@@ -386,23 +406,43 @@ test('switched-on Deals selects an existing market agent and decides critical da
 
   await page.goto(`${origin}/deals?view=national&mode=live`);
   await page.getByRole('button', { name: /Example National Account/ }).click();
-  await page.getByRole('button', { name: /Assign agent/ }).click();
+  await page.getByRole('button', { name: 'Previous Agent' }).click();
   await page.getByLabel('Assigned local agent').waitFor();
   savesOn = true;
   await page.reload();
   await page.getByRole('button', { name: /Example National Account/ }).click();
-  await page.getByRole('button', { name: /Assign agent/ }).click();
-  await page.getByLabel('Search people').fill('Example');
-  await page.getByRole('button', { name: 'Find people' }).click();
-  const agents = page.getByLabel('Market agent', { exact: true });
-  await agents.locator('option').filter({ hasText: 'Example Market Agent' }).waitFor({ state: 'attached' });
-  assert.equal(await agents.locator('option').count(), 2);
-  await page.getByRole('button', { name: 'Save assignment' }).click();
+  await page.getByRole('button', { name: 'Previous Agent' }).click();
+  assert.equal(await page.locator('#dialogTitle').textContent(), 'Market agent — Example Market Deal');
+  assert.equal(await page.getByText('Current agent: Previous Agent', { exact: true }).isVisible(), true);
+  const chooseAgent = async () => {
+    await page.getByLabel('Search people').fill('Example');
+    await page.getByRole('button', { name: 'Find people' }).click();
+    const agents = page.getByLabel('Market agent', { exact: true });
+    await agents.locator('option').filter({ hasText: 'Example Market Agent' }).waitFor({ state: 'attached' });
+    assert.equal(await agents.locator('option').count(), 2);
+    await agents.selectOption({ label: 'Example Market Agent' });
+  };
+  const saveAgent = page.getByRole('button', { name: 'Save market agent' });
+  await saveAgent.click();
   assert.equal(writes.length, 0);
-  await agents.selectOption({ label: 'Example Market Agent' });
+  await chooseAgent();
   await page.screenshot({ path: join(evidence, 'engine-market-agent.png') });
-  await page.getByRole('button', { name: 'Save assignment' }).click();
+  await saveAgent.click();
+  const checkOutcome = page.getByRole('button', { name: 'Check outcome', exact: true });
+  await checkOutcome.waitFor({ timeout: 5000 });
+  await checkOutcome.click();
   await page.getByRole('button', { name: 'Example Market Agent', exact: true }).waitFor();
+  assert.equal(new Set(partyKeys).size, 3);
+  assert.equal(partyKeys[2], partyKeys[3]);
+  assert.deepEqual(participants, [
+    { party_id: account, role: 'listing_side' }, { party_id: person, role: 'market_agent' },
+  ]);
+
+  await page.getByRole('button', { name: 'Example Market Agent', exact: true }).click();
+  await chooseAgent();
+  await saveAgent.click();
+  await saveAgent.waitFor({ state: 'hidden', timeout: 5000 });
+  assert.equal(partyKeys.length, 4);
 
   await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
   const card = page.locator('.critical-date').filter({ hasText: 'Lease expiration' });
@@ -421,12 +461,17 @@ test('switched-on Deals selects an existing market agent and decides critical da
   await page.getByRole('button', { name: 'Move to Site selection' }).click();
   const effectiveDate = page.locator('.critical-date').filter({ hasText: 'Phase effective date' });
   await effectiveDate.getByText('Confirmed', { exact: true }).waitFor();
+  assert.equal(await effectiveDate.getByText('Phase effective date', { exact: true }).count(), 1);
   assert.equal(await effectiveDate.getByText('Jan 3, 2027', { exact: true }).count(), 1);
+  await effectiveDate.screenshot({ path: join(evidence, 'engine-phase-effective-date.png') });
   assert.deepEqual(writes, [
     [`/api/engine/deals/${deal}/parties`, { party_id: person, role: 'market_agent' }],
+    [`/api/engine/deals/${deal}/parties/remove`, { party_id: prior, role: 'market_agent' }],
+    [`/api/engine/deals/${deal}/parties/remove`, { party_id: older, role: 'market_agent' }],
+    [`/api/engine/deals/${deal}/parties/remove`, { party_id: older, role: 'market_agent' }],
     [`/api/engine/critical-dates/${date}/confirm`, {}],
     [`/api/engine/critical-dates/${date}/resolve`, { resolution: 'done', reason: 'The review is complete' }],
     [`/api/engine/deals/${deal}/changes`, { seen_change_id: 1, phase: { from: 'research', to: 'site_selection' } }],
-    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'other', due_on: '2027-01-03', source: 'Example agreement', note: 'Kind: phase_effective_date' }],
+    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'other', due_on: '2027-01-03', source: 'Example agreement', note: 'Phase effective date' }],
   ]);
 });

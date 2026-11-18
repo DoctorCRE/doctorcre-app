@@ -1267,14 +1267,16 @@ function marketAgentForm(dealId) {
   const operationKey = `market-agent:${dealId}`;
   const deal = state.deals.get(dealId);
   const next = state.nextDealSaves;
-  const form = next ? `<div class="field"><label for="agentSearch">Search people</label>
+  const form = next ? `<p>Current agent: ${esc(deal.market_agent || 'Unassigned')}</p>
+    <div class="field"><label for="agentSearch">Search people</label>
     <input id="agentSearch" maxlength="100">
     <button id="agentFind" type="button" class="btn">Find people</button>
     <small id="agentSearchStatus" role="status"></small></div>
     <div class="field"><label for="agentPerson">Market agent</label>
     <select id="agentPerson" name="agent_party_id" required><option value="">Choose a person</option></select></div>`
     : { kind:'market-agent', agent:deal.market_agent || '', market:deal.market || '' };
-  openForm({ operationKey, draftKey:next ? null : operationKey, title:`Market assignment — ${deal.name}`, submit:'Save assignment', form,
+  openForm({ operationKey, draftKey:next ? null : operationKey,
+    title:`${next ? 'Market agent' : 'Market assignment'} — ${deal.name}`, submit:next ? 'Save market agent' : 'Save assignment', form,
     onSubmit:async (data) => {
       let request = state.commands?.pending(operationKey);
       if (!request && next) {

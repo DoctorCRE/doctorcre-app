@@ -6,11 +6,9 @@
   "switch": "deals-saves-from-engine",
   "post": {
     "add-critical-date": "/api/engine/deals/{deal_id}/critical-dates",
-    "add-deal-participant": "/api/engine/deals/{deal_id}/parties",
     "confirm-critical-date": "/api/engine/critical-dates/{critical_date_id}/confirm",
     "remove-deal-participant": "/api/engine/deals/{deal_id}/parties/remove",
     "resolve-critical-date": "/api/engine/critical-dates/{critical_date_id}/resolve",
-    "set-lead": "/api/engine/deals/{deal_id}/changes",
     "set-market-agent": "/api/engine/deals/{deal_id}/parties"
   }
 }

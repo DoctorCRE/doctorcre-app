@@ -276,8 +276,8 @@ async function engineResponse(request, env) {
 // New-schema receipts are separate from the legacy tool receipts.
 const CUTOVER_SAVES = new Set([
   'patch-deal-field', 'update-deal', 'set-next-step', 'complete-deal-item', 'record-deal-item',
-  'add-deal-note', 'new-deal', 'set-lead', 'set-market-agent', 'add-critical-date',
-  'add-deal-participant', 'remove-deal-participant', 'confirm-critical-date', 'resolve-critical-date',
+  'add-deal-note', 'new-deal', 'set-market-agent', 'add-critical-date',
+  'remove-deal-participant', 'confirm-critical-date', 'resolve-critical-date',
   'instruct-deal-item', 'revert-deal-field', 'resolve-conflict',
 ]);
 const isUuid = value => isString(value) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -293,10 +293,7 @@ function nextDealSave(verb, args) {
   if (!isUuid(deal)) return null;
   const changes = patch => post(`/deals/${deal}/changes`, { seen_change_id, ...patch });
   switch (verb) {
-    case 'set-lead':
-      return ['joe', 'dell'].includes(args.new_lead) ? changes({ fields: { owner: args.new_lead } }) : null;
     case 'set-market-agent':
-    case 'add-deal-participant':
     case 'remove-deal-participant': {
       const party_id = verb === 'set-market-agent' ? args.agent_party_id : args.party_id;
       const role = verb === 'set-market-agent' ? 'market_agent' : args.role;
@@ -309,7 +306,7 @@ function nextDealSave(verb, args) {
       const phaseDate = kind === 'phase_effective_date';
       return post(`/deals/${deal}/critical-dates`, {
         kind: phaseDate ? 'other' : kind, due_on, source,
-        note: phaseDate ? ['Kind: phase_effective_date', note].filter(Boolean).join('\n') : note,
+        note: phaseDate ? 'Phase effective date' : note,
       });
     }
     case 'confirm-critical-date':
@@ -415,8 +412,7 @@ async function cutoverSave(request, env, call) {
   const body = await response.json().catch(() => null);
   if (!isObject(body)) return unavailable(false);
   if (!response.ok) {
-    const peopleOrDate = name === 'set-lead' || name === 'set-market-agent'
-      || name.endsWith('-deal-participant') || name.endsWith('-critical-date');
+    const peopleOrDate = name === 'set-market-agent' || name === 'remove-deal-participant' || name.endsWith('-critical-date');
     const invalidClosingDate = name === 'update-deal' && body.error === 'invalid_field_value'
       && Array.isArray(body.fields) && body.fields.length === 1 && body.fields[0] === 'phase';
     const hint = creating

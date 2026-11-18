@@ -58,17 +58,17 @@ export function dealTimeline(detail, now = Date.now(), dateDecisions = false) {
     const definition = DATE_KINDS.find(d => d.kinds.includes(kind));
     const value = row.due_on ?? row.date;
     const original = noteText(row.note);
-    const phaseMarker = 'Kind: phase_effective_date';
-    const phaseDate = dateDecisions && row.kind === 'other' && original.split('\n', 1)[0] === phaseMarker;
-    return {dateState:calendarDay(value) ? 'dated' : value == null || value === '' ? 'missing' : 'invalid',id:row.id || `date-${i}`,kind:definition?.kind || row.kind,label:phaseDate ? 'Phase effective date' : definition?.label || row.kind?.replace(/[_-]+/g,' ') || row.label || 'Date',
-      day:calendarDay(value),original:phaseDate ? original.slice(phaseMarker.length).trim() : original,
+    const namedOther = row.kind === 'other' && original;
+    return {dateState:calendarDay(value) ? 'dated' : value == null || value === '' ? 'missing' : 'invalid',id:row.id || `date-${i}`,kind:definition?.kind || row.kind,label:namedOther || definition?.label || row.kind?.replace(/[_-]+/g,' ') || row.label || 'Date',
+      day:calendarDay(value),original:namedOther ? '' : original,
       evidence:row.source || '',status:row.status,deadline:Boolean(definition?.deadline)};
   });
   // Co-located dates share a card, preserving every original and status.
   const grouped = new Map();
   const undated = rows.filter(row => !row.day);
   for (const row of rows.filter(row => row.day)) {
-    const key = dateDecisions && isSavedDate(row) ? row.id : `${row.kind}|${row.day}|${row.status || ''}`;
+    const key = dateDecisions && isSavedDate(row) ? row.id
+      : JSON.stringify([row.kind, row.day, row.status || '', row.kind === 'other' ? row.label : null]);
     const existing = grouped.get(key);
     const references = [row.original,row.evidence].filter(Boolean);
     if (existing) existing.references.push(...references);
