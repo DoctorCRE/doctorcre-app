@@ -516,6 +516,7 @@ async function runFollowUp(operationKey, step) {
   if (!send) return null;
   const pending = pendingCommand(commandState, operationKey);
   let args = step.args;
+  const closingInEngine = step.verb === 'update-deal' && Number.isSafeInteger(args.seen_change_id);
   if (['add-deal-note', 'set-next-step', 'record-deal-item', 'complete-deal-item'].includes(step.verb)) {
     const deal = state.panelDeal === args.deal ? state.panelDetail?.deal : state.deals.get(args.deal);
     const seen = pending ? pending.request.seen_change_id : deal?.seen;
@@ -573,12 +574,12 @@ async function runFollowUp(operationKey, step) {
   dock.record(operationKey, {
     summary: operations.get(operationKey).summary,
     status: result.status === 'blocked' ? 'unknown' : result.status,
-    reason: step.verb === 'update-deal' ? result.hint || result.message : result.message || null,
+    reason: (closingInEngine && result.hint) || result.message || null,
     // eslint-disable-next-line no-restricted-syntax -- Only another dock action can resend the retained follow-up; this receipt exposes retry state.
     retry: result.status === 'blocked' || result.retry, undo: false, request: dockRequest,
   });
   if (step.verb === 'register-client-portal' && result.status === 'ok') state.boardSync.requestRefresh('client-portal');
-  if (step.verb === 'update-deal' && result.status === 'ok') state.boardSync.requestRefresh('after-write');
+  if (closingInEngine && result.status === 'ok') state.boardSync.requestRefresh('after-write');
   if (step.verb === 'add-deal-note' && operationKey === updateKey(state.panelDeal) && state.panelDetail) {
     if ([401,403].includes(result.http_status)) { refusePanelDetail({status:result.http_status}); return result; }
     syncUpdateForm();
