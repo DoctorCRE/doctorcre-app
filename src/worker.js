@@ -131,6 +131,7 @@ const isObject = value => value !== null && typeof value === 'object' && !Array.
 const DEALS = 'deals-from-engine';
 const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
 const LEADS = 'leads-from-engine';
+const HOME = 'home-from-engine';
 const INVOICES = 'invoices-from-engine';
 const CHARTS = 'charts-from-engine';
 const NATIONAL_DEALS = 'national-deals-from-engine';
@@ -152,6 +153,7 @@ const ENGINE_READS = new Map([
   ['quiet-follow-ups', { key: LEADS, path: '/api/engine/quiet-follow-ups', args: { lead_days: Number.isFinite, vendor_days: Number.isFinite, owner_slug: isString } }],
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
   ['territory-state-board', { key: LEADS, path: '/api/engine/territory-state-board', args: { vertical: isString, city: isString, state: isString } }],
+  ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {} }],
   ['read-invoice-tracker', { key: INVOICES, path: '/api/engine/invoices', args: {} }],
   ['ideal-client-profile', { key: CHARTS, path: '/api/engine/client-fit', args: { vertical: isString, city: isString, state: isString } }],
   ['capture-queue', { key: NATIONAL_DEALS, path: '/api/engine/capture-queue', args: {} }],
