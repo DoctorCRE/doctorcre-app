@@ -22,15 +22,15 @@ before(async () => {
   await mkdir(evidence, { recursive: true });
 });
 
-for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) {
-  test(`deal files and email follow-ups for ${actor} with Deals reads ${readsOn ? 'on' : 'off'}`, async t => {
+for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, true], ['dell', true, true], ['dell', true, false]]) {
+  test(`deal files and email follow-ups for ${actor} with Deals reads ${readsOn ? 'on' : 'off'} and saves ${savesOn ? 'on' : 'off'}`, async t => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     t.after(() => page.close());
     const [deal, plan, letter, first, second] = Array.from({ length: 5 }, () => crypto.randomUUID());
     const row = { id: deal, deal_id: deal, name: 'Example File Deal', phase: 'research', seen: 1, owner: 'joe' };
     const names = new Map([[plan, 'Example Plan.pdf'], [letter, 'Example Letter.pdf']]);
     const documents = [...names].map(([id, name]) => ({ id, name, prepared_at: '2026-11-01T14:00:00+00:00' }));
-    const email_follow_ups = [
+    let email_follow_ups = [
       { proposal_id: first, kind: 'next_step', what: 'Send the plan', owner: 'dell', due_on: '2026-11-02',
         email: { subject: 'Plan ready', sender_name: 'Example Sender', happened_at: '2026-11-01T14:00:00+00:00' } },
       { proposal_id: second, kind: 'file_to_deal', evidence: 'The letter is attached.',
@@ -42,9 +42,9 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
       evidence_ref: 'Example option notice', source: { record_verb: 'add-critical-date' } };
     const checklist = { schema_version: 'deal-checklist.v1', template_state: 'current',
       phases: [{ label: 'Legal / lease', items: [completed, overdue] }], due_items: [overdue] };
-    const carr = [], opened = [];
+    const carr = [], opened = [], decisions = [];
     const env = {
-      ENGINE_ROUTING: { get: async key => readsOn && key === 'deals-from-engine' ? 'on' : null },
+      ENGINE_ROUTING: { get: async key => ({ 'deals-from-engine': readsOn, 'deals-saves-from-engine': savesOn })[key] ? 'on' : null },
       ENGINE: { fetch: async request => {
         const path = new URL(request.url).pathname;
         if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor, deals: [row] });
@@ -52,6 +52,16 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
           ...row, checklist, documents: [...documents, documents[0]],
           email_follow_ups: email_follow_ups.length ? [...email_follow_ups, email_follow_ups[0]] : [],
         });
+        if (request.method === 'POST') {
+          const id = path.split('/').at(-2);
+          assert.equal(path, `/api/engine/proposals/${id}/decision`);
+          assert.ok(request.headers.get('x-carr-csrf'));
+          const { idempotency_key, decision } = await request.json();
+          assert.match(idempotency_key, /^[\da-f-]{36}$/);
+          decisions.push([id, decision]);
+          email_follow_ups = email_follow_ups.filter(row => row.proposal_id !== id);
+          return Response.json({ proposal_id: id, status: decision === 'accept' ? 'accepted' : 'dismissed' });
+        }
         const id = path.split('/').at(-1);
         assert.ok(names.has(id), path);
         opened.push(id);
@@ -71,7 +81,7 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
         return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
       } },
     };
-    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `deal-file-read-${actor}-${readsOn}`, viewer: actor, reset: true } });
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `deal-file-read-${actor}-${readsOn}-${savesOn}`, viewer: actor, reset: true } });
     const routeThroughWorker = async route => {
       const request = route.request();
       const response = await handleDoctorcreRequest(new Request(request.url(), {
@@ -81,7 +91,7 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
     };
     await page.route('**/api/engine/documents/*', routeThroughWorker);
     await page.route('**/mcp', route => [
-      'deal-room-board', 'get-deal-room', 'list-deal-documents', 'list-email-proposals',
+      'deal-room-board', 'get-deal-room', 'list-deal-documents', 'list-email-proposals', 'decide-engine-deal-email',
     ].includes(route.request().postDataJSON()?.params?.name) ? routeThroughWorker(route) : route.continue());
 
     await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
@@ -106,6 +116,17 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
       assert.doesNotMatch(await progress.innerText(), /2026-11-14|add-critical-date|\brecorded\b/i);
       await progress.evaluate(element => element.scrollIntoView({ block: 'end' }));
       await progress.screenshot({ path: join(evidence, `engine-checklist-${actor}.png`) });
+      if (savesOn) {
+        await followups.evaluate(element => element.scrollIntoView({ block: 'end' }));
+        await followups.screenshot({ path: join(evidence, `engine-followups-${actor}.png`) });
+        const planCard = followups.getByRole('article').filter({ hasText: 'Plan ready' });
+        const letterCard = followups.getByRole('article').filter({ hasText: 'Letter attached' });
+        await planCard.getByRole('button', { name: 'Accept', exact: true }).click();
+        await planCard.waitFor({ state: 'detached' });
+        await letterCard.getByRole('button', { name: 'Dismiss', exact: true }).click();
+        await followups.getByText('No email follow-ups.', { exact: true }).waitFor();
+        assert.deepEqual(decisions, [[first, 'accept'], [second, 'dismiss']]);
+      } else assert.equal(await followups.getByRole('button').count(), 0);
     }
     await page.getByRole('tab', { name: 'Documents', exact: true }).click();
     const tab = page.getByRole('tabpanel', { name: 'Documents', exact: true });

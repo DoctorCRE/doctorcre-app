@@ -260,6 +260,12 @@ async function engineResponse(request, env) {
             text = JSON.stringify({ ...board, next_deal_saves: true });
           }
         }
+        if (call.params.name === 'get-deal-room' && response.ok) {
+          const detail = JSON.parse(text);
+          if (Array.isArray(detail?.email_follow_ups) && await switchedOn(env, NEXT_DEAL_SAVES)) {
+            text = JSON.stringify({ ...detail, next_deal_saves: true });
+          }
+        }
         if (call.params.name === 'read-home-inbox-v5' && response.ok) {
           const inbox = JSON.parse(text);
           if (inbox?.schema_version === 'home-inbox.v5') text = JSON.stringify({ ...inbox, engine_marks: true });
@@ -469,6 +475,23 @@ async function engineSave(request, env) {
   const url = new URL(request.url);
   const call = await mcpCall(request, url);
   if (call?.method !== 'tools/call' || !isObject(call.params?.arguments)) return null;
+  if (call.params.name === 'decide-engine-deal-email') {
+    if (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))
+      return saveRefusal(call, 'version_conflict', 'Reload the deal before reviewing this email.');
+    const { proposal_id, decision, idempotency_key } = call.params.arguments;
+    if (!isUuid(proposal_id) || !isUuid(idempotency_key) || !['accept', 'dismiss'].includes(decision))
+      return saveRefusal(call, 'invalid_arguments', 'Choose an email follow-up to review.');
+    const response = await sendEngineSave(request, env, `/api/engine/proposals/${proposal_id}/decision`, { decision, idempotency_key });
+    if (!response || response.status >= 500) return unavailable(false);
+    if ([401, 403, 429].includes(response.status)) return response;
+    const body = await response.json().catch(() => null);
+    if (!isObject(body)) return unavailable(false);
+    if (!response.ok) return mcpReply(call, response, JSON.stringify(body.error === 'already_decided'
+      ? { ...body, error: 'version_conflict' } : body), true);
+    if (body.error || body.proposal_id !== proposal_id || body.status !== (decision === 'accept' ? 'accepted' : 'dismissed'))
+      return unavailable(false);
+    return mcpReply(call, response, JSON.stringify({ ...body, ok: true }), false);
+  }
   if (call.params.name === 'save-engine-home-mark') {
     if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     return engineAnswer(request, env, call, { path: '/api/engine/home/marks' }, { allowHandoff: false });
