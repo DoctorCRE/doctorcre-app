@@ -198,12 +198,13 @@ function describe(error) {
  * @param {Object} deps
  * @param {() => Promise<any>} deps.readBoard authoritative snapshot (deal-room-board)
  * @param {(cursor:string|null) => Promise<any>} deps.readChanges the existing changes cursor
+ * @param {() => boolean} [deps.usesChangeFeed]
  * @param {(board:any, meta:Object) => void} deps.applyBoard called ONLY with a current snapshot
  * @param {(status:Object) => void} [deps.onStatus]
  * @param {() => number} [deps.now]
  */
 export function createBoardSync({
-  readBoard, readChanges, applyBoard, onStatus = null, now = () => Date.now(),
+  readBoard, readChanges, applyBoard, onStatus = null, now = () => Date.now(), usesChangeFeed = () => true,
 } = {}) {
   if (typeof readBoard !== 'function') throw new TypeError('createBoardSync needs readBoard');
   if (typeof readChanges !== 'function') throw new TypeError('createBoardSync needs readChanges');
@@ -261,7 +262,7 @@ export function createBoardSync({
   function derivedState() {
     if (!online) return SYNC_STATES.OFFLINE;
     if (boardHealth === HEALTH.RENDER_FAILED) return SYNC_STATES.ERROR;
-    if (boardHealth === HEALTH.FAILED || feedHealth === HEALTH.FAILED) return SYNC_STATES.RECONNECTING;
+    if (boardHealth === HEALTH.FAILED || (usesChangeFeed() && feedHealth === HEALTH.FAILED)) return SYNC_STATES.RECONNECTING;
     if (foregroundTicket !== null) return SYNC_STATES.SYNCING;
     if (boardHealth === HEALTH.OK) return SYNC_STATES.READY;
     return SYNC_STATES.STARTING;
@@ -276,7 +277,7 @@ export function createBoardSync({
       snapshots,
       cursor,
       board_health: boardHealth,
-      feed_health: feedHealth,
+      feed_health: usesChangeFeed() ? feedHealth : HEALTH.UNREAD,
       board_error: boardError,
       feed_error: feedError,
       /** The board's trouble first: it is the one that decides the values. */
@@ -500,6 +501,7 @@ export function createBoardSync({
    * ever lands, moves nothing — including the cursor.
    */
   function pollChanges({ force = false } = {}) {
+    if (!usesChangeFeed()) return Promise.resolve({ ok: true, applied: false, reason: 'disabled', changes: null });
     if (pollRun && !force) {
       counters.change_skipped += 1;
       return Promise.resolve({ ok: true, applied: false, reason: 'busy', changes: null });

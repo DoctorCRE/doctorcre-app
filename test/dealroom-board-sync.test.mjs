@@ -242,6 +242,22 @@ test("the badge never claims more than has actually been read", async () => {
 // Regression, root's reproduction: after a board read failed, a poll that
 // succeeded with an empty page repainted the badge "ready" — a working feed
 // answering for values it does not carry.
+test("snapshot-only Deals recover after reconnect without reading the changes feed", async () => {
+  let feedReads = 0;
+  const sync = createBoardSync({
+    usesChangeFeed: () => false,
+    readBoard: async () => board([deal()]),
+    readChanges: async () => { feedReads++; return changes(); },
+    applyBoard: () => {},
+  });
+  sync.setOnline(false);
+  sync.setOnline(true);
+  await sync.refreshBoard({ reason: "reconnect", force: true });
+  await sync.pollChanges({ force: true });
+  assert.equal(feedReads, 0);
+  assert.equal(sync.status().state, SYNC_STATES.READY);
+});
+
 test("a working feed cannot clear a failed board read, and a fresh board cannot hide a failed feed", async () => {
   const h = harness({
     boardReads: [

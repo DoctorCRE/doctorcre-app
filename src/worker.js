@@ -228,7 +228,7 @@ async function engineResponse(request, env) {
         if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
       }
     } else url.pathname = read.path + record;
-    return await Promise.race([
+    const response = await Promise.race([
       (async () => {
         const response = await env.ENGINE.fetch(new Request(url, { headers, signal: controller.signal, redirect: 'manual' }));
         if (controller.signal.aborted) {
@@ -274,8 +274,11 @@ async function engineResponse(request, env) {
         resolve(null);
       }, 2000); }),
     ]);
-  } catch { return null; }
+    if (response) return response;
+  } catch { /* The switch below decides whether this read can fall back. */ }
   finally { clearTimeout(timer); reader?.releaseLock(); }
+  return read.key === DEALS && await switchedOn(env, NEXT_DEAL_SAVES)
+    ? json({ error: 'engine_unavailable' }, 503) : null;
 }
 
 // New-schema receipts are separate from the legacy tool receipts.
@@ -283,7 +286,7 @@ const CUTOVER_SAVES = new Set([
   'patch-deal-field', 'update-deal', 'set-next-step', 'complete-deal-item', 'record-deal-item',
   'add-deal-note', 'new-deal', 'set-market-agent', 'add-critical-date',
   'remove-deal-participant', 'confirm-critical-date', 'resolve-critical-date',
-  'instruct-deal-item', 'revert-deal-field', 'resolve-conflict',
+  'instruct-deal-item', 'revert-deal-field', 'resolve-conflict', 'undo-invoice-close',
 ]);
 const isUuid = value => isString(value) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 
@@ -298,6 +301,8 @@ function nextDealSave(verb, args) {
   if (!isUuid(deal)) return null;
   const changes = patch => post(`/deals/${deal}/changes`, { seen_change_id, ...patch });
   switch (verb) {
+    case 'undo-invoice-close':
+      return isUuid(args.invoice_id) ? post(`/invoice-emails/${args.invoice_id}/undo`) : null;
     case 'set-market-agent':
     case 'remove-deal-participant': {
       const party_id = verb === 'set-market-agent' ? args.agent_party_id : args.party_id;
@@ -417,6 +422,7 @@ async function cutoverSave(request, env, call) {
   const body = await response.json().catch(() => null);
   if (!isObject(body)) return unavailable(false);
   if (!response.ok) {
+    if (name === 'undo-invoice-close' && body.rule === 'invoice_email_undo_current') body.error = 'version_conflict';
     const peopleOrDate = name === 'set-market-agent' || name === 'remove-deal-participant' || name.endsWith('-critical-date');
     const invalidClosingDate = name === 'update-deal' && body.error === 'invalid_field_value'
       && Array.isArray(body.fields) && body.fields.length === 1 && body.fields[0] === 'phase';
@@ -426,11 +432,13 @@ async function cutoverSave(request, env, call) {
       : invalidClosingDate ? 'Choose a closing date between the day the deal reached its current phase and today.'
       : peopleOrDate ? dealPeopleAndDateHint(name, body) ?? 'Review the deal and try saving again.'
       : body.error === 'version_conflict' ? 'This deal changed. Reload the deal before saving.'
+      : body.error === 'invoice_already_paid' ? 'The invoice has been paid, so the close cannot be undone.'
       : body.error === 'step_ended' ? 'This step was already closed. Reload the deal to see its current steps.'
       : 'The change could not be saved. Review the deal and try again.';
     return mcpReply(call, response, JSON.stringify({ ...body, hint }), true);
   }
   const saved = creating ? isUuid(body.deal_id) && Number.isSafeInteger(body.change_id) && body.change_id >= 0
+    : name === 'undo-invoice-close' ? body.invoice_id === args.invoice_id && body.status === 'undone'
     : save.path.endsWith('/changes') ? body.deal_id === args.deal
     : save.body.party_id ? body.deal_id === args.deal && body.party_id === save.body.party_id && body.role === save.body.role
     : name.endsWith('-critical-date') ? isUuid(body.critical_date_id)

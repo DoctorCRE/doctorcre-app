@@ -1,0 +1,12 @@
+{
+  "schema_version": "engine-invoice-close.v1",
+  "producer": {
+    "repository": "DoctorCRE/doctorcre-engine",
+    "source_commit": "7b046cdeeb3a4f5703edb0d802fe8746a6f1c4a5"
+  },
+  "read": "GET /api/engine/deals and GET /api/engine/deals/{deal_id}",
+  "receipt": "With DEALS_READ_SCHEMA=next, phase_change on an automatic close gives phase=closed, automatic=true, the invoice email UUID as event_id and the Central date as evidence_date.",
+  "write": "POST /api/engine/invoice-emails/{event_id}/undo with idempotency_key",
+  "result": "The engine returns invoice_id and status=undone. It guards undo against the applied phase and payment versions stored on the invoice.",
+  "switches": ["deals-from-engine", "deals-saves-from-engine"]
+}
