@@ -20,18 +20,26 @@ def run_group(command, timeout):
 
 
 def setup(browsers):
-    # Hosted runners always lack some of these packages, so a dry-run check first saves nothing.
     if sys.platform == 'linux':
+        archives = Path.home() / '.cache' / 'playwright-apt'
+        archives.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='playwright-apt-') as directory:
             config = Path(directory, 'apt.conf')
-            config.write_text('Acquire::Retries "1";\nAcquire::http::Timeout "10";\nAcquire::https::Timeout "10";\nAPT::Update::Error-Mode "any";\n')
+            config.write_text(
+                f'Dir::Cache::archives "{archives}";\n'
+                'APT::Keep-Downloaded-Packages "true";\n'
+                'Acquire::Retries "1";\n'
+                'Acquire::http::Timeout "10";\n'
+                'Acquire::https::Timeout "10";\n'
+                'APT::Update::Error-Mode "any";\n'
+            )
             result = subprocess.run([
-                'sudo', '-n', 'timeout', '--kill-after=5s', '115s',
+                'sudo', '-n', 'timeout', '--kill-after=5s', '10m',
                 'env', f'APT_CONFIG={config}', 'DEBIAN_FRONTEND=noninteractive',
                 'node', CLI, 'install-deps', *browsers,
             ], check=False)
         if result.returncode:
-            print('::error::Playwright OS dependencies unavailable. Ubuntu mirror install failed or reached its 120-second limit. Browser tests cannot run.', flush=True)
+            print('::error::Playwright OS dependencies unavailable. Ubuntu package installation failed or reached its 10-minute deadline.', flush=True)
             return 1
     try:
         return run_group(['node', CLI, 'install', *browsers], timeout=180)

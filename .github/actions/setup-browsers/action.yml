@@ -1,5 +1,5 @@
 name: Set up Playwright browsers
-description: Reuse browser binaries and bound missing Ubuntu dependency installation.
+description: Reuse Playwright binaries and Ubuntu package archives.
 inputs:
   working-directory:
     description: App checkout directory relative to the workspace.
@@ -18,9 +18,22 @@ runs:
       with:
         path: ~/.cache/ms-playwright
         key: playwright-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ steps.version.outputs.version }}-${{ inputs.browsers }}
+    - name: Restore Playwright Ubuntu package archives
+      id: apt-cache
+      if: runner.os == 'Linux'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/playwright-apt/*.deb
+        key: playwright-apt-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ steps.version.outputs.version }}-${{ inputs.browsers }}
     - name: Install browsers and missing OS dependencies
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         BROWSERS: ${{ inputs.browsers }}
       run: python3 "$GITHUB_ACTION_PATH/../../../scripts/browser-setup.py" $BROWSERS
+    - name: Save Playwright Ubuntu package archives
+      if: runner.os == 'Linux' && steps.apt-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/playwright-apt/*.deb
+        key: ${{ steps.apt-cache.outputs.cache-primary-key }}
