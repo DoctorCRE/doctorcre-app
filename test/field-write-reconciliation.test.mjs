@@ -525,7 +525,8 @@ function twoWriters() {
     return '{"ok":true}';
   };
   const env = {
-    ENGINE_ROUTING: { get: async () => {
+    ENGINE_ROUTING: { get: async key => {
+      if (key !== "deal-saves-to-engine") return null;
       if (world.routing instanceof Error) throw world.routing;
       return world.routing;
     } },

@@ -422,11 +422,13 @@ export function commandReceiptView(entry = {}) {
     summary: entry.summary || '',
     detail,
     undo: entry.undo === true,
+    reload: entry.reload === true,
   };
 }
 
 /** The action a receipt in this state offers, or null. */
 function receiptAction(view) {
+  if (view.reload) return { event: 'reload', text: 'Reload deal', variant: 'btn-quiet' };
   if (view.state === 'refused') return { event: 'dispatch', text: 'Try again', variant: 'btn-quiet' };
   if (view.state === 'unknown') return { event: 'reconcile', text: 'Check outcome', variant: 'btn-secondary' };
   if (view.state === 'confirmed' && view.undo === true) return { event: 'undo', text: 'Undo', variant: 'btn-quiet' };

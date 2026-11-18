@@ -24,7 +24,7 @@ export const DOCK_ENTRY_CAP = 50;
 // it (a switched-off feature); the receipt itself stays visible. Call render()
 // when the answer changes. Hiding is presentation: the page's dispatch still
 // enforces its own gate.
-export function createCommandDock({ root, onDispatch = null, onReconcile = null, onUndo = null, actionable = () => true } = {}) {
+export function createCommandDock({ root, onDispatch = null, onReconcile = null, onUndo = null, onReload = null, actionable = () => true } = {}) {
   // Insertion order IS display order: a Map preserves it, and re-recording an
   // operation updates it in place rather than moving it to the front.
   const entries = new Map();
@@ -70,14 +70,14 @@ export function createCommandDock({ root, onDispatch = null, onReconcile = null,
    * `state` a feedback state; a caller may pass either, and the kernel decides.
    */
   // eslint-disable-next-line no-restricted-syntax -- Only an explicit dock-button action can request retry; recording the entry does not dispatch it.
-  function record(operationKey, { summary = '', status = null, state = null, reason = null, retry = false, undo = false, request = null } = {}) {
+  function record(operationKey, { summary = '', status = null, state = null, reason = null, retry = false, undo = false, reload = false, request = null } = {}) {
     const previous = entries.get(operationKey) || {};
     const previousState = previous.operationKey ? commandReceiptView(previous).state : null;
     const next = {
       ...previous, operationKey,
       summary: summary || previous.summary || '',
       // eslint-disable-next-line no-restricted-syntax -- This entry only retains retry metadata for rendering; it sends no requests.
-      status, state, reason, retry, undo,
+      status, state, reason, retry, undo, reload,
       request: request || previous.request || null,
       dismissed: false,
     };
@@ -131,7 +131,7 @@ export function createCommandDock({ root, onDispatch = null, onReconcile = null,
       if (!button || !root.contains(button)) return;
       const operationKey = button.dataset.op;
       const entry = entries.get(operationKey) || { operationKey };
-      const handler = { dispatch: onDispatch, reconcile: onReconcile, undo: onUndo }[button.dataset.event];
+      const handler = { dispatch: onDispatch, reconcile: onReconcile, undo: onUndo, reload: onReload }[button.dataset.event];
       if (typeof handler === 'function') handler(operationKey, entry);
     });
     render();

@@ -241,9 +241,8 @@ export function fieldWriteMessage(outcome, subject = 'This change') {
   if (outcome.status === 'ok') {
     return outcome.superseded === true ? `${subject} ${OUTCOME_SENTENCE.superseded}` : null;
   }
-  // An answered conflict is the board's own surface — "Two edits crossed" — and
-  // not a sentence in a toast.
-  if (outcome.status === 'conflict') return null;
+  // A conflict that asks the partner to choose a value uses the board dialog.
+  if (outcome.status === 'conflict') return outcome.code === 'version_conflict' ? 'This deal changed. Reload the deal before saving.' : null;
   if (outcome.reason === 'declined') {
     return `${subject} was refused by the server: ${outcome.hint || `${humanize(outcome.code) || 'no reason given'}.`}`;
   }

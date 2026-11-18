@@ -125,6 +125,7 @@ export function moveIntent(deal, toSlug) {
     field: 'phase',
     value: to.value,
     from: from ? from.slug : null,
+    ...(Number.isSafeInteger(deal.seen) && { seen: deal.seen }),
     from_label: from ? from.label : String(deal.phase ?? 'an unplaced phase'),
     to: to.slug,
     to_label: to.label,
