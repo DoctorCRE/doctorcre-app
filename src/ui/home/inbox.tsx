@@ -530,44 +530,43 @@ export function createInboxClient(
         const change = { action: request.action, ...("until" in args && { until: args.until }) };
         const attempts =
           "undo_of" in args ? (request.restore ?? []) : args.items.map((target) => ({ ...target, ...change }));
-        const outcomes = await Promise.allSettled(
-          attempts.map(async (target, index) => {
-            const item_id = target.item_id;
-            if (completionReview(item_id)) {
-              const key = cardKey(args.idempotency_key, index);
-              const identity = { reversible: true as const, idempotency_key: key };
-              const legacy: BatchRequest | null =
-                "legacy_key" in target
-                  ? { action: "snooze", args: { ...identity, items: [{ item_id }], undo_of: target.legacy_key } }
-                  : "until" in args
-                    ? {
-                        action: "snooze",
-                        args: {
-                          ...identity,
-                          items: [{ item_id, base_version: target.base_version }],
-                          until: args.until,
-                        },
-                      }
-                    : null;
-              if (legacy) {
-                const result = parseBatch(await rpc("snooze-home-inbox", legacy.args), legacy, [item_id]);
-                const row = result.results[0];
-                if (row) return { ...row, undo: { item_id, legacy_key: result.batch_key } };
-              }
+        async function saveCard(target: (typeof attempts)[number], index: number) {
+          const item_id = target.item_id;
+          if (completionReview(item_id)) {
+            const key = cardKey(args.idempotency_key, index);
+            const identity = { reversible: true as const, idempotency_key: key };
+            const legacy: BatchRequest | null =
+              "legacy_key" in target
+                ? { action: "snooze", args: { ...identity, items: [{ item_id }], undo_of: target.legacy_key } }
+                : "until" in args
+                  ? {
+                      action: "snooze",
+                      args: {
+                        ...identity,
+                        items: [{ item_id, base_version: target.base_version }],
+                        until: args.until,
+                      },
+                    }
+                  : null;
+            if (legacy) {
+              const result = parseBatch(await rpc("snooze-home-inbox", legacy.args), legacy, [item_id]);
+              const row = result.results[0];
+              if (row) return { ...row, undo: { item_id, legacy_key: result.batch_key } };
             }
-            if (!markTarget(item_id) || !("action" in target)) return { item_id, status: "not_allowed" as const };
-            try {
-              const undo = await saveMark(markArgs(target, target, args.idempotency_key, index));
-              return { item_id, status: "applied" as const, undo };
-            } catch (error) {
-              const code = object(error) && object(error.payload) ? error.payload.error : null;
-              if (code === "home_item_not_found") return { item_id, status: "not_found" as const };
-              if (code === "version_conflict" || code === "invalid_snooze_time" || code === "home_routing_changed")
-                return { item_id, status: "not_allowed" as const, error: code };
-              throw error;
-            }
-          }),
-        );
+          }
+          if (!markTarget(item_id) || !("action" in target)) return { item_id, status: "not_allowed" as const };
+          try {
+            const undo = await saveMark(markArgs(target, target, args.idempotency_key, index));
+            return { item_id, status: "applied" as const, undo };
+          } catch (error) {
+            const code = object(error) && object(error.payload) ? error.payload.error : null;
+            if (code === "home_item_not_found") return { item_id, status: "not_found" as const };
+            if (code === "version_conflict" || code === "invalid_snooze_time" || code === "home_routing_changed")
+              return { item_id, status: "not_allowed" as const, error: code };
+            throw error;
+          }
+        }
+        const outcomes = await Promise.allSettled(attempts.map(saveCard));
         const results = outcomes.map((outcome) => {
           if (outcome.status === "rejected") throw outcome.reason;
           return outcome.value;
@@ -619,6 +618,7 @@ export function createInboxClient(
         return request.args.items.map(({ item_id }, index) => {
           const undo = marks[index];
           if (!undo) return { item_id, ok: false, error: "home_item_not_found", snapshot };
+          // Waking a held step can bring back its completion review for the same underlying step.
           const item = snapshot.items.find(
             (item) =>
               item.item_id === item_id ||

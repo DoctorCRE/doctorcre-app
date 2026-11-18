@@ -160,10 +160,17 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   assert.deepEqual(new Set(writes.slice(2).map(([, args]) => args.item_id)), new Set(state.items.slice(0, 2).map(item => item.item_id)));
   assert.equal(new Set(writes.slice(2).map(([, args]) => args.idempotency_key)).size, 2);
   await card.waitFor({ state: 'detached' });
+  const batchVersions = new Map(state.items.slice(0, 2).map(item => [item.item_id, item.base_version]));
   await page.getByRole('button', { name: 'Undo whole batch' }).click();
   await page.locator('[data-batch-state="undone"]').waitFor();
   await card.waitFor();
   assert.equal(writes.length, 6);
+  for (const [, args] of writes.slice(4)) {
+    assert.equal(args.base_version, batchVersions.get(args.item_id));
+    assert.equal(args.action, 'unsettle');
+    assert.equal('until' in args, false);
+  }
+  assert.equal(new Set(writes.slice(2).map(([, args]) => args.idempotency_key)).size, 4);
   await page.getByRole('button', { name: 'Finish reviewing batch' }).click();
   conflict = true;
   await clickSnooze();
@@ -178,6 +185,30 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   assert.equal(writes[7][1].item_id, `notification:${partyId}`);
   await undo.click();
   await update.waitFor();
+
+  const lease = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
+  await lease.getByRole('button', { name: 'Snooze', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
+  await waiting.getByRole('button', { name: /^See all/ }).click();
+  const earlierUntil = writes.at(-1)[1].until;
+  async function undoRestore(label, action, until, advanceClock = false) {
+    await lease.getByRole('button', { name: label, exact: true }).click();
+    await today.getByRole('link', { name: /Read the revised sample lease/ }).waitFor();
+    const version = state.items[0].base_version;
+    const key = writes.at(-1)[1].idempotency_key;
+    if (advanceClock) await page.clock.setFixedTime(new Date(Date.parse(earlierUntil) + 60_000));
+    await undo.click();
+    await page.getByText(/1 confirmed\. Undone\./).waitFor();
+    const restored = writes.at(-1)[1];
+    assert.deepEqual(restored, { item_id: id, base_version: version, action, idempotency_key: restored.idempotency_key,
+      ...(until && { until }) });
+    assert.notEqual(restored.idempotency_key, key);
+  }
+  await undoRestore('Wake', 'snooze', earlierUntil);
+  await undoRestore('Wake', 'unsettle', undefined, true);
+  await lease.getByRole('button', { name: 'Hide from inbox', exact: true }).click();
+  await undoRestore('Show in inbox', 'settle');
 });
 
 for (const width of [390, 1024, 1280, 1440]) for (const theme of ['light', 'dark']) test(`sectioned Home and shared panels ${width} ${theme}`, async t => {
