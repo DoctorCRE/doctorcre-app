@@ -356,10 +356,32 @@ export function parseResults(
     };
   });
 }
+type IncomingEmail = Readonly<{
+  sender: string | null;
+  subject: string | null;
+  excerpt: string;
+  occurredAt: string | null;
+}>;
+type Review = ReturnType<typeof parseReview>;
+export type CardReview =
+  | Exclude<Review, { kind: "reply_draft" }>
+  | (Extract<Review, { kind: "reply_draft" }> & { email: IncomingEmail | null });
+
+function incomingEmail(value: unknown): IncomingEmail | null {
+  const source = object(value) && object(value.detail) ? value.detail.source : null;
+  if (!object(source) || !text(source.evidence_quote)) return null;
+  return {
+    sender: text(source.sender) ? source.sender : null,
+    subject: text(source.subject) ? source.subject : null,
+    excerpt: source.evidence_quote,
+    occurredAt: timestamp(source.occurred_at) && text(source.occurred_at) ? source.occurred_at : null,
+  };
+}
+
 export type InboxClient = {
   review?: {
     current(item: InboxItem): Promise<InboxItem>;
-    load(item: InboxItem, signal?: AbortSignal): Promise<ReturnType<typeof parseReview>>;
+    load(item: InboxItem, signal?: AbortSignal): Promise<CardReview>;
     run(
       item: InboxItem,
       request: ReviewRequest,
@@ -418,7 +440,7 @@ export function createInboxClient(
           )
         )
           throw Error("Review source does not match this card.");
-        return detail;
+        return detail.kind === "reply_draft" ? { ...detail, email: incomingEmail(value) } : detail;
       },
       async run(item, request) {
         if (navigator.onLine === false) throw Error("Offline. Nothing was sent.");

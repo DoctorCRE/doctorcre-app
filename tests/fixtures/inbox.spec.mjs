@@ -12,7 +12,8 @@ test.afterAll(async () => { await server?.stop(); if (outDir) await rm(outDir, {
 test('Sectioned Home opens a card in the full inbox', async ({ page }) => {
   await page.goto(`${server.url}/`);
   await expect(page.getByRole('heading', { name: 'Welcome home.' })).toBeVisible();
-  await page.locator('[data-inbox-row] h3 a').first().click();
+  const href = await page.locator('[data-inbox-row] h3 a').first().getAttribute('href');
+  await page.goto(new URL(href, server.url).href);
   await expect(page).toHaveURL(/\/inbox\/card\//);
   await expect(page.getByRole('heading', { name: 'Inbox', level: 1 })).toBeVisible();
   await expect(page.locator('#dealAttention')).toHaveCount(0);
@@ -34,10 +35,10 @@ test('Open actions link each inbox source type to a page that opens it, or not a
     const payload = name === 'read-home-inbox-v3' ? { ok: true, schema_version: 'home-inbox.v3', truncated: false, limit: 1000, working_collapsed: true, auto_settle_enabled: true, items } : { ok: true };
     await route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
   });
-  for (const [itemId, href] of [['next_action:t1', null], ['capture_session:s1', '/calls'], ['capture_post_call_action:a1', '/calls'], ['notification:n1', '/updates'], ['email_proposal:p1', null]]) {
+  for (const [itemId, href] of [['next_action:t1', `/deals?deal=${items[0].deal_id}`], ['capture_session:s1', '/calls'], ['capture_post_call_action:a1', '/calls'], ['notification:n1', `/deals?deal=${items[0].deal_id}`], ['email_proposal:p1', null]]) {
     await page.goto(`${server.url}/inbox/card/${encodeURIComponent(itemId)}?mode=live`);
     await expect(page.locator('[data-current="true"]')).toHaveCount(1);
-    const link = page.locator('[data-current="true"]').getByRole('link', { name: /^Open / });
+    const link = page.locator('[data-current="true"]').locator('.inbox-source');
     if (href) await expect(link).toHaveAttribute('href', href);
     else await expect(link).toHaveCount(0);
   }
