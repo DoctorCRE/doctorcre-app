@@ -142,8 +142,8 @@ const RELATIONSHIPS = 'relationships-from-engine';
 const FRAME = 'frame-from-engine';
 // Each old read the engine can answer, by tool name or business GET path: its
 // switch key, its engine path and, for a tool, a check per argument.
-// A `segment` argument becomes the last path segment. A business GET keeps its
-// query text and, unless listOnly, its record id. The engine checks both.
+// A `segment` argument becomes the last path segment. `search` seeds fixed query parameters.
+// A business GET keeps its query text and, unless listOnly, its record id. The engine checks both.
 const ENGINE_READS = new Map([
   ['deal-room-board', { key: DEALS, path: '/api/engine/deals', args: { workspace: isString, account_client_id: isString } }],
   ['get-deal-room', { key: DEALS, path: '/api/engine/deals', segment: 'deal', args: { deal: isString },
@@ -607,6 +607,8 @@ async function handleRequest(request, env) {
       response.headers.set('allow', 'GET, HEAD, POST');
       return response;
     }
+    if (pathname.startsWith('/api/engine/documents/') && !await switchedOn(env, DEALS))
+      return json({ error: 'not_found' }, 404);
     if (!env?.ENGINE?.fetch) return json({ error: 'engine_unavailable' }, 503);
     try {
       return await env.ENGINE.fetch(new Request(request, { redirect: 'manual' }));

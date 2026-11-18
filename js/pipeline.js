@@ -880,6 +880,7 @@ function disposePanelEmailFollowups() {
   panelEmailFollowups?.dispose(); panelEmailFollowups = null;
 }
 async function mountPanelEmailFollowups(id) {
+  if (state.panelDetail?.email_follow_ups) return;
   const container = $('panelEmailFollowups'), sequence = ++emailMountSequence;
   try {
     const { mountEmailFollowups } = await import('./email-followups.js');
@@ -963,7 +964,7 @@ function syncUpdateForm() {
 }
 function validateDetail(detail, id) {
   if (!detail?.deal || detail.deal.id !== id || typeof detail.deal.name !== 'string') throw new Error('Invalid detail');
-  for (const field of ['activities','thread','next_actions','critical_dates','participants','premises','negotiation_rounds','documents','history']) {
+  for (const field of ['activities','thread','next_actions','critical_dates','participants','premises','negotiation_rounds','documents','history','email_follow_ups']) {
     if (detail[field] !== undefined && (!Array.isArray(detail[field]) || detail[field].some(row => !row || typeof row !== 'object'))) throw new Error('Invalid detail section');
   }
   return prepareDealDetail(detail);
@@ -1143,13 +1144,14 @@ function mountChecklist(detail) {
   disposeChecklist();
   const host = $('panelBody').querySelector('[data-detail-read="checklist"]');
   let retired = false, mounted, latest = detail;
+  const props = value => ({dealId: value.deal.id, checklist: value.checklist, showProgress: Boolean(value.email_follow_ups)});
   checklistPanel = {
-    update(value) { latest = value; mounted?.update({dealId: value.deal.id, checklist: value.checklist}); },
+    update(value) { latest = value; mounted?.update(props(value)); },
     dispose() { retired = true; mounted?.dispose(); },
   };
   void import('./ui-checklist.generated.js').then(({mountDealChecklist}) => {
     if (retired) return;
-    mounted = mountDealChecklist(host, {dealId: latest.deal.id, checklist: latest.checklist});
+    mounted = mountDealChecklist(host, props(latest));
   }).catch(() => { if (!retired) host.textContent = 'Checklist unavailable. Reopen the deal to try again.'; });
 }
 // Each deal's comparison is kept for the session and reattached when its tab reopens; an access change discards them all.
@@ -1173,6 +1175,29 @@ function undoInvoiceClose() {
     verb: 'undo-invoice-close', summary: 'Undo invoice close',
     args: { deal: deal.id, invoice_id: invoice.event_id, seen_change_id: deal.seen },
   });
+}
+
+function filedDocumentsHtml(documents) {
+  const files = new Map(documents.map(file => [file.id, file]));
+  return `<h2>Documents</h2>${files.size ? `<ul class="deal-document-list">${[...files.values()].map(file =>
+    `<li><h3><a href="/api/engine/documents/${encodeURIComponent(file.id)}" data-detail-focus="file-${esc(file.id)}">${esc(file.name)}</a></h3>
+    ${file.prepared_at ? `<p>${esc(sourceTime(file.prepared_at))}</p>` : ''}</li>`).join('')}</ul>` : '<p>No documents filed for this deal.</p>'}`;
+}
+
+function dealEmailFollowupsHtml(followups) {
+  const suggestions = new Map(followups.map(row => [row.proposal_id, row]));
+  return `<h2>Email follow-ups</h2>${[...suggestions.values()].map(row => {
+    const email = row.email || {};
+    const sender = [email.sender_name || email.sender, email.happened_at && sourceTime(email.happened_at)].filter(Boolean).join(' · ');
+    const change = row.kind === 'file_to_deal' ? 'File email to this deal'
+      : row.kind === 'phase_move' ? `Move to ${columnBySlug(row.to_phase)?.label || 'the next phase'}`
+      : row.what || 'Review email';
+    const owner = row.kind === 'next_step' ? ACTOR_LABEL[row.owner] : '';
+    return workCard({className:'email-proposal', title:esc(email.subject || 'Email follow-up'),
+      meta:sender ? `<p>${esc(sender)}</p>` : '',
+      body:`<p>${esc(change)}${owner ? ` · ${esc(owner)}` : ''}${row.due_on ? ` · ${dueDateHtml(row.due_on)}` : ''}</p>${email.summary ? `<p>${esc(email.summary)}</p>` : ''}
+        ${row.evidence ? `<details><summary>Read email excerpt</summary><q>${esc(row.evidence)}</q></details>` : ''}`});
+  }).join('') || '<p>No email follow-ups.</p>'}`;
 }
 
 function workspaceHtml(detail) {
@@ -1202,7 +1227,7 @@ function workspaceHtml(detail) {
     <section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>
     <div data-detail-read="checklist"></div>
     <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000" required></textarea><details id="detailNextStepEditor"><summary>Change next step</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">Next step</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${todayIso()}"${d.next_date && d.next_date < todayIso() ? ' aria-describedby="detailUpdateDateHint"' : ''}>${d.next_date && d.next_date < todayIso() ? '<small id="detailUpdateDateHint">Current next date is overdue.</small>' : ''}</div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
-    <section id="panelEmailFollowups" aria-label="Email follow-ups"><p role="status">Updating email follow-ups…</p></section>
+    <section id="panelEmailFollowups" aria-label="Email follow-ups"${detail.email_follow_ups ? ' data-detail-read="email-followups"' : ''}>${detail.email_follow_ups ? dealEmailFollowupsHtml(detail.email_follow_ups) : '<p role="status">Updating email follow-ups…</p>'}</section>
     ${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}">${parked ? `<p>${esc(concise(d.parking_note) || 'Parked')}</p><button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm"><label>Park reason<input name="reason" maxlength="500" required></label><button class="btn park-control" type="submit">Park deal</button></form></details>`}</div></div>` : ''}</div>
@@ -1211,7 +1236,7 @@ function workspaceHtml(detail) {
     <h2>Critical dates</h2>${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
-    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden></section>
+    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${detail.email_follow_ups ? `<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden></section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem)}</div>${renderDealTimeline(detail)}</section>
@@ -1256,12 +1281,13 @@ async function readPanel(id) {
   try {
     const detail = await readDealDetail(id);
     if (state.panelDeal !== id || seq !== panelReadSequence || panelRead?.again) return;
+    const wasEngineDetail = Boolean(state.panelDetail?.email_follow_ups);
     state.panelDetail = detail;
     const contextRead = pageDocContext?.begin('getDeal', [id]);
     pageDocContext?.finish(contextRead, detail);
     selectDocRecord('deal', id);
     updateDetailTimestamp();
-    if (!$('panelBody').querySelector('.deal-opening-snapshot')) paintPanel(detail);
+    if (!$('panelBody').querySelector('.deal-opening-snapshot') || wasEngineDetail !== Boolean(detail.email_follow_ups)) paintPanel(detail);
     else {
       if ($('detailPhase') && document.activeElement !== $('detailPhase')) $('detailPhase').value = columnByValue(detail.deal.phase)?.slug || '';
       if ($('detailOwner') && document.activeElement !== $('detailOwner')) $('detailOwner').value = detail.deal.owner || '';
@@ -1427,7 +1453,7 @@ function paintPanel(detail) {
     dispose() { toursDisposed = true; toursMounted?.dispose(); },
   };
   let documentsDisposed = false, documentsLoading = false, documentsMounted;
-  dealDocumentsPanel = {
+  dealDocumentsPanel = detail.email_follow_ups ? null : {
     async load() {
       if (documentsDisposed || documentsLoading || documentsMounted) return;
       documentsLoading = true;

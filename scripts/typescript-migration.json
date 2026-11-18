@@ -950,7 +950,6 @@
     "src/ui/answer-table-csv.ts": "031a364824a2cc663a69ce881feeeff859085f52f79dc553872a3069bcbe536e",
     "src/ui/client-anniversaries.tsx": "7071fa7a1dd598b2d8eef3e4ec6168f4192a2a4f8d5fd8f2f9bab2bf20dee78c",
     "src/ui/contact-reasons.tsx": "a4c4a36d0c1f451540f73240c7d6e2a3fa6da7be2affff06821e9805b96ab6ab",
-    "src/ui/deal-checklist.tsx": "6467803ff261501e3d5ae44407261bd82ae7dc63977c8aad39a4efebd8bcd3b7",
     "src/ui/deal-room-agenda.tsx": "ebb71e7263f8116b8738b8de30369ef701b0595d9d4b1399322b1f154f02b0ab",
     "src/ui/deal-room-board.tsx": "86a2312902ed896a5fd3c909535ac19e5d8e0d5c0ea9f800d9e1c18ff1434aa0",
     "src/ui/deal-room-forms.tsx": "15e53a0dd63f4b0982adbd6efdf153ab7a2ad85c00bf62de01a770c5ee9ae3c5",

@@ -369,6 +369,7 @@ export function createLiveClient(opts = {}) {
         premises: page.premises || [],
         negotiation_rounds: page.negotiation_rounds || [],
         documents: page.documents || [],
+        ...(Object.hasOwn(page, 'email_follow_ups') ? { email_follow_ups: page.email_follow_ups } : {}),
         lease: page.lease ?? null,
         checklist: page.checklist ?? null,
         schema_version: page.schema_version,
