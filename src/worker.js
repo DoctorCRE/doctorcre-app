@@ -358,6 +358,10 @@ async function engineSave(request, env) {
   const url = new URL(request.url);
   const call = await mcpCall(request, url);
   if (call?.method !== 'tools/call' || !isObject(call.params?.arguments)) return null;
+  if (call.params.name === 'record-commission-receipt') {
+    if (!await switchedOn(env, INVOICES)) return null;
+    return engineAnswer(request, env, call, { path: '/api/engine/invoices/mark-paid' }, { allowHandoff: false });
+  }
   if (CUTOVER_SAVES.has(call.params.name)) {
     const result = await cutoverSave(request, env, call);
     if (result) return result;
@@ -381,8 +385,8 @@ async function sendEngineSave(request, env, path, body) {
   } catch { return null; }
 }
 
-// The legacy-schema engine can hand a save to CARR using the shared receipt.
-async function engineAnswer(request, env, call, save) {
+// Only the legacy-schema saves share a receipt with CARR.
+async function engineAnswer(request, env, call, save, { allowHandoff = true } = {}) {
   const response = await sendEngineSave(request, env, save.path, call.params.arguments);
   if (!response) return unavailable(false);
   let text;
@@ -391,7 +395,7 @@ async function engineAnswer(request, env, call, save) {
     text = await response.text();
   } catch { return unavailable(false); }
   const handoff = OLD_SYSTEM_ANSWERS.get(response.status);
-  if (handoff && handoff === parsedError(text)) return null;
+  if (allowHandoff && handoff && handoff === parsedError(text)) return null;
   return mcpReply(call, response, text, response.status !== 200);
 }
 
