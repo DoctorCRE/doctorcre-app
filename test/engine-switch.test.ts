@@ -1157,6 +1157,7 @@ const nextDealsOn = new Map([
 const dealId = "00000000-0000-4000-8000-000000000030";
 const stepId = "00000000-0000-4000-8000-000000000031";
 const operationId = "00000000-0000-4000-8000-000000000032";
+const marketId = "00000000-0000-4000-8000-000000000033";
 const changesPath = `/deals/${dealId}/changes`;
 const movedToEngine = [
   [
@@ -1175,6 +1176,17 @@ const movedToEngine = [
     { deal_id: dealId, change_id: 24 },
     200,
   ],
+  ...[marketId, null].map(
+    (value) =>
+      [
+        "patch-deal-field",
+        { field: "market", value },
+        changesPath,
+        { seen_change_id: 23, fields: { market_id: value } },
+        { deal_id: dealId, change_id: 24 },
+        200,
+      ] as const,
+  ),
   [
     "set-next-step",
     { text: "Review sample plan", next_date: "2027-01-02" },

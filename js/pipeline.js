@@ -600,15 +600,11 @@ async function runMove(intent, form) {
   if (phaseStep.args.human_quote) phaseExtra.human_quote = phaseStep.args.human_quote;
 
   const result = await sendPhaseWrite(intent.deal, phaseStep.args.value, Object.keys(phaseExtra).length ? phaseExtra : null);
-  dock.record(cell, {
-    summary: moveSummary(intent), status: result.status,
-    reason: fieldWriteMessage(result, `${fieldLabel('phase')} on ${intent.name}`) || null,
-    // eslint-disable-next-line no-restricted-syntax -- Phase-write receipt only exposes the retained retry flag; it schedules no resends.
-    retry: result.retry, undo: false, request: result.request,
-  });
+  const reload = recordFieldReceipt(cell, moveSummary(intent), `${fieldLabel('phase')} on ${intent.name}`, result);
 
   if (result.status === 'conflict') {
     renderBoard();
+    if (reload) return { ok: false, errors: [], reload };
     if (result.conflict) showConflict(result.conflict);
     return { ok: false, errors: result.conflict ? [] : [fieldWriteMessage(result) || 'Reload the deal before saving.'] };
   }
@@ -646,6 +642,16 @@ async function resumeMoveFollowUps(cell) {
   }
 }
 
+function recordFieldReceipt(cell, summary, subject, result) {
+  const reload = result.code === 'version_conflict';
+  dock.record(cell, {
+    summary, status: result.status, reason: fieldWriteMessage(result, subject) || null,
+    // eslint-disable-next-line no-restricted-syntax -- Only an explicit receipt click can resend a retained write.
+    retry: !reload && result.retry, reload, request: result.request,
+  });
+  return reload;
+}
+
 async function retryFieldWrite(cell) {
   const entry = pendingCommand(state.fieldWrites, cell);
   if (!entry) { renderBoard(); return; }
@@ -653,12 +659,7 @@ async function retryFieldWrite(cell) {
   const row = state.deals.get(deal);
   const result = await sendFieldWrite(deal, field, value);
   const subject = `${fieldLabel(field)} on ${row?.name || 'this deal'}`;
-  dock.record(cell, {
-    summary: `${row?.name || 'Deal'} · ${fieldLabel(field)}`,
-    status: result.status, reason: fieldWriteMessage(result, subject) || null,
-    // eslint-disable-next-line no-restricted-syntax -- Field-write receipt only exposes the retained retry flag; it schedules no resends.
-    retry: result.retry, undo: false, request: result.request,
-  });
+  recordFieldReceipt(cell, `${row?.name || 'Deal'} · ${fieldLabel(field)}`, subject, result);
   if (result.status === 'ok' && !result.superseded) {
     confirmLocalWrite(deal, fieldPatch(field, value));
     if (field === 'phase') await resumeMoveFollowUps(cell);
@@ -1810,6 +1811,7 @@ function wire() {
       closedOn: $('completionClosedOn')?.value,
       wonValue: $('completionWonValue')?.value,
     });
+    if (state.intent !== intent) return;
     if (outcome.errors.length) {
       const errors = $('completionErrors');
       if (errors) {
@@ -1820,7 +1822,7 @@ function wire() {
       return;
     }
     closeCompletion({ cancelled: false });
-    if (state.panelDeal === intent.deal) await refreshPanel();
+    if (!outcome.reload && state.panelDeal === intent.deal) await refreshPanel();
   });
 
   $('conflictCancel')?.addEventListener('click', () => $('conflictDialog')?.close());
@@ -1925,6 +1927,11 @@ function mountDock() {
   if (!root) return;
   dock = createCommandDock({
     root,
+    onReload: (operationKey, { request }) => {
+      dock.forget(operationKey);
+      void loadBoard();
+      if (request?.deal === state.panelDeal) void refreshPanel({ changed: true });
+    },
     onDispatch: (operationKey) => {
       const entry = operations.get(operationKey);
       // eslint-disable-next-line no-restricted-syntax -- Only a dock retry click reconciles the retained field write; one reconciliation per click.

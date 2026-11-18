@@ -391,6 +391,83 @@ test('an update with unchanged next action only records the note', async t => {
   assert.equal(detail.thread.filter(item => item.text === 'Synthetic note only').length, 1);
 });
 
+test('a crossed move uses the open deal snapshot and offers a reload', async t => {
+  const page = await open(t);
+  await room(page);
+  await page.evaluate(async () => {
+    const { state } = await import('/js/pipeline.js');
+    const read = state.client.getDeal;
+    let phase = 'Research';
+    let seen = 23;
+    state.client.getDeal = async id => {
+      const detail = await read(id);
+      return { ...detail, deal: { ...detail.deal, phase, seen } };
+    };
+    window.moveWrites = [];
+    state.client.patchDealField = async request => {
+      window.moveWrites.push(request);
+      if (request.field === 'owner') return { ok: true };
+      phase = 'Negotiation';
+      seen = 24;
+      throw Object.assign(new Error('Crossed move'), { status: 409, payload: { error: 'version_conflict' } });
+    };
+  });
+  await page.locator('[data-refresh-detail]').click();
+  await settles(async () => assert.equal(await page.locator('#detailPhase').inputValue(), 'research'));
+  await page.locator('#detailPhase').selectOption('site_selection');
+  await page.getByRole('button', { name: 'Move to Site Selection', exact: true }).click();
+  await settles(async () => {
+    const writes = await page.evaluate(() => window.moveWrites.map(({ seen_change_id, phase_from }) => ({ seen_change_id, phase_from })));
+    assert.deepEqual(writes, [{ seen_change_id: 23, phase_from: 'research' }]);
+  });
+  await settles(async () => assert.equal(await page.locator('#completionDialog').isVisible(), false));
+  const receipt = page.locator('#receiptDock');
+  assert.match(await receipt.innerText(), /This deal changed/);
+  assert.equal(await receipt.getByRole('button', { name: 'Try again' }).count(), 0);
+  await receipt.getByRole('button', { name: 'Reload deal' }).click();
+  await settles(async () => assert.equal(await page.locator('#detailPhase').inputValue(), 'negotiation'));
+  assert.equal(await page.evaluate(() => window.moveWrites.length), 1);
+  await page.locator('#detailOwner').selectOption('dell');
+  await settles(async () => {
+    const { field, seen_change_id } = await page.evaluate(() => window.moveWrites[1]);
+    assert.deepEqual({ field, seen_change_id }, { field: 'owner', seen_change_id: 24 });
+  });
+});
+
+test('retrying a note keeps its original deal snapshot and timestamp', async t => {
+  const page = await open(t, '/deals', new Date('2026-10-29T12:00:00Z'));
+  await room(page);
+  await page.evaluate(async () => {
+    const { state } = await import('/js/pipeline.js');
+    const read = state.client.getDeal;
+    window.noteWrites = [];
+    state.client.getDeal = async id => {
+      const detail = await read(id);
+      return { ...detail, deal: { ...detail.deal, seen: 23 + window.noteWrites.length } };
+    };
+    state.client.addDealNote = async request => {
+      window.noteWrites.push(request);
+      if (window.noteWrites.length === 1) throw new Error('Synthetic timeout');
+      return { ok: true };
+    };
+  });
+  await page.locator('[data-refresh-detail]').click();
+  await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.panelDetail.deal.seen === 23);
+  await page.locator('#dealUpdate').fill('Synthetic retry note');
+  await page.getByRole('button', { name: 'Add update', exact: true }).click();
+  await page.locator('#receiptDock').getByRole('button', { name: 'Check outcome' }).waitFor();
+  await page.clock.setSystemTime(new Date('2026-10-29T13:00:00Z'));
+  await page.locator('[data-refresh-detail]').press('Enter');
+  await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.panelDetail.deal.seen === 24);
+  await page.locator('#receiptDock').getByRole('button', { name: 'Check outcome' }).click();
+  await settles(async () => {
+    const [first, second] = await page.evaluate(() => window.noteWrites);
+    assert.equal(first.seen_change_id, 23);
+    assert.match(first.happened_at, /^2026-10-29T12:/);
+    assert.deepEqual(second, first);
+  });
+});
+
 test('a changed next action requires review before the saved update can replace it', async t => {
   const page = await open(t); await room(page);
   await page.locator('#dealUpdate').fill('Synthetic reviewed update');

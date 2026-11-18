@@ -138,6 +138,7 @@ test("a move intent names both ends, and a drop on the card's own column is not 
   assert.equal(moveIntent(deal, "due_diligence"), null, "the same column is not a move");
   assert.equal(moveIntent(deal, "not_a_phase"), null);
   assert.equal(moveIntent(null, "closing"), null);
+  assert.equal(moveIntent({ ...deal, seen: 0 }, "closing").seen, 0);
 });
 
 test("the completion plan puts the phase patch first and carries only the follow-ups that were filled in", () => {
