@@ -23,7 +23,7 @@ export function renderDealAlert(deal, { today = '' } = {}) {
 }
 
 export function renderDealItems(deal, { today = '', buttons = false, empty = true, board = false } = {}) {
-  const next = board ? nextOpenAction(deal) : null;
+  const next = board ? nextOpenAction(deal.open_actions) : null;
   const items = openDealItems(deal).filter(item => !next || item.title.trim() !== next.description.trim() || (item.due_on || null) !== (next.due_on || null));
   return items.length ? `<p class="deal-items-label">Still needed:</p><ol class="deal-items">${items.map(item => `<li data-overdue="${Boolean(item.due_on && item.due_on < today)}">${buttons ? `<button type="button" data-deal-item="${esc(item.id)}" data-item-deal="${esc(deal.id)}">${esc(item.title)}</button>` : `<a data-home-key="deal:${esc(deal.id)}:${esc(item.id)}" href="${esc(dealItemHref(deal.id, item.id))}">${esc(item.title)}</a>`}${item.due_on ? `<time class="deal-item-due" datetime="${esc(item.due_on)}">${esc(monthDay(item.due_on) || item.due_on)}</time>` : ''}</li>`).join('')}</ol>` : empty ? '<p class="deal-items-empty">No action items recorded</p>' : '';
 }
@@ -38,13 +38,14 @@ function shortDate(value, today) {
   return date.toLocaleDateString('en-US', options).replace(',', '');
 }
 
-function nextOpenAction(deal) {
-  return (deal.open_actions || []).filter(action => typeof action.description === 'string' && action.description.trim())
-    .sort((a, b) => (a.due_on || '9999').localeCompare(b.due_on || '9999') || a.id.localeCompare(b.id))[0];
+export function nextOpenAction(actions) {
+  // The board projects at most three rows before the display skips blanks.
+  return [...(actions || [])].sort((a, b) => (a.due_on || '9999').localeCompare(b.due_on || '9999') || a.id.localeCompare(b.id))
+    .slice(0, 3).find(action => typeof action.description === 'string' && action.description.trim());
 }
 
 export function renderDealSummary(deal, { today = '', viewer = '', board = false, actorName = name => name } = {}) {
-  const next = nextOpenAction(deal);
+  const next = nextOpenAction(deal.open_actions);
   const lines = [];
   if (next) {
     const date = next.due_on && next.due_on < today ? '' : shortDate(next.due_on, today);

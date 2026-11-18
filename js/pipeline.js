@@ -1,7 +1,7 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { renderDealItems, renderDealSummary, renderOverdueFlag } from './deal-items.js';
+import { nextOpenAction, renderDealItems, renderDealSummary, renderOverdueFlag } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
@@ -916,6 +916,7 @@ function readDealDetail(id) {
   return readWithDeadline(signal => state.client.getDeal(id, { signal })).then(detail => validateDetail(detail, id));
 }
 function validateUpdateStep(draft, form) {
+  $('detailNextStepEditor').open = true;
   if (!draft.step.trim()) { $('detailUpdateStatus').textContent = 'Enter a next step'; form.elements.step.focus(); return false; }
   if (draft.date && draft.date < todayIso()) {
     $('detailUpdateStatus').textContent = draft.date === draft.reviewed.next_date
@@ -1038,10 +1039,8 @@ function writeWorkspaceHistory(data, url, push = false) {
 writeWorkspaceHistory(history.state, location.href);
 function renderWorkspaceFacts(detail) {
   const d = detail.deal;
-  const dates = dealTimeline(detail).dates;
-  const active = dates.filter(date => !['cleared','passed'].includes(date.status));
-  const next = active.find(date => date.day >= todayIso()) || active[0] || dates[0];
-  $('workspaceFacts').innerHTML = `<dl class="workspace-facts"><div><dt>Client</dt><dd title="${esc(d.client_name || d.client_ref || 'Not recorded')}">${esc(d.client_name || d.client_ref || 'Not recorded')}</dd></div><div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}</dd></div><div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div><div><dt>Next critical date</dt><dd>${next ? `<span class="workspace-date-label">${esc(next.label)} · </span><time datetime="${esc(next.day)}">${esc(dateCaption(next.day))}</time>${['cleared','passed'].includes(next.status) ? ` · ${esc(next.status)}` : next.day < todayIso() ? ' · overdue' : ''}` : 'Not recorded'}</dd></div></dl>`;
+  const client = d.client_name || d.client_ref;
+  $('workspaceFacts').innerHTML = `<dl class="workspace-facts">${client && client !== dealTitle(d) ? `<div class="workspace-client"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}<div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}</dd></div><div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div></dl>`;
 }
 function selectWorkspaceTab(id) {
   workspaceTab = id;
@@ -1067,15 +1066,14 @@ function selectWorkspaceTab(id) {
 function workspaceNotesHtml(detail) {
   return `<section aria-label="Deal notes"><h3>Deal notes</h3>${(detail.thread || []).map(note => `<article class="workspace-note"><b>${esc(authorLabel(note.actor))}</b> <time datetime="${esc(note.at || note.created_at || note.recorded_at || '')}">${esc(sourceTime(note.at || note.created_at || note.recorded_at, undefined, 'Date not recorded'))}</time><p class="note-original">${esc(noteText(note.text))}</p></article>`).join('') || '<p>No notes recorded.</p>'}</section>`;
 }
-function workspaceEventsHtml(detail) {
+function workspaceEventsHtml(detail, nextItem) {
   const view = dealTimeline(detail);
   const events = [
     ...view.entries.filter(e => e.day).map(e => ({type:e.type, day:e.day, text:[...new Set([e.summary,e.original].filter(Boolean))].join('\n\n')})),
-    ...(detail.items || detail.deal.items || []).filter(e => calendarDay(e.due_on)).map(e => ({type:'Deal item', day:calendarDay(e.due_on), text:noteText(e.title)})),
+    ...(detail.items || detail.deal.items || []).filter(e => e !== nextItem && calendarDay(e.due_on)).map(e => ({type:'Deal item', day:calendarDay(e.due_on), text:noteText(e.title)})),
     ...view.dates.map(e => ({type:'Critical date', day:e.day, text:[e.label,e.original].filter(Boolean).join(' · ')})),
     ...view.phases.filter(e => e.day).map(e => ({type:'Phase', day:e.day, text:e.label})),
-    ...(calendarDay(detail.deal.next_date) && noteText(detail.deal.next_step) && !(detail.next_actions || []).some(e => calendarDay(e.due_on) === calendarDay(detail.deal.next_date) && noteText(e.description) === noteText(detail.deal.next_step)) ? [{type:'Action', day:calendarDay(detail.deal.next_date), text:`Due · ${noteText(detail.deal.next_step)}`}] : []),
-    ...(detail.next_actions || []).flatMap(e => [['due_on','Due'],['hold_until','Held until']].filter(([key]) => calendarDay(e[key])).map(([key,label]) => ({type:'Action', day:calendarDay(e[key]), text:`${label} · ${noteText(e.description)}`}))),
+    ...(detail.next_actions || []).flatMap(e => [['due_on','Due'],['hold_until','Held until']].filter(([key]) => (key !== 'due_on' || e.status !== 'open') && calendarDay(e[key])).map(([key,label]) => ({type:'Action', day:calendarDay(e[key]), text:`${label} · ${noteText(e.description)}`}))),
     ...(detail.history || []).filter(e => calendarDay(e.recorded_at) && !view.entries.some(entry => entry.id === e.id)).map(e => ({type:'Change', day:calendarDay(e.recorded_at), text:noteText(e.summary) || `${fieldLabel(e.field)} · ${readableValue(e.field, e.new_value)}`})),
   ].sort((a,b) => b.day.localeCompare(a.day));
   if (!events.some(event => event.type === timelineType)) timelineType = '';
@@ -1107,42 +1105,46 @@ function clearMarketTermsViews() {
 
 function workspaceHtml(detail) {
   const d = detail.deal;
-  const nextStep = noteText(d.next_step);
+  const next = nextOpenAction((detail.next_actions || []).filter(action => action.status === 'open' && action.title == null));
+  const nextStep = next?.description.trim();
+  const keyDate = calendarDay(next?.due_on);
   const items = detail.items || d.items || [];
-  const showNextStep = nextStep && !items.some(item => item.status === 'open' && item.title === nextStep);
+  const nextItem = nextStep && items.find(item => item.status === 'open' && item.title.trim() === nextStep);
+  const today = todayIso();
+  // Older reads can mirror the saved next step as an untyped critical date.
+  const datedDetail = { ...detail, critical_dates: (detail.critical_dates || []).filter(date => date.kind
+    || date.date !== d.next_date || date.label !== (d.next_step || 'Follow-up due')) };
   const prospect = state.deals.get(d.id);
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
   const parked = d.operating_state === 'parked';
   const controlsAvailable = state.deals.has(d.id) && !isClosedDeal(d);
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
-      <div class="deal-alert">${renderDealItems({...d,items:detail.items || d.items},{today:todayIso(),buttons:true})}</div>
-      ${showNextStep ? `<p class="deal-current-action"><span>${d.next_date && d.next_date < todayIso() ? 'Overdue action' : 'Next action'}</span>: <strong>${esc(nextStep)}</strong>${d.next_date ? ` · <span>Due <time datetime="${esc(d.next_date)}">${esc(dateWords(d.next_date))}</time></span>` : ''}</p>` : ''}
-      <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${d.client_name ? `<div><dt>Client</dt><dd>${esc(d.client_name)}</dd></div>` : ''}${d.type ? `<div><dt>Type</dt><dd>${esc(d.type)}</dd></div>` : ''}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
-      ${clientPortalHtml(d, controlsAvailable)}
+      ${next ? `<p class="deal-current-action"><span>${keyDate && keyDate < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? `<button class="btn btn-quiet" type="button" data-deal-item="${esc(nextItem.id)}" data-item-deal="${esc(d.id)}">${esc(nextStep)}</button>` : esc(nextStep)}</strong>${keyDate ? ` · <span>Due <time datetime="${esc(keyDate)}">${esc(dateWords(keyDate))}</time></span>` : ' · No key date set.'}</p>` : '<p>No next step or key date set.</p>'}
+      <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
+      <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${d.type ? `<div><dt>Type</dt><dd>${esc(d.type)}</dd></div>` : ''}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
+      ${d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
     </section>
-    <section data-detail-read="next-actions" aria-label="Next actions"><h2>Next actions</h2><ul>${(detail.next_actions || []).filter(action => action.status === 'open').map(action => `<li>${esc(noteText(action.description))}${calendarDay(action.due_on) ? ` · <time datetime="${esc(action.due_on)}">${esc(dateCaption(calendarDay(action.due_on)))}</time>` : ''}</li>`).join('') || '<li>No next actions recorded.</li>'}</ul></section>
     <section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>
     <div data-detail-read="checklist"></div>
-    <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000" required></textarea><label for="dealUpdateStep">Next step</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${todayIso()}"${d.next_date && d.next_date < todayIso() ? ' aria-describedby="detailUpdateDateHint"' : ''}>${d.next_date && d.next_date < todayIso() ? '<small id="detailUpdateDateHint">Current next date is overdue.</small>' : ''}<button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
+    <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000" required></textarea><details id="detailNextStepEditor"><summary>Change next step</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">Next step</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${todayIso()}"${d.next_date && d.next_date < todayIso() ? ' aria-describedby="detailUpdateDateHint"' : ''}>${d.next_date && d.next_date < todayIso() ? '<small id="detailUpdateDateHint">Current next date is overdue.</small>' : ''}</div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
     <section id="panelEmailFollowups" aria-label="Email follow-ups"><p role="status">Updating email follow-ups…</p></section>
     ${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}">${parked ? `<p>${esc(concise(d.parking_note) || 'Parked')}</p><button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm"><label>Park reason<input name="reason" maxlength="500" required></label><button class="btn park-control" type="submit">Park deal</button></form></details>`}</div></div>` : ''}</div>
     <div data-detail-read="prospect">${controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
-    <h2>Critical dates</h2>${renderCriticalDates(detail)}
+    <div data-detail-read="client-portal">${!d.client_portal_url && controlsAvailable ? clientPortalSetupHtml() : ''}</div>
+    <h2>Critical dates</h2>${renderCriticalDates(datedDetail)}
     <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden></section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden></section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>
-    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail)}</div>${renderDealTimeline(detail)}</section>
+    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(datedDetail, nextItem)}</div>${renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2><details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details><div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
-function clientPortalHtml(d, canRegister) {
-  if (d.client_portal_url) return `<div data-detail-read="client-portal">${renderClientPortalLink(d.client_portal_url) || '<p>Client website link unavailable.</p>'}</div>`;
-  if (!canRegister) return '<div data-detail-read="client-portal"><p>No client website linked.</p></div>';
-  return `<div data-detail-read="client-portal"><p>No client website linked.</p><details class="client-portal-register"><summary>Set up client website</summary><form id="detailClientPortalForm" class="client-portal-form"><label for="clientPortalSlug">Website name</label><input id="clientPortalSlug" name="slug" required maxlength="63" pattern="[a-z0-9][a-z0-9\\-]*" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="practice-name" data-detail-focus="client-portal-slug"><label for="clientPortalPassword">Password</label><input id="clientPortalPassword" type="password" name="password" required maxlength="1024" autocomplete="off" autocapitalize="none" spellcheck="false" data-detail-focus="client-portal-password"><button class="btn" type="submit">Register website</button></form></details><p id="detailClientPortalStatus" role="status"></p></div>`;
+function clientPortalSetupHtml() {
+  return `<details class="client-portal-register"><summary>Set up client website</summary><form id="detailClientPortalForm" class="client-portal-form"><label for="clientPortalSlug">Website name</label><input id="clientPortalSlug" name="slug" required maxlength="63" pattern="[a-z0-9][a-z0-9\\-]*" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="practice-name" data-detail-focus="client-portal-slug"><label for="clientPortalPassword">Password</label><input id="clientPortalPassword" type="password" name="password" required maxlength="1024" autocomplete="off" autocapitalize="none" spellcheck="false" data-detail-focus="client-portal-password"><button class="btn" type="submit">Register website</button></form></details><p id="detailClientPortalStatus" role="status"></p>`;
 }
 async function registerClientPortal(id, form) {
   const slug = String(form.get('slug')).trim().toLowerCase();
@@ -1449,6 +1451,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
     if (state.panelDeal !== dealId) return;
     const editor = $('dealUpdateStep');
     if (editor) {
+      $('detailNextStepEditor').open = true;
       editor.focus();
       editor.scrollIntoView({ block: 'center', behavior: 'instant' });
       const observer = new ResizeObserver(() => {

@@ -385,6 +385,7 @@ for (const kind of ["deal", "lease"] as const)
 test("collapsed watch settings do not read until opened", async (t) => {
   const f = await mountedWatch(t, "deal");
   await f.page.locator("summary").waitFor();
+  assert.equal((await f.page.locator("summary").textContent())?.trim(), "Deal watch settings");
   await f.page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   );
