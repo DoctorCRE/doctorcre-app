@@ -1699,13 +1699,13 @@ export async function createFixtureClient(opts = {}) {
         const day = typeof deal.next_date === 'string' ? deal.next_date.slice(0, 10) : null;
         if (deal.next_step && day) {
           items.push({ item_kind: 'next_action', id: `a-${deal.id}`, subject_type: 'deal', subject_id: deal.id,
-            owner: deal.owner, what: deal.next_step, due_on: day, subject_name: deal.name, subject_ref: null,
+            owner: deal.owner, owner_partner: ['joe', 'dell'].includes(deal.owner) ? deal.owner : null, what: deal.next_step, due_on: day, subject_name: deal.name, subject_ref: null,
             business_days_overdue: null });
         }
         for (const entry of criticalDates.get(deal.id) || []) {
           if (entry.due_on > horizon) continue;
           items.push({ item_kind: 'critical_date', id: entry.id, subject_type: 'deal', subject_id: deal.id,
-            owner: null, what: entry.kind, due_on: entry.due_on, subject_name: deal.name, subject_ref: null,
+            owner: null, owner_partner: null, what: entry.kind, due_on: entry.due_on, subject_name: deal.name, subject_ref: null,
             business_days_overdue: null });
         }
       }
