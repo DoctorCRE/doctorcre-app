@@ -1159,7 +1159,75 @@ const stepId = "00000000-0000-4000-8000-000000000031";
 const operationId = "00000000-0000-4000-8000-000000000032";
 const marketId = "00000000-0000-4000-8000-000000000033";
 const changesPath = `/deals/${dealId}/changes`;
+const creation = {
+  next_deal_save: true,
+  idempotency_key: operationId,
+  name: "Example Lease",
+  client_id: stepId,
+  owner: "dell",
+  phase: "research",
+  kind: "lease",
+  market_id: marketId,
+};
+
+test("Add deal keeps its key, owner and client when the engine replays it", async () => {
+  const receipt = { deal_id: dealId, change_id: 24, phase_changed_at: "2026-11-18T12:00:00Z" };
+  const switches = new Map(nextDealsOn);
+  const f = fixture(switches, answered(JSON.stringify(receipt), 201));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { result } = await (await f.send(call("new-deal", creation), saveHeaders)).json();
+    assert.deepEqual(JSON.parse(result.content[0].text), { ...receipt, ok: true });
+  }
+  const { next_deal_save, ...expected } = creation;
+  assert.equal(next_deal_save, true);
+  assert.equal(f.engine.length, 2);
+  for (const request of f.engine) {
+    assert.equal(request.url, `${origin}/api/engine/deals`);
+    assert.deepEqual(await request.json(), expected);
+  }
+  switches.delete("deals-saves-from-engine");
+  const { result } = await (await f.send(call("new-deal", creation), saveHeaders)).json();
+  assert.equal(result.isError, true);
+  assert.deepEqual(f.carr, []);
+});
+
+for (const [error, rule, hint] of [
+  ["database_refused_the_statement", "deal_party_party_id_fkey", "Choose an existing client."],
+  ["database_refused_the_statement", "deal_market_id_fkey", "Choose an existing market."],
+  ["deal_name_exists", null, "A deal with this name already exists."],
+]) {
+  test(`Add deal explains ${rule || error} and leaves the save in the engine`, async () => {
+    const f = fixture(nextDealsOn, answered(JSON.stringify({ error, rule }), 422));
+    const { result } = await (await f.send(call("new-deal", creation), saveHeaders)).json();
+    assert.equal(result.isError, true);
+    assert.deepEqual(JSON.parse(result.content[0].text), { error, rule, hint });
+    assert.equal(f.engine.length, 1);
+    assert.deepEqual(f.carr, []);
+  });
+}
+
 const movedToEngine = [
+  ...[
+    [
+      { outcome: "won", closed_on: "2026-11-18", won_value: 125000 },
+      { phase: { from: "closing", to: "closed", on: "2026-11-18" }, fields: { closed_value: 125000 } },
+    ],
+    [{ outcome: "won", closed_on: "2026-11-18" }, { phase: { from: "closing", to: "closed", on: "2026-11-18" } }],
+    [
+      { outcome: "lost", closed_on: "2026-11-18", lost_reason: "The client chose another site" },
+      { phase: { from: "closing", to: "dead", on: "2026-11-18", reason: "The client chose another site" } },
+    ],
+  ].map(
+    ([fields, expected]) =>
+      [
+        "update-deal",
+        { fields, phase_from: "closing" },
+        changesPath,
+        { seen_change_id: 23, ...expected },
+        { deal_id: dealId, change_id: 24 },
+        200,
+      ] as const,
+  ),
   [
     "patch-deal-field",
     { field: "phase", value: "negotiation", phase_from: "research" },

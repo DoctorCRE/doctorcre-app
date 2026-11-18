@@ -129,6 +129,7 @@ function copySessionCookies(from, to) {
 const isString = value => typeof value === 'string';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const DEALS = 'deals-from-engine';
+const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
 const LEADS = 'leads-from-engine';
 const INVOICES = 'invoices-from-engine';
 const CHARTS = 'charts-from-engine';
@@ -248,8 +249,15 @@ async function engineResponse(request, env) {
           }
         }
         chunks.push(decoder.decode());
-        if (!call) return copySessionCookies(response, new Response(chunks.join(''), { status: response.status, headers: JSON_HEADERS }));
-        return mcpReply(call, response, chunks.join(''), response.status >= 400);
+        let text = chunks.join('');
+        if (!call) return copySessionCookies(response, new Response(text, { status: response.status, headers: JSON_HEADERS }));
+        if (call.params.name === 'deal-room-board' && response.ok) {
+          const board = JSON.parse(text);
+          if (board?.schema_version === 'local-deals-board.v2' && await switchedOn(env, NEXT_DEAL_SAVES)) {
+            text = JSON.stringify({ ...board, next_deal_saves: true });
+          }
+        }
+        return mcpReply(call, response, text, response.status >= 400);
       })(),
       new Promise(resolve => {
         // eslint-disable-next-line no-restricted-syntax -- One engine deadline fires after two seconds and is cleared when the response settles.
@@ -264,7 +272,6 @@ async function engineResponse(request, env) {
 }
 
 // New-schema receipts are separate from the legacy tool receipts.
-const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
 const CUTOVER_SAVES = new Set([
   'patch-deal-field', 'update-deal', 'set-next-step', 'complete-deal-item', 'record-deal-item',
   'add-deal-note', 'new-deal', 'set-lead', 'set-market-agent', 'add-critical-date',
@@ -274,10 +281,26 @@ const isUuid = value => isString(value) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9
 
 function nextDealSave(verb, args) {
   const { deal, idempotency_key, seen_change_id, field, value } = args;
-  if (!isUuid(deal) || !isUuid(idempotency_key)) return null;
+  if (!isUuid(idempotency_key)) return null;
   const post = (path, body) => ({ path: '/api/engine' + path, body: { idempotency_key, ...body } });
+  if (verb === 'new-deal') {
+    const { name, client_id, owner, phase, kind, reason, market_id, renews_lease_id } = args;
+    return isUuid(client_id) ? post('/deals', { name, client_id, owner, phase, kind, reason, market_id, renews_lease_id }) : null;
+  }
+  if (!isUuid(deal)) return null;
   const changes = patch => post(`/deals/${deal}/changes`, { seen_change_id, ...patch });
   switch (verb) {
+    case 'update-deal': {
+      const { outcome, closed_on, won_value, lost_reason } = args.fields || {};
+      const from = args.phase_from;
+      if (from !== null && !isString(from)) return null;
+      if (outcome === 'won') return changes({
+        phase: { from, to: 'closed', on: closed_on },
+        ...(won_value != null && { fields: { closed_value: won_value } }),
+      });
+      if (outcome === 'lost') return changes({ phase: { from, to: 'dead', on: closed_on, reason: lost_reason } });
+      return null;
+    }
     case 'patch-deal-field':
       if (field === 'phase' && value !== 'closed' && (args.phase_from === null || isString(args.phase_from))) {
         const reason = [args.change_reason, args.human_quote].filter(isString).join('\n\n') || undefined;
@@ -311,28 +334,44 @@ function saveRefusal(call, error, hint) {
   return mcpReply(call, new Response(null), JSON.stringify({ error, hint }), true);
 }
 
+const DEAL_CREATE_REFUSALS = new Map([
+  ['deal_party_party_id_fkey', 'Choose an existing client.'],
+  ['deal_party_client_is_a_client', 'Choose an existing client.'],
+  ['deal_market_id_fkey', 'Choose an existing market.'],
+  ['deal_renewal_names_lease', 'Choose the lease this deal renews.'],
+  ['deal_name_exists', 'A deal with this name already exists.'],
+]);
+
 async function cutoverSave(request, env, call) {
   const { name, arguments: args } = call.params;
   const on = await switchedOn(env, NEXT_DEAL_SAVES);
-  const fromNext = Number.isSafeInteger(args.seen_change_id) && args.seen_change_id >= 0;
+  const creating = name === 'new-deal';
+  const fromNext = creating ? args.next_deal_save === true
+    : Number.isSafeInteger(args.seen_change_id) && args.seen_change_id >= 0;
   if (!on && !fromNext) return null;
   if (on && !await switchedOn(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
   const save = nextDealSave(name, args);
   if (on && !save) return saveRefusal(call, 'deal_save_unavailable', 'This change is temporarily unavailable.');
   // A retained request may outlive a switch change. Its snapshot pins the destination.
-  if (!on || !fromNext) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
+  if (!on || !fromNext) return creating
+    ? saveRefusal(call, 'version_conflict', 'Reload Deals before adding a deal.')
+    : saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
   const response = await sendEngineSave(request, env, save.path, save.body);
   if (!response || response.status >= 500) return unavailable(false);
   if ([401, 403, 429].includes(response.status)) return response;
   const body = await response.json().catch(() => null);
   if (!isObject(body)) return unavailable(false);
   if (!response.ok) {
-    const hint = body.error === 'version_conflict' ? 'This deal changed. Reload the deal before saving.'
+    const hint = creating
+      ? DEAL_CREATE_REFUSALS.get(body.error === 'database_refused_the_statement' ? body.rule : body.error)
+        ?? 'Check the deal details and try again.'
+      : body.error === 'version_conflict' ? 'This deal changed. Reload the deal before saving.'
       : body.error === 'step_ended' ? 'This step was already closed. Reload the deal to see its current steps.'
       : 'The change could not be saved. Review the deal and try again.';
     return mcpReply(call, response, JSON.stringify({ ...body, hint }), true);
   }
-  const saved = save.path.endsWith('/changes') ? body.deal_id === args.deal
+  const saved = creating ? isUuid(body.deal_id) && Number.isSafeInteger(body.change_id) && body.change_id >= 0
+    : save.path.endsWith('/changes') ? body.deal_id === args.deal
     : save.path.endsWith('/activities') ? isUuid(body.activity_id) : isUuid(body.next_step_id);
   if (!saved || body.error) return unavailable(false);
   return mcpReply(call, response, JSON.stringify({ ...body, ok: true }), false);

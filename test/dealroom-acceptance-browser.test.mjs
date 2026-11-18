@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { chromium } from './browser-harness.mjs';
+import { handleDoctorcreRequest } from '../src/worker.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const evidence = join(root, 'out/test-artifacts/dealroom-acceptance');
@@ -173,4 +174,105 @@ for (const width of [390, 1280]) test(`signed-in Add deal persists through reloa
   assert.doesNotMatch(await renderedNote.locator('time').textContent(),/Date not recorded/);
   assert.deepEqual((await rpc(partner,'get-deal-room',{deal:id})).thread,[note]);
   assert.deepEqual(errors,[]);
+});
+
+test('Add deal and Won or Lost save through the new database switch', async t => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 960 }, timezoneId: 'America/Chicago' });
+  t.after(() => page.close());
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-deals', viewer: 'joe', reset: true } });
+  const clientId = '00000000-0000-4000-8000-000000000040';
+  const deals = new Map();
+  const writes = [];
+  const env = {
+    ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const id = new URL(request.url).pathname.split('/')[4];
+      if (request.method === 'GET') {
+        if (id) return Response.json({ ...deals.get(id), deal_id: id });
+        const rows = [...deals.values()];
+        return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe',
+          deals: rows.filter(row => !row.outcome), closed_deals: rows.filter(row => row.outcome === 'won'),
+          lost_deals: rows.filter(row => row.outcome === 'lost') });
+      }
+      const body = await request.json();
+      writes.push(body);
+      if (new URL(request.url).pathname === '/api/engine/activities') {
+        const deal = deals.get(body.about[0].deal_id);
+        deal.thread = [{ kind: 'note', text: body.summary, created_at: body.happened_at }];
+        return Response.json({ activity_id: crypto.randomUUID() }, { status: 201 });
+      }
+      if (!id) {
+        if (body.name === 'Example Duplicate') return Response.json({ error: 'deal_name_exists' }, { status: 422 });
+        const dealId = crypto.randomUUID();
+        deals.set(dealId, { id: dealId, name: body.name, client_name: 'Example Practice', owner: body.owner, phase: body.phase, seen: 1 });
+        return Response.json({ deal_id: dealId, change_id: 1 }, { status: 201 });
+      }
+      deals.set(id, { ...deals.get(id), seen: 2, phase: body.phase.to, closed_on: body.phase.on,
+        outcome: body.phase.to === 'closed' ? 'won' : 'lost', lost_reason: body.phase.reason,
+        closed_value: body.fields?.closed_value?.toFixed(2) });
+      return Response.json({ deal_id: id, change_id: 2 });
+    } },
+    CARR: { fetch: async () => new Response(null, { status: 502 }) },
+  };
+  await page.route('**/api/v1/business/relationships?*', route => route.fulfill({ json: {
+    nodes: [{ id: `party:${clientId}`, name: 'Example Practice', kind: 'client' }],
+  } }));
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    const body = request.postDataJSON();
+    if (!['deal-room-board', 'get-deal-room', 'new-deal', 'update-deal', 'add-deal-note'].includes(body?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
+    }), env);
+    return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+  });
+
+  await page.goto(`${origin}/deals?mode=live`);
+  await page.getByText('0 open deals · 0 parked', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Add deal', exact: true }).click();
+  await page.getByLabel('Deal name').fill('Example Duplicate');
+  await page.getByLabel('Client', { exact: true }).fill('Example Practice');
+  await page.getByRole('button', { name: 'Create deal' }).click();
+  await page.getByText('A deal with this name already exists.', { exact: true }).waitFor();
+
+  for (const outcome of ['Won', 'Lost']) {
+    const name = `Example ${outcome} Deal`;
+    await page.getByLabel('Deal name').fill(name);
+    await page.getByLabel('Client', { exact: true }).fill('Example Practice');
+    if (outcome === 'Won') await page.getByLabel('Notes', { exact: true }).fill('Example opening note');
+    await page.getByRole('button', { name: 'Create deal' }).click();
+    await page.getByRole('button', { name, exact: true }).click();
+    if (outcome === 'Won') {
+      await page.getByRole('tab', { name: 'Correspondence & notes' }).click();
+      await page.getByRole('tabpanel', { name: 'Correspondence & notes' }).getByText('Example opening note', { exact: true }).waitFor();
+      await page.getByRole('tab', { name: 'Overview' }).click();
+    }
+    await page.locator('#detailPhase').selectOption('closed');
+    assert.equal(await page.getByLabel('Paused', { exact: true }).isVisible(), false);
+    await page.getByLabel(outcome, { exact: true }).check();
+    if (outcome === 'Lost') {
+      await page.getByRole('button', { name: 'Save outcome' }).click();
+      await page.getByText('Enter the reason the deal was lost.', { exact: true }).waitFor();
+      await page.getByLabel('Reason the deal was lost').fill('The client chose another site');
+    } else await page.getByLabel('Won value').fill('1000');
+    await page.screenshot({ path: join(evidence, `engine-${outcome.toLowerCase()}-dialog.png`) });
+    await page.getByRole('button', { name: 'Save outcome' }).click();
+    await page.getByText(`Deal marked ${outcome.toLowerCase()}`, { exact: true }).first().waitFor();
+    await page.getByRole('button', { name: 'Back to deals' }).click();
+    await page.getByRole('button', { name: outcome === 'Won' ? 'Closed deals' : 'Lost deals', exact: true }).click();
+    const archived = page.getByRole('button', { name, exact: true });
+    await archived.waitFor();
+    assert.equal(await archived.count(), 1);
+    if (outcome === 'Lost') await page.getByText('The client chose another site', { exact: true }).waitFor();
+    await archived.click();
+    await page.getByRole('heading', { name, exact: true }).waitFor();
+    if (outcome === 'Won') await page.getByText('$1,000.00', { exact: true }).waitFor();
+    else await page.locator('#workspaceFacts').getByText('Lost', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Back to deals' }).click();
+    if (outcome === 'Won') await page.getByRole('button', { name: 'Add deal', exact: true }).click();
+  }
+  assert.equal(writes.length, 6);
+  assert.deepEqual(writes.filter(write => write.phase?.to).map(write => [write.phase.to, write.fields?.closed_value, write.phase.reason]),
+    [['closed', 1000, undefined], ['dead', undefined, 'The client chose another site']]);
+  assert.ok(writes.filter(write => write.name).every(write => write.client_id === clientId));
 });

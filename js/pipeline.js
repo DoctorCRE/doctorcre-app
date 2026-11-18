@@ -19,6 +19,7 @@ import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
 import { formatCalendarDate } from './visual-system.js';
+import { businessDay } from './business-date.js';
 import {
   createBoardSync, batchTouchesBoard, HEALTH, SYNC_STATES,
 } from './board-sync.mjs';
@@ -77,6 +78,7 @@ const state = {
   panelReturnTo: null,
   intent: null,
   boardStatus: 'starting',
+  nextDealSaves: false,
   unplaced: 0,
 };
 
@@ -155,11 +157,11 @@ async function submitDeal(event) {
     if (!args.name || !args.client) {
       errorBox.textContent = 'Enter a deal name and an existing client.'; errorBox.focus(); return;
     }
-    dealCreation = {...args, lane:'territory', idempotency_key:uuidv4()};
+    dealCreation = {...args, lane:'territory', next_deal_save:state.nextDealSaves, idempotency_key:uuidv4()};
   }
+  const request = dealCreation;
   creatingDeal = true; syncDealCreation(); errorBox.textContent = '';
   try {
-    const request = dealCreation;
     const result = await state.client.createDeal(request);
     if (result?.status !== 'ok') throw new Error('Creation receipt unavailable');
     dealCreation = null;
@@ -175,7 +177,8 @@ async function submitDeal(event) {
     if (error.creationRefused) {
       dealCreation = null;
       const reasons = { deal_save_unavailable:'Adding a deal is temporarily unavailable.', subject_not_found:'Client not found. Use an existing client reference or exact name.', not_a_client:'Choose an existing client.', needs_disambiguation:'More than one client matches. Use the client reference.', deal_name_exists:'A deal with this name already exists. Use a distinct name.' };
-      errorBox.textContent = reasons[error.payload?.error] || 'Deal creation was refused. Check the client, name, type, and stage.';
+      errorBox.textContent = error.creationHint || (request.next_deal_save && error.payload?.hint)
+        || reasons[error.payload?.error] || 'Deal creation was refused. Check the client, name, type, and stage.';
     } else errorBox.textContent = 'Creation not confirmed. The original request is retained. Check creation outcome to finish the same deal, owner, and notes.';
     errorBox.focus();
   } finally { creatingDeal = false; syncDealCreation(); }
@@ -194,6 +197,7 @@ function renderClosedDeals() {
   $('closedDealsList').innerHTML = rows.map(d => `<article class="closed-deal glass" data-id="${esc(d.id)}">
     <h3><button type="button" class="card-open" data-open-deal="${esc(d.id)}">${esc(dealTitle(d))}</button></h3><dl><div><dt>Client</dt><dd>${esc(d.client_name || d.client_ref || 'Not recorded')}</dd></div>
     <div><dt>Type</dt><dd>${esc(d.type || 'Not recorded')}</dd></div><div><dt>Close date</dt><dd>${esc(d.closed_on ? dateWords(d.closed_on) : 'Not recorded')}</dd></div>
+    ${lost && d.lost_reason ? `<div><dt>Reason</dt><dd>${esc(d.lost_reason)}</dd></div>` : ''}
     <div><dt>Owner</dt><dd>${esc(actorName(d.owner))}</dd></div></dl>${renderDealVendors(d.vendors)}${autoHtml(d)}</article>`).join('') || (archived === null ? '' : `<p>No ${label} deals match this search.</p>`);
 }
 
@@ -332,6 +336,7 @@ function applyBoardSnapshot(board) {
   const previousPanelRow = state.deals.get(state.panelDeal);
   const previousActor = state.selfActor;
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
+  state.nextDealSaves = board.next_deal_saves === true;
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
   if (actorChanged) {
@@ -568,11 +573,12 @@ async function runFollowUp(operationKey, step) {
   dock.record(operationKey, {
     summary: operations.get(operationKey).summary,
     status: result.status === 'blocked' ? 'unknown' : result.status,
-    reason: result.message || null,
+    reason: step.verb === 'update-deal' ? result.hint || result.message : result.message || null,
     // eslint-disable-next-line no-restricted-syntax -- Only another dock action can resend the retained follow-up; this receipt exposes retry state.
     retry: result.status === 'blocked' || result.retry, undo: false, request: dockRequest,
   });
   if (step.verb === 'register-client-portal' && result.status === 'ok') state.boardSync.requestRefresh('client-portal');
+  if (step.verb === 'update-deal' && result.status === 'ok') state.boardSync.requestRefresh('after-write');
   if (step.verb === 'add-deal-note' && operationKey === updateKey(state.panelDeal) && state.panelDetail) {
     if ([401,403].includes(result.http_status)) { refusePanelDetail({status:result.http_status}); return result; }
     syncUpdateForm();
@@ -587,6 +593,12 @@ async function runMove(intent, form) {
   if (plan.errors.length) return { ok: false, errors: plan.errors };
 
   const [phaseStep, ...followUps] = plan.steps;
+  if (phaseStep.verb === 'update-deal') {
+    const result = await runFollowUp(`close-deal:${intent.deal}`, phaseStep);
+    if (result.status !== 'ok') return { ok: false, errors: [result.hint || result.message] };
+    showToast(phaseStep.args.fields.outcome === 'won' ? 'Deal marked won' : 'Deal marked lost');
+    return { ok: true, errors: [] };
+  }
   const cell = cellKey(intent.deal, 'phase');
   if (!pendingCommand(state.fieldWrites, cell)) {
     operations.set(cell, { kind: 'field', deal: intent.deal, value: phaseStep.args.value,
@@ -693,9 +705,13 @@ function openCompletion(intent) {
   state.intent = intent;
   const dialog = $('completionDialog');
   if (!dialog) return;
-  $('completionTitle').textContent = moveTitle(intent);
 
   const isClosed = intent.to === CLOSED_SLUG;
+  const closingInEngine = isClosed && Number.isSafeInteger(intent.seen);
+  $('completionTitle').textContent = closingInEngine ? `Close ${intent.name}` : moveTitle(intent);
+  $('completionPaused').hidden = closingInEngine;
+  $('completionMoveDetails').hidden = closingInEngine;
+  $('completionLostReason').value = '';
   const closed = $('completionClosedNote');
   if (closed) {
     closed.hidden = !isClosed;
@@ -705,12 +721,12 @@ function openCompletion(intent) {
   if (outcomeField) outcomeField.hidden = !isClosed;
   for (const radio of outcomeRadios()) radio.checked = false;
   const closedOn = $('completionClosedOn');
-  if (closedOn) closedOn.value = isClosed ? todayIso() : '';
+  if (closedOn) closedOn.value = isClosed ? (closingInEngine ? businessDay() : todayIso()) : '';
   const wonValue = $('completionWonValue');
   if (wonValue) wonValue.value = '';
   renderOutcomeState();
   const confirm = $('completionConfirm');
-  if (confirm) confirm.textContent = `Move to ${intent.to_label}`;
+  if (confirm) confirm.textContent = closingInEngine ? 'Save outcome' : `Move to ${intent.to_label}`;
   $('completionEvidence').value = '';
   $('completionReason').value = '';
   $('completionQuote').value = '';
@@ -723,7 +739,7 @@ function openCompletion(intent) {
   if (errors) { errors.hidden = true; errors.textContent = ''; }
   renderCriticalState();
   if (typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
-  $('completionEvidence')?.focus();
+  if (!closingInEngine) $('completionEvidence')?.focus();
 }
 
 const outcomeRadios = () => [...document.querySelectorAll('input[name="completionOutcome"]')];
@@ -738,6 +754,7 @@ function todayIso() {
 function renderOutcomeState() {
   const field = $('completionWonValueField');
   if (field) field.hidden = chosenOutcome() !== 'won';
+  $('completionLostReasonField').hidden = !$('completionMoveDetails').hidden || chosenOutcome() !== 'lost';
 }
 
 function renderCriticalState() {
@@ -1127,11 +1144,13 @@ function workspaceHtml(detail) {
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
   const parked = d.operating_state === 'parked';
   const controlsAvailable = state.deals.has(d.id) && !isClosedDeal(d);
+  const closedValue = Number(d.closed_value);
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
       <div class="deal-alert">${renderDealItems({...d,items:detail.items || d.items},{today:todayIso(),buttons:true})}</div>
       ${showNextStep ? `<p class="deal-current-action"><span>${d.next_date && d.next_date < todayIso() ? 'Overdue action' : 'Next action'}</span>: <strong>${esc(nextStep)}</strong>${d.next_date ? ` · <span>Due <time datetime="${esc(d.next_date)}">${esc(dateWords(d.next_date))}</time></span>` : ''}</p>` : ''}
       <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${d.client_name ? `<div><dt>Client</dt><dd>${esc(d.client_name)}</dd></div>` : ''}${d.type ? `<div><dt>Type</dt><dd>${esc(d.type)}</dd></div>` : ''}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
+      ${closedValue > 0 ? `<dl class="deal-snapshot-facts"><div><dt>Closed value</dt><dd>${closedValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</dd></div></dl>` : ''}
       ${clientPortalHtml(d, controlsAvailable)}
     </section>
     <section data-detail-read="next-actions" aria-label="Next actions"><h2>Next actions</h2><ul>${(detail.next_actions || []).filter(action => action.status === 'open').map(action => `<li>${esc(noteText(action.description))}${calendarDay(action.due_on) ? ` · <time datetime="${esc(action.due_on)}">${esc(dateCaption(calendarDay(action.due_on)))}</time>` : ''}</li>`).join('') || '<li>No next actions recorded.</li>'}</ul></section>
@@ -1810,6 +1829,7 @@ function wire() {
       outcome: chosenOutcome(),
       closedOn: $('completionClosedOn')?.value,
       wonValue: $('completionWonValue')?.value,
+      lostReason: $('completionLostReason')?.value,
     });
     if (state.intent !== intent) return;
     if (outcome.errors.length) {

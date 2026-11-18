@@ -27,6 +27,13 @@ const CREATION_REFUSALS = new Set([
   'deal_name_exists', 'deal_save_unavailable', 'salesforce_id_in_use', 'unknown_deal_type',
   'unknown_phase', 'unknown_lane',
 ]);
+const NEXT_CREATION_REFUSALS = new Set([
+  'database_refused_the_statement', 'invalid_field_value', 'unknown_owner', 'version_conflict',
+]);
+const LEGACY_DEAL_REASONS = new Map([
+  ['startup', 'start_up'], ['relocation', 'relocation'], ['expansion', 'expansion'],
+  ['additional_office', 'additional_office'], ['renewal', 'renewal'],
+]);
 
 /**
  * @param {Object} [opts]
@@ -110,7 +117,8 @@ export function createLiveClient(opts = {}) {
       const err = new Error(`live ${verb} refused: ${payload?.error || 'tool_error'}`);
       err.payload = payload;
       if (verb === 'new-deal') err.creationStage = 'new-deal';
-      err.writeRefusal = verb === 'new-deal' && CREATION_REFUSALS.has(payload?.error)
+      err.writeRefusal = verb === 'new-deal' && (CREATION_REFUSALS.has(payload?.error)
+        || (args.next_deal_save === true && NEXT_CREATION_REFUSALS.has(payload?.error)))
         || (['resolve-candidate', 'resolve-post-call-candidate'].includes(verb)
           && ['refused', 'conflict'].includes(classifyCommandOutcome({ error: err }).status));
       throw err;
@@ -175,7 +183,7 @@ export function createLiveClient(opts = {}) {
   }
 
   // CARR phase slugs and board labels map one-to-one in both directions.
-  const PHASE_TO_UI = PHASE_BY_SLUG;
+  const PHASE_TO_UI = { ...PHASE_BY_SLUG, dead: 'Lost' };
   const UI_TO_PHASE = {
     'On Deck': 'pending', 'Research': 'research', 'Site selection': 'site_selection',
     'Negotiation': 'negotiation', 'Legal': 'legal', 'Diligence': 'due_diligence',
@@ -475,12 +483,7 @@ export function createLiveClient(opts = {}) {
       return write('resolve-conflict', args);
     },
 
-    // The deal-row write the Closed column needs: the outcome and its date.
-    // `base_version` is NOT defaulted and NOT re-read here — the caller reads
-    // the deal, decides against what it read, and sends that version. A client
-    // that fetched a fresh version on the caller's behalf would turn a crossed
-    // edit into a silent overwrite. `fields` passes through untouched except
-    // for the phase vocabulary, which this verb does not carry.
+    // Keep the version the partner reviewed so a crossed edit cannot silently overwrite it.
     async updateDeal(args) {
       return write('update-deal', args);
     },
@@ -513,18 +516,26 @@ export function createLiveClient(opts = {}) {
 
     async createDeal(args) {
       const key = args.idempotency_key || uuidv4();
-      const request = {
+      const phase = UI_TO_PHASE[args.phase] || args.phase || 'pending';
+      const owner = args.owner || selfActor;
+      const request = args.next_deal_save ? {
+        next_deal_save: true, idempotency_key: key, name: args.name, phase, owner,
+        client_id: args.client_id,
+        kind: args.kind ?? (['purchase', 'other'].includes(args.deal_type) ? args.deal_type : undefined),
+        reason: args.reason ?? LEGACY_DEAL_REASONS.get(args.deal_type),
+        market_id: args.market_id, renews_lease_id: args.renews_lease_id,
+      } : {
         client: args.client,
         name: args.name,
         deal_type: args.deal_type || 'other',
-        phase: UI_TO_PHASE[args.phase] || args.phase || 'pending',
+        phase,
         segment: args.segment || undefined,
         city: args.market || undefined,
         lane: args.lane || 'territory',
         reason: 'Created in the Deal Room',
         idempotency_key: key,
       };
-      const intent = { ...request, owner: args.owner || selfActor, notes: args.notes || '' };
+      const intent = { ...request, client: args.client, owner, notes: args.notes || '' };
       let operation = dealCreations.get(key);
       if (operation && JSON.stringify(operation.intent) !== JSON.stringify(intent)) throw new Error('Reconcile the original deal creation before changing its fields.');
       if (!operation) {
@@ -536,6 +547,21 @@ export function createLiveClient(opts = {}) {
       operation.inFlight = (async () => {
         let res = operation.receipt;
         if (!res) {
+          if (request.next_deal_save && !operation.request.client_id) {
+            const query = String(intent.client || '').trim().toLowerCase();
+            const network = await client.getRelationshipNetwork().catch(() => null);
+            const matches = Array.isArray(network?.nodes) ? network.nodes.filter(node => node.kind === 'client'
+              && node.id?.startsWith('party:') && query
+              && [node.name, node.ref].some(value => value?.toLowerCase() === query)) : null;
+            if (matches?.length !== 1) {
+              dealCreations.delete(key);
+              const hint = matches === null ? 'The client list is unavailable, so try again in a moment.'
+                : matches.length ? 'More than one client has that name, so use the full client reference.'
+                : 'Choose an existing client.';
+              throw Object.assign(new Error(hint), { creationRefused: true, creationHint: hint });
+            }
+            operation.request.client_id = matches[0].id.slice('party:'.length);
+          }
           try { res = await write('new-deal', operation.request); }
           catch (error) {
             // Only a verified first creation refusal proves no deal was made.
@@ -552,18 +578,19 @@ export function createLiveClient(opts = {}) {
           throw new Error('Created deal receipt is unavailable. Reconcile the same request.');
         }
         operation.receipt = res;
-        if (!operation.lead) {
+        if (!request.next_deal_save && !operation.lead) {
           const fresh = await rpc('get-deal-room', { deal: res.deal_id });
           if (!Number.isInteger(fresh?.base_version)) throw new Error('Created deal version is unavailable; lead was not assigned.');
           operation.lead = { deal: res.deal_id, new_lead: operation.actor, base_version: fresh.base_version, idempotency_key: uuidv4() };
         }
-        if (!operation.leadConfirmed) {
+        if (!request.next_deal_save && !operation.leadConfirmed) {
           const lead = await write('set-lead', operation.lead);
           if (lead?.ok !== true) throw new Error('Lead receipt is unavailable. Reconcile the same request.');
           operation.leadConfirmed = true;
         }
         if (intent.notes && !operation.noteConfirmed) {
-          operation.note ||= { deal: res.deal_id, text: intent.notes, idempotency_key: uuidv4() };
+          operation.note ||= { deal: res.deal_id, text: intent.notes, idempotency_key: uuidv4(),
+            ...(request.next_deal_save && { seen_change_id: res.change_id, happened_at: new Date().toISOString() }) };
           const note = await write('add-deal-note', operation.note);
           if (note?.ok !== true) throw new Error('Note receipt is unavailable. Reconcile the same request.');
           operation.noteConfirmed = true;

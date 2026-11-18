@@ -120,7 +120,7 @@
           <div class="chip-bar" role="none">
             <label class="chip"><input type="radio" name="completionOutcome" value="won"> <span>Won</span></label>
             <label class="chip"><input type="radio" name="completionOutcome" value="lost"> <span>Lost</span></label>
-            <label class="chip"><input type="radio" name="completionOutcome" value="paused"> <span>Paused</span></label>
+            <label class="chip" id="completionPaused"><input type="radio" name="completionOutcome" value="paused"> <span>Paused</span></label>
           </div>
 
           <div class="field-grid">
@@ -135,6 +135,11 @@
           </div>
 
         </fieldset>
+        <div class="field" id="completionLostReasonField" hidden>
+          <label for="completionLostReason">Reason the deal was lost</label>
+          <input id="completionLostReason" type="text" maxlength="500">
+        </div>
+        <div id="completionMoveDetails">
         <div class="field">
           <label for="completionEvidence">Evidence</label>
           <textarea id="completionEvidence" rows="3" placeholder="What makes this the right phase now"></textarea>
@@ -171,6 +176,7 @@
         <div class="field" id="completionSourceField" hidden>
           <label for="completionSource">Where did this date come from?</label>
           <input id="completionSource" type="text" autocomplete="off">
+        </div>
         </div>
 
       </div>
