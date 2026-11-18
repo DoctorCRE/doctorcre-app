@@ -1289,6 +1289,49 @@ for (const [error, rule, hint] of [
 }
 
 const movedToEngine = [
+  [
+    "set-market-agent",
+    { agent_party_id: marketId },
+    `/deals/${dealId}/parties`,
+    { party_id: marketId, role: "market_agent" },
+    { deal_id: dealId, party_id: marketId, role: "market_agent" },
+    201,
+  ],
+  [
+    "remove-deal-participant",
+    { party_id: marketId, role: "market_agent" },
+    `/deals/${dealId}/parties/remove`,
+    { party_id: marketId, role: "market_agent" },
+    { deal_id: dealId, party_id: marketId, role: "market_agent" },
+    200,
+  ],
+  [
+    "add-critical-date",
+    { kind: "phase_effective_date", due_on: "2027-01-02", source: "Sample agreement", note: "Signed" },
+    `/deals/${dealId}/critical-dates`,
+    { kind: "other", due_on: "2027-01-02", source: "Sample agreement", note: "Phase effective date" },
+    { critical_date_id: stepId, status: "open" },
+    201,
+  ],
+  [
+    "confirm-critical-date",
+    { critical_date_id: stepId },
+    `/critical-dates/${stepId}/confirm`,
+    {},
+    { critical_date_id: stepId, status: "open" },
+    200,
+  ],
+  ...["done", "dropped", "passed"].map(
+    (resolution) =>
+      [
+        "resolve-critical-date",
+        { critical_date_id: stepId, resolution, reason: "Sample decision" },
+        `/critical-dates/${stepId}/resolve`,
+        { resolution, reason: "Sample decision" },
+        { critical_date_id: stepId, status: resolution },
+        200,
+      ] as const,
+  ),
   ...[
     [
       { outcome: "won", closed_on: "2026-11-18", won_value: 125000 },
@@ -1405,6 +1448,67 @@ for (const [verb, args, path, expected, receipt, status] of movedToEngine) {
   });
 }
 
+test("Deals cutover refuses a bare market agent name before sending a write", async () => {
+  const f = fixture(nextDealsOn);
+  const save = call("set-market-agent", {
+    deal: dealId,
+    seen_change_id: 23,
+    idempotency_key: operationId,
+    agent_name: "Sample Agent",
+  });
+  const { result } = await (await f.send(save, saveHeaders)).json();
+  assert.equal(result.isError, true);
+  assert.equal(JSON.parse(result.content[0].text).hint, "Choose an existing person as the market agent.");
+  assert.deepEqual(f.engine, []);
+  assert.deepEqual(f.carr, []);
+});
+
+test("a successful HTTP response with the wrong date status leaves the outcome unknown", async () => {
+  const f = fixture(nextDealsOn, answered(JSON.stringify({ critical_date_id: stepId, status: "open" })));
+  const save = call("resolve-critical-date", {
+    deal: dealId,
+    seen_change_id: 23,
+    idempotency_key: operationId,
+    critical_date_id: stepId,
+    resolution: "done",
+    reason: "Sample decision",
+  });
+  const response = await f.send(save, saveHeaders);
+  assert.deepEqual([response.status, await response.json()], [503, { error: "carr_unavailable" }]);
+  assert.deepEqual(f.carr, []);
+});
+
+for (const [verb, args] of [
+  ["set-lead", { new_lead: "dell" }],
+  ["add-deal-participant", { party_id: marketId, role: "listing_side" }],
+] as const) {
+  test(`Deals cutover does not route ${verb} to the engine`, async () => {
+    const f = fixture(nextDealsOn);
+    const save = call(verb, { ...args, deal: dealId, seen_change_id: 23, idempotency_key: operationId });
+    assert.equal(await (await f.send(save, saveHeaders)).text(), "old");
+    assert.deepEqual(f.engine, []);
+  });
+}
+
+test("Deals cutover explains a refused critical date decision", async () => {
+  const f = fixture(
+    nextDealsOn,
+    answered('{"error":"database_refused_the_statement","rule":"critical_date_status_moves"}', 422),
+  );
+  const save = call("resolve-critical-date", {
+    deal: dealId,
+    seen_change_id: 23,
+    idempotency_key: operationId,
+    critical_date_id: stepId,
+    resolution: "passed",
+    reason: "Sample decision",
+  });
+  const { result } = await (await f.send(save, saveHeaders)).json();
+  assert.equal(result.isError, true);
+  assert.equal(JSON.parse(result.content[0].text).hint, "This date cannot be marked that way.");
+  assert.deepEqual(f.carr, []);
+});
+
 test("Deals cutover forwards a stale phase refusal and never tries CARR", async () => {
   const f = fixture(nextDealsOn, answered('{"error":"version_conflict","current_phase":"legal"}', 409));
   const save = call("patch-deal-field", {
@@ -1426,7 +1530,7 @@ test("Deals cutover forwards a stale phase refusal and never tries CARR", async 
   assert.deepEqual(f.carr, []);
 });
 
-for (const verb of ["new-deal", "set-lead", "set-market-agent", "update-deal"]) {
+for (const verb of ["new-deal", "set-market-agent", "update-deal"]) {
   test(`Deals cutover refuses ${verb} while the signed-in save is unavailable`, async () => {
     const f = fixture(nextDealsOn);
     const { result } = await (
