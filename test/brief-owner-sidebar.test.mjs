@@ -13,8 +13,8 @@ for (const legacy of [false,true]) for (const shared of [false,true]) test(`Toda
   const previousFetch = globalThis.fetch, previousLocation = globalThis.location;
   globalThis.location = win.location;
   const deals = ['joe','dell'].map((owner,index)=>({id:`demo-${owner}`,name:`Example ${owner}`,owner,attention:true,phase:'legal',operating_state:'active',next_step:`Call ${owner}`,next_date:'2026-01-01'}));
-  const items = deals.map(deal=>({id:`action-${deal.id}`,item_kind:'next_action',subject_type:'deal',subject_id:deal.id,subject_name:deal.name,owner:deal.owner,what:deal.next_step,due_on:deal.next_date,...legacy?{}:{owner_partner:deal.owner}}));
-  if (shared) { items[1].subject_id=deals[0].id;items[1].subject_name=deals[0].name;deals.pop();deals[0].next_date='2099-01-01'; }
+  const items = deals.flatMap(deal=>[['past',deal.next_date],['future','2099-01-02']].map(([when,due_on])=>({id:`${when}-${deal.id}`,item_kind:'next_action',subject_type:'deal',subject_id:deal.id,subject_name:deal.name,owner:deal.owner,what:deal.next_step,due_on,...legacy?{}:{owner_partner:deal.owner}})));
+  if (shared) { for (const item of items.slice(2)) {item.subject_id=deals[0].id;item.subject_name=deals[0].name;} deals.pop();deals[0].next_date='2099-01-01'; }
   const brief = {sponsor:'joe',sections:{today:{state:'ready',items},deals:{state:'ready',items:deals},loops:{state:'empty',items:[]}}};
   const calls=[];
   globalThis.fetch = async (path,init) => {

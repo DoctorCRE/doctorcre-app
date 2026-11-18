@@ -328,14 +328,14 @@ test('owner toggle filters before ranking, labels both partners, and retains uno
  const filter=state.root.querySelector('[aria-label="Brief owners"]');assert.ok(filter);
  assert.equal(filter.querySelector('[aria-pressed="true"]').textContent,'All');
  filter.querySelector('[data-brief-owner="dell"]').click();
- assert.deepEqual(labels(),['Dell']);
+ assert.deepEqual(labels(),['Dell','Shared']);
  assert.match(state.root.querySelector('#morningContent > section').textContent,/Do first.*Demo Dell deal/);
  assert.equal(state.root.querySelectorAll('[data-brief-record]').length,2);
  state.root.querySelector('[data-brief-record]').click();await new Promise(resolve=>setTimeout(resolve,10));
  assert.match(state.root.querySelector('.entry-original').textContent,/Review demo lease/);
  state.root.getElementById('morningBack').click();
- filter.querySelector('[data-brief-owner="joe"]').click();assert.deepEqual(labels(),['Joe']);
- await state.ui.refresh();assert.deepEqual(labels(),['Joe']);
+ filter.querySelector('[data-brief-owner="joe"]').click();assert.deepEqual(labels(),['Joe','Shared']);
+ await state.ui.refresh();assert.deepEqual(labels(),['Joe','Shared']);
  for(const row of data.sections.today.items)delete row.owner_partner;
  await state.ui.refresh();assert.deepEqual(labels(),[]);assert.equal(state.root.querySelectorAll('[data-brief-record]').length,2);
 });

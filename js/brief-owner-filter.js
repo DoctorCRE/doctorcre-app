@@ -1,7 +1,8 @@
 import { briefPreferences } from './brief-preferences.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 
-export const briefOwnerLabel = row => OWNER_FILTERS.find(filter => filter.value !== 'all' && filter.value === row.owner_partner)?.label || '';
+// A null owner_partner is a row both partners see; a missing one is a board deal or an older server.
+export const briefOwnerLabel = row => row.owner_partner === null ? 'Shared' : OWNER_FILTERS.find(filter => filter.value !== 'all' && filter.value === row.owner_partner)?.label || '';
 export const filterBriefOwners = (rows, owner = 'all') => rows.filter(row => owner === 'all' || row.owner_partner == null || row.owner_partner === owner);
 
 export function mountBriefOwnerFilter(root, host, onChange) {

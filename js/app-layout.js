@@ -169,7 +169,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   });
   let client, feedActor = null, cursor = null, feed = createFeedProgress(), receipts = [];
   const resetFeed = () => { feedActor = null; cursor = null; feed = createFeedProgress(); receipts = []; if (!pageOwnsMoves) renderMoves(); };
-  let todayItems = null, todayNeeds = null, nextExpanded = false, failedReads = [], todayReadState = 'loading';
+  let todayItems = null, todayNeeds = null, nextExpanded = false, failedReads = [], todayReadState = 'loading', listedOverdue = new Set();
   const row = (item, extra = '', overdue = '') => `<button type="button" class="app-layout-item" data-layout-deal="${escape(item.subject_id || item.id)}"><strong>${escape(item.subject_name || item.name)}</strong>${briefOwnerLabel(item) ? `<small class="morning-owner">${briefOwnerLabel(item)}</small>` : ''}${extra || overdue ? `<span>${escape(extra)}${extra && overdue ? ' ' : ''}${overdue ? `<span class="app-layout-age">${escape(overdue)}</span>` : ''}</span>` : ''}</button>`;
   const render = (target, html) => { const node = layout.querySelector(target); if (node.innerHTML !== html) { const id = node.contains(root.activeElement) ? root.activeElement.dataset.layoutDeal : null; node.innerHTML = html; if (id) [...node.querySelectorAll('button')].find(b => b.dataset.layoutDeal === id)?.focus(); } };
   const overdueRows = deals => {
@@ -180,15 +180,18 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const empty = '<span class="app-layout-empty">—</span>';
   const pendingRead = section => failedReads.includes(section) ? unavailable : '<span class="app-layout-empty">Loading…</span>';
   const renderToday = () => {
-    layout.querySelector('#appTodayNeeds').closest('section').hidden = homeOrInbox;
-    const next = todayItems && filterBriefOwners(todayItems, owners.current()).filter(i => i.subject_type === 'deal' && i.due_on).sort((a, b) => a.due_on.localeCompare(b.due_on));
+    const today = businessDay();
+    const next = todayItems && filterBriefOwners(todayItems, owners.current()).filter(i => i.subject_type === 'deal' && i.due_on >= today).sort((a, b) => a.due_on.localeCompare(b.due_on));
     render('#appTodayNext', next ? (nextExpanded ? next : next.slice(0,3)).map(i => row(i,`${i.what || 'Due'} · ${shortDay(i.due_on || '', localToday())}`)).join('') || '<span class="app-layout-empty">No dated reminders returned.</span>' : pendingRead('Dated reminders'));
     const showAll = layout.querySelector('#appTodayShowAll');
     showAll.hidden = !next || next.length <= 3 || nextExpanded;
     showAll.textContent = `Show all ${next?.length || 0}`;
-    render('#appTodayNeeds', todayNeeds ? overdueRows(filterBriefOwners(todayNeeds, owners.current())).slice(0,6).join('') || empty : pendingRead('Overdue'));
+    const needs = todayNeeds && filterBriefOwners(todayNeeds, owners.current()).filter(row => !listedOverdue.has(row.id) && !listedOverdue.has(row.subject_id));
+    render('#appTodayNeeds', needs ? overdueRows(needs).slice(0,6).join('') || empty : pendingRead('Overdue'));
   };
   const owners = mountBriefOwnerFilter(root, layout.querySelector('#appTodayOwners'), () => { nextExpanded = false; renderToday(); });
+  // The page's main column names the late actions or deals it already lists, so each shows once.
+  root.addEventListener('doctorcre:overdue-shown', event => { listedOverdue = new Set(event.detail); renderToday(); });
   for (const button of layout.querySelectorAll('#appTodayOwners button')) button.setAttribute('aria-label', button.textContent === 'All' ? 'All reminders' : `Reminders for ${button.textContent}`);
   layout.querySelector('#appTodayShowAll').onclick = () => {
     nextExpanded = true; renderToday();
@@ -231,7 +234,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const failedRead = () => {
     todayReadState = 'settled';
     void calendarPanels.then(panel => panel?.clear());
-    failedReads = homeOrInbox ? ['Schedule', 'Dated reminders'] : ['Schedule', 'Overdue', 'Dated reminders'];
+    failedReads = ['Schedule', 'Overdue', 'Dated reminders'];
     if (!pageOwnsMoves) failedReads.push('Deal pulse');
     renderToday();
     if (!pageOwnsMoves && !feed.caught_up) render('#appTodayMoves', unavailable);
@@ -284,7 +287,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     connection(connected && triageValid && !failedReads.length);
     failedReads = [];
     if (interaction.current() && !scheduleValid) failedReads.push('Schedule');
-    if (!homeOrInbox && (!connected || !triageValid)) failedReads.push('Overdue');
+    if (!connected || !triageValid) failedReads.push('Overdue');
     if (!triageValid) failedReads.push('Dated reminders');
     if (connected) {
       const value = board.value;
@@ -299,7 +302,9 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
         .map(receipt => ({ ...receipt, deal_name: authorized.get(receipt.deal_id) }));
       if (!pageOwnsMoves) renderMoves();
       const active = scopedDeals(value, 'team');
-      if (triageValid || !todayNeeds) todayNeeds = overdueActionRows(active, todayItems, businessDay());
+      // Home and Inbox list overdue deals in their main column, so their Today panel keeps only late reminders.
+      const reminded = homeOrInbox ? active.filter(deal => todayItems?.some(item => item.subject_type === 'deal' && item.subject_id === deal.id)) : active;
+      if (triageValid || !todayNeeds) todayNeeds = overdueActionRows(reminded, todayItems, businessDay());
       else todayNeeds = todayNeeds.filter(deal => active.some(current => current.id === (deal.subject_id || deal.id)));
       if (!vendorDirectory) render('#appWorkingList', overdueRows(active.filter(d => needsAttention(d))).slice(0,8).join('') || empty);
       renderToday();

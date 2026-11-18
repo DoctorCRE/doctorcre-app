@@ -52,10 +52,11 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
 }
 
 for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
-  test(`built Leads Next up expands every fixture action at ${width}px in ${theme}`, async t => {
+  test(`built Leads Dated reminders expands every upcoming fixture action at ${width}px in ${theme}`, async t => {
     const browser = await chromium.launch();
     t.after(() => browser.close());
     const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+    await page.clock.install({ time: new Date('2026-01-10T15:00:00Z') });
     await page.goto(server.origin + '/leads');
     await page.locator('#appSyncTime[datetime]').waitFor({ state: 'attached' });
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
@@ -64,7 +65,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     const rows = page.locator('#appTodayNext [data-layout-deal]');
     assert.equal(await rows.count(), 3);
     const showAll = page.getByRole('button', { name: 'Show all 8', exact: true });
-    assert.equal(await showAll.count(), 1, 'Next up offers access to the five remaining actions');
+    assert.equal(await showAll.count(), 1, 'Dated reminders offers access to the five remaining actions');
     const target = await showAll.boundingBox();
     assert.ok(target.width >= 44 && target.height >= 44, `Show all 8: ${target.width}x${target.height}`);
     t.diagnostic(`Show all 8: ${target.width}x${target.height}`);
