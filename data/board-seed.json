@@ -24,6 +24,9 @@
     {"id":"demo-missing-dell","name":"Demo River Practice","type":"Renewal","phase":"Negotiation","owner":"dell","attention":false,"last_touch":"2026-01-12","next_step":"","next_date":null},
     {"id":"demo-missing-unassigned","name":"Demo Hill Office","type":"Purchase","phase":"Research","owner":null,"attention":false,"last_touch":null,"next_step":"","next_date":null}
   ],
+  "critical_dates": {
+    "d14": [{"id":"demo-option-notice","kind":"option_notice","due_on":"2026-10-15","note":"Demo option notice","source":"Sample lease","status":"open"}]
+  },
   "threads": {
     "d05": [{"id":"n-d05-1","kind":"note","actor":"dell","text":"Fictional landlord response recorded for demo purposes.","recorded_at":"2026-01-14T15:30:00Z"}],
     "d14": [

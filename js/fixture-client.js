@@ -32,7 +32,8 @@ export function createFixtureDealStore(seed) {
     }])),
     threads: new Map(Object.entries(structuredClone(seed.threads || {}))),
     history: new Map(Object.entries(structuredClone(seed.history || {}))),
-    events, leases:new Map(), idem:new Map(), conflicts:new Map(), criticalDates:new Map(),
+    events, leases:new Map(), idem:new Map(), conflicts:new Map(),
+    criticalDates: new Map(Object.entries(structuredClone(seed.critical_dates || {}))),
     lastFieldEvent:new Map(events.filter(e => e.field).map(e => [`${e.subject_id}|${e.field}`, e.id])),
     seq:events.length + 1, conflictSeq:1, noteSeq:1, criticalDateSeq:1, histSeq:1,
   };
