@@ -901,6 +901,12 @@ function showDealDialogNotice(message, retryCell = null) {
  */
 function reportCellWrite(dealId, field, result, { surface = 'toast' } = {}) {
   renderBoardOnly();
+  if (state.nextDealSaves && result.code === 'version_conflict') {
+    const focused = document.activeElement;
+    void state.boardSync.requestRefresh('conflict').then(({ applied }) => {
+      if (applied && focused === document.activeElement && focused?.matches('#rows select')) renderBoardOnly();
+    });
+  }
   if (surface === 'inline' && result.status !== 'ok') return result;
   const message = fieldWriteMessage(result, cellSubject(dealId, field));
   if (!message) return result;
@@ -1420,8 +1426,14 @@ function showConflict(conflict) {
     } });
 }
 
-async function openDeal(dealId) {
-  location.assign(`/deals?deal=${encodeURIComponent(dealId)}`);
+async function openDeal(dealId, { close = false } = {}) {
+  const params = new URLSearchParams({ deal: dealId });
+  if (close) {
+    params.set('close', '1');
+    const mode = new URLSearchParams(location.search).get('mode');
+    if (mode) params.set('mode', mode);
+  }
+  location.assign(`/deals?${params}`);
 }
 
 function agendaDeals() {
@@ -1536,7 +1548,7 @@ function wireEvents() {
   document.addEventListener('change', async (event) => {
     if (event.target.matches('[data-phase]')) {
       const id = event.target.dataset.phase;
-      if (state.nextDealSaves && event.target.value === 'Closed') await openDeal(id);
+      if (state.nextDealSaves && event.target.value === 'Closed') await openDeal(id, { close: true });
       else await patchField(id,'phase',event.target.value);
     }
     if (event.target.matches('[data-owner]')) await patchField(event.target.dataset.owner,'owner',event.target.value || null);

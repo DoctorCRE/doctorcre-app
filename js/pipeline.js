@@ -314,16 +314,16 @@ function renderPendingWrites() {
 function renderReceipts() {
   const list = $('receiptsList');
   if (!list) return;
-  const views = state.feed.caught_up
+  const views = !state.nextDealSaves && state.feed.caught_up
     ? receiptViews(state.receipts, { selfActor: state.selfActor, undo: state.undo, now: Date.now() })
     : [];
   const count = $('receiptsCount');
   if (count) count.textContent = String(views.length);
-  const signature = receiptsSignature(views);
+  const signature = state.nextDealSaves ? 'engine-deals' : receiptsSignature(views);
   if (signature === state.receiptSignature) return;
   state.receiptSignature = signature;
   list.innerHTML = views.length ? receiptListHtml(views.map(view => ({...view, can_undo:false})))
-    : '<li class="receipt"><p class="receipt-line">Nothing has changed in this session yet.</p></li>';
+    : `<li class="receipt"><p class="receipt-line">${state.nextDealSaves ? 'Open a deal to see its recent changes.' : 'Nothing has changed in this session yet.'}</p></li>`;
 }
 
 
@@ -339,6 +339,7 @@ function applyBoardSnapshot(board) {
   const saveSwitchChanged = Boolean(state.nextDealSaves) !== (board.next_deal_saves === true);
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
+  if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
   if (actorChanged) {
@@ -1184,7 +1185,7 @@ function workspaceHtml(detail) {
       ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${dueDateHtml(dueOn)}</span></p>` : '<p>No next step or key date set.</p>'}
       ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
         const day = calendarDay(action.due_on);
-        return `<li data-overdue="${Boolean(day && day < today)}">${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
+        return `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
       }).join('')}</ul>` : ''}
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
       <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${d.type ? `<div><dt>Type</dt><dd>${esc(d.type)}</dd></div>` : ''}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
@@ -2067,10 +2068,21 @@ async function boot() {
   $('lostView').setAttribute('aria-pressed',String(state.view === 'lost'));
   $('closedView').setAttribute('aria-pressed',String(state.view === 'closed'));
   const linkedDeal = incomingScope.get('deal');
-  if (linkedDeal) void openWorkspace(linkedDeal).then(() => {
-    if (incomingScope.get('item') && state.panelDeal === linkedDeal) void itemSheet.open(linkedDeal,incomingScope.get('item'));
+  const opening = linkedDeal && openWorkspace(linkedDeal);
+  const board = loadBoard();
+  if (opening) void opening.then(async () => {
+    if (state.panelDeal !== linkedDeal) return;
+    if (incomingScope.get('close') === '1') {
+      const url = new URL(location.href);
+      url.searchParams.delete('close');
+      writeWorkspaceHistory(history.state, url);
+      await board;
+      const deal = state.panelDetail?.deal;
+      if (state.panelDeal === linkedDeal && state.nextDealSaves && Number.isSafeInteger(deal?.seen) && !isClosedDeal(deal)) {
+        beginMove(linkedDeal, CLOSED_SLUG, deal);
+      }
+    } else if (incomingScope.get('item')) void itemSheet.open(linkedDeal, incomingScope.get('item'));
   });
-  void loadBoard();
   mountVisibilityPoll({ lifecycle: true, poll: refreshPanel });
   mountVisibilityPoll({ poll: () => { return pollOnce().catch(() => false); } });
   mountVisibilityPoll({ poll: () => state.boardSync.requestRefresh('periodic') });

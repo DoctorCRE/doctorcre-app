@@ -237,6 +237,7 @@ test('Deals shows late steps and can undo a close reported by the engine', async
   const undo = page.getByRole('button', { name: 'Undo invoice close' });
   const openClosedDeal = async () => {
     await page.goto(`${origin}/deals?mode=live`);
+    if (switchesOn) await page.locator('#appTodayMoves').getByText('Open a deal to see its recent changes.', { exact: true }).waitFor({ timeout: 5000 });
     await page.getByRole('button', { name: 'Closed deals', exact: true }).click();
     await page.getByRole('button', { name, exact: true }).click();
     await page.getByRole('heading', { name, exact: true }).waitFor();
@@ -277,6 +278,7 @@ test('National Accounts saves inline changes using the version on the deal board
   const env = {
     ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
     ENGINE: { fetch: async request => {
+      if (new URL(request.url).pathname === `/api/engine/deals/${id}`) return Response.json({ ...row, deal_id: id });
       if (request.method === 'GET') return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row],
         accounts: [{ account_client_id: account, account_name: 'Example National Account', account_owner: 'joe' }] });
       assert.equal(new URL(request.url).pathname, `/api/engine/deals/${id}/changes`);
@@ -284,6 +286,7 @@ test('National Accounts saves inline changes using the version on the deal board
       writes.push(body);
       if (writes.length === 1) {
         row.seen++;
+        row.phase = 'negotiation';
         return Response.json({ error: 'version_conflict' }, { status: 409 });
       }
       row.phase = body.phase.to;
@@ -293,7 +296,7 @@ test('National Accounts saves inline changes using the version on the deal board
   };
   await page.route('**/mcp', async route => {
     const request = route.request(), body = request.postDataJSON();
-    if (!['deal-room-board', 'patch-deal-field'].includes(body?.params?.name)) return route.continue();
+    if (!['deal-room-board', 'get-deal-room', 'patch-deal-field'].includes(body?.params?.name)) return route.continue();
     const response = await handleDoctorcreRequest(new Request(request.url(), {
       method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
     }), env);
@@ -302,17 +305,19 @@ test('National Accounts saves inline changes using the version on the deal board
   await page.goto(`${origin}/deals?view=national&mode=live`);
   await page.getByRole('button', { name: /Example National Account/ }).click();
   const phase = page.getByLabel(`Phase for ${name}`);
+  await phase.focus();
   await phase.selectOption('Legal');
   await page.getByText('This deal changed. Reload the deal before saving.', { exact: true }).waitFor({ timeout: 5000 });
-  assert.equal(await phase.inputValue(), 'Research');
-  await page.reload();
-  await page.getByRole('button', { name: /Example National Account/ }).click();
+  await phase.locator('option:checked').filter({ hasText: 'Negotiating' }).waitFor({ state: 'attached', timeout: 5000 });
   await phase.selectOption('Legal');
   await page.getByText(`${name} updated`, { exact: true }).waitFor();
   assert.deepEqual(writes.map(({ seen_change_id, phase }) => [seen_change_id, phase]), [
-    [23, { from: 'research', to: 'legal' }], [24, { from: 'research', to: 'legal' }],
+    [23, { from: 'research', to: 'legal' }], [24, { from: 'negotiation', to: 'legal' }],
   ]);
   assert.equal(await phase.inputValue(), 'Legal');
+  await phase.selectOption('Closed');
+  await page.getByRole('dialog', { name: `Close ${name}` }).getByRole('button', { name: 'Save outcome' }).waitFor({ timeout: 5000 });
+  assert.equal(writes.length, 2);
 });
 
 test('Add deal and Won or Lost save through the new database switch', async t => {
