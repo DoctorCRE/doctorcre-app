@@ -1,7 +1,7 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { nextOpenAction, renderDealItems, renderDealSummary, renderOverdueFlag } from './deal-items.js';
+import { dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderOverdueFlag } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
@@ -1103,36 +1103,24 @@ function clearMarketTermsViews() {
   marketTermsViews.clear();
 }
 
-function filedStepItem(deal, items) {
-  const step = noteText(deal.next_step).trim();
-  if (!step) return;
-  const day = calendarDay(deal.next_date);
-  // Filing a call can keep the saved wording in the item's promised work.
-  return items.find(item => item.status === 'open' && calendarDay(item.due_on) === day
-    && (item.title.trim() === step || item.bullets?.some(bullet => bullet.kind === 'promised' && noteText(bullet.text).trim() === step)));
+function dueDateHtml(day) {
+  return day ? `Due <time datetime="${esc(day)}">${esc(dateWords(day))}</time>` : 'No due date';
 }
 
 function workspaceHtml(detail) {
   const d = detail.deal;
-  const next = nextOpenAction((detail.next_actions || []).filter(action => action.status === 'open' && action.title == null));
-  const actionText = next?.description.trim();
   const items = detail.items || d.items || [];
-  const nextItem = actionText
-    ? items.find(item => item.status === 'open' && item.title.trim() === actionText)
-    : filedStepItem(d, items);
-  const nextStep = actionText || nextItem?.title;
-  const keyDate = calendarDay(next ? next.due_on : nextItem?.due_on);
+  const { text: nextStep, dueOn, item: nextItem, otherActions } = dealNextStep(d, detail.next_actions || [], items);
   const today = todayIso();
-  // Older reads can mirror the saved next step as an untyped critical date.
-  const datedDetail = { ...detail, critical_dates: (detail.critical_dates || []).filter(date => date.kind
-    || date.date !== d.next_date || date.label !== (d.next_step || 'Follow-up due')) };
   const prospect = state.deals.get(d.id);
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
   const parked = d.operating_state === 'parked';
   const controlsAvailable = state.deals.has(d.id) && !isClosedDeal(d);
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
-      ${nextStep ? `<p class="deal-current-action"><span>${keyDate && keyDate < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? `<button class="btn btn-quiet" type="button" data-deal-item="${esc(nextItem.id)}" data-item-deal="${esc(d.id)}">${esc(nextStep)}</button>` : esc(nextStep)}</strong>${keyDate ? ` · <span>Due <time datetime="${esc(keyDate)}">${esc(dateWords(keyDate))}</time></span>` : ' · No key date set.'}</p>` : '<p>No next step or key date set.</p>'}
+      ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${dueDateHtml(dueOn)}</span></p>` : '<p>No next step or key date set.</p>'}
+      ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action =>
+        `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(calendarDay(action.due_on))}</li>`).join('')}</ul>` : ''}
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
       <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${d.type ? `<div><dt>Type</dt><dd>${esc(d.type)}</dd></div>` : ''}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
       ${d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
@@ -1146,13 +1134,13 @@ function workspaceHtml(detail) {
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}">${parked ? `<p>${esc(concise(d.parking_note) || 'Parked')}</p><button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm"><label>Park reason<input name="reason" maxlength="500" required></label><button class="btn park-control" type="submit">Park deal</button></form></details>`}</div></div>` : ''}</div>
     <div data-detail-read="prospect">${controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
     <div data-detail-read="client-portal">${!d.client_portal_url && controlsAvailable ? clientPortalSetupHtml() : ''}</div>
-    <h2>Critical dates</h2>${renderCriticalDates(datedDetail)}
+    <h2>Critical dates</h2>${renderCriticalDates(detail)}
     <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden></section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden></section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>
-    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(datedDetail, nextItem)}</div>${renderDealTimeline(detail)}</section>
+    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem)}</div>${renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2><details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details><div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
 function clientPortalSetupHtml() {

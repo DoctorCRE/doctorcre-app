@@ -14,9 +14,8 @@ for (const width of [390, 1440]) {
     const deal = seed.deals.find(deal => deal.id === 'd14');
     Object.assign(deal, {
       client_name: deal.name,
-      next_step: 'Stale fixture step', next_date: '2026-11-25',
+      next_step: next, next_date: keyDate,
       email_actions: [
-        { id: 'current', description: next, status: 'open', due_on: keyDate },
         { id: 'closed', description: 'Completed fixture step', status: 'done', due_on: '2026-11-01' },
       ],
       items: [{ id: 'showing', title: next, status: 'open', due_on: '2026-11-30', bullets: [] }],
@@ -35,7 +34,7 @@ for (const width of [390, 1440]) {
     await expect(room.getByText(next, { exact: true })).toHaveCount(1);
     await expect(snapshot.locator(`time[datetime="${keyDate}"]`)).toBeVisible();
     await expect(room.locator(`time[datetime="${keyDate}"]:visible`)).toHaveCount(1);
-    await expect(room.locator('time[datetime="2026-11-25"]:visible, time[datetime="2026-11-30"]:visible')).toHaveCount(0);
+    await expect(room.locator('time[datetime="2026-11-30"]:visible')).toHaveCount(0);
     await expect(room.getByText(deal.client_name, { exact: true })).toHaveCount(1);
     await expect(snapshot.getByText('No client website linked.')).toHaveCount(0);
     await expect(snapshot.getByText('Set up client website')).toHaveCount(0);
@@ -46,7 +45,7 @@ for (const width of [390, 1440]) {
     await page.keyboard.press('Escape');
     await room.getByRole('tab', { name: 'Timeline', exact: true }).click();
     await expect(room.getByText(next, { exact: false })).not.toBeVisible();
-    await expect(room.locator('time[datetime="2026-11-25"]:visible')).toHaveCount(0);
+    await expect(room.locator(`time[datetime="${keyDate}"]:visible`)).toHaveCount(0);
   });
 }
 
@@ -57,12 +56,18 @@ test('a filed call item is the next step when its saved action has moved to the 
   const seed = JSON.parse(await readFile(new URL('../../data/board-seed.json', import.meta.url), 'utf8'));
   Object.assign(seed.deals.find(deal => deal.id === 'd14'), { next_step: null, next_date: null, items: [item] });
   await page.route('**/data/board-seed.json', route => route.fulfill({ json: seed }));
-  await page.clock.install({ time: new Date('2026-11-18T17:00:00Z') });
+  await page.clock.install({ time: new Date('2026-11-21T17:00:00Z') });
   await page.goto(`${server.url}/deals`);
   const card = page.locator('.kanban-column [data-id="d14"]');
-  await expect(card.getByRole('button', { name: item.title, exact: true })).toBeVisible();
+  await expect(card.locator('.card-open')).toBeVisible();
   await page.evaluate(async ({ savedStep, item }) => {
     const { state } = await import('/js/pipeline.js');
+    const board = state.client.getBoard.bind(state.client);
+    state.client.getBoard = async () => {
+      const result = await board();
+      return { ...result, deals: result.deals.map(deal => deal.id === 'd14'
+        ? { ...deal, next_step: savedStep, next_date: item.due_on } : deal) };
+    };
     const read = state.client.getDeal.bind(state.client);
     state.client.getDeal = async id => {
       const detail = await read(id);
@@ -70,16 +75,54 @@ test('a filed call item is the next step when its saved action has moved to the 
         next_actions: [{ id: 'saved-step', status: 'dropped', description: savedStep, due_on: item.due_on },
           { ...item, description: item.title }] };
     };
+    await state.boardSync.refreshBoard({ reason: 'fixture-filed-call' });
   }, { savedStep, item });
+  const summary = card.locator('.deal-summary-line').first();
+  await expect(summary.locator('.deal-summary-text')).toHaveText(item.title);
+  const date = await summary.locator('time').getAttribute('datetime');
+  expect(date).toBe(item.due_on);
+  await expect(card.getByText(item.title, { exact: true })).toHaveCount(1);
+  await card.getByRole('button', { name: item.title, exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText(savedStep);
+  await page.keyboard.press('Escape');
   await card.locator('.card-open').click();
   const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
-  await expect(snapshot).toContainText(`Next action: ${item.title} · Due`);
-  await expect(snapshot.locator(`time[datetime="${item.due_on}"]`)).toHaveCount(1);
+  await expect(snapshot).toContainText(`Overdue action: ${item.title} · Due`);
+  await expect(snapshot.locator(`time[datetime="${date}"]`)).toHaveCount(1);
   await snapshot.getByRole('button', { name: item.title, exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText(savedStep);
   await page.keyboard.press('Escape');
   await page.getByRole('tab', { name: 'Timeline', exact: true }).click();
   await expect(page.locator(`#workspace-timeline time[datetime="${item.due_on}"]`)).toHaveCount(0);
+});
+
+test('the other partner’s open step is listed once with its owner and date', async ({ page }) => {
+  const seed = JSON.parse(await readFile(new URL('../../data/board-seed.json', import.meta.url), 'utf8'));
+  Object.assign(seed.deals.find(deal => deal.id === 'd14'), {
+    next_step: null, next_date: null, items: [],
+    email_actions: [
+      { id: 'joe-step', owner: 'joe', description: 'Confirm demo lease terms', status: 'open', due_on: '2026-11-20' },
+      { id: 'dell-step', owner: 'dell', description: 'Check the demo site plan', status: 'open', due_on: '2026-11-23' },
+      { id: 'undated-step', owner: 'fixture', description: 'Ask about demo parking', status: 'open', due_on: null },
+      { id: 'done-step', owner: 'dell', description: 'Finish the demo survey', status: 'done', due_on: '2026-11-21' },
+    ],
+  });
+  await page.route('**/data/board-seed.json', route => route.fulfill({ json: seed }));
+  await page.clock.install({ time: new Date('2026-11-18T17:00:00Z') });
+  await page.goto(`${server.url}/deals`);
+  const card = page.locator('.kanban-column [data-id="d14"]');
+  await expect(card.locator('.deal-summary-text').first()).toHaveText('Confirm demo lease terms');
+  await card.locator('.card-open').click();
+  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  await expect(snapshot.getByText('Confirm demo lease terms', { exact: true })).toHaveCount(1);
+  const otherStep = snapshot.getByRole('listitem').filter({ hasText: 'Check the demo site plan' });
+  await expect(otherStep).toHaveCount(1);
+  await expect(otherStep).toContainText('Dell');
+  await expect(otherStep.locator('time')).toHaveAttribute('datetime', '2026-11-23');
+  await expect(snapshot.getByText(/Ask about demo parking.*No due date/)).toBeVisible();
+  await expect(snapshot.getByText('Finish the demo survey')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Timeline', exact: true }).click();
+  await expect(page.locator('#workspace-timeline').getByText('Check the demo site plan', { exact: false })).toHaveCount(0);
 });
 
 test('opening a deal replaces the board with a workspace and Back restores its scroll', async ({ page }) => {
