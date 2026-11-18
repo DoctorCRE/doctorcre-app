@@ -87,7 +87,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
       if (collection !== 'home') {
         const args = await request.json();
         writes.push([path, args]);
-        const item = state.items.find(row => [row.action_id, row.reply_draft_id, row.completion_review?.proposal_id].includes(id) ||
+        const item = state.items.find(row => [row.action_id, row.reply_draft_id, row.fallback_reply_draft?.id, row.completion_review?.proposal_id].includes(id) ||
           row.suggestions?.some(suggestion => suggestion.id === id));
         assert.ok(item);
         if (collection === 'next-steps') {
@@ -119,17 +119,24 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
         draft.subject = args.subject ?? draft.subject;
         draft.body = args.body ?? draft.body;
         draft.status = action === 'submission' ? 'approved' : action === 'dismissal' ? 'dismissed' : 'pending';
+        const receipt = { draft_id: id, version: draft.version, status: draft.status };
+        if (item.fallback_reply_draft) {
+          item.fallback_reply_draft = { id, version: String(draft.version), status: draft.status, failure_reason: null };
+          return Response.json(receipt);
+        }
         if (draft.status !== 'pending' && item.suggestions?.length) {
           const [first] = item.suggestions;
           const { reply_draft_id, reply_draft_status, ...remaining } = item;
-          state.items.push({ ...remaining, item_id: `suggestion:${first.id}`, source_id: first.id,
-            kind_label: 'Task', title: 'Remaining email suggestion' });
-          delete item.suggestions;
+          state.items.splice(state.items.indexOf(item), 1, { ...remaining, item_id: `suggestion:${first.id}`, source_id: first.id,
+            kind_label: 'Task', title: 'Remaining email suggestion', source_version: '43',
+            ...(draft.status === 'approved' && { fallback_reply_draft: { id, version: String(draft.version), status: 'approved', failure_reason: null } }) });
+          mailRows = mailRows.filter(row => row.reply_draft_id !== id);
+          return Response.json(receipt);
         }
         if (draft.status === 'dismissed') state.items.splice(state.items.indexOf(item), 1);
         Object.assign(item, { source_version: String(draft.version), reply_draft_status: draft.status, source_state: action === 'submission' ? 'working' : 'needs_attention',
           section: action === 'submission' ? 'working' : 'inbox' });
-        return Response.json({ draft_id: id, version: draft.version, status: draft.status });
+        return Response.json(receipt);
       }
       assert.equal(path, '/api/engine/home/marks');
       const args = await request.json();
@@ -380,12 +387,28 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await reply.getByRole('button', { name: 'Save draft', exact: true }).click();
   await reply.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, subject: 'Sample reply', body: 'Edited reply.' });
+  const draftCard = state.items.find(row => row.reply_draft_id === draft);
   await reply.getByRole('button', { name: 'Send reply', exact: true }).click();
-  await inbox.getByRole('region', { name: 'In motion and waiting', exact: true }).getByRole('button', { name: /^See all/ }).click();
-  await inbox.getByText('Sending', { exact: true }).first().waitFor();
-  await cardFor(/Remaining email suggestion/).waitFor();
+  const fallback = cardFor(/Remaining email suggestion/);
+  await fallback.waitFor();
+  assert.equal(await reply.count(), 0);
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 2, subject: 'Sample reply',
     body: 'Edited reply.', to: 'sender@example.test', cc: 'partner@example.test', document_ids: [dealId] });
+  await fallback.getByRole('button', { name: 'Open', exact: true }).click();
+  await fallback.getByText('Sending', { exact: true }).waitFor();
+  assert.equal(await fallback.getByRole('button', { name: 'Accept', exact: true }).isEnabled(), true);
+  assert.equal(await fallback.getByRole('button', { name: 'Send reply', exact: true }).count(), 0);
+  await fallback.getByRole('button', { name: 'Close review' }).click();
+  const draftRecord = details.get(draft);
+  const fallbackCard = state.items.find(row => row.item_id === `suggestion:${remaining}`);
+  Object.assign(draftRecord, { status: 'failed', failure_reason: 'aborted_before_dispatch' });
+  Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
+  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
+  await fallback.getByRole('button', { name: 'Open', exact: true }).click();
+  await fallback.getByText(/Sending stopped before delivery/).waitFor();
+  await fallback.getByRole('button', { name: 'Send reply', exact: true }).click();
+  await fallback.getByRole('button', { name: 'Open', exact: true }).waitFor();
+  assert.equal(writes.at(-1)[1].version, 3);
   details.set(decline, { ...details.get(draft), draft_id: decline, version: 1, status: 'pending' });
   state.items.push({ ...notice, title: 'Another sample draft', item_id: `reply_draft:${decline}`, source_id: decline,
     source_type: 'email_proposal', deal_id: null, kind_label: 'Reply draft', source_version: '1', reply_draft_id: decline });
@@ -396,8 +419,9 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await declined.getByRole('button', { name: 'Decline draft', exact: true }).click();
   await declined.waitFor({ state: 'detached' });
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, reason: 'Already answered.' });
-  Object.assign(state.items.find(row => row.reply_draft_id === draft), { section: 'settled', disposition: 'settled',
-    auto_settled: true, source_state: 'done', reply_draft_status: 'sent', completed_at: NOW.toISOString() });
+  delete fallbackCard.fallback_reply_draft;
+  state.items.push({ ...draftCard, section: 'settled', disposition: 'settled', suggestions: [],
+    auto_settled: true, source_state: 'done', source_version: String(draftRecord.version), reply_draft_status: 'sent', completed_at: NOW.toISOString() });
   await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
   const sent = inbox.getByRole('region', { name: 'Done today', exact: true });
   await sent.getByText(/^Sent /).waitFor();
@@ -407,7 +431,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await lease.getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
-  if (await waiting.getByRole('button', { name: /^See all/ }).isVisible()) await waiting.getByRole('button', { name: /^See all/ }).click();
+  await waiting.getByRole('button', { name: /^See all/ }).click();
   const earlierUntil = writes.at(-1)[1].until;
   async function undoRestore(label, action, until, advanceClock = false) {
     await lease.getByRole('button', { name: label, exact: true }).click();

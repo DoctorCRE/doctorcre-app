@@ -42,9 +42,21 @@ export function matchesProposal(item: InboxItem, id: string) {
   return (!item.review_proposal || item.review_proposal === id) && proposalIds(item).includes(id);
 }
 
-const draftId = (item: InboxItem) => ("reply_draft_id" in item ? string(item.reply_draft_id) : null);
+export function draftReference(item: InboxItem) {
+  const id = "reply_draft_id" in item ? string(item.reply_draft_id) : null;
+  if (id) return { id, version: item.source_version };
+  const fallback = "fallback_reply_draft" in item ? item.fallback_reply_draft : null;
+  if (
+    object(fallback) &&
+    typeof fallback.id === "string" &&
+    typeof fallback.version === "string" &&
+    (fallback.status === "approved" || fallback.status === "failed")
+  )
+    return { id: fallback.id, version: fallback.version };
+  return null;
+}
 export const hasEngineReview = (item: InboxItem) =>
-  Boolean(item.engine_marks && (draftId(item) || proposalIds(item).length));
+  Boolean(item.engine_marks && (draftReference(item) || proposalIds(item).length));
 
 function source(value: unknown) {
   if (!object(value)) return null;
@@ -120,7 +132,7 @@ export type Suggestion = {
 };
 
 export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: AbortSignal): Promise<CardReview> {
-  const draft = draftId(item);
+  const draft = draftReference(item);
   const selected = proposalIds(item).filter((id) => !item.review_proposal || id === item.review_proposal);
   if (!draft && !selected.length) throw unreadable();
   const pending = Promise.all(
@@ -154,9 +166,10 @@ export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: Abort
 async function loadDraft(
   rpc: Rpc,
   item: InboxItem,
-  id: string,
+  draft: { id: string; version: string },
   signal?: AbortSignal,
 ): Promise<Extract<CardReview, { kind: "reply_draft" }>> {
+  const { id } = draft;
   const value = await answer(rpc, "read-engine-home-draft", { id }, signal);
   const { subject, body, version, status, to, cc } = value;
   if (
@@ -169,7 +182,7 @@ async function loadDraft(
     !Array.isArray(value.attachments)
   )
     throw unreadable();
-  if (String(version) !== item.source_version)
+  if (String(version) !== draft.version)
     throw Object.assign(Error("Draft changed."), { payload: { error: "version_conflict" } });
   const attachments = value.attachments.map((row: unknown) => {
     if (!object(row) || typeof row.document_id !== "string" || typeof row.name !== "string") throw unreadable();
@@ -220,8 +233,15 @@ export async function saveEngineReview(rpc: Rpc, item: InboxItem, request: Revie
       throw unreadable();
     return undefined;
   }
-  const id = draftId(item);
-  if (!id || id !== args.proposal_id || typeof args.base_version !== "number") throw unreadable();
+  const draft = draftReference(item);
+  if (
+    !draft ||
+    draft.id !== args.proposal_id ||
+    typeof args.base_version !== "number" ||
+    String(args.base_version) !== draft.version
+  )
+    throw unreadable();
+  const { id } = draft;
   const { idempotency_key, base_version: version, subject, body, reason, document_ids } = args;
   const base = { id, idempotency_key, version };
   const result =

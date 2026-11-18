@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { proposalRefusal, type Suggestion } from "./engine-review.ts";
+import { draftReference, proposalRefusal, type Suggestion } from "./engine-review.ts";
 import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
 import { type Operation, reviewError } from "./review";
 
@@ -103,6 +103,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
   const waiting = state.phase === "submitting" || lock.current;
   const review = "review" in state ? state.review : null;
   const proposals = review && "proposals" in review ? (review.proposals ?? []) : [];
+  const proposalLed = item.item_id.startsWith("suggestion:");
   const editable = state.phase === "ready" || state.phase === "editing" || state.phase === "proposal-refused";
   async function reload() {
     if (!client || lock.current) return;
@@ -138,7 +139,9 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
       if (!alive.current) return;
       confirmed(result.item, result.receipt, result.snapshot);
       if (request.verb === "decide-engine-home-proposal" && detail.kind === "reply_draft" && result.item) {
-        if (result.item.source_version !== anchor.current.source_version)
+        const before = draftReference(anchor.current);
+        const after = draftReference(result.item);
+        if (!before || after?.id !== before.id || after.version !== before.version)
           throw Object.assign(Error("The draft changed."), { payload: { error: "version_conflict" } });
         const refreshed = await client.load(result.item);
         if (!alive.current) return;
@@ -275,6 +278,76 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
       review,
     );
   }
+  const suggestionFields = (
+    <>
+      {review?.kind === "reply_draft" && proposals.length > 0 && <h4>Suggestions</h4>}
+      {proposals.length > 0 &&
+        proposals.map((proposal) => (
+          <section key={proposal.id}>
+            <h4>
+              {proposal.label}
+              {proposal.target ? ` · ${proposal.target}` : ""}
+            </h4>
+            {proposal.source && (
+              <>
+                <p>
+                  {proposal.source.from}
+                  {proposal.source.occurredAt && (
+                    <>
+                      {" "}
+                      on{" "}
+                      <time dateTime={proposal.source.occurredAt}>
+                        {emailDate.format(new Date(proposal.source.occurredAt))}
+                      </time>
+                    </>
+                  )}
+                </p>
+                {proposal.source.subject && <p>{proposal.source.subject}</p>}
+                {proposal.source.excerpt && <blockquote>{proposal.source.excerpt}</blockquote>}
+              </>
+            )}
+            <p>Words that prompted this suggestion</p>
+            <blockquote>{proposal.evidence}</blockquote>
+            {proposal.editable ? (
+              <>
+                <label>
+                  Next step <input name={`${proposal.id}-what`} defaultValue={proposal.what ?? ""} />
+                </label>
+                <label>
+                  Due date <input type="date" name={`${proposal.id}-date`} defaultValue={proposal.dueOn ?? ""} />
+                </label>
+              </>
+            ) : (
+              proposal.what && <p>{proposal.what}</p>
+            )}
+            {!proposal.canAccept && (
+              <p>This step changed after the suggestion. Mark it done from the step, or choose Not yet.</p>
+            )}
+            <div className="inbox-actions">
+              {(["accept", "dismiss"] as const).map((decision) => (
+                <button
+                  key={decision}
+                  type="button"
+                  disabled={
+                    decision === "accept" &&
+                    (!proposal.canAccept || (state.phase === "proposal-refused" && state.id === proposal.id))
+                  }
+                  onClick={() => decideSuggestion(proposal, decision)}
+                >
+                  {proposal.completion
+                    ? decision === "accept"
+                      ? "Yes, it’s done"
+                      : "Not yet"
+                    : decision === "accept"
+                      ? "Accept"
+                      : "Dismiss"}
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+    </>
+  );
   return (
     <section
       className="home-inline-review"
@@ -325,10 +398,12 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
             setMessage("");
           }}
         >
-          <fieldset disabled={!editable || (review.kind === "reply_draft" && !review.operations.length)}>
+          <fieldset disabled={!editable}>
             <legend>
               {review.kind === "reply_draft"
-                ? "Exact reply for review"
+                ? proposalLed
+                  ? "Suggestions and reply draft"
+                  : "Exact reply for review"
                 : review.kind === "fact_review"
                   ? "Evidence and decision"
                   : review.kind === "suggestions"
@@ -336,6 +411,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                     : "Task"}
             </legend>
             {review.kind === "action" && <p>{review.title}</p>}
+            {proposalLed && suggestionFields}
             {review.kind === "reply_draft" && (
               <>
                 {review.addresses ? (
@@ -375,6 +451,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                   Subject
                   <input
                     value={subject}
+                    disabled={!review.operations.length}
                     onChange={(event) => setSubject(event.target.value)}
                     maxLength={998}
                     required
@@ -385,6 +462,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                   <textarea
                     aria-label="Message"
                     value={body}
+                    disabled={!review.operations.length}
                     onChange={(event) => setBody(event.target.value)}
                     rows={8}
                     maxLength={20000}
@@ -398,76 +476,16 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                 </p>
                 <label>
                   Reason for declining
-                  <input value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} />
+                  <input
+                    value={reason}
+                    maxLength={500}
+                    disabled={!review.operations.length}
+                    onChange={(event) => setReason(event.target.value)}
+                  />
                 </label>
               </>
             )}
-            {review.kind === "reply_draft" && proposals.length > 0 && <h4>Suggestions</h4>}
-            {proposals.length > 0 &&
-              proposals.map((proposal) => (
-                <section key={proposal.id}>
-                  <h4>
-                    {proposal.label}
-                    {proposal.target ? ` · ${proposal.target}` : ""}
-                  </h4>
-                  {proposal.source && (
-                    <>
-                      <p>
-                        {proposal.source.from}
-                        {proposal.source.occurredAt && (
-                          <>
-                            {" "}
-                            on{" "}
-                            <time dateTime={proposal.source.occurredAt}>
-                              {emailDate.format(new Date(proposal.source.occurredAt))}
-                            </time>
-                          </>
-                        )}
-                      </p>
-                      {proposal.source.subject && <p>{proposal.source.subject}</p>}
-                      {proposal.source.excerpt && <blockquote>{proposal.source.excerpt}</blockquote>}
-                    </>
-                  )}
-                  <p>Words that prompted this suggestion</p>
-                  <blockquote>{proposal.evidence}</blockquote>
-                  {proposal.editable ? (
-                    <>
-                      <label>
-                        Next step <input name={`${proposal.id}-what`} defaultValue={proposal.what ?? ""} />
-                      </label>
-                      <label>
-                        Due date <input type="date" name={`${proposal.id}-date`} defaultValue={proposal.dueOn ?? ""} />
-                      </label>
-                    </>
-                  ) : (
-                    proposal.what && <p>{proposal.what}</p>
-                  )}
-                  {!proposal.canAccept && (
-                    <p>This step changed after the suggestion. Mark it done from the step, or choose Not yet.</p>
-                  )}
-                  <div className="inbox-actions">
-                    {(["accept", "dismiss"] as const).map((decision) => (
-                      <button
-                        key={decision}
-                        type="button"
-                        disabled={
-                          decision === "accept" &&
-                          (!proposal.canAccept || (state.phase === "proposal-refused" && state.id === proposal.id))
-                        }
-                        onClick={() => decideSuggestion(proposal, decision)}
-                      >
-                        {proposal.completion
-                          ? decision === "accept"
-                            ? "Yes, it’s done"
-                            : "Not yet"
-                          : decision === "accept"
-                            ? "Accept"
-                            : "Dismiss"}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
+            {!proposalLed && suggestionFields}
             {review.kind === "fact_review" && (
               <>
                 <p>Canonical value: {review.canonical}</p>
