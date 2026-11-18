@@ -26,10 +26,14 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
   test(`deal files and email follow-ups for ${actor} with Deals reads ${readsOn ? 'on' : 'off'}`, async t => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     t.after(() => page.close());
-    const [deal, plan, letter, first, second] = Array.from({ length: 5 }, () => crypto.randomUUID());
+    await page.clock.setFixedTime(new Date('2026-11-18T15:00:00Z'));
+    const [deal, plan, earlierPlan, letter, first, second] = Array.from({ length: 6 }, () => crypto.randomUUID());
     const row = { id: deal, deal_id: deal, name: 'Example File Deal', phase: 'research', seen: 1, owner: 'joe' };
-    const names = new Map([[plan, 'Example Plan.pdf'], [letter, 'Example Letter.pdf']]);
-    const documents = [...names].map(([id, name]) => ({ id, name, prepared_at: '2026-11-01T14:00:00+00:00' }));
+    const documents = [
+      { id: plan, name: 'Example Plan.pdf', version: 2, prepared_at: '2026-11-03T14:00:00+00:00' },
+      { id: letter, name: 'Example Letter.pdf', version: 1, prepared_at: '2026-11-02T14:00:00+00:00' },
+      { id: earlierPlan, name: 'Example Plan.pdf', version: 1, prepared_at: '2026-11-01T14:00:00+00:00' },
+    ];
     const email_follow_ups = [
       { proposal_id: first, kind: 'next_step', what: 'Send the plan', owner: 'dell', due_on: '2026-11-02',
         email: { subject: 'Plan ready', sender_name: 'Example Sender', happened_at: '2026-11-01T14:00:00+00:00' } },
@@ -48,15 +52,13 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
       ENGINE: { fetch: async request => {
         const path = new URL(request.url).pathname;
         if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor, deals: [row] });
-        if (path === `/api/engine/deals/${deal}`) return Response.json({
-          ...row, checklist, documents: [...documents, documents[0]],
-          email_follow_ups: email_follow_ups.length ? [...email_follow_ups, email_follow_ups[0]] : [],
-        });
+        if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, checklist, documents, email_follow_ups });
         const id = path.split('/').at(-1);
-        assert.ok(names.has(id), path);
+        const file = documents.find(file => file.id === id);
+        assert.ok(file, path);
         opened.push(id);
-        return new Response(`bytes of ${names.get(id)}`, {
-          headers: { 'content-type': 'application/pdf', 'content-disposition': `attachment; filename="${names.get(id)}"` },
+        return new Response(`bytes of ${file.name} v${file.version}`, {
+          headers: { 'content-type': 'application/pdf', 'content-disposition': `attachment; filename="${file.name}"` },
         });
       } },
       CARR: { fetch: async request => {
@@ -90,17 +92,22 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
     if (readsOn) {
       for (const subject of ['Plan ready', 'Letter attached']) assert.equal(await followups.getByText(subject, { exact: true }).count(), 1);
       assert.match(await followups.innerText(), /Example Sender.*Nov 1/);
-      assert.match(await followups.innerText(), /Send the plan.*Dell/);
+      assert.match(await followups.innerText(), /Send the plan.*Dell.*16 days late/);
       assert.doesNotMatch(await followups.innerText(), /2026-11-01T|file_to_deal/);
       const progress = page.locator('.deal-checklist');
-      await progress.locator(':scope > summary').getByText('Lease end', { exact: true }).waitFor();
+      await progress.locator(':scope > summary').getByText('lease end', { exact: true }).waitFor();
       await progress.locator(':scope > summary').click();
       await progress.getByText('1 of 2 complete.', { exact: true }).waitFor();
       await progress.getByText('Complete', { exact: true }).waitFor();
-      const deadline = progress.locator('[data-checklist-item]').filter({ hasText: 'Lease end' });
+      const deadline = progress.locator('[data-checklist-item]').filter({ hasText: 'lease end' });
       await deadline.getByText('Nov 14, 2026', { exact: true }).waitFor();
       await deadline.getByText('Overdue', { exact: true }).waitFor();
-      assert.equal(await progress.getByText('Lease end', { exact: true }).count(), 1);
+      await progress.locator(':scope > summary').getByText('lease end', { exact: true }).waitFor({ state: 'detached' });
+      assert.equal(await progress.getByText('lease end', { exact: true }).count(), 1);
+      const filter = progress.getByRole('combobox', { name: 'Show', exact: true });
+      await filter.selectOption({ label: 'To do' });
+      assert.equal(await progress.getByText('Executed lease', { exact: true }).count(), 0);
+      await filter.selectOption({ label: 'All' });
       await deadline.getByText('Details', { exact: true }).click();
       await deadline.getByText('Example option notice').waitFor();
       assert.doesNotMatch(await progress.innerText(), /2026-11-14|add-critical-date|\brecorded\b/i);
@@ -110,17 +117,19 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
     await page.getByRole('tab', { name: 'Documents', exact: true }).click();
     const tab = page.getByRole('tabpanel', { name: 'Documents', exact: true });
     if (readsOn) {
-      for (const filename of names.values()) {
-        const link = tab.getByRole('link', { name: filename, exact: true });
-        await link.waitFor();
-        assert.equal(await link.count(), 1);
+      await tab.getByRole('link').first().waitFor();
+      assert.equal(await tab.getByRole('link').count(), documents.length);
+      for (const [index, file] of documents.entries()) {
+        const item = tab.getByRole('listitem').nth(index);
+        const link = item.getByRole('link', { name: `${file.name}, Version ${file.version}`, exact: true });
+        assert.match(await item.innerText(), new RegExp(`Version ${file.version} · Nov [1-3]`));
         const downloading = page.waitForEvent('download');
         await link.click();
-        const file = await downloading;
-        assert.equal(file.suggestedFilename(), filename);
-        assert.equal(await text(await file.createReadStream()), `bytes of ${filename}`);
+        const download = await downloading;
+        assert.equal(download.suggestedFilename(), file.name);
+        assert.equal(await text(await download.createReadStream()), `bytes of ${file.name} v${file.version}`);
       }
-      assert.deepEqual(opened, [plan, letter]);
+      assert.deepEqual(opened, [plan, letter, earlierPlan]);
       assert.doesNotMatch(await tab.innerText(), /2026-11-01T/);
       assert.deepEqual(carr, []);
       await tab.screenshot({ path: join(evidence, `engine-documents-${actor}.png`) });
