@@ -176,7 +176,14 @@ async function submitDeal(event) {
   } catch (error) {
     if (error.creationRefused) {
       dealCreation = null;
-      const reasons = { deal_save_unavailable:'Adding a deal is temporarily unavailable.', subject_not_found:'Client not found. Use an existing client reference or exact name.', not_a_client:'Choose an existing client.', needs_disambiguation:'More than one client matches. Use the client reference.', deal_name_exists:'A deal with this name already exists. Use a distinct name.' };
+      const clientOptions = 'Check the spelling or pick an existing client.';
+      const reasons = {
+        deal_save_unavailable: 'Adding a deal is temporarily unavailable.',
+        subject_not_found: `There’s no client named “${request.client}”. ${clientOptions}`,
+        not_a_client: `“${request.client}” is not an existing client. ${clientOptions}`,
+        needs_disambiguation: 'More than one client matches. Use the client reference.',
+        deal_name_exists: 'A deal with this name already exists. Use a distinct name.',
+      };
       errorBox.textContent = error.creationHint || ((request.next_deal_save || error.payload?.error === 'reload_deals') && error.payload?.hint)
         || reasons[error.payload?.error] || 'Deal creation was refused. Check the client, name, type, and stage.';
     } else errorBox.textContent = 'Creation not confirmed. The original request is retained. Check creation outcome to finish the same deal, owner, and notes.';

@@ -252,9 +252,13 @@ export function createLiveClient(opts = {}) {
       && node.id?.startsWith('party:') && query
       && [node.name, node.ref].some(value => value?.toLowerCase() === query)) : null;
     if (matches?.length === 1) return matches[0].id.slice('party:'.length);
+    if (matches?.length === 0) {
+      throw Object.assign(new Error('Client not found'), {
+        writeRefusal: true, payload: { error: 'subject_not_found' },
+      });
+    }
     const hint = matches === null ? 'The client list is unavailable, so try again in a moment.'
-      : matches.length ? 'More than one client has that name, so use the full client reference.'
-      : 'Choose an existing client.';
+      : 'More than one client has that name, so use the full client reference.';
     throw Object.assign(new Error(hint), { writeRefusal: true, creationHint: hint });
   }
 
