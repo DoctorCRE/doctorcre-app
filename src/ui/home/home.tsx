@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
+import { completionReview, type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
 import {
   type Action,
   type Command,
@@ -27,7 +28,10 @@ type SnoozePreview = Readonly<{
   error: string;
 }>;
 type Pending = { request: Command; before: readonly InboxItem[]; undoing?: true };
-type Undo = { action: Action | "reopen"; items: readonly InboxItem[]; until?: string; receipt?: TaskReceipt };
+type Undo = { items: readonly InboxItem[] } & (
+  | { mark: MarkUndo }
+  | { action: Action | "reopen"; until?: string; receipt?: TaskReceipt }
+);
 const queryKey = ["home-inbox"];
 const cardDate = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", dateStyle: "medium" });
 const snoozeDate = new Intl.DateTimeFormat("en-US", {
@@ -228,12 +232,13 @@ function Inbox({ client }: { client: InboxClient }) {
       cache.setQueryData<Snapshot>(
         queryKey,
         (snapshot) =>
-          snapshot
+          results.find((result) => result.snapshot)?.snapshot ??
+          (snapshot
             ? {
                 ...snapshot,
                 items: snapshot.items.map((item) => updates.find((next) => next.item_id === item.item_id) || item),
               }
-            : snapshot,
+            : snapshot),
         { updatedAt: query.dataUpdatedAt },
       );
       setFailures(failed);
@@ -241,13 +246,16 @@ function Inbox({ client }: { client: InboxClient }) {
       if ((successes.length || changed.length) && !operation.undoing) {
         setUndo((entries) => [
           ...entries.filter((entry) => !updates.some((item) => item.item_id === entry.items[0]?.item_id)),
-          ...successes.flatMap<Undo>((item) => {
-            const result = results.find((result) => result.ok && result.item_id === item.item_id);
+          ...results.flatMap<Undo>((result) => {
+            if (!result.ok) return [];
+            const { item, undo } = result;
+            if (undo)
+              return [{ mark: undo, items: [{ ...item, item_id: undo.item_id, base_version: undo.base_version }] }];
             if (operation.request.action === "complete")
               return result?.ok && result.receipt?.completion_event_id
                 ? [{ action: "reopen" as const, items: [item], receipt: result.receipt }]
                 : [];
-            const previous = operation.before.find((before) => before.item_id === item.item_id);
+            const previous = operation.before.find((before) => before.item_id === result.item_id);
             return previous
               ? [
                   {
@@ -288,10 +296,28 @@ function Inbox({ client }: { client: InboxClient }) {
           : null;
       if (
         typeof code === "string" &&
-        ["version_conflict", "invalid_completion", "action_not_open", "action_not_found"].includes(code)
+        [
+          "version_conflict",
+          "invalid_completion",
+          "action_not_open",
+          "action_not_found",
+          "home_item_not_found",
+          "invalid_snooze_time",
+          "home_routing_changed",
+        ].includes(code)
       ) {
         setPending(null);
-        setNotice(`This task changed. ${inboxRefusal(code)} Nothing was overwritten.`);
+        if (code === "home_routing_changed") {
+          setNotice("Home changed. Refreshing your inbox.");
+        } else if ("engine_marks" in operation.request && operation.request.engine_marks) {
+          setNotice(
+            code === "invalid_snooze_time"
+              ? "That snooze time has passed. Choose a new time."
+              : "This card changed. Refreshing your inbox. Your change was not saved.",
+          );
+        } else {
+          setNotice(`This task changed. ${inboxRefusal(code)} Nothing was overwritten.`);
+        }
         void query.refetch();
         focusRow(neighbours);
       } else
@@ -339,7 +365,18 @@ function Inbox({ client }: { client: InboxClient }) {
   const openingLocked = busy || !!pending || !!reviewing;
   function row(item: InboxItem) {
     const primary =
-      item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
+      item.disposition === "settled"
+        ? "Show in inbox"
+        : item.disposition === "snoozed"
+          ? "Wake"
+          : item.engine_marks && item.kind_label === "Update"
+            ? "Got it"
+            : "Hide from inbox";
+    const markAction = item.disposition === "inbox" ? "settle" : "unsettle";
+    const markable =
+      !item.engine_marks ||
+      (markTarget(item.item_id) && (item.source_type !== "notification" || item.kind_label === "Update"));
+    const snoozable = markable || completionReview(item.item_id);
     const completable = item.action_id !== null && item.source_state === "needs_attention";
     const open = reviewing?.item_id === item.item_id;
     const reviewClient =
@@ -377,9 +414,8 @@ function Inbox({ client }: { client: InboxClient }) {
             reviewing
           )
             return;
-          if (touch.clientX > start.x && item.source_state !== "working")
-            act(primary === "Hide from inbox" ? "settle" : "unsettle", [item]);
-          else if (touch.clientX < start.x) {
+          if (touch.clientX > start.x && markable && item.source_state !== "working") act(markAction, [item]);
+          else if (touch.clientX < start.x && snoozable) {
             snoozeOpener.current = event.currentTarget.querySelector("h3 a");
             openSnooze([item]);
           }
@@ -390,7 +426,7 @@ function Inbox({ client }: { client: InboxClient }) {
             type="checkbox"
             aria-label={`Select ${item.title}`}
             checked={selected.has(item.item_id)}
-            disabled={busy || !!reviewing || item.source_state === "working"}
+            disabled={busy || !!reviewing || !snoozable || item.source_state === "working"}
             onChange={(event) =>
               select((previous) => {
                 const next = new Set(previous);
@@ -477,25 +513,23 @@ function Inbox({ client }: { client: InboxClient }) {
               This reply didn't send. Send it from your email, then press Hide from inbox.
             </p>
           )}
-          {item.source_state !== "working" && (
-            <button
-              type="button"
-              disabled={busy || !!reviewing}
-              onClick={() => act(primary === "Hide from inbox" ? "settle" : "unsettle", [item])}
-            >
+          {markable && item.source_state !== "working" && (
+            <button type="button" disabled={busy || !!reviewing} onClick={() => act(markAction, [item])}>
               {primary}
             </button>
           )}
-          <button
-            type="button"
-            disabled={busy || !!reviewing}
-            onClick={(event) => {
-              snoozeOpener.current = event.currentTarget;
-              openSnooze([item]);
-            }}
-          >
-            Snooze
-          </button>
+          {snoozable && (
+            <button
+              type="button"
+              disabled={busy || !!reviewing}
+              onClick={(event) => {
+                snoozeOpener.current = event.currentTarget;
+                openSnooze([item]);
+              }}
+            >
+              Snooze
+            </button>
+          )}
         </div>
         {open && (
           <ReviewCard
@@ -643,7 +677,14 @@ function Inbox({ client }: { client: InboxClient }) {
                 disabled={busy || !!reviewing}
                 onClick={() => {
                   setUndo((entries) => entries.filter((entry) => entry !== previous));
-                  act(previous.action, previous.items, previous.until, true, previous.receipt);
+                  const change = "mark" in previous ? restoreMark(previous.mark) : previous;
+                  act(
+                    change.action,
+                    previous.items,
+                    change.until,
+                    true,
+                    "receipt" in change ? change.receipt : undefined,
+                  );
                 }}
               >
                 {undo.length === 1 ? "Undo" : `Undo ${previous.items[0]?.title}`}
