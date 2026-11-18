@@ -214,9 +214,11 @@ for (const [code, message] of [
   assert.equal(await client.inputValue(), 'Sample Cafe');
   await client.fill('C-demo');
   await submit.click();
-  const card = page.getByRole('button', { name: 'Sample Cafe', exact: true });
+  const card = page.locator('[data-column="pending"]').getByRole('button', { name: 'Sample Cafe', exact: true });
   await card.click();
-  await page.getByText('Discuss the first location.', { exact: true }).waitFor();
+  const updates = page.getByRole('region', { name: 'Deal updates', exact: true });
+  await updates.locator('.updates-history > summary').click();
+  await updates.getByText('Discuss the first location.', { exact: true }).waitFor();
   assert.equal(await page.locator('#detailOwner').inputValue(), 'dell');
   assert.equal(requests.length, 2);
   assert.notEqual(requests[0].idempotency_key, requests[1].idempotency_key);
