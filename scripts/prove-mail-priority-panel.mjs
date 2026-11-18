@@ -59,7 +59,9 @@ export async function prove({ origin, expectedCommit, cdpUrl, timeoutMs = 30000,
       if (!host) throw Error('Mail priorities panel missing');
       if (host.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded') !== 'true') throw Error('Mail priorities must open automatically');
       const rows = [...host.querySelectorAll('[data-mail-proposal]')];
-      const dateLabel = day => new Date(day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+      const asOf = snapshot.coverage.as_of_day;
+      const dateLabel = day => new Date(day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC',
+        ...(day.slice(0, 4) === asOf.slice(0, 4) ? {} : { year: 'numeric' }) });
       // One inbox card covers every draft in its conversation, so rows are the read in rank order, minus covered drafts.
       let next = 0;
       if (!rows.every(row => {
@@ -69,12 +71,13 @@ export async function prove({ origin, expectedCommit, cdpUrl, timeoutMs = 30000,
         const date = item.decision_date;
         const label = date ? `${item.reason === 'recorded_overdue' ? 'Overdue since' : 'Due'} ${dateLabel(date)}` : 'No due date';
         const paragraphs = row.querySelectorAll('p');
-        return paragraphs.length === 1 && paragraphs[0].textContent === label
-          && (paragraphs[0].querySelector('time')?.dateTime ?? null) === date;
+        return paragraphs.length === 2 && paragraphs[1].textContent === label
+          && (paragraphs[1].querySelector('time')?.dateTime ?? null) === date
+          && row.querySelector('h3 a')?.getAttribute('href') === `/review-workflows?email=${item.proposal_id}#homeEmailFollowups`;
       }) || (snapshot.items.length && !rows.length)) throw Error('Visible ranked decisions differ from registered read');
-      const expectedParagraphs = [`As of ${dateLabel(snapshot.as_of_day)}`,
+      const expectedParagraphs = [`As of ${dateLabel(asOf)}`,
         ...(snapshot.state === 'empty' ? ['No mail priorities right now.'] : []),
-        ...(snapshot.more ? ['Only the first 25 ranked decisions are shown.'] : [])];
+        ...(snapshot.more ? ['Showing the 25 most urgent.'] : [])];
       const paragraphs = [...host.querySelectorAll(':scope > div > p')].map(node => node.textContent);
       if (JSON.stringify(paragraphs) !== JSON.stringify(expectedParagraphs)) throw Error('Panel date, empty state or page limit differs from registered read');
       return { count: rows.length, populated: rows.length ? 'observed' : 'unobserved', order_reasons_dates: true };

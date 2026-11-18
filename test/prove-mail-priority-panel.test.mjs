@@ -149,7 +149,7 @@ test('actual CLI compares every displayed evidence field exactly', async t => {
   const mutations = {
     correct: '',
     date: `row.querySelector('time').textContent = '9' + row.querySelector('time').textContent`,
-    reason: `row.querySelector('p').firstChild.textContent = 'Wrong ' + row.querySelector('p').firstChild.textContent`,
+    reason: `row.querySelectorAll('p')[1].firstChild.textContent = 'Wrong ' + row.querySelectorAll('p')[1].firstChild.textContent`,
     'mailbox slug': `host.querySelector('p').textContent += ' · Mailbox joe'`,
     'as-of date': `host.querySelector('p time').textContent = 'Nov 16'`,
     'wrong day': `row.querySelector('time').dateTime = '2026-10-11'`,

@@ -2,26 +2,26 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { InboxItem } from "./inbox";
 import { type MailPage, readMailPriorities, takeEarlyMailPriorities } from "./mail-priorities-client";
+import { type MailDetails, readMailDetails } from "./mail-priority-details";
 
 type State =
   | { kind: "collapsed" | "loading" | "unavailable" | "auth-retired" }
-  | { kind: "ready" | "empty"; page: MailPage };
+  | { kind: "ready" | "empty"; page: MailPage; details: MailDetails };
 type Props = {
   items: readonly InboxItem[];
   review(item: InboxItem, opener: HTMLButtonElement): void;
   locked?: boolean;
   read?: typeof readMailPriorities;
+  readDetails?: typeof readMailDetails;
 };
-const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-function MailDate({ day }: { day: string }) {
-  return <time dateTime={day}>{shortDate.format(new Date(day))}</time>;
+const dateOptions = { month: "short", day: "numeric", timeZone: "UTC" } as const;
+const shortDate = new Intl.DateTimeFormat("en-US", dateOptions);
+const fullDate = new Intl.DateTimeFormat("en-US", { ...dateOptions, year: "numeric" });
+function MailDate({ day, asOf = day }: { day: string; asOf?: string }) {
+  const format = day.slice(0, 4) === asOf.slice(0, 4) ? shortDate : fullDate;
+  return <time dateTime={day}>{format.format(new Date(day))}</time>;
 }
-const fromOutcome = (outcome: { page?: MailPage; error?: unknown }): State => {
-  if (outcome.page)
-    return outcome.page.state === "unavailable"
-      ? { kind: "unavailable" }
-      : { kind: outcome.page.state === "empty" ? "empty" : "ready", page: outcome.page };
-  const error = outcome.error;
+const fromError = (error: unknown): State => {
   const denied =
     error &&
     typeof error === "object" &&
@@ -46,11 +46,15 @@ const cardRows = (rows: MailPage["items"], items: readonly InboxItem[]) => {
   });
 };
 
-export function MailPriorities({ items, review, locked = false, read = readMailPriorities }: Props) {
+export function MailPriorities({
+  items,
+  review,
+  locked = false,
+  read = readMailPriorities,
+  readDetails = readMailDetails,
+}: Props) {
   const [early] = useState(takeEarlyMailPriorities);
-  const [state, setState] = useState<State>(() =>
-    early?.stopped ? { kind: early.stopped } : early?.outcome ? fromOutcome(early.outcome) : { kind: "loading" },
-  );
+  const [state, setState] = useState<State>(() => (early?.stopped ? { kind: early.stopped } : { kind: "loading" }));
   const bodyId = useId();
   const life = useRef<{ retired: boolean; disposed: boolean; pending: AbortController | null }>({
     retired: state.kind === "auth-retired",
@@ -72,25 +76,27 @@ export function MailPriorities({ items, review, locked = false, read = readMailP
       current.pending = controller;
       setState({ kind: "loading" });
       try {
-        const outcome = initial ? await initial.result : { page: await read(controller.signal) };
+        const outcome = initial ? (initial.outcome ?? (await initial.result)) : { page: await read(controller.signal) };
         if ("error" in outcome) throw outcome.error;
         const page = outcome.page;
+        if (current.disposed || current.retired || current.pending !== controller) return;
+        const details = await readDetails(page.items, controller.signal);
         if (current.disposed || current.retired || current.pending !== controller) return;
         setState(
           page.state === "unavailable"
             ? { kind: "unavailable" }
-            : { kind: page.state === "empty" ? "empty" : "ready", page },
+            : { kind: page.state === "empty" ? "empty" : "ready", page, details },
         );
       } catch (error) {
         if (current.disposed || current.retired || current.pending !== controller) return;
-        const next = fromOutcome({ error });
+        const next = fromError(error);
         if (next.kind === "auth-retired") current.retired = true;
         setState(next);
       } finally {
         if (current.pending === controller) current.pending = null;
       }
     },
-    [read],
+    [read, readDetails],
   );
   useEffect(() => {
     const current = life.current;
@@ -105,17 +111,13 @@ export function MailPriorities({ items, review, locked = false, read = readMailP
       if (document.hidden) collapse();
     };
     addEventListener("pagehide", hide);
-    // eslint-disable-next-line no-restricted-syntax -- Hiding aborts the single limit=25 read; visibility never starts a read.
+    // eslint-disable-next-line no-restricted-syntax -- Abort the current mail read on hide without starting a replacement.
     document.addEventListener("visibilitychange", visibility);
     addEventListener("doctorcre-session-invalidated", retire);
     early?.detach();
     if (early?.stopped) {
       current.retired = early.stopped === "auth-retired";
       setState({ kind: early.stopped });
-    } else if (early?.outcome) {
-      const next = fromOutcome(early.outcome);
-      current.retired = next.kind === "auth-retired";
-      setState(next);
     } else void load(early);
     return () => {
       current.disposed = true;
@@ -153,40 +155,46 @@ export function MailPriorities({ items, review, locked = false, read = readMailP
         {"page" in state && (
           <>
             <p>
-              As of <MailDate day={state.page.as_of_day} />
+              As of <MailDate day={state.page.coverage.as_of_day} />
             </p>
             {state.kind === "empty" && <p role="status">No mail priorities right now.</p>}
-            {state.page.more && <p>Only the first 25 ranked decisions are shown.</p>}
+            {state.page.more && <p>Showing the 25 most urgent.</p>}
             <ol>
-              {cardRows(state.page.items, items).map(({ row, matched }) => (
-                <li key={row.proposal_id} data-mail-proposal={row.proposal_id} style={{ overflowWrap: "anywhere" }}>
-                  <h3>
-                    {matched ? (
-                      <a href={`/?card=${encodeURIComponent(matched.item_id)}`}>
-                        {[matched.title, matched.context_label].filter(Boolean).join(" · ")}
+              {cardRows(state.page.items, items).map(({ row, matched }) => {
+                const email = state.details.get(row.proposal_id);
+                const title = email
+                  ? [email.sender || "Sender unavailable", email.subject || "Subject unavailable"].join(" · ")
+                  : "Email details unavailable";
+                const suggestion = row.kindLabel === "Next step" ? "Suggested next step" : row.kindLabel;
+                const context =
+                  email?.context ||
+                  (email && row.kindLabel !== "Possible new deal" ? "Client or deal unavailable" : "");
+                return (
+                  <li key={row.proposal_id} data-mail-proposal={row.proposal_id} style={{ overflowWrap: "anywhere" }}>
+                    <h3>
+                      <a href={`/review-workflows?email=${encodeURIComponent(row.proposal_id)}#homeEmailFollowups`}>
+                        {title}
                       </a>
-                    ) : (
-                      row.kindLabel
+                    </h3>
+                    <p>{[suggestion, email?.suggestion, context].filter(Boolean).join(" · ")}</p>
+                    <p>
+                      {row.decision_date ? (
+                        <>
+                          {row.reason === "recorded_overdue" ? "Overdue since " : "Due "}
+                          <MailDate day={row.decision_date} asOf={state.page.coverage.as_of_day} />
+                        </>
+                      ) : (
+                        "No due date"
+                      )}
+                    </p>
+                    {matched?.review_reference && (
+                      <button type="button" disabled={locked} onClick={(event) => review(matched, event.currentTarget)}>
+                        Review {matched.title}
+                      </button>
                     )}
-                  </h3>
-                  <p>
-                    {row.decision_date ? (
-                      <>
-                        {row.reason === "recorded_overdue" ? "Overdue since " : "Due "}
-                        <MailDate day={row.decision_date} />
-                      </>
-                    ) : (
-                      "No due date"
-                    )}
-                  </p>
-                  {matched?.review_reference && (
-                    <button type="button" disabled={locked} onClick={(event) => review(matched, event.currentTarget)}>
-                      Review {matched.title}
-                    </button>
-                  )}
-                  {!matched && <a href="/review-workflows#homeEmailFollowups">Browse email follow-ups</a>}
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ol>
             <button type="button" onClick={() => void load()}>
               Refresh mail priorities

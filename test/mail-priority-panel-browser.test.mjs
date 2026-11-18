@@ -45,51 +45,57 @@ async function open(t, { width = 1280, theme = 'light', response = recordings.re
       if (beforeMount === 'pagehide') dispatchEvent(new Event('pagehide'));
       if (beforeMount === 'hidden') { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); }
     }
-    window.view = mountMailPriorities(document.getElementById('panel'), { items, review: item => window.reviews.push(item.item_id), read });
+    const readDetails = async () => new Map(items.filter(item => item.source_type === 'email_proposal').map(item =>
+      [item.source_id, { sender: 'Sample Sender', subject: 'Sample Subject', context: item.context_label || '' }]));
+    window.view = mountMailPriorities(document.getElementById('panel'), { items, review: item => window.reviews.push(item.item_id), read, readDetails });
   }, { response, theme, failure, pending, early, beforeMount, inbox, joinItems: recordings.ready.items });
   await page.waitForFunction(() => window.calls === 1, null, { timeout: 2000 });
   return page;
 }
-test('unmatched filing and new deal rows label the list they open', async t => {
+test('missing email details leave the suggestion and its link visible', async t => {
   const response = structuredClone(recordings.ready);
   response.items = ['file_to_deal', 'possible_new_deal'].map((kind, index) => {
     const row = response.items[index + 2];
     return { ...row, kind, action: { ...row.action, verb: 'confirm-email-filing' } };
   });
   const page = await open(t, { response });
-  for (const heading of ['File an email', 'Possible new deal']) {
-    const suggestion = page.getByRole('listitem').filter({ has: page.getByRole('heading', { name: heading }) });
-    await suggestion.getByText('No due date', { exact: true }).waitFor();
-    assert.equal(await suggestion.getByRole('link', { name: 'Browse email follow-ups' }).getAttribute('href'), '/review-workflows#homeEmailFollowups');
+  for (const [index, suggestion] of ['Email filing', 'Possible new deal'].entries()) {
+    const row = page.getByRole('listitem').filter({ hasText: suggestion });
+    await row.getByText('No due date', { exact: true }).waitFor();
+    assert.equal(await row.getByRole('link', { name: 'Email details unavailable' }).getAttribute('href'),
+      `/review-workflows?email=${response.items[index].proposal_id}#homeEmailFollowups`);
   }
 });
 
-test('a conversation with several reply drafts shows once and opens its inbox card', async t => {
+test('a conversation with several reply drafts shows once and links to the ranked email', async t => {
   const response = structuredClone(recordings.ready);
   const drafts = response.items.slice(0, 3).map(row => ({ ...row, kind: 'reply_draft', action: { ...row.action, verb: 'submit-email-draft' } }));
   response.items = [drafts[1], drafts[0], response.items[3], drafts[2]];
   const ids = drafts.map(row => row.proposal_id);
   const title = 'Sample Sender · Reply needed (2 earlier emails)';
-  const page = await open(t, { response, inbox: [{ source_type: 'email_proposal', source_id: ids[0], merged_source_ids: ids, item_id: 'conversation-card', title }] });
-  await page.getByRole('heading', { name: title }).waitFor();
+  const page = await open(t, { response, inbox: [{ source_type: 'email_proposal', source_id: ids[1], merged_source_ids: ids, item_id: 'conversation-card', title }] });
+  const draft = page.getByRole('listitem').filter({ hasText: 'Sample Sender · Sample Subject' });
+  await draft.getByText('Reply draft · Client or deal unavailable', { exact: true }).waitFor({ timeout: 2000 });
   assert.deepEqual(await page.locator('[data-mail-proposal]').evaluateAll(nodes => nodes.map(n => n.dataset.mailProposal)), [ids[1], response.items[2].proposal_id]);
   assert.equal(await page.getByRole('heading', { name: 'Reply draft', exact: true }).count(), 0);
-  assert.equal(await page.getByRole('link', { name: title }).getAttribute('href'), '/?card=conversation-card');
+  assert.equal(await page.locator('[data-mail-proposal]').first().getByRole('link').getAttribute('href'),
+    `/review-workflows?email=${ids[1]}#homeEmailFollowups`);
 });
 
 for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`automatic ranked rows, exact join and keyboard review ${width} ${theme}`, async t => {
   const page = await open(t, { width, theme });
-  await page.getByText('Only the first 25 ranked decisions are shown.').waitFor();
+  await page.getByText('Showing the 25 most urgent.').waitFor();
   assert.deepEqual(await page.locator('[data-mail-proposal]').evaluateAll(nodes => nodes.map(n => n.dataset.mailProposal)), recordings.ready.items.map(row => row.proposal_id));
   const text = await page.getByRole('region', { name: 'Mail priorities' }).textContent();
   assert.match(text, /As of Nov 6/);
   assert.match(text, /Overdue since Oct 1/);
   const upcoming = page.getByRole('listitem').filter({ hasText: 'Due Dec 1' });
-  assert.equal(await upcoming.getByRole('heading').textContent(), 'Suggested next step');
-  assert.equal(await upcoming.getByRole('link', { name: 'Browse email follow-ups' }).getAttribute('href'), '/review-workflows#homeEmailFollowups');
+  assert.equal(await upcoming.getByRole('heading').textContent(), 'Email details unavailable');
+  assert.equal(await upcoming.getByText('Suggested next step', { exact: true }).count(), 1);
   assert.doesNotMatch(text, /Mailbox|Recorded|Source time|2026-\d{2}-\d{2}|probability|Must not match/);
-  const namedStep = page.getByRole('link', { name: 'Existing Home title · Sample Practice', exact: true });
-  assert.equal(await namedStep.getAttribute('href'), '/?card=existing-home-id');
+  const namedStep = page.getByRole('link', { name: 'Sample Sender · Sample Subject', exact: true });
+  assert.equal(await namedStep.getAttribute('href'),
+    `/review-workflows?email=${recordings.ready.items[0].proposal_id}#homeEmailFollowups`);
   await page.getByRole('button', { name: 'Review Existing Home title' }).focus(); await page.keyboard.press('Enter');
   assert.deepEqual(await page.evaluate(() => window.reviews), ['existing-home-id']);
   assert.equal(await page.evaluate(() => window.calls), 1);
@@ -111,7 +117,7 @@ for (const kind of ['empty', 'unavailable', 'malformed', 'network', 'auth']) tes
 });
 for (const pending of [false, true]) for (const end of ['retire', 'dispose']) test(`${pending ? 'loading' : 'ready'} ${end} fences late completion`, async t => {
   const page = await open(t, { pending });
-  await page.getByText(pending ? 'Loading mail priorities…' : 'Only the first 25 ranked decisions are shown.').waitFor();
+  await page.getByText(pending ? 'Loading mail priorities…' : 'Showing the 25 most urgent.').waitFor();
   await page.evaluate(end => { if (end === 'dispose') window.view.dispose(); else dispatchEvent(new Event('doctorcre-session-invalidated')); window.release?.(); }, end);
   if (end === 'dispose') await page.waitForFunction(() => document.getElementById('panel').childElementCount === 0);
   else await page.getByText('Sign in to view mail priorities.').waitFor();
@@ -166,7 +172,7 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`pu
     releaseInbox();
   }
   const earlyReads = requests.length;
-  await page.getByText('Only the first 25 ranked decisions are shown.').waitFor();
+  await page.getByText('Showing the 25 most urgent.').waitFor();
   await page.waitForLoadState('networkidle');
   assert.equal(earlyReads, 1, 'mail starts before the UI entry loads');
   assert.equal(requests.length, 1);
@@ -209,29 +215,29 @@ for (const event of ['pagehide', 'hidden']) test(`${event} cancels loading and r
 
 test('parent rerender preserves the automatic read and collapsed choice', async t => {
   const page = await open(t);
-  await page.getByText('Only the first 25 ranked decisions are shown.').waitFor();
+  await page.getByText('Showing the 25 most urgent.').waitFor();
   await page.evaluate(async () => {
     window.view.dispose();
     const { createRoot, createElement, MailPriorities, parseMailPage } = await import('/panel.js');
     window.root = createRoot(document.getElementById('panel'));
-    window.props = { items: [], review() {}, read: async () => { window.calls++; return parseMailPage(window.response); } };
+    window.props = { items: [], review() {}, readDetails: async () => new Map(), read: async () => { window.calls++; return parseMailPage(window.response); } };
     window.rerender = locked => window.root.render(createElement(MailPriorities, { ...window.props, locked }));
     window.view = { dispose: () => window.root.unmount() };
     window.calls = 0; window.rerender(false);
   });
-  await page.getByText('Only the first 25 ranked decisions are shown.').waitFor();
+  await page.getByText('Showing the 25 most urgent.').waitFor();
   await page.evaluate(() => window.rerender(true));
   await page.getByRole('button', { name: 'Hide mail priorities' }).click();
   await page.evaluate(() => window.rerender(false));
   await page.getByRole('button', { name: 'Show mail priorities' }).waitFor();
   assert.equal(await page.evaluate(() => window.calls), 1);
   await page.getByRole('button', { name: 'Show mail priorities' }).click();
-  await page.getByText('Only the first 25 ranked decisions are shown.').waitFor();
+  await page.getByText('Showing the 25 most urgent.').waitFor();
   assert.equal(await page.evaluate(() => window.calls), 2);
 });
 for (const phase of ['ready', 'empty', 'unavailable']) for (const event of ['collapse', 'pagehide', 'hidden']) test(`${phase} ${event} drops the snapshot`, async t => {
   const page = await open(t, { response: recordings[phase] });
-  await page.getByText(phase === 'ready' ? 'Only the first 25 ranked decisions are shown.' : phase === 'empty' ? 'No mail priorities right now.' : 'Mail priorities unavailable.', { exact: true }).waitFor();
+  await page.getByText(phase === 'ready' ? 'Showing the 25 most urgent.' : phase === 'empty' ? 'No mail priorities right now.' : 'Mail priorities unavailable.', { exact: true }).waitFor();
   if (event === 'collapse') await page.getByRole('button', { name: 'Hide mail priorities' }).click();
   else await page.evaluate(event => {
     if (event === 'hidden') { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); }
@@ -252,7 +258,7 @@ test('retired panel can dispose without restarting', async t => {
 for (const pending of [false, true]) test(`early ${pending ? 'in-flight' : 'settled'} read is adopted once`, async t => {
   const page = await open(t, { early: true, pending });
   if (pending) await page.evaluate(() => window.release());
-  await page.getByText('Only the first 25 ranked decisions are shown.').waitFor();
+  await page.getByText('Showing the 25 most urgent.').waitFor();
   assert.equal(await page.evaluate(() => window.calls), 1);
 });
 for (const beforeMount of ['pagehide', 'hidden', 'retire']) for (const pending of [false, true]) test(`early ${pending ? 'in-flight' : 'settled'} ${beforeMount} never paints`, async t => {
@@ -293,7 +299,7 @@ test('pre-mount collapse reopens with a fresh read once', async t => {
   await page.getByRole('button', { name: 'Show mail priorities' }).waitFor();
   await page.evaluate(() => { window.pending = false; window.release(); });
   await page.getByRole('button', { name: 'Show mail priorities' }).click();
-  await page.getByText('Only the first 25 ranked decisions are shown.').waitFor();
+  await page.getByText('Showing the 25 most urgent.').waitFor();
   assert.equal(await page.evaluate(() => window.calls), 2);
 });
 
@@ -304,6 +310,6 @@ test('late starter cannot duplicate the mounted island read', async t => {
     startEarlyMailPriorities(async () => { window.calls++; return parseMailPage(window.response); });
     window.release();
   });
-  await page.getByText('Only the first 25 ranked decisions are shown.').waitFor();
+  await page.getByText('Showing the 25 most urgent.').waitFor();
   assert.equal(await page.evaluate(() => window.calls), 1);
 });
