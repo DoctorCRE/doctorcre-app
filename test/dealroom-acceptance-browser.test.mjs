@@ -183,8 +183,19 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   const clientId = '00000000-0000-4000-8000-000000000040';
   const deals = new Map();
   const writes = [];
+  let savesOn = false;
+  let clientList = 'available';
+  const client = { id: `party:${clientId}`, name: 'Example Practice', kind: 'client' };
+  const refusals = [
+    ['Client role', { error: 'database_refused_the_statement', rule: 'deal_party_client_is_a_client' }, 'Choose an existing client.'],
+    ['Market', { error: 'database_refused_the_statement', rule: 'deal_market_id_fkey' }, 'Choose an existing market.'],
+    ['Renewal', { error: 'database_refused_the_statement', rule: 'deal_renewal_names_lease' }, 'Renewals need an existing lease. The Add deal form cannot link a lease yet.'],
+    ['Duplicate', { error: 'deal_name_exists' }, 'A deal with this name already exists.'],
+    ...['invalid_field_value', 'unknown_owner', 'version_conflict'].map(error => [error, { error }, 'Check the deal details and try again.']),
+  ];
+  const earlyDate = '2026-01-01';
   const env = {
-    ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+    ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' || (key === 'deals-saves-from-engine' && savesOn) ? 'on' : null },
     ENGINE: { fetch: async request => {
       const id = new URL(request.url).pathname.split('/')[4];
       if (request.method === 'GET') {
@@ -202,11 +213,14 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
         return Response.json({ activity_id: crypto.randomUUID() }, { status: 201 });
       }
       if (!id) {
-        if (body.name === 'Example Duplicate') return Response.json({ error: 'deal_name_exists' }, { status: 422 });
+        const refusal = refusals.find(([name]) => body.name === `Example ${name}`);
+        if (refusal && (refusal[0] !== 'Renewal' || body.reason === 'renewal'))
+          return Response.json(refusal[1], { status: 422 });
         const dealId = crypto.randomUUID();
         deals.set(dealId, { id: dealId, name: body.name, client_name: 'Example Practice', owner: body.owner, phase: body.phase, seen: 1 });
         return Response.json({ deal_id: dealId, change_id: 1 }, { status: 201 });
       }
+      if (body.phase.on === earlyDate) return Response.json({ error: 'invalid_field_value', fields: ['phase'] }, { status: 400 });
       deals.set(id, { ...deals.get(id), seen: 2, phase: body.phase.to, closed_on: body.phase.on,
         outcome: body.phase.to === 'closed' ? 'won' : 'lost', lost_reason: body.phase.reason,
         closed_value: body.fields?.closed_value?.toFixed(2) });
@@ -214,9 +228,10 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
     } },
     CARR: { fetch: async () => new Response(null, { status: 502 }) },
   };
-  await page.route('**/api/v1/business/relationships?*', route => route.fulfill({ json: {
-    nodes: [{ id: `party:${clientId}`, name: 'Example Practice', kind: 'client' }],
-  } }));
+  await page.route('**/api/v1/business/relationships?*', route => clientList === 'unavailable'
+    ? route.fulfill({ status: 503 })
+    : route.fulfill({ json: { nodes: clientList === 'multiple'
+      ? [client, { ...client, id: 'party:00000000-0000-4000-8000-000000000041' }] : [client] } }));
   await page.route('**/mcp', async route => {
     const request = route.request();
     const body = request.postDataJSON();
@@ -230,10 +245,36 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   await page.goto(`${origin}/deals?mode=live`);
   await page.getByText('0 open deals · 0 parked', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Add deal', exact: true }).click();
-  await page.getByLabel('Deal name').fill('Example Duplicate');
+  await page.getByLabel('Deal name').fill('Example Stale Form');
   await page.getByLabel('Client', { exact: true }).fill('Example Practice');
+  savesOn = true;
   await page.getByRole('button', { name: 'Create deal' }).click();
-  await page.getByText('A deal with this name already exists.', { exact: true }).waitFor();
+  await page.getByText('Reload Deals before adding a deal.', { exact: true }).waitFor();
+  assert.equal(writes.length, 0);
+  await page.reload();
+  await page.getByText('0 open deals · 0 parked', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Add deal', exact: true }).click();
+  await page.getByLabel('Deal name').fill('Example Unmatched Deal');
+  for (const [list, name, hint] of [
+    ['available', 'Example Unknown', 'Choose an existing client.'],
+    ['multiple', 'Example Practice', 'More than one client has that name, so use the full client reference.'],
+    ['unavailable', 'Example Practice', 'The client list is unavailable, so try again in a moment.'],
+  ]) {
+    clientList = list;
+    await page.getByLabel('Client', { exact: true }).fill(name);
+    await page.getByRole('button', { name: 'Create deal' }).click();
+    await page.locator('#addDealError').getByText(hint, { exact: true }).waitFor();
+    assert.equal(writes.length, 0);
+  }
+  clientList = 'available';
+  for (const [name, , hint] of refusals) {
+    await page.getByLabel('Deal name').fill(`Example ${name}`);
+    await page.getByLabel('Type', { exact: true }).selectOption(name === 'Renewal' ? 'renewal' : 'startup');
+    await page.getByRole('button', { name: 'Create deal' }).click();
+    await page.getByText(hint, { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Deal name').isEnabled(), true);
+  }
+  writes.splice(0);
 
   for (const outcome of ['Won', 'Lost']) {
     const name = `Example ${outcome} Deal`;
@@ -255,6 +296,13 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
       await page.getByText('Enter the reason the deal was lost.', { exact: true }).waitFor();
       await page.getByLabel('Reason the deal was lost').fill('The client chose another site');
     } else await page.getByLabel('Won value').fill('1000');
+    const date = page.getByLabel('Closed on', { exact: true });
+    const today = await date.inputValue();
+    assert.equal(await date.getAttribute('max'), today);
+    await date.fill(earlyDate);
+    await page.getByRole('button', { name: 'Save outcome' }).click();
+    await page.getByText('Choose a closing date between the day the deal reached its current phase and today.', { exact: true }).waitFor();
+    await date.fill(today);
     await page.screenshot({ path: join(evidence, `engine-${outcome.toLowerCase()}-dialog.png`) });
     await page.getByRole('button', { name: 'Save outcome' }).click();
     await page.getByText(`Deal marked ${outcome.toLowerCase()}`, { exact: true }).first().waitFor();
@@ -263,6 +311,7 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
     const archived = page.getByRole('button', { name, exact: true });
     await archived.waitFor();
     assert.equal(await archived.count(), 1);
+    assert.equal(await page.locator('#closedCount').textContent(), outcome === 'Won' ? '1 closed deal' : '1 lost deal');
     if (outcome === 'Lost') await page.getByText('The client chose another site', { exact: true }).waitFor();
     await archived.click();
     await page.getByRole('heading', { name, exact: true }).waitFor();
@@ -271,8 +320,8 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
     await page.getByRole('button', { name: 'Back to deals' }).click();
     if (outcome === 'Won') await page.getByRole('button', { name: 'Add deal', exact: true }).click();
   }
-  assert.equal(writes.length, 6);
-  assert.deepEqual(writes.filter(write => write.phase?.to).map(write => [write.phase.to, write.fields?.closed_value, write.phase.reason]),
+  assert.equal(writes.length, 7);
+  assert.deepEqual(writes.filter(write => write.phase?.to && write.phase.on !== earlyDate).map(write => [write.phase.to, write.fields?.closed_value, write.phase.reason]),
     [['closed', 1000, undefined], ['dead', undefined, 'The client chose another site']]);
   assert.ok(writes.filter(write => write.name).every(write => write.client_id === clientId));
 });
