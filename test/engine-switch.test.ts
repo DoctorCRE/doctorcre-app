@@ -3,6 +3,7 @@ import test from "node:test";
 import worker from "../src/worker.js";
 
 const origin = "https://app.example.test";
+const dealsReadOn = new Map([["deals-from-engine", "on"]]);
 const payload = '{ "amount": "100.00", "synthetic": true }';
 function call(name = "deal-room-board", args: unknown = {}, extra = {}) {
   return { jsonrpc: "2.0", id: "synthetic-request", method: "tools/call", params: { name, arguments: args }, ...extra };
@@ -85,14 +86,17 @@ test("one deal encodes its reference and optional board arguments are absent", a
 
 for (const deal of ["\ud800", "\udc00"]) {
   test(`unpaired surrogate ${JSON.stringify(deal)} falls back with original body`, async () => {
-    const f = fixture();
+    const f = fixture(dealsReadOn);
     const body = call("get-deal-room", { deal });
     const response = await f.send(body);
     assert.equal(response.status, 200);
     assert.equal(await response.text(), "old");
     assert.deepEqual(f.carr, [JSON.stringify(body)]);
     assert.equal(f.engine.length, 0);
-    assert.deepEqual(f.kv, [["deals-from-engine", { cacheTtl: 30 }]]);
+    assert.deepEqual(f.kv, [
+      ["deals-from-engine", { cacheTtl: 30 }],
+      ["deals-saves-from-engine", { cacheTtl: 30 }],
+    ]);
   });
 }
 
@@ -155,24 +159,24 @@ for (const status of [401, 403, 429]) {
 }
 for (const status of [500, 502, 503]) {
   test(`engine ${status} falls back with original body`, async () => {
-    const f = fixture("on", async () => new Response("down", { status }));
+    const f = fixture(dealsReadOn, async () => new Response("down", { status }));
     assert.equal(await (await f.send()).text(), "old");
     assert.deepEqual(f.carr, [JSON.stringify(call())]);
   });
 }
 test("binding error falls back", async () => {
-  const f = fixture("on", async () => {
+  const f = fixture(dealsReadOn, async () => {
     throw new Error("unavailable");
   });
   assert.equal(await (await f.send()).text(), "old");
 });
 test("engine deadline falls back even when binding ignores cancellation", async () => {
-  const f = fixture("on", () => new Promise(() => {}));
+  const f = fixture(dealsReadOn, () => new Promise(() => {}));
   assert.equal(await (await f.send()).text(), "old");
   assert.equal(f.carr.length, 1);
 });
 test("engine body deadline falls back", async () => {
-  const f = fixture("on", async () => new Response(new ReadableStream({ start() {} })));
+  const f = fixture(dealsReadOn, async () => new Response(new ReadableStream({ start() {} })));
   assert.equal(await (await f.send()).text(), "old");
 });
 test("foreign origin refuses before engine GET can bypass CSRF", async () => {
@@ -208,7 +212,7 @@ test("successful engine answer renews all session cookies", async () => {
 test("timed out response body is cancelled", async () => {
   let cancelled = false;
   const f = fixture(
-    "on",
+    dealsReadOn,
     async () =>
       new Response(
         new ReadableStream({
@@ -225,7 +229,7 @@ test("binding response arriving after timeout is disposed without reading", asyn
   let complete: (response: Response) => void = () => {};
   let cancelled = false;
   const f = fixture(
-    "on",
+    dealsReadOn,
     () =>
       new Promise((resolve) => {
         complete = resolve;
@@ -260,7 +264,7 @@ test("missing bindings and malformed JSON preserve original proxy behavior", asy
 });
 
 test("engine failure followed by CARR failure returns server error without signing out", async () => {
-  const f = fixture("on", async () => {
+  const f = fixture(dealsReadOn, async () => {
     throw new Error("synthetic engine failure");
   });
   f.env.CARR.fetch = async () => {
@@ -1240,6 +1244,40 @@ const dealId = "00000000-0000-4000-8000-000000000030";
 const stepId = "00000000-0000-4000-8000-000000000031";
 const operationId = "00000000-0000-4000-8000-000000000032";
 const marketId = "00000000-0000-4000-8000-000000000033";
+const invoiceId = "00000000-0000-4000-8000-000000000034";
+
+test("switching Deals saves on keeps failed board and detail reads away from the old database", async () => {
+  const f = fixture(nextDealsOn, async () => new Response("down", { status: 503 }));
+  for (const body of [call("deal-room-board"), call("get-deal-room", { deal: dealId })]) {
+    const response = await f.send(body);
+    assert.equal(response.status, 503);
+  }
+  assert.equal(f.engine.length, 2);
+  assert.equal(f.carr.length, 0);
+});
+
+test("invoice Undo sends the reviewed receipt to the signed-in engine", async () => {
+  const args = { deal: dealId, invoice_id: invoiceId, seen_change_id: 24, idempotency_key: operationId };
+  const f = fixture(nextDealsOn, async () => Response.json({ invoice_id: invoiceId, status: "undone" }));
+  const response = await f.send(call("undo-invoice-close", args), saveHeaders);
+  assert.equal(f.carr.length, 0);
+  assert.equal(f.engine[0]?.url, `${origin}/api/engine/invoice-emails/${invoiceId}/undo`);
+  assert.equal(f.engine[0]?.headers.get("x-carr-csrf"), new Headers(saveHeaders).get("x-carr-csrf"));
+  assert.deepEqual(await f.engine[0]?.json(), { idempotency_key: operationId });
+  assert.equal(JSON.parse((await response.json()).result.content[0].text).ok, true);
+
+  const off = fixture("off");
+  const stale = await off.send(call("undo-invoice-close", args), saveHeaders);
+  assert.equal(JSON.parse((await stale.json()).result.content[0].text).error, "version_conflict");
+  assert.equal(off.engine.length + off.carr.length, 0);
+
+  const moved = fixture(nextDealsOn, async () =>
+    Response.json({ error: "database_refused_the_statement", rule: "invoice_email_undo_current" }, { status: 422 }),
+  );
+  const refusal = await moved.send(call("undo-invoice-close", args), saveHeaders);
+  assert.equal(JSON.parse((await refusal.json()).result.content[0].text).error, "version_conflict");
+});
+
 const changesPath = `/deals/${dealId}/changes`;
 const creation = {
   next_deal_save: true,

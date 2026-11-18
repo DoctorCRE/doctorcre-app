@@ -308,7 +308,9 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       else todayNeeds = todayNeeds.filter(deal => active.some(current => current.id === (deal.subject_id || deal.id)));
       if (!vendorDirectory) render('#appWorkingList', overdueRows(active.filter(d => needsAttention(d))).slice(0,8).join('') || empty);
       renderToday();
-      if (!pageOwnsMoves) {
+      if (!pageOwnsMoves && pathname === '/deals' && value.next_deal_saves === true) {
+        render('#appTodayMoves', '<p>Open a deal to see its recent changes.</p>');
+      } else if (!pageOwnsMoves) {
         try {
           // The existing feed starts with history. Never present its oldest
           // page as recent; advance bounded pages until it reaches the present.

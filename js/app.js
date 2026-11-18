@@ -6,7 +6,7 @@ import { renderDealSummary, renderDealItems } from './deal-items.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
-import { dealInsightLines } from './pipeline-model.js';
+import { columnByValue, dealInsightLines } from './pipeline-model.js';
 import { selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createClient, PHASES, PHICON, ACTOR_LABEL, phaseLabel } from './client.js';
 import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
@@ -220,6 +220,7 @@ async function loadHome() {
 function applyBoardSnapshot(home) {
   if (state.accessDenied) return;
   state.selfActor = home.actor || state.client.selfActor || state.selfActor;
+  state.nextDealSaves = home.next_deal_saves === true;
   state.deals = new Map((home.deals || []).map((deal) => [deal.id, {
     workspace_kind: deal.account_client_id ? 'national_account' : 'team', ...deal,
   }]));
@@ -782,8 +783,11 @@ async function runUndo(eventId, trigger = null) {
  */
 async function sendCellWrite(dealId, field, value) {
   const cell = cellKey(dealId, field);
+  const deal = state.deals.get(dealId);
+  const extra = Number.isSafeInteger(deal?.seen) ? { seen_change_id: deal.seen,
+    ...(field === 'phase' && { phase_from: columnByValue(deal.phase)?.slug ?? null }) } : null;
   const result = await performFieldWrite({
-    deal: dealId, field, value,
+    deal: dealId, field, value, extra,
     base: state.fieldBase.get(cell)?.id || null,
     // Read AGAIN when the answer lands. If the base moved while the request was
     // out, the answer — a replayed one especially — is the recorded result of an
@@ -949,7 +953,7 @@ async function retryCellWrite(cell, trigger = null) {
 
 async function patchField(dealId, field, value, options = {}) {
   const result = await sendCellWrite(dealId, field, value);
-  if (result.status === 'conflict') return showConflict(result.conflict);
+  if (result.status === 'conflict' && result.conflict) return showConflict(result.conflict);
   if (result.status !== 'ok') return reportCellWrite(dealId, field, result, options);
   if (result.superseded) return reconcileNewerState(dealId, field, result, options);
   const deal = confirmLocalWrite(dealId, { [field]: value });
@@ -960,7 +964,7 @@ async function patchField(dealId, field, value, options = {}) {
 
 async function patchOperatingState(dealId, value, options = {}) {
   const result = await sendCellWrite(dealId, 'operating_state', value);
-  if (result.status === 'conflict') { showConflict(result.conflict); return result; }
+  if (result.status === 'conflict' && result.conflict) { showConflict(result.conflict); return result; }
   if (result.status !== 'ok') return reportCellWrite(dealId, 'operating_state', result, options);
   if (result.superseded) {
     // An answer is an answer: the dialog closes exactly as it does on the plain
@@ -1100,9 +1104,16 @@ function nextStepForm(dealId) {
           const current = (await state.client.getDeal(dealId))?.deal;
           if (current?.id !== dealId) throw new Error('The current record could not be verified. No write was sent.');
           state.deals.set(dealId, { ...deal, ...current });
-          const base_version = reviewedReplacementVersion(deal, current, ['next_step', 'next_date'], draftKey);
+          const reviewed = state.formDrafts.get(draftKey)?.reviewed || deal;
+          const fromEngine = Number.isSafeInteger(reviewed.seen) && Number.isSafeInteger(current.seen);
+          if (fromEngine && ((current.next_step || '') !== (reviewed.next_step || '')
+            || (current.next_date || '') !== (reviewed.next_date || ''))) {
+            throw new Error('This deal changed. Reload the deal before saving.');
+          }
+          const version = fromEngine ? { seen_change_id: current.seen }
+            : { base_version: reviewedReplacementVersion(deal, current, ['next_step', 'next_date'], draftKey) };
           request = { deal:dealId, text:String(data.get('text') || '').trim(), next_date:data.get('next_date') || null,
-            base_version, idempotency_key:uuidv4() };
+            ...version, idempotency_key:uuidv4() };
           state.nextStepRequests.set(dealId, request);
         }
         await state.client.setNextStep(request);
@@ -1148,7 +1159,7 @@ function parkDealForm(dealId) {
       // refused, or never confirmed — keeps the reason and the note the partner
       // typed, and says why on the form's own error line instead of in a toast
       // over a dialog that has already thrown the draft away.
-      if (result.status !== 'ok') throw new Error(result.message || 'This record was not parked.');
+      if (result.status !== 'ok') throw new Error(result.hint || result.message || 'This record was not parked.');
     } });
 }
 
@@ -1480,7 +1491,11 @@ function wireEvents() {
   });
 
   document.addEventListener('change', async (event) => {
-    if (event.target.matches('[data-phase]')) await patchField(event.target.dataset.phase,'phase',event.target.value);
+    if (event.target.matches('[data-phase]')) {
+      const id = event.target.dataset.phase;
+      if (state.nextDealSaves && event.target.value === 'Closed') await openDeal(id);
+      else await patchField(id,'phase',event.target.value);
+    }
     if (event.target.matches('[data-owner]')) await patchField(event.target.dataset.owner,'owner',event.target.value || null);
   });
 
@@ -1541,6 +1556,7 @@ async function boot() {
   state.boardSync = createBoardSync({
     readBoard: () => state.client.getBoard({ workspace:'all' }),
     readChanges: (cursor) => state.client.getChanges(cursor),
+    usesChangeFeed: () => !state.nextDealSaves,
     // Only a snapshot that is still current reaches this callback, and it
     // already carries any value a confirmed local write is holding.
     applyBoard: (board) => { applyBoardSnapshot(board); if (!userIsEditing()) renderPreservingFocus(); },
