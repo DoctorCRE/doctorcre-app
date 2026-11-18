@@ -243,7 +243,7 @@ export function fieldWriteMessage(outcome, subject = 'This change') {
   }
   // An answered conflict is the board's own surface — "Two edits crossed" — and
   // not a sentence in a toast.
-  if (outcome.status === 'conflict') return null;
+  if (outcome.status === 'conflict') return outcome.code === 'version_conflict' ? 'This deal changed. Reload the deal before saving.' : null;
   if (outcome.reason === 'declined') {
     return `${subject} was refused by the server: ${outcome.hint || `${humanize(outcome.code) || 'no reason given'}.`}`;
   }

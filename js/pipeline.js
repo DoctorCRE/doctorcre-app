@@ -174,7 +174,7 @@ async function submitDeal(event) {
   } catch (error) {
     if (error.creationRefused) {
       dealCreation = null;
-      const reasons = { subject_not_found:'Client not found. Use an existing client reference or exact name.', not_a_client:'Choose an existing client.', needs_disambiguation:'More than one client matches. Use the client reference.', deal_name_exists:'A deal with this name already exists. Use a distinct name.' };
+      const reasons = { deal_save_unavailable:'Adding a deal is temporarily unavailable.', subject_not_found:'Client not found. Use an existing client reference or exact name.', not_a_client:'Choose an existing client.', needs_disambiguation:'More than one client matches. Use the client reference.', deal_name_exists:'A deal with this name already exists. Use a distinct name.' };
       errorBox.textContent = reasons[error.payload?.error] || 'Deal creation was refused. Check the client, name, type, and stage.';
     } else errorBox.textContent = 'Creation not confirmed. The original request is retained. Check creation outcome to finish the same deal, owner, and notes.';
     errorBox.focus();
@@ -425,6 +425,8 @@ function confirmLocalWrite(dealId, patch) {
 async function sendPhaseWrite(dealId, value, extra = null) { return sendFieldWrite(dealId, 'phase', value, extra); }
 async function sendFieldWrite(dealId, field, value, extra = null) {
   const cell = cellKey(dealId, field);
+  const snapshot = state.panelDeal === dealId ? state.panelDetail?.deal : state.deals.get(dealId);
+  if (field !== 'phase' && Number.isSafeInteger(snapshot?.seen)) extra = { ...extra, seen_change_id: snapshot.seen };
   const result = await performFieldWrite({
     deal: dealId,
     field,
@@ -509,6 +511,12 @@ async function runFollowUp(operationKey, step) {
   if (!send) return null;
   const pending = pendingCommand(commandState, operationKey);
   let args = step.args;
+  const currentDeal = state.panelDetail?.deal?.id === args.deal ? state.panelDetail.deal : state.deals.get(args.deal);
+  const seen = pending ? pending.request.seen_change_id : currentDeal?.seen;
+  if (Number.isSafeInteger(seen)) {
+    args = { ...args, seen_change_id: seen };
+    if (step.verb === 'add-deal-note') args.happened_at = pending?.request.happened_at ?? new Date().toISOString();
+  }
   if (step.verb === 'set-next-step') {
     if (pending) args = { ...args, base_version: pending.request.base_version };
     else {
@@ -516,7 +524,9 @@ async function runFollowUp(operationKey, step) {
       let current;
       try { current = (await state.client.getDeal(args.deal))?.deal; }
       catch { /* A missing current version cannot authorize a replacement. */ }
-      if (current?.id !== args.deal || !Number.isSafeInteger(current.version) || current.version < 1) {
+      if (current?.id !== args.deal || (Number.isSafeInteger(args.seen_change_id)
+        ? !Number.isSafeInteger(current.seen)
+        : !Number.isSafeInteger(current.version) || current.version < 1)) {
         // eslint-disable-next-line no-restricted-syntax -- Missing current record version offers a manual reread; 0 follow-up writes until a valid version is read.
         dock.record(operationKey, { summary: step.summary, status: 'failed', retry: true, undo: false,
           reason: 'The move was recorded, but the next step was not sent. Retry reading the current record before saving it.' });
@@ -529,7 +539,7 @@ async function runFollowUp(operationKey, step) {
           reason: `The next step changed. Current: ${noteText(current.next_step) || 'None'} (${current.next_date || 'no date'}). Review the current record before replacing it.` });
         return {status:'conflict', message:`Current next step: ${noteText(current.next_step) || 'None'} (${current.next_date || 'no date'}). Review before retrying.`};
       }
-      args = { ...args, base_version: current.version };
+      if (!Number.isSafeInteger(args.seen_change_id)) args = { ...args, base_version: current.version };
     }
   }
   if (!pending) operations.set(operationKey, { kind: 'command', verb: step.verb, args, send, summary: step.summary });
@@ -583,7 +593,7 @@ async function runMove(intent, form) {
   dock.record(cell, { summary: moveSummary(intent), status: 'sending', undo: false });
   renderBoard();
 
-  const phaseExtra = {};
+  const phaseExtra = Number.isSafeInteger(intent.seen) ? { seen_change_id: intent.seen, phase_from: intent.from } : {};
   if (phaseStep.args.change_reason) phaseExtra.change_reason = phaseStep.args.change_reason;
   if (phaseStep.args.human_quote) phaseExtra.human_quote = phaseStep.args.human_quote;
 
@@ -597,8 +607,8 @@ async function runMove(intent, form) {
 
   if (result.status === 'conflict') {
     renderBoard();
-    showConflict(result.conflict);
-    return { ok: false, errors: [] };
+    if (result.conflict) showConflict(result.conflict);
+    return { ok: false, errors: result.conflict ? [] : [fieldWriteMessage(result) || 'Reload the deal before saving.'] };
   }
   if (result.status !== 'ok') {
     renderBoard();
@@ -1574,8 +1584,7 @@ function leasePhase(dealId) {
     .catch(() => { /* a courtesy, never a requirement */ });
 }
 
-function beginMove(dealId, toSlug) {
-  const deal = state.deals.get(dealId);
+function beginMove(dealId, toSlug, deal = state.deals.get(dealId)) {
   const intent = moveIntent(deal, toSlug);
   state.lifted = null;
   state.target = null;
@@ -1891,7 +1900,8 @@ function wire() {
     if (e.target.id === 'detailPhase') {
       const destination = e.target.value;
       e.target.value = columnByValue(state.deals.get(id)?.phase)?.slug || '';
-      beginMove(id, destination);
+      const detail = state.panelDetail?.deal;
+      beginMove(id, destination, Number.isSafeInteger(detail?.seen) ? detail : undefined);
     }
     if (e.target.id === 'detailOwner') { const value = e.target.value || null; const result = await sendFieldWrite(id,'owner',value); if(result.status === 'ok' && !result.superseded) confirmLocalWrite(id,{owner:result.request.value}); else if(result.conflict) showConflict(result.conflict); else showToast(fieldWriteMessage(result,'Owner') || 'Change not confirmed', {error:true}); renderPendingWrites(); }
   });

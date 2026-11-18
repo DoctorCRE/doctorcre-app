@@ -975,7 +975,10 @@ for (const save of [phaseMove, closing]) {
       const f = fixture(value);
       assert.equal(await (await f.send(save, saveHeaders)).text(), "old");
       assert.deepEqual(f.carr, [JSON.stringify(save)]);
-      assert.deepEqual(f.kv, [[saveKey, { cacheTtl: 30 }]]);
+      assert.deepEqual(f.kv, [
+        ["deals-saves-from-engine", { cacheTtl: 30 }],
+        [saveKey, { cacheTtl: 30 }],
+      ]);
       assert.equal(f.engine.length, 0);
     });
   }
@@ -1093,8 +1096,6 @@ test("the engine save sets renewed session cookies on the wrapped answer", async
 for (const body of [
   call("patch-deal-field", null),
   call("patch-deal-field", []),
-  call("set-next-step", { deal: "synthetic-deal" }),
-  call("add-deal-note", { deal: "synthetic-deal" }),
   call("patch-deal-field", {}, { method: "initialize" }),
 ]) {
   test(`save the engine does not take stays on the old system ${JSON.stringify(body)}`, async () => {
@@ -1147,4 +1148,162 @@ test("switch off: any other old-system refusal never reaches the engine", async 
   f.env.CARR.fetch = async () => new Response(refusal);
   assert.equal(await (await f.send(phaseMove, saveHeaders)).text(), refusal);
   assert.equal(f.engine.length, 0);
+});
+
+const nextDealsOn = new Map([
+  ["deals-from-engine", "on"],
+  ["deals-saves-from-engine", "on"],
+]);
+const dealId = "00000000-0000-4000-8000-000000000030";
+const stepId = "00000000-0000-4000-8000-000000000031";
+const operationId = "00000000-0000-4000-8000-000000000032";
+const changesPath = `/deals/${dealId}/changes`;
+const movedToEngine = [
+  [
+    "patch-deal-field",
+    { field: "phase", value: "negotiation", phase_from: "research" },
+    changesPath,
+    { seen_change_id: 23, phase: { from: "research", to: "negotiation" } },
+    { deal_id: dealId, change_id: 23 },
+    200,
+  ],
+  [
+    "patch-deal-field",
+    { field: "owner", value: "dell" },
+    changesPath,
+    { seen_change_id: 23, fields: { owner: "dell" } },
+    { deal_id: dealId, change_id: 24 },
+    200,
+  ],
+  [
+    "set-next-step",
+    { text: "Review sample plan", next_date: "2027-01-02" },
+    "/next-steps",
+    { deal_id: dealId, what: "Review sample plan", due_on: "2027-01-02", replaces: "current" },
+    { next_step_id: stepId, change_id: 25 },
+    201,
+  ],
+  [
+    "complete-deal-item",
+    { item_id: stepId },
+    `/next-steps/${stepId}/end`,
+    { resolution: "done" },
+    { next_step_id: stepId, status: "done" },
+    200,
+  ],
+  [
+    "patch-deal-field",
+    { field: "operating_state", value: { state: "parked", reason: "other", note: "Sample pause" } },
+    changesPath,
+    { seen_change_id: 23, fields: { parking_reason: "other", parking_note: "Sample pause" } },
+    { deal_id: dealId, change_id: 24 },
+    200,
+  ],
+  [
+    "add-deal-note",
+    { text: "A sample update", happened_at: "2026-11-18T12:00:00Z" },
+    "/activities",
+    { kind: "note", summary: "A sample update", happened_at: "2026-11-18T12:00:00Z", about: [{ deal_id: dealId }] },
+    { activity_id: stepId },
+    201,
+  ],
+  [
+    "record-deal-item",
+    { title: "Review plan", bullets: [], source_ref: "app:example" },
+    "/next-steps",
+    { deal_id: dealId, what: "Review plan", item: { title: "Review plan", bullets: [], source_ref: "app:example" } },
+    { next_step_id: stepId, change_id: 25 },
+    201,
+  ],
+] as const;
+
+for (const [verb, args, path, expected, receipt, status] of movedToEngine) {
+  test(`Deals cutover routes ${verb} ${path} once per attempt and keeps its key on retry`, async () => {
+    const { phase_from, ...legacy } = { phase_from: undefined, ...args };
+    const base = { deal: dealId, idempotency_key: operationId, ...legacy };
+    const before = call(verb, base);
+    const off = fixture(null);
+    await off.send(before, saveHeaders);
+    assert.deepEqual(off.carr, [JSON.stringify(before)]);
+    assert.equal(off.engine.length, 0);
+    const on = fixture(nextDealsOn, answered(JSON.stringify(receipt), status));
+    const save = call(verb, { ...base, seen_change_id: 23, ...(phase_from && { phase_from }) });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = (await (await on.send(save, saveHeaders)).json()).result;
+      assert.deepEqual(JSON.parse(result.content[0].text), { ...receipt, ok: true });
+    }
+    assert.deepEqual(on.carr, []);
+    assert.equal(on.engine.length, 2);
+    for (const request of on.engine) {
+      assert.equal(request.url, `${origin}/api/engine${path}`);
+      assert.equal(request.method, "POST");
+      assert.deepEqual(await request.json(), { idempotency_key: operationId, ...expected });
+      for (const [key, value] of Object.entries(saveHeaders)) assert.equal(request.headers.get(key), value);
+    }
+  });
+}
+
+test("Deals cutover forwards a stale phase refusal and never tries CARR", async () => {
+  const f = fixture(nextDealsOn, answered('{"error":"version_conflict","current_phase":"legal"}', 409));
+  const save = call("patch-deal-field", {
+    deal: dealId,
+    field: "phase",
+    value: "negotiation",
+    phase_from: "research",
+    seen_change_id: 23,
+    idempotency_key: operationId,
+  });
+  const { result } = await (await f.send(save, saveHeaders)).json();
+  assert.equal(result.isError, true);
+  assert.deepEqual(JSON.parse(result.content[0].text), {
+    error: "version_conflict",
+    current_phase: "legal",
+    hint: "This deal changed. Reload the deal before saving.",
+  });
+  assert.equal(f.engine.length, 1);
+  assert.deepEqual(f.carr, []);
+});
+
+for (const verb of ["new-deal", "set-lead", "set-market-agent", "update-deal"]) {
+  test(`Deals cutover refuses ${verb} while the signed-in save is unavailable`, async () => {
+    const f = fixture(nextDealsOn);
+    const { result } = await (
+      await f.send(call(verb, { deal: dealId, idempotency_key: operationId }), saveHeaders)
+    ).json();
+    assert.equal(result.isError, true);
+    assert.deepEqual(f.carr, []);
+    assert.deepEqual(f.engine, []);
+  });
+}
+
+test("an unanswered next-schema save never retries in CARR after the switch turns off", async () => {
+  const switches = new Map(nextDealsOn);
+  const f = fixture(switches, answered('{"error":"database_unavailable"}', 503));
+  const save = call("set-next-step", {
+    deal: dealId,
+    seen_change_id: 23,
+    idempotency_key: operationId,
+    text: "Review sample plan",
+  });
+  assert.equal((await f.send(save, saveHeaders)).status, 503);
+  switches.delete("deals-saves-from-engine");
+  const { result } = await (await f.send(save, saveHeaders)).json();
+  assert.equal(result.isError, true);
+  assert.equal(f.engine.length, 1);
+  assert.deepEqual(f.carr, []);
+});
+
+test("the new save switch refuses saves loaded before the read cutover", async () => {
+  const f = fixture(nextDealsOn);
+  const save = call("set-next-step", {
+    deal: dealId,
+    base_version: 2,
+    idempotency_key: operationId,
+    text: "Review sample plan",
+  });
+  const { result } = await (await f.send(save, saveHeaders)).json();
+  assert.equal(result.isError, true);
+  assert.equal(JSON.parse(result.content[0].text).error, "version_conflict");
+  assert.deepEqual(f.engine, []);
+  assert.deepEqual(f.carr, []);
 });
