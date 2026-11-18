@@ -547,10 +547,31 @@ for (const path of ["/api/engine", "/api/engine-other/deals"]) {
 }
 
 const remainingScreens = [
+  ["home-from-engine", "read-home-inbox-v5", "/api/engine/home/inbox"],
   ["invoices-from-engine", "read-invoice-tracker", "/api/engine/invoices"],
   ["charts-from-engine", "ideal-client-profile", "/api/engine/client-fit"],
   ["national-deals-from-engine", "capture-queue", "/api/engine/capture-queue"],
 ] as const;
+
+test("Home's read switch leaves other inbox versions, review and saves on CARR", async () => {
+  const f = fixture(new Map([["home-from-engine", "on"]]));
+  const bodies = [
+    "read-home-inbox-v4",
+    "read-home-review",
+    "complete-one-action",
+    "reopen-one-action",
+    "snooze-home-inbox",
+    "settle-home-inbox",
+    "unsettle-home-inbox",
+    "edit-email-draft",
+  ].map((name) => call(name));
+  for (const body of bodies) assert.equal(await (await f.send(body)).text(), "old");
+  assert.deepEqual(
+    f.carr,
+    bodies.map((body) => JSON.stringify(body)),
+  );
+  assert.deepEqual(f.engine, []);
+});
 
 for (const [key, name, path] of remainingScreens) {
   test(`${key} routes ${name} to its engine read`, async () => {
