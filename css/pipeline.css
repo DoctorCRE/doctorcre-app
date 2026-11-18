@@ -72,7 +72,7 @@
 .board-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-4); }
 .pipeline-layout { display: block; }
 /* Columns are a tonal step below the cards, so a card is not a box inside a box. */
-.kanban { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-2); }
+.kanban { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: var(--space-2) var(--space-1); }
 .kanban:has(.kanban-column) { max-height: 65dvh; }
 .kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); }
 .kanban-column { min-width: 0; padding: var(--space-2) var(--space-1); background: var(--ground); overflow-wrap: anywhere; }
@@ -183,9 +183,6 @@
 .app-section-tabs { display:flex; align-items:center; gap:var(--space-4); border-bottom:var(--hairline-width) solid var(--hairline); }
 .app-section-tabs a { display:flex; align-items:center; min-height:var(--touch); padding:var(--space-2) 0; color:var(--fg-muted); text-decoration:none; border-bottom:2px solid transparent; font-weight:var(--font-weight-strong); }
 .app-section-tabs a[aria-current=page] { color:var(--fg); border-bottom-color:var(--fg); }
-@media (760px < width < 1000px) {
- .kanban:has(.kanban-column) { grid-template-columns: repeat(7, minmax(140px, 1fr)); }
-}
 @media(max-width:760px) {
  .kanban { grid-template-columns: minmax(0, 1fr); }
  .dealroom-page .kanban-column[data-hide-empty="true"] { display:none; }
@@ -268,7 +265,9 @@
 }
 .kanban-card .attention-flag { align-self: flex-start; align-items: flex-start; margin-block: 0 -20px; }
 @media (width > 760px) {
-  .kanban-column .attention-flag { white-space: normal; }
+  .kanban-column .kanban-card .work-card-title { font-size: .9375rem; }
+  .kanban-column .deal-vendor-details p { grid-template-columns: minmax(0, 1fr); }
+  .kanban-column .attention-flag { white-space: normal; text-align: start; }
 }
 .work-card--row .deal-row-next .attention-flag { padding-inline: 0; }
 
