@@ -131,6 +131,7 @@ const isObject = value => value !== null && typeof value === 'object' && !Array.
 const DEALS = 'deals-from-engine';
 const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
 const LEADS = 'leads-from-engine';
+const HOME = 'home-from-engine';
 const INVOICES = 'invoices-from-engine';
 const CHARTS = 'charts-from-engine';
 const NATIONAL_DEALS = 'national-deals-from-engine';
@@ -152,6 +153,7 @@ const ENGINE_READS = new Map([
   ['quiet-follow-ups', { key: LEADS, path: '/api/engine/quiet-follow-ups', args: { lead_days: Number.isFinite, vendor_days: Number.isFinite, owner_slug: isString } }],
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
   ['territory-state-board', { key: LEADS, path: '/api/engine/territory-state-board', args: { vertical: isString, city: isString, state: isString } }],
+  ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {} }],
   ['read-invoice-tracker', { key: INVOICES, path: '/api/engine/invoices', args: {} }],
   ['ideal-client-profile', { key: CHARTS, path: '/api/engine/client-fit', args: { vertical: isString, city: isString, state: isString } }],
   ['capture-queue', { key: NATIONAL_DEALS, path: '/api/engine/capture-queue', args: {} }],
@@ -458,6 +460,10 @@ async function engineSave(request, env) {
   const url = new URL(request.url);
   const call = await mcpCall(request, url);
   if (call?.method !== 'tools/call' || !isObject(call.params?.arguments)) return null;
+  if (call.params.name === 'record-commission-receipt') {
+    if (!await switchedOn(env, INVOICES)) return null;
+    return engineAnswer(request, env, call, { path: '/api/engine/invoices/mark-paid' }, { allowHandoff: false });
+  }
   if (CUTOVER_SAVES.has(call.params.name)) {
     const result = await cutoverSave(request, env, call);
     if (result) return result;
@@ -481,8 +487,8 @@ async function sendEngineSave(request, env, path, body) {
   } catch { return null; }
 }
 
-// The legacy-schema engine can hand a save to CARR using the shared receipt.
-async function engineAnswer(request, env, call, save) {
+// Only the legacy-schema saves share a receipt with CARR.
+async function engineAnswer(request, env, call, save, { allowHandoff = true } = {}) {
   const response = await sendEngineSave(request, env, save.path, call.params.arguments);
   if (!response) return unavailable(false);
   let text;
@@ -491,7 +497,7 @@ async function engineAnswer(request, env, call, save) {
     text = await response.text();
   } catch { return unavailable(false); }
   const handoff = OLD_SYSTEM_ANSWERS.get(response.status);
-  if (handoff && handoff === parsedError(text)) return null;
+  if (allowHandoff && handoff && handoff === parsedError(text)) return null;
   return mcpReply(call, response, text, response.status !== 200);
 }
 

@@ -8,6 +8,18 @@ import { AGES, projectInvoices, invoiceSummary, invoiceMoney, invoiceDate } from
 const E=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const bucketMoney=bucket=>bucket.unknown?(bucket.count===bucket.unknown?'—':`${invoiceMoney(bucket.amount)} + —`):invoiceMoney(bucket.amount);
 const statusLabel=row=>row.status==='paid'?'Paid':row.status==='awaiting'?'Awaiting invoice':row.overdue?'Overdue':'Unpaid';
+const paymentRefusals = new Map([
+  ['version_conflict', 'Invoice changed before the payment could be saved.'],
+  ['invoice_not_unpaid', 'Only unpaid invoices can be marked paid.'],
+  ['invalid_received_on', 'Enter a valid payment date.'],
+  ['invalid_field_value', 'Check the payment details and try again.'],
+  ['missing_required', 'Fill in the payment details and try again.'],
+  ['payment_date_out_of_range', 'Choose a payment date from the invoice date through today.'],
+  ['invoice_not_found', 'This invoice could not be found.'],
+  ['key_reuse', 'Review the invoice before trying again.'],
+  ['actor_not_provisioned', 'Your account cannot mark this invoice paid.'],
+  ['database_refused_the_statement', 'This payment could not be saved.'],
+]);
 export function mountInvoiceTracker({ document, window, client, today=localToday, intervalMs }) {
   const $=id=>document.getElementById(id);
   let rows=null,status='all',age=null,selected=null,opener=null,disposed=false,updatedAt=null;
@@ -156,23 +168,24 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       }
     }
     intent.state='sending';renderDetail();
-    let refusal=null;
+    let refusalMessage;
     try{await client.markInvoicePaid(intent.args);}
     catch(error){
       const code=error?.payload?.error;
+      refusalMessage=paymentRefusals.get(code);
       // An offline replay says nothing about the original unanswered request.
-      if(['version_conflict','invoice_not_unpaid','invalid_received_on','payment_date_out_of_range','invoice_not_found'].includes(code)
-        || (!replay&&(code==='offline'||[401,403].includes(error?.status))))refusal=code || 'unauthorized';
+      if(!replay&&code==='offline')refusalMessage='Payment not recorded. You are offline.';
+      if(!replay&&[401,403].includes(error?.status))refusalMessage='Payment not recorded.';
     }
     if(disposed)return;
     if(payments.get(row.key)===intent){
-      if(refusal)forgetPayment(row.key);
+      if(refusalMessage)forgetPayment(row.key);
       else intent.state='uncertain';
     }
     await auto.refresh();
     if(disposed || selected!==row.key)return;
     renderDetail();
-    if(refusal){$('invoicePaymentNotice').hidden=false;$('invoicePaymentNotice').textContent=refusal==='version_conflict'?'Invoice changed. Payment not recorded.':refusal==='offline'?'Payment not recorded. You are offline.':'Payment not recorded.';}
+    if(refusalMessage){$('invoicePaymentNotice').hidden=false;$('invoicePaymentNotice').textContent=refusalMessage;}
   });
   render();const ready=auto.refresh();
   return {ready,refresh:()=>auto.refresh(),dispose(){disposed=true;auto.dispose();}};

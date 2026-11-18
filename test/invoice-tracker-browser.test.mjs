@@ -3,9 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { chromium } from './browser-harness.mjs';
-import { invoiceTrackerFixture } from '../js/invoice-tracker-fixture.js';
+import { createInvoiceFixture, invoiceTrackerFixture } from '../js/invoice-tracker-fixture.js';
+import worker from '../src/worker.js';
 const root = new URL('../', import.meta.url), today = '2026-10-02';
-async function open(t, { width = 1440, reducedMotion = 'no-preference', query = '', home = false, receipt = 'ok' } = {}) {
+async function open(t, { width = 1440, reducedMotion = 'no-preference', query = '', home = false, receipt = 'ok', engine } = {}) {
   const browser = await chromium.launch({ args: [...CHROMIUM_SAFETY_ARGS] }); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 960 }, timezoneId: 'UTC', reducedMotion });
   await page.clock.install({ time: new Date(today + 'T17:00:00Z') });
@@ -18,6 +19,16 @@ async function open(t, { width = 1440, reducedMotion = 'no-preference', query = 
     if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ csrf_token:'synthetic-session', actor: { slug: 'joe', display_name: 'Demo Partner' } }) });
     if (url.pathname === '/mcp') {
       const req = route.request().postDataJSON().params; let response = {};
+      if (engine && ['read-invoice-tracker', 'record-commission-receipt'].includes(req.name)) {
+        const answer = await worker.fetch(new Request(url, {
+          method: 'POST', headers: await route.request().allHeaders(), body: route.request().postData(),
+        }), {
+          ENGINE_ROUTING: { get: async key => key === 'invoices-from-engine' ? 'on' : null },
+          ENGINE: { fetch: engine },
+          CARR: { fetch: () => assert.fail('The invoice request fell back to CARR') },
+        });
+        return route.fulfill({ status: answer.status, headers: Object.fromEntries(answer.headers), body: await answer.text() });
+      }
       if (req.name === 'read-invoice-tracker') {
         reads++; if (denied) return route.fulfill({ status: 401, body: '' }); if (failed) return route.fulfill({ status: 503, body: '' }); response = data;
       } else if (req.name === 'record-commission-receipt') {
@@ -65,6 +76,22 @@ test('filters, aging and automatic refresh preserve drafts and recover failed da
 test('uncertain receipt reconciles without another write; conflict keeps the draft', async t => {
   const h = await open(t, { receipt: 'uncertain' }); await h.page.locator('[data-invoice]').first().click(); await h.page.locator('#markInvoicePaid').click(); await h.page.waitForFunction(() => /Paid/.test(document.querySelector('#invoiceDetailFacts').textContent)); assert.equal(h.writes, 1);
   const c = await open(t, { receipt: 'conflict' }); await c.page.locator('[data-invoice]').first().click(); await c.page.locator('#invoicePaidDate').fill('2026-09-30'); await c.page.locator('#markInvoicePaid').click(); await c.page.waitForFunction(() => /Invoice changed/.test(document.querySelector('#invoicePaymentNotice').textContent)); assert.equal(await c.page.locator('#invoicePaidDate').inputValue(), '2026-09-30'); assert.equal(c.writes, 1); assert.equal(await c.page.locator('#markInvoicePaid').isDisabled(), false);
+});
+test('Mark paid clears the pending attempt when the engine refuses its fields', async t => {
+  const data = invoiceTrackerFixture(today);
+  const { page } = await open(t, { engine: async request => request.method === 'GET'
+    ? Response.json(data)
+    : Response.json({ error: 'invalid_field_value', fields: ['received_on'] }, { status: 400 }) });
+  await page.locator('[data-invoice]').first().click();
+  await page.locator('#invoicePaidDate').fill('2026-09-30');
+  await page.getByRole('button', { name: 'Mark paid' }).click();
+  await page.waitForFunction(() => {
+    const notice = document.getElementById('invoicePaymentNotice');
+    return !notice.hidden && notice.textContent !== 'Confirming payment…';
+  });
+  assert.equal(await page.locator('#invoicePaymentNotice').innerText(), 'Check the payment details and try again.');
+  assert.equal(await page.locator('#invoicePaidDate').isEnabled(), true);
+  assert.equal(await page.locator('#invoicePaidDate').inputValue(), '2026-09-30');
 });
 test('Home attention shares invoice identity, scope and refreshed paid state', async t => {
   const h = await open(t, { home: true }), page = h.page; assert.equal(await page.locator('#homeInvoices [data-home-key]').count(), 3);
@@ -133,6 +160,46 @@ test('payment uncertainty offers explicit immutable replay across close, polling
  await page.reload();await page.locator(`[data-invoice="${key}"]`).click();assert.equal(await page.locator('#invoicePaidDate').inputValue(),'2026-09-30');assert.equal(await page.locator('#invoicePaidDate').isDisabled(),true);
  h.setReceipt('ok');await page.locator('#markInvoicePaid').click();await page.waitForFunction(()=>document.querySelector('#invoicePayment').hidden);
  assert.equal(h.writes,2);assert.deepEqual(h.attempts[1],h.attempts[0]);assert.deepEqual(h.errors,[]);
+});
+test('with the engine switch on, retry displays one payment with its date', async t => {
+  const fixture = createInvoiceFixture({ today: () => today });
+  const before = await fixture.getInvoiceTracker();
+  const attempts = [];
+  const engine = async request => {
+    if (request.method === 'GET') return Response.json(attempts.length < 2 ? before : await fixture.getInvoiceTracker());
+    assert.equal(new URL(request.url).pathname, '/api/engine/invoices/mark-paid');
+    assert.equal(request.headers.get('x-carr-csrf'), 'synthetic-session');
+    const args = await request.json();
+    attempts.push(args);
+    const receipt = await fixture.markInvoicePaid(args);
+    return attempts.length === 1 ? new Response(null, { status: 502 }) : Response.json({ ...receipt, replayed: true });
+  };
+  const { page, errors } = await open(t, { engine });
+  assert.equal(await page.locator('[data-invoice]').count(), before.entries.length);
+  for (const row of before.entries) {
+    const invoice = page.locator('[data-invoice]').filter({ has: page.getByText(row.name, { exact: true }) });
+    await invoice.click();
+    assert.equal(await page.locator('#invoiceDetailTitle').innerText(), row.name);
+    assert.equal(await page.getByRole('button', { name: 'Mark paid' }).isVisible(), row.status === 'invoiced');
+    await page.getByRole('button', { name: 'Close invoice' }).click();
+  }
+  const invoice = page.locator('[data-invoice]').filter({ hasText: 'Demo Cedar Expansion' });
+  await invoice.click();
+  await page.locator('#invoicePaidDate').fill('2026-09-30');
+  await page.getByRole('button', { name: 'Mark paid' }).click();
+  await page.getByRole('button', { name: 'Retry payment' }).click();
+  await page.locator('.invoice-status-value').getByText('Paid', { exact: true }).waitFor();
+  assert.equal(await page.locator('#invoiceTimeline time[datetime="2026-09-30"]').innerText(), 'Sep 30, 2026');
+  assert.equal(await page.locator('#invoicePayment').isVisible(), false);
+  assert.equal(await page.locator('[data-invoice]').count(), before.entries.length);
+  assert.deepEqual(attempts, [attempts[0], attempts[0]]);
+  const saved = (await fixture.getInvoiceTracker()).entries.find(row => row.commission_id === attempts[0].commission_id);
+  assert.equal(saved.base_version, attempts[0].base_version + 1);
+  assert.equal(saved.received_on, '2026-09-30');
+  assert.deepEqual(errors, []);
+  const evidence = new URL('out/test-artifacts/w15/', root);
+  await mkdir(evidence, { recursive: true });
+  await page.screenshot({ path: new URL('engine-payment.png', evidence).pathname });
 });
 test('hung payment becomes recoverable after the write deadline without an automatic write',async t=>{
  const h=await open(t,{receipt:'hung'});await h.page.locator('[data-invoice]').first().click();await h.page.locator('#markInvoicePaid').click();

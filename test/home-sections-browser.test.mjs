@@ -7,12 +7,88 @@ import { buildArtifact } from '../scripts/artifact.mjs';
 import { temporaryDirectory } from '../scripts/temp-directory.mjs';
 import { context as buildContext } from 'esbuild';
 import { scenario } from './browser-scenario.mjs';
+import worker from '../src/worker.js';
 
 describe('test/home-sections-browser.test.mjs', () => {
 const NOW = new Date('2026-11-03T10:00:00-06:00');
 let outDir;
 before(async () => { outDir = temporaryDirectory('home-sections-'); await buildArtifact({ root: process.cwd(), outDir }); });
 after(async () => { await rm(outDir, { recursive: true, force: true }); });
+
+for (const enabled of [false, true]) test(`Home opens inbox cards with the engine switch ${enabled ? 'on' : 'off'}`, async t => {
+  const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW });
+  await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
+  await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+
+  const dealId = '00000000-0000-0000-0000-000000000001';
+  const callId = '00000000-0000-0000-0000-000000000002';
+  const partyId = '00000000-0000-0000-0000-000000000003';
+  const tasks = [
+    { title: 'Read the sample lease', label: 'Example Dental', path: `/deals?deal=${dealId}&focus=next-step`, dealId },
+    { title: 'Send the sample floor plan', label: 'Call summary', path: `/calls?session=${callId}`, dealId, call: true },
+    { title: 'Check in about the sample site', label: 'Example Contact', path: `/relationships?node=party:${partyId}` },
+  ];
+  const snapshot = reader => ({
+    ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true, auto_settle_enabled: true,
+    items: tasks.map((task, index) => {
+      const id = `00000000-0000-0000-0000-00000000001${index}`;
+      const source = task.call ? 'capture_post_call_action' : 'next_action';
+      return {
+        item_id: `${source}:${id}`, source_type: source, source_id: id, source_version: '7',
+        source_state: 'needs_attention', base_version: '7:0:inbox', title: `${task.title} (${reader})`,
+        activity_at: '2026-11-02T12:00:00.000Z', completed_at: null, due_on: '2026-11-03',
+        hold_until: null, snoozed_until: null, disposition: 'inbox', section: 'inbox', unseen: false,
+        explicit_unsettle: false, auto_settled: false, context_label: task.call ? 'Example Dental' : task.label,
+        open_url: task.path, kind_label: task.call ? 'Call follow-up' : 'Task', action_id: id, action_version: 7,
+        deal_id: task.dealId ?? null, merged_source_ids: [id], waiting_version: 0, waiting_on: null,
+        source_activity: task.call ? { kind: 'call', id: callId, happened_at: '2026-11-02T11:00:00.000Z',
+          contact: 'Example Contact', summary: 'Discussed the floor plan.', quote: 'Please send the floor plan.' } : null,
+      };
+    }),
+  });
+  const reads = [];
+  const env = {
+    ENGINE_ROUTING: { get: async key => key === 'home-from-engine' && enabled ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      reads.push(`${request.method} ${new URL(request.url).pathname}`);
+      return Response.json(snapshot('new inbox'));
+    } },
+    CARR: { fetch: async request => {
+      const { id, params: { name } } = await request.json();
+      if (name === 'read-home-inbox-v5') reads.push(name);
+      const payload = name === 'read-home-inbox-v5' ? snapshot('current inbox') : { ok: true, items: [], deals: [] };
+      return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } });
+    } },
+  };
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    const response = await worker.fetch(new Request(request.url(), { method: request.method(), headers: request.headers(), body: request.postData() }), env);
+    await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
+  });
+
+  await open('/?mode=live');
+  const reader = enabled ? 'new inbox' : 'current inbox';
+  const inbox = page.getByRole('region', { name: 'Inbox cards', exact: true });
+  const first = inbox.getByRole('link', { name: new RegExp(`^${tasks[0].title}`) });
+  await first.waitFor();
+  assert.equal(await first.textContent(), `${tasks[0].title} (${reader})`);
+  await inbox.getByRole('region', { name: 'Today', exact: true }).getByRole('button', { name: 'See all 3', exact: true }).click();
+  assert.equal(await inbox.locator('[data-inbox-row]').count(), tasks.length);
+  for (const task of tasks) {
+    const title = `${task.title} (${reader})`;
+    const link = inbox.getByRole('link', { name: title, exact: true });
+    assert.equal(await link.count(), 1);
+    const card = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title, exact: true }) });
+    assert.deepEqual(await card.getByRole('button').allTextContents(), ['Open', 'Mark done', 'Hide from inbox', 'Snooze']);
+    assert.match(await card.locator('time').textContent(), /Nov 3/);
+    await link.click();
+    const details = card.getByRole('region', { name: `Details for ${title}` });
+    assert.equal(await details.getByRole('link', { name: task.label, exact: true }).getAttribute('href'), task.path);
+    await details.getByRole('button', { name: 'Close', exact: true }).click();
+  }
+  assert.deepEqual(reads, [enabled ? 'GET /api/engine/home/inbox' : 'read-home-inbox-v5']);
+});
+
 for (const width of [390, 1024, 1280, 1440]) for (const theme of ['light', 'dark']) test(`sectioned Home and shared panels ${width} ${theme}`, async t => {
   const run = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 }, timezoneId: 'America/Chicago' } });
   const { page } = run;
