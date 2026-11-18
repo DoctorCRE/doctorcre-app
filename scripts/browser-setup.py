@@ -27,7 +27,6 @@ def setup(browsers):
             config = Path(directory, 'apt.conf')
             config.write_text(
                 f'Dir::Cache::archives "{archives}";\n'
-                'APT::Keep-Downloaded-Packages "true";\n'
                 'Acquire::Retries "1";\n'
                 'Acquire::http::Timeout "10";\n'
                 'Acquire::https::Timeout "10";\n'
