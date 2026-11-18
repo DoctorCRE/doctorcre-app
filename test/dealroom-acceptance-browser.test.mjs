@@ -3,6 +3,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { text } from 'node:stream/consumers';
 import { fileURLToPath } from 'node:url';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
@@ -20,6 +21,126 @@ before(async () => {
   browser = await chromium.launch();
   await mkdir(evidence, { recursive: true });
 });
+
+for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) {
+  test(`deal files and email follow-ups for ${actor} with Deals reads ${readsOn ? 'on' : 'off'}`, async t => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+    t.after(() => page.close());
+    await page.clock.setFixedTime(new Date('2026-11-18T15:00:00Z'));
+    const [deal, plan, earlierPlan, letter, first, second] = Array.from({ length: 6 }, () => crypto.randomUUID());
+    const row = { id: deal, deal_id: deal, name: 'Example File Deal', phase: 'research', seen: 1, owner: 'joe' };
+    const documents = [
+      { id: plan, name: 'Example Plan.pdf', version: 2, prepared_at: '2026-11-03T14:00:00+00:00' },
+      { id: letter, name: 'Example Letter.pdf', version: 1, prepared_at: '2026-11-02T14:00:00+00:00' },
+      { id: earlierPlan, name: 'Example Plan.pdf', version: 1, prepared_at: '2026-11-01T14:00:00+00:00' },
+    ];
+    const email_follow_ups = [
+      { proposal_id: first, kind: 'next_step', what: 'Send the plan', owner: 'dell', due_on: '2026-11-02',
+        email: { subject: 'Plan ready', sender_name: 'Example Sender', happened_at: '2026-11-01T14:00:00+00:00' } },
+      { proposal_id: second, kind: 'file_to_deal', evidence: 'The letter is attached.',
+        email: { subject: 'Letter attached', sender: 'sender@example.test' } },
+    ];
+    const completed = { id: 'executed_lease', label: 'Executed lease', status: 'complete', due_on: null,
+      evidence_ref: 'Example Plan.pdf', source: { document: 'lease-guide' } };
+    const overdue = { id: `critical-date:${first}`, label: 'lease end', status: 'overdue', due_on: '2026-11-14',
+      evidence_ref: 'Example option notice', source: { record_verb: 'add-critical-date' } };
+    const checklist = { schema_version: 'deal-checklist.v1', template_state: 'current',
+      phases: [{ label: 'Legal / lease', items: [completed, overdue] }], due_items: [overdue] };
+    const carr = [], opened = [];
+    const env = {
+      ENGINE_ROUTING: { get: async key => readsOn && key === 'deals-from-engine' ? 'on' : null },
+      ENGINE: { fetch: async request => {
+        const path = new URL(request.url).pathname;
+        if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor, deals: [row] });
+        if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, checklist, documents, email_follow_ups });
+        const id = path.split('/').at(-1);
+        const file = documents.find(file => file.id === id);
+        assert.ok(file, path);
+        opened.push(id);
+        return new Response(`bytes of ${file.name} v${file.version}`, {
+          headers: { 'content-type': 'application/pdf', 'content-disposition': `attachment; filename="${file.name}"` },
+        });
+      } },
+      CARR: { fetch: async request => {
+        const { id, params: { name, arguments: args } } = await request.json();
+        if (name !== 'list-deal-documents' || args.limit === 50) carr.push(name);
+        const data = {
+          'deal-room-board': { schema_version: 'local-deals-board.v2', actor, deals: [row] },
+          'get-deal-room': row,
+          'list-email-proposals': { schema_version: 'email-proposals.v1', send: false, proposals: [], more: false, next_cursor: null },
+          'list-deal-documents': { ok: true, schema_version: 'deal-documents.v1', documents: [], has_more: false, next_cursor: null },
+        }[name];
+        return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
+      } },
+    };
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `deal-file-read-${actor}-${readsOn}`, viewer: actor, reset: true } });
+    const routeThroughWorker = async route => {
+      const request = route.request();
+      const response = await handleDoctorcreRequest(new Request(request.url(), {
+        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+      }), env);
+      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
+    };
+    await page.route('**/api/engine/documents/*', routeThroughWorker);
+    await page.route('**/mcp', route => [
+      'deal-room-board', 'get-deal-room', 'list-deal-documents', 'list-email-proposals',
+    ].includes(route.request().postDataJSON()?.params?.name) ? routeThroughWorker(route) : route.continue());
+
+    await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+    const followups = page.getByRole('region', { name: 'Email follow-ups' });
+    await followups.getByText(readsOn ? 'Plan ready' : 'No email follow-ups.', { exact: true }).waitFor();
+    if (readsOn) {
+      for (const subject of ['Plan ready', 'Letter attached']) assert.equal(await followups.getByText(subject, { exact: true }).count(), 1);
+      assert.match(await followups.innerText(), /Example Sender.*Nov 1/);
+      assert.match(await followups.innerText(), /Send the plan.*Dell.*16 days late/);
+      assert.doesNotMatch(await followups.innerText(), /2026-11-01T|file_to_deal/);
+      const progress = page.locator('.deal-checklist');
+      await progress.locator(':scope > summary').getByText('lease end', { exact: true }).waitFor();
+      await progress.locator(':scope > summary').click();
+      await progress.getByText('1 of 2 complete.', { exact: true }).waitFor();
+      await progress.getByText('Complete', { exact: true }).waitFor();
+      const deadline = progress.locator('[data-checklist-item]').filter({ hasText: 'lease end' });
+      await deadline.getByText('Nov 14, 2026', { exact: true }).waitFor();
+      await deadline.getByText('Overdue', { exact: true }).waitFor();
+      await progress.locator(':scope > summary').getByText('lease end', { exact: true }).waitFor({ state: 'detached' });
+      assert.equal(await progress.getByText('lease end', { exact: true }).count(), 1);
+      const filter = progress.getByRole('combobox', { name: 'Show', exact: true });
+      await filter.selectOption({ label: 'To do' });
+      assert.equal(await progress.getByText('Executed lease', { exact: true }).count(), 0);
+      await filter.selectOption({ label: 'All' });
+      await deadline.getByText('Details', { exact: true }).click();
+      await deadline.getByText('Example option notice').waitFor();
+      assert.doesNotMatch(await progress.innerText(), /2026-11-14|add-critical-date|\brecorded\b/i);
+      await progress.evaluate(element => element.scrollIntoView({ block: 'end' }));
+      await progress.screenshot({ path: join(evidence, `engine-checklist-${actor}.png`) });
+    }
+    await page.getByRole('tab', { name: 'Documents', exact: true }).click();
+    const tab = page.getByRole('tabpanel', { name: 'Documents', exact: true });
+    if (readsOn) {
+      await tab.getByRole('link').first().waitFor();
+      assert.equal(await tab.getByRole('link').count(), documents.length);
+      for (const [index, file] of documents.entries()) {
+        const item = tab.getByRole('listitem').nth(index);
+        const link = item.getByRole('link', { name: `${file.name}, Version ${file.version}`, exact: true });
+        assert.match(await item.innerText(), new RegExp(`Version ${file.version} · Nov [1-3]`));
+        const downloading = page.waitForEvent('download');
+        await link.click();
+        const download = await downloading;
+        assert.equal(download.suggestedFilename(), file.name);
+        assert.equal(await text(await download.createReadStream()), `bytes of ${file.name} v${file.version}`);
+      }
+      assert.deepEqual(opened, [plan, letter, earlierPlan]);
+      assert.doesNotMatch(await tab.innerText(), /2026-11-01T/);
+      assert.deepEqual(carr, []);
+      await tab.screenshot({ path: join(evidence, `engine-documents-${actor}.png`) });
+    } else {
+      await tab.getByText('No documents filed for this deal.').waitFor();
+      assert.ok(carr.includes('list-deal-documents'));
+      assert.ok(carr.includes('list-email-proposals'));
+      assert.deepEqual(opened, []);
+    }
+  });
+}
 after(async () => {
   await browser?.close();
   if (server) await server.close();

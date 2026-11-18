@@ -47,6 +47,28 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
   return { env, send, engine, carr, kv };
 }
 
+test("a filed deal document streams from the engine only with Deals reads on", async () => {
+  const url = `${origin}/api/engine/documents/00000000-0000-4000-8000-000000000001`;
+  const request = () => new Request(url, { headers: { cookie: "session=synthetic" } });
+  const disabled = fixture(new Map([["deals-saves-from-engine", "on"]]));
+  assert.equal((await worker.fetch(request(), disabled.env)).status, 404);
+  assert.equal(disabled.engine.length, 0);
+  assert.deepEqual(disabled.carr, []);
+
+  const enabled = fixture(
+    new Map([["deals-from-engine", "on"]]),
+    async () =>
+      new Response(new Uint8Array([0, 128, 255]), {
+        headers: { "content-disposition": 'attachment; filename="Example.pdf"', "content-type": "application/pdf" },
+      }),
+  );
+  const response = await worker.fetch(request(), enabled.env);
+  assert.equal(enabled.engine[0]?.url, url);
+  assert.equal(enabled.engine[0]?.headers.get("cookie"), "session=synthetic");
+  assert.equal(response.headers.get("content-disposition"), 'attachment; filename="Example.pdf"');
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([0, 128, 255]));
+});
+
 for (const value of [null, "off", "ON", "", new Error("KV failed")]) {
   test(`off or unavailable switch preserves CARR request (${String(value)})`, async () => {
     const f = fixture(value);

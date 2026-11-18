@@ -3,6 +3,8 @@ import { noteText } from './pipeline-model.js';
 import { overdueSince } from './deal-review-model.js';
 import { radarToday } from './lease-radar-model.js';
 
+export const isEngineDealDetail = detail => Array.isArray(detail?.email_follow_ups);
+
 export const PHASE_TRIGGERS = Object.freeze({
   pending: 'Prospective client', research: 'ETL signed', site_selection: 'Tour prepared or scheduled',
   negotiation: 'LOI submitted', legal: 'Draft lease prepared', due_diligence: 'Lease signed',
