@@ -109,7 +109,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
           if (item.completion_review) delete item.completion_review;
           else {
             item.suggestions = item.suggestions.filter(row => row.id !== id);
-            if (!item.suggestions.length) state.items.splice(state.items.indexOf(item), 1);
+            if (!item.suggestions.length && !item.reply_draft_id) state.items.splice(state.items.indexOf(item), 1);
           }
           return Response.json({ proposal_id: id, status: args.decision === 'accept' ? 'accepted' : 'dismissed' });
         }
@@ -119,6 +119,13 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
         draft.subject = args.subject ?? draft.subject;
         draft.body = args.body ?? draft.body;
         draft.status = action === 'submission' ? 'approved' : action === 'dismissal' ? 'dismissed' : 'pending';
+        if (draft.status !== 'pending' && item.suggestions?.length) {
+          const [first] = item.suggestions;
+          const { reply_draft_id, reply_draft_status, ...remaining } = item;
+          state.items.push({ ...remaining, item_id: `suggestion:${first.id}`, source_id: first.id,
+            kind_label: 'Task', title: 'Remaining email suggestion' });
+          delete item.suggestions;
+        }
         if (draft.status === 'dismissed') state.items.splice(state.items.indexOf(item), 1);
         Object.assign(item, { source_version: String(draft.version), reply_draft_status: draft.status, source_state: action === 'submission' ? 'working' : 'needs_attention',
           section: action === 'submission' ? 'working' : 'inbox' });
@@ -259,6 +266,8 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   const decline = '00000000-0000-0000-0000-000000000024';
   const leading = '00000000-0000-0000-0000-000000000025';
   const phase = '00000000-0000-0000-0000-000000000026';
+  const nested = '00000000-0000-0000-0000-000000000027';
+  const remaining = '00000000-0000-0000-0000-000000000028';
   const evidence = { evidence: 'Discussed next steps.', source_activity: { kind: 'call', summary: 'The sample call summary.', happened_at: NOW.toISOString() } };
   state.items[2].completion_review = { proposal_id: proposal, can_resolve: false };
   details.set(proposal, { ...evidence, proposal_id: proposal, kind: 'next_step_done' });
@@ -269,12 +278,15 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
     { ...notice, title: 'Email suggestions', item_id: `suggestion:${leading}`, source_id: leading, source_type: 'email_proposal',
       deal_id: null, kind_label: 'Task', suggestions: [{ id: leading }, { id: next }] },
     { ...notice, title: 'Reply to the sample email', item_id: `reply_draft:${draft}`, source_id: draft, source_type: 'email_proposal',
-      deal_id: null, kind_label: 'Reply draft', source_version: '1', reply_draft_id: draft },
+      deal_id: null, kind_label: 'Reply draft', source_version: '1', reply_draft_id: draft,
+      suggestions: [{ id: nested }, { id: remaining }] },
   );
   details.set(log, { ...evidence, proposal_id: log, kind: 'log_call', target_name: 'Example Dental', what: 'Log the sample call' });
   details.set(next, { ...evidence, proposal_id: next, kind: 'next_step', what: 'Share the plan', due_on: '2026-11-04' });
   details.set(phase, { ...evidence, proposal_id: phase, kind: 'phase_move', to_phase: 'legal' });
   details.set(leading, { ...evidence, proposal_id: leading, kind: 'possible_new_deal' });
+  details.set(nested, { ...evidence, proposal_id: nested, kind: 'next_step', what: 'Share the sample plan' });
+  details.set(remaining, { ...evidence, proposal_id: remaining, kind: 'possible_new_deal' });
   details.set(draft, { draft_id: draft, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
     to: 'sender@example.test', cc: 'partner@example.test', attachments: [{ document_id: dealId, name: 'Sample plan' }],
     source_activity: { sender: 'sender@example.test', subject: 'Sample email', body: 'Please share the sample plan.', happened_at: NOW.toISOString() } });
@@ -346,16 +358,26 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await email.getByRole('textbox', { name: 'Next step', exact: true }).waitFor({ state: 'detached' });
   assert.ok(writes.at(-1)[0].includes(next));
   assert.deepEqual(writes.at(-1)[1].edits, { what: 'Share the revised plan', due_on: '2026-11-04' });
-  await reply.getByRole('button', { name: 'Open', exact: true }).click();
+  mailRows = [{ ...priority, conversation_id: 'sample-draft-conversation', item_id: `reply_draft:${draft}`,
+    base_version: state.items.find(row => row.reply_draft_id === draft).base_version,
+    proposal_id: null, reply_draft_id: draft, subject: 'Sample draft message' }];
+  await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
+  await mail.getByRole('button', { name: 'Sample Sender · Sample draft message', exact: true }).click();
   await reply.getByText('Please share the sample plan.', { exact: true }).waitFor();
   await reply.getByRole('link', { name: 'Sample plan', exact: true }).waitFor();
   await reply.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited reply.');
+  assert.equal(await cardFor(/Remaining email suggestion/).count(), 0);
+  await reply.getByRole('button', { name: 'Accept', exact: true }).first().click();
+  await reply.getByText('Suggestion accepted.', { exact: true }).waitFor();
+  assert.match(writes.at(-1)[0], new RegExp(`/proposals/${nested}/decision$`));
+  assert.equal(await reply.getByRole('textbox', { name: 'Message', exact: true }).inputValue(), 'Edited reply.');
   await reply.getByRole('button', { name: 'Save draft', exact: true }).click();
   await reply.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, subject: 'Sample reply', body: 'Edited reply.' });
   await reply.getByRole('button', { name: 'Send reply', exact: true }).click();
   await inbox.getByRole('region', { name: 'In motion and waiting', exact: true }).getByRole('button', { name: /^See all/ }).click();
   await inbox.getByText('Sending', { exact: true }).first().waitFor();
+  await cardFor(/Remaining email suggestion/).waitFor();
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 2, subject: 'Sample reply',
     body: 'Edited reply.', to: 'sender@example.test', cc: 'partner@example.test', document_ids: [dealId] });
   details.set(decline, { ...details.get(draft), draft_id: decline, version: 1, status: 'pending' });

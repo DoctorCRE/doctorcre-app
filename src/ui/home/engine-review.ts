@@ -121,10 +121,9 @@ export type Suggestion = {
 
 export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: AbortSignal): Promise<CardReview> {
   const draft = draftId(item);
-  if (draft) return loadDraft(rpc, item, draft, signal);
   const selected = proposalIds(item).filter((id) => !item.review_proposal || id === item.review_proposal);
-  if (!selected.length) throw unreadable();
-  const proposals = await Promise.all(
+  if (!draft && !selected.length) throw unreadable();
+  const pending = Promise.all(
     selected.map(async (id) => {
       const value = await answer(rpc, "read-engine-home-proposal", { id }, signal);
       const label = kinds.get(string(value.kind) ?? "");
@@ -145,10 +144,19 @@ export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: Abort
       };
     }),
   );
-  return { kind: "suggestions", operations: [], proposals };
+  if (draft) {
+    const [reply, proposals] = await Promise.all([loadDraft(rpc, item, draft, signal), pending]);
+    return { ...reply, proposals };
+  }
+  return { kind: "suggestions", operations: [], proposals: await pending };
 }
 
-async function loadDraft(rpc: Rpc, item: InboxItem, id: string, signal?: AbortSignal): Promise<CardReview> {
+async function loadDraft(
+  rpc: Rpc,
+  item: InboxItem,
+  id: string,
+  signal?: AbortSignal,
+): Promise<Extract<CardReview, { kind: "reply_draft" }>> {
   const value = await answer(rpc, "read-engine-home-draft", { id }, signal);
   const { subject, body, version, status, to, cc } = value;
   if (

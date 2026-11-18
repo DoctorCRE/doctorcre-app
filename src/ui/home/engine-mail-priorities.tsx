@@ -51,7 +51,9 @@ async function readPriorities(signal: AbortSignal) {
     )
       throw invalid();
     const proposal =
-      typeof row.proposal_id === "string" && row.reply_draft_id === null && row.item_id.startsWith("suggestion:")
+      typeof row.proposal_id === "string" &&
+      row.reply_draft_id === null &&
+      (row.item_id.startsWith("suggestion:") || row.item_id.startsWith("reply_draft:"))
         ? row.proposal_id
         : null;
     const draft =

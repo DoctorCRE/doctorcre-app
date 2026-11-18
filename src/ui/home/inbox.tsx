@@ -412,6 +412,7 @@ export type CardReview =
   | { kind: "suggestions"; operations: []; proposals: Suggestion[] }
   | (Extract<Review, { kind: "reply_draft" }> & {
       email: IncomingEmail | null;
+      proposals?: Suggestion[];
       addresses?: { to: string | null; cc: string | null };
       attachments?: { id: string; name: string }[];
       statusMessage?: string | null;
