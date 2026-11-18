@@ -553,7 +553,7 @@ const remainingScreens = [
   ["national-deals-from-engine", "capture-queue", "/api/engine/capture-queue"],
 ] as const;
 
-test("Home keeps completion, review and other inbox versions on CARR while their engine wiring is pending", async () => {
+test("Home keeps legacy completion and review calls on CARR for their other callers", async () => {
   const f = fixture(new Map([["home-from-engine", "on"]]));
   const bodies = [
     "read-home-inbox-v4",
@@ -562,13 +562,6 @@ test("Home keeps completion, review and other inbox versions on CARR while their
     "reopen-one-action",
     "edit-email-draft",
   ].map((name) => call(name));
-  bodies.push(
-    call("snooze-home-inbox", {
-      idempotency_key: "4c719df9-2168-4b5a-a26b-95b20376a75f",
-      until: "2099-01-01T00:00:00Z",
-      items: [{ item_id: "next_step_done:00000000-0000-0000-0000-000000000001", base_version: "7:0:inbox" }],
-    }),
-  );
   for (const body of bodies) assert.equal(await (await f.send(body)).text(), "old");
   assert.deepEqual(
     f.carr,
@@ -1623,4 +1616,23 @@ test("Home identifies a successful engine snapshot for the app's save routing", 
   );
   const reply = await (await f.send(call("read-home-inbox-v5"))).json();
   assert.equal(JSON.parse(reply.result.content[0].text).engine_marks, true);
+});
+
+test("the Home switch routes guarded step and review actions through signed-in engine doors", async () => {
+  const id = "00000000-0000-0000-0000-000000000001";
+  const f = fixture(new Map([["home-from-engine", "on"]]), async () => Response.json({ success: true }));
+  const step = { idempotency_key: id, base_version: 2147483648, resolution: "done" };
+  await f.send(call("end-engine-home-step", { id, ...step }));
+  await f.send(call("read-engine-home-proposal", { id }));
+  await f.send(call("decide-engine-home-proposal", { id, idempotency_key: id, decision: "accept" }));
+  assert.deepEqual(
+    f.engine.map((request) => [request.method, new URL(request.url).pathname]),
+    [
+      ["POST", `/api/engine/next-steps/${id}/end`],
+      ["GET", `/api/engine/proposals/${id}`],
+      ["POST", `/api/engine/proposals/${id}/decision`],
+    ],
+  );
+  assert.deepEqual(await f.engine[0]?.json(), step);
+  assert.deepEqual(f.carr, []);
 });

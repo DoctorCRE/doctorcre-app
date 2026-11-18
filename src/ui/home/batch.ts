@@ -3,8 +3,7 @@ import { type InboxItem, object, type Snapshot } from "./inbox.tsx";
 export type BatchAction = "snooze" | "settle";
 type BatchIdentity = Readonly<{ reversible: true; idempotency_key: string }>;
 type ApplyArgs = BatchIdentity & Readonly<{ items: ReadonlyArray<Pick<InboxItem, "item_id" | "base_version">> }>;
-type LegacyReviewUndo = { item_id: string; legacy_key: string };
-type BatchRestore = (Pick<InboxItem, "item_id" | "base_version"> & MarkSelection) | LegacyReviewUndo;
+type BatchRestore = Pick<InboxItem, "item_id" | "base_version"> & MarkSelection;
 export type BatchRequest = { engine_marks?: true; restore?: readonly BatchRestore[] } & (
   | Readonly<{ action: "snooze"; args: ApplyArgs & { until: string } }>
   | Readonly<{ action: "settle"; args: ApplyArgs }>
@@ -17,7 +16,7 @@ export type BatchReceipt = Readonly<{
   item_id: string;
   status: "applied" | "already" | "not_found" | "not_allowed";
   error?: string;
-  undo?: MarkUndo | LegacyReviewUndo;
+  undo?: MarkUndo;
 }>;
 export type BatchResult = Readonly<{ batch_key: string; results: readonly BatchReceipt[]; snapshot: Snapshot | null }>;
 export type Batch = Readonly<{
@@ -117,7 +116,6 @@ export function undoRequest(batch: Batch, subset?: readonly string[]): BatchRequ
   const restore = batch.request.engine_marks
     ? batch.result.results.flatMap<BatchRestore>(({ undo }) => {
         if (!undo || !(subset ?? batch.remaining).includes(undo.item_id)) return [];
-        if ("legacy_key" in undo) return [undo];
         return [{ item_id: undo.item_id, base_version: undo.base_version, ...restoreMark(undo) }];
       })
     : undefined;
