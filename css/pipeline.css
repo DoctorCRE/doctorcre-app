@@ -72,10 +72,12 @@
 .board-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-4); }
 .pipeline-layout { display: block; }
 /* Columns are a tonal step below the cards, so a card is not a box inside a box. */
-.kanban { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(7,minmax(0,1fr)); overflow: visible; gap: var(--space-2); }
-.kanban-column { min-width: 0; padding: var(--space-2); background: var(--ground); }
-.kanban-column > h3 { position: sticky; top: 0; z-index: 2; margin: 0; min-height: var(--space-7); gap: var(--space-1); background: var(--ground); }
-.kanban-column > h3 button { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: var(--touch); padding: var(--space-2) 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.kanban { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: var(--space-2) var(--space-1); }
+.kanban:has(.kanban-column) { max-height: 65dvh; }
+.kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); }
+.kanban-column { min-width: 0; padding: var(--space-2) var(--space-1); background: var(--ground); overflow-wrap: anywhere; }
+.kanban-column > h3 { position: sticky; top: 0; z-index: 2; margin: 0; min-height: var(--space-7); font-size: var(--font-size-1); background: var(--ground); }
+.kanban-column > h3 button { display: flex; align-items: center; gap: var(--space-1); width: 100%; min-height: var(--touch); padding: var(--space-1) 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .kanban-column > h3 button small { margin-left: auto; }
 .stage-preview { display: grid; gap: var(--space-2); margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); overflow-wrap: anywhere; }
 .work-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; font-variant-numeric: tabular-nums; }
@@ -86,6 +88,9 @@
 .auto-move button { justify-self: start; padding: 0 var(--space-2); min-height: var(--touch); }
 /* Attention is a status, not the brand colour: a warn rule on top and the words. */
 .kanban-card.work-card--tile .work-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.kanban-column .deal-summary-line { display: flex; flex-wrap: wrap; }
+.kanban-column .deal-summary-facts { white-space: pre-wrap; }
+.kanban-column .deal-items { padding-inline-start: 1em; }
 .kanban-card[data-attention="true"] { border-top: 2px solid var(--status-warn); }
 .attention-flag { display: inline-flex; align-items: center; min-width: var(--touch); min-height: var(--touch); padding: 0 var(--space-1); border: 0; background: transparent; color: var(--status-warn-ink); font: inherit; font-size: var(--font-size-1); font-weight: var(--font-weight-strong); white-space: nowrap; text-decoration: underline; text-decoration-color: var(--hairline); text-underline-offset: 4px; cursor: pointer; }
 .attention-flag:hover { text-decoration-color: currentColor; }
@@ -110,9 +115,7 @@
 .deal-note summary { cursor: pointer; color: var(--fg-muted); min-height: var(--touch); }
 .note-original { white-space: pre-wrap; overflow-wrap: anywhere; }
 .park-control { color: var(--status-danger-ink); background: transparent; border: 0; margin-top: var(--space-4); }
-@media(max-width:1440px) { .kanban { grid-template-columns: repeat(4,minmax(0,1fr)); } }
-@media(max-width:650px) { .kanban { grid-template-columns: repeat(2,minmax(0,1fr)); } .kanban-column:not(:has(.kanban-card)) { min-height: 0; } .detail-grid { grid-template-columns: 1fr; } .detail-controls { grid-template-columns: 1fr; } }
-@media(max-width:360px) { .kanban { grid-template-columns: minmax(0,1fr); } }
+@media(max-width:650px) { .kanban-column:not(:has(.kanban-card)) { min-height: 0; } .detail-grid { grid-template-columns: 1fr; } .detail-controls { grid-template-columns: 1fr; } }
 @media(prefers-reduced-motion:reduce) { .kanban-card, .kanban-card:hover, .kanban-card[data-lifted="true"] { transition: none; transform: none; } }
 :root[data-motion="reduced"] :is(.kanban-card, .kanban-card:hover, .kanban-card[data-lifted="true"]) { transition: none; transform: none; }
 
@@ -130,8 +133,6 @@
 
 .hero-meta .as-of::after { content: none; }
 .hero-meta #retryRead { border: 0; background: transparent; color: var(--fg-muted); }
-
-.kanban-card .auto-move span { display: block; white-space: nowrap; text-overflow: ellipsis; }
 
 .has-app-layout .deal-detail #panelBody { display: block; }
 
@@ -182,12 +183,8 @@
 .app-section-tabs { display:flex; align-items:center; gap:var(--space-4); border-bottom:var(--hairline-width) solid var(--hairline); }
 .app-section-tabs a { display:flex; align-items:center; min-height:var(--touch); padding:var(--space-2) 0; color:var(--fg-muted); text-decoration:none; border-bottom:2px solid transparent; font-weight:var(--font-weight-strong); }
 .app-section-tabs a[aria-current=page] { color:var(--fg); border-bottom-color:var(--fg); }
-.dealroom-page.has-app-layout .kanban { grid-template-columns:repeat(7,minmax(300px,1fr)); overflow:auto; }
-.dealroom-page.has-app-layout .kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); }
-.dealroom-page.has-app-layout .kanban:has(.kanban-column) { max-height:65dvh; }
-@media(max-width:1100px) { .dealroom-page.has-app-layout .kanban { grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); } }
 @media(max-width:760px) {
- .dealroom-page.has-app-layout .kanban { grid-template-columns:minmax(0,1fr); }
+ .kanban { grid-template-columns: minmax(0, 1fr); }
  .dealroom-page .kanban-column[data-hide-empty="true"] { display:none; }
  .stages-hidden { display:flex; grid-column:1/-1; align-items:center; flex-wrap:wrap; gap:var(--space-2); margin:0; color:var(--fg-muted); font-size:var(--font-size-1); }
  .stages-hidden button { min-height:var(--touch); padding:0 var(--space-3); border:0; background:transparent; color:var(--fg); font:inherit; text-decoration:underline; text-underline-offset:4px; cursor:pointer; }
@@ -267,6 +264,11 @@
   .work-card--row .deal-row-next { align-self: center; }
 }
 .kanban-card .attention-flag { align-self: flex-start; align-items: flex-start; margin-block: 0 -20px; }
+@media (width > 760px) {
+  .kanban-column .kanban-card .work-card-title { font-size: .9375rem; }
+  .kanban-column .deal-vendor-details p { grid-template-columns: minmax(0, 1fr); }
+  .kanban-column .attention-flag { white-space: normal; text-align: start; }
+}
 .work-card--row .deal-row-next .attention-flag { padding-inline: 0; }
 
 #panelTerms { margin-block: var(--space-4); }

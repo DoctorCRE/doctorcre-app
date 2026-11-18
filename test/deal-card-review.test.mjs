@@ -151,6 +151,34 @@ test('deal review prioritizes cards, page tabs and Add deal in both themes and w
 });
 
 
+test('all seven phases fit in one row beside Today at 1440px', async t => {
+ const {page}=await open(t,1440,{showDetail:false});
+ await page.locator('#appTodayTitle').waitFor();
+ const headings=page.locator('#kanban .kanban-column > h3');
+ assert.deepEqual(await headings.getByRole('button').evaluateAll(buttons=>buttons.map(button=>button.getAttribute('aria-label'))),[
+  'Collapse Prospective Client','Collapse Research','Collapse Site Selection','Collapse Negotiating','Collapse Legal','Collapse Due Diligence','Collapse Closing'
+ ]);
+ const board=page.locator('#kanban');
+ const widths=await board.evaluate(node=>({visible:node.clientWidth,scrollable:node.scrollWidth}));
+ assert.equal(widths.scrollable,widths.visible,'board has no horizontal scroll');
+ const today=await page.locator('#appToday').boundingBox();
+ const boxes=await headings.evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().toJSON()));
+ assert.equal(new Set(boxes.map(box=>box.top)).size,1,'all phase headings share one row');
+ assert.ok(boxes.every(box=>box.left>=0&&box.right<=today.x),'every heading fits before the visible Today panel');
+ await page.setViewportSize({width:1280,height:960});
+ assert.ok(await board.evaluate(node=>node.scrollWidth===node.clientWidth),'board has no horizontal scroll at 1280px');
+ const overflowingCards=await board.locator('.kanban-column .kanban-card').evaluateAll(cards=>
+  cards.filter(card=>card.scrollWidth>card.clientWidth).map(card=>card.getAttribute('aria-label')));
+ assert.deepEqual(overflowingCards,[],'card content wraps within its own card');
+});
+
+test('the look-ahead label lines up with the Today headings', async t => {
+ const {page}=await open(t,1440,{showDetail:false});
+ const heading=await page.getByRole('heading',{name:'Today',exact:true}).boundingBox();
+ const label=await page.getByText('A LITTLE LOOK AHEAD',{exact:true}).boundingBox();
+ assert.equal(label.x,heading.x);
+});
+
 test('phone timeline has one rail and unlinked context opens an explicit empty state',async t=>{
  const {page}=await open(t,390);
 

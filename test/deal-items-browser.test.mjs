@@ -30,7 +30,11 @@ for (const width of [390, 1280]) test(`a checklist item opens its own sheet and 
   await card.waitFor({ timeout: 15000 });
   assert.equal(await card.locator('h4').textContent(), "Dr. Demo's Sample Deal, multidisciplinary practice");
   assert.equal(await card.locator('ol li').count(), 3);
-  if (width > 760) assert.ok((await card.boundingBox()).width >= 220, 'desktop item titles have a readable card width');
+  const itemsFit = await card.locator('ol button').evaluateAll(buttons => buttons.every(button => {
+    const { width, height } = button.getBoundingClientRect();
+    return width >= 44 && height >= 44 && button.scrollWidth <= button.clientWidth;
+  }));
+  assert.ok(itemsFit, 'item titles wrap inside their buttons and keep a 44px target');
   assert.equal(await card.locator('.owner').textContent(), 'Joe');
   assert.equal(await card.locator('.next-line,.vendor-pills,.auto-move').count(), 0);
   await mkdir(new URL('out/test-artifacts/deal-items/', root), { recursive: true });
