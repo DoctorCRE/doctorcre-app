@@ -68,7 +68,7 @@ export async function prove({ origin, timeoutMs = 30000, engine = chromium }) {
     await overdue.getByRole('button', { name: 'See all 2' }).click();
     assert.deepEqual(await overdue.locator('[data-inbox-row]').evaluateAll(nodes => nodes.map(n => n.dataset.inboxRow)), ['overdue-task', 'overdue-call']);
     for (const name of ['Needs your attention', 'Today']) assert.equal(await page.getByRole('region', { name, exact: true }).locator('[data-inbox-row^="overdue-"]').count(), 0);
-    assert.ok(await overdue.innerText().then(text => text.includes('2026-11-04')));
+    assert.deepEqual(await overdue.locator('time[datetime="2026-11-04"]').allTextContents(), ['Nov 4, 2026', 'Nov 4, 2026']);
     await page.evaluate(() => dispatchEvent(new Event('doctorcre-session-invalidated')));
     await page.locator('.home-sections').waitFor({ state: 'detached' });
     const after = await readAppRelease(origin, read); assert.deepEqual(after, release, 'Stable app release');

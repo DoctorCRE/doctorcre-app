@@ -5,7 +5,7 @@ import { card, needs } from "./ui.ts";
 test("08 WR617.S10", async ({ page }) => {
   const row = await card(page);
   await row.locator("h3 a").click();
-  const source = row.getByRole("link", { name: /^Open / });
+  const source = row.locator(".inbox-source");
   needs(!(await source.count()), "completed test Doc answer with table and chart");
   const href = await source.getAttribute("href");
   needs(!href?.startsWith("/doc-chats"), "completed test Doc answer with table and chart");

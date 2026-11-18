@@ -198,5 +198,6 @@ test('v5 watch notification routes to its exact client record', async () => {
   const { recordRoutes } = await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].contents).toString('base64')}`);
   assert.equal(recordRoutes.source(parsed.items[0]), url);
   for (const open_url of ['/clients', '/clients?record=bad', '/clients?record=', '/clients?record=00000000-0000-4000-8000-000000000002&record=00000000-0000-4000-8000-000000000003']) assert.equal(recordRoutes.source({ ...parsed.items[0], open_url }), null);
-  for (const open_url of ['/deals?deal=demo', '/calls?session=demo', '/updates?notification=demo', '/doc-chats?conversation=demo']) assert.equal(recordRoutes.source({ ...parsed.items[0], open_url }), open_url);
+  for (const open_url of ['/deals?deal=demo', '/calls?session=demo', '/doc-chats?conversation=demo']) assert.equal(recordRoutes.source({ ...parsed.items[0], open_url }), open_url);
+  for (const open_url of ['/updates', '/updates?notification=demo', '/notifications?watch=demo']) assert.equal(recordRoutes.source({ ...parsed.items[0], open_url }), null);
 });

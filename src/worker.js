@@ -263,6 +263,81 @@ async function engineResponse(request, env) {
   finally { clearTimeout(timer); reader?.releaseLock(); }
 }
 
+// New-schema receipts are separate from the legacy tool receipts.
+const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
+const CUTOVER_SAVES = new Set([
+  'patch-deal-field', 'update-deal', 'set-next-step', 'complete-deal-item', 'record-deal-item',
+  'add-deal-note', 'new-deal', 'set-lead', 'set-market-agent', 'add-critical-date',
+  'instruct-deal-item', 'revert-deal-field', 'resolve-conflict',
+]);
+const isUuid = value => isString(value) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
+
+function nextDealSave(verb, args) {
+  const { deal, idempotency_key, seen_change_id, field, value } = args;
+  if (!isUuid(deal) || !isUuid(idempotency_key)) return null;
+  const post = (path, body) => ({ path: '/api/engine' + path, body: { idempotency_key, ...body } });
+  const changes = patch => post(`/deals/${deal}/changes`, { seen_change_id, ...patch });
+  switch (verb) {
+    case 'patch-deal-field':
+      if (field === 'phase' && value !== 'closed' && (args.phase_from === null || isString(args.phase_from))) {
+        const reason = [args.change_reason, args.human_quote].filter(isString).join('\n\n') || undefined;
+        return changes({ phase: { from: args.phase_from, to: value, reason } });
+      }
+      if (field === 'owner' && isString(value) && value) return changes({ fields: { owner: value } });
+      if (field === 'market' && (value === null || isUuid(value))) return changes({ fields: { market_id: value } });
+      if (field === 'attention') return changes({ fields: { needs_attention: value } });
+      if (field === 'operating_state' && value?.state === 'parked') {
+        return changes({ fields: { parking_reason: value.reason, parking_note: value.note || null } });
+      }
+      if (field === 'operating_state' && value?.state === 'active') {
+        return changes({ fields: { parking_reason: null, parking_note: null } });
+      }
+      return null;
+    case 'set-next-step':
+      return post('/next-steps', { deal_id: deal, what: args.text, due_on: args.next_date ?? undefined, replaces: 'current' });
+    case 'complete-deal-item':
+      return isUuid(args.item_id) ? post(`/next-steps/${args.item_id}/end`, { resolution: 'done' }) : null;
+    case 'record-deal-item':
+      return post('/next-steps', { deal_id: deal, what: args.title, due_on: args.due_on ?? undefined,
+        item: { title: args.title, bullets: args.bullets, source_ref: args.source_ref } });
+    case 'add-deal-note':
+      return post('/activities', { kind: 'note', happened_at: args.happened_at, about: [{ deal_id: deal }], summary: args.text });
+    default:
+      return null;
+  }
+}
+
+function saveRefusal(call, error, hint) {
+  return mcpReply(call, new Response(null), JSON.stringify({ error, hint }), true);
+}
+
+async function cutoverSave(request, env, call) {
+  const { name, arguments: args } = call.params;
+  const on = await switchedOn(env, NEXT_DEAL_SAVES);
+  const fromNext = Number.isSafeInteger(args.seen_change_id) && args.seen_change_id >= 0;
+  if (!on && !fromNext) return null;
+  if (on && !await switchedOn(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
+  const save = nextDealSave(name, args);
+  if (on && !save) return saveRefusal(call, 'deal_save_unavailable', 'This change is temporarily unavailable.');
+  // A retained request may outlive a switch change. Its snapshot pins the destination.
+  if (!on || !fromNext) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
+  const response = await sendEngineSave(request, env, save.path, save.body);
+  if (!response || response.status >= 500) return unavailable(false);
+  if ([401, 403, 429].includes(response.status)) return response;
+  const body = await response.json().catch(() => null);
+  if (!isObject(body)) return unavailable(false);
+  if (!response.ok) {
+    const hint = body.error === 'version_conflict' ? 'This deal changed. Reload the deal before saving.'
+      : body.error === 'step_ended' ? 'This step was already closed. Reload the deal to see its current steps.'
+      : 'The change could not be saved. Review the deal and try again.';
+    return mcpReply(call, response, JSON.stringify({ ...body, hint }), true);
+  }
+  const saved = save.path.endsWith('/changes') ? body.deal_id === args.deal
+    : save.path.endsWith('/activities') ? isUuid(body.activity_id) : isUuid(body.next_step_id);
+  if (!saved || body.error) return unavailable(false);
+  return mcpReply(call, response, JSON.stringify({ ...body, ok: true }), false);
+}
+
 const DEAL_SAVES = 'deal-saves-to-engine';
 // Each old save the engine can answer, by tool name: its switch key and engine path.
 const ENGINE_SAVES = new Map([
@@ -282,24 +357,36 @@ const OLD_SYSTEM_ANSWERS = new Map([[501, 'old_system_required'], [409, 'key_reu
 async function engineSave(request, env) {
   const url = new URL(request.url);
   const call = await mcpCall(request, url);
-  const save = ENGINE_SAVES.get(call?.params?.name);
-  if (call?.method !== 'tools/call' || !save || !isObject(call.params.arguments)) return null;
+  if (call?.method !== 'tools/call' || !isObject(call.params?.arguments)) return null;
+  if (CUTOVER_SAVES.has(call.params.name)) {
+    const result = await cutoverSave(request, env, call);
+    if (result) return result;
+  }
+  const save = ENGINE_SAVES.get(call.params.name);
+  if (!save) return null;
   if (await switchedOn(env, save.key)) return await engineAnswer(request, env, call, save) ?? carrResponse(request, env);
   const old = await carrResponse(request, env);
   if (await oldRefusal(old.clone()) !== 'key_reuse') return old;
   return await engineAnswer(request, env, call, save) ?? old;
 }
 
-// The engine's answer to a save, or null when it handed the save to the old system.
-async function engineAnswer(request, env, call, save) {
+async function sendEngineSave(request, env, path, body) {
   const headers = new Headers({ 'content-type': 'application/json' });
   for (const key of ['cookie', 'origin', 'sec-fetch-site', 'x-carr-csrf']) {
     const value = request.headers.get(key);
     if (value !== null) headers.set(key, value);
   }
-  let response, text;
   try {
-    response = await env.ENGINE.fetch(new Request(new URL(save.path, request.url), { method: 'POST', headers, body: JSON.stringify(call.params.arguments), redirect: 'manual' }));
+    return await env.ENGINE.fetch(new Request(new URL(path, request.url), { method: 'POST', headers, body: JSON.stringify(body), redirect: 'manual' }));
+  } catch { return null; }
+}
+
+// The legacy-schema engine can hand a save to CARR using the shared receipt.
+async function engineAnswer(request, env, call, save) {
+  const response = await sendEngineSave(request, env, save.path, call.params.arguments);
+  if (!response) return unavailable(false);
+  let text;
+  try {
     if ([401, 403, 429].includes(response.status)) return response;
     text = await response.text();
   } catch { return unavailable(false); }

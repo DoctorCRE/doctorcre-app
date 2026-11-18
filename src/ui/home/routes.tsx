@@ -2,11 +2,12 @@ import type { InboxItem } from "./inbox";
 export const recordPages = new Map([
   ["/deals", "deal"],
   ["/calls", "call"],
-  ["/updates", "Updates"],
   ["/doc-chats", "document chat"],
   ["/leases", "lease"],
   ["/clients", "client"],
+  ["/relationships", "contact"],
 ]);
+const recordId = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 export const recordRoutes = {
   card: (id: string) => `/inbox/card/${encodeURIComponent(id)}`,
   source(item: Pick<InboxItem, "open_url">): string | null {
@@ -30,12 +31,12 @@ export const recordRoutes = {
     }
     if (parsed.pathname === "/clients") {
       const records = parsed.searchParams.getAll("record");
-      return records.length === 1 &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(records[0] ?? "")
-        ? url
-        : null;
+      return records.length === 1 && recordId.test(records[0] ?? "") ? url : null;
     }
-    if (parsed.pathname === "/notifications") return `/updates${parsed.search}${parsed.hash}`;
+    if (parsed.pathname === "/relationships") {
+      const [node, ...others] = parsed.searchParams.getAll("node");
+      return node?.startsWith("party:") && recordId.test(node.slice("party:".length)) && !others.length ? url : null;
+    }
     const supported = recordPages.has(parsed.pathname);
     return parsed.origin === "https://doctorcre.invalid" && supported ? url : null;
   },

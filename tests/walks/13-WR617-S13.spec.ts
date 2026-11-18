@@ -13,7 +13,7 @@ test("13 WR617.S13", async ({ page }) => {
     .nth(1);
   needs(!(await unrelated.count()), "second TEST WALK 13 card to verify unchanged state");
   const before = await unrelated.textContent();
-  await row.getByRole("button", { name: "See details", exact: true }).click();
+  await row.getByRole("button", { name: "Open", exact: true }).click();
   await complete(page, row);
   await visible(page.locator(".inbox-notice").getByRole("button", { name: /^Undo/ }));
   expect((await unrelated.textContent()) === before).toBe(true);
@@ -24,6 +24,6 @@ test("13 WR617.S13", async ({ page }) => {
   } finally {
     await check.close();
   }
-  await row.getByRole("button", { name: "Close review", exact: true }).click();
+  await row.getByRole("button", { name: "Close", exact: true }).click();
   await undo(page);
 });

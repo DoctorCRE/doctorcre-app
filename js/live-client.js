@@ -24,7 +24,7 @@ import { createRetainedCommands } from './retained-commands.mjs';
 // unrecognized errors can follow a committed write; retain those for replay.
 const CREATION_REFUSALS = new Set([
   'missing_required', 'subject_not_found', 'needs_disambiguation', 'not_a_client',
-  'deal_name_exists', 'salesforce_id_in_use', 'unknown_deal_type',
+  'deal_name_exists', 'deal_save_unavailable', 'salesforce_id_in_use', 'unknown_deal_type',
   'unknown_phase', 'unknown_lane',
 ]);
 

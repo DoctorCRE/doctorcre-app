@@ -59,8 +59,8 @@ export async function exerciseHome(page) {
     await page.locator('[data-inbox-row]').first().waitFor();
     await page.evaluate(() => { history.replaceState(null, '', '/?mode=live'); dispatchEvent(new PopStateEvent('popstate')); });
     const row = page.locator(`[data-inbox-row="${c.name}"]`);
-    await row.getByRole('button', { name: 'See details', exact: true }).click();
-    const panel = page.getByRole('region', { name: `Review Synthetic ${c.name}`, exact: true });
+    await row.getByRole('button', { name: 'Open', exact: true }).click();
+    const panel = page.getByRole('region', { name: `Details for Synthetic ${c.name}`, exact: true });
     if (c.valid) {
       await panel.getByLabel('Decision', { exact: true }).waitFor();
       const source = c.response.detail.observations[0].source;
