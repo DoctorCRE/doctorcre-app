@@ -30,7 +30,7 @@ export function CardDetails({ item, client, children, close, busy, confirmed }: 
 
   return (
     <section
-      className="home-card-details home-inline-review"
+      className="home-card-details"
       ref={host}
       tabIndex={-1}
       aria-label={`Details for ${item.title}`}

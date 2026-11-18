@@ -79,6 +79,7 @@ for (const [name, options, expectedLink, expectedName] of [
   await opener.click();
   await panel.waitFor();
   if (name === 'reply draft') {
+    assert.equal(await panel.locator('.home-inline-review').count(), 1);
     await panel.getByText('Synthetic incoming email', { exact: true }).waitFor();
     assert.equal(await panel.getByText('Demo sender', { exact: false }).count(), 1);
     assert.equal(await panel.getByText('Can you confirm the tour time?', { exact: true }).count(), 1);
