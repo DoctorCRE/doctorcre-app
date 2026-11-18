@@ -185,7 +185,7 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   const writes = [];
   let savesOn = false;
   let clientList = 'available';
-  const client = { id: `party:${clientId}`, name: 'Example Practice', kind: 'client' };
+  const client = { id: `party:${clientId}`, ref: 'C-DEMO', name: 'Example Practice', kind: 'client' };
   const refusals = [
     ['Client role', { error: 'database_refused_the_statement', rule: 'deal_party_client_is_a_client' }, 'Choose an existing client.'],
     ['Market', { error: 'database_refused_the_statement', rule: 'deal_market_id_fkey' }, 'Choose an existing market.'],
@@ -279,7 +279,7 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   for (const outcome of ['Won', 'Lost']) {
     const name = `Example ${outcome} Deal`;
     await page.getByLabel('Deal name').fill(name);
-    await page.getByLabel('Client', { exact: true }).fill('Example Practice');
+    await page.getByLabel('Client', { exact: true }).fill(outcome === 'Won' ? 'c-demo' : 'Example Practice');
     if (outcome === 'Won') await page.getByLabel('Notes', { exact: true }).fill('Example opening note');
     await page.getByRole('button', { name: 'Create deal' }).click();
     await page.getByRole('button', { name, exact: true }).click();
@@ -301,7 +301,7 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
     assert.equal(await date.getAttribute('max'), today);
     await date.fill(earlyDate);
     await page.getByRole('button', { name: 'Save outcome' }).click();
-    await page.getByText('Choose a closing date between the day the deal reached its current phase and today.', { exact: true }).waitFor();
+    await page.locator('#completionErrors').getByText('Choose a closing date between the day the deal reached its current phase and today.', { exact: true }).waitFor();
     await date.fill(today);
     await page.screenshot({ path: join(evidence, `engine-${outcome.toLowerCase()}-dialog.png`) });
     await page.getByRole('button', { name: 'Save outcome' }).click();
@@ -324,4 +324,5 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   assert.deepEqual(writes.filter(write => write.phase?.to && write.phase.on !== earlyDate).map(write => [write.phase.to, write.fields?.closed_value, write.phase.reason]),
     [['closed', 1000, undefined], ['dead', undefined, 'The client chose another site']]);
   assert.ok(writes.filter(write => write.name).every(write => write.client_id === clientId));
+  assert.ok(writes.filter(write => write.name).every(write => write.reason === 'start_up'));
 });

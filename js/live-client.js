@@ -25,14 +25,10 @@ import { createRetainedCommands } from './retained-commands.mjs';
 const CREATION_REFUSALS = new Set([
   'missing_required', 'subject_not_found', 'needs_disambiguation', 'not_a_client',
   'deal_name_exists', 'deal_save_unavailable', 'salesforce_id_in_use', 'unknown_deal_type',
-  'unknown_phase', 'unknown_lane',
+  'unknown_phase', 'unknown_lane', 'reload_deals',
 ]);
 const NEXT_CREATION_REFUSALS = new Set([
   'database_refused_the_statement', 'invalid_field_value', 'unknown_owner', 'version_conflict',
-]);
-const LEGACY_DEAL_REASONS = new Map([
-  ['startup', 'start_up'], ['relocation', 'relocation'], ['expansion', 'expansion'],
-  ['additional_office', 'additional_office'], ['renewal', 'renewal'],
 ]);
 
 /**
@@ -214,6 +210,19 @@ export function createLiveClient(opts = {}) {
     market: d.market ?? d.city ?? '',
     version: d.version ?? d.base_version,
   });
+
+  async function clientIdFor(name) {
+    const query = String(name || '').trim().toLowerCase();
+    const network = await client.getRelationshipNetwork().catch(() => null);
+    const matches = Array.isArray(network?.nodes) ? network.nodes.filter(node => node.kind === 'client'
+      && node.id?.startsWith('party:') && query
+      && [node.name, node.ref].some(value => value?.toLowerCase() === query)) : null;
+    if (matches?.length === 1) return matches[0].id.slice('party:'.length);
+    const hint = matches === null ? 'The client list is unavailable, so try again in a moment.'
+      : matches.length ? 'More than one client has that name, so use the full client reference.'
+      : 'Choose an existing client.';
+    throw Object.assign(new Error(hint), { writeRefusal: true, creationHint: hint });
+  }
 
   const client = {
     mode: /** @type {const} */ ('live'),
@@ -518,11 +527,12 @@ export function createLiveClient(opts = {}) {
       const key = args.idempotency_key || uuidv4();
       const phase = UI_TO_PHASE[args.phase] || args.phase || 'pending';
       const owner = args.owner || selfActor;
+      const legacyKind = ['purchase', 'other'].includes(args.deal_type) ? args.deal_type : undefined;
       const request = args.next_deal_save ? {
         next_deal_save: true, idempotency_key: key, name: args.name, phase, owner,
         client_id: args.client_id,
-        kind: args.kind ?? (['purchase', 'other'].includes(args.deal_type) ? args.deal_type : undefined),
-        reason: args.reason ?? LEGACY_DEAL_REASONS.get(args.deal_type),
+        kind: args.kind ?? legacyKind,
+        reason: args.reason ?? (legacyKind ? undefined : args.deal_type === 'startup' ? 'start_up' : args.deal_type),
         market_id: args.market_id, renews_lease_id: args.renews_lease_id,
       } : {
         client: args.client,
@@ -547,23 +557,12 @@ export function createLiveClient(opts = {}) {
       operation.inFlight = (async () => {
         let res = operation.receipt;
         if (!res) {
-          if (request.next_deal_save && !operation.request.client_id) {
-            const query = String(intent.client || '').trim().toLowerCase();
-            const network = await client.getRelationshipNetwork().catch(() => null);
-            const matches = Array.isArray(network?.nodes) ? network.nodes.filter(node => node.kind === 'client'
-              && node.id?.startsWith('party:') && query
-              && [node.name, node.ref].some(value => value?.toLowerCase() === query)) : null;
-            if (matches?.length !== 1) {
-              dealCreations.delete(key);
-              const hint = matches === null ? 'The client list is unavailable, so try again in a moment.'
-                : matches.length ? 'More than one client has that name, so use the full client reference.'
-                : 'Choose an existing client.';
-              throw Object.assign(new Error(hint), { creationRefused: true, creationHint: hint });
+          try {
+            if (request.next_deal_save && !operation.request.client_id) {
+              operation.request.client_id = await clientIdFor(intent.client);
             }
-            operation.request.client_id = matches[0].id.slice('party:'.length);
-          }
-          try { res = await write('new-deal', operation.request); }
-          catch (error) {
+            res = await write('new-deal', operation.request);
+          } catch (error) {
             // Only a verified first creation refusal proves no deal was made.
             // A refusal after an uncertain attempt cannot retire that intent.
             if (error.writeRefusal && !operation.creationUncertain) {

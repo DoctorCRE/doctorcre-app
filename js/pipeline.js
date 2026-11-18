@@ -177,7 +177,7 @@ async function submitDeal(event) {
     if (error.creationRefused) {
       dealCreation = null;
       const reasons = { deal_save_unavailable:'Adding a deal is temporarily unavailable.', subject_not_found:'Client not found. Use an existing client reference or exact name.', not_a_client:'Choose an existing client.', needs_disambiguation:'More than one client matches. Use the client reference.', deal_name_exists:'A deal with this name already exists. Use a distinct name.' };
-      errorBox.textContent = error.creationHint || (request.next_deal_save && error.payload?.hint)
+      errorBox.textContent = error.creationHint || ((request.next_deal_save || error.payload?.error === 'reload_deals') && error.payload?.hint)
         || reasons[error.payload?.error] || 'Deal creation was refused. Check the client, name, type, and stage.';
     } else errorBox.textContent = 'Creation not confirmed. The original request is retained. Check creation outcome to finish the same deal, owner, and notes.';
     errorBox.focus();
@@ -193,7 +193,7 @@ function renderClosedDeals() {
   const records = new Map(state.deals);
   for (const deal of archived || []) records.set(deal.id,{...records.get(deal.id),...deal});
   const rows = (lost ? lostDeals : closedDeals)([...records.values()], state.filter, $('closedSearch').value);
-  $('closedCount').textContent = archived === null ? 'Closed history is unavailable. Refresh to try again.' : `${rows.length} ${label} deals`;
+  $('closedCount').textContent = archived === null ? 'Closed history is unavailable. Refresh to try again.' : `${rows.length} ${label} deal${rows.length === 1 ? '' : 's'}`;
   $('closedDealsList').innerHTML = rows.map(d => `<article class="closed-deal glass" data-id="${esc(d.id)}">
     <h3><button type="button" class="card-open" data-open-deal="${esc(d.id)}">${esc(dealTitle(d))}</button></h3><dl><div><dt>Client</dt><dd>${esc(d.client_name || d.client_ref || 'Not recorded')}</dd></div>
     <div><dt>Type</dt><dd>${esc(d.type || 'Not recorded')}</dd></div><div><dt>Close date</dt><dd>${esc(d.closed_on ? dateWords(d.closed_on) : 'Not recorded')}</dd></div>
@@ -722,7 +722,10 @@ function openCompletion(intent) {
   if (outcomeField) outcomeField.hidden = !isClosed;
   for (const radio of outcomeRadios()) radio.checked = false;
   const closedOn = $('completionClosedOn');
-  if (closedOn) closedOn.value = isClosed ? (closingInEngine ? businessDay() : todayIso()) : '';
+  if (closedOn) {
+    closedOn.value = isClosed ? (closingInEngine ? businessDay() : todayIso()) : '';
+    closedOn.max = closingInEngine ? closedOn.value : '';
+  }
   const wonValue = $('completionWonValue');
   if (wonValue) wonValue.value = '';
   renderOutcomeState();

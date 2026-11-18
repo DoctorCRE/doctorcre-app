@@ -338,7 +338,7 @@ const DEAL_CREATE_REFUSALS = new Map([
   ['deal_party_party_id_fkey', 'Choose an existing client.'],
   ['deal_party_client_is_a_client', 'Choose an existing client.'],
   ['deal_market_id_fkey', 'Choose an existing market.'],
-  ['deal_renewal_names_lease', 'Choose the lease this deal renews.'],
+  ['deal_renewal_names_lease', 'Renewals need an existing lease. The Add deal form cannot link a lease yet.'],
   ['deal_name_exists', 'A deal with this name already exists.'],
 ]);
 
@@ -349,22 +349,24 @@ async function cutoverSave(request, env, call) {
   const fromNext = creating ? args.next_deal_save === true
     : Number.isSafeInteger(args.seen_change_id) && args.seen_change_id >= 0;
   if (!on && !fromNext) return null;
+  if (creating && (!on || !fromNext)) return saveRefusal(call, 'reload_deals', 'Reload Deals before adding a deal.');
   if (on && !await switchedOn(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
   const save = nextDealSave(name, args);
   if (on && !save) return saveRefusal(call, 'deal_save_unavailable', 'This change is temporarily unavailable.');
   // A retained request may outlive a switch change. Its snapshot pins the destination.
-  if (!on || !fromNext) return creating
-    ? saveRefusal(call, 'version_conflict', 'Reload Deals before adding a deal.')
-    : saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
+  if (!on || !fromNext) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
   const response = await sendEngineSave(request, env, save.path, save.body);
   if (!response || response.status >= 500) return unavailable(false);
   if ([401, 403, 429].includes(response.status)) return response;
   const body = await response.json().catch(() => null);
   if (!isObject(body)) return unavailable(false);
   if (!response.ok) {
+    const invalidClosingDate = name === 'update-deal' && body.error === 'invalid_field_value'
+      && Array.isArray(body.fields) && body.fields.length === 1 && body.fields[0] === 'phase';
     const hint = creating
       ? DEAL_CREATE_REFUSALS.get(body.error === 'database_refused_the_statement' ? body.rule : body.error)
         ?? 'Check the deal details and try again.'
+      : invalidClosingDate ? 'Choose a closing date between the day the deal reached its current phase and today.'
       : body.error === 'version_conflict' ? 'This deal changed. Reload the deal before saving.'
       : body.error === 'step_ended' ? 'This step was already closed. Reload the deal to see its current steps.'
       : 'The change could not be saved. Review the deal and try again.';
