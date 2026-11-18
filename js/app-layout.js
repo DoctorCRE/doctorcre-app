@@ -169,10 +169,8 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   });
   let client, feedActor = null, cursor = null, feed = createFeedProgress(), receipts = [];
   const resetFeed = () => { feedActor = null; cursor = null; feed = createFeedProgress(); receipts = []; if (!pageOwnsMoves) renderMoves(); };
-  let todayItems = null, todayNeeds = null, nextExpanded = false, failedReads = [], todayReadState = 'loading';
-  // A null owner_partner is a brief row both partners see; undefined is a board deal or an older server.
-  const ownerLabel = item => item.owner_partner === null ? 'Shared' : briefOwnerLabel(item);
-  const row = (item, extra = '', overdue = '') => `<button type="button" class="app-layout-item" data-layout-deal="${escape(item.subject_id || item.id)}"><strong>${escape(item.subject_name || item.name)}</strong>${ownerLabel(item) ? `<small class="morning-owner">${ownerLabel(item)}</small>` : ''}${extra || overdue ? `<span>${escape(extra)}${extra && overdue ? ' ' : ''}${overdue ? `<span class="app-layout-age">${escape(overdue)}</span>` : ''}</span>` : ''}</button>`;
+  let todayItems = null, todayNeeds = null, nextExpanded = false, failedReads = [], todayReadState = 'loading', listedOverdue = new Set();
+  const row = (item, extra = '', overdue = '') => `<button type="button" class="app-layout-item" data-layout-deal="${escape(item.subject_id || item.id)}"><strong>${escape(item.subject_name || item.name)}</strong>${briefOwnerLabel(item) ? `<small class="morning-owner">${briefOwnerLabel(item)}</small>` : ''}${extra || overdue ? `<span>${escape(extra)}${extra && overdue ? ' ' : ''}${overdue ? `<span class="app-layout-age">${escape(overdue)}</span>` : ''}</span>` : ''}</button>`;
   const render = (target, html) => { const node = layout.querySelector(target); if (node.innerHTML !== html) { const id = node.contains(root.activeElement) ? root.activeElement.dataset.layoutDeal : null; node.innerHTML = html; if (id) [...node.querySelectorAll('button')].find(b => b.dataset.layoutDeal === id)?.focus(); } };
   const overdueRows = deals => {
     const today = businessDay();
@@ -188,9 +186,12 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     const showAll = layout.querySelector('#appTodayShowAll');
     showAll.hidden = !next || next.length <= 3 || nextExpanded;
     showAll.textContent = `Show all ${next?.length || 0}`;
-    render('#appTodayNeeds', todayNeeds ? overdueRows(filterBriefOwners(todayNeeds, owners.current())).slice(0,6).join('') || empty : pendingRead('Overdue'));
+    const needs = todayNeeds && filterBriefOwners(todayNeeds, owners.current()).filter(row => !listedOverdue.has(row.id) && !listedOverdue.has(row.subject_id));
+    render('#appTodayNeeds', needs ? overdueRows(needs).slice(0,6).join('') || empty : pendingRead('Overdue'));
   };
   const owners = mountBriefOwnerFilter(root, layout.querySelector('#appTodayOwners'), () => { nextExpanded = false; renderToday(); });
+  // The page's main column names the late actions or deals it already lists, so each shows once.
+  root.addEventListener('doctorcre:overdue-shown', event => { listedOverdue = new Set(event.detail); renderToday(); });
   for (const button of layout.querySelectorAll('#appTodayOwners button')) button.setAttribute('aria-label', button.textContent === 'All' ? 'All reminders' : `Reminders for ${button.textContent}`);
   layout.querySelector('#appTodayShowAll').onclick = () => {
     nextExpanded = true; renderToday();
