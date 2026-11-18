@@ -1,8 +1,8 @@
 // Journey 2, file a call and see the deal update (WR629). The call is filed
 // through the real Call Mode path into the real record layer; nothing the app
 // reads here is stubbed.
+import assert from "node:assert/strict";
 import type { Page } from "@playwright/test";
-import { z } from "zod";
 import { expect, type FiledCall, test } from "./harness.ts";
 
 test.describe.configure({ mode: "serial" });
@@ -168,14 +168,18 @@ test("Home completes the real filed call after its pending proposals are resolve
   signedIn: page,
   carr,
 }) => {
-  const card = z.object({ resolver: z.string(), candidate_id: z.string() });
-  const outcomes = z
-    .object({ calls: z.array(z.object({ open_cards: z.array(card) })) })
-    .parse(await carr.mcp("read-call-outcomes"));
-  for (const call of outcomes.calls)
-    for (const item of call.open_cards) {
+  const outcomes = await carr.mcp("read-call-outcomes");
+  assert.ok(outcomes && typeof outcomes === "object" && "calls" in outcomes && Array.isArray(outcomes.calls));
+  const calls: unknown[] = outcomes.calls;
+  for (const call of calls) {
+    assert.ok(call && typeof call === "object" && "open_cards" in call && Array.isArray(call.open_cards));
+    const cards: unknown[] = call.open_cards;
+    for (const item of cards) {
+      assert.ok(item && typeof item === "object" && "resolver" in item && typeof item.resolver === "string");
+      assert.ok("candidate_id" in item && typeof item.candidate_id === "string");
       await carr.mcp(item.resolver, { candidate_id: item.candidate_id, accept: false });
     }
+  }
   await openHome(page);
   await page.locator(".call-outcome").first().getByRole("button", { name: "Review call", exact: true }).click();
   const guide = page.locator(".call-review-dialog").getByRole("region", { name: "Review this call" });
