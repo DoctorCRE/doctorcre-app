@@ -1,12 +1,14 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import type { InboxClient, InboxItem, CardReview as Review, TaskReceipt } from "./inbox";
-import { type Operation, type ReviewRequest, reviewError } from "./review";
+import { proposalRefusal, type Suggestion } from "./engine-review.ts";
+import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
+import { type Operation, reviewError } from "./review";
 
 type State =
   | { phase: "loading" }
   | { phase: "ready" | "editing"; review: Review }
   | { phase: "submitting" | "uncertain"; review: Review; request: ReviewRequest }
   | { phase: "conflict"; review: Review; message: string }
+  | { phase: "proposal-refused"; review: Review; message: string; id: string }
   | { phase: "refused" | "done"; message: string };
 const labels: Record<Operation["verb"], string> = {
   "complete-one-action": "Mark done",
@@ -36,7 +38,7 @@ type Props = {
   children: ReactNode;
   close(): void;
   busy(value: boolean): void;
-  confirmed(item: InboxItem, receipt?: TaskReceipt): void;
+  confirmed(item: InboxItem | null, receipt?: TaskReceipt, snapshot?: Snapshot): void;
 };
 export function ReviewCard({ item, client, close, busy, confirmed, children }: Props) {
   const [state, setState] = useState<State>({ phase: "loading" });
@@ -100,7 +102,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
   }, [client, reconcileFacts]);
   const waiting = state.phase === "submitting" || lock.current;
   const review = "review" in state ? state.review : null;
-  const editable = state.phase === "ready" || state.phase === "editing";
+  const editable = state.phase === "ready" || state.phase === "editing" || state.phase === "proposal-refused";
   async function reload() {
     if (!client || lock.current) return;
     lock.current = true;
@@ -133,8 +135,14 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
     try {
       const result = await client.run(anchor.current, request);
       if (!alive.current) return;
-      confirmed(result.item, result.receipt);
+      confirmed(result.item, result.receipt, result.snapshot);
+      if (result.snapshot && request.verb !== "edit-email-draft") {
+        close();
+        return;
+      }
       if (request.verb === "edit-email-draft") {
+        if (!result.item)
+          throw Object.assign(Error("The saved draft changed."), { payload: { error: "version_conflict" } });
         anchor.current = result.item;
         const next = await client.load(result.item);
         if (!alive.current) return;
@@ -159,6 +167,18 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
       }
     } catch (error) {
       if (!alive.current) return;
+      const refusal = request.verb === "decide-engine-home-proposal" ? proposalRefusal(error) : null;
+      if (refusal) {
+        const { id, decision } = request.args;
+        setMessage("");
+        setState(
+          decision === "accept" && typeof id === "string"
+            ? { phase: "proposal-refused", review: detail, message: refusal, id }
+            : { phase: "refused", message: refusal },
+        );
+        host.current?.focus();
+        return;
+      }
       const failure = reviewError(error);
       setMessage("");
       if (failure.kind === "uncertain") setState({ phase: "uncertain", review: detail, request });
@@ -213,6 +233,28 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
     }
     void run({ verb: op.verb, args: { ...op.args, ...input, idempotency_key: crypto.randomUUID() } }, review);
   }
+  function decideSuggestion(proposal: Suggestion, decision: "accept" | "dismiss") {
+    if (review?.kind !== "suggestions" || !form.current || !editable) return;
+    const fields = new FormData(form.current);
+    const what = fields.get(`${proposal.id}-what`);
+    const edits = decision === "accept" && proposal.editable;
+    if (edits && (typeof what !== "string" || !what.trim())) {
+      setMessage("Enter a next step before accepting.");
+      return;
+    }
+    void run(
+      {
+        verb: "decide-engine-home-proposal",
+        args: {
+          id: proposal.id,
+          decision,
+          idempotency_key: crypto.randomUUID(),
+          ...(edits && { edits: { what, due_on: fields.get(`${proposal.id}-date`) || null } }),
+        },
+      },
+      review,
+    );
+  }
   return (
     <section
       className="home-inline-review"
@@ -253,6 +295,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
         ))}
       {client && state.phase === "loading" && <p role="status">Loading current evidence…</p>}
       {(state.phase === "refused" || state.phase === "done") && <p role="status">{state.message}</p>}
+      {state.phase === "proposal-refused" && <p role="alert">{state.message}</p>}
       {review && (
         <form
           ref={form}
@@ -268,9 +311,76 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                 ? "Exact reply for review"
                 : review.kind === "fact_review"
                   ? "Evidence and decision"
-                  : "Task"}
+                  : review.kind === "suggestions"
+                    ? "Suggestions"
+                    : "Task"}
             </legend>
             {review.kind === "action" && <p>{review.title}</p>}
+            {review.kind === "suggestions" &&
+              review.proposals.map((proposal) => (
+                <section key={proposal.id}>
+                  <h4>
+                    {proposal.label}
+                    {proposal.target ? ` · ${proposal.target}` : ""}
+                  </h4>
+                  {proposal.source && (
+                    <>
+                      <p>
+                        {proposal.source.from}
+                        {proposal.source.occurredAt && (
+                          <>
+                            {" "}
+                            on{" "}
+                            <time dateTime={proposal.source.occurredAt}>
+                              {emailDate.format(new Date(proposal.source.occurredAt))}
+                            </time>
+                          </>
+                        )}
+                      </p>
+                      {proposal.source.subject && <p>{proposal.source.subject}</p>}
+                      {proposal.source.excerpt && <blockquote>{proposal.source.excerpt}</blockquote>}
+                    </>
+                  )}
+                  <p>Words that prompted this suggestion</p>
+                  <blockquote>{proposal.evidence}</blockquote>
+                  {proposal.editable ? (
+                    <>
+                      <label>
+                        Next step <input name={`${proposal.id}-what`} defaultValue={proposal.what ?? ""} />
+                      </label>
+                      <label>
+                        Due date <input type="date" name={`${proposal.id}-date`} defaultValue={proposal.dueOn ?? ""} />
+                      </label>
+                    </>
+                  ) : (
+                    proposal.what && <p>{proposal.what}</p>
+                  )}
+                  {!proposal.canAccept && (
+                    <p>This step changed after the suggestion. Mark it done from the step, or choose Not yet.</p>
+                  )}
+                  <div className="inbox-actions">
+                    {(["accept", "dismiss"] as const).map((decision) => (
+                      <button
+                        key={decision}
+                        type="button"
+                        disabled={
+                          decision === "accept" &&
+                          (!proposal.canAccept || (state.phase === "proposal-refused" && state.id === proposal.id))
+                        }
+                        onClick={() => decideSuggestion(proposal, decision)}
+                      >
+                        {proposal.completion
+                          ? decision === "accept"
+                            ? "Yes, it’s done"
+                            : "Not yet"
+                          : decision === "accept"
+                            ? "Accept"
+                            : "Dismiss"}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
             {review.kind === "reply_draft" && (
               <>
                 {review.recipients ? (

@@ -1,7 +1,13 @@
 import { type BatchRequest, type BatchResult, parseBatch } from "./batch.ts";
-import { cardKey, completionReview, type MarkUndo, markArgs, markTarget } from "./engine-marks.ts";
-import { parseReference, parseReview, type ReviewReference, type ReviewRequest } from "./review.ts";
-import { completeAction, parseActionReceipt, type TaskReceipt } from "./task-done.ts";
+import { type MarkUndo, markArgs, markTarget } from "./engine-marks.ts";
+import { hasEngineReview, loadEngineReview, type Suggestion, saveEngineReview } from "./engine-review.ts";
+import {
+  type ReviewRequest as LegacyReviewRequest,
+  parseReference,
+  parseReview,
+  type ReviewReference,
+} from "./review.ts";
+import { completeAction, type TaskReceipt as LegacyReceipt, parseActionReceipt } from "./task-done.ts";
 
 type WaitingIdentity = Readonly<{
   kind: "party" | "actor";
@@ -50,7 +56,7 @@ export type InboxItem = BaseItem &
     | Readonly<{
         source_type: "capture_session" | "email_proposal" | "notification" | "fact_review" | "tour_feedback";
         action_id: null;
-        action_version: null;
+        action_version: number | null;
         deal_id: string | null;
       }>
   );
@@ -75,29 +81,40 @@ type DispositionCommand = { engine_marks?: true } & (
   | Readonly<{ action: "settle" | "unsettle"; args: CommandArgs }>
 );
 
-export type { TaskReceipt } from "./task-done.ts";
+export type TaskReceipt = LegacyReceipt | { engine: true; action_id: string; version: number; status: "done" };
 
 type TaskCommand = Readonly<{
   action: "complete" | "reopen";
+  engine_marks?: true;
   args: CommandArgs & { action_id: string; base_version: number; completion_event_id?: string };
 }>;
 export type Command = DispositionCommand | TaskCommand;
 export function taskCommand(action: "complete" | "reopen", item: InboxItem, receipt?: TaskReceipt): TaskCommand {
-  if (!item.action_id || !item.action_version || (action === "complete" && item.source_state !== "needs_attention"))
+  if (
+    !item.action_id ||
+    item.action_version === null ||
+    (action === "complete" && item.source_state !== "needs_attention")
+  )
     throw Error("This card cannot be marked done.");
   if (
     action === "reopen" &&
-    (!receipt?.completion_event_id || receipt.action_id !== item.action_id || receipt.status !== "done")
+    (!receipt ||
+      receipt.action_id !== item.action_id ||
+      receipt.status !== "done" ||
+      (item.engine_marks
+        ? !("engine" in receipt)
+        : !("completion_event_id" in receipt) || !receipt.completion_event_id))
   )
     throw Error("Can't undo this completion. Its original receipt has no completion event.");
   return {
     action,
+    ...(item.engine_marks && { engine_marks: true }),
     args: {
       idempotency_key: crypto.randomUUID(),
       items: [{ item_id: item.item_id, base_version: item.base_version }],
       action_id: item.action_id,
       base_version: action === "reopen" && receipt ? receipt.version : item.action_version,
-      ...(action === "reopen" && receipt?.completion_event_id
+      ...(action === "reopen" && receipt && "completion_event_id" in receipt
         ? { completion_event_id: receipt.completion_event_id }
         : {}),
     },
@@ -203,7 +220,14 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
           ...(v3 ? ["fact_review", "tour_feedback"] : []),
         ].includes(legacy.source_type) ||
         value.action_id !== null ||
-        value.action_version !== null
+        !(
+          value.action_version === null ||
+          (engineMarks &&
+            object(value.completion_review) &&
+            typeof value.action_version === "number" &&
+            Number.isInteger(value.action_version) &&
+            value.action_version >= 0)
+        )
   )
     throw Error("Inbox returned unreadable completion identity. Refresh to try again.");
   if (
@@ -321,10 +345,7 @@ export function command(action: Action, items: readonly InboxItem[], until?: str
     idempotency_key: crypto.randomUUID(),
     items: items.map(({ item_id, base_version }) => ({ item_id, base_version })),
   };
-  // Completion reviews still use the legacy snooze route until the inbox supplies their mark target.
-  const engine = items.some((item) => item.engine_marks && (action === "settle" || !completionReview(item.item_id)))
-    ? { engine_marks: true as const }
-    : {};
+  const engine = items.some((item) => item.engine_marks) ? { engine_marks: true as const } : {};
   if (action === "snooze") {
     if (!until) throw Error("Choose a future snooze time.");
     return { ...engine, action, args: { ...args, until } };
@@ -371,8 +392,15 @@ type IncomingEmail = Readonly<{
   occurredAt: string | null;
 }>;
 type Review = ReturnType<typeof parseReview>;
+export type ReviewRequest =
+  | LegacyReviewRequest
+  | {
+      verb: "decide-engine-home-proposal";
+      args: Record<string, unknown> & { idempotency_key: string };
+    };
 export type CardReview =
   | Exclude<Review, { kind: "reply_draft" }>
+  | { kind: "suggestions"; operations: []; proposals: Suggestion[] }
   | (Extract<Review, { kind: "reply_draft" }> & { email: IncomingEmail | null });
 
 function incomingEmail(value: unknown): IncomingEmail | null {
@@ -393,7 +421,7 @@ export type InboxClient = {
     run(
       item: InboxItem,
       request: ReviewRequest,
-    ): Promise<{ item: InboxItem; receipt?: TaskReceipt; saved_version?: number }>;
+    ): Promise<{ item: InboxItem | null; receipt?: TaskReceipt; saved_version?: number; snapshot?: Snapshot }>;
   };
   read(signal?: AbortSignal): Promise<Snapshot>;
   run(request: Command): Promise<ItemResult[]>;
@@ -450,6 +478,7 @@ export function createInboxClient(
         return current;
       },
       async load(item, signal) {
+        if (hasEngineReview(item)) return loadEngineReview(rpc, item, signal);
         if (!item.review_reference) throw Error("This card has no inline review.");
         const value = await rpc(
           "read-home-review",
@@ -473,6 +502,14 @@ export function createInboxClient(
       },
       async run(item, request) {
         if (navigator.onLine === false) throw Error("Offline. Nothing was sent.");
+        if (hasEngineReview(item)) {
+          await saveEngineReview(rpc, item, request);
+          const snapshot = await read();
+          return {
+            item: snapshot.items.find((row) => row.item_id === item.item_id) ?? null,
+            snapshot,
+          };
+        }
         const value = await rpc(request.verb, request.args);
         if (object(value) && typeof value.error === "string")
           throw Object.assign(Error(value.error), { payload: value });
@@ -530,43 +567,22 @@ export function createInboxClient(
         const change = { action: request.action, ...("until" in args && { until: args.until }) };
         const attempts =
           "undo_of" in args ? (request.restore ?? []) : args.items.map((target) => ({ ...target, ...change }));
-        async function saveCard(target: (typeof attempts)[number], index: number) {
-          const item_id = target.item_id;
-          if (completionReview(item_id)) {
-            const key = cardKey(args.idempotency_key, index);
-            const identity = { reversible: true as const, idempotency_key: key };
-            const legacy: BatchRequest | null =
-              "legacy_key" in target
-                ? { action: "snooze", args: { ...identity, items: [{ item_id }], undo_of: target.legacy_key } }
-                : "until" in args
-                  ? {
-                      action: "snooze",
-                      args: {
-                        ...identity,
-                        items: [{ item_id, base_version: target.base_version }],
-                        until: args.until,
-                      },
-                    }
-                  : null;
-            if (legacy) {
-              const result = parseBatch(await rpc("snooze-home-inbox", legacy.args), legacy, [item_id]);
-              const row = result.results[0];
-              if (row) return { ...row, undo: { item_id, legacy_key: result.batch_key } };
+        const outcomes = await Promise.allSettled(
+          attempts.map(async (target, index) => {
+            const item_id = target.item_id;
+            if (!markTarget(item_id)) return { item_id, status: "not_allowed" as const };
+            try {
+              const undo = await saveMark(markArgs(target, target, args.idempotency_key, index));
+              return { item_id, status: "applied" as const, undo };
+            } catch (error) {
+              const code = object(error) && object(error.payload) ? error.payload.error : null;
+              if (code === "home_item_not_found") return { item_id, status: "not_found" as const };
+              if (code === "version_conflict" || code === "invalid_snooze_time" || code === "home_routing_changed")
+                return { item_id, status: "not_allowed" as const, error: code };
+              throw error;
             }
-          }
-          if (!markTarget(item_id) || !("action" in target)) return { item_id, status: "not_allowed" as const };
-          try {
-            const undo = await saveMark(markArgs(target, target, args.idempotency_key, index));
-            return { item_id, status: "applied" as const, undo };
-          } catch (error) {
-            const code = object(error) && object(error.payload) ? error.payload.error : null;
-            if (code === "home_item_not_found") return { item_id, status: "not_found" as const };
-            if (code === "version_conflict" || code === "invalid_snooze_time" || code === "home_routing_changed")
-              return { item_id, status: "not_allowed" as const, error: code };
-            throw error;
-          }
-        }
-        const outcomes = await Promise.allSettled(attempts.map(saveCard));
+          }),
+        );
         const results = outcomes.map((outcome) => {
           if (outcome.status === "rejected") throw outcome.reason;
           return outcome.value;
@@ -586,8 +602,44 @@ export function createInboxClient(
     async run(request) {
       if (navigator.onLine === false) throw Error("Offline. No change was sent. Reconnect and retry manually.");
       if (request.action === "complete" || request.action === "reopen") {
-        // The step door needs guarded completion and Undo before these calls can move.
         const { items, ...args } = request.args;
+        if (request.engine_marks) {
+          const { action_id: id, base_version, idempotency_key } = args;
+          const done = request.action === "complete";
+          const value = await rpc(done ? "end-engine-home-step" : "reopen-engine-home-step", {
+            id,
+            base_version,
+            idempotency_key,
+            ...(done && { resolution: "done" }),
+          });
+          if (object(value) && typeof value.error === "string")
+            throw Object.assign(Error(value.error), { payload: value });
+          if (
+            !object(value) ||
+            value.next_step_id !== id ||
+            value.status !== (done ? "done" : "open") ||
+            (done &&
+              (typeof value.change_id !== "number" ||
+                !Number.isSafeInteger(value.change_id) ||
+                value.change_id <= base_version))
+          )
+            throw Error("Task change could not be confirmed. Retry the same request.");
+          const snapshot = await read();
+          const item_id = items[0]?.item_id ?? "";
+          const item = snapshot.items.find((row) => row.item_id === item_id);
+          if (
+            !item ||
+            (done
+              ? item.source_state !== "done" || item.action_version !== value.change_id
+              : item.source_state !== "needs_attention")
+          )
+            return [{ item_id, ok: false, error: "intervening_change", ...(item && { current_item: item }), snapshot }];
+          const receipt =
+            done && typeof value.change_id === "number"
+              ? { engine: true as const, action_id: id, version: value.change_id, status: "done" as const }
+              : undefined;
+          return [{ item_id, ok: true, item, ...(receipt && { receipt }), snapshot }];
+        }
         const receipt =
           request.action === "complete"
             ? await completeAction({ completeOneAction: (args) => rpc("complete-one-action", args) }, args)
@@ -618,15 +670,7 @@ export function createInboxClient(
         return request.args.items.map(({ item_id }, index) => {
           const undo = marks[index];
           if (!undo) return { item_id, ok: false, error: "home_item_not_found", snapshot };
-          // Waking a held step can bring back its completion review for the same underlying step.
-          const item = snapshot.items.find(
-            (item) =>
-              item.item_id === item_id ||
-              (item.engine_marks &&
-                "completion_review" in item &&
-                object(item.completion_review) &&
-                item.completion_review.next_step_id === item_id.split(":")[1]),
-          );
+          const item = snapshot.items.find((item) => item.item_id === item_id);
           if (!item) return { item_id, ok: false, error: "home_item_not_found", snapshot };
           return item.base_version === undo.base_version
             ? { item_id, ok: true, item, undo, snapshot }
