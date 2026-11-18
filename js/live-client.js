@@ -522,6 +522,8 @@ export function createLiveClient(opts = {}) {
     async addCriticalDate(args) {
       return write('add-critical-date', args);
     },
+    async confirmCriticalDate(args) { return write('confirm-critical-date', args); },
+    async resolveCriticalDate(args) { return write('resolve-critical-date', args); },
 
     async createDeal(args) {
       const key = args.idempotency_key || uuidv4();
@@ -844,6 +846,12 @@ export function createLiveClient(opts = {}) {
     async reviewDeal(args) { return write('review-deal', args); },
     async endReview(args) { return write('end-deal-review', args); },
     async setMarketAgent(args) { return write('set-market-agent', args); },
+    async searchPeople(query, signal) {
+      const result = await rpc('search-parties-v1', { query }, signal);
+      if (result?.schema_version !== 'party-search.v1' || !Array.isArray(result.parties))
+        throw new Error('People could not be loaded.');
+      return result.parties.filter(row => row?.kind === 'person').map(row => [row.id, row.display_name]);
+    },
     async setNationalAccountOwner(args) { return write('set-national-account-owner', args); },
     async createNationalAccount(args) { return write('create-national-account', args); },
     async createNationalMarketDeal(args) { return write('create-national-market-deal', args); },

@@ -39,7 +39,7 @@ export function countdown(date, now = Date.now()) {
   if (days > 0) return {state:days <= 7 && date.deadline ? 'soon':'upcoming',text:`${days} day${days === 1 ? '' : 's'}`};
   return {state:date.deadline ? 'overdue':'past',text:date.deadline ? `${-days} day${days === -1 ? '' : 's'} overdue` : `${-days} day${days === -1 ? '' : 's'} ago`};
 }
-export function dealTimeline(detail, now = Date.now()) {
+export function dealTimeline(detail, now = Date.now(), dateDecisions = false) {
   const entryByPhase = new Map();
   for (const [phase, value] of Object.entries(detail.deal.phase_started_on || {})) {
     const column = columnBySlug(phase) || columnByValue(phase);
@@ -54,16 +54,21 @@ export function dealTimeline(detail, now = Date.now()) {
     if (calendarDay(lease.expiration_on)) recordedDates.push({id:`lease-${lease.id}-expiration`,kind:'lease_expiration',due_on:lease.expiration_on,note:lease.evidence_ref,source:lease.source});
   }
   const rows = recordedDates.map((row,i) => {
-    const definition = DATE_KINDS.find(d => d.kinds.includes(row.kind));
+    const kind = dateDecisions && row.kind === 'lease_end' ? 'lease_expiration' : row.kind;
+    const definition = DATE_KINDS.find(d => d.kinds.includes(kind));
     const value = row.due_on ?? row.date;
-    return {dateState:calendarDay(value) ? 'dated' : value == null || value === '' ? 'missing' : 'invalid',id:row.id || `date-${i}`,kind:definition?.kind || row.kind,label:definition?.label || row.kind?.replace(/[_-]+/g,' ') || row.label || 'Date',
-      day:calendarDay(value),original:noteText(row.note),evidence:row.source || '',status:row.status,deadline:Boolean(definition?.deadline)};
+    const original = noteText(row.note);
+    const phaseMarker = 'Kind: phase_effective_date';
+    const phaseDate = dateDecisions && row.kind === 'other' && original.split('\n', 1)[0] === phaseMarker;
+    return {dateState:calendarDay(value) ? 'dated' : value == null || value === '' ? 'missing' : 'invalid',id:row.id || `date-${i}`,kind:definition?.kind || row.kind,label:phaseDate ? 'Phase effective date' : definition?.label || row.kind?.replace(/[_-]+/g,' ') || row.label || 'Date',
+      day:calendarDay(value),original:phaseDate ? original.slice(phaseMarker.length).trim() : original,
+      evidence:row.source || '',status:row.status,deadline:Boolean(definition?.deadline)};
   });
   // Co-located dates share a card, preserving every original and status.
   const grouped = new Map();
   const undated = rows.filter(row => !row.day);
   for (const row of rows.filter(row => row.day)) {
-    const key = `${row.kind}|${row.day}|${row.status || ''}`;
+    const key = dateDecisions && isSavedDate(row) ? row.id : `${row.kind}|${row.day}|${row.status || ''}`;
     const existing = grouped.get(key);
     const references = [row.original,row.evidence].filter(Boolean);
     if (existing) existing.references.push(...references);
@@ -76,11 +81,29 @@ export function dealTimeline(detail, now = Date.now()) {
   return {phases,dates,undated,missing,entries,today:today(now)};
 }
 
-export function renderCriticalDates(detail, now = Date.now()) {
-  const view = dealTimeline(detail,now);
+const isSavedDate = row => /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(row.id);
+const DATE_STATES = new Map([['proposed','Proposed'], ['open','Confirmed'], ['cleared','Done'], ['done','Done'], ['dropped','Dropped'], ['passed','Passed']]);
+function dateDecisionsHtml(date) {
+  if (!isSavedDate(date)) return '';
+  const state = DATE_STATES.get(date.status);
+  const open = date.status === 'open';
+  const proposed = date.status === 'proposed';
+  return `${state ? `<small>${state}</small>` : ''}${open || proposed ? `
+    <form data-date-decision="${esc(date.id)}">
+      ${proposed ? '<button type="submit" class="btn" value="confirm" formnovalidate>Confirm</button>' : ''}
+      <label>Reason <input name="reason" required maxlength="1000"></label>
+      ${open ? '<button type="submit" class="btn" value="done">Mark done</button>' : ''}
+      <button type="submit" class="btn" value="dropped">Drop</button>
+      ${open ? '<button type="submit" class="btn" value="passed">Mark passed</button>' : ''}
+    </form>` : ''}`;
+}
+
+export function renderCriticalDates(detail, now = Date.now(), dateDecisions = false) {
+  const view = dealTimeline(detail,now,dateDecisions);
   return `<section class="critical-dates" data-detail-read="dates" aria-label="Critical dates">${view.dates.map(d => {
     const count = countdown(d,now);
-    return `<article class="critical-date" data-date-id="${esc(d.id)}" data-state="${count.state}"><span>${esc(d.label)}</span><strong data-countdown="${esc(d.day)}" data-deadline="${Boolean(d.deadline)}" data-date-status="${esc(d.status || '')}">${esc(count.text)}</strong><time datetime="${esc(d.day)}">${esc(dateCaption(d.day))}</time>${d.original || d.evidence ? `<details><summary data-detail-focus="date-original:${esc(d.id)}">Details</summary><p class="note-original">${esc(d.original || d.evidence)}</p></details>` : ''}</article>`;
+    const settled = dateDecisions && DATE_STATES.has(d.status) && d.status !== 'open';
+    return `<article class="critical-date" data-date-id="${esc(d.id)}" data-state="${settled ? esc(d.status) : count.state}"><span>${esc(d.label)}</span>${settled ? '' : `<strong data-countdown="${esc(d.day)}" data-deadline="${Boolean(d.deadline)}" data-date-status="${esc(d.status || '')}">${esc(count.text)}</strong>`}<time datetime="${esc(d.day)}">${esc(dateCaption(d.day))}</time>${d.original || d.evidence ? `<details><summary data-detail-focus="date-original:${esc(d.id)}">Details</summary><p class="note-original">${esc(d.original || d.evidence)}</p></details>` : ''}${dateDecisions ? dateDecisionsHtml(d) : ''}</article>`;
   }).join('')}${view.undated.map(d => `<article class="critical-date" data-date-id="${esc(d.id)}" data-state="unknown" data-date-status="${esc(d.status || '')}"><span>${esc(d.label)}</span><strong>${d.dateState === 'missing' ? 'Date not recorded' : 'Date unavailable'}</strong>${d.status ? `<small>Status: ${esc(d.status)}</small>` : ''}${d.original || d.evidence ? `<details><summary data-detail-focus="date-original:${esc(d.id)}">Details</summary>${d.original ? `<p class="note-original">${esc(d.original)}</p>` : ''}${d.evidence ? `<p class="date-source">Source: ${esc(d.evidence)}</p>` : ''}</details>` : ''}</article>`).join('')}${view.missing.map(d => `<article class="critical-date"><span>${esc(d.label)}</span><strong>Not recorded</strong></article>`).join('')}</section>`;
 }
 
