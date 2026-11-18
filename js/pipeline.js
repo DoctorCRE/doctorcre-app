@@ -511,12 +511,13 @@ async function runFollowUp(operationKey, step) {
   if (!send) return null;
   const pending = pendingCommand(commandState, operationKey);
   let args = step.args;
-  const deal = step.verb === 'register-client-portal' ? null : args.deal;
-  const currentDeal = deal && (state.panelDeal === deal ? state.panelDetail?.deal : state.deals.get(deal));
-  const seen = pending ? pending.request.seen_change_id : currentDeal?.seen;
-  if (Number.isSafeInteger(seen)) {
-    args = { ...args, seen_change_id: seen };
-    if (step.verb === 'add-deal-note') args.happened_at = pending?.request.happened_at ?? new Date().toISOString();
+  if (['add-deal-note', 'set-next-step', 'record-deal-item', 'complete-deal-item'].includes(step.verb)) {
+    const deal = state.panelDeal === args.deal ? state.panelDetail?.deal : state.deals.get(args.deal);
+    const seen = pending ? pending.request.seen_change_id : deal?.seen;
+    if (Number.isSafeInteger(seen)) {
+      args = { ...args, seen_change_id: seen };
+      if (step.verb === 'add-deal-note') args.happened_at = pending?.request.happened_at ?? new Date().toISOString();
+    }
   }
   if (step.verb === 'set-next-step') {
     if (pending) args = { ...args, base_version: pending.request.base_version };
