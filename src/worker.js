@@ -148,6 +148,8 @@ const ENGINE_READS = new Map([
   ['deal-room-board', { key: DEALS, path: '/api/engine/deals', args: { workspace: isString, account_client_id: isString } }],
   ['get-deal-room', { key: DEALS, path: '/api/engine/deals', segment: 'deal', args: { deal: isString },
     accepts: ({ deal }) => !['', '.', '..', undefined].includes(deal) }],
+  ['search-parties-v1', { key: DEALS, path: '/api/engine/parties/search', search: 'kind=person',
+    args: { query: isString }, accepts: ({ query }) => Boolean(query?.trim()) }],
   // Without the workspace the old tool answers Home's legacy board, which the engine does not serve.
   ['lead-board', { key: LEADS, path: '/api/engine/leads', accepts: ({ workspace }) => workspace === 'leads',
     args: { workspace: isString, lead_id: isString, correspondence_cursor: isObject, stage_history_cursor: isString } }],
@@ -222,7 +224,7 @@ async function engineResponse(request, env) {
   try {
     if (call) {
       url.pathname = read.segment ? `${read.path}/${encodeURIComponent(args[read.segment])}` : read.path;
-      url.search = '';
+      url.search = read.search ?? '';
       // The engine takes the old tool's arguments as query text, an object as its JSON.
       for (const [key, value] of Object.entries(args)) {
         if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));

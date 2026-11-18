@@ -83,6 +83,26 @@ test("one deal encodes its reference and optional board arguments are absent", a
   assert.equal(f.engine[1]?.url, `${origin}/api/engine/deals`);
 });
 
+test("the Deal Room people picker searches engine people before the result limit", async () => {
+  const args = { query: "Example & Co" };
+  const body = call("search-parties-v1", args);
+  const parties = JSON.stringify({
+    ok: true,
+    schema_version: "party-search.v1",
+    parties: [{ id: "synthetic-person", display_name: "Example Person", kind: "person" }],
+  });
+  const enabled = fixture(new Map([["deals-from-engine", "on"]]), async () => new Response(parties));
+  const response = await enabled.send(body);
+  assert.equal(enabled.engine[0]?.url, `${origin}/api/engine/parties/search?kind=person&query=Example+%26+Co`);
+  assert.equal((await response.json()).result.content[0].text, parties);
+  assert.deepEqual(enabled.carr, []);
+
+  const disabled = fixture(new Map([["deals-saves-from-engine", "on"]]));
+  assert.equal(await (await disabled.send(body)).text(), "old");
+  assert.deepEqual(disabled.carr, [JSON.stringify(body)]);
+  assert.deepEqual(disabled.engine, []);
+});
+
 for (const deal of ["\ud800", "\udc00"]) {
   test(`unpaired surrogate ${JSON.stringify(deal)} falls back with original body`, async () => {
     const f = fixture();
