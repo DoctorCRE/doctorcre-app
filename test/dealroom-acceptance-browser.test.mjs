@@ -241,6 +241,7 @@ test('Deals shows late steps and can undo a close reported by the engine', async
     await page.getByRole('button', { name, exact: true }).click();
     await page.getByRole('heading', { name, exact: true }).waitFor();
     await otherSteps.getByText(/Call the architect.*2 days late/).waitFor({ timeout: 5000 });
+    assert.match(await page.locator('.deal-current-action').textContent(), /^Overdue action: Check floor plan · Due .+2026$/);
   };
   await openClosedDeal();
   assert.equal(await undo.count(), 0);
