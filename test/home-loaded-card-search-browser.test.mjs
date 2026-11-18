@@ -119,9 +119,9 @@ test('inline review locks search and preserves opener focus through close and un
   const search = page.getByRole('searchbox');
   const opener = page.locator('[data-inbox-row="demo-review"]').getByRole('button', { name: 'Open', exact: true });
   await opener.click();
-  await page.getByRole('button', { name: 'Close review', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Close', exact: true }).waitFor();
   assert.equal(await search.isDisabled(), true);
-  await page.getByRole('button', { name: 'Close review', exact: true }).click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   assert.equal(await search.isDisabled(), false);
   assert.equal(await opener.evaluate(node => node === document.activeElement), true);
   assert.equal(await search.inputValue(), '');
@@ -163,21 +163,19 @@ test('uncertain server refusal locks query until dismissal and refresh', async t
   assert.equal(await search.inputValue(), 'pipeline');
 });
 
-test('Home card navigation opens the full Inbox and Back restores the search', async t => {
+test('opening a Home card title preserves its search', async t => {
   const { page } = await setup(t);
-  await page.getByRole('searchbox').fill('pipeline');
+  const search = page.getByRole('searchbox');
+  await search.fill('pipeline');
   await page.locator('[data-inbox-row="demo-call"] h3 a').click();
-  await page.getByRole('heading', { name: 'Inbox', level: 1, exact: true }).waitFor();
-  assert.equal(await page.getByRole('searchbox').count(), 0);
-  assert.equal(await page.locator('[data-inbox-row="demo-call"][data-current="true"]').count(), 1);
-  await page.goBack();
-  assert.equal(await page.getByRole('searchbox').inputValue(), 'pipeline');
+  await page.locator('[data-inbox-row="demo-call"]').getByRole('button', { name: 'Close', exact: true }).click();
+  assert.equal(await search.inputValue(), 'pipeline');
 });
 
 for (const destination of ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000099', 'bad']) test(`watch Home source selects exact client or visibly refuses ${destination}`, async t => {
   const { directoryFixture } = await import('./fixtures/vendor-directory.synthetic.mjs');
   const { page, fixture, update } = await setup(t);
-  const card = { ...fixture.snapshot.items[0], item_id: 'notification:watch', source_id: '00000000-0000-4000-8000-000000000009', source_type: 'notification', kind_label: 'Update', title: 'Demo watched lease changed', source_state: 'needs_attention', disposition: 'inbox', section: 'inbox', open_url: `/clients?record=${destination}`, action_id: null, action_version: null, review_reference: null, due_on: null };
+  const card = { ...fixture.snapshot.items[0], item_id: 'notification:watch', source_id: '00000000-0000-4000-8000-000000000009', source_type: 'notification', kind_label: 'Update', title: 'Demo watched lease changed', source_state: 'needs_attention', disposition: 'inbox', section: 'inbox', open_url: `/clients?record=${destination}`, action_id: null, action_version: null, review_reference: null, due_on: null, deal_id: null };
   const contract = JSON.parse(await (await import('node:fs/promises')).readFile('contracts/carr-interface.v1/home_inbox_contract.json', 'utf8'));
   assert.equal(fixture.snapshot.schema_version, contract.schema_version);
   const snapshot = fixture.parseSnapshot({ ...fixture.snapshot, items: [card] });
@@ -196,11 +194,11 @@ for (const destination of ['00000000-0000-4000-8000-000000000002', '00000000-000
   await page.getByRole('link', { name: card.title, exact: true }).click();
   if (destination.endsWith('002')) await page.screenshot({ path: 'test-artifacts/home-loaded-card-search/watch-home.png', fullPage: true });
   if (destination === 'bad') {
-    await page.getByRole('status').filter({ hasText: "This link can't be opened here." }).waitFor();
+    await page.getByText('No linked record.', { exact: true }).waitFor();
     assert.equal(await page.locator('.inbox-source').count(), 0);
     assert.deepEqual(reads, []);
   } else {
-    const link = page.locator('[data-current="true"] .inbox-source');
+    const link = page.locator('[data-inbox-row="notification:watch"] .inbox-source').first();
     assert.equal(await link.getAttribute('href'), card.open_url);
     await link.focus();
     await Promise.all([page.waitForURL('**/clients?record=*'), page.keyboard.press('Enter')]);

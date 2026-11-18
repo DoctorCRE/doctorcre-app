@@ -4,7 +4,6 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
-import { CardDetails } from "./card-details";
 import {
   type Action,
   type Command,
@@ -18,6 +17,7 @@ import {
   taskCommand,
 } from "./inbox";
 import { MailPriorities } from "./mail-priorities";
+import { ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { completionLabel, HomeSections, HomeWelcome } from "./sections";
 
@@ -29,12 +29,7 @@ type SnoozePreview = Readonly<{
 type Pending = { request: Command; before: readonly InboxItem[]; undoing?: true };
 type Undo = { action: Action | "reopen"; items: readonly InboxItem[]; until?: string; receipt?: TaskReceipt };
 const queryKey = ["home-inbox"];
-const cardDate = new Intl.DateTimeFormat("en-US", {
-  timeZone: "UTC",
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
+const cardDate = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", dateStyle: "medium" });
 const snoozeDate = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Chicago",
   dateStyle: "medium",
@@ -91,7 +86,7 @@ function Inbox({ client }: { client: InboxClient }) {
     if (home && !query.isPending && host) markHomeReady(host);
   }, [home, query.isPending]);
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
-  const reviewOpener = useRef<HTMLButtonElement | null>(null);
+  const reviewOpener = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     if (!reviewing && reviewOpener.current) {
       if (reviewOpener.current.isConnected) reviewOpener.current.focus();
@@ -337,6 +332,11 @@ function Inbox({ client }: { client: InboxClient }) {
   const items = query.data?.items || [];
   const placed = shelves(items, item_id);
   const picked = items.filter((item) => selected.has(item.item_id));
+  function openCard(item: InboxItem, opener: HTMLElement) {
+    reviewOpener.current = opener;
+    setReviewing(item);
+  }
+  const openingLocked = busy || !!pending || !!reviewing;
   function row(item: InboxItem) {
     const primary =
       item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
@@ -344,14 +344,14 @@ function Inbox({ client }: { client: InboxClient }) {
     const open = reviewing?.item_id === item.item_id;
     const reviewClient =
       reviewing?.review_reference && reviewing.source_state === "needs_attention" ? client.review : undefined;
-    const source = recordRoutes.source({
-      open_url: item.open_url ?? (item.deal_id ? `/deals?deal=${item.deal_id}` : null),
-    });
+    const deal = item.deal_id ? `/deals?deal=${encodeURIComponent(item.deal_id)}` : null;
+    const source = recordRoutes.source(item) ?? deal;
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
+    const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
     const linkedRecord = source && (
       <a className="inbox-source" href={source}>
-        {item.context_label || `Open ${sourcePage}`}
+        {sourcePage === "call" ? "Call summary" : (namedRecord && item.context_label) || `Open ${sourcePage}`}
       </a>
     );
     return (
@@ -406,8 +406,18 @@ function Inbox({ client }: { client: InboxClient }) {
             <span>{item.kind_label}</span>
             <span className={`inbox-badge inbox-${item.source_state}`}>{item.source_state.replaceAll("_", " ")}</span>
           </p>
-          <h3 className={item_id === item.item_id ? "inbox-title-expanded" : undefined}>
-            <Link aria-current={item_id === item.item_id ? "true" : undefined} to={recordRoutes.card(item.item_id)}>
+          <h3 className={open || item_id === item.item_id ? "inbox-title-expanded" : undefined}>
+            <Link
+              aria-current={item_id === item.item_id ? "true" : undefined}
+              aria-expanded={open}
+              aria-disabled={openingLocked}
+              to={recordRoutes.card(item.item_id)}
+              onClick={(event) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                if (!openingLocked) openCard(item, event.currentTarget);
+              }}
+            >
               {item.title}
             </Link>
           </h3>
@@ -416,7 +426,8 @@ function Inbox({ client }: { client: InboxClient }) {
               {item.context_label}
               {due && (
                 <>
-                  {item.context_label && " · "}Due {due}
+                  {" "}
+                  {item.context_label && "· "}Due {due}
                 </>
               )}
             </p>
@@ -446,11 +457,8 @@ function Inbox({ client }: { client: InboxClient }) {
             type="button"
             className={completable ? undefined : "inbox-primary"}
             aria-expanded={open}
-            disabled={busy || !!pending || !!reviewing}
-            onClick={(event) => {
-              reviewOpener.current = event.currentTarget;
-              setReviewing(item);
-            }}
+            disabled={openingLocked}
+            onClick={(event) => openCard(item, event.currentTarget)}
           >
             Open
           </button>
@@ -490,12 +498,10 @@ function Inbox({ client }: { client: InboxClient }) {
           </button>
         </div>
         {open && (
-          <CardDetails
+          <ReviewCard
             item={item}
             client={reviewClient}
-            close={() => {
-              setReviewing(null);
-            }}
+            close={() => setReviewing(null)}
             busy={(value) => {
               inFlight.current = value;
               setBusy(value);
@@ -520,18 +526,20 @@ function Inbox({ client }: { client: InboxClient }) {
             }}
           >
             {due && <p>Due {due}</p>}
-            {linkedRecord ||
-              (item.source_type !== "email_proposal" && (
-                <>
-                  {item.context_label && item.context_label !== item.title && <p>About {item.context_label}</p>}
-                  <p>No linked record.</p>
-                </>
-              ))}
+            {linkedRecord}
+            {deal && sourcePage !== "deal" && (
+              <p>
+                <a className="inbox-source" href={deal}>
+                  {sourcePage === "call" && item.context_label ? item.context_label : "Open deal"}
+                </a>
+              </p>
+            )}
+            {!source && !["email_proposal", "fact_review"].includes(item.source_type) && <p>No linked record.</p>}
             {item.source_type === "email_proposal" && !reviewClient && (
               <p>The email and draft are unavailable for this card.</p>
             )}
             {item.source_type === "notification" && <HomeWatchDetail open_url={item.open_url} />}
-          </CardDetails>
+          </ReviewCard>
         )}
       </article>
     );
@@ -562,14 +570,7 @@ function Inbox({ client }: { client: InboxClient }) {
       {home && (
         <>
           <HomeWelcome />
-          <MailPriorities
-            items={items}
-            locked={busy || !!pending || !!reviewing}
-            review={(item, opener) => {
-              reviewOpener.current = opener;
-              setReviewing(item);
-            }}
-          />
+          <MailPriorities items={items} locked={openingLocked} review={openCard} />
         </>
       )}
       <header className="inbox-header">

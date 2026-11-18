@@ -13,7 +13,7 @@ before(async () => { outDir = temporaryDirectory('inline-review-'); await buildA
 after(async () => { await rm(outDir, { recursive: true, force: true }); });
 const id = '00000000-0000-0000-0000-000000000001';
 const eventId = '00000000-0000-0000-0000-000000000002';
-async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', refusal = null, reference = true, missingRecipients = false, initialBody = 'Synthetic body', writeRefusal = null, waitingPerson = false, surface = '/', sourceType = null, sourceState = 'needs_attention', sourceUrl = null, contextLabel = null, dueOn = null } = {}) {
+async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', refusal = null, reference = true, missingRecipients = false, initialBody = 'Synthetic body', writeRefusal = null, waitingPerson = false, surface = '/', sourceType = null, sourceState = 'needs_attention', sourceUrl = null, contextLabel = null, dueOn = null, dealId = null } = {}) {
   const server = await fixtureServer({ root: join(outDir, 'site') }); t.after(() => server.close());
   const browser = await chromium.launch(); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -27,6 +27,7 @@ async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', r
   row.open_url = sourceUrl;
   row.context_label = contextLabel;
   row.due_on = dueOn;
+  row.deal_id = dealId;
   let version = 1, subject = 'Synthetic subject', body = initialBody, fail = refusal;
   const calls = [];
   await page.route('**/mcp', async route => {
@@ -40,7 +41,7 @@ async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', r
         const bound = { proposal_id: id, base_version: version };
         const draft = { subject, body, ...(missingRecipients ? {} : { to: ['demo@example.test'], cc: ['copy@example.test'] }) };
         payload = { ok: true, schema_version: 'home-review.v1', reference: row.review_reference,
-          detail: kind === 'action' ? { title: row.title } : kind === 'reply_draft' ? { reply_draft: draft, source: { sender: 'Demo sender', subject: 'Synthetic incoming email', evidence_quote: 'Can you confirm the tour time?' }, ...(missingRecipients ? { confirm_verb: null, preview_error: 'email_draft_copy_address_missing' } : {}) } : { canonical_fact: null, observations: [{ id: eventId, value: '60', unit: 'months', source: { document_ref: id, page_start: 1, page_end: 1, cited_text: 'Synthetic signed term is 60 months.' } }] },
+          detail: kind === 'action' ? { title: row.title } : kind === 'reply_draft' ? { reply_draft: draft, source: { sender: 'Demo sender', subject: 'Synthetic incoming email', occurred_at: '2026-11-03T02:00:00Z', evidence_quote: 'Can you confirm the tour time?' }, ...(missingRecipients ? { confirm_verb: null, preview_error: 'email_draft_copy_address_missing' } : {}) } : { canonical_fact: null, observations: [{ id: eventId, value: '60', unit: 'months', source: { document_ref: id, page_start: 1, page_end: 1, cited_text: 'Synthetic signed term is 60 months.' } }] },
           operations: kind === 'action' ? [{ verb: 'complete-one-action', args: { action_id: id, base_version: version } }] : kind === 'reply_draft' ? [{ verb: 'edit-email-draft', args: bound }, { verb: 'dismiss-email-proposal', args: bound }, ...(missingRecipients ? [] : [{ verb: 'submit-email-draft', args: { ...bound, ...draft } }])] : [{ verb: 'resolve-fact-review', args: { entity_ref: id, fact_key: 'term_months', base_version: 0, review_version: 'r1' }, decisions: ['approve', 'correct', 'reject'] }] };
       }
     }
@@ -65,29 +66,25 @@ async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', r
   return { page, calls, row, panel: page.getByRole('region', { name: 'Details for Synthetic review', exact: true }) };
 }
 for (const [name, options, expectedLink, expectedName] of [
-  ['reply draft', {}],
   ['task with a deal', { kind: 'action', contextLabel: 'Demo practice', sourceUrl: '/deals?deal=synthetic', dueOn: '2026-10-01' }, '/deals?deal=synthetic', 'Demo practice'],
   ['task with a client', { kind: 'action', contextLabel: 'Demo client', sourceUrl: `/clients?record=${id}` }, `/clients?record=${id}`, 'Demo client'],
   ['task with a contact', { kind: 'action', contextLabel: 'Demo contact', sourceUrl: `/relationships?node=party%3A${id}` }, `/relationships?node=party%3A${id}`, 'Demo contact'],
-  ['call follow-up', { kind: 'action', sourceType: 'capture_post_call_action', sourceUrl: '/calls?session=synthetic' }, '/calls?session=synthetic', 'Open call'],
-  ['update', { kind: 'action', sourceType: 'notification', contextLabel: 'Demo practice update', sourceUrl: '/deals?deal=synthetic' }, '/deals?deal=synthetic', 'Demo practice update'],
+  ['call follow-up', { kind: 'action', sourceType: 'capture_post_call_action', sourceUrl: '/calls?session=synthetic', contextLabel: 'Demo practice', dealId: id }, '/calls?session=synthetic', 'Call summary'],
+  ['update', { kind: 'action', sourceType: 'notification', contextLabel: 'Demo practice update', sourceUrl: '/updates', dealId: id }, `/deals?deal=${id}`, 'Demo practice update'],
   ['unlinked completed task', { kind: 'action', reference: false, sourceState: 'done' }],
-  ['unlinked update', { kind: 'action', sourceType: 'notification', sourceUrl: '/updates' }],
 ]) test(`Home Open shows the exact ${name}`, async t => {
   const { page, panel, calls } = await setup(t, { width: 390, ...options });
-  const opener = page.getByRole('button', { name: 'Open', exact: true });
+  const opener = name === 'unlinked completed task'
+    ? page.getByRole('link', { name: 'Synthetic review', exact: true })
+    : page.getByRole('button', { name: 'Open', exact: true });
   await opener.click();
   await panel.waitFor();
-  if (name === 'reply draft') {
-    assert.equal(await panel.locator('.home-inline-review').count(), 1);
-    await panel.getByText('Synthetic incoming email', { exact: true }).waitFor();
-    assert.equal(await panel.getByText('Demo sender', { exact: false }).count(), 1);
-    assert.equal(await panel.getByText('Can you confirm the tour time?', { exact: true }).count(), 1);
-    assert.equal(await panel.getByLabel('Message', { exact: true }).inputValue(), 'Synthetic body');
-  } else if (expectedLink) {
+  if (expectedLink) {
     assert.equal(await panel.getByRole('link', { name: expectedName, exact: true }).getAttribute('href'), expectedLink);
+    if (name === 'call follow-up') assert.equal(await panel.getByRole('link', { name: 'Demo practice', exact: true }).getAttribute('href'), `/deals?deal=${id}`);
     if (options.dueOn) assert.equal(await panel.getByText('Oct 1, 2026', { exact: true }).count(), 1);
   } else {
+    assert.equal(await panel.getByRole('button', { name: 'Close', exact: true }).count(), 1);
     assert.equal(await panel.getByText('No linked record.', { exact: true }).count(), 1);
     assert.equal(await panel.getByRole('link').count(), 0);
     assert.equal(await panel.getByText('Synthetic review', { exact: true }).count(), 1);
@@ -101,6 +98,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`in
   const { page, panel, calls } = await setup(t, { width, theme });
   await page.getByRole('button', { name: 'Open', exact: true }).click();
   await panel.getByLabel('Subject', { exact: true }).waitFor();
+  assert.match(await panel.textContent(), /Review this card.*Their email.*Demo sender.*Nov 2.*Synthetic incoming email.*Can you confirm the tour time\?.*Exact reply for review/s);
+  assert.equal(await panel.getByLabel('Message', { exact: true }).inputValue(), 'Synthetic body');
   assert.equal(await panel.getByRole('button', { name: 'Mark done', exact: true }).count(), 0);
   assert.equal(calls.filter(c => ['edit-email-draft', 'submit-email-draft'].includes(c.name)).length, 0);
   await panel.getByLabel('Subject', { exact: true }).fill('Reviewed exact subject');
@@ -157,7 +156,7 @@ test('task review completes one canonical action and retains Undo receipt', asyn
   await page.getByRole('button', { name: 'Open', exact: true }).click();
   await panel.getByRole('button', { name: 'Mark done', exact: true }).click();
   await panel.getByText('This card is confirmed. Its current state is shown in your inbox.', { exact: true }).waitFor();
-  await panel.getByRole('button', { name: 'Close review', exact: true }).click();
+  await panel.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.getByText('Undone.', { exact: false }).waitFor();
   assert.equal(calls.filter(c => c.name === 'complete-one-action').length, 1);
@@ -166,6 +165,7 @@ test('task review completes one canonical action and retains Undo receipt', asyn
 for (const decision of ['Approve a sourced value', 'Correct with a source', 'Reject this review']) test(`fact review ${decision} calls its existing owner`, async t => {
   const { page, panel, calls } = await setup(t, { kind: 'fact_review' });
   await page.getByRole('button', { name: 'Open', exact: true }).click();
+  assert.equal(await panel.getByText('No linked record.', { exact: true }).count(), 0);
   await panel.getByLabel('Decision', { exact: true }).selectOption({ label: decision });
   await panel.getByLabel('Reason', { exact: true }).fill('Synthetic reviewed source');
   if (decision === 'Correct with a source') { await panel.getByLabel('Corrected value', { exact: true }).fill('72'); await panel.getByLabel('Cited text', { exact: true }).fill('Synthetic corrected term is 72 months.'); }

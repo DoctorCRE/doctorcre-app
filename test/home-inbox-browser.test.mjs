@@ -190,7 +190,8 @@ test('opening a card preserves its section, count and keyboard focus', async t =
   await link.focus();
   const count = await section.locator('h2 span').textContent();
   await page.keyboard.press('Enter');
-  await page.waitForURL(/inbox\/card\/a/);
+  const details = section.getByRole('region', { name: 'Details for Synthetic a', exact: true });
+  await details.getByRole('button', { name: 'Close', exact: true }).click();
   assert.equal(await section.locator('[data-inbox-row="a"]').count(), 1);
   assert.equal(await section.locator('h2 span').textContent(), count);
   assert.equal(await link.evaluate(node => node === document.activeElement), true);
@@ -207,12 +208,12 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`v2
   const held = page.locator('[data-inbox-row="held"]');
   const link = held.locator('h3 a');
   await link.focus(); await page.keyboard.press('Enter');
-  await page.waitForURL(/card\/held/);
-  await page.locator('[data-current="true"]').waitFor();
-  assert.equal(await link.evaluate(node => node === document.activeElement), true);
+  const details = held.getByRole('region', { name: /^Details for / });
+  await details.waitFor();
   assert.equal(await held.locator('h3').evaluate(node => node.scrollHeight <= node.clientHeight), true);
   assert.match(await held.textContent(), /Demo practice.*Due Nov 5, 2026/s);
   assert.match(await page.locator('[data-inbox-row="loop"]').textContent(), /Demo loop context/);
+  await details.getByRole('button', { name: 'Close', exact: true }).click();
   await page.locator('[data-inbox-row="loop"] h3 a').click();
   assert.equal(await page.locator('[data-inbox-row="loop"] .inbox-source').count(), 0);
   await page.getByText('Done', { exact: true }).first().click();

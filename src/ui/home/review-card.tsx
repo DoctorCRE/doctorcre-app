@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { InboxClient, InboxItem, TaskReceipt } from "./inbox";
-import { type Operation, type Review, type ReviewRequest, reviewError } from "./review";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import type { InboxClient, InboxItem, CardReview as Review, TaskReceipt } from "./inbox";
+import { type Operation, type ReviewRequest, reviewError } from "./review";
 
 type State =
   | { phase: "loading" }
@@ -23,14 +23,22 @@ const availableDecisions = (
     (d) =>
       d === "reject" || (review.observations.length > 0 && (d !== "correct" || op.args.fact_key !== "rent_schedule")),
   );
+const emailDate = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Chicago",
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
 type Props = {
   item: InboxItem;
-  client: NonNullable<InboxClient["review"]>;
+  client: InboxClient["review"];
+  children: ReactNode;
   close(): void;
   busy(value: boolean): void;
   confirmed(item: InboxItem, receipt?: TaskReceipt): void;
 };
-export function ReviewCard({ item, client, close, busy, confirmed }: Props) {
+export function ReviewCard({ item, client, close, busy, confirmed, children }: Props) {
   const [state, setState] = useState<State>({ phase: "loading" });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -60,6 +68,8 @@ export function ReviewCard({ item, client, close, busy, confirmed }: Props) {
     );
   }, []);
   useEffect(() => {
+    host.current?.focus();
+    if (!client) return;
     const controller = new AbortController();
     alive.current = true;
     void client
@@ -83,7 +93,6 @@ export function ReviewCard({ item, client, close, busy, confirmed }: Props) {
                 : reviewError(error).message,
           });
       });
-    host.current?.focus();
     return () => {
       alive.current = false;
       controller.abort();
@@ -93,7 +102,7 @@ export function ReviewCard({ item, client, close, busy, confirmed }: Props) {
   const review = "review" in state ? state.review : null;
   const editable = state.phase === "ready" || state.phase === "editing";
   async function reload() {
-    if (lock.current) return;
+    if (!client || lock.current) return;
     lock.current = true;
     busy(true);
     setMessage("Loading the updated card. Your edits are kept.");
@@ -116,7 +125,7 @@ export function ReviewCard({ item, client, close, busy, confirmed }: Props) {
     }
   }
   async function run(request: ReviewRequest, detail: Review) {
-    if (lock.current) return;
+    if (!client || lock.current) return;
     lock.current = true;
     busy(true);
     setState({ phase: "submitting", review: detail, request });
@@ -209,7 +218,7 @@ export function ReviewCard({ item, client, close, busy, confirmed }: Props) {
       className="home-inline-review"
       ref={host}
       tabIndex={-1}
-      aria-label={`Review ${item.title}`}
+      aria-label={`Details for ${item.title}`}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !waiting && state.phase !== "uncertain") {
           event.preventDefault();
@@ -220,12 +229,29 @@ export function ReviewCard({ item, client, close, busy, confirmed }: Props) {
       onTouchEnd={(event) => event.stopPropagation()}
     >
       <header>
-        <h4>Review this card</h4>
+        <h4>{client ? "Review this card" : item.title}</h4>
         <button type="button" disabled={waiting || state.phase === "uncertain"} onClick={close}>
-          Close review
+          {client && item.review_reference?.kind !== "action" ? "Close review" : "Close"}
         </button>
       </header>
-      {state.phase === "loading" && <p role="status">Loading current evidence…</p>}
+      {children}
+      {review?.kind === "reply_draft" &&
+        (review.email ? (
+          <section aria-label="Their email">
+            <h4>Their email</h4>
+            {review.email.sender && <p>From: {review.email.sender}</p>}
+            {review.email.occurredAt && (
+              <p>
+                <time dateTime={review.email.occurredAt}>{emailDate.format(new Date(review.email.occurredAt))}</time>
+              </p>
+            )}
+            {review.email.subject && <p>{review.email.subject}</p>}
+            <blockquote>{review.email.excerpt}</blockquote>
+          </section>
+        ) : (
+          <p>The original email is unavailable.</p>
+        ))}
+      {client && state.phase === "loading" && <p role="status">Loading current evidence…</p>}
       {(state.phase === "refused" || state.phase === "done") && <p role="status">{state.message}</p>}
       {review && (
         <form

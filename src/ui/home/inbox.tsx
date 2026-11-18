@@ -356,9 +356,14 @@ export function parseResults(
     };
   });
 }
-export type IncomingEmail = Readonly<{ sender: string | null; subject: string | null; excerpt: string }>;
+type IncomingEmail = Readonly<{
+  sender: string | null;
+  subject: string | null;
+  excerpt: string;
+  occurredAt: string | null;
+}>;
 type Review = ReturnType<typeof parseReview>;
-type CardReview =
+export type CardReview =
   | Exclude<Review, { kind: "reply_draft" }>
   | (Extract<Review, { kind: "reply_draft" }> & { email: IncomingEmail | null });
 
@@ -369,6 +374,7 @@ function incomingEmail(value: unknown): IncomingEmail | null {
     sender: text(source.sender) ? source.sender : null,
     subject: text(source.subject) ? source.subject : null,
     excerpt: source.evidence_quote,
+    occurredAt: timestamp(source.occurred_at) && text(source.occurred_at) ? source.occurred_at : null,
   };
 }
 

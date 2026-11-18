@@ -24,6 +24,6 @@ test("13 WR617.S13", async ({ page }) => {
   } finally {
     await check.close();
   }
-  await row.getByRole("button", { name: "Close review", exact: true }).click();
+  await row.getByRole("button", { name: "Close", exact: true }).click();
   await undo(page);
 });
