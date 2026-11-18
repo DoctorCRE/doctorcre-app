@@ -12,6 +12,10 @@ type Props = {
   locked?: boolean;
   read?: typeof readMailPriorities;
 };
+const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+function MailDate({ day }: { day: string }) {
+  return <time dateTime={day}>{shortDate.format(new Date(day))}</time>;
+}
 const fromOutcome = (outcome: { page?: MailPage; error?: unknown }): State => {
   if (outcome.page)
     return outcome.page.state === "unavailable"
@@ -149,43 +153,38 @@ export function MailPriorities({ items, review, locked = false, read = readMailP
         {"page" in state && (
           <>
             <p>
-              Mailbox {state.page.coverage.mailbox} · Recorded inbound pending proposals · As of{" "}
-              {state.page.coverage.as_of_day} · Recorded next date in UTC
+              As of <MailDate day={state.page.as_of_day} />
             </p>
-            {state.kind === "empty" && <p role="status">No recorded pending mail decisions.</p>}
+            {state.kind === "empty" && <p role="status">No mail priorities right now.</p>}
             {state.page.more && <p>Only the first 25 ranked decisions are shown.</p>}
             <ol>
               {cardRows(state.page.items, items).map(({ row, matched }) => (
                 <li key={row.proposal_id} data-mail-proposal={row.proposal_id} style={{ overflowWrap: "anywhere" }}>
-                  <h3>{matched?.title || row.kindLabel}</h3>
+                  <h3>
+                    {matched ? (
+                      <a href={`/?card=${encodeURIComponent(matched.item_id)}`}>
+                        {[matched.title, matched.context_label].filter(Boolean).join(" · ")}
+                      </a>
+                    ) : (
+                      row.kindLabel
+                    )}
+                  </h3>
                   <p>
-                    {row.reasonLabel}
-                    {row.decision_date && (
+                    {row.decision_date ? (
                       <>
-                        {" · "}
-                        <time dateTime={row.decision_date}>{row.decision_date}</time>
+                        {row.reason === "recorded_overdue" ? "Overdue since " : "Due "}
+                        <MailDate day={row.decision_date} />
                       </>
+                    ) : (
+                      "No due date"
                     )}
                   </p>
-                  <p>
-                    Source time{" "}
-                    {row.occurred_at ? <time dateTime={row.occurred_at}>{row.occurred_at}</time> : "unknown"}
-                  </p>
-                  {matched?.review_reference ? (
+                  {matched?.review_reference && (
                     <button type="button" disabled={locked} onClick={(event) => review(matched, event.currentTarget)}>
                       Review {matched.title}
                     </button>
-                  ) : (
-                    <a
-                      href={
-                        matched
-                          ? `/?card=${encodeURIComponent(matched.item_id)}`
-                          : "/review-workflows#homeEmailFollowups"
-                      }
-                    >
-                      {matched ? "Review in inbox" : "Review in email follow-ups"}
-                    </a>
                   )}
+                  {!matched && <a href="/review-workflows#homeEmailFollowups">Browse email follow-ups</a>}
                 </li>
               ))}
             </ol>

@@ -143,7 +143,6 @@ chromium.connectOverCDP = async () => { ${mode === 'connection rejection' ? "thr
 
 test('actual CLI compares every displayed evidence field exactly', async t => {
 
-  const root = temporaryDirectory('mail-exact-cdp-', t);
   const contextFixture = await ownedCdpFixture(); t.after(() => contextFixture.close());
   const context = contextFixture.context;
   t.after(() => context.close());
@@ -151,11 +150,10 @@ test('actual CLI compares every displayed evidence field exactly', async t => {
     correct: '',
     date: `row.querySelector('time').textContent = '9' + row.querySelector('time').textContent`,
     reason: `row.querySelector('p').firstChild.textContent = 'Wrong ' + row.querySelector('p').firstChild.textContent`,
-    mailbox: `host.querySelector('p').textContent = host.querySelector('p').textContent.replace('Mailbox joe', 'Mailbox xjoe')`,
-    coverage: `host.querySelector('p').textContent += ' wrong'`,
-    'leading 11 for 1': `row.querySelector('time').textContent = row.querySelector('time').textContent.replace('-10-01', '-10-011')`,
-    'leading 16 for 6': `row.querySelector('time').textContent = row.querySelector('time').textContent.replace('2026', '20216')`,
-    'source time': `row.querySelectorAll('p')[1].textContent += ' wrong'`,
+    'mailbox slug': `host.querySelector('p').textContent += ' · Mailbox joe'`,
+    'as-of date': `host.querySelector('p time').textContent = 'Nov 16'`,
+    'wrong day': `row.querySelector('time').dateTime = '2026-10-11'`,
+    'source time': `row.insertAdjacentHTML('beforeend', '<p>Source time unknown</p>')`,
     pagination: `host.querySelector('ol').previousElementSibling.textContent += ' wrong'`,
     id: `row.dataset.mailProposal = 'wrong'`,
   };

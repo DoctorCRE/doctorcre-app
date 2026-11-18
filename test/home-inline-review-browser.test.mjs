@@ -13,13 +13,24 @@ before(async () => { outDir = temporaryDirectory('inline-review-'); await buildA
 after(async () => { await rm(outDir, { recursive: true, force: true }); });
 const id = '00000000-0000-0000-0000-000000000001';
 const eventId = '00000000-0000-0000-0000-000000000002';
-async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', refusal = null, reference = true, missingRecipients = false, initialBody = 'Synthetic body', writeRefusal = null, waitingPerson = false, surface = '/', sourceType = null, sourceState = 'needs_attention', sourceUrl = null } = {}) {
+async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', refusal = null, reference = true, missingRecipients = false, initialBody = 'Synthetic body', writeRefusal = null, waitingPerson = false, surface = '/', sourceType = null, sourceState = 'needs_attention', sourceUrl = null, mailPriorities } = {}) {
   const server = await fixtureServer({ root: join(outDir, 'site') }); t.after(() => server.close());
   const browser = await chromium.launch(); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true } })), theme);
   await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
   const row = { waiting_version: 0, waiting_on: null, item_id: 'one', source_type: kind === 'action' ? 'next_action' : kind === 'reply_draft' ? 'email_proposal' : 'fact_review', source_id: kind === 'fact_review' ? JSON.stringify([id, 'term_months']) : id, source_version: 'v1', source_state: 'needs_attention', title: 'Synthetic review', activity_at: '2026-11-03T12:00:00Z', hold_until: null, unseen: false, disposition: 'inbox', snoozed_until: null, explicit_unsettle: false, section: 'inbox', base_version: 'opaque:1', context_label: null, due_on: null, open_url: null, kind_label: kind === 'action' ? 'Task' : kind === 'reply_draft' ? 'Reply draft' : 'Fact review', merged_source_ids: [], action_id: kind === 'action' ? id : null, action_version: kind === 'action' ? 1 : null, deal_id: null, auto_settled: false, completed_at: null };
+  if (mailPriorities) {
+    row.context_label = 'Sample lease question';
+    await page.route('**/api/v1/intelligence/mail-needs-partner?limit=25', route => route.fulfill({ json: mailPriorities }));
+    await page.addInitScript(() => {
+      const url = new URL(location.href);
+      if (url.searchParams.has('card')) {
+        url.searchParams.set('mode', 'live');
+        history.replaceState(null, '', url);
+      }
+    });
+  }
   if (waitingPerson) Object.assign(row, { waiting_version: 1, waiting_on: { identity: { kind: 'party', id, available: true, display_name: 'Demo reviewer' }, reason: 'Review the lease terms', evidence: ['call:synthetic'], version: 1 } });
   if (reference) row.review_reference = { kind, item_id: row.item_id, source_version: row.source_version, operations: kind === 'action' ? ['complete-one-action'] : kind === 'reply_draft' ? ['edit-email-draft', 'dismiss-email-proposal', 'submit-email-draft'] : ['resolve-fact-review'] };
   if (sourceType) Object.assign(row, { source_type: sourceType, kind_label: sourceType === 'capture_post_call_action' ? 'Call follow-up' : sourceType === 'notification' ? 'Update' : row.kind_label, action_id: sourceType === 'capture_post_call_action' ? id : null, action_version: sourceType === 'capture_post_call_action' ? 1 : null, review_reference: null });
@@ -62,6 +73,20 @@ async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', r
   await page.locator('[data-inbox-row="one"]').waitFor();
   return { page, calls, row, panel: page.getByRole('region', { name: 'Review Synthetic review', exact: true }) };
 }
+test('opening a mail priority brings its Home card into view and focus', async t => {
+  const { readFile } = await import('node:fs/promises');
+  const { ready } = JSON.parse(await readFile(new URL('./fixtures/mail-priority-panel/recordings.json', import.meta.url)));
+  const [sample] = ready.items;
+  const draft = { ...sample, proposal_id: id, kind: 'reply_draft',
+    action: { ...sample.action, verb: 'submit-email-draft', args: { ...sample.action.args, proposal_id: id } } };
+  const { page } = await setup(t, { width: 390, mailPriorities: { ...ready, items: [draft, ...ready.items.slice(1)] } });
+  const priorities = page.getByRole('region', { name: 'Mail priorities' });
+  await priorities.getByRole('link', { name: 'Synthetic review · Sample lease question' }).click();
+  const card = page.locator('[data-inbox-row="one"]');
+  await card.locator('h3 a[aria-current="true"]:focus').waitFor();
+  assert.equal(new URL(page.url()).searchParams.get('card'), 'one');
+  assert.ok(await card.evaluate(node => node.getBoundingClientRect().top < innerHeight));
+});
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`inline reply edits, saves and explicitly submits ${width} ${theme}`, async t => {
   const { page, panel, calls } = await setup(t, { width, theme });
   await page.getByRole('button', { name: /See details|Review reply/, exact: true }).click();

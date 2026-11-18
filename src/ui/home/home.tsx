@@ -325,6 +325,13 @@ function Inbox({ client }: { client: InboxClient }) {
   }
   const items = query.data?.items || [];
   const placed = shelves(items, item_id);
+  const currentHomeCard = home && placed.current?.item_id;
+  useLayoutEffect(() => {
+    if (!currentHomeCard) return;
+    const title = root.current?.querySelector<HTMLElement>('[data-inbox-row][data-current="true"] h3 a');
+    title?.focus({ preventScroll: true });
+    title?.scrollIntoView({ block: "center" });
+  }, [currentHomeCard]);
   const picked = items.filter((item) => selected.has(item.item_id));
   function row(item: InboxItem) {
     const primary =
