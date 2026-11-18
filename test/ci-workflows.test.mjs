@@ -246,10 +246,17 @@ test('source CI keeps the full required suite and checks privacy before browser 
 
 test('browser setup bounds missing dependencies and shares exact browser caches in every workflow', async () => {
   const action = workflowDocument(await readFile(join(root, '.github/actions/setup-browsers/action.yml'), 'utf8'));
-  const cache = action.runs.steps.find(step => step.uses?.startsWith('actions/cache@'));
-  assert.equal(cache.with.path, '~/.cache/ms-playwright');
-  assert.equal(cache.with.key, 'playwright-v1-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ steps.version.outputs.version }}-${{ inputs.browsers }}');
-  assert.equal(cache.with['restore-keys'], undefined);
+  const caches = action.runs.steps.filter(step => step.uses?.startsWith('actions/cache@'));
+  const cacheKeySuffix = '${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ steps.version.outputs.version }}-${{ inputs.browsers }}';
+  for (const [path, key] of [
+    ['~/.cache/ms-playwright', `playwright-v1-${cacheKeySuffix}`],
+    ['~/.cache/playwright-apt/*.deb', `playwright-apt-v1-${cacheKeySuffix}`],
+  ]) {
+    const cache = caches.find(step => step.with?.path === path);
+    assert.ok(cache, `missing cache step for ${path}`);
+    assert.equal(cache.with.key, key, `${path} cache key`);
+    assert.equal(cache.with['restore-keys'], undefined, `${path} restore-keys`);
+  }
   assert.match(action.runs.steps[0].run, /require\("playwright-core\/package.json"\).version/);
   let sites = 0;
   for (const file of readdirSync(join(root, '.github/workflows')).filter(file => /\.ya?ml$/.test(file))) {
