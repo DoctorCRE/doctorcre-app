@@ -705,6 +705,26 @@ test("a move into Closed plans the outcome write, and only into Closed", () => {
   assert.deepEqual(legal.errors, []);
 });
 
+test("a new-database close needs a date and a loss reason or an optional positive win value", () => {
+  const intent = { ...closedIntent(), seen: 0 };
+  const lost = completionPlan(intent, { outcome: "lost", closedOn: "2026-11-18", lostReason: "The client chose another site" });
+  assert.deepEqual(lost.errors, []);
+  assert.deepEqual(lost.steps.map(step => [step.verb, step.args]), [["update-deal", {
+    deal: intent.deal, phase_from: intent.from, seen_change_id: 0,
+    fields: { outcome: "lost", closed_on: "2026-11-18", lost_reason: "The client chose another site" },
+  }]]);
+  for (const form of [
+    { outcome: "lost", closedOn: "2026-11-18" },
+    { outcome: "won" },
+    { outcome: "won", closedOn: "2026-11-18", wonValue: "0" },
+    { outcome: "paused", closedOn: "2026-11-18" },
+  ]) {
+    const plan = completionPlan(intent, form);
+    assert.equal(plan.errors.length, 1);
+    assert.deepEqual(plan.steps, []);
+  }
+});
+
 test("Closed refuses without an outcome, and refuses an outcome the record layer would bounce", () => {
   const missing = completionPlan(closedIntent(), { closedOn: "2026-09-17" });
   assert.deepEqual(missing.steps.map((step) => step.verb), ["patch-deal-field"],

@@ -198,10 +198,32 @@ export const PHASE_DATE_KIND = 'phase_effective_date';
 
 const text = (value) => String(value ?? '').trim();
 
+function closingPlan(intent, form) {
+  const { outcome } = form;
+  if (outcome !== 'won' && outcome !== 'lost') return { steps: [], errors: ['Choose Won or Lost.'] };
+  const closed_on = text(form.closedOn);
+  if (!closed_on) return { steps: [], errors: ['Choose the closing date.'] };
+  const fields = { outcome, closed_on };
+  if (outcome === 'lost') {
+    fields.lost_reason = text(form.lostReason);
+    if (!fields.lost_reason) return { steps: [], errors: ['Enter the reason the deal was lost.'] };
+  } else if (text(form.wonValue)) {
+    fields.won_value = Number(form.wonValue);
+    if (!Number.isFinite(fields.won_value) || fields.won_value <= 0) {
+      return { steps: [], errors: ['Enter a positive closed value or leave it blank.'] };
+    }
+  }
+  return { errors: [], steps: [{
+    verb: 'update-deal',
+    args: { deal: intent.deal, seen_change_id: intent.seen, phase_from: intent.from, fields },
+    summary: `Close ${intent.name}`,
+  }] };
+}
+
 /**
  * The ordered writes one Move would make, and the reasons it cannot be made.
  *
- * The phase patch is ALWAYS first and always present: it is the move, and the
+ * For an open phase move or a legacy closing, the phase patch is first: it is the move, and the
  * follow-ups are things a person chose to record alongside it. Each follow-up
  * appears only when it was filled in, and each is its own verb with its own
  * summary because each gets its own idempotency key and its own receipt — a
@@ -211,7 +233,7 @@ const text = (value) => String(value ?? '').trim();
  * requires a source, so asking for the date without saying where it came from is
  * named here rather than sent and bounced.
  *
- * A move INTO Closed carries one more step, and it is deliberately LAST: the
+ * A legacy move into Closed carries one more step, and it is deliberately LAST: the
  * outcome is a second write on a record the phase patch has already moved, it
  * needs a `base_version` read fresh AFTER that patch, and a refusal on it must
  * leave the card where the server put it. The plan names the step and the
@@ -222,12 +244,13 @@ const text = (value) => String(value ?? '').trim();
  * @param {{evidence?:string, nextStep?:string, nextWhen?:string,
  *          effectiveDate?:string, recordCriticalDate?:boolean, dateSource?:string,
  *          outcome?:string, closedOn?:string, wonValue?:string|number,
- *          changeReason?:string, humanQuote?:string}} [form]
+ *          changeReason?:string, humanQuote?:string, lostReason?:string}} [form]
  * @returns {{steps: Array<{verb:string, args:Object, summary:string}>, errors: string[]}}
  */
 export function completionPlan(intent, form = {}) {
   const errors = [];
   if (!intent) return { steps: [], errors: ['There is no move to make.'] };
+  if (intent.to === CLOSED_SLUG && Number.isSafeInteger(intent.seen)) return closingPlan(intent, form);
 
   // The reason and the partner's own sentence ride ON the phase patch rather
   // than as follow-up verbs: they describe the change itself, so they belong to
