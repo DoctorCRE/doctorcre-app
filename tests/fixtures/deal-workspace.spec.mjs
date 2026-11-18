@@ -6,6 +6,51 @@ let server;
 test.beforeAll(async () => { server = await startFixtureServer(); });
 test.afterAll(async () => { await server?.stop(); });
 
+for (const width of [390, 1440]) {
+  test(`the deal shows the board's next step and date once at ${width}px`, async ({ page }) => {
+    const next = 'Confirm the demo showing';
+    const keyDate = '2026-11-20';
+    const seed = JSON.parse(await readFile(new URL('../../data/board-seed.json', import.meta.url), 'utf8'));
+    const deal = seed.deals.find(deal => deal.id === 'd14');
+    Object.assign(deal, {
+      client_name: 'Demo Showing Practice',
+      next_step: 'Stale fixture step', next_date: '2026-11-25',
+      email_actions: [
+        { id: 'current', description: next, status: 'open', due_on: keyDate },
+        { id: 'closed', description: 'Completed fixture step', status: 'done', due_on: '2026-11-01' },
+      ],
+      items: [{ id: 'showing', title: next, status: 'open', due_on: '2026-11-30', bullets: [] }],
+    });
+    await page.route('**/data/board-seed.json', route => route.fulfill({ json: seed }));
+    await page.setViewportSize({ width, height: 900 });
+    await page.clock.install({ time: new Date('2026-11-18T17:00:00Z') });
+    await page.goto(`${server.url}/deals`);
+    const card = page.locator('.kanban-column [data-id="d14"]');
+    await expect(card.getByText(next, { exact: true }).first()).toBeVisible();
+    await expect(card.locator(`time[datetime="${keyDate}"]`)).toBeVisible();
+    await card.locator('.card-open').click();
+
+    const room = page.getByRole('main', { name: 'Deal Workspace' });
+    const snapshot = room.getByRole('region', { name: 'Deal snapshot' });
+    await expect(room.getByText(next, { exact: true })).toHaveCount(1);
+    await expect(snapshot.locator(`time[datetime="${keyDate}"]`)).toBeVisible();
+    await expect(room.locator(`time[datetime="${keyDate}"]:visible`)).toHaveCount(1);
+    await expect(room.locator('time[datetime="2026-11-25"]:visible, time[datetime="2026-11-30"]:visible')).toHaveCount(0);
+    await expect(room.getByText(deal.client_name, { exact: true })).toHaveCount(1);
+    await expect(snapshot.getByText('No client website linked.')).toHaveCount(0);
+    await expect(snapshot.getByText('Set up client website')).toHaveCount(0);
+    await expect(room.getByText('Set up client website', { exact: true })).toBeVisible();
+    await expect(room.getByText('Watch state not confirmed')).not.toBeVisible();
+    await expect(room.getByLabel('Next step', { exact: true })).not.toBeVisible();
+    await snapshot.getByRole('button', { name: next, exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText(next);
+    await page.keyboard.press('Escape');
+    await room.getByRole('tab', { name: 'Timeline', exact: true }).click();
+    await expect(room.getByText(next, { exact: false })).not.toBeVisible();
+    await expect(room.locator('time[datetime="2026-11-25"]:visible')).toHaveCount(0);
+  });
+}
+
 test('opening a deal replaces the board with a workspace and Back restores its scroll', async ({ page }) => {
   // A late web font can change layout after fonts.ready resolves and invalidate the scroll baseline.
   await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route => route.abort());
