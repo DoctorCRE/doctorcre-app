@@ -431,7 +431,7 @@ function syncProspects(enabled) {
     prospects = mountProspects(lane, state.client, count => {
       prospectCount = count;
       renderBoardMessage();
-    }, openAddDeal);
+    }, authorLabel, openAddDeal);
     renderBoard();
   });
 }

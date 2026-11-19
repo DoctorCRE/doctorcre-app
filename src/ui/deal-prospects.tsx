@@ -4,7 +4,7 @@ import { AddProspect, ManageProspect } from "./prospect-management";
 import { type ProspectClient, ProspectFollowUp, ProspectNote, prospectsPath } from "./prospect-saves";
 
 const partners = { joe: "Joe", dell: "Dell" };
-const howFound = {
+const howFound: Readonly<Record<string, string>> = {
   referral: "Referral",
   vendor: "Vendor",
   marketing_post: "Marketing post",
@@ -15,10 +15,12 @@ const howFound = {
   national_account: "National account or corporate lead",
   existing_relationship: "Existing relationship",
   event: "Event",
+  not_recorded: "Not recorded",
 };
 
 type Partner = keyof typeof partners;
 type RequestProspect = (path: string, init?: RequestInit) => Promise<Response>;
+type AuthorLabel = (by: string | null) => string;
 type Filters = { owner: string; attention: boolean; actor: Partner | null; canSave: boolean };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -90,36 +92,42 @@ function parseProspect(value: unknown) {
   };
 }
 
-const noteDate = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Chicago",
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
-const dayWords = new Intl.DateTimeFormat("en-US", {
-  timeZone: "UTC",
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-});
 const centralDay = new Intl.DateTimeFormat("sv-SE", {
   timeZone: "America/Chicago",
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
 });
+function dateWords(timeZone: string, time?: Intl.DateTimeFormatOptions) {
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...time,
+  };
+  return {
+    current: new Intl.DateTimeFormat("en-US", options),
+    other: new Intl.DateTimeFormat("en-US", { ...options, year: "numeric" }),
+  };
+}
+const noteDate = dateWords("America/Chicago", { hour: "numeric", minute: "2-digit" });
+const dueDate = dateWords("UTC");
+const sameYear = (day: string, today: string) => day.slice(0, 4) === today.slice(0, 4);
 function due(day: string | null) {
   if (!day) return "No date set";
-  const late = Math.round((Date.parse(centralDay.format(new Date())) - Date.parse(day)) / 86400000);
-  return late > 0
-    ? `${dayWords.format(new Date(day))} (${late} day${late === 1 ? "" : "s"} late)`
-    : `Due ${dayWords.format(new Date(day))}`;
+  const today = centralDay.format(new Date());
+  const late = Math.round((Date.parse(today) - Date.parse(day)) / 86400000);
+  const formatter = sameYear(day, today) ? dueDate.current : dueDate.other;
+  return `Due ${formatter.format(new Date(day))}${late > 0 ? ` (${late} day${late === 1 ? "" : "s"} late)` : ""}`;
 }
-const noteBy = ({ by, at }: ReturnType<typeof parseNote>) => `${label(by)} · ${noteDate.format(new Date(at))}`;
+function noteBy({ by, at }: ReturnType<typeof parseNote>, authorLabel: AuthorLabel) {
+  const date = new Date(at);
+  const formatter = sameYear(centralDay.format(date), centralDay.format(new Date()))
+    ? noteDate.current
+    : noteDate.other;
+  return `${authorLabel(by)} · ${formatter.format(date)}`;
+}
 const owner = (value: Partner | null) => (value ? partners[value] : "Unclaimed");
 
 type Read<T> = { value?: T; unavailable?: boolean };
@@ -168,6 +176,7 @@ function ProspectDetail({
   client,
   filters,
   refreshLane,
+  authorLabel,
   close,
   focusFollowUp,
 }: {
@@ -175,6 +184,7 @@ function ProspectDetail({
   client: ProspectClient;
   filters: Filters;
   refreshLane: () => void;
+  authorLabel: AuthorLabel;
   close: () => void;
   focusFollowUp: boolean;
 }) {
@@ -208,9 +218,12 @@ function ProspectDetail({
         {row && (
           <>
             {filters.canSave && <ProspectNote id={id} client={client} saved={saved} />}
-            <p>How found · {Object.entries(howFound).find(([key]) => key === row.how_found)?.[1] ?? "Unknown"}</p>
             <p>
-              {owner(row.owner)}
+              How found ·{" "}
+              {row.how_found && Object.hasOwn(howFound, row.how_found) ? howFound[row.how_found] : "Unknown"}
+            </p>
+            <p>
+              {row.owner ? `Claimed by ${partners[row.owner]}` : "Unclaimed"}
               {row.needs_attention && " · Needs attention"}
             </p>
             <h3 ref={followUps} tabIndex={-1}>
@@ -254,7 +267,7 @@ function ProspectDetail({
               <ul>
                 {row.notes.map((note) => (
                   <li key={note.id}>
-                    {noteBy(note)}
+                    {noteBy(note, authorLabel)}
                     <p>{note.summary}</p>
                   </li>
                 ))}
@@ -281,6 +294,7 @@ function ProspectLane({
   filters,
   revision,
   client,
+  authorLabel,
   count,
   refresh,
   addDeal,
@@ -288,6 +302,7 @@ function ProspectLane({
   filters: Filters;
   revision: number;
   client: ProspectClient;
+  authorLabel: AuthorLabel;
   count: (value: number | null) => void;
   refresh: () => void;
   addDeal: (client: { id: string; name: string }) => void;
@@ -337,7 +352,7 @@ function ProspectLane({
               {row.latest_note && (
                 <>
                   <p className="next-line">{row.latest_note.summary?.split("\n")[0]}</p>
-                  <small>{noteBy(row.latest_note)}</small>
+                  <small>{noteBy(row.latest_note, authorLabel)}</small>
                 </>
               )}
               <p className="next-line">{next ? `${label(next.owner)} · ${due(next.due_on)}` : "No follow-up set"}</p>
@@ -352,6 +367,7 @@ function ProspectLane({
           client={client}
           filters={filters}
           refreshLane={refresh}
+          authorLabel={authorLabel}
           focusFollowUp={initial === opened && query.get("focus") === "follow-up"}
           close={() => open(null)}
         />
@@ -364,6 +380,7 @@ export function mountProspects(
   host: HTMLElement,
   client: ProspectClient,
   count: (value: number | null) => void,
+  authorLabel: AuthorLabel,
   addDeal: (client: { id: string; name: string }) => void,
 ) {
   const root = createRoot(host);
@@ -374,6 +391,7 @@ export function mountProspects(
       <ProspectLane
         filters={filters}
         client={client}
+        authorLabel={authorLabel}
         revision={revision}
         count={count}
         refresh={refresh}

@@ -149,11 +149,13 @@ export function AddProspect({
           onChange={(event) => setFound(event.currentTarget.value)}
         >
           <option value="">How found</option>
-          {Object.entries(sources).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
+          {Object.entries(sources)
+            .filter(([value]) => value !== "not_recorded")
+            .map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
         </select>
       )}
       <button className="btn" type="submit" disabled={save.blocked}>

@@ -3,7 +3,7 @@ import test from "node:test";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import worker from "../src/worker.js";
-import { chromium } from "./browser-harness.mjs";
+import { chromium, settles } from "./browser-harness.mjs";
 
 const party = "00000000-0000-4000-8000-000000000001";
 const note = { activity_id: party, by: "dell", at: "2026-11-18T15:40:00Z", summary: "First line\nSecond line" };
@@ -33,13 +33,28 @@ test("partners see and manage prospects from Deals", async (t) => {
         latest_note: note,
         change_id: 12,
       };
+      const birchProspect = {
+        ...prospect,
+        party_id: "00000000-0000-4000-8000-000000000006",
+        name: "Example Birch Practice",
+        owner: "dell",
+        how_found: "not_recorded",
+        needs_attention: false,
+        latest_note: { ...note, by: "agent" },
+        follow_ups: [{ ...step, owner: "dell", due_on: "2026-11-12" }],
+      };
       const knownId = "00000000-0000-4000-8000-000000000002";
       const dealId = "00000000-0000-4000-8000-000000000003";
       const clientId = "00000000-0000-4000-8000-000000000004";
       let claimed: "joe" | "dell" | null = null;
       let dropped = false,
         added = false;
-      const newProspect = { ...prospect, party_id: knownId, name: "Example Pine Prospect", needs_attention: false };
+      const newProspect = {
+        ...prospect,
+        party_id: "00000000-0000-4000-8000-000000000005",
+        name: "Example Pine Prospect",
+        needs_attention: false,
+      };
       const board = { schema_version: "local-deals-board.v2", actor, deals: [] };
       let enabled = false;
       let savesEnabled = false,
@@ -131,10 +146,16 @@ test("partners see and manage prospects from Deals", async (t) => {
             if (path.endsWith("/prospects")) {
               const prospects = [
                 ...(dropped ? [] : [{ ...prospect, owner: claimed }]),
+                birchProspect,
                 ...(added ? [newProspect] : []),
               ];
               return Response.json({ count: prospects.length, prospects });
             }
+            if (path.endsWith(birchProspect.party_id))
+              return Response.json({
+                ...birchProspect,
+                notes: [birchProspect.latest_note, { ...note, activity_id: birchProspect.party_id, by: null }],
+              });
             if (path.endsWith(party)) return Response.json({ ...prospect, owner: claimed, notes });
             return Response.json(board);
           },
@@ -180,9 +201,38 @@ test("partners see and manage prospects from Deals", async (t) => {
       assert.equal(
         await lane
           .locator(".work-card-meta")
+          .first()
           .evaluate((element) => element.clientWidth > (element.parentElement?.clientWidth ?? 0) / 2),
         true,
       );
+      if (width === 1440) {
+        const headline = page.locator("#boardLive");
+        const chips = page.locator("#boardChips");
+        const birch = lane.getByRole("button", { name: "Example Birch Practice" });
+        await birch.waitFor();
+        await settles(async () => assert.match((await headline.textContent()) ?? "", / · 2 prospects$/));
+        assert.match((await lane.textContent()) ?? "", /Dell · Due Thu, Nov 12 \(6 days late\)/);
+        assert.match((await lane.textContent()) ?? "", /Doc \(assistant\) · Wed, Nov 18, 9:40 AM/);
+        await chips.getByRole("button", { name: "Joe", exact: true }).click();
+        await birch.waitFor({ state: "detached" });
+        await open.waitFor();
+        await settles(async () => assert.match((await headline.textContent()) ?? "", / · 1 prospect$/));
+        await chips.getByRole("button", { name: "Dell", exact: true }).click();
+        await birch.waitFor();
+        await open.waitFor();
+        await settles(async () => assert.match((await headline.textContent()) ?? "", / · 2 prospects$/));
+        await birch.click();
+        const claimedDetail = page.getByRole("dialog", { name: "Example Birch Practice" });
+        await claimedDetail.getByText("Claimed by Dell", { exact: true }).waitFor();
+        await claimedDetail.getByText("How found · Not recorded", { exact: true }).waitFor();
+        await claimedDetail.getByText(/^Author not recorded ·/).waitFor();
+        await page.goto(`${server.origin}/deals?mode=live&filter=flagged`);
+        await open.waitFor();
+        assert.equal(await birch.count(), 0);
+        await settles(async () => assert.match((await headline.textContent()) ?? "", / · 1 prospect$/));
+        await page.goto(`${server.origin}/deals?mode=live`);
+        await open.waitFor();
+      }
       await page.getByRole("button", { name: "List", exact: true }).click();
       await open.waitFor();
       assert.equal(await open.count(), 1);
@@ -246,6 +296,7 @@ test("partners see and manage prospects from Deals", async (t) => {
         await addDeal.getByRole("button", { name: "Cancel" }).click();
         await name.fill("Example Pine Prospect");
         await lane.getByLabel("Person or company").selectOption("company");
+        assert.equal(await lane.getByRole("option", { name: "Not recorded", exact: true }).count(), 0);
         await lane.getByLabel("How found").selectOption("referral");
         await firstNote.press("Enter");
         await lane.getByRole("button", { name: "Example Pine Prospect" }).waitFor();
