@@ -1056,7 +1056,6 @@
     "tests/staging/progress.spec.ts": "75e2e3b356c856bb8f5d9886d8d2617adbef7f10a3e2702004727b45a8d99af1",
     "tests/staging/relationships.spec.ts": "8c7cc4e7d7d3b05949501560028eebd9adcde2d275e9ab1b67decddc755e3897",
     "tests/staging/search.spec.ts": "df0ddbb1dd420f733d0d826bb0b3b1995b54f41d2d2fb847a735d5df13aadc4a",
-    "tests/staging/signed-in.spec.ts": "f8ebb87e897c7125ad784ef039a27ced30c995c8aef11135f2e71b1e242ae264",
     "tests/staging/status.spec.ts": "a9da462526eb3401f1ac7219d74542063f55260ec8630d5d093138d2ddf5ec01",
     "tests/staging/tours-day.spec.ts": "76bd804b4d3f2e87ac3445f64b1856cabb7021d6ac794e44402686aca297797f",
     "tests/staging/tours-itinerary.spec.ts": "af63bf86613224e9e1dad4f80a15d918f07b0d3e0f95202794a9c986e8c41b5f",
