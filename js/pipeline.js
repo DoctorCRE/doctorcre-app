@@ -42,7 +42,7 @@ import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceCl
 import { sourceTime } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
-  dealTimeline, engineTimelineEntries, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
+  dealTimeline, engineTimelineEntries, renderImportedDealHistory, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
 } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
 import { mountVisibilityPoll } from './visibility-poll.mjs';
@@ -138,7 +138,7 @@ function parkingAttributionHtml(deal) {
 }
 function dealTypeFacts(deal, fromEngine, fallback = '') {
   const unrecordedRenewal = fromEngine && deal.renewal_lease_unrecorded === true;
-  const type = unrecordedRenewal ? deal.kind && deal.type : deal.type || fallback;
+  const type = (unrecordedRenewal ? deal.kind && deal.type : deal.type) || fallback;
   return (type ? `<div><dt>Type</dt><dd>${esc(type)}</dd></div>` : '')
     + (unrecordedRenewal ? '<div><dt>Deal reason</dt><dd><span>Renewal</span><br><small>Lease not recorded</small></dd></div>' : '');
 }
@@ -1458,7 +1458,7 @@ function workspaceHtml(detail) {
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden></section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>
-    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine)}</div>${fromEngine ? '' : renderDealTimeline(detail)}</section>
+    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2><details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details><div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
 function criticalDateFormHtml() {
@@ -1893,7 +1893,6 @@ function fieldPatch(field, value) {
     operating_state: value.state,
     parking_note: value.note || null,
     parking_reason: value.reason || null,
-    ...(state.nextDealSaves ? { parked_automatically: false, parked_by: value.state === 'parked' ? state.selfActor : null } : {}),
   };
 }
 async function setOperatingState(id, value) {

@@ -33,10 +33,11 @@ for (const width of [1440, 390]) {
     const renewal = { reason: 'renewal', renewal_lease_unrecorded: true, client_name: 'Example Practice', closed_on: '2026-11-02' };
     const won = deal('Example Closed Renewal', { ...renewal, type: 'renewal', phase: 'closed', outcome: 'won' });
     const lost = deal('Example Lost Renewal', { ...renewal, kind: 'relocation', type: 'relocation', phase: 'dead', outcome: 'lost', lost_reason: 'Plans changed' });
+    const lostUnknown = deal('Example Lost Renewal With Unknown Type', { ...renewal, type: 'renewal', phase: 'dead', outcome: 'lost' });
     const withLease = deal('Example Renewal With Lease', { reason: 'renewal', type: 'renewal', phase: 'dead', outcome: 'lost' });
-    const rows = [automatic, partner, won, lost, withLease];
+    const rows = [automatic, partner, won, lost, lostUnknown, withLease];
     const board = () => ({ schema_version: 'local-deals-board.v2', actor: 'joe',
-      deals: [automatic, partner], closed_deals: [won], lost_deals: [lost, withLease] });
+      deals: [automatic, partner], closed_deals: [won], lost_deals: [lost, lostUnknown, withLease] });
     const switches = new Set();
     let revivals = 0;
     const env = {
@@ -113,8 +114,11 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: label, exact: true }).click();
       await caption(card(row), 'Renewal').waitFor({ timeout: 5000 });
       await caption(card(row), 'Lease not recorded').waitFor({ timeout: 5000 });
+      const typeRow = item => caption(card(item), 'Type').locator('..');
+      await caption(typeRow(row), row === lost ? 'Relocation' : 'Not recorded').waitFor({ timeout: 5000 });
       if (row === lost) {
-        await caption(card(row), 'Relocation').waitFor();
+        await caption(typeRow(lostUnknown), 'Not recorded').waitFor({ timeout: 5000 });
+        await caption(card(lostUnknown), 'Lease not recorded').waitFor();
         await caption(card(row), 'Reason for loss').waitFor();
         await caption(card(row), 'Plans changed').waitFor();
         await caption(card(withLease), 'Renewal').waitFor();
@@ -133,9 +137,12 @@ for (const width of [1440, 390]) {
     await page.goto(`${boardUrl}&view=list`);
     await openParked();
     await caption(card(automatic), 'Parked automatically').waitFor({ timeout: 5000 });
+    const refreshedBoard = page.waitForResponse(response => revivals === 1 && response.url().endsWith('/mcp')
+      && response.request().postDataJSON()?.params?.name === 'deal-room-board');
     await card(automatic).getByRole('button', { name: 'Revive', exact: true }).click();
     await page.getByText('Deal revived', { exact: true }).waitFor();
-    await page.goto(boardUrl);
+    await refreshedBoard;
+    await page.getByRole('button', { name: 'Board', exact: true }).click();
     await page.locator('.kanban-column').getByRole('button', { name: automatic.name, exact: true }).waitFor();
     assert.equal(revivals, 1);
     assert.equal(await caption(card(automatic), 'Parked automatically').count(), 0);
@@ -1359,8 +1366,8 @@ for (const [width, readsOn, savesOn] of [
   });
 }
 
-test('the switched-on Timeline shows one ordered history including a newly saved note', async t => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+for (const width of [1440, 390]) test(`Timeline shows read-only history from the old system at ${width}px`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 960 }, timezoneId: 'America/Los_Angeles' });
   t.after(() => page.close());
   await page.clock.setFixedTime(new Date('2026-11-18T15:00:00Z'));
   const deal = crypto.randomUUID();
@@ -1393,7 +1400,16 @@ test('the switched-on Timeline shows one ordered history including a newly saved
       id: `change-${i}`, verb: 'update-deal', field, new_value, actor: 'joe', recorded_at: beforeDocument,
     })),
   ];
-  const detail = { ...row, thread, events, email_follow_ups: [],
+  const imported_deal_history = [
+    { actor: 'dell', verb: 'set-next-action', field: 'next_date', old_value: { next_date: '2025-01-06' }, new_value: { next_date: null } },
+    { actor: 'agent', verb: 'record-finding', field: 'address', new_value: { found: false, expires_on: '2025-02-03' } },
+    { actor: 'joe', verb: 'prepare-document', field: 'document', new_value: { template: 'Example lease <draft>', filled: 0, owed: 2 } },
+  ].map((entry, i) => ({
+    id: `00000000-0000-4000-8000-00000000000${i}`, imported: true, old_value: null,
+    occurred_at: '2025-01-03T10:00:00Z', recorded_at: `2025-01-0${i === 0 ? 5 : 6}T00:00:00Z`,
+    ...entry,
+  }));
+  const detail = { ...row, thread, events, imported_deal_history, email_follow_ups: [],
     phase_started_on: { legal: '2026-11-17' },
     documents: [{ id: 'file', name: 'Example plan.pdf', actor: 'mail_capture', prepared_at: '2026-11-16T14:00:00Z' }],
     next_actions: [
@@ -1407,10 +1423,10 @@ test('the switched-on Timeline shows one ordered history including a newly saved
       updated_at: status === 'open' ? '2026-11-17T19:00:00Z' : beforeDocument,
     })),
   };
-  let switchesOn = false;
+  let readsOn = false, savesOn = false;
   const carr = [], engine = [];
   const env = {
-    ENGINE_ROUTING: { get: async key => switchesOn && ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+    ENGINE_ROUTING: { get: async key => ({ 'deals-from-engine': readsOn, 'deals-saves-from-engine': savesOn })[key] ? 'on' : null },
     ENGINE: { fetch: async request => {
       const path = new URL(request.url).pathname;
       engine.push(path);
@@ -1428,11 +1444,11 @@ test('the switched-on Timeline shows one ordered history including a newly saved
       carr.push(name);
       const data = name === 'deal-room-board'
         ? { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] }
-        : { ...row, thread, phase_started_on: detail.phase_started_on };
+        : { ...row, thread, imported_deal_history, phase_started_on: detail.phase_started_on };
       return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
     } },
   };
-  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-timeline', viewer: 'joe', reset: true } });
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `engine-timeline-${width}`, viewer: 'joe', reset: true } });
   await page.route('**/mcp', async route => {
     const request = route.request();
     if (!['deal-room-board', 'get-deal-room', 'add-deal-note'].includes(request.postDataJSON()?.params?.name)) return route.continue();
@@ -1443,6 +1459,7 @@ test('the switched-on Timeline shows one ordered history including a newly saved
   });
 
   const timeline = page.getByRole('tabpanel', { name: 'Timeline' });
+  const oldHistory = timeline.getByRole('region', { name: 'History from the old system' });
   const openTimeline = async () => {
     await page.getByRole('tab', { name: 'Timeline' }).click();
     await timeline.getByText('Tour plans confirmed', { exact: true }).first().waitFor();
@@ -1452,11 +1469,21 @@ test('the switched-on Timeline shows one ordered history including a newly saved
   assert.equal(await timeline.getByText('Phase timeline', { exact: true }).count(), 1);
   assert.ok(carr.includes('get-deal-room'));
   assert.deepEqual(engine, []);
+  assert.equal(await oldHistory.count(), 0);
 
-  switchesOn = true;
+  readsOn = true;
   await page.reload();
   await openTimeline();
-  const rows = timeline.getByRole('listitem');
+  assert.equal(await oldHistory.count(), 1);
+  const earlier = await oldHistory.getByRole('listitem').allTextContents();
+  assert.equal(earlier.length, 3);
+  assert.match(earlier[0], /Joe.*Jan 5, 2025.*6:00 PM CST.*Prepared a document.*Example lease <draft>.*Fields filled.*0.*Fields still needed.*2/s);
+  assert.match(earlier[1], /Automatically.*Jan 5, 2025.*6:00 PM CST.*Checked the address.*Result: Nothing found.*Feb 3, 2025/s);
+  assert.match(earlier[2], /Dell.*Jan 4, 2025.*6:00 PM CST.*Changed the next step date.*Next step date cleared.*Jan 6, 2025/s);
+  assert.doesNotMatch(earlier.join(' '), /2025-01-|next_date|set-next-action|record-finding|expires_on|\[object Object\]/);
+  assert.equal(await oldHistory.locator('a, button, input, select, textarea, [contenteditable]').count(), 0);
+  assert.equal(await oldHistory.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+  const rows = timeline.locator('li[data-event-type]:not([hidden])');
   const contents = await rows.allTextContents();
   assert.equal(contents.length, 6 + stepChanges.length + (dates.length - 1) + dealChanges.length);
   assert.match(contents[0], /Automatically.*Nov 17.*7:00 PM.*Legal/);
@@ -1476,6 +1503,8 @@ test('the switched-on Timeline shows one ordered history including a newly saved
   }
   assert.doesNotMatch(contents.join(' '), /2026-11-|move-phase|add deal note|Active work ·|Attention flag/);
 
+  savesOn = true;
+  await page.reload();
   await page.getByRole('tab', { name: 'Overview' }).click();
   await page.getByLabel('Update', { exact: true }).fill('Tour plans confirmed');
   await page.getByRole('button', { name: 'Add update' }).click();
@@ -1490,7 +1519,9 @@ test('the switched-on Timeline shows one ordered history including a newly saved
   await filter.selectOption('Note');
   assert.equal(await rows.count(), 2);
   await filter.selectOption('');
-  await timeline.screenshot({ path: join(evidence, 'engine-timeline.png') });
+  assert.deepEqual(await oldHistory.getByRole('listitem').allTextContents(), earlier);
+  assert.equal(engine.filter(path => path === '/api/engine/activities').length, 1);
+  await oldHistory.screenshot({ path: join(evidence, `imported-deal-history-${width}.png`) });
 });
 
 for (const width of [1440, 390]) {

@@ -338,3 +338,26 @@ test('countdown DOM follows upcoming to soon to today to overdue on Central days
   assert.equal(root.querySelector('[data-countdown]').textContent,text);
  }
 });
+
+test('old deal history labels authors and facts in the words used on the deal page', () => {
+ const cases = [
+  ['update-deal', 'outcome', { outcome: 'lost' }, 'Outcome: Lost'],
+  ['update-deal', 'notes_path', { notes_path: '/example/old-notes.md' }, 'Updated where the deal notes are kept'],
+  ['reattach-deal', 'client_id', { client_name: 'Example Practice', client_ref: 'C-123' }, 'Client: Example Practice'],
+  ['new-deal', null, { name: 'Example deal', client: 'C-456' }, 'Deal name: Example deal'],
+  ['add-critical-date', null, { kind: 'lease_end' }, 'Date type: Lease expiration'],
+  ['log-activity', null, { kind: 'email_out' }, 'Activity type: Email sent'],
+  ['dismiss-email-proposal', null, { kind: 'file_to_deal' }, 'Suggestion type: File email to this deal'],
+  ['record-finding', 'address', { found: false }, 'Result: Nothing found'],
+  ['add-premises', null, { ownership: 2 }, 'Owners listed: 2'],
+  ['set-next-action', null, { set_by: 'mail_capture' }, 'Set by: Automatically'],
+ ];
+ for (const [verb, field, new_value, expected] of cases) {
+  const html = view.renderImportedDealHistory([{ verb, field, new_value, imported: true,
+    actor: 'mail_capture', recorded_at: '2025-01-06T00:00:00Z' }]);
+  const row = new JSDOM(html).window.document.querySelector('li');
+  assert.equal(row.querySelector('b').textContent, 'Automatically');
+  assert.ok(row.textContent.includes(expected), expected);
+  assert.doesNotMatch(row.textContent, /C-123|C-456|old-notes\.md/);
+ }
+});
