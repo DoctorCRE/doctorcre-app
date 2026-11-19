@@ -1170,6 +1170,7 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
         if (deal.id === 'd06') return {
           ...deal, parked_automatically: true, parked_by: null,
           parking_note: 'unverified import — 2026-10-01 records audit; revive if active',
+          next_critical_date: { kind: 'lease_expiration', due_on: '2026-10-21' },
         };
         return deal;
       };
@@ -1246,6 +1247,8 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
       pageNote: await parking.getByText(importNote, { exact: true }).count(),
       parkedInHeader: await parkedStatus.count(),
     }, { cardNote: 1, pageNote: 1, parkedInHeader: 1 });
+    const criticalDate = header.getByText('Next critical date', { exact: true }).locator('..');
+    assert.equal(await criticalDate.getByText('Wed, Oct 21, 2026', { exact: true }).isVisible(), true);
     await header.screenshot({ path: new URL(`${width}-import-header.png`, artifacts).pathname });
     await parking.screenshot({ path: new URL(`${width}-import-parking.png`, artifacts).pathname });
     assert.deepEqual(errors, []);
