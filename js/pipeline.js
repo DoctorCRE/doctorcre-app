@@ -1,7 +1,7 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { automaticPhaseReceipt, dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderLastDealStep, renderOverdueFlag, renderPhaseReceipt } from './deal-items.js';
+import { automaticPhaseReceipt, dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderOverdueFlag, renderPhaseReceipt } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
@@ -113,8 +113,10 @@ const automaticPhase = prepareAutomaticPhaseUndo({
 });
 
 function cardPhaseMoveHtml(deal, legacy = '') {
-  return state.nextDealSaves && state.view === 'board'
-    ? renderPhaseReceipt(deal, automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id)), legacy) : legacy;
+  const canUndo = state.nextDealSaves && state.view === 'board';
+  if (!state.boardFromEngine && !canUndo) return legacy;
+  const receipt = automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id), { showEngineMoves: state.boardFromEngine, canUndo });
+  return renderPhaseReceipt(deal, receipt, legacy);
 }
 
 function autoHtml(deal) {
@@ -171,11 +173,9 @@ function boardNextStepHtml(deal) {
   return `<p class="deal-board-next-step"><span>${esc(step.description.trim())}</span> · ${dueDateHtml(calendarDay(step.due_on), businessDay())}</p>`;
 }
 function cardStepsHtml(deal, today) {
-  const summary = state.boardFromEngine
-    ? boardNextStepHtml(deal) + renderLastDealStep(deal.last_step)
-    : renderDealSummary(deal, { today, board: true });
-  return summary + renderDealItems(deal, { today: state.boardFromEngine ? businessDay() : today,
-    buttons: true, empty: false, board: !state.boardFromEngine });
+  if (state.boardFromEngine) return boardNextStepHtml(deal);
+  return renderDealSummary(deal, { today, board: true })
+    + renderDealItems(deal, { today, buttons: true, empty: false, board: true });
 }
 function cardHtml(deal) {
   const today = todayIso();
@@ -195,24 +195,30 @@ function legacyRowStepHtml(deal) {
   return `<p class="next-line" title="${esc(nextStep)}">${nextStep.trim() ? esc(nextStep) : 'Next step missing'}</p>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}`;
 }
 function rowHtml(deal) {
+  const parked = state.boardFromEngine && deal.operating_state === 'parked';
   const summary = state.boardFromEngine ? boardNextStepHtml(deal) : legacyRowStepHtml(deal);
   const attention = state.boardFromEngine ? deal.attention === true : needsAttention(deal);
+  const parking = parked ? parkingSummaryHtml(deal) : '';
+  const website = parked && state.nextDealSaves ? renderClientPortalLink(deal.client_portal_url, deal.id) : '';
+  const revive = parked ? `<button class="btn btn-quiet" type="button" data-revive="${esc(deal.id)}">Revive</button>` : '';
   return workCard({ variant: 'row', className: 'kanban-card deal-row', heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0" data-attention="${attention}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
     meta: `<span class="owner">${esc(actorName(deal.owner))}</span>`,
-    body: `<span class="deal-stage">${esc(columnLabel(deal.phase))}</span><div class="deal-row-next">${summary}${renderDealVendors(deal.vendors)}${autoHtml(deal)}</div>` });
+    body: `<span class="deal-stage">${esc(columnLabel(deal.phase))}</span><div class="deal-row-next">${summary}${parking}${renderDealVendors(deal.vendors)}${website}${cardPhaseMoveHtml(deal, autoHtml(deal))}${revive}</div>` });
+}
+function parkingSummaryHtml(deal) {
+  const note = deal.parking_note === 'unverified import — 2026-10-01 records audit; revive if active' ? 'Imported Oct 1, not yet confirmed. Revive if still active.' : deal.parking_note;
+  return state.nextDealSaves ? parkingDetailsHtml({ ...deal, parking_note: note })
+    : `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${state.boardFromEngine ? parkingAttributionHtml(deal) : ''}`;
 }
 function parkedHtml(deal) {
-  const note = deal.parking_note === 'unverified import — 2026-10-01 records audit; revive if active' ? 'Imported Oct 1, not yet confirmed. Revive if still active.' : deal.parking_note;
   const next = state.nextDealSaves;
   const title = esc(dealTitle(deal));
-  const summary = next ? parkingDetailsHtml({ ...deal, parking_note: note })
-    : `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${state.boardFromEngine ? parkingAttributionHtml(deal) : ''}`;
   return workCard({ variant: 'tile', className: 'kanban-card parked-card', heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="${next ? -1 : 0}"`,
     title: next ? `<button class="card-open" type="button" data-open="${esc(deal.id)}">${title}</button>` : title,
     meta: esc(actorName(deal.owner)),
     status: !next && deal.parking_reason !== 'other' ? deal.parking_reason?.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase()) : '',
-    body: `${summary}${cardStepsHtml(deal, todayIso())}${renderDealVendors(deal.vendors)}${next ? renderClientPortalLink(deal.client_portal_url, deal.id) : ''}${cardPhaseMoveHtml(deal)}`,
+    body: `${parkingSummaryHtml(deal)}${cardStepsHtml(deal, todayIso())}${renderDealVendors(deal.vendors)}${next ? renderClientPortalLink(deal.client_portal_url, deal.id) : ''}${cardPhaseMoveHtml(deal)}`,
     actions: `<button class="btn btn-quiet" type="button" data-revive="${esc(deal.id)}">Revive</button>` });
 }
 
@@ -393,6 +399,16 @@ function renderBoardMessage(status = state.boardSync?.status()) {
   say(typeof count === 'number' ? `${headline} · ${count} prospect${count === 1 ? '' : 's'}` : headline);
 }
 
+function dealListHtml(rows, parked) {
+  const fromEngine = state.boardFromEngine;
+  const phase = fromEngine ? 'Phase' : 'Stage';
+  const visible = !fromEngine && state.parkedOpen ? rows : rows.filter(deal => deal.operating_state !== 'parked');
+  const mainRows = urgencyOrder(visible).map(deal => deal.operating_state === 'parked' ? parkedHtml(deal) : rowHtml(deal)).join('');
+  const parkedGroup = fromEngine && state.parkedOpen ? `<section class="deal-list-parked" aria-labelledby="parkedListHeading">
+    <h3 id="parkedListHeading">Parked · ${parked.length}</h3>${urgencyOrder(parked).map(rowHtml).join('')}</section>` : '';
+  return `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>${phase}</span><span>Next step</span><span>Owner</span></div>${mainRows}${parkedGroup}</div>`;
+}
+
 function renderBoard() {
   const board = $('kanban');
   if (!board) return;
@@ -410,7 +426,6 @@ function renderBoard() {
     selectDocRecord('deal', state.panelDeal);
   }
   publishDocRead('getBoard', { deals: rows });
-  const active = rows.filter(d => d.operating_state !== 'parked');
   renderBoardMessage();
   const grouped = groupByColumn(rows);
   state.unplaced = grouped.unplaced.length;
@@ -420,7 +435,7 @@ function renderBoard() {
   preserveBoardFocus({ board, document, announce, paint() {
     for (const child of [...board.children]) if (child !== lane) child.remove();
     const insert = list ? 'beforebegin' : 'afterend';
-    (lane ?? board).insertAdjacentHTML(lane ? insert : 'afterbegin', list ? `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>Stage</span><span>Next step</span><span>Owner</span></div>${urgencyOrder(state.parkedOpen ? rows : active).map(d => d.operating_state === 'parked' ? parkedHtml(d) : rowHtml(d)).join('')}</div>` : grouped.columns.map((column) => {
+    (lane ?? board).insertAdjacentHTML(lane ? insert : 'afterbegin', list ? dealListHtml(rows, grouped.parked) : grouped.columns.map((column) => {
       const cards = urgencyOrder(column.deals);
       const collapsed = state.collapsedColumns.has(column.slug);
       const content = collapsed
@@ -651,6 +666,7 @@ async function pollOnce(initial = false) {
 
 function confirmLocalWrite(dealId, patch) {
   const deal = state.deals.get(dealId) || null;
+  // The engine read supplies parking state and attribution together.
   if (!state.nextDealSaves || !Object.hasOwn(patch, 'operating_state')) {
     if (deal) Object.assign(deal, patch);
     state.boardSync.noteLocalWrite(dealId, patch);

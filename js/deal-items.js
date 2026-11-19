@@ -95,7 +95,7 @@ export function renderDealSummary(deal, options = {}) {
   return `<span class="deal-summary-line"><span class="deal-summary-label">Next: </span>${label}<span class="deal-summary-facts">${date ? ` · <time data-overdue="${overdue}" datetime="${esc(when)}">${esc(date)}</time>` : ''}${esc(owner)}</span></span>` + last;
 }
 
-export function renderLastDealStep(step) {
+function renderLastDealStep(step) {
   const last = dealLastCaption(step);
   return last ? `<span class="deal-summary-line deal-summary-last"><span class="deal-summary-label">Last: </span><span class="deal-summary-text">${esc(last.text)}</span><span class="deal-summary-facts"> · <time datetime="${esc(last.when)}">${esc(last.date)}</time></span></span>` : '';
 }
@@ -109,17 +109,19 @@ export function renderDealItemDetail(item, { today = '' } = {}) {
   }).join('')}<form data-item-instruction><label for="dealItemInstruction">Tell Dr. CRE</label><textarea id="dealItemInstruction" name="text" aria-label="Tell Dr. CRE" rows="3" maxlength="240" required></textarea><button type="submit" class="btn btn-primary" disabled>Save instruction</button><p>Not submitted. This control cannot send a request to Dr. CRE.</p></form><button type="button" class="btn" data-complete-item${item.status === 'done' ? ' disabled' : ''}>${item.status === 'done' ? 'Done' : 'Mark done'}</button><p role="status" data-item-status></p>`;
 }
 
-export function automaticPhaseReceipt(deal, entry) {
+export function automaticPhaseReceipt(deal, entry, { showEngineMoves = false, canUndo = true } = {}) {
   const event = deal.phase_change;
   const day = calendarDay(event?.evidence_date);
-  const feedback = entry?.eventId && entry.eventId !== event?.event_id ? null : entry;
-  const move = event?.source === 'copied' && event.automatic === true && event.event_id && day;
-  const returnsToEndedDeals = move && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
+  const datedMove = event?.automatic === true && event.event_id && day;
+  const feedback = canUndo && (!entry?.eventId || entry.eventId === event?.event_id) ? entry : null;
+  const undoableMove = canUndo && event?.source === 'copied' && datedMove;
+  const returnsToEndedDeals = undoableMove && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
     || feedback?.code === 'undo_returns_to_ended_deals');
   const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
-  const action = move && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
+  const action = undoableMove && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
     ? { eventId: event.event_id, version: deal.seen, busy: Boolean(feedback?.busy) } : null;
-  return { move: move ? { day, date: formatCalendarDate(day) || day, action } : null, message };
+  const move = datedMove && (showEngineMoves || undoableMove) ? { day, date: formatCalendarDate(day) || day, action } : null;
+  return { move, message };
 }
 
 export function renderPhaseReceipt(deal, { move, message }, legacy) {
