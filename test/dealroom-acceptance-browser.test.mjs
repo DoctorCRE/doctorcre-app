@@ -865,11 +865,13 @@ for (const width of [1440, 390]) {
     await page.clock.setFixedTime(new Date('2026-11-16T04:00:00Z'));
     const [deal, prospect, parked] = Array.from({ length: 3 }, () => crypto.randomUUID());
     const row = { id: deal, deal_id: deal, name: 'Zephyr Deal', phase: 'research', owner: 'dell' };
+    const prospectRow = { party_id: prospect, name: 'Birch Prospect', owner: null, how_found: 'referral',
+      change_id: 2, latest_note: null, reviewed: null, state: 'dropped', needs_attention: true,
+      follow_ups: [{ next_step_id: prospect, owner: 'joe', change_id: 1, what: 'Call back', due_on: '2026-11-16' }] };
+    const parkedRow = { deal_id: parked, name: 'Alder Deal', phase: 'pending', reviewed: null,
+      state: 'open', operating_state: 'parked' };
     const review = [
-      { ...row, reviewed: { by: 'joe', at: '2026-11-09T15:00:00Z' }, state: 'open' },
-      { party_id: prospect, name: 'Birch Prospect', reviewed: null, state: 'dropped', needs_attention: true,
-        follow_ups: [{ what: 'Call back', due_on: '2026-11-16' }] },
-      { deal_id: parked, name: 'Alder Deal', phase: 'pending', reviewed: null, state: 'open', operating_state: 'parked' },
+      { ...row, reviewed: { by: 'joe', at: '2026-11-09T15:00:00Z' }, state: 'open' }, prospectRow, parkedRow,
     ];
     await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `monday-review-${width}`, viewer: 'joe', reset: true } });
     let enabled = false;
@@ -885,6 +887,9 @@ for (const width of [1440, 390]) {
           weeks.push(url.searchParams.get('week_of'));
           return Response.json({ items: review });
         }
+        if (url.pathname === '/api/engine/prospects') return Response.json({ count: 0, prospects: [] });
+        if (url.pathname.endsWith(prospect)) return Response.json({ ...prospectRow, notes: [] });
+        if (url.pathname.endsWith(parked)) return Response.json(parkedRow);
         if (url.pathname.endsWith(deal)) return Response.json({ ...row, thread: [
           { id: 'example-note', kind: 'note', text: 'Example new note', actor: 'joe', recorded_at: '2026-11-09T15:00:00Z' },
         ] });
@@ -897,6 +902,7 @@ for (const width of [1440, 390]) {
       } },
     };
     await page.route(url => url.pathname === '/mcp' || url.pathname === '/api/engine/weekly-reviews'
+      || url.pathname.startsWith('/api/engine/prospects')
       || (url.pathname === '/deals' && url.searchParams.get('view') === 'review'), async route => {
       const request = route.request();
       if (request.method() === 'POST' && !['deal-room-board', 'get-deal-room'].includes(request.postDataJSON()?.params?.name))
@@ -936,8 +942,10 @@ for (const width of [1440, 390]) {
     assert.deepEqual(await items.getByRole('link').allTextContents(), ['Birch Prospect', 'Alder Deal']);
     await page.getByRole('checkbox', { name: 'Not reviewed' }).uncheck();
     await page.getByRole('link', { name: 'Birch Prospect' }).click();
-    assert.equal(new URL(page.url()).searchParams.get('prospect'), prospect);
-    await page.goBack();
+    const dialog = page.getByRole('dialog', { name: 'Birch Prospect' });
+    await dialog.getByText(/Joe · Call back/).waitFor();
+    await dialog.getByRole('button', { name: 'Back to Monday review' }).click();
+    await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: join(evidence, `monday-review-${width}.png`), fullPage: true });
     await page.getByRole('link', { name: row.name }).click();
@@ -945,5 +953,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Back to Monday review' }).click();
     await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
     assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Alder Deal']);
+    await page.getByRole('link', { name: parkedRow.name }).click();
+    await page.locator('#panelTitle').getByText(parkedRow.name).waitFor();
   });
 }

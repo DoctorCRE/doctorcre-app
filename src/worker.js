@@ -276,7 +276,7 @@ async function engineResponse(request, env) {
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
           if (board?.schema_version === 'local-deals-board.v2') {
-            text = JSON.stringify({ ...board, engine_weekly_review: true,
+            text = JSON.stringify({ ...board, engine_prospects: true, engine_weekly_review: true,
               ...(await switchedOn(env, NEXT_DEAL_SAVES) ? { next_deal_saves: true } : {}) });
           }
         }
@@ -313,6 +313,7 @@ const CUTOVER_SAVES = new Set([
   'add-deal-note', 'new-deal', 'set-market-agent', 'add-critical-date',
   'remove-deal-participant', 'confirm-critical-date', 'resolve-critical-date',
   'instruct-deal-item', 'revert-deal-field', 'resolve-conflict', 'undo-invoice-close',
+  'create-national-account', 'set-national-account-owner',
 ]);
 const isUuid = value => isString(value) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 
@@ -323,6 +324,14 @@ function nextDealSave(verb, args) {
   if (verb === 'new-deal') {
     const { name, client_id, owner, phase, kind, reason, market_id, renews_lease_id } = args;
     return isUuid(client_id) ? post('/deals', { name, client_id, owner, phase, kind, reason, market_id, renews_lease_id }) : null;
+  }
+  if (verb === 'create-national-account') {
+    const { name, owner, force_new } = args;
+    return post('/national-accounts', { name, owner, force_new });
+  }
+  if (verb === 'set-national-account-owner') {
+    const { account_client_id, owner, base_version } = args;
+    return isUuid(account_client_id) ? post(`/national-accounts/${account_client_id}/owner`, { owner, base_version }) : null;
   }
   if (!isUuid(deal)) return null;
   const changes = patch => post(`/deals/${deal}/changes`, { seen_change_id, ...patch });
@@ -432,11 +441,14 @@ async function cutoverSave(request, env, call) {
   const { name, arguments: args } = call.params;
   const on = await switchedOn(env, NEXT_DEAL_SAVES);
   const creating = name === 'new-deal';
-  const fromNext = creating ? args.next_deal_save === true
+  const accountSave = name === 'create-national-account' || name === 'set-national-account-owner';
+  const fromNext = creating || accountSave ? args.next_deal_save === true
     : Number.isSafeInteger(args.seen_change_id) && args.seen_change_id >= 0;
   if (!on && !fromNext) return null;
   if (creating && (!on || !fromNext)) return saveRefusal(call, 'reload_deals', 'Reload Deals before adding a deal.');
-  if (on && !await switchedOn(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
+  if (accountSave && (!on || !fromNext || !await switchedOn(env, DEALS)))
+    return saveRefusal(call, 'reload_deals', 'Reload Deals before saving the account.');
+  if (!accountSave && on && !await switchedOn(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
   const save = nextDealSave(name, args);
   if (on && !save) return saveRefusal(call, 'deal_save_unavailable', name === 'set-market-agent' && fromNext
     ? 'Choose an existing person as the market agent.' : 'This change is temporarily unavailable.');
@@ -448,11 +460,21 @@ async function cutoverSave(request, env, call) {
   const body = await response.json().catch(() => null);
   if (!isObject(body)) return unavailable(false);
   if (!response.ok) {
+    if (name === 'create-national-account' && body.error === 'account_name_exists' && !args.force_new) {
+      return mcpReply(call, response, JSON.stringify({
+        needs_confirm: true, candidates: body.candidates,
+        hint: 'A company with this name already exists. Confirm only if this is a separate company.',
+      }), false);
+    }
     if (name === 'undo-invoice-close' && body.rule === 'invoice_email_undo_current') body.error = 'version_conflict';
     const peopleOrDate = name === 'set-market-agent' || name === 'remove-deal-participant' || name.endsWith('-critical-date');
     const invalidClosingDate = name === 'update-deal' && body.error === 'invalid_field_value'
       && Array.isArray(body.fields) && body.fields.length === 1 && body.fields[0] === 'phase';
-    const hint = creating
+    const hint = accountSave
+      ? body.error === 'version_conflict' ? 'This account changed. Reload Deals before saving the owner.'
+        : body.error === 'not_found' ? 'This account is no longer available.'
+        : 'Check the company name and choose Joe or Dell as the owner.'
+      : creating
       ? DEAL_CREATE_REFUSALS.get(body.error === 'database_refused_the_statement' ? body.rule : body.error)
         ?? 'Check the deal details and try again.'
       : invalidClosingDate ? 'Choose a closing date between the day the deal reached its current phase and today.'
@@ -463,7 +485,9 @@ async function cutoverSave(request, env, call) {
       : 'The change could not be saved. Review the deal and try again.';
     return mcpReply(call, response, JSON.stringify({ ...body, hint }), true);
   }
-  const saved = creating ? isUuid(body.deal_id) && Number.isSafeInteger(body.change_id) && body.change_id >= 0
+  const saved = accountSave ? isUuid(body.account_client_id) && body.owner === args.owner
+      && (name === 'create-national-account' || body.account_client_id === args.account_client_id)
+    : creating ? isUuid(body.deal_id) && Number.isSafeInteger(body.change_id) && body.change_id >= 0
     : name === 'undo-invoice-close' ? body.invoice_id === args.invoice_id && body.status === 'undone'
     : save.path.endsWith('/changes') ? body.deal_id === args.deal
     : save.body.party_id ? body.deal_id === args.deal && body.party_id === save.body.party_id && body.role === save.body.role
@@ -680,6 +704,9 @@ async function handleRequest(request, env) {
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     if ((weeklyReview && request.method === 'POST')
         || ((weeklyReview || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
+      return json({ error: 'not_found' }, 404);
+    if (/^\/api\/engine\/prospects(?:\/|$)/.test(pathname) &&
+        (request.method === 'POST' || !await switchedOn(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     if (!env?.ENGINE?.fetch) return json({ error: 'engine_unavailable' }, 503);
     try {

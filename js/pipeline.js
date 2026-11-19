@@ -10,7 +10,8 @@ import { renderDealVendors } from './deal-vendors.js';
 import { renderClientPortalLink } from './client-portal-link.js';
 import { pageDocContext, selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createCommandDock } from './command-dock.js';
-import { fetchRead, readWithDeadline } from './auto-refresh.mjs';
+import { readWithDeadline } from './auto-refresh.mjs';
+import { fetchRead } from './current-read.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient } from './live-client.js';
@@ -80,8 +81,11 @@ const state = {
   intent: null,
   boardStatus: 'starting',
   nextDealSaves: false,
+  prospectCount: null,
   unplaced: 0,
 };
+
+let prospects;
 
 let commandState = {};
 let dock = { record: () => {}, mount: () => {}, render: () => {}, forget: () => {} };
@@ -218,7 +222,9 @@ function renderBoardMessage(status = state.boardSync?.status()) {
     say('The board is unavailable. Refresh to try again.');
     return;
   }
-  say(boardHeadline(groupByColumn(visibleBoardDeals())));
+  const headline = boardHeadline(groupByColumn(visibleBoardDeals()));
+  const count = state.prospectCount;
+  say(typeof count === 'number' ? `${headline} · ${count} prospect${count === 1 ? '' : 's'}` : headline);
 }
 
 function renderBoard() {
@@ -243,8 +249,12 @@ function renderBoard() {
   const grouped = groupByColumn(rows);
   state.unplaced = grouped.unplaced.length;
   const focusedStage = board.contains(document.activeElement) ? document.activeElement?.dataset?.collapseStage : null;
+  const lane = $('prospectsLane');
+  const list = state.view === 'list';
   preserveBoardFocus({ board, document, announce, paint() {
-    board.innerHTML = state.view === 'list' ? `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>Stage</span><span>Next step</span><span>Owner</span></div>${urgencyOrder(state.parkedOpen ? rows : active).map(d => d.operating_state === 'parked' ? parkedHtml(d) : rowHtml(d)).join('')}</div>` : grouped.columns.map((column) => {
+    for (const child of [...board.children]) if (child !== lane) child.remove();
+    const insert = list ? 'beforebegin' : 'afterend';
+    (lane ?? board).insertAdjacentHTML(lane ? insert : 'afterbegin', list ? `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>Stage</span><span>Next step</span><span>Owner</span></div>${urgencyOrder(state.parkedOpen ? rows : active).map(d => d.operating_state === 'parked' ? parkedHtml(d) : rowHtml(d)).join('')}</div>` : grouped.columns.map((column) => {
       const cards = urgencyOrder(column.deals);
       const collapsed = state.collapsedColumns.has(column.slug);
       const content = collapsed
@@ -256,7 +266,7 @@ function renderBoard() {
         <h3 title="${esc(PHASE_TRIGGERS[column.slug])}"><button type="button" data-collapse-stage="${esc(column.slug)}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(column.label)}">${esc(column.label)}<small>${cards.length}</small><span aria-hidden="true">${collapsed ? '+' : '−'}</span></button></h3>
         ${content}
       </section>`;
-    }).join('') + emptyStagesNote(grouped.columns.filter(c => !c.deals.length).length) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${grouped.parked.length}</summary><div class="parked-cards">${grouped.parked.map(parkedHtml).join('')}</div></details>`;
+    }).join('') + emptyStagesNote(grouped.columns.filter(c => !c.deals.length).length) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${grouped.parked.length}</summary><div class="parked-cards">${grouped.parked.map(parkedHtml).join('')}</div></details>`);
   } });
   const note = $('boardNote');
   if (note) {
@@ -265,6 +275,7 @@ function renderBoard() {
       ? `${state.unplaced} deals need a phase`
       : '';
   }
+  prospects?.show(state.filter, state.scopeFilter === 'flagged');
   if (focusedStage) board.querySelector(`[data-collapse-stage="${CSS.escape(focusedStage)}"]`)?.focus();
   renderPendingWrites();
 }
@@ -347,6 +358,7 @@ function applyBoardSnapshot(board) {
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
   $('mondayReviewLink').hidden = board.engine_weekly_review !== true;
+  syncProspects(board.engine_prospects === true);
   if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
@@ -393,6 +405,31 @@ function applyBoardSnapshot(board) {
     || (previousPanelRow && JSON.stringify(previousPanelRow) !== JSON.stringify(state.deals.get(state.panelDeal))))) {
     void refreshPanel({changed:true});
   }
+}
+
+function syncProspects(enabled) {
+  let lane = $('prospectsLane');
+  if (!enabled) {
+    prospects?.dispose();
+    lane?.remove();
+    prospects = undefined;
+    state.prospectCount = null;
+    return;
+  }
+  if (lane) { prospects?.refresh(); return; }
+  lane = document.createElement('section');
+  lane.id = 'prospectsLane';
+  lane.className = 'kanban-column glass';
+  lane.setAttribute('aria-labelledby', 'prospects-title');
+  $('kanban').prepend(lane);
+  void import('./ui-deal-prospects.generated.js').then(({ mountProspects }) => {
+    if (!lane.isConnected) return;
+    prospects = mountProspects(lane, fetchRead, count => {
+      state.prospectCount = count;
+      renderBoardMessage();
+    }, authorLabel, incomingScope.has('prospect') && mondayReviewOrigin() ? backToMondayReview : null);
+    renderBoard();
+  });
 }
 
 async function loadBoard() {
@@ -1601,7 +1638,8 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   factReviewPanel = null;
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
-  if (!fromHistory && (history.state?.doctorcreDealWorkspace || openingFromMondayReview())) { history.back(); return; }
+  if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
+  if (!fromHistory && incomingScope.has('deal') && mondayReviewOrigin()) { backToMondayReview(); return; }
   selectDocRecord('deal', null);
   pageDocContext?.release('getDeal');
   ++panelReadSequence; ++contextReadSequence;
@@ -1752,17 +1790,17 @@ function wireBoard() {
     renderBoard();
   });
   board.addEventListener('dragover', (event) => {
-    const column = event.target.closest('.kanban-column');
+    const column = event.target.closest('.kanban-column[data-column]');
     if (!column) return;
     event.preventDefault();
     column.dataset.drop = 'true';
   });
   board.addEventListener('dragleave', (event) => {
-    const column = event.target.closest('.kanban-column');
+    const column = event.target.closest('.kanban-column[data-column]');
     if (column) column.removeAttribute('data-drop');
   });
   board.addEventListener('drop', (event) => {
-    const column = event.target.closest('.kanban-column');
+    const column = event.target.closest('.kanban-column[data-column]');
     if (!column) return;
     event.preventDefault();
     column.removeAttribute('data-drop');
@@ -2116,11 +2154,16 @@ function mountDock() {
 
 
 let itemSheet;
-function openingFromMondayReview() {
-  if (!incomingScope.has('deal') || !document.referrer) return false;
+function mondayReviewOrigin() {
+  if (!document.referrer) return null;
   const referrer = new URL(document.referrer);
   return referrer.origin === location.origin && referrer.pathname === '/deals'
-    && referrer.searchParams.get('view') === 'review' && new URL(location.href).searchParams.has('deal');
+    && referrer.searchParams.get('view') === 'review' ? referrer : null;
+}
+
+function backToMondayReview() {
+  if (history.length > 1) history.back();
+  else location.replace(mondayReviewOrigin());
 }
 
 async function boot() {
@@ -2149,7 +2192,7 @@ async function boot() {
     });
     return;
   }
-  if (openingFromMondayReview()) {
+  if (incomingScope.has('deal') && mondayReviewOrigin()) {
     $('panelClose').textContent = '← Back to Monday review';
     $('panelClose').setAttribute('aria-label', 'Back to Monday review');
   }
