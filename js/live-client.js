@@ -296,6 +296,8 @@ export function createLiveClient(opts = {}) {
     },
     async getPostCallFollowups({ signal } = {}) { return rpc('read-post-call-followups', {}, signal); },
 
+    prospectRequest(path, init) { return fetchReadImpl(path, init); },
+
     async getBoard(options = {}) {
       const board = await rpc('deal-room-board', {
         workspace: options.workspace || 'all',
