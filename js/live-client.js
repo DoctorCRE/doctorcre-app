@@ -325,7 +325,6 @@ export function createLiveClient(opts = {}) {
     async getDeal(dealId, { signal } = {}) {
       const page = await rpc('get-deal-room', { deal: dealId }, signal);
       const { thread = [], critical_dates = [], events = [], deal_id, ...fields } = page;
-      const fromEngine = isEngineDealDetail(page);
       // Canonical action fields win over historical notes. The newest note
       // is only a fallback for older producers without an action field.
       // Older next_step rows remain archived; notes pass through.
@@ -360,9 +359,7 @@ export function createLiveClient(opts = {}) {
       return {
         deal: dealToUi({ id: deal_id, ...fields, next_step: hasCanonicalStep ? canonicalStep : (currentStep ?? '') }),
         thread: uiThread,
-        critical_dates: critical_dates.map((cd) => ({
-          ...cd, label: (fromEngine && cd.label) || cd.note || cd.kind, date: cd.due_on,
-        })),
+        critical_dates: critical_dates.map((cd) => ({ ...cd, label: cd.note || cd.kind, date: cd.due_on })),
         history,
         next_actions: page.next_actions || [],
         items: page.items || [],
@@ -373,7 +370,7 @@ export function createLiveClient(opts = {}) {
         premises: page.premises || [],
         negotiation_rounds: page.negotiation_rounds || [],
         documents: page.documents || [],
-        ...(fromEngine ? {
+        ...(isEngineDealDetail(page) ? {
           email_follow_ups: page.email_follow_ups, next_deal_saves: page.next_deal_saves === true,
         } : {}),
         lease: page.lease ?? null,

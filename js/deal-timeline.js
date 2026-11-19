@@ -109,6 +109,7 @@ export function renderCriticalDates(detail, now = Date.now(), dateDecisions = fa
 
 const timelineActor = actor => Object.hasOwn(ACTOR_LABEL, actor) ? ACTOR_LABEL[actor] : actor ? 'Automatically' : '';
 const activityLabels = { call: 'Call', email: 'Email', meeting: 'Meeting' };
+const dateKindLabels = { loi_expiry: 'LOI expiry', lease_end: 'Lease expiration' };
 
 function changeText({ field, new_value }) {
   if (field === 'phase') {
@@ -138,10 +139,14 @@ export function engineTimelineEntries(detail) {
       type: step.title ? 'Deal item' : 'Next step', when: step.updated_at || step.due_on, actor: step.actor,
       text: [step.title || step.description, step.updated_at && calendarDay(step.due_on) && `Due ${dateCaption(step.due_on)}`].filter(Boolean).join(' · '),
     })),
-    ...(detail.critical_dates || []).map(date => ({
-      type: 'Critical date', when: date.updated_at, actor: date.actor,
-      text: [...new Set([date.label, calendarDay(date.due_on) && `Due ${dateCaption(date.due_on)}`, date.note].filter(Boolean))].join(' · '),
-    })),
+    ...(detail.critical_dates || []).map(date => {
+      const label = dateKindLabels[date.kind] || readableValue('kind', date.kind);
+      const due = calendarDay(date.due_on) && `Due ${dateCaption(date.due_on)}`;
+      return {
+        type: 'Critical date', when: date.updated_at, actor: date.actor,
+        text: [...new Set([label, due, date.note].filter(Boolean))].join(' · '),
+      };
+    }),
     ...(detail.history || []).filter(event => !noteIds.has(event.activity_id)).map(event => ({
       type: event.field === 'note' ? 'Note' : event.field === 'phase' ? 'Phase move' : 'Change',
       when: event.recorded_at, actor: event.actor,
