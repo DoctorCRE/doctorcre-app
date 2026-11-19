@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { localDeals, needsAttention } from '../js/deal-review-model.js';
-import { autoHtml } from '../js/deal-items.js';
+import { autoHtml, automaticPhaseReceipt, renderPhaseReceipt } from '../js/deal-items.js';
 import { urgencyOrder, automaticMove, noteEntries, PHASE_TRIGGERS } from '../js/local-deals-model.js';
 import { carrInterface } from "./carr-contract.mjs";
 
@@ -94,4 +94,12 @@ test('orders overdue deals by their oldest open item', () => {
   const now = Date.parse('2026-10-10T12:00:00Z');
   const deal = (id, due, next) => ({id, name:id, phase:'Research', next_step:'Follow up', next_date:next, items:[{status:'open', due_on:due}]});
   assert.deepEqual(urgencyOrder([deal('recent','2026-10-09','2026-01-01'), deal('old','2026-10-01','2026-10-09')], now).map(d => d.id), ['old','recent']);
+});
+
+test('automatic receipts show their source to partners', () => {
+ const event = { event_id: 'event-1', automatic: true, evidence_date: '2026-10-03' };
+ for (const [source, phase, label] of [['invoice', 'closed', 'Closed automatically: Invoice received'], ['call_capture', 'closed', 'Closed automatically'], ['copied', 'closed', 'Closed automatically'], ['copied', 'research', 'Moved automatically'], ['call_capture', 'research', 'Moved automatically'], [undefined, 'closed', 'Moved automatically']]) {
+  const deal = {...base, phase_change: {...event, source, phase}};
+  assert.match(renderPhaseReceipt(deal, automaticPhaseReceipt(deal, null, {showEngineMoves:true}), ''), new RegExp(label));
+ }
 });

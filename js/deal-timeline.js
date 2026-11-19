@@ -7,6 +7,7 @@ import { compareInstants, escapeText, fieldLabel, readableValue } from './change
 import { sourceTime } from './email-source-line.js';
 import { concise, isEngineDealDetail, PARKING_REASONS } from './local-deals-model.js';
 import { ACTOR_LABEL, authorLabel } from './client.js';
+import { dealTypeLabel } from './live-client.js';
 
 const DAY = 86400000;
 const esc = escapeText;
@@ -269,7 +270,7 @@ const OLD_HISTORY_FACTS = {
   market_agent: ['Market agent'], lead: ['Deal owner', historicalPartner], owner: ['Assigned to', historicalPartner],
   assignee: ['Assigned to', historicalPartner], set_by: ['Set by', historicalActor],
   lane: ['Board lane', words], next_action: ['Next step'], next_step: ['Next step'],
-  description: ['Next step'], summary: ['Summary'], reason: [fieldLabel('reason')], outcome: ['Outcome', words],
+  description: ['Next step'], summary: ['Summary'], reason: ['Reason'], outcome: ['Outcome', words],
   status: ['Status', words], closed_on: ['Closing date', historicalDay], invoiced_on: ['Invoice date', historicalDay],
   next_date: ['Next step date', historicalDay], due: ['Due date', historicalDay], due_on: ['Due date', historicalDay],
   found: ['Result', value => value ? 'Found' : 'Nothing found'], expires_on: ['Expires', historicalDay],
@@ -296,7 +297,8 @@ function importedFacts({ verb, old_value, new_value }) {
   const before = old_value ?? {};
   const after = new_value ?? {};
   const kind = OLD_HISTORY_KIND.get(verb);
-  const facts = kind ? { ...OLD_HISTORY_FACTS, kind } : OLD_HISTORY_FACTS;
+  const facts = { ...OLD_HISTORY_FACTS, ...(kind ? { kind } : {}),
+    ...(verb === 'new-deal' ? { reason: [fieldLabel('reason'), value => dealTypeLabel(value) || words(value)] } : {}) };
   return Object.entries(facts).flatMap(([key, [label, format]]) => {
     const had = Object.hasOwn(before, key);
     const has = Object.hasOwn(after, key);
