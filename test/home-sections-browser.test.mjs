@@ -25,9 +25,10 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   const callId = '00000000-0000-0000-0000-000000000002';
   const partyId = '00000000-0000-0000-0000-000000000003';
   const tasks = [
-    { title: 'Read the sample lease', label: 'Example Dental', path: `/deals?deal=${dealId}&focus=next-step`, dealId },
+    { title: 'Read the sample lease', label: 'Example Dental', path: `/deals?deal=${dealId}&focus=next-step${enabled ? '&step=00000000-0000-0000-0000-000000000010' : ''}`, dealId },
     { title: 'Send the sample floor plan', label: 'Call summary', path: `/calls?session=${callId}`, dealId, call: true },
-    { title: 'Check in about the sample site', label: 'Example Contact', path: `/relationships?node=party:${partyId}` },
+    { title: 'Check in about the sample site', label: 'Example Contact',
+      path: enabled ? `/deals?prospect=${partyId}&focus=follow-up` : `/relationships?node=party:${partyId}` },
   ];
   const records = () => ({
     ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true, auto_settle_enabled: true,
@@ -266,6 +267,13 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await revised.waitFor();
   assert.match(writes.at(-1)[0], /\/reopen$/);
   assert.equal(writes.at(-1)[1].base_version, 2147483649);
+
+  const prospect = today.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Check in about the sample site/ }) });
+  await prospect.getByRole('button', { name: 'Mark done', exact: true }).click();
+  await prospect.waitFor({ state: 'detached' });
+  assert.equal(writes.at(-1)[0], '/api/engine/next-steps/00000000-0000-0000-0000-000000000012/end');
+  await undo.click();
+  await prospect.waitFor();
 
   const proposal = '00000000-0000-0000-0000-000000000020';
   const log = '00000000-0000-0000-0000-000000000021';

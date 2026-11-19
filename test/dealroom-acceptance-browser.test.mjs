@@ -1686,7 +1686,7 @@ test('switched-on Deals sets up a client website and opens it unlocked in a new 
   const website = 'https://share.doctorcre.com/example-website';
   const password = 'synthetic-website-password';
   const path = `/api/engine/deals/${deal}/client-website`;
-  const row = { id: deal, deal_id: deal, name: 'Example Website Deal', phase: 'research', seen: 1, owner: 'joe' };
+  const row = { id: deal, deal_id: deal, name: 'Example Website Deal', phase: 'research', seen: 1, owner: 'joe', client_id: crypto.randomUUID() };
   const writes = [];
   const passwordRequests = [];
   page.on('request', request => {
@@ -1764,14 +1764,15 @@ test('switched-on Deals sets up a client website and opens it unlocked in a new 
   ]);
 });
 
-async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = false, linked = true, width = 1280 } = {}) {
+async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = false, linked = true, width = 1280, nextActions = [] } = {}) {
   const page = await browser.newPage({ viewport: { width, height: 960 } });
   t.after(() => page.close());
   const deal = crypto.randomUUID();
   const website = 'https://share.doctorcre.com/example-website';
   const grant = crypto.randomUUID();
   const row = { id: deal, deal_id: deal, name: 'Example Website Deal', phase: closed ? 'closed' : 'research',
-    ...(closed ? { outcome: 'won' } : {}), seen: 1, owner: 'joe', client_portal_url: linked ? website : null };
+    ...(closed ? { outcome: 'won' } : {}), seen: 1, owner: 'dell', client_id: crypto.randomUUID(),
+    client_portal_url: linked ? website : null };
   const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: closed ? [] : [row, {
     id: crypto.randomUUID(), name: 'Example Deal Without Website', phase: 'research', owner: 'joe',
   }] };
@@ -1782,7 +1783,7 @@ async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = f
       const path = new URL(request.url).pathname;
       enginePaths.push(path);
       if (path === '/api/engine/deals') return Response.json(board);
-      if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, email_follow_ups: [] });
+      if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, next_actions: nextActions, items: nextActions.filter(step => step.title), email_follow_ups: [] });
       assert.equal(path, `/api/engine/deals/${deal}/client-website/open`);
       return Response.json({ url: `${website}/?grant=${grant}` });
     } },
@@ -1817,13 +1818,61 @@ for (const [blocked, toast] of [
   });
 }
 
-for (const [closed, savesOn] of [[true, true], [false, false]]) {
-  test(`client website setup is hidden ${closed ? 'on a closed deal' : 'with reads on and saves off'}`, async t => {
-    const { page, deal } = await clientWebsitePage(t, { closed, savesOn, linked: false });
+for (const width of [1440, 390]) {
+  test(`a Home link focuses the exact deal step at ${width}px`, async t => {
+    const nextActions = ['dell', 'joe'].map((owner, index) => ({
+      id: crypto.randomUUID(), owner, status: 'open', due_on: '2026-11-10',
+      description: ['Check the lease', 'Send the floor plan'][index],
+    }));
+    nextActions.push({ id: crypto.randomUUID(), owner: 'joe', status: 'open', title: 'Confirm the site visit' });
+    const { page, deal } = await clientWebsitePage(t, { width, nextActions });
+    for (const step of nextActions) {
+      await page.goto(`${origin}/deals?deal=${deal}&focus=next-step&step=${step.id}&mode=live`);
+      const focused = page.locator(':focus').filter({ hasText: step.title || step.description });
+      await focused.waitFor();
+      assert.equal(await focused.evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= innerHeight;
+      }), true);
+      if (!step.title) await page.screenshot({ path: join(evidence, `home-step-${step.owner}-${width}.png`) });
+    }
+    await page.goto(`${origin}/deals?deal=${deal}&focus=next-step&mode=live`);
+    await page.locator('#detailNextStepEditor[open]').getByRole('textbox', { name: /next step/i }).waitFor();
+  });
+
+  test(`Client view opens the other partner's website at ${width}px`, async t => {
+    const { page, deal, website, grant, enginePaths } = await clientWebsitePage(t, { width });
+    await page.context().route(`${website}/?grant=${grant}`, route =>
+      route.fulfill({ body: '<h1>Example client website</h1>', contentType: 'text/html' }));
+    await page.goto(`${origin}/deals?deal=${deal}&tab=client-view&mode=live`);
+    const view = page.getByRole('tabpanel', { name: 'Client view' });
+    const open = view.getByRole('button', { name: /Client website/ });
+    await open.waitFor();
+    assert.deepEqual(await view.getByRole('button').allTextContents(), ['Client website (opens in a new tab)']);
+    await page.screenshot({ path: join(evidence, `client-view-${width}.png`) });
+    const popupPromise = page.waitForEvent('popup');
+    await open.click();
+    const popup = await popupPromise;
+    await popup.getByRole('heading', { name: 'Example client website' }).waitFor();
+    assert.deepEqual(enginePaths.filter(path => path.endsWith('/open')), [`/api/engine/deals/${deal}/client-website/open`]);
+  });
+}
+
+for (const [width, savesOn] of [[1440, true], [390, true], [390, false]]) {
+  test(`closed deal website setup with Deals saves ${savesOn ? 'on' : 'off'} at ${width}px`, async t => {
+    const { page, deal } = await clientWebsitePage(t, { closed: true, savesOn, linked: false, width });
     await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
     const overview = page.getByRole('tabpanel', { name: 'Overview' });
     await overview.getByText('No client website linked.', { exact: true }).waitFor();
-    assert.equal(await overview.getByText('Set up client website', { exact: true }).count(), 0);
+    const setup = overview.getByText('Set up client website', { exact: true });
+    if (savesOn) {
+      await setup.click();
+      await overview.getByLabel('Website name').waitFor();
+      await overview.getByLabel('Password').waitFor();
+      await overview.locator('.client-portal-register').screenshot({ path: join(evidence, `closed-website-setup-${width}.png`) });
+    } else {
+      assert.equal(await setup.count(), 0);
+    }
   });
 }
 
@@ -2066,6 +2115,7 @@ for (const width of [1440, 390]) {
     const parkedRow = { deal_id: parked, name: 'Alder Deal', phase: 'pending', reviewed: null, seen: 2,
       state: 'open', seen_change_id: 0, operating_state: 'parked' };
     const reviewId = crypto.randomUUID();
+    const accounts = [{ account_client_id: crypto.randomUUID(), account_name: 'Example National Account', account_owner: 'dell' }];
     let review = [
       { ...row, reviewed: { review_id: reviewId, by: 'joe', at: '2026-11-09T15:00:00Z' }, state: 'open' }, prospectRow, parkedRow,
     ];
@@ -2123,7 +2173,7 @@ for (const width of [1440, 390]) {
           { id: 'example-note', kind: 'note', text: 'Example new note', actor: 'joe', recorded_at: '2026-11-09T15:00:00Z' },
         ] });
         if (url.pathname === '/api/engine/deals') boardReads++;
-        return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] });
+        return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row], accounts });
       } },
       CARR: { fetch: async request => {
         if (request.method === 'GET') return new Response('Signed in');
@@ -2164,9 +2214,28 @@ for (const width of [1440, 390]) {
     assert.equal(await page.getByRole('link', { name: 'Monday review' }).count(), 0);
     assert.deepEqual(weeks, []);
 
+    await page.goto(`${origin}/deals?view=national&mode=live`);
+    const account = page.getByRole('button', { name: /Example National Account/ });
+    await account.click();
+    const activeControl = async id => {
+      const control = page.locator(`#${id}:not([hidden])`);
+      await control.waitFor({ state: 'attached' });
+      if (!await control.isVisible()) await page.getByRole('button', { name: 'Workspace sidebar' }).click();
+      await control.waitFor();
+    };
+    await activeControl('agendaButton');
+    assert.equal(await page.getByRole('link', { name: 'Monday review' }).count(), 0);
+
     savesOn = true;
     await page.goto(`${origin}/deals?owner=joe&mode=live`);
-    await page.getByRole('link', { name: 'Monday review' }).click();
+    await page.getByRole('link', { name: 'Monday review' }).waitFor();
+    await page.goto(`${origin}/deals?view=national&mode=live`);
+    await account.click();
+    await activeControl('mondayReviewLink');
+    const reviewLink = page.getByRole('link', { name: 'Monday review' });
+    assert.equal(await page.getByRole('button', { name: 'Review deals' }).count(), 0);
+    await page.screenshot({ path: join(evidence, `national-review-entry-${width}.png`) });
+    await reviewLink.click();
     await page.getByText('1 of 3 reviewed this week').waitFor();
     assert.equal(await page.getByRole('button', { name: 'Parked', exact: true }).count(), 0);
     assert.deepEqual(weeks, ['2026-11-09']);
@@ -2206,6 +2275,13 @@ for (const width of [1440, 390]) {
     await page.screenshot({ path: join(evidence, `monday-review-${width}.png`), fullPage: true });
     await page.getByRole('link', { name: row.name }).click();
     await page.locator('#panelTitle').getByText(row.name).waitFor();
+    await page.route('http://127.0.0.1:4682/api/state', route => route.fulfill({ json: { state: 'idle' } }));
+    if (width === 390) await page.getByRole('button', { name: 'Account and settings' }).click();
+    await page.locator('#callModeRetry').click();
+    await page.getByRole('button', { name: 'Call mode', exact: true }).click();
+    const recorder = page.getByRole('dialog', { name: /Call mode/i });
+    await recorder.getByRole('button', { name: 'Start another call' }).waitFor();
+    await recorder.getByRole('button', { name: 'Close Call Mode' }).click();
     await page.getByRole('button', { name: 'Back to Monday review' }).click();
     await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
     assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Alder Deal']);

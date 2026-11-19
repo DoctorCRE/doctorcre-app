@@ -596,7 +596,7 @@ function installCallMode() {
     dealName: (id) => state.deals.get(id)?.name,
     dateLabel,
     toast: (message) => showToast(message),
-    startAgenda,
+    get startAgenda() { return state.nextDealSaves ? undefined : startAgenda; },
     onConfirmed: loadHome,
   });
   state.callModeUi.render();
@@ -687,11 +687,12 @@ function agendaAction(action) {
 }
 function renderAgendaView() {
   agendaView ||= mountDealRoomAgenda({ button: $('#agendaButton'), panel: $('#agendaPanel'), dock: $('#confirmDock') }, agendaAction);
+  $('#mondayReviewLink').hidden = !state.nextDealSaves || state.accessDenied;
   const review = state.review;
   const captured = review && (review.deals[review.index] || review.deals.at(-1));
   const deal = review && resolveCurrentRow(captured, state.deals);
   agendaView.render({
-    buttonHidden: state.workspace === 'national_account' && !state.accountId && !state.query,
+    buttonHidden: state.nextDealSaves || (state.workspace === 'national_account' && !state.accountId && !state.query),
     disabled: state.accessDenied || Object.values(screenCommands).some(command => command.status === 'pending'),
     review: review && deal ? { title: review.title, index: review.index, total: review.deals.length,
       deal: { id: deal.id, name: deal.name, context: deal.market || deal.client_name || '', reason: reasonFor(deal),
@@ -1828,6 +1829,7 @@ async function boot() {
   // and kept current by the shell; this page reads them through css/tokens.css.
   const bootConfig = resolveDealroomBoot(location);
   const params = new URLSearchParams(location.search);
+  if (params.get('mode') === 'live') $('#mondayReviewLink').href = '/deals?view=review&mode=live';
   if (params.get('workspace') === 'team') state.workspace = 'team';
   if (params.get('view') === 'national') state.workspace = 'national_account';
   window.addEventListener('popstate', () => {
