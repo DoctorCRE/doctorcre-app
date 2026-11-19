@@ -75,13 +75,16 @@ export function renderDealSummary(deal, { today = '', viewer = '', board = false
   } else {
     lines.push('<span class="deal-summary-line">No next step set</span>');
   }
-  const last = deal.last_step;
+  return lines.join('') + renderLastDealStep(deal.last_step);
+}
+
+export function renderLastDealStep(last) {
   const lastText = noteText(last?.summary);
   const lastDate = shortDate(last?.occurred_at, '');
   if (lastText && lastDate) {
-    lines.push(`<span class="deal-summary-line deal-summary-last"><span class="deal-summary-label">Last: </span><span class="deal-summary-text">${esc(lastText)}</span><span class="deal-summary-facts"> · <time datetime="${esc(last.occurred_at)}">${esc(lastDate)}</time></span></span>`);
+    return `<span class="deal-summary-line deal-summary-last"><span class="deal-summary-label">Last: </span><span class="deal-summary-text">${esc(lastText)}</span><span class="deal-summary-facts"> · <time datetime="${esc(last.occurred_at)}">${esc(lastDate)}</time></span></span>`;
   }
-  return lines.join('');
+  return '';
 }
 
 export function renderDealItemDetail(item, { today = '' } = {}) {

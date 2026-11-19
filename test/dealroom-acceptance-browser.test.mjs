@@ -537,6 +537,71 @@ for (const { code, hint, message } of [
   assert.notEqual(requests[0].idempotency_key, requests[1].idempotency_key);
 });
 
+for (const width of [1440, 390]) {
+  test(`Board and List show the deal owner's step in Central time at ${width}px`, async t => {
+    const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Los_Angeles' });
+    t.after(() => page.close());
+    await page.clock.setFixedTime(new Date('2026-11-19T06:30:00Z'));
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `owner-next-step-${width}`, viewer: 'joe', reset: true } });
+    const ownerStep = { id: 'example-owner-step', owner: 'dell', description: 'Send the floor plan', due_on: '2026-11-18' };
+    const otherStep = { id: 'example-other-step', owner: 'joe', description: 'Call the architect', due_on: '2026-11-15' };
+    const deal = { id: '00000000-0000-4000-8000-000000000080', name: 'Example Two-Partner Deal',
+      owner: 'dell', phase: 'research', seen: 1, items: [], open_actions: [otherStep, ownerStep],
+      next_step: otherStep.description, next_date: otherStep.due_on };
+    const checklistOnly = { ...deal, id: '00000000-0000-4000-8000-000000000081', name: 'Example Checklist Deal',
+      next_step: 'Check the plans', open_actions: [], items: [
+        { id: 'example-checklist-item', title: 'Check the plans', status: 'open', due_on: otherStep.due_on, bullets: [] },
+      ] };
+    const singleStep = { ...deal, id: '00000000-0000-4000-8000-000000000082', name: 'Example One-Step Deal',
+      open_actions: [{ ...otherStep, due_on: '2026-11-19' }] };
+    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [deal, checklistOnly, singleStep] };
+    const env = {
+      ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' ? 'on' : null },
+      ENGINE: { fetch: async request => {
+        const path = new URL(request.url).pathname;
+        if (path === '/api/engine/deals') return Response.json(board);
+        assert.equal(path, `/api/engine/deals/${deal.id}`);
+        return Response.json({ ...deal, deal_id: deal.id, email_follow_ups: [],
+          next_actions: deal.open_actions.map(action => ({ ...action, status: 'open' })) });
+      } },
+    };
+    await page.route('**/mcp', async route => {
+      const request = route.request();
+      if (!['deal-room-board', 'get-deal-room'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+      const response = await handleDoctorcreRequest(new Request(request.url(), {
+        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+      }), env);
+      return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+    });
+
+    await page.goto(`${origin}/deals?mode=live`);
+    for (const view of ['Board', 'List']) {
+      await page.getByRole('button', { name: view, exact: true }).click();
+      const card = page.locator(`article[data-id="${deal.id}"]`);
+      await card.waitFor({ timeout: 5000 });
+      const visibleText = await card.innerText();
+      assert.match(visibleText, /Send the floor plan.*Due Wed, Nov 18.*1 day late/);
+      assert.doesNotMatch(visibleText, /Call the architect|\d+ days late|overdue/);
+      const empty = page.locator(`article[data-id="${checklistOnly.id}"]`);
+      assert.match(await empty.innerText(), /No next step set/);
+      assert.doesNotMatch(await empty.innerText(), /days? late|overdue/);
+      const onlyStep = page.locator(`article[data-id="${singleStep.id}"]`);
+      assert.match(await onlyStep.innerText(), /Call the architect.*Due Thu, Nov 19/);
+      assert.doesNotMatch(await onlyStep.innerText(), /days? late|overdue/);
+      assert.ok(await card.evaluate(el => el.scrollWidth <= el.clientWidth));
+      await card.screenshot({ path: join(evidence, `owner-next-step-${width}-${view.toLowerCase()}.png`) });
+    }
+    await page.getByRole('button', { name: deal.name, exact: true }).click();
+    const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+    for (const description of [ownerStep.description, otherStep.description]) {
+      const visibleStep = snapshot.getByText(description, { exact: false });
+      await visibleStep.waitFor();
+      assert.equal(await visibleStep.count(), 1);
+    }
+    await snapshot.screenshot({ path: join(evidence, `owner-next-step-${width}-detail.png`) });
+  });
+}
+
 test('Deals shows late steps and can undo a close reported by the engine', async t => {
   const page = await browser.newPage({ timezoneId: 'America/Chicago' });
   t.after(() => page.close());
