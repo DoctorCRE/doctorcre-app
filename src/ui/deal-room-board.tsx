@@ -10,7 +10,12 @@ type Item = {
   overdue: boolean;
 };
 type PhaseReceipt = {
-  move: { day: string; date: string; action: { eventId: string; version: number; busy: boolean } | null } | null;
+  move: {
+    day: string;
+    date: string;
+    callTime: string;
+    action: { eventId: string; version: number; busy: boolean } | null;
+  } | null;
   message?: string;
 };
 type Row = {
@@ -60,6 +65,7 @@ function PhaseMove({ receipt, deal }: { receipt: PhaseReceipt; deal: string }) {
       {move && (
         <div className="auto-move">
           <span>Moved automatically</span> <time dateTime={move.day}>{move.date}</time>
+          {move.callTime && <div>Call on {move.callTime}</div>}
           {move.action && (
             <button
               type="button"

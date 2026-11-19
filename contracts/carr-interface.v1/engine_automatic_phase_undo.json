@@ -2,10 +2,10 @@
   "schema_version": "engine-automatic-phase-undo.v1",
   "producer": {
     "repository": "DoctorCRE/doctorcre-engine",
-    "source_commit": "e2f59a25a74ba8d2dd94f6abe708fd79fe501e96"
+    "source_commit": "a3b2a9050782eb856014de5175df72006290c48b"
   },
   "verb": "undo-automatic-phase-move",
-  "read": "GET /api/engine/deals returns seen and the current phase_change. Undo uses receipts with source=copied and automatic=true. evidence_date is a Central calendar date.",
+  "read": "GET /api/engine/deals and GET /api/engine/deals/{deal_id} return seen and the current phase_change. Undo uses receipts with automatic=true and source=copied or source=call_capture. evidence_date is the Central calendar day the move took effect. Copied receipts have call=null. Call capture receipts include call.activity_id and call.happened_at. Partner-accepted call suggestions have no automatic receipt.",
   "write": "POST /api/engine/deals/{deal_id}/phase/undo with idempotency_key, event_id, and base_version from seen.",
   "result": "Success returns deal_id, phase, and phase_changed_at. A stale deal or event returns version_conflict. A return to an ended phase adds the Closed deals or Lost deals hint to that refusal.",
   "switches": ["deals-from-engine", "deals-saves-from-engine"]

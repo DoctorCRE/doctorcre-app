@@ -369,7 +369,7 @@ export function prepareAutomaticPhaseUndo(options) {
           return null;
         });
       const controller = await loading;
-      if (clickedIn === session) await controller?.undo(button);
+      if (clickedIn === session) return controller?.undo(button);
     },
   };
 }
