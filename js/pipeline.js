@@ -15,7 +15,7 @@ import { readWithDeadline } from './auto-refresh.mjs';
 import { fetchRead } from './current-read.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
-import { createLiveClient } from './live-client.js';
+import { createLiveClient, dealTypeLabel } from './live-client.js';
 import { loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
 import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
@@ -347,7 +347,7 @@ function renderClosedDeals() {
     for (const deal of archived || []) records.set(deal.id, {...records.get(deal.id), ...deal});
     rows = (lost ? lostDeals : closedDeals)([...records.values()], state.filter, $('closedSearch').value);
   }
-  renderEndedDealList($('closedDealsView'), { rows, lost, fromEngine: state.boardFromEngine, unavailable: archived === null });
+  renderEndedDealList($('closedDealsView'), { rows, dealTypeLabel, lost, fromEngine: state.boardFromEngine, unavailable: archived === null });
 }
 
 function visibleBoardDeals() {
@@ -1525,7 +1525,7 @@ function renderSnapshotFacts(deal, fromEngine) {
   if (deal.workspace_kind === 'national_account' || deal.account_client_id) {
     facts.push({ label: 'Market agent', value: deal.market_agent || 'Unassigned' });
   }
-  if (fromEngine) facts.push(...dealTypeFacts(deal));
+  if (fromEngine) facts.push(...dealTypeFacts(deal, dealTypeLabel));
   else if (deal.type) facts.push({ label: 'Type', value: deal.type });
   if (deal.outcome) facts.push({ label: 'Outcome', value: deal.outcome[0].toUpperCase() + deal.outcome.slice(1) });
 

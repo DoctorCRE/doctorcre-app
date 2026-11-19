@@ -4,7 +4,7 @@ import { dealName, noteText } from './pipeline-model.js';
 import { calendarDay } from './deal-timeline.js';
 import { ACTOR_LABEL } from './client.js';
 import { renderDealVendors } from './deal-vendors.js';
-import { automaticMove, dealTypeLabel } from './local-deals-model.js';
+import { automaticMove } from './local-deals-model.js';
 import { formatCalendarDate } from './visual-system.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -104,7 +104,7 @@ export function autoHtml(deal) {
   const move = automaticMove(deal);
   return move ? `<div class="auto-move"><span>${esc(move.text.slice(0, move.text.lastIndexOf(' ')))}</span> <time>${esc(move.text.slice(move.text.lastIndexOf(' ') + 1))}</time></div>` : '';
 }
-export function dealTypeFacts(deal) {
+export function dealTypeFacts(deal, dealTypeLabel) {
   const facts = [{ label: 'Type', value: dealTypeLabel(deal.kind) || 'Not recorded' }];
   const reason = dealTypeLabel(deal.reason);
   if (reason) {
@@ -117,14 +117,14 @@ export function renderDealFacts(facts) {
     ? `<span>${esc(value)}</span><br><small>${esc(note)}</small>`
     : esc(value)}</dd></div>`).join('');
 }
-export function renderEndedDealList(view, { rows, lost = false, fromEngine = true, unavailable = false }) {
+export function renderEndedDealList(view, { rows, dealTypeLabel, lost = false, fromEngine = true, unavailable = false }) {
   const search = view.querySelector('#closedSearch').value.trim().toLowerCase();
   const cards = rows.map(deal => {
     const formatted = formatCalendarDate(fromEngine ? calendarDay(deal.closed_on) || '' : deal.closed_on || '');
     const closeDate = fromEngine ? formatted || 'Close date not recorded' : formatted || deal.closed_on || 'Not recorded';
     const facts = [
       { label: 'Client', value: deal.client_name || (!fromEngine && deal.client_ref) || 'Not recorded' },
-      ...(fromEngine ? dealTypeFacts(deal) : [{ label: 'Type', value: deal.type || 'Not recorded' }]),
+      ...(fromEngine ? dealTypeFacts(deal, dealTypeLabel) : [{ label: 'Type', value: deal.type || 'Not recorded' }]),
       { label: 'Close date', value: closeDate },
     ];
     if (lost && deal.lost_reason) {

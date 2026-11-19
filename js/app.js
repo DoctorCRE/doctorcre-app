@@ -7,6 +7,7 @@ import { dealStepVersion, partnerDealStep } from './local-deals-model.js';
 import { businessDay } from './business-date.js';
 import { formatCalendarDate } from './visual-system.js';
 import { renderDealSummary, renderDealItems, renderEndedDealList } from './deal-items.js';
+import { dealTypeLabel } from './live-client.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
@@ -419,7 +420,7 @@ function setAccountDealView(view) {
 
 function renderNationalClosedDeals() {
   const rows = (state.closedDeals || []).filter(deal => deal.account_client_id === state.accountId);
-  renderEndedDealList($('#closedDealsView'), { rows, unavailable: state.closedDeals === null });
+  renderEndedDealList($('#closedDealsView'), { rows, dealTypeLabel, unavailable: state.closedDeals === null });
 }
 
 function accountPriority(deals) {
