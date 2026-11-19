@@ -189,7 +189,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     const carr = [], opened = [], decisions = [];
     const bytes = Buffer.from('%PDF-1.7 synthetic revised plan');
     const hash = Buffer.from(await crypto.subtle.digest('SHA-256', bytes)).toString('hex');
-    const writes = [], uploads = [];
+    const writes = [], uploads = [], uploadRequests = [];
     const revised = { id: crypto.randomUUID(), name: 'Revised plan.pdf', kind: 'lease', version: 3 };
     const env = {
       ENGINE_ROUTING: { get: async key => ({ 'deals-from-engine': readsOn, 'deals-saves-from-engine': savesOn })[key] ? 'on' : null },
@@ -258,6 +258,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     await page.request.post(`${origin}/api/test/seed`, { data: { namespace, viewer: actor, reset: true } });
     const routeThroughWorker = async route => {
       const request = route.request();
+      if (new URL(request.url()).pathname.startsWith('/api/engine/files/')) uploadRequests.push(request.url());
       const response = await handleDoctorcreRequest(new Request(request.url(), {
         method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
       }), env);
@@ -273,7 +274,9 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     }
     await routeEngine(page);
 
-    await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+    const fromBoard = actor === 'dell' && savesOn;
+    await page.goto(`${origin}/deals?mode=live${fromBoard ? '' : `&deal=${deal}`}`);
+    if (fromBoard) await page.locator('.kanban-column').getByRole('button', { name: row.name, exact: true }).click();
     const followups = page.getByRole('region', { name: 'Email follow-ups' });
     await followups.getByText(readsOn ? 'Plan ready' : 'No email follow-ups.', { exact: true }).waitFor();
     if (readsOn) {
@@ -358,8 +361,30 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
         await upload.waitFor({ timeout: 5000 });
         const type = tab.getByLabel('Document type');
         const replaces = tab.getByLabel('Replaces');
-        await tab.getByLabel('File', { exact: true }).setInputFiles({ name: revised.name, mimeType: 'application/pdf', buffer: bytes });
+        const file = tab.getByLabel('File', { exact: true });
         await type.selectOption({ label: 'Lease' });
+        await file.setInputFiles({ name: 'Large plan.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(25 * 1024 * 1024 + 1) });
+        await upload.click();
+        await tab.getByText('Choose a file no larger than 25 MB.', { exact: true }).waitFor({ timeout: 5000 });
+        assert.deepEqual(uploadRequests, []);
+
+        await file.setInputFiles({ name: 'Phone photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('synthetic photo') });
+        await upload.click();
+        await tab.getByText('Choose a PDF, Word, Excel or PowerPoint file.', { exact: true }).waitFor({ timeout: 5000 });
+        assert.deepEqual(uploadRequests, []);
+        assert.equal(await file.getAttribute('accept'), '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx');
+        await tab.getByText('PDF, Word, Excel or PowerPoint · Up to 25 MB', { exact: true }).waitFor();
+
+        await file.setInputFiles({ name: revised.name, mimeType: 'application/pdf', buffer: bytes });
+        await tab.getByText('Choose a PDF, Word, Excel or PowerPoint file.', { exact: true }).waitFor({ state: 'hidden' });
+        const back = page.getByRole('button', { name: 'Back to deals', exact: true });
+        const canceled = page.waitForEvent('dialog', { timeout: 5000 }).then(async dialog => {
+          const message = dialog.message();
+          await dialog.dismiss();
+          assert.equal(message, 'Leave this deal and discard the selected file?');
+        });
+        await Promise.all([canceled, back.click()]);
+        assert.equal(await file.evaluate(input => input.files[0]?.name), revised.name);
         assert.deepEqual(await replaces.locator('option').allTextContents(), ['None', 'Example Plan.pdf · Version 2', 'Example Plan.pdf · Version 1']);
         await replaces.selectOption(plan);
         await page.evaluate(() => scrollTo({ top: 0, behavior: 'instant' }));
@@ -390,8 +415,15 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
         await upload.click();
         await tab.getByText('This file is already on this deal as Revised plan.pdf.').waitFor();
         assert.equal(writes.at(-1).supersedes_id, undefined);
-      } else assert.equal(await upload.count(), 0);
-      await tab.screenshot({ path: join(evidence, `engine-documents-${actor}.png`) });
+        await tab.screenshot({ path: join(evidence, `engine-documents-${actor}.png`) });
+        const confirmed = page.waitForEvent('dialog', { timeout: 5000 }).then(dialog => dialog.accept());
+        await Promise.all([confirmed, fromBoard ? page.evaluate(() => history.back()) : back.click()]);
+        await tab.waitFor({ state: 'hidden' });
+        assert.equal(new URL(page.url()).searchParams.get('deal'), null);
+      } else {
+        assert.equal(await upload.count(), 0);
+        await tab.screenshot({ path: join(evidence, `engine-documents-${actor}.png`) });
+      }
     } else {
       await tab.getByText('No documents filed for this deal.').waitFor();
       assert.ok(carr.includes('list-deal-documents'));

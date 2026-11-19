@@ -1,4 +1,4 @@
-import { type FormEvent, useRef, useState } from "react";
+import { createRef, type FormEvent, type RefObject, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 // The engine seeds these document_kind slugs in schema/copy-deal-files.sql.
@@ -22,6 +22,7 @@ type Props = {
 };
 
 const sizeLimit = 25 * 1024 * 1024;
+const fileExtensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"];
 const unknownOutcome = "Could not confirm the upload. Try again.";
 const refusalMessages = new Map([
   ["key_reuse", "The upload changed before it could be confirmed. Try again."],
@@ -73,27 +74,31 @@ async function sendDocument({ dealId, request }: Props, attempt: Attempt, signal
   return { response, filing: true };
 }
 
-function DealDocumentUpload(props: Props & { signal: AbortSignal }) {
+function fileRefusal(file: File) {
+  if (!file.size) return refusalMessages.get("length_required");
+  if (file.size > sizeLimit) return refusalMessages.get("too_large");
+  const name = file.name.trim().toLowerCase();
+  if (!name) return "Choose a file with a name.";
+  if (!fileExtensions.some((extension) => name.endsWith(extension))) return refusalMessages.get("unsupported_file");
+}
+
+function DealDocumentUpload(props: Props & { signal: AbortSignal; fileInput: RefObject<HTMLInputElement | null> }) {
   const [kind, setKind] = useState<DocumentKind | "">("");
   const [replaces, setReplaces] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const attempt = useRef<Attempt | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
+  const { fileInput } = props;
+  const fileHint = useId();
   const candidates = props.documents.filter((document) => document.kind === kind);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const file = fileInput.current?.files?.[0];
     if (busy || !file || !kind) return;
-    if (!file.size || file.size > sizeLimit || !file.name.trim()) {
-      setMessage(
-        !file.size
-          ? "Choose a file that is not empty."
-          : file.size > sizeLimit
-            ? "Choose a file no larger than 25 MB."
-            : "Choose a file with a name.",
-      );
+    const refusal = fileRefusal(file);
+    if (refusal) {
+      setMessage(refusal);
       return;
     }
     const previous = attempt.current;
@@ -154,8 +159,17 @@ function DealDocumentUpload(props: Props & { signal: AbortSignal }) {
     <form className="deal-update-form deal-document-upload" onSubmit={(event) => void submit(event)}>
       <label>
         File
-        <input ref={fileInput} type="file" required disabled={busy} />
+        <input
+          ref={fileInput}
+          type="file"
+          accept={fileExtensions.join(",")}
+          aria-describedby={fileHint}
+          onChange={() => setMessage("")}
+          required
+          disabled={busy}
+        />
       </label>
+      <small id={fileHint}>PDF, Word, Excel or PowerPoint · Up to 25 MB</small>
       <label>
         Document type
         <select
@@ -199,12 +213,25 @@ function DealDocumentUpload(props: Props & { signal: AbortSignal }) {
 export function mountDealDocumentUpload(element: HTMLElement, props: Props) {
   const root = createRoot(element);
   const controller = new AbortController();
+  const fileInput = createRef<HTMLInputElement>();
+  const hasUnsavedChanges = () => Boolean(fileInput.current?.files?.length);
   function update(documents: DealDocument[]) {
-    root.render(<DealDocumentUpload {...props} documents={documents} signal={controller.signal} />);
+    root.render(
+      <DealDocumentUpload {...props} documents={documents} signal={controller.signal} fileInput={fileInput} />,
+    );
   }
   update(props.documents);
   return {
     update,
+    hasUnsavedChanges,
+    confirmLeave() {
+      const input = fileInput.current;
+      if (!input || !hasUnsavedChanges()) return true;
+      if (!element.ownerDocument.defaultView?.confirm("Leave this deal and discard the selected file?")) return false;
+      // Browser Back retries the navigation after the partner confirms.
+      input.value = "";
+      return true;
+    },
     dispose() {
       controller.abort();
       root.unmount();
