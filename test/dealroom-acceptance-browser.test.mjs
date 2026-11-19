@@ -197,6 +197,110 @@ for (const width of [1440, 390]) {
   });
 }
 
+for (const width of [1440, 390]) {
+  test(`switched Local Deals keeps phase counts, saves attention and retries history at ${width}px`, async t => {
+    const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'Europe/Paris' });
+    t.after(() => page.close());
+    page.setDefaultTimeout(5000);
+    await page.clock.setFixedTime(new Date('2026-11-19T01:00:00Z'));
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `phase-attention-${width}`, viewer: 'joe', reset: true } });
+
+    const makeDeal = (name, fields) => ({ id: crypto.randomUUID(), name, owner: 'joe', phase: 'research', seen: 1, attention: false, ...fields });
+    const step = { id: crypto.randomUUID(), owner: 'joe', description: 'Send the floor plan', due_on: '2026-11-17' };
+    const late = makeDeal('Example Late Deal', { next_step: step.description, next_date: step.due_on, open_actions: [step] });
+    const flagged = makeDeal('Example Flagged Deal', { attention: true });
+    const parked = makeDeal('Example Parked Deal', { phase: 'closing', operating_state: 'parked' });
+    const changes = [];
+    const proposalId = crypto.randomUUID();
+    let failHistoryRead = false;
+    let savesOn = false;
+    const env = {
+      ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' || (savesOn && key === 'deals-saves-from-engine') ? 'on' : null },
+      ENGINE: { fetch: async request => {
+        const path = new URL(request.url).pathname;
+        if (path === '/api/engine/deals') {
+          if (failHistoryRead) return new Response(null, { status: 503 });
+          return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe',
+            deals: [late, flagged, parked], closed_deals: [], lost_deals: [] });
+        }
+        if (path === `/api/engine/deals/${late.id}/changes`) {
+          const { idempotency_key, ...change } = await request.json();
+          assert.match(idempotency_key, /^[\da-f-]{36}$/);
+          changes.push(change);
+          late.attention = change.fields.needs_attention;
+          late.seen++;
+          return Response.json({ deal_id: late.id, change_id: late.seen });
+        }
+        assert.equal(path, `/api/engine/deals/${late.id}`);
+        return Response.json({ ...late, deal_id: late.id, next_actions: [step], email_follow_ups: [
+          { proposal_id: proposalId, kind: 'next_step', what: 'Check the plan', due_on: step.due_on },
+        ] });
+      } },
+    };
+    await page.route('**/mcp', async route => {
+      const request = route.request();
+      if (!['deal-room-board', 'get-deal-room', 'patch-deal-field'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+      const response = await handleDoctorcreRequest(new Request(request.url(), {
+        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+      }), env);
+      return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+    });
+
+    const url = `${origin}/deals?mode=live`;
+    const button = name => page.getByRole('button', { name, exact: true });
+    const card = deal => page.locator(`article[data-id="${deal.id}"]`);
+    const date = 'Due Tue, Nov 17, 2026 · 1 day late';
+    const panel = page.locator('#recordPanel');
+    await page.goto(`${url}&filter=flagged`);
+    await button(flagged.name).waitFor({ timeout: 3000 });
+    assert.equal(await button(late.name).count(), 0);
+    assert.equal(await card(flagged).getByText('Needs attention', { exact: true }).isVisible(), true);
+
+    await page.goto(url);
+    await card(late).getByText(date, { exact: false }).waitFor();
+    const phases = ['Prospective Client', 'Research', 'Site Selection', 'Negotiating', 'Legal', 'Due Diligence', 'Closing'];
+    for (const name of phases) {
+      assert.equal(await page.getByRole('region', { name: `${name}, ${name === 'Research' ? 2 : 0} cards`, exact: true }).isVisible(), true);
+    }
+    await button('Collapse Research').click();
+    assert.equal(await page.getByRole('region', { name: 'Research, 2 cards', exact: true }).isVisible(), true);
+    await button('Expand Research').click();
+    await button('Parked').click();
+    await card(parked).waitFor();
+    assert.match(await page.locator('#boardLive').innerText(), /^2 open deals · 1 parked/);
+    await page.locator('#kanban').screenshot({ path: join(evidence, `phase-attention-${width}-board.png`) });
+    await button('List').click();
+    await card(late).getByText(date, { exact: false }).waitFor();
+    await button(late.name).click();
+    await panel.locator('.deal-current-action').getByText(date, { exact: false }).waitFor();
+    await panel.locator('#panelEmailFollowups').getByText(date, { exact: false }).waitFor();
+    assert.equal(await button('Mark needs attention').count(), 0);
+
+    savesOn = true;
+    await page.reload();
+    await button('Mark needs attention').click({ timeout: 3000 });
+    await button('Clear needs attention').waitFor();
+    await page.screenshot({ path: join(evidence, `phase-attention-${width}-detail.png`) });
+    await button('Clear needs attention').click();
+    await button('Mark needs attention').waitFor();
+    assert.deepEqual(changes, [
+      { seen_change_id: 1, fields: { needs_attention: true } },
+      { seen_change_id: 2, fields: { needs_attention: false } },
+    ]);
+
+    for (const view of ['closed', 'lost']) {
+      failHistoryRead = true;
+      await page.goto(`${url}&view=${view}`);
+      await page.getByText(`Could not load ${view} deals.`, { exact: true }).waitFor({ timeout: 3000 });
+      assert.equal(await page.getByText(`No ${view} deals.`, { exact: true }).count(), 0);
+      if (view === 'closed') await page.locator('#closedDealsView').screenshot({ path: join(evidence, `phase-attention-${width}-retry.png`) });
+      failHistoryRead = false;
+      await page.locator('#closedDealsView').getByRole('button', { name: 'Retry', exact: true }).click();
+      await page.getByText(`No ${view} deals.`, { exact: true }).waitFor();
+    }
+  });
+}
+
 for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, true], ['dell', true, true], ['dell', true, false]]) {
   test(`deal files and email follow-ups for ${actor} with Deals reads ${readsOn ? 'on' : 'off'} and saves ${savesOn ? 'on' : 'off'}`, async t => {
     const page = await browser.newPage({ viewport: { width: actor === 'joe' ? 1440 : 390, height: 1000 } });
@@ -926,6 +1030,7 @@ test('Deals shows late steps and can undo a close reported by the engine', async
     await page.goto(`${origin}/deals?mode=live`);
     if (switchesOn) await page.locator('#appTodayMoves').getByText('Open a deal to see its recent changes.', { exact: true }).waitFor({ timeout: 5000 });
     await page.getByRole('button', { name: 'Closed deals', exact: true }).click();
+    if (switchesOn) await page.locator('#closedDealsList .auto-move').getByText('Tue, Nov 17, 2026', { exact: true }).waitFor({ timeout: 3000 });
     await page.getByRole('button', { name, exact: true }).click();
     await page.getByRole('heading', { name, exact: true }).waitFor();
     await otherSteps.getByText(/Call the architect.*2 days late/).waitFor({ timeout: 5000 });
@@ -1068,20 +1173,20 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   const fixture = await (await createQaServer({ buildRoot: join(outDir, 'site') })).start();
   t.after(() => fixture.close());
   const { origin } = fixture;
-  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'Europe/Paris' });
   t.after(() => page.close());
   let undoModuleReads = 0;
   page.on('request', request => {
     if (new URL(request.url()).pathname === '/js/ui-automatic-phase-undo.generated.js') undoModuleReads++;
   });
-  await page.clock.setFixedTime(new Date('2026-11-19T15:00:00Z'));
+  await page.clock.setFixedTime(new Date('2026-11-19T01:00:00Z'));
   await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `national-rows-${width}`, viewer: 'joe', reset: true } });
   const account = crypto.randomUUID();
   const receipt = { source: 'copied', automatic: true, event_id: crypto.randomUUID(),
     phase: 'legal', prior_phase: 'research', evidence_date: '2026-10-19' };
   const deal = { id: crypto.randomUUID(), name: 'Example Clinic Expansion', phase: 'legal', owner: 'joe', seen: 1, phase_change: receipt,
-    account_client_id: account, market: 'Market unspecified in source', next_date: '2026-11-18', next_step: 'Review the floor plan',
-    open_actions: [{ id: crypto.randomUUID(), owner: 'joe', description: 'Review the floor plan', due_on: '2026-11-18' }] };
+    account_client_id: account, market: 'Market unspecified in source', next_date: '2026-11-17', next_step: 'Review the floor plan',
+    open_actions: [{ id: crypto.randomUUID(), owner: 'joe', description: 'Review the floor plan', due_on: '2026-11-17' }] };
   const closing = { ...deal, id: crypto.randomUUID(), name: 'Example Dental Office', phase: 'closing', phase_change: null,
     market: 'Example City', next_date: '2026-11-23', next_step: 'Sign the lease',
     open_actions: [{ id: crypto.randomUUID(), owner: 'joe', description: 'Sign the lease', due_on: '2026-11-23' }] };
@@ -1146,6 +1251,7 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await mark.waitFor();
   assert.ok((await mark.innerText()).startsWith('Mark needs attention'));
   assert.match(await row.innerText(), /No market recorded/);
+  assert.equal(await row.locator('.due').innerText(), 'Due Tue, Nov 17, 2026 · 1 day late');
   assert.match(await page.getByRole('row').filter({ hasText: closing.name }).innerText(), /Example City/);
   assert.match(await page.locator('#stats').innerText(), /2 open deals · 1 late · 1 closing/);
   await first.click();
@@ -1155,9 +1261,17 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await page.goto(accountUrl);
   await openAccount();
   await page.locator('#boardSection').screenshot({ path: join(evidence, `national-account-${width}.png`) });
+  const attentionFilter = page.getByRole('button', { name: 'Needs attention', exact: true });
+  await attentionFilter.click();
+  assert.equal(await row.count(), 0);
+  await page.getByRole('button', { name: 'Active', exact: true }).click();
   await mark.click();
   const clear = row.getByRole('button', { name: `Clear needs attention on ${deal.name}`, exact: true });
+  await clear.waitFor();
+  await attentionFilter.click();
   await clear.click();
+  await row.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Active', exact: true }).click();
   await mark.waitFor();
   assert.deepEqual(writes, [{ needs_attention: true }, { needs_attention: false }]);
   assert.equal(undoModuleReads, 0);

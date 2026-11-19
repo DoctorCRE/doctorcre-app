@@ -2,6 +2,7 @@ import { workCard } from './work-card.js';
 import { overdueLabel } from './deal-review-model.js';
 import { noteText } from './pipeline-model.js';
 import { calendarDay } from './deal-timeline.js';
+import { daysBetween } from './calendar-model.js';
 import { formatCalendarDate } from './visual-system.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -45,6 +46,13 @@ function shortDate(value, today) {
   const options = { month: 'short', day: 'numeric', timeZone: 'UTC' };
   if (!today || day >= today) options.weekday = 'short';
   return date.toLocaleDateString('en-US', options).replace(',', '');
+}
+
+export function dealDueDate(value, today) {
+  const day = calendarDay(value);
+  if (!day) return null;
+  const daysLate = today && day < today ? daysBetween(day, today) : 0;
+  return { day, date: formatCalendarDate(day), late: daysLate ? `${daysLate} day${daysLate === 1 ? '' : 's'} late` : '' };
 }
 
 export function dealNextStep(deal, actions = deal.open_actions || [], items = deal.items || []) {

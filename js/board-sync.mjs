@@ -278,10 +278,11 @@ export function createBoardSync({
       cursor,
       board_health: boardHealth,
       feed_health: usesChangeFeed() ? feedHealth : HEALTH.UNREAD,
-      board_error: boardError,
+      board_error: boardError?.message ?? null,
+      board_error_code: boardError?.code ?? null,
       feed_error: feedError,
       /** The board's trouble first: it is the one that decides the values. */
-      last_error: boardError || feedError,
+      last_error: boardError?.message || feedError,
       /** When the last board read SUCCEEDED. Displayed values are that old. */
       last_read_at: lastBoardReadAt,
       last_change_read_at: lastChangeReadAt,
@@ -392,7 +393,7 @@ export function createBoardSync({
       if (error) {
         counters.board_failed += 1;
         boardHealth = HEALTH.FAILED;
-        boardError = describe(error);
+        boardError = { message: describe(error), code: error.code };
         publish();
         return { ok: false, applied: false, reason: 'read_failed', error, ticket };
       }
@@ -407,7 +408,7 @@ export function createBoardSync({
         // the screen is older than the answer we just threw away.
         counters.board_failed += 1;
         boardHealth = HEALTH.RENDER_FAILED;
-        boardError = describe(caught);
+        boardError = { message: describe(caught) };
         publish();
         return { ok: false, applied: false, reason: 'apply_failed', error: caught, ticket };
       }
@@ -602,7 +603,7 @@ export function createBoardSync({
       if (!value) {
         boardHealth = HEALTH.FAILED;
         feedHealth = HEALTH.FAILED;
-        boardError = OFFLINE_REASON;
+        boardError = { message: OFFLINE_REASON };
         feedError = OFFLINE_REASON;
       }
       return publish();

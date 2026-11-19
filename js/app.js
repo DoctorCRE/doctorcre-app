@@ -5,8 +5,9 @@ import { mountDealRoomBoard } from './ui-board.generated.js';
 import { mountDealRoomAgenda } from './ui-agenda.generated.js';
 import { dealStepVersion, partnerDealStep } from './local-deals-model.js';
 import { businessDay } from './business-date.js';
+import { daysBetween, toDay } from './calendar-model.js';
 import { formatCalendarDate } from './visual-system.js';
-import { automaticPhaseReceipt, dealItemRows, dealLastCaption, dealNextCaption } from './deal-items.js';
+import { automaticPhaseReceipt, dealDueDate, dealItemRows, dealLastCaption, dealNextCaption } from './deal-items.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
@@ -90,6 +91,10 @@ const automaticPhase = prepareAutomaticPhaseUndo({
 
 function daysFromNow(value) {
   if (!value) return null;
+  if (state.boardFromEngine) {
+    const day = toDay(value);
+    return day ? daysBetween(businessDay(), day) : null;
+  }
   const baseline = today();
   baseline.setHours(12);
   return Math.round((new Date(`${value}T12:00:00`) - baseline) / 864e5);
@@ -97,6 +102,10 @@ function daysFromNow(value) {
 
 function dateLabel(value) {
   if (!value) return 'Not set';
+  if (state.boardFromEngine) {
+    const due = dealDueDate(value, businessDay());
+    return due ? `Due ${due.date}${due.late ? ` · ${due.late}` : ''}` : 'Not set';
+  }
   const days = daysFromNow(value);
   const date = new Date(`${value}T12:00:00`).toLocaleDateString('en-US', { month:'short', day:'numeric' });
   if (days < 0) return `${date} · ${Math.abs(days)}d overdue`;
@@ -338,7 +347,7 @@ function workspaceDeals() {
   if (state.filter === 'parked') deals = deals.filter((deal) => deal.operating_state === 'parked');
   else deals = deals.filter((deal) => (deal.operating_state || 'active') === 'active');
   if (state.filter === 'mine') deals = deals.filter((deal) => deal.owner === state.selfActor);
-  if (state.filter === 'attention') deals = deals.filter((deal) => deal.attention || (daysFromNow(deal.next_date) ?? 0) < 0);
+  if (state.filter === 'attention') deals = deals.filter((deal) => deal.attention === true || (!state.boardFromEngine && (daysFromNow(deal.next_date) ?? 0) < 0));
   if (state.filter === 'flagged') deals = deals.filter((deal) => deal.attention === true && (!state.deepLinkMine || deal.owner === state.selfActor));
   if (state.filter === 'stale') deals = deals.filter(isStale);
   if (state.filter === 'missing') deals = deals.filter((deal) => !deal.next_step);
