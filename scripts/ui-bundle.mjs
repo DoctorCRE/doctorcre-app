@@ -45,6 +45,7 @@ export const UI_ENTRIES = {
   'ui-action': 'action-link',
   'ui-call': 'call-review',
   'ui-board': 'deal-room-board',
+  'ui-automatic-phase-undo': 'automatic-phase-undo',
   'ui-agenda': 'deal-room-agenda',
   'ui-monday-review': 'monday-review',
   'ui-lead-opportunity-timing': 'lead-opportunity-timing',

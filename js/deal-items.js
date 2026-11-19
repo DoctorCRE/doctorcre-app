@@ -27,10 +27,17 @@ export function renderDealAlert(deal, { today = '' } = {}) {
     status: overdueLabel(deal.overdue_since, today) || '', body: renderDealItems(deal, { today }) });
 }
 
-export function renderDealItems(deal, { today = '', buttons = false, empty = true, board = false } = {}) {
+export function dealItemRows(deal, { today = '', board = false } = {}) {
   const nextItem = board ? dealNextStep(deal).item : null;
-  const items = openDealItems(deal).filter(item => item !== nextItem);
-  return items.length ? `<p class="deal-items-label">Still needed:</p><ol class="deal-items">${items.map(item => `<li data-overdue="${Boolean(item.due_on && item.due_on < today)}">${buttons ? renderDealItemButton(deal.id, item) : `<a data-home-key="deal:${esc(deal.id)}:${esc(item.id)}" href="${esc(dealItemHref(deal.id, item.id))}">${esc(item.title)}</a>`}${item.due_on ? `<time class="deal-item-due" datetime="${esc(item.due_on)}">${esc(monthDay(item.due_on) || item.due_on)}</time>` : ''}</li>`).join('')}</ol>` : empty ? '<p class="deal-items-empty">No action items recorded</p>' : '';
+  return openDealItems(deal).filter(item => item !== nextItem).map(item => ({
+    item, href: dealItemHref(deal.id, item.id), date: monthDay(item.due_on) || item.due_on,
+    overdue: Boolean(item.due_on && item.due_on < today),
+  }));
+}
+
+export function renderDealItems(deal, { today = '', buttons = false, empty = true, board = false } = {}) {
+  const rows = dealItemRows(deal, { today, board });
+  return rows.length ? `<p class="deal-items-label">Still needed:</p><ol class="deal-items">${rows.map(({ item, href, date, overdue }) => `<li data-overdue="${overdue}">${buttons ? renderDealItemButton(deal.id, item) : `<a data-home-key="deal:${esc(deal.id)}:${esc(item.id)}" href="${esc(href)}">${esc(item.title)}</a>`}${date ? `<time class="deal-item-due" datetime="${esc(item.due_on)}">${esc(date)}</time>` : ''}</li>`).join('')}</ol>` : empty ? '<p class="deal-items-empty">No action items recorded</p>' : '';
 }
 
 function shortDate(value, today) {
@@ -67,28 +74,33 @@ export function renderDealItemButton(dealId, item, text = item.title, className 
   return `<button type="button"${className ? ` class="${className}"` : ''} data-deal-item="${esc(item.id)}" data-item-deal="${esc(dealId)}">${esc(text)}</button>`;
 }
 
-export function renderDealSummary(deal, { today = '', viewer = '', board = false, actorName = name => name } = {}) {
-  const { text, dueOn, action, item } = dealNextStep(deal);
-  const lines = [];
-  if (text) {
-    const overdue = Boolean(dueOn && dueOn < today);
-    const date = overdue && action ? '' : shortDate(dueOn, today);
-    const owner = !board && action?.owner && viewer && action.owner !== viewer ? ` · ${actorName(action.owner)}` : '';
-    const label = board && item ? renderDealItemButton(deal.id, item, text, 'deal-summary-text') : `<span class="deal-summary-text">${esc(text)}</span>`;
-    lines.push(`<span class="deal-summary-line"><span class="deal-summary-label">Next: </span>${label}<span class="deal-summary-facts">${date ? ` · <time data-overdue="${overdue}" datetime="${esc(dueOn)}">${esc(date)}</time>` : ''}${esc(owner)}</span></span>`);
-  } else {
-    lines.push('<span class="deal-summary-line">No next step set</span>');
-  }
-  return lines.join('') + renderLastDealStep(deal.last_step);
+export function dealNextCaption(deal, { today = '', viewer = '', board = false, actorName = name => name } = {}) {
+  const { text, dueOn: when, action, item } = dealNextStep(deal);
+  if (!text) return null;
+  const overdue = Boolean(when && when < today);
+  const date = overdue && action ? '' : shortDate(when, today);
+  const owner = !board && action?.owner && viewer && action.owner !== viewer ? ` · ${actorName(action.owner)}` : '';
+  return { text, when, date, overdue, owner, item };
 }
 
-function renderLastDealStep(last) {
-  const lastText = noteText(last?.summary);
-  const lastDate = shortDate(last?.occurred_at, '');
-  if (lastText && lastDate) {
-    return `<span class="deal-summary-line deal-summary-last"><span class="deal-summary-label">Last: </span><span class="deal-summary-text">${esc(lastText)}</span><span class="deal-summary-facts"> · <time datetime="${esc(last.occurred_at)}">${esc(lastDate)}</time></span></span>`;
-  }
-  return '';
+export function dealLastCaption(last) {
+  const text = noteText(last?.summary);
+  const date = shortDate(last?.occurred_at, '');
+  return text && date ? { text, date, when: last.occurred_at } : null;
+}
+
+export function renderDealSummary(deal, options = {}) {
+  const next = dealNextCaption(deal, options);
+  const last = renderLastDealStep(deal.last_step);
+  if (!next) return '<span class="deal-summary-line">No next step set</span>' + last;
+  const { text, when, date, overdue, owner, item } = next;
+  const label = options.board && item ? renderDealItemButton(deal.id, item, text, 'deal-summary-text') : `<span class="deal-summary-text">${esc(text)}</span>`;
+  return `<span class="deal-summary-line"><span class="deal-summary-label">Next: </span>${label}<span class="deal-summary-facts">${date ? ` · <time data-overdue="${overdue}" datetime="${esc(when)}">${esc(date)}</time>` : ''}${esc(owner)}</span></span>` + last;
+}
+
+function renderLastDealStep(step) {
+  const last = dealLastCaption(step);
+  return last ? `<span class="deal-summary-line deal-summary-last"><span class="deal-summary-label">Last: </span><span class="deal-summary-text">${esc(last.text)}</span><span class="deal-summary-facts"> · <time datetime="${esc(last.when)}">${esc(last.date)}</time></span></span>` : '';
 }
 
 export function renderDealItemDetail(item, { today = '' } = {}) {
@@ -141,4 +153,26 @@ export function renderEndedDealList(view, { rows, dealTypeLabel, lost = false, f
   view.querySelector('#closedDealsList').innerHTML = cards.map(({deal, title, facts}) => `<article class="closed-deal" data-id="${esc(deal.id)}">
     <h3><button type="button" class="card-open" data-open-deal="${esc(deal.id)}">${esc(title)}</button></h3>
     <dl>${renderDealFacts(facts)}</dl>${renderDealVendors(deal.vendors)}${autoHtml(deal)}</article>`).join('') || (unavailable ? '' : `<p>No ${label} deals match this search.</p>`);
+}
+
+export function automaticPhaseReceipt(deal, entry, { showEngineMoves = false, canUndo = true } = {}) {
+  const event = deal.phase_change;
+  const day = calendarDay(event?.evidence_date);
+  const datedMove = event?.automatic === true && event.event_id && day;
+  const feedback = canUndo && (!entry?.eventId || entry.eventId === event?.event_id) ? entry : null;
+  const undoableMove = canUndo && event?.source === 'copied' && datedMove;
+  const returnsToEndedDeals = undoableMove && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
+    || feedback?.code === 'undo_returns_to_ended_deals');
+  const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
+  const action = undoableMove && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
+    ? { eventId: event.event_id, version: deal.seen, busy: Boolean(feedback?.busy) } : null;
+  const move = datedMove && (showEngineMoves || undoableMove) ? { day, date: formatCalendarDate(day) || day, action } : null;
+  return { move, message };
+}
+
+export function renderPhaseReceipt(deal, { move, message }, legacy) {
+  const undo = move?.action;
+  const button = undo ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(undo.eventId)}" data-base-version="${undo.version}"${undo.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
+  const mark = move ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${move.day}">${esc(move.date)}</time>${button}</div>` : legacy;
+  return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
 }
