@@ -55,3 +55,61 @@ test('producer can offer save and decline without recipients while send requires
     assert.throws(() => parseReview({ ...response, detail: { reply_draft: { ...detail.reply_draft, ...recipients } }, operations: [submit] }, reference), /supported/);
   }
 });
+
+test('a suggestion review with the Home switch off dismisses without a Drop dialog', async () => {
+  const { JSDOM } = await import('jsdom');
+  const reviewBundle = await build({
+    stdin: { contents: `
+      export { ReviewCard } from './src/ui/home/review-card.tsx';
+    `, resolveDir: process.cwd() },
+    bundle: true, write: false, platform: 'node', format: 'esm', jsx: 'automatic',
+    plugins: [{ name: 'react-runtime', setup(builder) {
+      builder.onResolve({ filter: /^react(\/jsx-runtime)?$/ }, ({ path }) => ({
+        path: import.meta.resolve(path), external: true,
+      }));
+    } }],
+  });
+  const { ReviewCard } =
+    await import(`data:text/javascript;base64,${Buffer.from(reviewBundle.outputFiles[0].text).toString('base64')}`);
+  const { act, createElement } = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const { window } = new JSDOM('<main></main>');
+  const globals = { window, document: window.document, FormData: window.FormData, IS_REACT_ACT_ENVIRONMENT: true };
+  const previous = Object.fromEntries(Object.keys(globals).map(key => [key, globalThis[key]]));
+  Object.assign(globalThis, globals);
+  const root = createRoot(window.document.querySelector('main'));
+  const suggestion = {
+    ...row, item_id: `suggestion:${bound.proposal_id}`, title: 'Synthetic suggestion', kind_label: 'Task',
+    review_reference: null,
+  };
+  const client = createInboxClient(async () => snapshot([suggestion]));
+  const [item] = (await client.read()).items;
+  assert.equal(item.engine_marks, undefined);
+  const requests = [];
+  try {
+    await act(async () => root.render(createElement(ReviewCard, {
+      item,
+      client: {
+        load: async () => ({ kind: 'suggestions', operations: [], proposals: [{
+          id: bound.proposal_id, label: 'Next step', evidence: 'Synthetic note', canAccept: true,
+        }] }),
+        run: async (_item, request) => { requests.push(request); return { item: null }; },
+      },
+      close() {}, busy() {}, confirmed() {},
+    })));
+    const dismiss = [...window.document.querySelectorAll('button')].find(button => button.textContent === 'Dismiss');
+    assert.ok(dismiss, 'Legacy suggestion has a Dismiss button');
+    await act(async () => dismiss.click());
+    assert.equal(window.document.querySelector('dialog'), null);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].args.decision, 'dismiss');
+    assert.equal('reason' in requests[0].args, false);
+  } finally {
+    await act(async () => root.unmount());
+    window.close();
+    for (const key of Object.keys(globals)) {
+      if (previous[key] === undefined) delete globalThis[key];
+      else globalThis[key] = previous[key];
+    }
+  }
+});

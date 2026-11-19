@@ -289,7 +289,7 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
     );
   }
   function suggestionDecisions(proposal: Suggestion): readonly ("accept" | "dismiss")[] {
-    return proposal.completion || item.home_proposal_drop ? ["accept", "dismiss"] : ["accept"];
+    return !item.engine_marks || proposal.completion || item.home_proposal_drop ? ["accept", "dismiss"] : ["accept"];
   }
   const suggestionFields = (
     <>
@@ -351,7 +351,7 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
                     (!proposal.canAccept || (state.phase === "proposal-refused" && state.id === proposal.id))
                   }
                   onClick={(event) => {
-                    if (decision === "dismiss" && !proposal.completion) {
+                    if (item.engine_marks && decision === "dismiss" && !proposal.completion) {
                       setDrop({
                         title: proposal.label.toLowerCase(),
                         opener: event.currentTarget,
@@ -366,7 +366,9 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
                       : "Not yet"
                     : decision === "accept"
                       ? "Accept"
-                      : "Drop"}
+                      : item.engine_marks
+                        ? "Drop"
+                        : "Dismiss"}
                 </button>
               ))}
             </div>
