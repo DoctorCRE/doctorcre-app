@@ -382,8 +382,22 @@ test("partners see and manage prospects from Deals", async (t) => {
       const titleBox = await open.boundingBox();
       const noteBox = await entries.first().getByText("First line", { exact: true }).boundingBox();
       assert.ok(titleBox && noteBox);
-      if (width === 1440) assert.ok(noteBox.x >= titleBox.x + titleBox.width);
-      else assert.ok(noteBox.y >= titleBox.y + titleBox.height);
+      if (width === 1440) {
+        const row = entries.first();
+        const columns = page.locator(".deal-list-head");
+        const followUp = await row.getByText("Joe · Due Thu, Nov 19", { exact: true }).boundingBox();
+        const author = await row.getByText(/^Dell · Wed, Nov 18/).boundingBox();
+        const claimant = await row.locator(".work-card-meta").boundingBox();
+        const nextStep = await columns.getByText("Next step", { exact: true }).boundingBox();
+        const owner = await columns.getByText("Owner", { exact: true }).boundingBox();
+        assert.ok(followUp && author && claimant && nextStep && owner);
+        assert.equal(followUp.x, noteBox.x, "the follow-up aligns with the note");
+        assert.equal(author.x, noteBox.x, "the author aligns with the note");
+        assert.equal(noteBox.x, nextStep.x, "prospect details align with Next step");
+        assert.equal(claimant.x, owner.x, "the claimant aligns with Owner");
+      } else {
+        assert.ok(noteBox.y >= titleBox.y + titleBox.height);
+      }
       if (width === 390) await entries.first().evaluate((entry) => entry.scrollIntoView({ block: "center" }));
       await page.screenshot({ path: `out/test-artifacts/prospect-list-rows/list-${width}.png` });
       await birchName.click();
