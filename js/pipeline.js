@@ -32,14 +32,14 @@ import {
   receiptsSignature, createFeedProgress, observeChangeBatch, performUndo,
 } from './change-receipts.mjs';
 import {
-  CLOSED_SLUG, COLUMNS, OPEN_COLUMNS, PHASE_DATE_KIND, COMPLETION_CAPTIONS, closedColumnCaption, columnBySlug, columnByValue,
+  CLOSED_SLUG, COLUMNS, OPEN_COLUMNS, COMPLETION_CAPTIONS, closedColumnCaption, columnBySlug, columnByValue,
   boardHeadline, columnLabel, completionPlan, contextDrawerSections, groupByColumn, keyboardTarget,
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
 import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceClose, isEngineDealDetail, prepareDealDetail, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
-import { mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates, dealTimeline, dateCaption, calendarDay } from './deal-timeline.js';
+import { mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates, dealTimeline, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
 import { mountVisibilityPoll } from './visibility-poll.mjs';
 
@@ -1260,21 +1260,11 @@ function workspaceHtml(detail) {
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem)}</div>${renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2><details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details><div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
-const CRITICAL_DATE_OPTIONS = new Map([
-  ['loi_expiry', 'LOI expiry'],
-  ['option_notice', 'Option notice'],
-  ['rent_start', 'Rent start'],
-  ['lease_end', 'Lease expiration'],
-  ['due_diligence', 'Due diligence'],
-  [PHASE_DATE_KIND, 'Phase effective date'],
-  ['other', 'Other'],
-]);
-
 function criticalDateFormHtml() {
   return `<details class="add-critical-date"><summary>Add critical date</summary>
     <form id="detailAddDateForm">
       <div><label for="criticalDateKind">Kind</label><select id="criticalDateKind" name="kind" required><option value="">Choose a kind</option>
-        ${[...CRITICAL_DATE_OPTIONS].map(([kind, label]) => `<option value="${kind}">${label}</option>`).join('')}
+        ${CRITICAL_DATE_OPTIONS.map(([kind, label]) => `<option value="${kind}">${label}</option>`).join('')}
       </select></div>
       <label>Date<input name="due_on" type="date" required></label>
       <label>Where did this date come from?<input name="source" maxlength="1000" required></label>

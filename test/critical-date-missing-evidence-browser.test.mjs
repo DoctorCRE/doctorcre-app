@@ -57,7 +57,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`cr
  assert.match(await card.locator('small').textContent(),/Status: open/);
  assert.equal(await card.locator('[data-countdown]').count(),0);
  assert.match(await page.locator('[data-date-id="invalid-loi"]').textContent(),/Date unavailable.*passed/);
- assert.equal(await page.locator('[data-date-id="unknown"] > span').textContent(),'custom notice');
+ assert.equal(await page.locator('[data-date-id="unknown"] > span').textContent(),'Custom notice');
  assert.equal(await page.locator('.critical-date').filter({hasText:'LOI'}).getByText('Not recorded',{exact:true}).count(),0);
  await card.evaluate(n=>n.scrollIntoView({block:'center'}));
  await page.screenshot({path:join(evidence,`${width}-${theme}-overview.png`),animations:'disabled'});
