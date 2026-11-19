@@ -1114,7 +1114,6 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       state.tour = { ...state.tour, cheat_sheet: { content: pending.body.content, revision_number: revision } };
       state.cheatDirty = $("#cheat-content").value !== pending.draft;
       state.cheatDraftRevision = state.cheatDirty ? revision : null;
-      sheetMessage = "Internal cheat sheet save confirmed.";
       await loadTour(tourId, { throwOnFailure:true, keepEditorVisible:true });
       sheetMessage = "Internal cheat sheet save confirmed."; status(sheetMessage);
     } catch (error) {
