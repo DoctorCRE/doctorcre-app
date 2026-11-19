@@ -653,8 +653,10 @@ async function pollOnce(initial = false) {
 
 function confirmLocalWrite(dealId, patch) {
   const deal = state.deals.get(dealId) || null;
-  if (deal) Object.assign(deal, patch);
-  state.boardSync.noteLocalWrite(dealId, patch);
+  if (!state.nextDealSaves || !Object.hasOwn(patch, 'operating_state')) {
+    if (deal) Object.assign(deal, patch);
+    state.boardSync.noteLocalWrite(dealId, patch);
+  }
   state.boardSync.requestRefresh('after-write');
   if (state.panelDeal === dealId && Number.isSafeInteger(state.panelDetail?.deal?.seen)) void refreshPanel({ changed: true });
   return deal;
@@ -933,7 +935,7 @@ async function retryFieldWrite(cell) {
   const subject = `${fieldLabel(field)} on ${row?.name || 'this deal'}`;
   recordFieldReceipt(cell, `${row?.name || 'Deal'} · ${fieldLabel(field)}`, subject, result);
   if (result.status === 'ok' && !result.superseded) {
-    applyConfirmedFieldWrite(deal, field, value);
+    confirmLocalWrite(deal, fieldPatch(field, value));
     if (field === 'phase') await resumeMoveFollowUps(cell);
     await refreshPanel();
   }
@@ -1990,20 +1992,19 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   setContextOpenVisible(false);
   if (id) document.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`)?.focus({preventScroll:true});
 }
-function applyConfirmedFieldWrite(id, field, value) {
-  if (field !== 'operating_state') confirmLocalWrite(id, { [field]: value });
-  else if (state.nextDealSaves) state.boardSync.requestRefresh('after-write');
-  else confirmLocalWrite(id, {
+function fieldPatch(field, value) {
+  if (field !== 'operating_state') return {[field]:value};
+  return {
     operating_state: value.state,
     parking_note: value.note || null,
     parking_reason: value.reason || null,
-  });
+  };
 }
 async function setOperatingState(id, value) {
   const result = await sendFieldWrite(id, 'operating_state', value);
   if (result.status === 'ok' && !result.superseded) {
     const accepted = result.request.value;
-    applyConfirmedFieldWrite(id, 'operating_state', accepted);
+    confirmLocalWrite(id, fieldPatch('operating_state', accepted));
     showToast(accepted.state === 'active' ? 'Deal revived' : 'Deal parked');
     if (state.panelDeal === id) closeWorkspace();
   } else if (result.conflict) showConflict(result.conflict);
