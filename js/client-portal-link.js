@@ -26,8 +26,10 @@ export async function openEngineClientWebsite(deal) {
   try {
     const response = await requestWebsite(websitePath(deal) + '/open', {});
     const { url } = await response.json();
-    if (response.ok && typeof url === 'string'
-        && /^https:\/\/share\.doctorcre\.com\/[a-z0-9][a-z0-9-]{0,62}\/\?grant=[\da-f-]{36}$/.test(url)) {
+    const shareOrigin = response.headers.get('x-doctorcre-client-website-origin');
+    if (response.ok && typeof url === 'string' && shareOrigin?.startsWith('https://')
+        && url.startsWith(shareOrigin + '/')
+        && /^\/[a-z0-9][a-z0-9-]{0,62}\/\?grant=[\da-f-]{36}$/.test(url.slice(shareOrigin.length))) {
       tab.location.replace(url);
       return null;
     }

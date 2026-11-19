@@ -775,6 +775,11 @@ async function handleRequest(request, env) {
         return await env.ENGINE.fetch(new Request(url, forwarded));
       }
       const response = await env.ENGINE.fetch(forwarded);
+      if (website?.[1] && response.ok) {
+        const grant = new Response(response.body, response);
+        grant.headers.set('x-doctorcre-client-website-origin', env.CLIENT_WEBSITE_ORIGIN ?? 'https://share.doctorcre.com');
+        return grant;
+      }
       if (!weeklyReview || request.method !== 'GET' || !response.ok) return response;
       const review = new Response(response.body, response);
       review.headers.set('x-doctorcre-deal-saves', await switchedOn(env, NEXT_DEAL_SAVES) ? 'on' : 'off');
