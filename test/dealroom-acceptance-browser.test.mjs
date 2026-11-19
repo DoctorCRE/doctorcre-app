@@ -1941,7 +1941,7 @@ for (const width of [1440, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     t.after(() => page.close());
     await page.clock.setFixedTime(new Date('2026-11-16T04:00:00Z'));
-    const [deal, prospect, parked] = Array.from({ length: 3 }, () => crypto.randomUUID());
+    const [deal, prospect, dropped, parked] = Array.from({ length: 4 }, () => crypto.randomUUID());
     const row = { id: deal, deal_id: deal, name: 'Zephyr Deal', phase: 'research', owner: 'dell', seen: 1,
       seen_change_id: 1, next_step: 'Check the lease', next_date: '2026-11-10' };
     const next_actions = [
@@ -1952,13 +1952,16 @@ for (const width of [1440, 390]) {
     ];
     const prospectNote = { by: 'dell', at: '2026-11-09T15:00:00Z', summary: 'Example prospect note' };
     const prospectRow = { party_id: prospect, name: 'Birch Prospect', owner: null, how_found: 'referral',
-      change_id: 2, latest_note: prospectNote, reviewed: null, seen_change_id: 0, state: 'dropped', needs_attention: true,
+      change_id: 2, latest_note: prospectNote, reviewed: null, seen_change_id: 0, state: 'open', needs_attention: true,
       follow_ups: [{ next_step_id: prospect, owner: 'joe', change_id: 1, what: 'Call back', due_on: '2026-11-16' }] };
+    const droppedRow = { ...prospectRow, party_id: dropped, name: 'Cedar Prospect', state: 'dropped',
+      dropped: { at: '2026-11-10T01:00:00Z', by: 'dell', reason: 'Plans changed' }, needs_attention: false,
+      follow_ups: [] };
     const parkedRow = { deal_id: parked, name: 'Alder Deal', phase: 'pending', reviewed: null, seen: 2,
       state: 'open', seen_change_id: 0, operating_state: 'parked' };
     const reviewId = crypto.randomUUID();
     let review = [
-      { ...row, reviewed: { review_id: reviewId, by: 'joe', at: '2026-11-09T15:00:00Z' }, state: 'open' }, prospectRow, parkedRow,
+      { ...row, reviewed: { review_id: reviewId, by: 'joe', at: '2026-11-09T15:00:00Z' }, state: 'open' }, prospectRow, droppedRow, parkedRow,
     ];
     await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `monday-review-${width}`, viewer: 'joe', reset: true } });
     let enabled = false, savesOn = false, boardReads = 0, refuseMark = false, raceStep = false;
@@ -1995,18 +1998,25 @@ for (const width of [1440, 390]) {
             return Response.json({ next_step_id: crypto.randomUUID(), change_id: 8 }, { status: 201 });
           }
           if (refuseMark) return Response.json({ error: 'actor_not_provisioned' }, { status: 422 });
-          const item = body.party_id ? prospectRow : review[0];
+          const undo = url.pathname.endsWith('/remove');
+          const item = review.find(item => undo
+            ? url.pathname.endsWith(`/${item.reviewed?.review_id}/remove`)
+            : body.party_id ? item.party_id === body.party_id : item.deal_id === body.deal_id);
+          assert.ok(item);
           if (item.seen_change_id !== body.seen_change_id)
             return Response.json({ error: 'version_conflict', current_version: item.seen_change_id }, { status: 409 });
           item.seen_change_id++;
-          item.reviewed = url.pathname.endsWith('/remove') ? null : { review_id: reviewId, by: 'joe', at: '2026-11-09T15:00:00Z' };
-          return Response.json({ review_id: reviewId }, { status: item.reviewed ? 201 : 200 });
+          const review_id = item.reviewed?.review_id ?? crypto.randomUUID();
+          item.reviewed = undo ? null : { review_id, by: 'joe', at: '2026-11-09T15:00:00Z' };
+          return Response.json({ review_id }, { status: undo ? 200 : 201 });
         }
         if (url.pathname === '/api/engine/weekly-reviews') {
           weeks.push(url.searchParams.get('week_of'));
           return Response.json({ items: review });
         }
         if (url.pathname === '/api/engine/prospects') return Response.json({ count: 0, prospects: [] });
+        if (url.pathname.endsWith(dropped)) return Response.json({ ...droppedRow,
+          notes: [{ ...prospectNote, activity_id: crypto.randomUUID() }] });
         if (url.pathname.endsWith(prospect)) return Response.json({ ...prospectRow, notes: [] });
         if (url.pathname.endsWith(parked)) return Response.json(parkedRow);
         if (url.pathname.endsWith(deal)) return Response.json({ ...row, next_step: review[0].next_step, next_date: review[0].next_date,
@@ -2022,9 +2032,9 @@ for (const width of [1440, 390]) {
         return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ deals: [row] }) }] } });
       } },
     };
-    await page.route(url => url.pathname === '/mcp' || url.pathname.startsWith('/api/engine/weekly-reviews')
+    const routeReview = target => target.route(url => url.pathname === '/mcp' || url.pathname.startsWith('/api/engine/weekly-reviews')
       || url.pathname.startsWith('/api/engine/prospects')
-      || (url.pathname === '/deals' && url.searchParams.get('view') === 'review'), async route => {
+      || (url.pathname === '/deals' && ['review', 'dropped-prospect'].includes(url.searchParams.get('view'))), async route => {
       const request = route.request();
       if (new URL(request.url()).pathname === '/mcp' && !['deal-room-board', 'get-deal-room', 'add-deal-note', 'set-next-step'].includes(request.postDataJSON()?.params?.name))
         return route.continue();
@@ -2033,6 +2043,7 @@ for (const width of [1440, 390]) {
       }), env);
       await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
     });
+    await routeReview(page);
     const reviewPath = `${origin}/api/engine/weekly-reviews?week_of=2026-11-09`;
     assert.equal((await handleDoctorcreRequest(new Request(reviewPath), env)).status, 404);
     await page.goto(`${origin}/deals?view=review&mode=live`);
@@ -2058,21 +2069,21 @@ for (const width of [1440, 390]) {
     savesOn = true;
     await page.goto(`${origin}/deals?owner=joe&mode=live`);
     await page.getByRole('link', { name: 'Monday review' }).click();
-    await page.getByText('1 of 3 reviewed this week').waitFor();
+    await page.getByText('1 of 4 reviewed this week').waitFor();
     assert.equal(await page.getByRole('button', { name: 'Parked', exact: true }).count(), 0);
     assert.deepEqual(weeks, ['2026-11-09']);
     await page.getByText(/Reviewed by Joe · Nov 9/).waitFor();
     await page.getByText('Example new note').waitFor();
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     await page.getByRole('link', { name: 'Birch Prospect' }).waitFor();
-    await page.getByText(/Prospect · Unclaimed · Dropped · Needs attention/).waitFor();
+    await page.getByText(/Prospect · Unclaimed · Needs attention/).waitFor();
     await page.getByText(/Due Mon, Nov 16/).waitFor();
     await page.getByText(prospectNote.summary).waitFor();
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await page.getByRole('link', { name: row.name }).waitFor();
     await page.getByRole('button', { name: 'As a list' }).click();
     const items = page.getByRole('main', { name: 'Monday review' }).getByRole('listitem');
-    assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Alder Deal']);
+    assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Cedar Prospect', 'Alder Deal']);
     assert.match(await page.getByRole('link', { name: 'Birch Prospect' }).getAttribute('href'), new RegExp(`prospect=${prospect}`));
     const prospectItem = items.filter({ hasText: prospectRow.name });
     const note = prospectItem.getByText(prospectNote.summary);
@@ -2085,7 +2096,25 @@ for (const width of [1440, 390]) {
     await note.waitFor({ state: 'hidden' });
     await items.filter({ hasText: parkedRow.name }).getByText(/Unassigned · Parked/).waitFor();
     await page.getByRole('checkbox', { name: 'Not reviewed' }).check();
-    assert.deepEqual(await items.getByRole('link').allTextContents(), ['Birch Prospect', 'Alder Deal']);
+    assert.deepEqual(await items.getByRole('link').allTextContents(), ['Birch Prospect', 'Cedar Prospect', 'Alder Deal']);
+    const droppedItem = items.filter({ hasText: droppedRow.name });
+    await droppedItem.getByRole('button', { name: 'Reviewed', exact: true }).waitFor();
+    assert.equal(await droppedItem.getByLabel('Add note').count(), 0);
+    await droppedItem.getByRole('link').click();
+    const archive = page.getByRole('main', { name: droppedRow.name });
+    await archive.getByText('Dropped Mon, Nov 9: Plans changed', { exact: true }).waitFor();
+    await archive.getByText(prospectNote.summary).waitFor();
+    assert.equal(await archive.getByRole('button').count(), 0);
+    assert.equal(await archive.locator('form').count(), 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: join(evidence, `monday-review-dropped-${width}.png`), fullPage: true });
+    await archive.getByRole('link', { name: 'Back to Monday review' }).click();
+    await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
+    assert.equal(await page.getByRole('checkbox', { name: 'Not reviewed' }).isChecked(), true);
+    await page.getByRole('link', { name: droppedRow.name }).and(page.locator(':focus')).waitFor();
+    await page.getByRole('button', { name: 'One at a time' }).click();
+    await page.getByRole('link', { name: droppedRow.name }).waitFor();
+    await page.getByRole('button', { name: 'As a list' }).click();
     await page.getByRole('checkbox', { name: 'Not reviewed' }).uncheck();
     await page.getByRole('link', { name: 'Birch Prospect' }).click();
     const dialog = page.getByRole('dialog', { name: 'Birch Prospect' });
@@ -2099,14 +2128,14 @@ for (const width of [1440, 390]) {
     await page.locator('#panelTitle').getByText(row.name).waitFor();
     await page.getByRole('button', { name: 'Back to Monday review' }).click();
     await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
-    assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Alder Deal']);
+    assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Cedar Prospect', 'Alder Deal']);
     await page.getByRole('link', { name: parkedRow.name }).click();
     await page.locator('#panelTitle').getByText(parkedRow.name).waitFor();
 
     const originalReview = review;
     review = review.map(item => ({ ...item, reviewed: review[0].reviewed }));
     await page.getByRole('button', { name: 'Back to Monday review' }).click();
-    await page.getByText('3 of 3 reviewed this week').waitFor();
+    await page.getByText('4 of 4 reviewed this week').waitFor();
     await page.getByRole('checkbox', { name: 'Not reviewed' }).check();
     assert.equal(await page.getByText('Everything is reviewed this week.', { exact: true }).isVisible(), true);
     assert.equal(await items.count(), 0);
@@ -2115,12 +2144,12 @@ for (const width of [1440, 390]) {
     const readsBeforeReview = boardReads;
     await page.goto(`${origin}/deals?view=review&mode=live`);
     await page.getByRole('button', { name: 'Undo', exact: true }).click();
-    await page.getByText('0 of 3 reviewed this week').waitFor();
+    await page.getByText('0 of 4 reviewed this week').waitFor();
     await page.reload();
-    await page.getByText('0 of 3 reviewed this week').waitFor();
+    await page.getByText('0 of 4 reviewed this week').waitFor();
     await page.getByRole('button', { name: 'Reviewed', exact: true }).click();
     await page.getByRole('link', { name: prospectRow.name }).waitFor();
-    await page.getByText('1 of 3 reviewed this week').waitFor();
+    await page.getByText('1 of 4 reviewed this week').waitFor();
     prospectRow.seen_change_id++;
     prospectRow.reviewed = { review_id: crypto.randomUUID(), by: 'dell', at: '2026-11-09T16:00:00Z' };
     await page.getByRole('button', { name: 'Reviewed', exact: true }).click();
@@ -2128,9 +2157,30 @@ for (const width of [1440, 390]) {
     await page.getByText(/Reviewed by Dell/).waitFor();
     assert.equal(writes.filter(([path]) => path.startsWith('/api/engine/weekly-reviews')).length, 3);
 
+    const other = await browser.newPage({ viewport: { width, height: 900 } });
+    t.after(() => other.close());
+    const reviewTime = new Date('2026-11-16T04:00:00Z');
+    await other.clock.install({ time: new Date(reviewTime.getTime() - 1000) });
+    await other.clock.pauseAt(reviewTime);
+    await other.request.post(`${origin}/api/test/seed`, {
+      data: { namespace: `monday-review-other-${width}`, viewer: 'dell', reset: true },
+    });
+    await routeReview(other);
+    await other.goto(`${origin}/deals?view=review&mode=live&layout=list&item=prospect-${prospect}`);
+    const otherProspect = other.getByRole('listitem').filter({ hasText: prospectRow.name });
+    await otherProspect.getByText('Latest notes', { exact: true }).click();
+    await otherProspect.getByText(prospectNote.summary).waitFor();
+    await otherProspect.getByText('Add note', { exact: true }).filter({ visible: true }).click();
+    const prospectDraft = otherProspect.getByLabel('Add note');
+    await prospectDraft.fill('Draft about the prospect');
     await page.getByLabel('Add note').fill('Example review note');
     await page.getByLabel('Add note').press('Enter');
     await page.getByText('Example review note', { exact: true }).waitFor();
+    await other.clock.runFor(5000);
+    await otherProspect.getByText('Example review note', { exact: true }).waitFor({ timeout: 2000 });
+    assert.equal(await prospectDraft.inputValue(), 'Draft about the prospect');
+    assert.equal(await prospectDraft.and(other.locator(':focus')).count(), 1);
+    assert.equal(await other.getByRole('button', { name: 'As a list', pressed: true }).count(), 1);
     await page.getByText('Follow-up', { exact: true }).click();
     await page.getByLabel('Your follow-up').fill('Confirm the address');
     await page.getByLabel('Follow-up date').fill('2026-11-17');
@@ -2139,8 +2189,25 @@ for (const width of [1440, 390]) {
 
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     assert.equal(await page.getByLabel('Add note').getAttribute('placeholder'), 'Write a note and press Enter');
-    await page.getByLabel('Add note').fill('Example deal note');
-    await page.getByLabel('Add note').press('Enter');
+    await other.getByRole('button', { name: 'One at a time' }).click();
+    await other.getByRole('button', { name: 'Back', exact: true }).click();
+    await other.getByText('Example new note').waitFor();
+    const draft = other.getByLabel('Add note');
+    await draft.fill('Unsent note from Dell');
+
+    await page.getByRole('button', { name: 'As a list' }).click();
+    const writer = items.filter({ has: page.getByRole('link', { name: row.name, exact: true }) });
+    await writer.getByText('Add note', { exact: true }).filter({ visible: true }).click();
+    await writer.getByLabel('Add note').fill('Example deal note');
+    await writer.getByLabel('Add note').press('Enter');
+    await writer.getByText('Note added.', { exact: true }).waitFor();
+    await other.clock.runFor(5000);
+    await other.getByText('Example deal note', { exact: true }).waitFor({ timeout: 2000 });
+    assert.equal(await draft.inputValue(), 'Unsent note from Dell');
+    assert.equal(await draft.and(other.locator(':focus')).count(), 1);
+    assert.equal(new URL(other.url()).searchParams.get('item'), `deal-${deal}`);
+    assert.equal(await page.getByRole('button', { name: 'As a list', pressed: true }).count(), 1);
+    await page.getByRole('button', { name: 'One at a time' }).click();
     await page.getByText('Example deal note', { exact: true }).waitFor();
     await page.getByText('Change next step', { exact: true }).click();
     const step = page.getByLabel('Next step', { exact: true });
@@ -2171,6 +2238,14 @@ for (const width of [1440, 390]) {
     }
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('link', { name: droppedRow.name }).waitFor();
+    await page.getByRole('button', { name: 'Reviewed', exact: true }).click();
+    await page.getByRole('link', { name: parkedRow.name }).waitFor();
+    await page.getByText('3 of 4 reviewed this week').waitFor();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await page.getByText('2 of 4 reviewed this week').waitFor();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
     refuseMark = true;
     await page.getByRole('button', { name: 'Reviewed', exact: true }).click();
     await page.getByText('This account cannot change the review mark.').waitFor();
@@ -2180,9 +2255,10 @@ for (const width of [1440, 390]) {
     await page.getByText('Next step saved.').waitFor();
     assert.equal(stepBody().deal_id, parked);
     assert.equal(stepBody().seen_current_step, null);
-    // The shared Today sidebar reads the board on each of the two page loads.
-    assert.equal(boardReads - readsBeforeReview, 2);
+    // The shared Today sidebar reads the board on the three review page loads across both sessions.
+    assert.equal(boardReads - readsBeforeReview, 3);
     if (width === 1440) {
+      await page.getByRole('button', { name: 'Back', exact: true }).click();
       await page.getByRole('button', { name: 'Back', exact: true }).click();
       await page.getByRole('button', { name: 'Back', exact: true }).click();
       await page.getByRole('link', { name: row.name }).click();

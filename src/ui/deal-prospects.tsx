@@ -129,6 +129,7 @@ function dateWords(timeZone: string, time?: Intl.DateTimeFormatOptions) {
 }
 const noteDate = dateWords("America/Chicago", { hour: "numeric", minute: "2-digit" });
 const dueDate = dateWords("UTC");
+const dropDate = dateWords("America/Chicago");
 const sameYear = (day: string, today: string) => day.slice(0, 4) === today.slice(0, 4);
 function due(day: string | null) {
   if (!day) return "No date set";
@@ -149,18 +150,20 @@ const owner = (value: Partner | null) => (value ? partners[value] : "Unclaimed")
 type Read<T> = { value?: T; unavailable?: boolean };
 function useProspectRead<T>(
   request: RequestProspect,
-  route: string,
+  route: string | null,
   revision: number,
   parse: (value: Record<string, unknown>) => T,
   mergeRefresh?: (current: T, incoming: T) => T,
 ) {
   const [state, setState] = useState<Read<T>>({});
   useEffect(() => {
+    if (!route) return;
+    const path = route;
     let etag: string | null = null;
     let loaded = false;
     async function read(signal: AbortSignal) {
       try {
-        const response = await request(route, etag ? { signal, headers: { "If-None-Match": etag } } : { signal });
+        const response = await request(path, etag ? { signal, headers: { "If-None-Match": etag } } : { signal });
         if (response.status === 304) return;
         const value: unknown = await response.json();
         if (!response.ok || !record(value)) return invalid();
@@ -191,13 +194,105 @@ function parseDetail(value: Record<string, unknown>) {
     if (!record(note) || typeof note.activity_id !== "string") return invalid();
     return { ...parseNote(note), id: note.activity_id };
   });
-  return { ...parseProspect(value), notes };
+  const dropped = value.state === "dropped" ? parseDrop(value.dropped) : null;
+  return { ...parseProspect(value), notes, dropped };
+}
+
+function parseDrop(value: unknown) {
+  if (
+    !record(value) ||
+    typeof value.at !== "string" ||
+    !Number.isFinite(Date.parse(value.at)) ||
+    !textOrNull(value.by) ||
+    typeof value.reason !== "string"
+  )
+    return invalid();
+  return { at: value.at, by: value.by, reason: value.reason };
 }
 
 type Detail = ReturnType<typeof parseDetail>;
-function refreshNotes(current: Detail, { notes, latest_note }: Detail): Detail {
+function refreshNotes(current: Detail, incoming: Detail): Detail {
+  if (Boolean(current.dropped) !== Boolean(incoming.dropped)) return incoming;
   // Keep the edit versions from the opened prospect until an explicit reload or save.
-  return { ...current, notes, latest_note };
+  return { ...current, notes: incoming.notes, latest_note: incoming.latest_note, dropped: incoming.dropped };
+}
+
+function DropReason({ drop }: { drop: NonNullable<Detail["dropped"]> }) {
+  const date = new Date(drop.at);
+  const formatter = sameYear(centralDay.format(date), centralDay.format(new Date()))
+    ? dropDate.current
+    : dropDate.other;
+  return (
+    <p>
+      Dropped {formatter.format(date)}: {drop.reason}
+    </p>
+  );
+}
+
+function ProspectNotes({ notes, authorLabel }: { notes: Detail["notes"]; authorLabel: AuthorLabel }) {
+  return (
+    <>
+      <h3>Notes</h3>
+      {notes.length ? (
+        <ul>
+          {notes.map((note) => (
+            <li key={note.id}>
+              {noteBy(note, authorLabel)}
+              <p className="note-original">{note.summary}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No notes yet</p>
+      )}
+    </>
+  );
+}
+
+function DroppedProspectPage({
+  id,
+  request,
+  authorLabel,
+  returnTo,
+  back,
+}: {
+  id: string | null;
+  request: RequestProspect;
+  authorLabel: AuthorLabel;
+  returnTo: string;
+  back?: () => void;
+}) {
+  const path = id && uuid.test(id) ? `${prospectsPath}/${id}` : null;
+  const { value: row, unavailable } = useProspectRead(request, path, 0, parseDetail);
+  return (
+    <>
+      <a
+        href={returnTo}
+        onClick={
+          back &&
+          ((event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            back();
+          })
+        }
+      >
+        ← Back to Monday review
+      </a>
+      <h1 id="mondayReviewTitle">{row?.name ?? "Prospect"}</h1>
+      {!path || unavailable ? <p role="alert">Could not load this prospect.</p> : !row && <p>Loading prospect…</p>}
+      {row && (
+        <section className="card glass monday-review-item">
+          {row.dropped && <DropReason drop={row.dropped} />}
+          <ProspectNotes notes={row.notes} authorLabel={authorLabel} />
+        </section>
+      )}
+    </>
+  );
+}
+
+export function mountDroppedProspect(host: HTMLElement, props: Parameters<typeof DroppedProspectPage>[0]) {
+  createRoot(host).render(<DroppedProspectPage {...props} />);
 }
 
 function parseLane(value: Record<string, unknown>) {
@@ -237,6 +332,7 @@ function ProspectDetail({
     refreshNotes,
   );
   const loaded = row !== undefined;
+  const canSave = filters.canSave && !row?.dropped;
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
@@ -257,7 +353,8 @@ function ProspectDetail({
         {unavailable ? <p role="alert">Could not load this prospect.</p> : !row && <p>Loading prospect…</p>}
         {row && (
           <>
-            {filters.canSave && <ProspectNote id={id} client={client} saved={saved} />}
+            {row.dropped && <DropReason drop={row.dropped} />}
+            {canSave && <ProspectNote id={id} client={client} saved={saved} />}
             <p>
               How found ·{" "}
               {row.how_found && Object.hasOwn(howFound, row.how_found) ? howFound[row.how_found] : "Unknown"}
@@ -280,7 +377,7 @@ function ProspectDetail({
             ) : (
               <p>No follow-up set</p>
             )}
-            {filters.canSave && filters.actor && (
+            {canSave && filters.actor && (
               <ProspectFollowUp
                 id={id}
                 client={client}
@@ -289,7 +386,7 @@ function ProspectDetail({
                 reload={reload}
               />
             )}
-            {filters.canSave && filters.actor && (
+            {canSave && filters.actor && (
               <ManageProspect
                 row={row}
                 actor={filters.actor}
@@ -303,19 +400,7 @@ function ProspectDetail({
                 }}
               />
             )}
-            <h3>Notes</h3>
-            {row.notes.length ? (
-              <ul>
-                {row.notes.map((note) => (
-                  <li key={note.id}>
-                    {noteBy(note, authorLabel)}
-                    <p>{note.summary}</p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>No notes yet</p>
-            )}
+            <ProspectNotes notes={row.notes} authorLabel={authorLabel} />
           </>
         )}
         <div>
