@@ -287,6 +287,7 @@ export function createLiveClient(opts = {}) {
     },
     async getInvoiceTracker({ signal } = {}) { return rpc('read-invoice-tracker', {}, signal); },
     async markInvoicePaid(args) { return write('record-commission-receipt', args, opts.writeTimeoutMs || 10_000); },
+    async undoAutomaticPhaseMove(args) { return write('undo-automatic-phase-move', args); },
     async undoInvoiceClose(args) { return write('undo-invoice-close', args); },
     async listPracticeOrigination({signal, ...args} = {}) { return rpc('list-practice-origination', args, signal); },
     async getHomeAgenda({ signal } = {}) {

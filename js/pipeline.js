@@ -80,6 +80,7 @@ const state = {
   intent: null,
   boardStatus: 'starting',
   nextDealSaves: false,
+  phaseUndo: new Map(),
   unplaced: 0,
 };
 
@@ -100,6 +101,22 @@ function say(text) {
 const dateWords = (value) => (value ? formatCalendarDate(value) || value : 'no date recorded');
 
 
+const phaseMoveDate = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+function cardPhaseMoveHtml(deal, legacy = '') {
+  if (!state.nextDealSaves || state.view !== 'board') return legacy;
+  const event = deal.phase_change;
+  const day = calendarDay(event?.evidence_date);
+  const feedback = state.phaseUndo.get(deal.id);
+  const message = feedback?.eventId && feedback.eventId !== event?.event_id ? '' : feedback?.message;
+  const move = event?.source === 'copied' && event.automatic === true && event.event_id && day;
+  const undo = move && Number.isSafeInteger(deal.seen) && deal.seen >= 0
+    ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(event.event_id)}" data-base-version="${deal.seen}"${feedback?.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
+  const mark = move
+    ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${day}">${phaseMoveDate.format(new Date(day))}</time>${undo}</div>`
+    : legacy;
+  return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
+}
+
 function autoHtml(deal) {
   const move = automaticMove(deal);
   return move ? `<div class="auto-move"><span>${esc(move.text.slice(0, move.text.lastIndexOf(' ')))}</span> <time>${esc(move.text.slice(move.text.lastIndexOf(' ') + 1))}</time></div>` : '';
@@ -113,7 +130,7 @@ function cardHtml(deal) {
     attributes: `data-id="${esc(deal.id)}" data-attention="${attention}" data-phase="${esc(deal.phase)}" draggable="true" tabindex="0"${pending ? ' data-pending="true"' : ''}${state.lifted === deal.id ? ' data-lifted="true"' : ''} aria-label="${esc(dealTitle(deal))}, ${esc(columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
     meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}`,
-    body: `<div class="deal-alert">${renderDealSummary(deal,{today,board:true})}${renderDealItems(deal,{today,buttons:true,empty:false,board:true})}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url)}${autoHtml(deal)}` });
+    body: `<div class="deal-alert">${renderDealSummary(deal,{today,board:true})}${renderDealItems(deal,{today,buttons:true,empty:false,board:true})}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url)}${cardPhaseMoveHtml(deal, autoHtml(deal))}` });
 }
 function rowHtml(deal) {
   const nextStep = noteText(deal.next_step);
@@ -127,7 +144,7 @@ function parkedHtml(deal) {
   const note = deal.parking_note === 'unverified import — 2026-10-01 records audit; revive if active' ? 'Imported Oct 1, not yet confirmed. Revive if still active.' : deal.parking_note;
   return workCard({ variant: 'tile', className: 'kanban-card parked-card', heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0"`,
     title: esc(dealTitle(deal)), meta: esc(actorName(deal.owner)), status: deal.parking_reason !== 'other' ? deal.parking_reason?.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase()) : '',
-    body: `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${renderDealSummary(deal, { today: todayIso(), board: true })}${renderDealItems(deal, { today: todayIso(), buttons: true, empty: false, board: true })}${renderDealVendors(deal.vendors)}`,
+    body: `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${renderDealSummary(deal, { today: todayIso(), board: true })}${renderDealItems(deal, { today: todayIso(), buttons: true, empty: false, board: true })}${renderDealVendors(deal.vendors)}${cardPhaseMoveHtml(deal)}`,
     actions: `<button class="btn btn-quiet" type="button" data-revive="${esc(deal.id)}">Revive</button>` });
 }
 
@@ -349,6 +366,7 @@ function applyBoardSnapshot(board) {
   if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
+  if (actorChanged || saveSwitchChanged) state.phaseUndo.clear();
   if (actorChanged) {
     clearMarketTermsViews();
     pageDocContext?.clear();
@@ -1171,6 +1189,41 @@ function dueDateHtml(day, today) {
   return `Due <time datetime="${esc(day)}">${esc(dateWords(day))}</time>${daysLate ? ` · ${daysLate} day${daysLate === 1 ? '' : 's'} late` : ''}`;
 }
 
+async function undoAutomaticPhaseMove(button) {
+  if (!state.nextDealSaves || button.getAttribute('aria-disabled') === 'true') return;
+  const { undoPhase: deal, eventId: event_id, baseVersion } = button.dataset;
+  if (state.phaseUndo.get(deal)?.busy) return;
+  const feedback = { busy: true, eventId: null, message: '' };
+  state.phaseUndo.set(deal, feedback);
+  renderBoard();
+  const seen_change_id = Number(baseVersion);
+  const result = await performCommand({
+    operationKey: `phase-undo:${state.selfActor}:${deal}:${event_id}:${seen_change_id}`,
+    args: { deal, event_id, seen_change_id },
+    getState: () => commandState,
+    setState: next => { commandState = next; },
+    newKey: uuidv4,
+    call: request => state.client.undoAutomaticPhaseMove(request),
+  });
+  if (state.phaseUndo.get(deal) !== feedback) return;
+  if (result.status === 'ok' || result.code === 'version_conflict') {
+    const refreshed = await state.boardSync.requestRefresh('after-phase-undo');
+    if (state.phaseUndo.get(deal) !== feedback) return;
+    feedback.message = result.status === 'ok'
+      ? refreshed.applied ? '' : 'Move undone. Refresh Deals to see the current phase.'
+      : refreshed.applied ? 'This deal changed. The card was refreshed.' : 'This deal changed. Refresh Deals to see the current phase.';
+  } else {
+    feedback.eventId = event_id;
+    feedback.message = result.hint || (result.status === 'unknown'
+      ? 'Undo could not be confirmed. Use Undo again to check what happened.'
+      : 'Undo could not be saved.');
+  }
+  feedback.busy = false;
+  if (!feedback.message) state.phaseUndo.delete(deal);
+  renderBoard();
+  if (feedback.message) announce(feedback.message);
+}
+
 function undoInvoiceClose() {
   const deal = state.panelDetail?.deal;
   const invoice = invoiceClose(deal);
@@ -1839,6 +1892,8 @@ function wire() {
     const retry = event.target.closest('button[data-retry-write]');
     // eslint-disable-next-line no-restricted-syntax -- Only an explicit retry-button click reconciles the retained field write; no automatic resend occurs.
     if (retry) { retryFieldWrite(retry.dataset.retryWrite); return; }
+    const phaseUndo = event.target.closest('button[data-undo-phase]');
+    if (phaseUndo) { await undoAutomaticPhaseMove(phaseUndo); return; }
     const undo = event.target.closest('button[data-undo]');
     if (undo) { runUndo(undo.dataset.undo); return; }
     const openDeal = event.target.closest('button[data-open-deal]');
