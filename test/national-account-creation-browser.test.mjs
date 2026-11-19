@@ -129,6 +129,7 @@ test('engine-backed national accounts confirm separate companies and save owner 
   const card = page.getByRole('button',{name:/Demo Separate Company.*Open account/});
   await card.waitFor();
   assert.equal(await card.count(),1);
+  await card.getByText('Deals late',{exact:true}).waitFor();
   assert.equal((await card.textContent()).includes(account.account_client_ref),false);
   assert.deepEqual(writes[1].args, {name:account.account_name,owner:'joe',force_new:true,idempotency_key:writes[1].args.idempotency_key});
   assert.notEqual(writes[0].args.idempotency_key,writes[1].args.idempotency_key);

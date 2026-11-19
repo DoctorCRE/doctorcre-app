@@ -14,7 +14,7 @@ export function renderAccountCards(accounts, { esc, relative, actorName, dateLab
         <header><h2>${name}</h2><span class="account-owner" title="Account owner">${owner}</span></header>
         <div class="account-metrics">
           <div><b>${count}</b><span>Open deals</span></div>
-          <div${overdue > 0 ? ' class="is-alert"' : ''}><b>${overdue}</b><span>Late next steps</span></div>
+          <div${overdue > 0 ? ' class="is-alert"' : ''}><b>${overdue}</b><span>Deals late</span></div>
           <div><b>${Number(item.parked_deals || 0)}</b><span>Parked deals</span></div>
         </div>
         <p class="account-summary"><span class="account-open">Open account</span></p>
