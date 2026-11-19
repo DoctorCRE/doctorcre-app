@@ -29,6 +29,10 @@ type RequestProspect = (path: string, init?: RequestInit) => Promise<Response>;
 type AuthorLabel = (by: string | null) => string;
 type ProspectActions = {
   addDeal: (client: { id: string; name: string }) => void;
+  turnIntoDeal: (
+    prospect: Pick<ReturnType<typeof parseProspect>, "party_id" | "name" | "latest_note" | "owner">,
+    completed: () => void,
+  ) => void;
   backToReview: (() => void) | null;
 };
 type Filters = { owner: string; attention: boolean; actor: Partner | null; canSave: boolean };
@@ -188,6 +192,7 @@ function ProspectDetail({
   authorLabel,
   close,
   closeLabel,
+  turnIntoDeal,
   focusFollowUp,
 }: {
   id: string;
@@ -197,6 +202,7 @@ function ProspectDetail({
   authorLabel: AuthorLabel;
   close: () => void;
   closeLabel: string;
+  turnIntoDeal: (prospect: Parameters<ProspectActions["turnIntoDeal"]>[0]) => void;
   focusFollowUp: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -237,6 +243,11 @@ function ProspectDetail({
               {row.owner ? `Claimed by ${partners[row.owner]}` : "Unclaimed"}
               {row.needs_attention && " · Needs attention"}
             </p>
+            {filters.canSave && (
+              <button type="button" className="btn" onClick={() => turnIntoDeal(row)}>
+                Turn into deal
+              </button>
+            )}
             <h3 ref={followUps} tabIndex={-1}>
               Follow-ups
             </h3>
@@ -308,7 +319,7 @@ function ProspectLane({
   authorLabel,
   count,
   refresh,
-  actions: { addDeal, backToReview },
+  actions: { addDeal, turnIntoDeal, backToReview },
 }: {
   filters: Filters;
   revision: number;
@@ -381,6 +392,7 @@ function ProspectLane({
           refreshLane={refresh}
           authorLabel={authorLabel}
           focusFollowUp={initial === opened && query.get("focus") === "follow-up"}
+          turnIntoDeal={(row) => turnIntoDeal(row, () => open(null))}
           close={returnToReview ?? (() => open(null))}
           closeLabel={returnToReview ? "Back to Monday review" : "Back to Deals"}
         />

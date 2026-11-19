@@ -29,7 +29,7 @@ const CREATION_REFUSALS = new Set([
   'unknown_phase', 'unknown_lane', 'reload_deals',
 ]);
 const NEXT_CREATION_REFUSALS = new Set([
-  'database_refused_the_statement', 'invalid_field_value', 'unknown_owner', 'version_conflict',
+  'database_refused_the_statement', 'invalid_field_value', 'unknown_owner', 'version_conflict', 'not_a_prospect',
 ]);
 
 /**
@@ -246,19 +246,31 @@ export function createLiveClient(opts = {}) {
     version: d.version ?? d.base_version,
   });
 
-  async function clientIdFor(name) {
-    const query = String(name || '').trim().toLowerCase();
-    const network = await client.getRelationshipNetwork().catch(() => null);
-    const matches = Array.isArray(network?.nodes) ? network.nodes.filter(node => node.kind === 'client'
-      && node.id?.startsWith('party:') && query
-      && [node.name, node.ref].some(value => value?.toLowerCase() === query)) : null;
-    if (matches?.length === 1) return matches[0].id.slice('party:'.length);
+  async function clientIdFor(name, converting) {
+    const query = String(name || '').trim();
+    const normalized = query.toLowerCase();
+    const exact = value => normalized && value?.toLowerCase() === normalized;
+    let matches;
+    if (converting) {
+      const params = new URLSearchParams({ query: [...query].slice(0, 100).join(''), role: 'client' });
+      const result = await fetchReadImpl(`/api/engine/prospects/search?${params}`)
+        .then(response => response.ok ? response.json() : null).catch(() => null);
+      matches = Array.isArray(result?.parties) ? result.parties.filter(party => exact(party.display_name))
+        .map(party => party.id) : null;
+    } else {
+      const network = await client.getRelationshipNetwork().catch(() => null);
+      matches = Array.isArray(network?.nodes) ? network.nodes.filter(node => node.kind === 'client'
+        && node.id?.startsWith('party:') && [node.name, node.ref].some(exact))
+        .map(node => node.id.slice('party:'.length)) : null;
+    }
+    if (matches?.length === 1) return matches[0];
     if (matches?.length === 0) {
       throw Object.assign(new Error('Client not found'), {
         writeRefusal: true, payload: { error: 'subject_not_found' },
       });
     }
     const hint = matches === null ? 'The client list is unavailable, so try again in a moment.'
+      : converting ? 'More than one client has that name. Choose another client.'
       : 'More than one client has that name, so use the full client reference.';
     throw Object.assign(new Error(hint), { writeRefusal: true, creationHint: hint });
   }
@@ -593,11 +605,11 @@ export function createLiveClient(opts = {}) {
       const phase = UI_TO_PHASE[args.phase] || args.phase || 'pending';
       const owner = args.owner || selfActor;
       const legacyKind = ['purchase', 'other'].includes(args.deal_type) ? args.deal_type : undefined;
-      const request = args.next_deal_save ? {
+      const request = args.next_deal_save || args.prospect_id !== undefined ? {
         next_deal_save: true, idempotency_key: key, name: args.name, phase, owner,
-        client_id: args.client_id,
+        client_id: args.client_id, prospect_id: args.prospect_id,
         kind: args.kind ?? legacyKind,
-        reason: args.reason ?? (legacyKind ? undefined : args.deal_type === 'startup' ? 'start_up' : args.deal_type),
+        reason: args.reason ?? (legacyKind ? undefined : args.deal_type === 'startup' ? 'start_up' : args.deal_type || undefined),
         market_id: args.market_id, renews_lease_id: args.renews_lease_id,
       } : {
         client: args.client,
@@ -624,7 +636,7 @@ export function createLiveClient(opts = {}) {
         if (!res) {
           try {
             if (request.next_deal_save && !operation.request.client_id) {
-              operation.request.client_id = await clientIdFor(intent.client);
+              operation.request.client_id = await clientIdFor(intent.client, Boolean(request.prospect_id));
             }
             res = await write('new-deal', operation.request);
           } catch (error) {

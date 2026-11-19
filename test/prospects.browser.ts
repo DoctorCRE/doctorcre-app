@@ -52,7 +52,14 @@ test("partners see and manage prospects from Deals", async (t) => {
       const dealId = "00000000-0000-4000-8000-000000000003";
       const newName = "Example Pine Prospect";
       let prospects = [prospect, birchProspect];
-      const board = { schema_version: "local-deals-board.v2", actor, deals: [] };
+      const convertedNotes: { kind: string; text: string }[] = [];
+      let conversionAttempts = 0;
+      type CreatedDeal = { id: string; name: string; owner: string; phase: string; client_name: string };
+      let converted: CreatedDeal | undefined;
+      let conversionKey: string | undefined;
+      let refuseConversion = true;
+      const deals: CreatedDeal[] = [];
+      const board = { schema_version: "local-deals-board.v2", actor, deals };
       let enabled = false;
       let savesEnabled = false,
         firstNote = true;
@@ -67,6 +74,7 @@ test("partners see and manage prospects from Deals", async (t) => {
           fetch: async (request: Request) => {
             if (new URL(request.url).pathname !== "/mcp") return Response.json(session);
             const { id, params } = await request.json();
+            assert.notEqual(params.name, "new-deal", "a conversion must never reach the legacy writer");
             return Response.json({
               jsonrpc: "2.0",
               id,
@@ -111,7 +119,47 @@ test("partners see and manage prospects from Deals", async (t) => {
                 prospects = prospects.filter((row) => row.party_id !== party);
                 return Response.json({ party_id: party, stage: "archived" });
               }
+              if (path === "/api/engine/deals") {
+                conversionAttempts++;
+                assert.deepEqual(body, {
+                  idempotency_key: body.idempotency_key,
+                  prospect_id: birchProspect.party_id,
+                  client_id: width === 1440 ? birchProspect.party_id : matchedClient.id,
+                  name: "Example Edited Deal",
+                  owner: "joe",
+                  phase: "research",
+                });
+                if (refuseConversion) {
+                  refuseConversion = false;
+                  return Response.json({ error: "not_a_prospect" }, { status: 409 });
+                }
+                const replay = body.idempotency_key === conversionKey;
+                assert.ok(replay || !converted, "a retry must keep the original key");
+                if (!replay) {
+                  conversionKey = body.idempotency_key;
+                  converted = {
+                    id: dealId,
+                    name: body.name,
+                    owner: body.owner,
+                    phase: body.phase,
+                    client_name: width === 1440 ? birchProspect.name : matchedClient.display_name,
+                  };
+                  board.deals.push(converted);
+                  prospects = prospects.filter((row) => row.party_id !== birchProspect.party_id);
+                  if (width === 1440) return Response.json({ error: "engine_unavailable" }, { status: 503 });
+                }
+                return Response.json(
+                  { deal_id: dealId, change_id: 24, phase_changed_at: note.at, ...(replay && { replayed: true }) },
+                  { status: replay ? 200 : 201 },
+                );
+              }
               if (path.endsWith("/activities")) {
+                if (body.about[0].deal_id) {
+                  assert.deepEqual(body.about, [{ deal_id: dealId }]);
+                  assert.equal(body.summary, "Edited before saving");
+                  convertedNotes.push({ kind: "note", text: body.summary });
+                  return Response.json({ activity_id: party }, { status: 201 });
+                }
                 assert.deepEqual(body.about, [{ party_id: party }]);
                 assert.equal(body.kind, "note");
                 if (body.summary === "Save refused for account")
@@ -137,18 +185,27 @@ test("partners see and manage prospects from Deals", async (t) => {
               return Response.json({ next_step_id: party }, { status: 201 });
             }
             if (path.endsWith("/parties/search")) {
-              const query = new URL(request.url).searchParams.get("query");
+              const params = new URL(request.url).searchParams;
+              const query = params.get("query");
+              if (params.get("role") === "client") {
+                assert.equal(query, matchedClient.display_name);
+                return Response.json({ parties: [matchedClient] });
+              }
               if (query === "Knownx") return Response.json({ error: "engine_unavailable" }, { status: 503 });
               return Response.json({
                 parties: [known, matchedClient].filter((match) => match.display_name.startsWith(query ?? "")),
               });
             }
+            if (path === `/api/engine/deals/${dealId}`)
+              return Response.json({ ...converted, deal_id: dealId, email_follow_ups: [], thread: convertedNotes });
             if (path.endsWith("/prospects")) return Response.json({ count: prospects.length, prospects });
             if (path.endsWith(birchProspect.party_id))
-              return Response.json({
-                ...birchProspect,
-                notes: [birchProspect.latest_note, { ...note, activity_id: birchProspect.party_id, by: null }],
-              });
+              return converted
+                ? new Response(null, { status: 404 })
+                : Response.json({
+                    ...birchProspect,
+                    notes: [birchProspect.latest_note, { ...note, activity_id: birchProspect.party_id, by: null }],
+                  });
             if (path.endsWith(party)) return Response.json({ ...prospect, notes });
             return Response.json(board);
           },
@@ -161,7 +218,6 @@ test("partners see and manage prospects from Deals", async (t) => {
         env,
       );
       assert.equal(blocked.status, 404);
-      savesEnabled = true;
       await page.route(/\/(mcp|api\/engine\/.*)$/, async (route) => {
         const request = route.request();
         const body = request.postData();
@@ -179,7 +235,35 @@ test("partners see and manage prospects from Deals", async (t) => {
           body: Buffer.from(await reply.arrayBuffer()),
         });
       });
-      await page.goto(`${server.origin}/deals?mode=live`);
+      const url = `${server.origin}/deals?mode=live`;
+      const birchName = page.getByRole("button", { name: birchProspect.name, exact: true });
+      const birchDetail = page.getByRole("dialog", { name: birchProspect.name });
+      const turn = birchDetail.getByRole("button", { name: "Turn into deal" });
+      await page.goto(url);
+      await birchName.click();
+      await birchDetail.getByRole("heading", { name: "Notes" }).waitFor();
+      assert.equal(await turn.count(), 0);
+      const blockedConversion = await worker.fetch(
+        new Request(`${server.origin}/mcp`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-carr-csrf": session.csrf_token },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: {
+              name: "new-deal",
+              arguments: { prospect_id: birchProspect.party_id },
+            },
+          }),
+        }),
+        env,
+      );
+      const { result } = await blockedConversion.json();
+      assert.equal(JSON.parse(result.content[0].text).error, "reload_deals");
+
+      savesEnabled = true;
+      await page.goto(url);
       const open = page.getByRole("button", { name: "Example Elm Practice" });
       await open.waitFor();
       assert.equal(await open.count(), 1);
@@ -233,6 +317,13 @@ test("partners see and manage prospects from Deals", async (t) => {
       const dialog = page.getByRole("dialog", { name: "Example Elm Practice" });
       await dialog.waitFor();
       assert.match((await dialog.textContent()) ?? "", /Referral[\s\S]*Call again[\s\S]*First line/);
+      await dialog.getByRole("button", { name: "Turn into deal" }).click();
+      const unclaimedForm = page.getByRole("dialog", { name: "Add deal" });
+      const unclaimedOwner = unclaimedForm.getByLabel("Owner");
+      assert.equal(await unclaimedOwner.inputValue(), "");
+      assert.equal(await unclaimedOwner.evaluate((control) => control.matches(":invalid")), true);
+      await unclaimedForm.getByRole("button", { name: "Cancel" }).click();
+      await dialog.waitFor();
       notes = [{ ...note, activity_id: crypto.randomUUID(), summary: "Other partner update" }, ...notes];
       await dialog.getByRole("button", { name: "Reload prospect" }).click();
       await dialog.getByText("Other partner update", { exact: true }).waitFor();
@@ -343,6 +434,67 @@ test("partners see and manage prospects from Deals", async (t) => {
       await name.focus();
       await saved.waitFor({ state: "hidden" });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await page.getByRole("button", { name: "All", exact: true }).click();
+      await birchName.click();
+      await birchDetail.getByRole("heading", { name: "Notes" }).waitFor();
+      assert.equal(await birchDetail.getByText("First line Second line", { exact: true }).count(), 2);
+      assert.equal(await turn.isVisible(), true);
+      await turn.click();
+      const form = page.getByRole("dialog", { name: "Add deal" });
+      const nameField = form.getByLabel("Deal name");
+      const clientField = form.getByLabel("Client", { exact: true });
+      const ownerField = form.getByLabel("Owner");
+      const phaseField = form.getByLabel("Phase");
+      const notesField = form.getByLabel("Notes");
+      const save = form.getByRole("button", { name: "Create deal" });
+      assert.equal(await nameField.inputValue(), birchProspect.name);
+      assert.equal(await notesField.inputValue(), note.summary);
+      assert.equal(await ownerField.inputValue(), "dell");
+      assert.equal(await phaseField.inputValue(), "");
+      assert.equal(await clientField.inputValue(), "");
+      assert.equal(await form.evaluate((element) => element.getBoundingClientRect().width <= innerWidth), true);
+      await nameField.fill("Example Edited Deal");
+      await notesField.fill("Edited before saving");
+      await ownerField.selectOption("joe");
+      if (width === 1440) await form.getByRole("button", { name: `Use ${birchProspect.name} as client` }).click();
+      else await clientField.fill(matchedClient.display_name);
+      await save.click();
+      assert.equal(conversionAttempts, 0, "phase must be chosen");
+      await phaseField.selectOption("Research");
+
+      savesEnabled = false;
+      await save.click();
+      await form.getByText("Reload Deals before adding a deal.").waitFor();
+      assert.equal(conversionAttempts, 0);
+      savesEnabled = true;
+      await save.click();
+      await form.getByText("This person or company is no longer a prospect.").waitFor();
+      assert.equal(await nameField.inputValue(), "Example Edited Deal");
+      assert.equal(await notesField.inputValue(), "Edited before saving");
+      await save.click();
+      if (width === 1440) await form.getByRole("button", { name: "Check creation outcome" }).click();
+      await page.getByRole("heading", { name: "Example Edited Deal", exact: true }).waitFor();
+      assert.equal(new URL(page.url()).searchParams.get("deal"), dealId);
+      await page
+        .locator("#workspaceFacts")
+        .getByText(width === 1440 ? birchProspect.name : matchedClient.display_name)
+        .waitFor();
+      assert.equal(await birchDetail.count(), 0);
+      await page.getByRole("tab", { name: "Correspondence & notes" }).click();
+      const dealNote = page
+        .getByRole("region", { name: "Deal notes" })
+        .getByText("Edited before saving", { exact: true });
+      await dealNote.waitFor();
+      assert.equal(await dealNote.count(), 1);
+      assert.equal(conversionAttempts, width === 1440 ? 3 : 2);
+      assert.equal(convertedNotes.length, 1);
+      await page.getByRole("button", { name: "Back to deals" }).click();
+      await page
+        .locator("#boardLive")
+        .getByText(/ · 1 prospect$/)
+        .waitFor();
+      assert.equal(await birchName.count(), 0);
+      assert.equal(await lane.getByRole("heading", { name: "Prospects 1" }).count(), 1);
     } finally {
       await page.close();
     }
