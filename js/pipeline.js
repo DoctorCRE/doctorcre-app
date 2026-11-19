@@ -427,7 +427,7 @@ function applyBoardSnapshot(board) {
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
   state.boardFromEngine = board.board_from_engine === true;
-  $('mondayReviewLink').hidden = !state.boardFromEngine;
+  $('mondayReviewLink').hidden = !state.nextDealSaves;
   syncProspects(board.engine_prospects === true);
   if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;

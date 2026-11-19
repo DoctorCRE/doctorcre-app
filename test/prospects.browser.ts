@@ -209,7 +209,11 @@ test("partners see and manage prospects from Deals", async (t) => {
             }
             if (path === `/api/engine/deals/${dealId}`)
               return Response.json({ ...converted, deal_id: dealId, email_follow_ups: [], thread: convertedNotes });
-            if (path.endsWith("/prospects")) return Response.json({ count: prospects.length, prospects });
+            if (path.endsWith("/prospects")) {
+              return savesEnabled
+                ? Response.json({ count: prospects.length, prospects })
+                : Response.json({ error: "engine_unavailable" }, { status: 503 });
+            }
             if (path.endsWith(birchProspect.party_id))
               return converted
                 ? new Response(null, { status: 404 })
@@ -246,14 +250,25 @@ test("partners see and manage prospects from Deals", async (t) => {
           body: Buffer.from(await reply.arrayBuffer()),
         });
       });
-      const url = `${server.origin}/deals?mode=live`;
       const birchName = page.getByRole("button", { name: birchProspect.name, exact: true });
       const birchDetail = page.getByRole("dialog", { name: birchProspect.name });
       const turn = birchDetail.getByRole("button", { name: "Turn into deal" });
-      await page.goto(url);
-      await birchName.click();
-      await birchDetail.getByRole("heading", { name: "Notes" }).waitFor();
+      await page.goto(`${server.origin}/deals?mode=live`);
+      await page
+        .locator("#boardAsOf")
+        .filter({ hasText: /^Updated / })
+        .waitFor();
+      const lane = page.locator("#prospectsLane");
+      const loadError = page.getByRole("alert").filter({ hasText: "Could not load prospects." });
+      assert.equal(await lane.count(), 0, `Prospects lane should be absent at ${width}px before the switch`);
+      assert.equal(await loadError.count(), 0);
       assert.equal(await turn.count(), 0);
+      for (const suffix of ["", `/${party}`, "/search?query=Example"]) {
+        const response = await worker.fetch(new Request(`${server.origin}/api/engine/prospects${suffix}`), env);
+        assert.equal(response.status, 404);
+        assert.deepEqual(await response.json(), { error: "not_found" });
+      }
+
       const blockedConversion = await worker.fetch(
         new Request(`${server.origin}/mcp`, {
           method: "POST",
@@ -274,17 +289,17 @@ test("partners see and manage prospects from Deals", async (t) => {
       assert.equal(JSON.parse(result.content[0].text).error, "reload_deals");
 
       savesEnabled = true;
-      await page.goto(url);
+      await page.reload();
       const open = page.getByRole("button", { name: "Example Elm Practice" });
       await open.waitFor();
       assert.equal(await open.count(), 1);
+      assert.equal(await loadError.count(), 0);
       assert.equal(
         await page
           .locator("#kanban")
           .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length),
         width === 390 ? 1 : 8,
       );
-      const lane = page.locator("#prospectsLane");
       assert.match((await lane.textContent()) ?? "", /Unclaimed[\s\S]*Needs attention[\s\S]*Thu, Nov 19/);
       assert.equal(
         await lane

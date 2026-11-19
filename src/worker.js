@@ -276,8 +276,8 @@ async function engineResponse(request, env) {
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
           if (board?.schema_version === 'local-deals-board.v2') {
-            text = JSON.stringify({ ...board, engine_prospects: true, board_from_engine: true,
-              ...(await switchedOn(env, NEXT_DEAL_SAVES) ? { next_deal_saves: true } : {}) });
+            text = JSON.stringify({ ...board, board_from_engine: true,
+              ...(await switchedOn(env, NEXT_DEAL_SAVES) ? { engine_prospects: true, next_deal_saves: true } : {}) });
           }
         }
         if (call.params.name === 'get-deal-room' && response.ok) {
@@ -712,7 +712,7 @@ async function handleRequest(request, env) {
     const gateRequest = gateRequestFor(request, pathname);
     const gate = await carrResponse(gateRequest, env, true);
     if (gate.status !== 200) return gateRequest === request ? gate : restoreOriginalReturnTo(gate, request);
-    if (dealView === 'review' && !await switchedOn(env, DEALS)) {
+    if (dealView === 'review' && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))) {
       url.searchParams.delete('view');
       return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
     }
@@ -736,7 +736,7 @@ async function handleRequest(request, env) {
       return json({ error: 'not_found' }, 404);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     const marketDealRead = pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
-    if ((weeklyReview && request.method === 'POST' && !await switchedOn(env, NEXT_DEAL_SAVES))
+    if ((weeklyReview && !await switchedOn(env, NEXT_DEAL_SAVES))
         || ((weeklyReview || marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
@@ -747,8 +747,8 @@ async function handleRequest(request, env) {
       'GET /api/engine/prospects/search': '/api/engine/parties/search',
     })[`${request.method} ${pathname}`];
     const prospectWrite = /^\/api\/engine\/prospects(?:\/[^/]+\/(?:changes|drop))?$/.test(pathname);
-    if (prospects && (!await switchedOn(env, DEALS) ||
-        (prospectSave && ((!prospectDestination && !prospectWrite) || !await switchedOn(env, NEXT_DEAL_SAVES)))))
+    if (prospects && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES) ||
+        (prospectSave && !prospectDestination && !prospectWrite)))
       return json({ error: 'not_found' }, 404);
     if (!env?.ENGINE?.fetch) return json({ error: 'engine_unavailable' }, 503);
     try {
