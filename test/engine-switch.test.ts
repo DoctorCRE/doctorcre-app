@@ -1372,6 +1372,29 @@ test("invoice Undo sends the reviewed receipt to the signed-in engine", async ()
   assert.equal(JSON.parse((await refusal.json()).result.content[0].text).error, "version_conflict");
 });
 
+test("automatic phase Undo never leaves the app when either Deals switch is off", async () => {
+  const args = { deal: dealId, event_id: invoiceId, idempotency_key: operationId };
+  for (const switches of [new Map(), dealsReadOn, new Map([["deals-saves-from-engine", "on"]])]) {
+    const f = fixture(switches);
+    for (const undoArgs of [args, { ...args, seen_change_id: 0 }]) {
+      const response = await f.send(call("undo-automatic-phase-move", undoArgs), saveHeaders);
+      assert.equal(f.engine.length + f.carr.length, 0);
+      const { result } = await response.json();
+      assert.equal(result.isError, true);
+    }
+    const read = await f.send(call());
+    if (switches.has("deals-from-engine")) {
+      assert.equal((await read.json()).result.content[0].text, payload);
+      assert.equal(f.engine.length, 1);
+      assert.equal(f.carr.length, 0);
+    } else {
+      assert.equal(await read.text(), "old");
+      assert.equal(f.carr.length, 1);
+      assert.equal(f.engine.length, 0);
+    }
+  }
+});
+
 const changesPath = `/deals/${dealId}/changes`;
 const creation = {
   next_deal_save: true,
@@ -1441,7 +1464,7 @@ const movedToEngine = [
     "add-critical-date",
     { kind: "phase_effective_date", due_on: "2027-01-02", source: "Sample agreement", note: "Signed" },
     `/deals/${dealId}/critical-dates`,
-    { kind: "other", due_on: "2027-01-02", source: "Sample agreement", note: "Phase effective date" },
+    { kind: "phase_effective_date", due_on: "2027-01-02", source: "Sample agreement", note: "Signed" },
     { critical_date_id: stepId, status: "open" },
     201,
   ],
@@ -1894,4 +1917,66 @@ test("an existing company name asks for separate-company confirmation", async ()
   assert.equal(result.isError, undefined);
   assert.deepEqual(JSON.parse(result.content[0].text).candidates, candidates);
   assert.equal(JSON.parse(result.content[0].text).needs_confirm, true);
+});
+
+test("market-deal choices and saves use the new engine behind the Deals switches", async () => {
+  const [account, market, location, deal, key] = [1, 2, 3, 4, 5].map(
+    (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
+  );
+  const oldArgs = {
+    account_client_id: account,
+    client_name: "Demo Existing Location",
+    deal_name: "Demo Metro Office",
+    market: "Demo Metro",
+    idempotency_key: key,
+  };
+  const name = "create-national-market-deal";
+  const next = {
+    next_deal_save: true,
+    account_client_id: account,
+    name: "Demo Metro Office",
+    market_id: market,
+    client_id: location,
+    owner: "joe",
+    phase: "pending",
+    reason: "start_up",
+    idempotency_key: key,
+  };
+  const paths = ["/api/engine/markets", `/api/engine/national-accounts/${account}/locations`];
+  for (const path of paths) {
+    const request = () => new Request(origin + path, { headers: { cookie: "session=synthetic" } });
+    const off = fixture(new Map());
+    assert.equal((await worker.fetch(request(), off.env)).status, 404);
+    assert.deepEqual(off.engine, []);
+    const on = fixture(dealsReadOn);
+    assert.equal((await worker.fetch(request(), on.env)).status, 200);
+    assert.equal(on.engine[0]?.url, origin + path);
+    assert.equal(on.engine[0]?.headers.get("cookie"), "session=synthetic");
+  }
+  const off = fixture(new Map());
+  assert.equal(await (await off.send(call(name, oldArgs))).text(), "old");
+  assert.deepEqual(
+    off.carr.map((text) => JSON.parse(text)),
+    [call(name, oldArgs)],
+  );
+  assert.deepEqual(off.engine, []);
+  const readsOnly = fixture(dealsReadOn);
+  assert.equal((await (await readsOnly.send(call(name, next))).json()).result.isError, true);
+  assert.deepEqual(readsOnly.carr, []);
+  assert.deepEqual(readsOnly.engine, []);
+  const on = fixture("on", async () => Response.json({ deal_id: deal, change_id: 0 }, { status: 201 }));
+  const reply = await (await on.send(call(name, next))).json();
+  assert.equal(reply.result.isError, undefined);
+  assert.equal(JSON.parse(reply.result.content[0].text).deal_id, deal);
+  assert.equal(on.engine[0]?.url, origin + "/api/engine/deals");
+  assert.deepEqual(await on.engine[0]?.json(), {
+    national_account_id: account,
+    name: next.name,
+    market_id: market,
+    client_id: location,
+    owner: "joe",
+    phase: "pending",
+    reason: "start_up",
+    idempotency_key: key,
+  });
 });

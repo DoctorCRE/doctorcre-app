@@ -40,7 +40,10 @@ import {
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
 import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceClose, isEngineDealDetail, prepareDealDetail, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
-import { mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates, dealTimeline, dateCaption, calendarDay } from './deal-timeline.js';
+import {
+  mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
+  dealTimeline, engineTimelineEntries, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
+} from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
 import { mountVisibilityPoll } from './visibility-poll.mjs';
 
@@ -82,6 +85,7 @@ const state = {
   boardStatus: 'starting',
   nextDealSaves: false,
   boardFromEngine: false,
+  phaseUndo: new Map(),
   prospectCount: null,
   unplaced: 0,
 };
@@ -104,6 +108,23 @@ function say(text) {
 
 const dateWords = (value) => (value ? formatCalendarDate(value) || value : 'no date recorded');
 
+function cardPhaseMoveHtml(deal, legacy = '') {
+  if (!state.nextDealSaves || state.view !== 'board') return legacy;
+  const event = deal.phase_change;
+  const day = calendarDay(event?.evidence_date);
+  const entry = state.phaseUndo.get(deal.id);
+  const feedback = entry?.eventId && entry.eventId !== event?.event_id ? null : entry;
+  const move = event?.source === 'copied' && event.automatic === true && event.event_id && day;
+  const returnsToEndedDeals = move && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
+    || feedback?.code === 'undo_returns_to_ended_deals');
+  const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
+  const undo = move && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
+    ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(event.event_id)}" data-base-version="${deal.seen}"${feedback?.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
+  const mark = move
+    ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${day}">${esc(dateWords(day))}</time>${undo}</div>`
+    : legacy;
+  return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
+}
 
 function autoHtml(deal) {
   const move = automaticMove(deal);
@@ -118,7 +139,7 @@ function cardHtml(deal) {
     attributes: `data-id="${esc(deal.id)}" data-attention="${attention}" data-phase="${esc(deal.phase)}" draggable="true" tabindex="0"${pending ? ' data-pending="true"' : ''}${state.lifted === deal.id ? ' data-lifted="true"' : ''} aria-label="${esc(dealTitle(deal))}, ${esc(columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
     meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}`,
-    body: `<div class="deal-alert">${renderDealSummary(deal,{today,board:true})}${renderDealItems(deal,{today,buttons:true,empty:false,board:true})}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url, state.boardFromEngine ? deal.id : null)}${autoHtml(deal)}` });
+    body: `<div class="deal-alert">${renderDealSummary(deal,{today,board:true})}${renderDealItems(deal,{today,buttons:true,empty:false,board:true})}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url, state.boardFromEngine ? deal.id : null)}${cardPhaseMoveHtml(deal, autoHtml(deal))}` });
 }
 function rowHtml(deal) {
   const nextStep = noteText(deal.next_step);
@@ -132,7 +153,7 @@ function parkedHtml(deal) {
   const note = deal.parking_note === 'unverified import — 2026-10-01 records audit; revive if active' ? 'Imported Oct 1, not yet confirmed. Revive if still active.' : deal.parking_note;
   return workCard({ variant: 'tile', className: 'kanban-card parked-card', heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0"`,
     title: esc(dealTitle(deal)), meta: esc(actorName(deal.owner)), status: deal.parking_reason !== 'other' ? deal.parking_reason?.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase()) : '',
-    body: `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${renderDealSummary(deal, { today: todayIso(), board: true })}${renderDealItems(deal, { today: todayIso(), buttons: true, empty: false, board: true })}${renderDealVendors(deal.vendors)}`,
+    body: `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${renderDealSummary(deal, { today: todayIso(), board: true })}${renderDealItems(deal, { today: todayIso(), buttons: true, empty: false, board: true })}${renderDealVendors(deal.vendors)}${cardPhaseMoveHtml(deal)}`,
     actions: `<button class="btn btn-quiet" type="button" data-revive="${esc(deal.id)}">Revive</button>` });
 }
 
@@ -364,6 +385,7 @@ function applyBoardSnapshot(board) {
   if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
+  if (actorChanged || saveSwitchChanged) state.phaseUndo.clear();
   if (actorChanged) {
     clearMarketTermsViews();
     pageDocContext?.clear();
@@ -1172,18 +1194,22 @@ function selectWorkspaceTab(id) {
 function workspaceNotesHtml(detail) {
   return `<section aria-label="Deal notes"><h3>Deal notes</h3>${(detail.thread || []).map(note => `<article class="workspace-note"><b>${esc(authorLabel(note.actor))}</b> <time datetime="${esc(note.at || note.created_at || note.recorded_at || '')}">${esc(sourceTime(note.at || note.created_at || note.recorded_at, undefined, 'Date not recorded'))}</time><p class="note-original">${esc(noteText(note.text))}</p></article>`).join('') || '<p>No notes recorded.</p>'}</section>`;
 }
-function workspaceEventsHtml(detail, nextItem) {
+function legacyTimelineEntries(detail, nextItem) {
   const view = dealTimeline(detail);
-  const events = [
+  return [
     ...view.entries.filter(e => e.day).map(e => ({type:e.type, day:e.day, text:[...new Set([e.summary,e.original].filter(Boolean))].join('\n\n')})),
     ...(detail.items || detail.deal.items || []).filter(e => e !== nextItem && calendarDay(e.due_on)).map(e => ({type:'Deal item', day:calendarDay(e.due_on), text:noteText(e.title)})),
     ...view.dates.map(e => ({type:'Critical date', day:e.day, text:[e.label,e.original].filter(Boolean).join(' · ')})),
     ...view.phases.filter(e => e.day).map(e => ({type:'Phase', day:e.day, text:e.label})),
     ...(detail.next_actions || []).flatMap(e => [['due_on','Due'],['hold_until','Held until']].filter(([key]) => (key !== 'due_on' || e.status === 'done') && calendarDay(e[key])).map(([key,label]) => ({type:'Action', day:calendarDay(e[key]), text:`${label} · ${noteText(e.description)}`}))),
     ...(detail.history || []).filter(e => calendarDay(e.recorded_at) && !view.entries.some(entry => entry.id === e.id)).map(e => ({type:'Change', day:calendarDay(e.recorded_at), text:noteText(e.summary) || `${fieldLabel(e.field)} · ${readableValue(e.field, e.new_value)}`})),
-  ].sort((a,b) => b.day.localeCompare(a.day));
+  ].sort((a,b) => b.day.localeCompare(a.day))
+    .map(({ type, day, text }) => ({ type, when: day, caption: dateCaption(day), actor: '', text }));
+}
+function workspaceEventsHtml(detail, nextItem, fromEngine) {
+  const events = fromEngine ? engineTimelineEntries(detail) : legacyTimelineEntries(detail, nextItem);
   if (!events.some(event => event.type === timelineType)) timelineType = '';
-  return `<h2>Dated events</h2><label for="timelineType">Filter by type</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}><time datetime="${esc(e.day)}">${esc(dateCaption(e.day))}</time><small>${esc(e.type)}</small><p class="note-original">${esc(e.text)}</p></li>`).join('')}</ol>${events.length ? '' : '<p>No dated events recorded.</p>'}`;
+  return `<h2>Dated events</h2><label for="timelineType">Filter by type</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${esc(e.text)}</p></li>`).join('')}</ol>${events.length ? '' : fromEngine ? '<p>No dated events yet.</p>' : '<p>No dated events recorded.</p>'}`;
 }
 let factReviewPanel, marketTermsPanel, dealToursPanel, dealDocumentsPanel, clientPublicationsPanel;
 let checklistPanel;
@@ -1214,6 +1240,42 @@ function dueDateHtml(day, today) {
   if (!day) return 'No due date';
   const daysLate = today && day < today ? daysBetween(day, today) : 0;
   return `Due <time datetime="${esc(day)}">${esc(dateWords(day))}</time>${daysLate ? ` · ${daysLate} day${daysLate === 1 ? '' : 's'} late` : ''}`;
+}
+
+async function undoAutomaticPhaseMove(button) {
+  if (!state.nextDealSaves || button.getAttribute('aria-disabled') === 'true') return;
+  const { undoPhase: deal, eventId: event_id, baseVersion } = button.dataset;
+  if (state.phaseUndo.get(deal)?.busy) return;
+  const feedback = { busy: true, eventId: null, code: null, message: '' };
+  state.phaseUndo.set(deal, feedback);
+  renderBoard();
+  const seen_change_id = Number(baseVersion);
+  const result = await performCommand({
+    operationKey: `phase-undo:${state.selfActor}:${deal}:${event_id}:${seen_change_id}`,
+    args: { deal, event_id, seen_change_id },
+    getState: () => commandState,
+    setState: next => { commandState = next; },
+    newKey: uuidv4,
+    call: request => state.client.undoAutomaticPhaseMove(request),
+  });
+  if (state.phaseUndo.get(deal) !== feedback) return;
+  if (result.status === 'ok' || result.code === 'version_conflict') {
+    const refreshed = await state.boardSync.requestRefresh('after-phase-undo');
+    if (state.phaseUndo.get(deal) !== feedback) return;
+    feedback.message = result.status === 'ok'
+      ? refreshed.applied ? '' : 'Move undone. Refresh Deals to see the current phase.'
+      : refreshed.applied ? 'This deal changed. The card was refreshed.' : 'This deal changed. Refresh Deals to see the current phase.';
+  } else {
+    feedback.eventId = event_id;
+    feedback.code = result.code;
+    feedback.message = result.hint || (result.status === 'unknown'
+      ? 'Undo could not be confirmed. Use Undo again to check what happened.'
+      : 'Undo could not be saved.');
+  }
+  feedback.busy = false;
+  if (!feedback.message) state.phaseUndo.delete(deal);
+  renderBoard();
+  if (feedback.message) announce(feedback.message);
 }
 
 function undoInvoiceClose() {
@@ -1269,6 +1331,7 @@ function workspaceHtml(detail) {
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
   const parked = d.operating_state === 'parked';
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !isClosedDeal(d);
+  const canAddCriticalDate = detail.next_deal_saves === true && Number.isSafeInteger(d.seen);
   const closedValue = Number(d.closed_value);
   const invoice = invoiceClose(d);
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && !isClosedDeal(d) : controlsAvailable)
@@ -1297,15 +1360,66 @@ function workspaceHtml(detail) {
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}">${parked ? `<p>${esc(concise(d.parking_note) || 'Parked')}</p><button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm"><label>Park reason<input name="reason" maxlength="500" required></label><button class="btn park-control" type="submit">Park deal</button></form></details>`}</div></div>` : ''}</div>
     <div data-detail-read="prospect">${controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
     ${!fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
-    <h2>Critical dates</h2>${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
+    <h2>Critical dates</h2>
+    <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
+    ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden></section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>
-    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem)}</div>${renderDealTimeline(detail)}</section>
+    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine)}</div>${fromEngine ? '' : renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2><details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details><div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
+function criticalDateFormHtml() {
+  return `<details class="add-critical-date"><summary>Add critical date</summary>
+    <form id="detailAddDateForm">
+      <div><label for="criticalDateKind">Kind</label><select id="criticalDateKind" name="kind" required><option value="">Choose a kind</option>
+        ${CRITICAL_DATE_OPTIONS.map(([kind, label]) => `<option value="${kind}">${label}</option>`).join('')}
+      </select></div>
+      <label>Date<input name="due_on" type="date" required></label>
+      <label>Where did this date come from?<input name="source" maxlength="1000" required></label>
+      <label>Note (optional)<input name="note" maxlength="1000"></label>
+      <button class="btn" type="submit">Save critical date</button>
+      <p role="status"></p>
+    </form>
+  </details>`;
+}
+
+async function addCriticalDate(deal, form, values) {
+  if (!state.panelDetail?.next_deal_saves) return;
+  const source = String(values.get('source')).trim();
+  const status = form.querySelector('[role="status"]');
+  if (!source) {
+    status.textContent = 'Enter where the date came from.';
+    form.elements.source.focus();
+    return;
+  }
+  const note = String(values.get('note')).trim();
+  for (const control of form.elements) control.disabled = true;
+  status.textContent = 'Saving…';
+  try {
+    const result = await runFollowUp(`add-critical-date:${deal}`, {
+      verb: 'add-critical-date',
+      args: { deal, kind: values.get('kind'), due_on: values.get('due_on'), source, note: note || undefined },
+      summary: 'Add critical date',
+    });
+    if (result?.status !== 'ok') {
+      status.textContent = result?.hint || result?.message || 'The date could not be confirmed.';
+      return;
+    }
+    if (!form.isConnected) return;
+    form.reset();
+    status.textContent = '';
+    const editor = form.closest('details');
+    editor.open = false;
+    editor.querySelector('summary').focus();
+    showToast('Critical date added');
+  } finally {
+    for (const control of form.elements) control.disabled = false;
+  }
+}
+
 function clientPortalSetupHtml() {
   return `<details class="client-portal-register"><summary>Set up client website</summary><form id="detailClientPortalForm" class="client-portal-form"><label for="clientPortalSlug">Website name</label><input id="clientPortalSlug" name="slug" required maxlength="63" pattern="[a-z0-9][a-z0-9\\-]*" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="practice-name" data-detail-focus="client-portal-slug"><label for="clientPortalPassword">Password</label><input id="clientPortalPassword" type="password" name="password" required maxlength="1024" autocomplete="off" autocapitalize="none" spellcheck="false" data-detail-focus="client-portal-password"><button class="btn" type="submit">Register website</button></form></details><p id="detailClientPortalStatus" role="status"></p>`;
 }
@@ -1380,7 +1494,7 @@ async function readPanel(id) {
         if (fresh.dataset.detailRead === 'checklist') { checklistPanel?.update(detail); continue; }
         if (isEngineDealDetail(detail) && fresh.dataset.detailRead === 'client-portal'
             && current.querySelector('form') && fresh.querySelector('form')) continue;
-        if (fresh.dataset.detailRead === 'board-controls' && current.dataset.available === fresh.dataset.available) continue;
+        if (['board-controls', 'add-critical-date'].includes(fresh.dataset.detailRead) && current.dataset.available === fresh.dataset.available) continue;
         if (fresh.dataset.detailRead === 'parking' && current.dataset.parked === 'false' && fresh.dataset.parked === 'false') continue;
         if (current.innerHTML !== fresh.innerHTML) {
           const expanded = new Set([...current.querySelectorAll('.deal-note details[open]')].map(n => n.closest('.deal-note').dataset.id));
@@ -1915,6 +2029,8 @@ function wire() {
     const retry = event.target.closest('button[data-retry-write]');
     // eslint-disable-next-line no-restricted-syntax -- Only an explicit retry-button click reconciles the retained field write; no automatic resend occurs.
     if (retry) { retryFieldWrite(retry.dataset.retryWrite); return; }
+    const phaseUndo = event.target.closest('button[data-undo-phase]');
+    if (phaseUndo) { await undoAutomaticPhaseMove(phaseUndo); return; }
     const undo = event.target.closest('button[data-undo]');
     if (undo) { runUndo(undo.dataset.undo); return; }
     const openDeal = event.target.closest('button[data-open-deal]');
@@ -2129,6 +2245,10 @@ function wire() {
         args:{ deal:id, proposal_id:proposal, decision:choice, ...(edits && { edits }) },
         summary:'Email follow-up',
       });
+      return;
+    }
+    if (e.target.id === 'detailAddDateForm') {
+      await addCriticalDate(id, e.target, form);
       return;
     }
     const date = e.target.dataset.dateDecision;

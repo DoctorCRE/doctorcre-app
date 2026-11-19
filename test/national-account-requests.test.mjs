@@ -13,7 +13,7 @@ import { beginCommand, settleCommand, classifyCommandOutcome, commandMessage } f
 
 const fixture = JSON.parse(await readFile(new URL('./fixtures/national-account-schemas.json', import.meta.url)));
 const app = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
-const forms = app.slice(app.indexOf('function nationalResearchEvidence('), app.indexOf('function accountOwnerForm('));
+const forms = app.slice(app.indexOf('function nationalResearchEvidence('), app.indexOf('function showConflict('));
 const open = app.slice(app.indexOf('let formView;'), app.indexOf('function nextStepForm('));
 
 // Validate the published schema, including extra top-level arguments rejected
@@ -44,7 +44,7 @@ function evidenceGate(evidence) {
   assert.ok(Array.isArray(evidence.discrepancies));
 }
 
-function harness(reply = () => ({ ok: true, account_client_id: 'demo-account', deal_id: 'demo-deal' }), {online = () => true} = {}) {
+function harness(reply = () => ({ ok: true, account_client_id: 'demo-account', deal_id: 'demo-deal' }), {online = () => true, loadHome = async () => {}} = {}) {
   const dom = new JSDOM('<dialog id="formDialog"><form id="dialogForm"><span id="dialogContext"></span><h2 id="dialogTitle"></h2><div id="dialogBody"></div><p id="formError" hidden></p><button id="dialogSubmit"></button></form></dialog>');
   globalThis.window = dom.window; globalThis.document = dom.window.document;
   const document = dom.window.document;
@@ -70,17 +70,18 @@ function harness(reply = () => ({ ok: true, account_client_id: 'demo-account', d
     }
   }});
   let keys = 0;
+  const account = {account_name:'Demo Account',account_client_id:'demo-account',account_owner:'joe',base_version:1};
   const bindings = {state, document, mountDealRoomForm, appWrite:(key,args,send) => { state.commands ||= createRetainedCommands({scope:()=>state.selfActor}); return state.commands.send(key,args,send); }, FormData:dom.window.FormData, $, $$:selector => [...document.querySelectorAll(selector)],
     esc:value => String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),
-    actorName:String, uuidv4:() => `demo-key-${++keys}`, account:() => ({account_name:'Demo Account',account_client_id:'demo-account'}),
-    loadHome:async () => {}, showToast:text => toasts.push(text), setTimeout:() => {},
+    actorName:String, uuidv4:() => `demo-key-${++keys}`, account:() => account,
+    loadHome, showToast:text => toasts.push(text), setTimeout:() => {},
     confirmLocalWrite:() => ({}), renderBoardOnly:() => {}, beginCommand, settleCommand, classifyCommandOutcome, commandMessage};
-  const actions = new Function(...Object.keys(bindings), `${open}\n${forms}\nreturn {addAccountForm,addMarketDealForm,marketAgentForm};`)(...Object.values(bindings));
+  const actions = new Function(...Object.keys(bindings), `${open}\n${forms}\nreturn {addAccountForm,addMarketDealForm,marketAgentForm,accountOwnerForm};`)(...Object.values(bindings));
   const fill = values => { for (const [name,value] of Object.entries(values)) {
     const field = document.querySelector(`[name="${name}"]`);
     if (field) { field.value = value; field.dispatchEvent(new dom.window.Event('change',{bubbles:true})); }
   }};
-  return {actions, fill, sent, toasts, document, state, dialog,
+  return {actions, fill, sent, toasts, document, state, dialog, account,
     error:() => $('#formError').hidden ? '' : $('#formError').textContent,
     submit:() => $('#dialogForm').onsubmit({preventDefault(){},currentTarget:$('#dialogForm')})};
 }
@@ -90,6 +91,22 @@ const research = {research_name:'https://example.com/demo/name',research_company
   research_market:'https://example.com/demo/market',research_observed_at:'2026-10-22T10:00',research_discrepancies:'Phone not published'};
 const accountFields = {name:'Demo New Account',owner:'joe',vertical:'Dental',...research};
 const marketFields = {client_name:'Demo New',deal_name:'Demo market deal',market:'Demo City',client_mode:'new',...research};
+
+test('a saved account owner change stays confirmed when Deals cannot reload', async () => {
+  const view = harness(undefined, {loadHome:async () => { throw Error('Board unavailable'); }});
+  const owners = [];
+  view.state.client.getBoard = async () => ({actor:'joe',accounts:[view.account]});
+  view.state.client.setNationalAccountOwner = async args => {
+    owners.push(args.owner);
+    return {ok:true,account_client_id:view.account.account_client_id,owner:args.owner};
+  };
+  view.actions.accountOwnerForm();
+  view.fill({owner:'dell'});
+  await view.submit();
+  assert.deepEqual(owners,['dell']);
+  assert.equal(view.dialog.open,false);
+  assert.deepEqual(view.toasts,['Owner saved. Reload Deals to see the current owner.']);
+});
 
 test('new account sends source-backed evidence in the exact producer schema', async () => {
   const view = harness(); view.actions.addAccountForm(); view.fill(accountFields); await view.submit();

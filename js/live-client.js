@@ -287,6 +287,7 @@ export function createLiveClient(opts = {}) {
     },
     async getInvoiceTracker({ signal } = {}) { return rpc('read-invoice-tracker', {}, signal); },
     async markInvoicePaid(args) { return write('record-commission-receipt', args, opts.writeTimeoutMs || 10_000); },
+    async undoAutomaticPhaseMove(args) { return write('undo-automatic-phase-move', args); },
     async undoInvoiceClose(args) { return write('undo-invoice-close', args); },
     async listPracticeOrigination({signal, ...args} = {}) { return rpc('list-practice-origination', args, signal); },
     async getHomeAgenda({ signal } = {}) {
@@ -918,6 +919,20 @@ export function createLiveClient(opts = {}) {
     },
     async setNationalAccountOwner(args) { return write('set-national-account-owner', args); },
     async createNationalAccount(args) { return write('create-national-account', args); },
+    async getMarketDealChoices(accountId) {
+      const read = async path => {
+        const response = await fetchReadImpl(`/api/engine/${path}`);
+        if (!response.ok) throw new Error('Market deal choices could not be loaded.');
+        return response.json();
+      };
+      const [marketList, locationList] = await Promise.all([
+        read('markets'), read(`national-accounts/${encodeURIComponent(accountId)}/locations`),
+      ]);
+      return {
+        markets: marketList.map(({ market_id, name }) => [market_id, name]),
+        locations: locationList.map(({ party_id, name }) => [party_id, name]),
+      };
+    },
     async createNationalMarketDeal(args) { return write('create-national-market-deal', args); },
     async revertDealField(args) { return write('revert-deal-field', args); },
     async readDocActivity(args = {}, { signal } = {}) { return rpc('read-doc-activity', args, signal); },
