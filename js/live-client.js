@@ -297,6 +297,23 @@ export function createLiveClient(opts = {}) {
     async getPostCallFollowups({ signal } = {}) { return rpc('read-post-call-followups', {}, signal); },
 
     prospectRequest(path, init) { return fetchReadImpl(path, init); },
+    async saveProspect(path, operation, receipt, args) {
+      const key = `prospect:${operation}`;
+      try {
+        const result = await sessionCommands.send(key, args ?? sessionCommands.pending(key), async (body, binding) => {
+          const response = await fetchReadImpl(path, { method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-carr-csrf': binding.slice(binding.indexOf(':') + 1) },
+            body: JSON.stringify(body) });
+          const data = await response.json();
+          if (!response.ok) throw Object.assign(Error('Prospect save refused'), { status: response.status, payload: data });
+          if (typeof data?.[receipt] !== 'string') throw Error('Prospect save receipt unavailable');
+          return { ok: true, data };
+        });
+        return result;
+      } catch (error) {
+        return { ok: false, problem: error.payload ?? {}, pending: Boolean(error.pendingRequest) };
+      }
+    },
 
     async getBoard(options = {}) {
       const board = await rpc('deal-room-board', {

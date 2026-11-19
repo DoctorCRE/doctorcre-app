@@ -79,6 +79,7 @@
 }
 .kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); }
 #prospectsLane .work-card { overflow-wrap: anywhere; }
+.prospect-dialog form, .prospect-dialog form label { display: grid; gap: var(--space-2); }
 .prospect-dialog li p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .kanban-column { min-width: 0; padding: var(--space-2) var(--space-1); background: var(--ground); overflow-wrap: anywhere; }
 .kanban-column > h3 { position: sticky; top: 0; z-index: 2; margin: 0; min-height: var(--space-7); font-size: var(--font-size-1); background: var(--ground); }
