@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { type ProspectClient, ProspectFollowUp, ProspectNote } from "./prospect-saves";
 
 const path = "/api/engine/prospects";
 const partners = { joe: "Joe", dell: "Dell" };
@@ -20,7 +21,7 @@ const howFound: Readonly<Record<string, string>> = {
 type Partner = keyof typeof partners;
 type RequestProspect = (path: string, init?: RequestInit) => Promise<Response>;
 type AuthorLabel = (by: string | null) => string;
-type Filters = { owner: string; attention: boolean };
+type Filters = { owner: string; attention: boolean; actor: Partner | null; canSave: boolean };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const record = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
@@ -51,7 +52,9 @@ function parseStep(value: unknown) {
     !partner(value.owner) ||
     typeof value.what !== "string" ||
     !textOrNull(value.due_on) ||
-    (value.due_on !== null && !Number.isFinite(Date.parse(value.due_on)))
+    (value.due_on !== null && !Number.isFinite(Date.parse(value.due_on))) ||
+    typeof value.change_id !== "number" ||
+    !Number.isSafeInteger(value.change_id)
   )
     return invalid();
   return {
@@ -59,6 +62,7 @@ function parseStep(value: unknown) {
     owner: value.owner,
     what: value.what,
     due_on: value.due_on,
+    change_id: value.change_id,
   };
 }
 
@@ -166,13 +170,17 @@ function parseLane(value: Record<string, unknown>) {
 
 function ProspectDetail({
   id,
-  request,
+  client,
+  filters,
+  refreshLane,
   authorLabel,
   close,
   focusFollowUp,
 }: {
   id: string;
-  request: RequestProspect;
+  client: ProspectClient;
+  filters: Filters;
+  refreshLane: () => void;
   authorLabel: AuthorLabel;
   close: () => void;
   focusFollowUp: boolean;
@@ -180,13 +188,18 @@ function ProspectDetail({
   const dialog = useRef<HTMLDialogElement>(null);
   const followUps = useRef<HTMLHeadingElement>(null);
   const [revision, update] = useState(0);
-  const { value: row, unavailable } = useProspectRead(request, `${path}/${id}`, revision, parseDetail);
+  const { value: row, unavailable } = useProspectRead(client.prospectRequest, `${path}/${id}`, revision, parseDetail);
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
   useEffect(() => {
     if (focusFollowUp && row) followUps.current?.focus();
   }, [focusFollowUp, row]);
+  const reload = () => update((value) => value + 1);
+  const saved = () => {
+    reload();
+    refreshLane();
+  };
   return (
     <dialog ref={dialog} className="dialog prospect-dialog" aria-labelledby="prospect-title" onClose={close}>
       <header>
@@ -196,6 +209,7 @@ function ProspectDetail({
         {unavailable ? <p role="alert">Could not load this prospect.</p> : !row && <p>Loading prospect…</p>}
         {row && (
           <>
+            {filters.canSave && <ProspectNote id={id} client={client} saved={saved} />}
             <p>
               How found ·{" "}
               {row.how_found && Object.hasOwn(howFound, row.how_found) ? howFound[row.how_found] : "Unknown"}
@@ -218,6 +232,15 @@ function ProspectDetail({
             ) : (
               <p>No follow-up set</p>
             )}
+            {filters.canSave && filters.actor && (
+              <ProspectFollowUp
+                id={id}
+                client={client}
+                current={row.follow_ups.find((step) => step.owner === filters.actor)}
+                saved={saved}
+                reload={reload}
+              />
+            )}
             <h3>Notes</h3>
             {row.notes.length ? (
               <ul>
@@ -234,7 +257,7 @@ function ProspectDetail({
           </>
         )}
         <div>
-          <button type="button" className="btn" onClick={() => update((value) => value + 1)}>
+          <button type="button" className="btn" onClick={reload}>
             Reload prospect
           </button>
           <button type="button" className="btn" onClick={() => dialog.current?.close()}>
@@ -249,14 +272,14 @@ function ProspectDetail({
 function ProspectLane({
   filters,
   revision,
-  request,
+  client,
   authorLabel,
   count,
   refresh,
 }: {
   filters: Filters;
   revision: number;
-  request: RequestProspect;
+  client: ProspectClient;
   authorLabel: AuthorLabel;
   count: (value: number | null) => void;
   refresh: () => void;
@@ -264,7 +287,7 @@ function ProspectLane({
   const query = new URLSearchParams(location.search);
   const initial = query.get("prospect");
   const [opened, open] = useState(initial && uuid.test(initial) ? initial : null);
-  const { value: rows, unavailable } = useProspectRead(request, path, revision, parseLane);
+  const { value: rows, unavailable } = useProspectRead(client.prospectRequest, path, revision, parseLane);
   const visible = rows?.filter(
     (row) =>
       (filters.owner === "all" || !row.owner || row.owner === filters.owner) &&
@@ -317,7 +340,9 @@ function ProspectLane({
         <ProspectDetail
           key={opened}
           id={opened}
-          request={request}
+          client={client}
+          filters={filters}
+          refreshLane={refresh}
           authorLabel={authorLabel}
           focusFollowUp={initial === opened && query.get("focus") === "follow-up"}
           close={() => open(null)}
@@ -329,18 +354,18 @@ function ProspectLane({
 
 export function mountProspects(
   host: HTMLElement,
-  request: RequestProspect,
+  client: ProspectClient,
   count: (value: number | null) => void,
   authorLabel: AuthorLabel,
 ) {
   const root = createRoot(host);
   let revision = 0;
-  let filters: Filters = { owner: "all", attention: false };
+  let filters: Filters = { owner: "all", attention: false, actor: null, canSave: false };
   function render() {
     root.render(
       <ProspectLane
         filters={filters}
-        request={request}
+        client={client}
         authorLabel={authorLabel}
         revision={revision}
         count={count}
@@ -353,8 +378,8 @@ export function mountProspects(
     render();
   }
   return {
-    show(owner: string, attention: boolean) {
-      filters = { owner, attention };
+    show(owner: string, attention: boolean, actor: unknown, canSave: boolean) {
+      filters = { owner, attention, actor: partner(actor) ? actor : null, canSave };
       render();
     },
     refresh,

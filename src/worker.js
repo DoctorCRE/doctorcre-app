@@ -700,12 +700,23 @@ async function handleRequest(request, env) {
       return json({ error: 'not_found' }, 404);
     if (pathname.startsWith('/api/engine/documents/') && !await switchedOn(env, DEALS))
       return json({ error: 'not_found' }, 404);
-    if (/^\/api\/engine\/prospects(?:\/|$)/.test(pathname) &&
-        (request.method === 'POST' || !await switchedOn(env, DEALS)))
+    const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
+    const prospectSave = prospects && request.method === 'POST';
+    const prospectDestination = prospectSave && ({
+      '/api/engine/prospects/note': '/api/engine/activities',
+      '/api/engine/prospects/follow-up': '/api/engine/next-steps',
+    })[pathname];
+    if (prospects && (!await switchedOn(env, DEALS) ||
+        (prospectSave && (!prospectDestination || !await switchedOn(env, NEXT_DEAL_SAVES)))))
       return json({ error: 'not_found' }, 404);
     if (!env?.ENGINE?.fetch) return json({ error: 'engine_unavailable' }, 503);
     try {
-      return await env.ENGINE.fetch(new Request(request, { redirect: 'manual' }));
+      const forwarded = new Request(request, { redirect: 'manual' });
+      if (prospectDestination) {
+        url.pathname = prospectDestination;
+        return await env.ENGINE.fetch(new Request(url, forwarded));
+      }
+      return await env.ENGINE.fetch(forwarded);
     } catch {
       return json({ error: 'engine_unavailable' }, 503);
     }
