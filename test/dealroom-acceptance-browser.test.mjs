@@ -130,6 +130,8 @@ for (const width of [1440, 390]) {
     const detailFacts = detail.locator('.deal-snapshot-facts');
     const fact = (scope, label) => caption(scope, label).locator('..');
     const search = page.locator('#closedSearch');
+    assert.equal(await page.title(), 'Deals · DoctorCRE');
+    assert.equal(await search.getAttribute('placeholder'), 'Deal, client, kind, or close date');
     const expectSearch = async (query, row) => {
       await search.fill(query);
       assert.deepEqual(await page.locator('#closedDealsList h3').allTextContents(), [row.name], query);
@@ -955,6 +957,7 @@ for (const width of [1440, 390]) {
     await snapshot.getByText('Confirm the plan', { exact: false }).waitFor();
 
     await page.goto(`${origin}/deals?view=national&mode=live`);
+    assert.equal(await page.title(), 'Deals · DoctorCRE');
     await page.getByRole('button', { name: /Example Account/ }).click();
     const nationalRow = page.locator(`[data-deal-id="${national.id}"]`);
     assert.equal(await nationalRow.locator('.deal-items li').getAttribute('data-overdue'), 'true');
@@ -2402,10 +2405,12 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   const oldHistory = timeline.getByRole('region', { name: 'History from the old system' });
   const openTimeline = async () => {
     await page.getByRole('tab', { name: 'Timeline' }).click();
+    assert.equal(await timeline.getByLabel('Filter by kind').count(), 1);
     await timeline.getByText('Tour plans confirmed', { exact: true }).first().waitFor();
   };
   await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
   await openTimeline();
+  await timeline.screenshot({ path: join(evidence, `timeline-wording-${width}.png`) });
   assert.equal(await timeline.getByText('Phase timeline', { exact: true }).count(), 1);
   assert.ok(carr.includes('get-deal-room'));
   assert.deepEqual(engine, []);
@@ -2457,7 +2462,7 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   assert.match(await notes.nth(0).innerText(), /Joe\s+Nov 18, 9:00 AM/);
   assert.match(await notes.nth(1).innerText(), /Dell\s+Nov 17, 2:00 PM/);
   assert.doesNotMatch(carr.join(' '), /add-deal-note/);
-  const filter = timeline.getByLabel('Filter by type');
+  const filter = timeline.getByLabel('Filter by kind');
   await filter.selectOption('Note');
   assert.equal(await rows.count(), 2);
   await filter.selectOption('');
@@ -2600,6 +2605,7 @@ for (const width of [1440, 390]) {
     savesOn = true;
     await page.goto(`${origin}/deals?owner=joe&mode=live`);
     await page.getByRole('link', { name: 'Monday review' }).click();
+    assert.equal(await page.title(), 'Monday review · DoctorCRE');
     await page.getByText('1 of 4 reviewed this week').waitFor();
     assert.equal(await page.getByRole('button', { name: 'Parked', exact: true }).count(), 0);
     assert.deepEqual(weeks, ['2026-11-09']);
