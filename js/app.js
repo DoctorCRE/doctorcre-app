@@ -2,7 +2,6 @@ import { isTextEntry } from './ui-keyboard-input.generated.js';
 import { mountDealRoomForm } from './ui-deal-room-forms.generated.js';
 import { nameMatchDetails } from './ui-name-match.generated.js';
 import { mountDealRoomBoard } from './ui-board.generated.js';
-import { createAutomaticPhaseUndo } from './ui-automatic-phase-undo.generated.js';
 import { mountDealRoomAgenda } from './ui-agenda.generated.js';
 import { dealStepVersion, partnerDealStep } from './local-deals-model.js';
 import { businessDay } from './business-date.js';
@@ -27,7 +26,7 @@ import {
   createBoardSync, batchTouchesBoard, resolveCurrentRow, SYNC_STATES, HEALTH,
 } from './board-sync.mjs';
 import {
-  cellKey, performFieldWrite, unresolvedFieldWrites, fieldWriteMessage, nextCellBase,
+  cellKey, performFieldWrite, unresolvedFieldWrites, fieldWriteMessage, nextCellBase, prepareAutomaticPhaseUndo,
 } from './field-write-reconciliation.mjs';
 import { beginCommand, settleCommand, classifyCommandOutcome, commandMessage, pendingCommand, performCommand } from './command-feedback.mjs';
 import { renderAccountCards } from './account-cards.js';
@@ -85,7 +84,7 @@ const today = () => new Date(new Date().toDateString());
 const esc = escapeText;
 const actorName = (slug) => ACTOR_LABEL[slug] || slug || 'Unassigned';
 const account = () => state.accounts.find((item) => item.account_client_id === state.accountId) || null;
-const automaticPhase = createAutomaticPhaseUndo({
+const automaticPhase = prepareAutomaticPhaseUndo({
   state, performCommand, newKey: uuidv4, render: renderBoardOnly, report: message => showToast(message), refreshedMessage: 'The row was refreshed.',
 });
 
@@ -625,6 +624,7 @@ function renderScreenActions() {
 }
 function refuseScreenAccess() {
   state.accessDenied = true;
+  automaticPhase.clear();
   screenCommands = {};
   state.review = null; state.confirms = []; state.deals.clear();
   renderAgendaView();

@@ -1046,6 +1046,10 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   const { origin } = fixture;
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   t.after(() => page.close());
+  let undoModuleReads = 0;
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/js/ui-automatic-phase-undo.generated.js') undoModuleReads++;
+  });
   await page.clock.setFixedTime(new Date('2026-11-19T15:00:00Z'));
   await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `national-rows-${width}`, viewer: 'joe', reset: true } });
   const account = crypto.randomUUID();
@@ -1132,12 +1136,14 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await clear.click();
   await mark.waitFor();
   assert.deepEqual(writes, [{ needs_attention: true }, { needs_attention: false }]);
+  assert.equal(undoModuleReads, 0);
   await row.getByRole('button', { name: 'Undo', exact: true }).press('Enter');
   await moved.waitFor({ state: 'detached' });
   assert.equal(await row.getByLabel(`Phase for ${deal.name}`).inputValue(), 'Research');
   assert.equal(await row.count(), 1);
   assert.equal(await first.evaluate(button => button === document.activeElement), true);
   assert.equal(undos.length, 1);
+  assert.equal(undoModuleReads, 1);
 });
 
 test('National Accounts saves inline changes using the version on the deal board', async t => {

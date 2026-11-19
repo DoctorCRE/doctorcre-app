@@ -1,7 +1,6 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { createAutomaticPhaseUndo } from './ui-automatic-phase-undo.generated.js';
 import { automaticPhaseReceipt, dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderLastDealStep, renderOverdueFlag, renderPhaseReceipt } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
@@ -28,7 +27,7 @@ import {
   createBoardSync, batchTouchesBoard, HEALTH, SYNC_STATES,
 } from './board-sync.mjs';
 import {
-  cellKey, performFieldWrite, unresolvedFieldWrites, fieldWriteMessage, nextCellBase,
+  cellKey, performFieldWrite, unresolvedFieldWrites, fieldWriteMessage, nextCellBase, prepareAutomaticPhaseUndo,
 } from './field-write-reconciliation.mjs';
 import {
   escapeText, fieldLabel, readableValue, ingestChangeEvents, receiptViews, receiptListHtml,
@@ -109,7 +108,7 @@ function say(text) {
 
 const dateWords = (value) => (value ? formatCalendarDate(value) || value : 'no date recorded');
 
-const automaticPhase = createAutomaticPhaseUndo({
+const automaticPhase = prepareAutomaticPhaseUndo({
   state, performCommand, newKey: uuidv4, render: renderBoard, report: announce, refreshedMessage: 'The card was refreshed.',
 });
 

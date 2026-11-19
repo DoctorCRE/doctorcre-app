@@ -3,6 +3,7 @@ type RetainedRequest = Request & { idempotency_key: string };
 type Feedback = { busy: boolean; eventId: string | null; code?: string; message: string };
 type Commands = Record<string, unknown>;
 type Options = {
+  feedbackByDeal: Map<string, Feedback>;
   state: {
     nextDealSaves?: boolean;
     selfActor: string | null;
@@ -23,8 +24,15 @@ type Options = {
   refreshedMessage: string;
 };
 
-export function createAutomaticPhaseUndo({ state, performCommand, newKey, render, report, refreshedMessage }: Options) {
-  const feedbackByDeal = new Map<string, Feedback>();
+export function createAutomaticPhaseUndo({
+  feedbackByDeal,
+  state,
+  performCommand,
+  newKey,
+  render,
+  report,
+  refreshedMessage,
+}: Options) {
   let commands: Commands = {};
 
   async function undo(button: HTMLButtonElement) {
@@ -73,5 +81,5 @@ export function createAutomaticPhaseUndo({ state, performCommand, newKey, render
     if (feedback.message) report(feedback.message);
   }
 
-  return { feedback: (deal: string) => feedbackByDeal.get(deal), undo, clear: () => feedbackByDeal.clear() };
+  return { undo };
 }
