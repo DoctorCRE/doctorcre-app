@@ -968,3 +968,191 @@ test('switched-on Deals selects an existing market agent and decides critical da
     [`/api/engine/deals/${deal}/critical-dates`, { kind: 'other', due_on: '2027-01-03', source: 'Example agreement', note: 'Phase effective date' }],
   ]);
 });
+
+async function routeClientWebsiteWorker(page, env) {
+  const throughWorker = async route => {
+    const request = route.request();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+    }), env);
+    await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
+  };
+  await page.route('**/api/engine/deals/**/client-website**', throughWorker);
+  await page.route('**/mcp', route => ['deal-room-board', 'get-deal-room', 'register-client-portal'].includes(route.request().postDataJSON()?.params?.name)
+    ? throughWorker(route) : route.continue());
+}
+
+test('switched-on Deals sets up a client website and opens it unlocked in a new tab', async t => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+  t.after(() => page.close());
+  const deal = crypto.randomUUID();
+  const grant = crypto.randomUUID();
+  const website = 'https://share.doctorcre.com/example-website';
+  const password = 'synthetic-website-password';
+  const path = `/api/engine/deals/${deal}/client-website`;
+  const row = { id: deal, deal_id: deal, name: 'Example Website Deal', phase: 'research', seen: 1, owner: 'joe' };
+  const writes = [];
+  const passwordRequests = [];
+  page.on('request', request => {
+    if (request.postData()?.includes(password)) passwordRequests.push(new URL(request.url()).pathname);
+  });
+  let registered = false;
+  const env = {
+    ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const pathname = new URL(request.url).pathname;
+      if (pathname === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] });
+      if (pathname === `/api/engine/deals/${deal}`) {
+        return Response.json({ ...row, email_follow_ups: [], client_portal_url: registered ? website : null });
+      }
+      assert.ok(request.headers.get('x-carr-csrf'));
+      const args = await request.json();
+      writes.push([pathname, args]);
+      if (pathname === path + '/open') return Response.json({ url: `${website}/?grant=${grant}` });
+      assert.equal(pathname, path);
+      if (args.slug === 'example-taken') return Response.json({ error: 'portal_slug_taken' }, { status: 409 });
+      registered = true;
+      return Response.json({ ok: true, deal_id: deal, client_portal_url: website, created: true });
+    } },
+    CARR: { fetch: async () => new Response(null, { status: 502 }) },
+  };
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-client-website', viewer: 'joe', reset: true } });
+  await routeClientWebsiteWorker(page, env);
+  await page.context().route(website + '/?*', async route => {
+    assert.equal(new URL(route.request().url()).searchParams.get('grant'), grant);
+    await route.fulfill({ body: '<h1>Example client website</h1>', contentType: 'text/html' });
+  });
+
+  await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+  const overview = page.getByRole('tabpanel', { name: 'Overview' });
+  await overview.getByText('No client website linked.', { exact: true }).waitFor();
+  await overview.getByText('Set up client website', { exact: true }).click();
+  const passwordInput = overview.getByLabel('Password', { exact: true });
+  const nameInput = overview.getByLabel('Website name', { exact: true });
+  const save = overview.getByRole('button', { name: 'Register website' });
+  await nameInput.fill('example-taken');
+  await passwordInput.fill(password);
+  await save.click();
+  await overview.getByText('That website name is already taken. Choose another name.', { exact: true }).waitFor();
+  assert.equal(await passwordInput.inputValue(), '');
+  await nameInput.fill('example-website');
+  await passwordInput.fill(password);
+  await save.click();
+
+  const open = overview.getByRole('button', { name: /Client website.*opens in a new tab/ });
+  await open.waitFor();
+  assert.equal(await open.count(), 1);
+  assert.equal(await open.evaluate(button => getComputedStyle(button).textDecorationLine), 'underline');
+  await overview.getByRole('region', { name: 'Deal snapshot' }).screenshot({ path: join(evidence, 'client-website-deal.png') });
+  assert.equal(await overview.getByText('Set up client website', { exact: true }).count(), 0);
+  assert.equal(await overview.getByText('No client website linked.', { exact: true }).count(), 0);
+  const popupOpened = page.waitForEvent('popup');
+  await open.click();
+  const popup = await popupOpened;
+  await popup.getByRole('heading', { name: 'Example client website' }).waitFor();
+  assert.equal(await popup.evaluate(() => window.opener), null);
+  assert.equal(await popup.getByLabel('Password', { exact: true }).count(), 0);
+  assert.equal(await page.evaluate(async secret => {
+    const { dockEntries } = await import('/js/pipeline.js');
+    return [document.body.innerHTML, JSON.stringify([...dockEntries().values()]),
+      JSON.stringify(localStorage), JSON.stringify(sessionStorage)].some(value => value.includes(secret));
+  }, password), false);
+  assert.deepEqual(passwordRequests, [path, path]);
+  assert.deepEqual(writes.map(([url, { idempotency_key, ...body }]) => {
+    if (url === path) assert.match(idempotency_key, /^[\da-f-]{36}$/i);
+    return [url, body];
+  }), [
+    [path, { slug: 'example-taken', password }],
+    [path, { slug: 'example-website', password }],
+    [path + '/open', {}],
+  ]);
+});
+
+async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = false, linked = true } = {}) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+  t.after(() => page.close());
+  const deal = crypto.randomUUID();
+  const website = 'https://share.doctorcre.com/example-website';
+  const grant = crypto.randomUUID();
+  const row = { id: deal, deal_id: deal, name: 'Example Website Deal', phase: closed ? 'closed' : 'research',
+    ...(closed ? { outcome: 'won' } : {}), seen: 1, owner: 'joe', client_portal_url: linked ? website : null };
+  const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: closed ? [] : [row, {
+    id: crypto.randomUUID(), name: 'Example Deal Without Website', phase: 'research', owner: 'joe',
+  }] };
+  const enginePaths = [];
+  const env = {
+    ENGINE_ROUTING: { get: async key => ({ 'deals-from-engine': readsOn, 'deals-saves-from-engine': savesOn }[key] ? 'on' : null) },
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      enginePaths.push(path);
+      if (path === '/api/engine/deals') return Response.json(board);
+      if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, email_follow_ups: [] });
+      assert.equal(path, `/api/engine/deals/${deal}/client-website/open`);
+      return Response.json({ url: `${website}/?grant=${grant}` });
+    } },
+    CARR: { fetch: async request => {
+      const { id, params } = await request.json();
+      assert.equal(params.name, 'deal-room-board');
+      return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(board) }] } });
+    } },
+  };
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-client-website', viewer: 'joe', reset: true } });
+  await routeClientWebsiteWorker(page, env);
+  return { page, deal, website, grant, enginePaths };
+}
+
+for (const [blocked, toast] of [
+  [true, 'Allow pop-ups for DoctorCRE and try again.'],
+  [false, 'Could not open the client website. Refresh the deal and try again.'],
+]) {
+  test(`client website reports a ${blocked ? 'blocked popup' : 'refused grant'} and leaves no extra tab`, async t => {
+    const { page, deal } = await clientWebsitePage(t);
+    const requests = [];
+    if (blocked) await page.addInitScript(() => { window.open = () => null; });
+    await page.route('**/client-website/open', route => {
+      requests.push(route.request().method());
+      return route.fulfill({ status: 404, json: { error: 'not_found' } });
+    });
+    await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+    await page.getByRole('tabpanel', { name: 'Overview' }).getByRole('button', { name: /Client website/ }).click();
+    await page.getByText(toast, { exact: true }).waitFor();
+    assert.deepEqual(requests, blocked ? [] : ['POST']);
+    assert.equal(page.context().pages().length, 1);
+  });
+}
+
+for (const [closed, savesOn] of [[true, true], [false, false]]) {
+  test(`client website setup is hidden ${closed ? 'on a closed deal' : 'with reads on and saves off'}`, async t => {
+    const { page, deal } = await clientWebsitePage(t, { closed, savesOn, linked: false });
+    await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+    const overview = page.getByRole('tabpanel', { name: 'Overview' });
+    await overview.getByText('No client website linked.', { exact: true }).waitFor();
+    assert.equal(await overview.getByText('Set up client website', { exact: true }).count(), 0);
+  });
+}
+
+for (const readsOn of [true, false]) {
+  test(`board card client website with Deals reads ${readsOn ? 'on' : 'off'}`, async t => {
+    const { page, deal, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn: false });
+    await page.context().route(url => url.href === website || url.href === `${website}/?grant=${grant}`, route =>
+      route.fulfill({ body: '<h1>Example client website</h1>', contentType: 'text/html' }));
+    await page.goto(`${origin}/deals?mode=live`);
+    const card = page.locator('.kanban-card').filter({ hasText: 'Example Website Deal' });
+    await card.getByRole('button', { name: 'Example Website Deal', exact: true }).waitFor();
+    assert.equal(await page.locator('#kanban').getByText('Client website', { exact: false }).count(), 1);
+    assert.equal(enginePaths.includes('/api/engine/deals'), readsOn);
+    const grants = () => enginePaths.filter(path => path.endsWith('/client-website/open'));
+    assert.deepEqual(grants(), []);
+    const open = card.getByRole(readsOn ? 'button' : 'link', { name: /Client website/ });
+    assert.equal(await open.count(), 1);
+    if (readsOn) await card.screenshot({ path: join(evidence, 'client-website-card.png') });
+    const popupOpened = page.waitForEvent('popup');
+    await open.press('Enter');
+    const popup = await popupOpened;
+    await popup.getByRole('heading', { name: 'Example client website' }).waitFor();
+    assert.equal(popup.url(), readsOn ? `${website}/?grant=${grant}` : website);
+    assert.equal(await popup.evaluate(() => window.opener), null);
+    assert.deepEqual(grants(), readsOn ? [`/api/engine/deals/${deal}/client-website/open`] : []);
+    assert.equal(new URL(page.url()).searchParams.has('deal'), false);
+  });
+}
