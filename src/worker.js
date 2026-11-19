@@ -712,7 +712,7 @@ async function handleRequest(request, env) {
     const gateRequest = gateRequestFor(request, pathname);
     const gate = await carrResponse(gateRequest, env, true);
     if (gate.status !== 200) return gateRequest === request ? gate : restoreOriginalReturnTo(gate, request);
-    if (dealView === 'review' && !await switchedOn(env, DEALS)) {
+    if (dealView === 'review' && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))) {
       url.searchParams.delete('view');
       return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
     }
@@ -736,7 +736,7 @@ async function handleRequest(request, env) {
       return json({ error: 'not_found' }, 404);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     const marketDealRead = pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
-    if ((weeklyReview && request.method === 'POST' && !await switchedOn(env, NEXT_DEAL_SAVES))
+    if ((weeklyReview && !await switchedOn(env, NEXT_DEAL_SAVES))
         || ((weeklyReview || marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);

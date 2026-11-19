@@ -1598,13 +1598,23 @@ for (const width of [1440, 390]) {
     assert.deepEqual(weeks, []);
 
     enabled = true;
+    const closedRead = await handleDoctorcreRequest(new Request(reviewPath), env);
+    assert.equal(closedRead.status, 404);
+    assert.deepEqual(await closedRead.json(), { error: 'not_found' });
     const closedSave = new Request(reviewPath, { method: 'POST', headers: { 'x-carr-csrf': 'synthetic' },
       body: JSON.stringify({ deal_id: deal, week_of: '2026-11-09', seen_change_id: 1, idempotency_key: crypto.randomUUID() }) });
     assert.equal((await handleDoctorcreRequest(closedSave, env)).status, 404);
+    await page.goto(`${origin}/deals?view=review&mode=live`);
+    assert.equal(new URL(page.url()).searchParams.get('view'), null);
+    await page.getByRole('button', { name: row.name, exact: true }).waitFor();
+    assert.equal(await page.getByRole('main', { name: 'Monday review' }).count(), 0);
+    assert.equal(await page.getByRole('link', { name: 'Monday review' }).count(), 0);
+    assert.deepEqual(weeks, []);
+
+    savesOn = true;
     await page.goto(`${origin}/deals?owner=joe&mode=live`);
     await page.getByRole('link', { name: 'Monday review' }).click();
     await page.getByText('1 of 3 reviewed this week').waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Parked', exact: true }).count(), 0);
     assert.deepEqual(weeks, ['2026-11-09']);
     await page.getByText(/Reviewed by Joe · Nov 9/).waitFor();
@@ -1633,7 +1643,6 @@ for (const width of [1440, 390]) {
     await page.getByRole('checkbox', { name: 'Not reviewed' }).check();
     assert.deepEqual(await items.getByRole('link').allTextContents(), ['Birch Prospect', 'Alder Deal']);
     await page.getByRole('checkbox', { name: 'Not reviewed' }).uncheck();
-    savesOn = true;
     await page.getByRole('link', { name: 'Birch Prospect' }).click();
     const dialog = page.getByRole('dialog', { name: 'Birch Prospect' });
     await dialog.getByText(/Joe · Call back/).waitFor();

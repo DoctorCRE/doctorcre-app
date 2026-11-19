@@ -254,7 +254,10 @@ test("partners see and manage prospects from Deals", async (t) => {
       const birchDetail = page.getByRole("dialog", { name: birchProspect.name });
       const turn = birchDetail.getByRole("button", { name: "Turn into deal" });
       await page.goto(`${server.origin}/deals?mode=live`);
-      await page.getByRole("link", { name: "Monday review" }).waitFor();
+      await page
+        .locator("#boardAsOf")
+        .filter({ hasText: /^Updated / })
+        .waitFor();
       const lane = page.locator("#prospectsLane");
       const loadError = page.getByRole("alert").filter({ hasText: "Could not load prospects." });
       assert.equal(await lane.count(), 0, `Prospects lane should be absent at ${width}px before the switch`);
