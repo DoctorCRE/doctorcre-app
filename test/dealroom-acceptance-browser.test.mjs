@@ -1146,7 +1146,7 @@ async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = f
   };
   await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-client-website', viewer: 'joe', reset: true } });
   await routeClientWebsiteWorker(page, env);
-  return { page, deal, website, grant, enginePaths };
+  return { page, deal, row, website, grant, enginePaths };
 }
 
 for (const [blocked, toast] of [
@@ -1181,10 +1181,11 @@ for (const [closed, savesOn] of [[true, true], [false, false]]) {
 
 for (const [width, readsOn] of [[1440, true], [390, true], [1440, false], [390, false]]) {
   test(`board card client website with Deals reads ${readsOn ? 'on' : 'off'} at ${width}px`, async t => {
-    const { page, deal, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn: false, width });
+    const { page, deal, row, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn: false, width });
     const prospects = Promise.withResolvers();
     const changes = Promise.withResolvers();
     if (readsOn) {
+      await page.clock.install();
       await page.route('**/ui-deal-prospects.generated.js', async route => {
         await prospects.promise;
         await route.continue();
@@ -1215,6 +1216,10 @@ for (const [width, readsOn] of [[1440, true], [390, true], [1440, false], [390, 
       await page.getByText('Capture: recording', { exact: true }).waitFor();
       assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Change feed moved website focus');
       await card.screenshot({ path: join(evidence, `client-website-card-${width}.png`) });
+      row.open_actions = [{ id: 'example-step', description: 'Confirm the example floor plan' }];
+      await page.clock.fastForward(61_000);
+      await card.getByText('Confirm the example floor plan', { exact: true }).waitFor();
+      assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Board refresh moved website focus');
     }
     const popupOpened = page.waitForEvent('popup');
     await page.keyboard.press('Enter');
