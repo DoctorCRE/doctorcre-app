@@ -874,7 +874,7 @@ test('the switched-on Timeline shows one ordered history including a newly saved
     phase_started_on: { legal: '2026-11-17' },
     documents: [{ id: 'file', name: 'Example plan.pdf', actor: 'mail_capture', prepared_at: '2026-11-16T14:00:00Z' }],
     next_actions: [{ id: 'step', owner: 'dell', actor: 'joe', description: 'Check the floor plan', updated_at: '2026-11-17T18:00:00Z' }],
-    critical_dates: [{ id: 'date', kind: 'due_diligence', label: 'Due diligence', due_on: '2026-11-19', actor: 'dell' }],
+    critical_dates: [{ id: 'date', kind: 'due_diligence', label: 'Due diligence', due_on: '2026-11-19', actor: 'dell', updated_at: '2026-11-17T19:00:00Z' }],
   };
   let switchesOn = false;
   const carr = [], engine = [];
@@ -928,9 +928,9 @@ test('the switched-on Timeline shows one ordered history including a newly saved
   const rows = timeline.getByRole('listitem');
   const contents = await rows.allTextContents();
   assert.equal(contents.length, 6);
-  assert.match(contents[0], /Dell.*Nov 19.*Due diligence/i);
-  assert.match(contents[1], /Automatically.*Nov 17.*7:00 PM.*Legal/);
-  assert.match(contents[2], /Dell.*Nov 17.*2:00 PM.*Tour plans confirmed/);
+  assert.match(contents[0], /Automatically.*Nov 17.*7:00 PM.*Legal/);
+  assert.match(contents[1], /Dell.*Nov 17.*2:00 PM.*Tour plans confirmed/);
+  assert.match(contents[2], /Dell.*Nov 17.*1:00 PM.*Due diligence.*Due Nov 19/);
   assert.match(contents[3], /Joe.*Check the floor plan/);
   assert.match(contents[4], /Joe.*Attention flag.*Flagged/);
   assert.match(contents[5], /Automatically.*Nov 16.*Example plan\.pdf/);

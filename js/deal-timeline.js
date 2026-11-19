@@ -139,8 +139,8 @@ export function engineTimelineEntries(detail) {
       text: [step.title || step.description, step.updated_at && calendarDay(step.due_on) && `Due ${dateCaption(step.due_on)}`].filter(Boolean).join(' · '),
     })),
     ...(detail.critical_dates || []).map(date => ({
-      type: 'Critical date', when: date.due_on, actor: date.actor,
-      text: [...new Set([date.label, date.note].filter(Boolean))].join(' · '),
+      type: 'Critical date', when: date.updated_at, actor: date.actor,
+      text: [...new Set([date.label, calendarDay(date.due_on) && `Due ${dateCaption(date.due_on)}`, date.note].filter(Boolean))].join(' · '),
     })),
     ...(detail.history || []).filter(event => !noteIds.has(event.activity_id)).map(event => ({
       type: event.field === 'note' ? 'Note' : event.field === 'phase' ? 'Phase move' : 'Change',
