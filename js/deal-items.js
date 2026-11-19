@@ -1,8 +1,11 @@
 import { workCard } from './work-card.js';
 import { overdueLabel } from './deal-review-model.js';
-import { noteText } from './pipeline-model.js';
+import { dealName, noteText } from './pipeline-model.js';
 import { calendarDay } from './deal-timeline.js';
 import { daysBetween } from './calendar-model.js';
+import { ACTOR_LABEL } from './client.js';
+import { renderDealVendors } from './deal-vendors.js';
+import { automaticMove, invoiceClose } from './local-deals-model.js';
 import { formatCalendarDate } from './visual-system.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -115,6 +118,63 @@ export function renderDealItemDetail(item, { today = '' } = {}) {
     const bullets = (item.bullets || []).filter(bullet => bullet.kind === kind);
     return bullets.length ? `<section><h3>${label}</h3><ul>${bullets.map(bullet => `<li>${bullet.date ? `<time datetime="${esc(bullet.date)}">${esc(bullet.date)}</time> · ` : ''}${esc(bullet.text)}</li>`).join('')}</ul></section>` : '';
   }).join('')}<form data-item-instruction><label for="dealItemInstruction">Tell Dr. CRE</label><textarea id="dealItemInstruction" name="text" aria-label="Tell Dr. CRE" rows="3" maxlength="240" required></textarea><button type="submit" class="btn btn-primary" disabled>Save instruction</button><p>Not submitted. This control cannot send a request to Dr. CRE.</p></form><button type="button" class="btn" data-complete-item${item.status === 'done' ? ' disabled' : ''}>${item.status === 'done' ? 'Done' : 'Mark done'}</button><p role="status" data-item-status></p>`;
+}
+
+export function autoHtml(deal) {
+  const move = automaticMove(deal);
+  return move ? `<div class="auto-move"><span>${esc(move.text.slice(0, move.text.lastIndexOf(' ')))}</span> <time>${esc(move.text.slice(move.text.lastIndexOf(' ') + 1))}</time></div>` : '';
+}
+export function dealTypeFacts(deal, dealTypeLabel) {
+  const facts = [{ label: 'Type', value: dealTypeLabel(deal.kind) || 'Not recorded' }];
+  const reason = dealTypeLabel(deal.reason);
+  if (reason) {
+    facts.push({ label: 'Deal reason', value: reason, note: deal.renewal_lease_unrecorded ? 'Lease not recorded' : '' });
+  }
+  return facts;
+}
+export function renderDealFacts(facts) {
+  return facts.map(({label, value, note}) => `<div><dt>${esc(label)}</dt><dd>${note
+    ? `<span>${esc(value)}</span><br><small>${esc(note)}</small>`
+    : esc(value)}</dd></div>`).join('');
+}
+export function renderInvoiceClose(deal, canUndo = false) {
+  const day = calendarDay(invoiceClose(deal)?.evidence_date);
+  if (!day) return '';
+  return `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${day}">${formatCalendarDate(day)}</time>${canUndo ? ' <button class="btn" type="button" data-undo-invoice>Undo invoice close</button>' : ''}</div>`;
+}
+
+export function renderEndedDealList(view, {
+  rows, dealTypeLabel, lost = false, fromEngine = true, unavailable = false,
+  unavailableMessage = 'Closed history is unavailable. Refresh to try again.',
+}) {
+  const search = view.querySelector('#closedSearch').value.trim().toLowerCase();
+  const cards = rows.map(deal => {
+    const formatted = formatCalendarDate(fromEngine ? calendarDay(deal.closed_on) || '' : deal.closed_on || '');
+    const closeDate = fromEngine ? formatted || 'Close date not recorded' : formatted || deal.closed_on || 'Not recorded';
+    const facts = [
+      { label: 'Client', value: deal.client_name || (!fromEngine && deal.client_ref) || 'Not recorded' },
+      ...(fromEngine ? dealTypeFacts(deal, dealTypeLabel) : [{ label: 'Type', value: deal.type || 'Not recorded' }]),
+      { label: 'Close date', value: closeDate },
+    ];
+    if (lost && deal.lost_reason) {
+      facts.push({ label: fromEngine ? 'Reason for loss' : 'Reason', value: deal.lost_reason });
+    }
+    facts.push({ label: 'Owner', value: ACTOR_LABEL[deal.owner] || deal.owner || 'Unassigned' });
+    return { deal, title: dealName(deal.name), facts };
+  }).filter(({title, facts}) => !fromEngine || !search ||
+    [title, ...facts.flatMap(({value, note}) => [value, note])].some(value => value?.toLowerCase().includes(search)));
+
+  const label = lost ? 'lost' : 'closed';
+  view.querySelector('#closedCount').textContent = unavailable ? unavailableMessage
+    : `${cards.length} ${label} deal${cards.length === 1 ? '' : 's'}`;
+  const empty = unavailable ? '' : `<p>No ${label} deals${search || !fromEngine ? ' match this search' : ''}.</p>`;
+  view.querySelector('#closedDealsList').innerHTML = cards.map(({deal, title, facts}) => {
+    const receipt = !fromEngine ? autoHtml(deal) : lost ? '' : renderInvoiceClose(deal)
+      || renderPhaseReceipt(deal, automaticPhaseReceipt(deal, null, { showEngineMoves: true, canUndo: false }), '');
+    return `<article class="closed-deal" data-id="${esc(deal.id)}">
+      <h3><button type="button" class="card-open" data-open-deal="${esc(deal.id)}">${esc(title)}</button></h3>
+      <dl>${renderDealFacts(facts)}</dl>${renderDealVendors(deal.vendors)}${receipt}</article>`;
+  }).join('') || empty;
 }
 
 export function automaticPhaseReceipt(deal, entry, { showEngineMoves = false, canUndo = true } = {}) {

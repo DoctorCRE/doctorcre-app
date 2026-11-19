@@ -1,7 +1,10 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { automaticPhaseReceipt, dealDueDate, dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderOverdueFlag, renderPhaseReceipt } from './deal-items.js';
+import {
+  autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, renderDealFacts, renderDealItemButton,
+  renderDealItems, renderDealSummary, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt,
+} from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
@@ -38,7 +41,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceClose, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
@@ -118,10 +121,6 @@ function cardPhaseMoveHtml(deal, legacy = '') {
   return renderPhaseReceipt(deal, receipt, legacy);
 }
 
-function autoHtml(deal) {
-  const move = automaticMove(deal);
-  return move ? `<div class="auto-move"><span>${esc(move.text.slice(0, move.text.lastIndexOf(' ')))}</span> <time>${esc(move.text.slice(move.text.lastIndexOf(' ') + 1))}</time></div>` : '';
-}
 const dealTitle = (deal) => dealName(deal.name);
 const PARKING_REASONS = new Map([
   ['client_paused', 'Client paused'],
@@ -151,19 +150,6 @@ function parkFormHtml(nextDealSaves) {
     ? `<label>Park reason<select name="reason" required><option value="">Choose a reason</option>${Array.from(PARKING_REASONS, ([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label><label>Parking note (optional)<textarea name="note" maxlength="500"></textarea></label>`
     : '<label>Park reason<input name="reason" maxlength="500" required></label>';
   return `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm">${fields}<button class="btn park-control" type="submit">Park deal</button></form></details>`;
-}
-function dealTypeFacts(deal) {
-  const facts = [{ label: 'Type', value: dealTypeLabel(deal.kind) || 'Not recorded' }];
-  const reason = dealTypeLabel(deal.reason);
-  if (reason) {
-    facts.push({ label: 'Deal reason', value: reason, note: deal.renewal_lease_unrecorded ? 'Lease not recorded' : '' });
-  }
-  return facts;
-}
-function renderDealFacts(facts) {
-  return facts.map(({label, value, note}) => `<div><dt>${esc(label)}</dt><dd>${note
-    ? `<span>${esc(value)}</span><br><small>${esc(note)}</small>`
-    : esc(value)}</dd></div>`).join('');
 }
 function dealOwnerFirstSteps(deal, actions) {
   const steps = ordinaryOpenSteps(actions);
@@ -345,51 +331,24 @@ async function submitDeal(event) {
   } finally { creatingDeal = false; syncDealCreation(); }
 }
 
-function endedDealCards(archived, lost, query) {
-  const fromEngine = state.boardFromEngine;
-  let rows;
-  if (fromEngine) {
-    rows = (archived || []).filter(d => d.workspace_kind !== 'national_account' && !d.account_client_id
-      && (state.filter === 'all' || d.owner === state.filter));
-  } else {
-    const records = new Map(state.deals);
-    for (const deal of archived || []) records.set(deal.id,{...records.get(deal.id),...deal});
-    rows = (lost ? lostDeals : closedDeals)([...records.values()], state.filter, query);
-  }
-  const cards = rows.map(deal => {
-    const closeDate = fromEngine
-      ? formatCalendarDate(calendarDay(deal.closed_on) || '') || 'Close date not recorded'
-      : deal.closed_on ? dateWords(deal.closed_on) : 'Not recorded';
-    const facts = [
-      { label: 'Client', value: deal.client_name || (!fromEngine && deal.client_ref) || 'Not recorded' },
-      ...(fromEngine ? dealTypeFacts(deal) : [{ label: 'Type', value: deal.type || 'Not recorded' }]),
-      { label: 'Close date', value: closeDate },
-    ];
-    if (lost && deal.lost_reason) {
-      facts.push({ label: fromEngine ? 'Reason for loss' : 'Reason', value: deal.lost_reason });
-    }
-    facts.push({ label: 'Owner', value: actorName(deal.owner) });
-    return { deal, title: dealTitle(deal), facts };
-  });
-  const search = query.trim().toLowerCase();
-  return fromEngine && search ? cards.filter(({title, facts}) =>
-    [title, ...facts.flatMap(({value, note}) => [value, note])].some(value => value?.toLowerCase().includes(search))
-  ) : cards;
-}
-
 function renderClosedDeals() {
   const lost = state.view === 'lost';
-  const label = lost ? 'lost' : 'closed';
   $('closedDealsTitle').textContent = lost ? 'Lost deals' : 'Closed deals';
-  document.querySelector('label[for=closedSearch]').textContent = `Search ${label} deals`;
+  document.querySelector('label[for=closedSearch]').textContent = lost ? 'Search lost deals' : 'Search closed deals';
   const archived = lost ? state.lostDeals : state.closedDeals;
-  const cards = endedDealCards(archived, lost, $('closedSearch').value);
-  $('closedCount').textContent = archived === null ? '' : `${cards.length} ${label} deal${cards.length === 1 ? '' : 's'}`;
+  let rows;
+  if (state.boardFromEngine) {
+    rows = (archived || []).filter(deal => deal.workspace_kind !== 'national_account' && !deal.account_client_id
+      && (state.filter === 'all' || deal.owner === state.filter));
+  } else {
+    const records = new Map(state.deals);
+    for (const deal of archived || []) records.set(deal.id, {...records.get(deal.id), ...deal});
+    rows = (lost ? lostDeals : closedDeals)([...records.values()], state.filter, $('closedSearch').value);
+  }
+  renderEndedDealList($('closedDealsView'), {
+    rows, dealTypeLabel, lost, fromEngine: state.boardFromEngine, unavailable: archived === null, unavailableMessage: '',
+  });
   renderHistoryStatus(state.boardSync.status());
-  $('closedDealsList').innerHTML = cards.map(({deal, title, facts}) => `<article class="closed-deal glass" data-id="${esc(deal.id)}">
-    <h3><button type="button" class="card-open" data-open-deal="${esc(deal.id)}">${esc(title)}</button></h3>
-    <dl>${renderDealFacts(facts)}</dl>${renderDealVendors(deal.vendors)}${state.boardFromEngine ? (lost ? '' : invoiceCloseHtml(deal)) : autoHtml(deal)}</article>`).join('')
-    || (archived === null ? '' : `<p>No ${label} deals${!state.boardFromEngine || $('closedSearch').value.trim() ? ' match this search' : ''}.</p>`);
 }
 
 function renderHistoryStatus(status) {
@@ -646,7 +605,7 @@ function syncProspects(enabled) {
     }, authorLabel, {
       addDeal: openAddDeal,
       turnIntoDeal: (prospect, completed) => openAddDeal(null, { prospect, completed }),
-      backToReview: incomingScope.has('prospect') && mondayReviewOrigin() ? backToMondayReview : null,
+      backToReview: incomingScope.has('prospect') && dealsPageOrigin('review') ? () => returnToDealsPage(dealsPageOrigin('review')) : null,
     });
     showProspects();
   });
@@ -1421,7 +1380,7 @@ function renderWorkspaceFacts(detail) {
   const client = d.client_name || d.client_ref;
   const parked = fromEngine && d.operating_state === 'parked';
   $('workspaceFacts').innerHTML = `<dl class="workspace-facts">
-    ${client && client !== dealTitle(d) ? `<div class="workspace-client"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}
+    ${client && (fromEngine || client !== dealTitle(d)) ? `<div class="workspace-client${fromEngine ? ' workspace-client-labeled' : ''}"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}
     <div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}${parked ? ' · Parked' : ''}</dd></div>
     <div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div>
     ${fromEngine ? renderNextCriticalDate(d.next_critical_date) : ''}
@@ -1498,12 +1457,6 @@ function dueDateHtml(day, today) {
   const due = dealDueDate(day, today);
   return due ? `Due <time datetime="${due.day}">${due.date}</time>${due.late ? ` · ${due.late}` : ''}` : 'No due date';
 }
-function invoiceCloseHtml(deal, canUndo = false) {
-  const day = calendarDay(invoiceClose(deal)?.evidence_date);
-  if (!day) return '';
-  return `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${day}">${dateWords(day)}</time>${canUndo ? ' <button class="btn" type="button" data-undo-invoice>Undo invoice close</button>' : ''}</div>`;
-}
-
 function undoInvoiceClose() {
   const deal = state.panelDetail?.deal;
   const invoice = invoiceClose(deal);
@@ -1553,7 +1506,7 @@ function renderSnapshotFacts(deal, fromEngine) {
   if (deal.workspace_kind === 'national_account' || deal.account_client_id) {
     facts.push({ label: 'Market agent', value: deal.market_agent || 'Unassigned' });
   }
-  if (fromEngine) facts.push(...dealTypeFacts(deal));
+  if (fromEngine) facts.push(...dealTypeFacts(deal, dealTypeLabel));
   else if (deal.type) facts.push({ label: 'Type', value: deal.type });
   if (deal.outcome) facts.push({ label: 'Outcome', value: deal.outcome[0].toUpperCase() + deal.outcome.slice(1) });
 
@@ -1591,7 +1544,7 @@ function workspaceHtml(detail) {
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
       ${fromEngine ? renderClientPortalLink(d.client_portal_url, d.id) || '<p>No client website linked.</p>' : ''}
-      ${invoiceCloseHtml(d, state.nextDealSaves)}
+      ${renderInvoiceClose(d, state.nextDealSaves)}
       ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span></p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
       ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
         const day = calendarDay(action.due_on);
@@ -2050,7 +2003,10 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
   if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
-  if (!fromHistory && incomingScope.has('deal') && mondayReviewOrigin()) { backToMondayReview(); return; }
+  if (!fromHistory && incomingScope.has('deal')) {
+    const origin = dealsPageOrigin('review') || nationalClosedOrigin();
+    if (origin) { returnToDealsPage(origin); return; }
+  }
   selectDocRecord('deal', null);
   pageDocContext?.release('getDeal');
   ++panelReadSequence; ++contextReadSequence;
@@ -2633,16 +2589,21 @@ function mountDock() {
 
 
 let itemSheet;
-function mondayReviewOrigin() {
+function dealsPageOrigin(view) {
   if (!document.referrer) return null;
   const referrer = new URL(document.referrer);
   return referrer.origin === location.origin && referrer.pathname === '/deals'
-    && referrer.searchParams.get('view') === 'review' ? referrer : null;
+    && referrer.searchParams.get('view') === view ? referrer : null;
 }
 
-function backToMondayReview() {
+function nationalClosedOrigin() {
+  const origin = dealsPageOrigin('national');
+  return origin?.searchParams.get('account') && origin.searchParams.get('account_view') === 'closed' ? origin : null;
+}
+
+function returnToDealsPage(origin) {
   if (history.length > 1) history.back();
-  else location.replace(mondayReviewOrigin());
+  else location.replace(origin);
 }
 
 async function boot() {
@@ -2700,7 +2661,7 @@ async function boot() {
     });
     return;
   }
-  if (incomingScope.has('deal') && mondayReviewOrigin()) {
+  if (incomingScope.has('deal') && dealsPageOrigin('review')) {
     $('panelClose').textContent = '← Back to Monday review';
     $('panelClose').setAttribute('aria-label', 'Back to Monday review');
   }
