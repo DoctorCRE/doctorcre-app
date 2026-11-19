@@ -261,7 +261,7 @@ test('undated originals keep their identities, status and evidence alongside con
   assert.match(card.textContent,new RegExp(row.note.replace(/[<>]/g,'.')));
   if(row.source) assert.ok(card.textContent.includes(row.source));
  }
- assert.equal(root.querySelector('[data-date-id="unknown"] > span').textContent,'custom notice');
+ assert.equal(root.querySelector('[data-date-id="unknown"] > span').textContent,'Custom notice');
  assert.match(root.querySelector('[data-date-id="invalid"]').textContent,/Date unavailable/);
  assert.match(root.querySelector('[data-date-id="missing"]').textContent,/cleared/);
  const undatedBefore=[...root.querySelectorAll('[data-state="unknown"]')].map(n=>n.outerHTML);

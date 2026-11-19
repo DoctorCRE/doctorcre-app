@@ -1,0 +1,12 @@
+{
+  "schema_version": "engine-automatic-phase-undo.v1",
+  "producer": {
+    "repository": "DoctorCRE/doctorcre-engine",
+    "source_commit": "e2f59a25a74ba8d2dd94f6abe708fd79fe501e96"
+  },
+  "verb": "undo-automatic-phase-move",
+  "read": "GET /api/engine/deals returns seen and the current phase_change. Undo uses receipts with source=copied and automatic=true. evidence_date is a Central calendar date.",
+  "write": "POST /api/engine/deals/{deal_id}/phase/undo with idempotency_key, event_id, and base_version from seen.",
+  "result": "Success returns deal_id, phase, and phase_changed_at. A stale deal or event returns version_conflict. A return to an ended phase adds the Closed deals or Lost deals hint to that refusal.",
+  "switches": ["deals-from-engine", "deals-saves-from-engine"]
+}

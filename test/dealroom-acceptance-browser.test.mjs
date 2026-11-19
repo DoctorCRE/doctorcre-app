@@ -500,6 +500,117 @@ test('Deals shows late steps and can undo a close reported by the engine', async
   assert.deepEqual(oldReads, []);
 });
 
+test('keyboard Undo returns an automatically moved card to the previous phase', async t => {
+  const page = await browser.newPage({ timezoneId: 'America/Los_Angeles' });
+  t.after(() => page.close());
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'automatic-phase-undo', viewer: 'joe', reset: true } });
+  const row = (name, prior_phase = 'research', automatic = true) => ({
+    id: crypto.randomUUID(), name, owner: 'joe', phase: 'legal', seen: 23,
+    phase_change: { source: 'copied', automatic, event_id: crypto.randomUUID(), phase: 'legal', prior_phase,
+      evidence_date: '2026-10-19', recorded_at: '2026-10-20T00:00:00Z' },
+  });
+  const success = row('Example Restored Deal');
+  const closed = row('Example Formerly Closed Deal', 'closed');
+  const lost = row('Example Formerly Lost Deal', 'dead');
+  const invoiced = row('Example Formerly Invoiced Deal', 'invoiced');
+  const refused = row('Example Refused Undo Deal');
+  const stale = row('Example Changed Deal');
+  const manual = row('Example Manual Deal', 'research', false);
+  const parked = { ...row('Example Parked Deal'), operating_state: 'parked', parking_reason: 'client_paused' };
+  const deals = [success, closed, lost, invoiced, refused, stale, manual, parked];
+  const board = () => ({ schema_version: 'local-deals-board.v2', actor: 'joe', deals });
+  const writes = [], oldReads = [];
+  let switches = new Set();
+  const env = {
+    ENGINE_ROUTING: { get: async key => switches.has(key) ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      if (request.method === 'GET') {
+        if (path === '/api/engine/deals') return Response.json(board());
+        const deal = deals.find(item => path === `/api/engine/deals/${item.id}`);
+        assert.ok(deal);
+        return Response.json({ ...deal, deal_id: deal.id });
+      }
+      const deal = deals.find(item => path === `/api/engine/deals/${item.id}/phase/undo`);
+      assert.ok(deal);
+      const body = await request.json();
+      writes.push(body.idempotency_key);
+      assert.match(body.idempotency_key, /^[a-f\d-]{36}$/i);
+      assert.deepEqual(body, { idempotency_key: body.idempotency_key, event_id: deal.phase_change.event_id, base_version: deal.seen });
+      if (deal === refused) return Response.json({
+        error: 'version_conflict', current_version: deal.seen,
+        hint: 'Undo would return this deal to Closed deals or Lost deals.',
+      }, { status: 409 });
+      deal.seen++;
+      deal.phase = deal === stale ? 'negotiation' : 'research';
+      deal.phase_change = null;
+      return deal === stale
+        ? Response.json({ error: 'version_conflict', current_version: deal.seen }, { status: 409 })
+        : Response.json({ deal_id: deal.id, phase: deal.phase, phase_changed_at: '2026-11-18T18:00:00Z' });
+    } },
+    CARR: { fetch: async request => {
+      const { id, params } = await request.json();
+      oldReads.push(params.name);
+      return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(board()) }] } });
+    } },
+  };
+  await page.route('**/mcp', async route => {
+    const request = route.request(), body = request.postDataJSON();
+    if (!['deal-room-board', 'get-deal-room', 'undo-automatic-phase-move'].includes(body?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
+    }), env);
+    return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+  });
+  const card = deal => page.locator('.kanban-card').filter({ has: page.getByRole('button', { name: deal.name, exact: true }) });
+  const undo = deal => card(deal).getByRole('button', { name: 'Undo', exact: true });
+  for (const keys of [[], ['deals-from-engine'], ['deals-from-engine', 'deals-saves-from-engine']]) {
+    switches = new Set(keys);
+    await page.goto(`${origin}/deals?mode=live`);
+    await card(success).waitFor();
+    if (keys.length < 2) assert.equal(await undo(success).count(), 0);
+  }
+  assert.ok(oldReads.length);
+  oldReads.length = 0;
+  assert.equal(await card(manual).getByText('Moved automatically', { exact: true }).count(), 0);
+  assert.equal(await undo(manual).count(), 0);
+  await card(success).getByText('Moved automatically', { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(await card(success).locator('time[datetime="2026-10-19"]').textContent(), 'Mon, Oct 19, 2026');
+  await undo(success).press('Enter');
+  const restored = page.locator('[data-column="research"]').getByRole('button', { name: success.name, exact: true });
+  await restored.waitFor();
+  assert.equal(await card(success).count(), 1);
+  assert.equal(await card(success).evaluate(node => node === document.activeElement), true);
+  assert.equal(await undo(success).count(), 0);
+
+  const refusal = deal => card(deal).getByText('Undo would return this deal to Closed deals or Lost deals.', { exact: true });
+  for (const deal of [closed, lost, invoiced]) {
+    assert.equal(await refusal(deal).isVisible(), true, deal.name);
+    assert.equal(await undo(deal).count(), 0, deal.name);
+    assert.equal(await card(deal).locator('xpath=ancestor::*[@data-column]').getAttribute('data-column'), 'legal');
+  }
+  await undo(refused).click();
+  await refusal(refused).waitFor();
+  assert.equal(await undo(refused).count(), 0);
+  assert.equal(await card(refused).locator('xpath=ancestor::*[@data-column]').getAttribute('data-column'), 'legal');
+  await undo(stale).press('Space');
+  const reloaded = page.locator('[data-column="negotiation"]').getByRole('button', { name: stale.name, exact: true });
+  await reloaded.waitFor();
+  await card(stale).getByText('This deal changed. The card was refreshed.', { exact: true }).waitFor();
+  assert.equal(await undo(stale).count(), 0);
+  await page.screenshot({ path: join(evidence, 'automatic-phase-undo.png') });
+  await page.getByRole('button', { name: 'Parked', exact: true }).click();
+  const parkedCard = page.locator('.parked-card').filter({ hasText: parked.name });
+  await parkedCard.getByRole('button', { name: 'Undo', exact: true }).click();
+  await parkedCard.getByText('Moved automatically', { exact: true }).waitFor({ state: 'detached' });
+  assert.equal(await parkedCard.count(), 1);
+  assert.equal(writes.length, 4);
+  assert.equal(new Set(writes).size, 4);
+  await restored.click();
+  await page.getByRole('heading', { name: success.name, exact: true }).waitFor();
+  assert.deepEqual(oldReads, []);
+});
+
 test('National Accounts saves inline changes using the version on the deal board', async t => {
   const page = await browser.newPage();
   t.after(() => page.close());
@@ -714,7 +825,9 @@ test('switched-on Deals selects an existing market agent and decides critical da
   const [deal, account, person, date, prior, older] = Array.from({ length: 6 }, () => crypto.randomUUID());
   const row = { id: deal, name: 'Example Market Deal', phase: 'research', seen: 1, owner: 'joe', account_client_id: account, market_agent: 'Previous Agent' };
   const critical = { id: date, kind: 'lease_end', due_on: '2027-01-02', status: 'proposed' };
-  const dates = [critical];
+  const dates = [critical, {
+    id: crypto.randomUUID(), kind: 'phase_effective_date', due_on: '2027-01-01', status: 'open',
+  }];
   let participants = [
     { party_id: prior, role: 'market_agent' },
     { party_id: older, role: 'market_agent' },
@@ -737,7 +850,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
         ] });
       }
       if (request.method === 'GET') return Response.json(path.endsWith(deal)
-        ? { ...row, deal_id: deal, critical_dates: dates, participants }
+        ? { ...row, deal_id: deal, critical_dates: dates, participants, email_follow_ups: [] }
         : { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row],
           accounts: [{ account_client_id: account, account_name: 'Example National Account', account_owner: 'joe' }] });
       const { idempotency_key, ...body } = await request.json();
@@ -786,6 +899,10 @@ test('switched-on Deals selects an existing market agent and decides critical da
     return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
   });
 
+  await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+  await page.getByRole('heading', { name: 'Critical dates', exact: true }).waitFor();
+  assert.equal(await page.getByText('Add critical date', { exact: true }).count(), 0);
+  assert.equal(await page.locator('.critical-date').filter({ hasText: 'Jan 1, 2027' }).locator(':scope > span').textContent(), 'Phase effective date');
   await page.goto(`${origin}/deals?view=national&mode=live`);
   await page.getByRole('button', { name: /Example National Account/ }).click();
   await page.getByRole('button', { name: 'Previous Agent' }).click();
@@ -836,12 +953,51 @@ test('switched-on Deals selects an existing market agent and decides critical da
   await card.getByRole('button', { name: 'Mark done' }).click();
   await card.getByText('Done', { exact: true }).waitFor();
 
+  const add = page.getByText('Add critical date', { exact: true });
+  assert.equal(await add.count(), 1);
+  await add.click();
+  const kind = page.getByLabel('Kind', { exact: true });
+  await kind.selectOption({ label: 'Phase effective date' });
+  await page.getByLabel('Date', { exact: true }).fill('2027-01-04');
+  const dateSource = page.getByRole('textbox', { name: 'Where did this date come from?' });
+  const saveDate = page.getByRole('button', { name: 'Save critical date', exact: true });
+  await dateSource.fill('   ');
+  await saveDate.click();
+  await page.getByText('Enter where the date came from.', { exact: true }).waitFor();
+  assert.equal(writes.filter(([path]) => path.endsWith('/critical-dates')).length, 0);
+  await dateSource.fill('Example letter');
+  await page.getByLabel('Note (optional)', { exact: true }).fill('Signed by both sides');
+  await saveDate.click();
+  await page.getByText('Critical date added', { exact: true }).waitFor();
+  const added = page.locator('.critical-date').filter({ hasText: 'Jan 4, 2027' });
+  await added.getByText('Phase effective date', { exact: true }).waitFor();
+  await added.getByText('Details', { exact: true }).click();
+  await added.getByText('Signed by both sides', { exact: false }).waitFor();
+  await added.screenshot({ path: join(evidence, 'engine-added-phase-date.png') });
+
+  for (const [value, label, day, caption] of [
+    ['option_notice', 'Option notice', '2027-01-05', 'Jan 5, 2027'],
+    ['other', 'Other', '2027-01-06', 'Jan 6, 2027'],
+  ]) {
+    if (!await kind.isVisible()) await add.click();
+    await kind.selectOption(value);
+    assert.equal(await kind.locator('option:checked').textContent(), label);
+    await page.getByLabel('Date', { exact: true }).fill(day);
+    await dateSource.fill('Example contract');
+    await page.getByLabel('Note (optional)', { exact: true }).fill('Example clause');
+    await saveDate.click();
+    const card = page.locator('.critical-date').filter({ hasText: caption });
+    assert.equal(await card.locator(':scope > span').textContent(), label);
+    await card.getByText('Details', { exact: true }).click();
+    await card.getByText('Example clause', { exact: false }).waitFor();
+  }
+
   await page.locator('#detailPhase').selectOption('site_selection');
   await page.getByLabel('Record this as a critical date').check();
-  await page.getByLabel('Effective date').fill('2027-01-03');
-  await page.getByLabel('Where did this date come from?').fill('Example agreement');
+  await page.getByLabel('Phase effective date', { exact: true }).fill('2027-01-03');
+  await dateSource.fill('Example agreement');
   await page.getByRole('button', { name: 'Move to Site selection' }).click();
-  const effectiveDate = page.locator('.critical-date').filter({ hasText: 'Phase effective date' });
+  const effectiveDate = page.locator('.critical-date').filter({ hasText: 'Jan 3, 2027' });
   await effectiveDate.getByText('Confirmed', { exact: true }).waitFor();
   assert.equal(await effectiveDate.getByText('Phase effective date', { exact: true }).count(), 1);
   assert.equal(await effectiveDate.getByText('Jan 3, 2027', { exact: true }).count(), 1);
@@ -853,8 +1009,11 @@ test('switched-on Deals selects an existing market agent and decides critical da
     [`/api/engine/deals/${deal}/parties/remove`, { party_id: older, role: 'market_agent' }],
     [`/api/engine/critical-dates/${date}/confirm`, {}],
     [`/api/engine/critical-dates/${date}/resolve`, { resolution: 'done', reason: 'The review is complete' }],
+    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'phase_effective_date', due_on: '2027-01-04', source: 'Example letter', note: 'Signed by both sides' }],
+    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'option_notice', due_on: '2027-01-05', source: 'Example contract', note: 'Example clause' }],
+    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'other', due_on: '2027-01-06', source: 'Example contract', note: 'Example clause' }],
     [`/api/engine/deals/${deal}/changes`, { seen_change_id: 1, phase: { from: 'research', to: 'site_selection' } }],
-    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'other', due_on: '2027-01-03', source: 'Example agreement', note: 'Phase effective date' }],
+    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'phase_effective_date', due_on: '2027-01-03', source: 'Example agreement' }],
   ]);
 });
 
@@ -1045,6 +1204,140 @@ for (const readsOn of [true, false]) {
     assert.equal(new URL(page.url()).searchParams.has('deal'), false);
   });
 }
+
+test('the switched-on Timeline shows one ordered history including a newly saved note', async t => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+  t.after(() => page.close());
+  await page.clock.setFixedTime(new Date('2026-11-18T15:00:00Z'));
+  const deal = crypto.randomUUID();
+  const row = { id: deal, deal_id: deal, name: 'Example Timeline Deal', phase: 'legal', seen: 1, owner: 'joe' };
+  const thread = [{ id: 'copied-note', kind: 'note', text: 'Tour plans confirmed', actor: 'dell', created_at: '2026-11-17T20:00:00Z' }];
+  const beforeDocument = '2026-11-16T13:00:00Z';
+  const stepChanges = [
+    ['Send the floor plan', 'done', 'Done'],
+    ['Ask for the rent quote', 'cancelled', 'Cancelled'],
+    ['Book an evening tour', 'expired', 'Expired'],
+  ];
+  const dates = [
+    ['due-diligence', 'due_diligence', 'open', 'Due diligence · Confirmed'],
+    ['lease-end', 'lease_end', 'cleared', 'Lease expiration · Done'],
+    ['option', 'option_notice', 'dropped', 'Option notice · Dropped'],
+    ['phase-effective', 'phase_effective_date', 'passed', 'Phase effective date · Passed'],
+  ];
+  const dealChanges = [
+    ['operating_state', 'Parked · Client paused · Back in spring', 'Parked · Client paused · Back in spring'],
+    ['operating_state', 'Active', 'Active again'],
+    ['attention', false, 'Needs attention cleared'],
+    ['won_value', 125000, 'Closed value · $125,000'],
+    ['won_value', 125050.5, 'Closed value · $125,050.50'],
+  ];
+  const events = [
+    { id: 'copied-event', activity_id: 'copied-note', verb: 'add-deal-note', field: 'note', new_value: { note: thread[0].text }, actor: 'dell', recorded_at: '2026-11-17T20:00:01Z' },
+    { id: 'move', verb: 'move-phase', field: 'phase', new_value: 'legal', actor: 'agent', recorded_at: '2026-11-18T01:00:00Z' },
+    { id: 'attention', verb: 'update-deal', field: 'attention', new_value: true, actor: 'joe', recorded_at: '2026-11-17T14:00:00Z' },
+    ...dealChanges.map(([field, new_value], i) => ({
+      id: `change-${i}`, verb: 'update-deal', field, new_value, actor: 'joe', recorded_at: beforeDocument,
+    })),
+  ];
+  const detail = { ...row, thread, events, email_follow_ups: [],
+    phase_started_on: { legal: '2026-11-17' },
+    documents: [{ id: 'file', name: 'Example plan.pdf', actor: 'mail_capture', prepared_at: '2026-11-16T14:00:00Z' }],
+    next_actions: [
+      { id: 'step', owner: 'dell', actor: 'joe', description: 'Check the floor plan', status: 'open', updated_at: '2026-11-17T18:00:00Z' },
+      ...stepChanges.map(([description, status]) => ({
+        id: status, owner: 'dell', actor: 'joe', description, status, due_on: '2026-11-19', updated_at: beforeDocument,
+      })),
+    ],
+    critical_dates: dates.map(([id, kind, status]) => ({
+      id, kind, status, due_on: '2026-11-19', actor: 'dell',
+      updated_at: status === 'open' ? '2026-11-17T19:00:00Z' : beforeDocument,
+    })),
+  };
+  let switchesOn = false;
+  const carr = [], engine = [];
+  const env = {
+    ENGINE_ROUTING: { get: async key => switchesOn && ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      engine.push(path);
+      if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] });
+      if (path === `/api/engine/deals/${deal}`) return Response.json(detail);
+      assert.equal(path, '/api/engine/activities');
+      const { kind, about, summary, happened_at } = await request.json();
+      assert.deepEqual({ kind, about, summary }, { kind: 'note', about: [{ deal_id: deal }], summary: 'Tour plans confirmed' });
+      const id = crypto.randomUUID();
+      thread.push({ id, kind, text: summary, actor: 'joe', created_at: happened_at });
+      return Response.json({ activity_id: id }, { status: 201 });
+    } },
+    CARR: { fetch: async request => {
+      const { id, params: { name } } = await request.json();
+      carr.push(name);
+      const data = name === 'deal-room-board'
+        ? { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] }
+        : { ...row, thread, phase_started_on: detail.phase_started_on };
+      return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
+    } },
+  };
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-timeline', viewer: 'joe', reset: true } });
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    if (!['deal-room-board', 'get-deal-room', 'add-deal-note'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+    }), env);
+    return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
+  });
+
+  const timeline = page.getByRole('tabpanel', { name: 'Timeline' });
+  const openTimeline = async () => {
+    await page.getByRole('tab', { name: 'Timeline' }).click();
+    await timeline.getByText('Tour plans confirmed', { exact: true }).first().waitFor();
+  };
+  await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+  await openTimeline();
+  assert.equal(await timeline.getByText('Phase timeline', { exact: true }).count(), 1);
+  assert.ok(carr.includes('get-deal-room'));
+  assert.deepEqual(engine, []);
+
+  switchesOn = true;
+  await page.reload();
+  await openTimeline();
+  const rows = timeline.getByRole('listitem');
+  const contents = await rows.allTextContents();
+  assert.equal(contents.length, 6 + stepChanges.length + (dates.length - 1) + dealChanges.length);
+  assert.match(contents[0], /Automatically.*Nov 17.*7:00 PM.*Legal/);
+  assert.match(contents[1], /Dell.*Nov 17.*2:00 PM.*Tour plans confirmed/);
+  assert.match(contents[2], /Dell.*Nov 17.*1:00 PM.*Due diligence.*Due Nov 19/);
+  assert.match(contents[3], /Joe.*Check the floor plan$/);
+  assert.match(contents[5], /Automatically.*Nov 16.*Example plan\.pdf/);
+  const descriptions = await rows.locator('p').allTextContents();
+  for (const [description, , state] of stepChanges) {
+    assert.ok(descriptions.includes(`${description} · ${state} · Due Nov 19, 2026`), `Next step should say ${state}`);
+  }
+  for (const [, , , caption] of dates) {
+    assert.ok(descriptions.includes(`${caption} · Due Nov 19, 2026`), `Critical date should say ${caption}`);
+  }
+  for (const description of ['Needs attention', ...dealChanges.map(([, , label]) => label)]) {
+    assert.equal(descriptions.filter(text => text === description).length, 1, description);
+  }
+  assert.doesNotMatch(contents.join(' '), /2026-11-|move-phase|add deal note|Active work ·|Attention flag/);
+
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await page.getByLabel('Update', { exact: true }).fill('Tour plans confirmed');
+  await page.getByRole('button', { name: 'Add update' }).click();
+  await page.locator('#detailUpdateStatus').getByText('Update added', { exact: true }).waitFor();
+  await openTimeline();
+  const notes = rows.filter({ hasText: 'Tour plans confirmed' });
+  assert.equal(await notes.count(), 2);
+  assert.match(await notes.nth(0).innerText(), /Joe\s+Nov 18, 9:00 AM/);
+  assert.match(await notes.nth(1).innerText(), /Dell\s+Nov 17, 2:00 PM/);
+  assert.doesNotMatch(carr.join(' '), /add-deal-note/);
+  const filter = timeline.getByLabel('Filter by type');
+  await filter.selectOption('Note');
+  assert.equal(await rows.count(), 2);
+  await filter.selectOption('');
+  await timeline.screenshot({ path: join(evidence, 'engine-timeline.png') });
+});
 
 for (const width of [1440, 390]) {
   test(`Monday review keeps engine order and your place at ${width}px`, async t => {
