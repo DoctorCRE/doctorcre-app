@@ -352,7 +352,6 @@ function renderClosedDeals() {
 }
 
 function renderHistoryStatus(status) {
-  if (!['closed', 'lost'].includes(state.view)) return;
   const archived = state.view === 'lost' ? state.lostDeals : state.closedDeals;
   const failed = !status.online || status.board_health === HEALTH.FAILED;
   const missing = status.board_health === HEALTH.OK && archived === null;
@@ -453,11 +452,13 @@ function renderChips() {
 }
 
 function renderStatus(status) {
-  // A failed first read leaves the history view hidden until it is rendered.
-  if (status.board_error_code === 'engine_unavailable' && !status.snapshots && ['closed', 'lost'].includes(state.view)) renderBoard();
+  if (state.view === 'closed' || state.view === 'lost') {
+    // A failed first read must reveal the history view so Retry is visible.
+    if (status.board_error_code === 'engine_unavailable' && $('closedDealsView').hidden) renderBoard();
+    else renderHistoryStatus(status);
+  }
   renderBoardMessage(status);
   state.boardStatus = status.state;
-  renderHistoryStatus(status);
   const label = status.state === SYNC_STATES.OFFLINE ? 'Offline'
     : status.state === SYNC_STATES.ERROR ? 'Board view error'
     : status.state === SYNC_STATES.RECONNECTING ? 'Reconnecting'
@@ -1519,6 +1520,10 @@ function renderSnapshotFacts(deal, fromEngine) {
     ${!fromEngine && closedValue ? `<dl class="deal-snapshot-facts">${renderDealFacts([closedValue])}</dl>` : ''}`;
 }
 
+function stepFocusAttrs(step) {
+  return step?.id ? ` tabindex="-1" data-detail-focus="next-step-${esc(step.id)}"` : '';
+}
+
 function workspaceHtml(detail) {
   const fromEngine = isEngineDealDetail(detail);
   const ownStep = canEditOwnDealStep(detail);
@@ -1539,16 +1544,17 @@ function workspaceHtml(detail) {
     : parkingNote ? `<p>${esc(parkingNote)}</p>${parker}` : parker || '<p>Parked</p>';
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !isClosedDeal(d);
   const canAddCriticalDate = detail.next_deal_saves === true && Number.isSafeInteger(d.seen);
-  const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && !isClosedDeal(d) : controlsAvailable)
+  const websiteLink = fromEngine ? renderClientPortalLink(d.client_portal_url, d.id) || '<p>No client website linked.</p>' : '';
+  const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && d.client_id : controlsAvailable)
     ? clientPortalSetupHtml() : '';
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
-      ${fromEngine ? renderClientPortalLink(d.client_portal_url, d.id) || '<p>No client website linked.</p>' : ''}
+      ${websiteLink}
       ${renderInvoiceClose(d, state.nextDealSaves)}
-      ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span></p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
+      ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span></p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
       ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
         const day = calendarDay(action.due_on);
-        return `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
+        return `<li${stepFocusAttrs(fromEngine ? action : null)}>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
       }).join('')}</ul>` : ''}
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
       ${renderSnapshotFacts(d, fromEngine)}
@@ -1572,7 +1578,7 @@ function workspaceHtml(detail) {
     <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
-    <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden></section>
+    <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2>
@@ -1863,18 +1869,18 @@ function paintPanel(detail) {
     dispose() { toursDisposed = true; toursMounted?.dispose(); },
   };
   let documentsDisposed = false, documentsLoading = false, documentsMounted;
-  const engineDocuments = isEngineDealDetail(detail);
-  dealDocumentsPanel = engineDocuments && !detail.next_deal_saves ? null : {
+  const fromEngine = isEngineDealDetail(detail);
+  dealDocumentsPanel = fromEngine && !detail.next_deal_saves ? null : {
     async load() {
       if (documentsDisposed || documentsLoading || documentsMounted) return;
       documentsLoading = true;
-      const root = $(engineDocuments ? 'deal-document-upload' : 'workspace-documents');
-      root.textContent = engineDocuments ? 'Loading upload form…' : 'Loading documents…';
+      const root = $(fromEngine ? 'deal-document-upload' : 'workspace-documents');
+      root.textContent = fromEngine ? 'Loading upload form…' : 'Loading documents…';
       try {
         const { mountDealDocuments, mountDealDocumentUpload } = await import('./ui-deal-documents.generated.js');
         if (documentsDisposed) return;
         root.replaceChildren();
-        documentsMounted = engineDocuments ? mountDealDocumentUpload(root, {
+        documentsMounted = fromEngine ? mountDealDocumentUpload(root, {
           dealId: detail.deal.id,
           documents: state.panelDetail.documents,
           request: sessionFetch,
@@ -1885,15 +1891,15 @@ function paintPanel(detail) {
         }) : mountDealDocuments(root, { dealId: detail.deal.id, client: state.client });
       } catch {
         if (!documentsDisposed) {
-          root.textContent = engineDocuments ? 'Upload form unavailable. ' : 'Documents unavailable. ';
+          root.textContent = fromEngine ? 'Upload form unavailable. ' : 'Documents unavailable. ';
           const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn';
-          retry.textContent = engineDocuments ? 'Retry upload form' : 'Retry documents';
+          retry.textContent = fromEngine ? 'Retry upload form' : 'Retry documents';
           retry.addEventListener('click', () => void dealDocumentsPanel?.load()); root.append(retry);
         }
       } finally { documentsLoading = false; }
     },
     refresh() {
-      if (engineDocuments) documentsMounted?.update(state.panelDetail.documents);
+      if (fromEngine) documentsMounted?.update(state.panelDetail.documents);
       else return documentsMounted?.refresh();
     },
     hasUnsavedChanges() { return documentsMounted?.hasUnsavedChanges?.() || false; },
@@ -1901,7 +1907,7 @@ function paintPanel(detail) {
     dispose() { documentsDisposed = true; documentsMounted?.dispose(); },
   };
   let clientDisposed = false, clientLoading = false, clientMounted;
-  clientPublicationsPanel = {
+  clientPublicationsPanel = fromEngine ? null : {
     async load() {
       if (clientDisposed || clientLoading || clientMounted) return;
       clientLoading = true;
@@ -1972,21 +1978,26 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
     if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
     await document.fonts.ready;
     if (state.panelDeal !== dealId) return;
-    const editor = $('dealUpdateStep');
-    if (editor) {
-      $('detailNextStepEditor').open = true;
-      editor.focus();
-      editor.scrollIntoView({ block: 'center', behavior: 'instant' });
+    const current = new URL(location.href);
+    const step = current.searchParams.get('step');
+    const selector = step === null ? '' : CSS.escape(step);
+    const target = step === null
+      ? $('dealUpdateStep')
+      : $('panelBody').querySelector(`[data-detail-focus="next-step-${selector}"], [data-deal-item="${selector}"]`);
+    if (target) {
+      if (step === null) $('detailNextStepEditor').open = true;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: 'center', behavior: 'instant' });
       const observer = new ResizeObserver(() => {
-        if (document.activeElement !== editor) return observer.disconnect();
-        const rect = editor.getBoundingClientRect();
-        if (rect.bottom > innerHeight || rect.top < 0) editor.scrollIntoView({ block: 'center', behavior: 'instant' });
+        if (document.activeElement !== target) return observer.disconnect();
+        const rect = target.getBoundingClientRect();
+        if (rect.bottom > innerHeight || rect.top < 0) target.scrollIntoView({ block: 'center', behavior: 'instant' });
       });
       observer.observe($('recordPanel'));
-      editor.addEventListener('blur', () => observer.disconnect(), { once: true });
+      target.addEventListener('blur', () => observer.disconnect(), { once: true });
     }
-    const current = new URL(location.href);
     current.searchParams.delete('focus');
+    current.searchParams.delete('step');
     writeWorkspaceHistory(history.state, current);
   }
 }
