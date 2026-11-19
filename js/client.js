@@ -439,3 +439,22 @@ export const FACT_TERMS = {
   term_months: { label: 'Lease term', units: { months: 1, years: 12 } },
   free_rent_months: { label: 'Free rent', units: { months: 1 } },
 };
+
+// Each entry has the engine caption and, where mapped today, the legacy caption.
+export const TYPE_TO_UI = new Map([
+  ['lease', ['Lease']],
+  ['purchase', ['Purchase', 'Purchase']],
+  ['sale_leaseback', ['Sale-leaseback']],
+  ['build_to_suit', ['Build-to-suit']],
+  ['other', ['Other', 'Other']],
+  ['start_up', ['Start-up']],
+  ['startup', ['Start-up', 'Startup']],
+  ['relocation', ['Relocation', 'Relocation']],
+  ['expansion', ['Expansion', 'Expansion']],
+  ['renewal', ['Renewal', 'Renewal']],
+  ['additional_office', ['Additional office', '2nd Office']],
+]);
+
+export function dealTypeLabel(type) {
+  return TYPE_TO_UI.get(type)?.[0];
+}

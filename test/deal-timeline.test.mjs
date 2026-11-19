@@ -345,6 +345,8 @@ test('old deal history labels authors and facts in the words used on the deal pa
   ['update-deal', 'notes_path', { notes_path: '/example/old-notes.md' }, 'Updated where the deal notes are kept'],
   ['reattach-deal', 'client_id', { client_name: 'Example Practice', client_ref: 'C-123' }, 'Client: Example Practice'],
   ['new-deal', null, { name: 'Example deal', client: 'C-456' }, 'Deal name: Example deal'],
+  ['new-deal', null, { reason: 'additional_office' }, 'Deal reason: Additional office'],
+  ['dismiss-email-proposal', null, { reason: 'Already handled' }, 'Reason: Already handled'],
   ['add-critical-date', null, { kind: 'lease_end' }, 'Date type: Lease expiration'],
   ['log-activity', null, { kind: 'email_out' }, 'Activity type: Email sent'],
   ['dismiss-email-proposal', null, { kind: 'file_to_deal' }, 'Suggestion type: File email to this deal'],

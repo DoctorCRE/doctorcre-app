@@ -203,13 +203,14 @@ export function automaticPhaseReceipt(deal, entry, { showEngineMoves = false, ca
   const action = undoableMove && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
     ? { eventId: event.event_id, version: deal.seen, busy: Boolean(feedback?.busy) } : null;
   const callTime = event?.source === 'call_capture' ? sourceTime(event.call?.happened_at, undefined, '') : '';
-  const move = datedMove && (showEngineMoves || undoableMove) ? { day, date: formatCalendarDate(day), callTime, action } : null;
+  const move = datedMove && (showEngineMoves || undoableMove) ? { day, date: formatCalendarDate(day), callTime, action, label: event.source === 'invoice' ? 'Closed automatically: Invoice received'
+    : isPhaseMoveReceipt(event) && event.phase?.toLowerCase() === 'closed' ? 'Closed automatically' : 'Moved automatically' } : null;
   return { move, message };
 }
 
 export function renderPhaseReceipt(deal, { move, message }, legacy) {
   const undo = move?.action;
   const button = undo ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(undo.eventId)}" data-base-version="${undo.version}" data-detail-focus="phase-undo"${undo.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
-  const mark = move ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? `<div>Call on ${esc(move.callTime)}</div>` : ''}${button}</div>` : legacy;
+  const mark = move ? `<div class="auto-move"><span>${move.label}</span> <time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? `<div>Call on ${esc(move.callTime)}</div>` : ''}${button}</div>` : legacy;
   return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
 }

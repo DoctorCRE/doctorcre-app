@@ -557,7 +557,7 @@ function renderStats(deals, accountDetail) {
       ? `${deals.length} open deals · ${late} · ${closing} closing`
       : `${deals.length} active work · ${late} · ${closing} at closing`;
     $('#stats').innerHTML = next ? `
-      <span class="next-action-label${overdue.length ? ' is-alert' : ''}">${overdue.length ? 'Next overdue action' : 'Next market action'}</span>
+      <span class="next-action-label${overdue.length ? ' is-alert' : ''}">${overdue.length ? 'Next overdue action' : 'Next step'}</span>
       <button type="button" class="next-account-action" data-open-deal="${esc(next.id)}">
         <strong>${esc(next.next_step || 'Set the next step')}</strong>
         <span>${esc(next.name)} · ${esc(dateLabel(next.next_date, engineToday()))}</span>

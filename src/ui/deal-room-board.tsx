@@ -13,6 +13,7 @@ type PhaseReceipt = {
   move: {
     day: string;
     date: string;
+    label: string;
     callTime: string;
     action: { eventId: string; version: number; busy: boolean } | null;
   } | null;
@@ -64,7 +65,7 @@ function PhaseMove({ receipt, deal }: { receipt: PhaseReceipt; deal: string }) {
     <>
       {move && (
         <div className="auto-move">
-          <span>Moved automatically</span> <time dateTime={move.day}>{move.date}</time>
+          <span>{move.label}</span> <time dateTime={move.day}>{move.date}</time>
           {move.callTime && <div>Call on {move.callTime}</div>}
           {move.action && (
             <button

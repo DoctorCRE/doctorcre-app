@@ -1505,7 +1505,7 @@ function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_sa
     const title = subject && subject.toLowerCase() !== '(no subject)' ? subject : '(No subject)';
     const change = row.kind === 'file_to_deal' ? 'File email to this deal'
       : row.kind === 'phase_move' ? `Move to ${columnBySlug(row.to_phase)?.label || 'the next phase'}`
-      : row.what || 'Review email';
+      : row.what?.replace(/\(no subject\)/gi, '(No subject)') || 'Review email';
     const owner = row.kind === 'next_step' ? ACTOR_LABEL[row.owner] : '';
     const id = esc(row.proposal_id);
     const actions = next_deal_saves ? `<form data-email-decision="${id}">
