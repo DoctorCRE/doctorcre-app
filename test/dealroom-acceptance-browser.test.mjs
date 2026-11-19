@@ -1116,8 +1116,8 @@ test('switched-on Deals sets up a client website and opens it unlocked in a new 
   ]);
 });
 
-async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = false, linked = true } = {}) {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = false, linked = true, width = 1280 } = {}) {
+  const page = await browser.newPage({ viewport: { width, height: 960 } });
   t.after(() => page.close());
   const deal = crypto.randomUUID();
   const website = 'https://share.doctorcre.com/example-website';
@@ -1146,7 +1146,7 @@ async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = f
   };
   await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-client-website', viewer: 'joe', reset: true } });
   await routeClientWebsiteWorker(page, env);
-  return { page, deal, website, grant, enginePaths };
+  return { page, deal, row, website, grant, enginePaths };
 }
 
 for (const [blocked, toast] of [
@@ -1179,9 +1179,23 @@ for (const [closed, savesOn] of [[true, true], [false, false]]) {
   });
 }
 
-for (const readsOn of [true, false]) {
-  test(`board card client website with Deals reads ${readsOn ? 'on' : 'off'}`, async t => {
-    const { page, deal, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn: false });
+for (const [width, readsOn] of [[1440, true], [390, true], [1440, false], [390, false]]) {
+  test(`board card client website with Deals reads ${readsOn ? 'on' : 'off'} at ${width}px`, async t => {
+    const { page, deal, row, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn: false, width });
+    const prospects = Promise.withResolvers();
+    const changes = Promise.withResolvers();
+    if (readsOn) {
+      await page.clock.install();
+      await page.route('**/ui-deal-prospects.generated.js', async route => {
+        await prospects.promise;
+        await route.continue();
+      });
+      await page.route('**/api/engine/prospects', route => route.fulfill({ json: { prospects: [] } }));
+      await page.route('**/pipeline/changes*', async route => {
+        await changes.promise;
+        await route.fulfill({ json: { events: [], capture_sessions: [{ state: 'recording' }] } });
+      });
+    }
     await page.context().route(url => url.href === website || url.href === `${website}/?grant=${grant}`, route =>
       route.fulfill({ body: '<h1>Example client website</h1>', contentType: 'text/html' }));
     await page.goto(`${origin}/deals?mode=live`);
@@ -1193,9 +1207,22 @@ for (const readsOn of [true, false]) {
     assert.deepEqual(grants(), []);
     const open = card.getByRole(readsOn ? 'button' : 'link', { name: /Client website/ });
     assert.equal(await open.count(), 1);
-    if (readsOn) await card.screenshot({ path: join(evidence, 'client-website-card.png') });
+    await open.focus();
+    if (readsOn) {
+      prospects.resolve();
+      await page.getByText('No prospects in this view', { exact: true }).waitFor();
+      assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Prospects loading moved website focus');
+      changes.resolve();
+      await page.getByText('Capture: recording', { exact: true }).waitFor();
+      assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Change feed moved website focus');
+      await card.screenshot({ path: join(evidence, `client-website-card-${width}.png`) });
+      row.open_actions = [{ id: 'example-step', description: 'Confirm the example floor plan' }];
+      await page.clock.fastForward(61_000);
+      await card.getByText('Confirm the example floor plan', { exact: true }).waitFor();
+      assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Board refresh moved website focus');
+    }
     const popupOpened = page.waitForEvent('popup');
-    await open.press('Enter');
+    await page.keyboard.press('Enter');
     const popup = await popupOpened;
     await popup.getByRole('heading', { name: 'Example client website' }).waitFor();
     assert.equal(popup.url(), readsOn ? `${website}/?grant=${grant}` : website);
