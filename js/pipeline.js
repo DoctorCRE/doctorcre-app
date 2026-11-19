@@ -171,6 +171,7 @@ function parkedHtml(deal) {
 let dealCreation = null;
 let pickedDealClient = null;
 let prospectConversion = null;
+let unmountDealClientPicker;
 let creatingDeal = false;
 function syncDealCreation() {
   $('addDealFields').disabled = creatingDeal || Boolean(dealCreation);
@@ -183,21 +184,21 @@ function openAddDeal(client = null, conversion = null) {
     pickedDealClient = client;
     prospectConversion = conversion;
     const prospect = conversion?.prospect;
+    unmountDealClientPicker?.();
     $('addDealForm').reset();
+    $('addDealLegacyClient').hidden = Boolean(prospect);
+    $('addDealClient').disabled = Boolean(prospect);
+    $('addDealClientPicker').hidden = !prospect;
+    unmountDealClientPicker = conversion?.mountClientPicker($('addDealClientPicker'));
     $('addDealOwner').value = prospect ? prospect.owner ?? '' : state.selfActor || 'joe';
-    $('addDealStageLabel').textContent = prospect ? 'Phase' : 'Stage';
+    $('addDealStageLabel').textContent = prospect || state.nextDealSaves ? 'Phase' : 'Stage';
     $('addDealStage').selectedIndex = prospect ? 0 : 1;
     $('addDealType').required = !prospect;
     $('addDealType').options[0].hidden = !prospect;
     $('addDealType').selectedIndex = prospect ? 0 : 1;
-    $('addDealClient').placeholder = prospect ? '' : 'C-ref or exact client name';
-    $('addDealClientHint').textContent = prospect ? 'Use the exact client name.'
-      : 'Use an existing client reference or exact name.';
-    $('addDealUseProspect').hidden = !prospect;
     if (prospect) {
       $('addDealName').value = prospect.name;
       $('addDealNotes').value = prospect.latest_note?.summary ?? '';
-      $('addDealUseProspect').textContent = `Use ${prospect.name} as client`;
     } else if (client) {
       $('addDealClient').value = client.name;
       $('addDealName').value = client.name;
@@ -212,12 +213,15 @@ async function submitDeal(event) {
   if (creatingDeal) return;
   const errorBox = $('addDealError');
   if (!dealCreation) {
-    const args = Object.fromEntries(new FormData($('addDealForm')));
+    const { client_id: chosenClient, ...args } = Object.fromEntries(new FormData($('addDealForm')));
     for (const name of ['name','client','notes']) args[name] = args[name].trim();
     if (!args.name || !args.client) {
       errorBox.textContent = 'Enter a deal name and an existing client.'; errorBox.focus(); return;
     }
-    const client_id = args.client === pickedDealClient?.name ? pickedDealClient.id : undefined;
+    if (prospectConversion && !chosenClient) {
+      errorBox.textContent = 'Choose a client from the matches.'; errorBox.focus(); return;
+    }
+    const client_id = chosenClient || (args.client === pickedDealClient?.name ? pickedDealClient.id : undefined);
     dealCreation = {...args, client_id, prospect_id: prospectConversion?.prospect.party_id,
       lane:'territory', next_deal_save:state.nextDealSaves, idempotency_key:uuidv4()};
   }
@@ -498,14 +502,17 @@ function syncProspects(enabled) {
   lane.className = 'kanban-column glass';
   lane.setAttribute('aria-labelledby', 'prospects-title');
   $('kanban').prepend(lane);
-  void import('./ui-deal-prospects.generated.js').then(({ mountProspects }) => {
+  void import('./ui-deal-prospects.generated.js').then(({ mountProspects, mountProspectClientPicker }) => {
     if (!lane.isConnected) return;
     prospects = mountProspects(lane, prospectClient(), count => {
       state.prospectCount = count;
       renderBoardMessage();
     }, authorLabel, {
       addDeal: openAddDeal,
-      turnIntoDeal: (prospect, completed) => openAddDeal(null, { prospect, completed }),
+      turnIntoDeal: (prospect, completed) => openAddDeal(null, {
+        prospect, completed,
+        mountClientPicker: host => mountProspectClientPicker(host, { prospect, request: fetchRead }),
+      }),
       backToReview: incomingScope.has('prospect') && mondayReviewOrigin() ? backToMondayReview : null,
     });
     showProspects();
@@ -2132,19 +2139,15 @@ function wire() {
 
   $('addDealStage').innerHTML = '<option value="" hidden>Choose a phase</option>'
     + OPEN_COLUMNS.map(c => `<option value="${esc(c.value)}">${esc(c.label)}</option>`).join('');
-  $('addDealUseProspect').addEventListener('click', () => {
-    const { party_id: id, name } = prospectConversion.prospect;
-    pickedDealClient = { id, name };
-    $('addDealClient').value = name;
-  });
-  $('addDealClient').addEventListener('input', () => {
-    if (prospectConversion) pickedDealClient = null;
-  });
   $('addDealOpen').addEventListener('click', () => openAddDeal());
   $('addDealForm').addEventListener('submit', submitDeal);
   $('addDealCancel').addEventListener('click', () => $('addDealDialog').close());
   $('addDealDialog').addEventListener('cancel', event => { if (creatingDeal) event.preventDefault(); });
   $('addDealDialog').addEventListener('close', () => {
+    if (!dealCreation && !$('addDealDialog').open) {
+      unmountDealClientPicker?.();
+      unmountDealClientPicker = undefined;
+    }
     if (!prospectConversion) $('addDealOpen').focus();
   });
 

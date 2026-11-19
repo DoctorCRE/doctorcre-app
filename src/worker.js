@@ -421,6 +421,7 @@ const DEAL_CREATE_REFUSALS = new Map([
   ['deal_renewal_names_lease', 'Renewals need an existing lease. The Add deal form cannot link a lease yet.'],
   ['deal_name_exists', 'A deal with this name already exists.'],
   ['not_a_prospect', 'This person or company is no longer a prospect.'],
+  ['lead_or_client_how_found', 'Record how you found this person or company before using them as a client.'],
   ['location_not_in_account', 'This location is no longer in the account. Reopen Add market deal to choose a location.'],
   ['location_name_exists', 'Choose the existing location with that name.'],
 ]);

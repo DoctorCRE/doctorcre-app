@@ -82,7 +82,8 @@
         <p id="addDealError" role="alert" tabindex="-1"></p>
         <fieldset id="addDealFields" class="add-deal-fields">
           <div class="field"><label for="addDealName">Deal name</label><input id="addDealName" name="name" required maxlength="200" autofocus></div>
-          <div class="field"><label for="addDealClient">Client</label><input id="addDealClient" name="client" required maxlength="200" placeholder="C-ref or exact client name" aria-describedby="addDealClientHint"><small id="addDealClientHint">Use an existing client reference or exact name.</small><button class="btn" id="addDealUseProspect" type="button" hidden></button></div>
+          <div class="field" id="addDealLegacyClient"><label for="addDealClient">Client</label><input id="addDealClient" name="client" required maxlength="200" placeholder="C-ref or exact client name" aria-describedby="addDealClientHint"><small id="addDealClientHint">Use an existing client reference or exact name.</small></div>
+          <div id="addDealClientPicker" hidden></div>
           <div class="field-grid">
             <div class="field"><label for="addDealType">Type</label><select id="addDealType" name="deal_type" required>
               <option value="" hidden>Unknown</option><option value="startup">Startup</option><option value="relocation">Relocation</option><option value="additional_office">Additional office</option><option value="renewal">Renewal</option><option value="expansion">Expansion</option><option value="purchase">Purchase</option><option value="other">Other</option>

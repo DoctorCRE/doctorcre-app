@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { AddProspect, ManageProspect } from "./prospect-management";
+import { AddProspect, DealClientPicker, ManageProspect } from "./prospect-management";
 import {
   type Partner,
   type ProspectClient,
@@ -243,11 +244,6 @@ function ProspectDetail({
               {row.owner ? `Claimed by ${partners[row.owner]}` : "Unclaimed"}
               {row.needs_attention && " · Needs attention"}
             </p>
-            {filters.canSave && (
-              <button type="button" className="btn" onClick={() => turnIntoDeal(row)}>
-                Turn into deal
-              </button>
-            )}
             <h3 ref={followUps} tabIndex={-1}>
               Follow-ups
             </h3>
@@ -278,6 +274,7 @@ function ProspectDetail({
                 client={client}
                 saved={saved}
                 reload={reload}
+                turnIntoDeal={() => turnIntoDeal(row)}
                 drop={() => {
                   dialog.current?.close();
                   refreshLane();
@@ -399,6 +396,12 @@ function ProspectLane({
       )}
     </>
   );
+}
+
+export function mountProspectClientPicker(host: HTMLElement, props: Parameters<typeof DealClientPicker>[0]) {
+  const root = createRoot(host);
+  flushSync(() => root.render(<DealClientPicker {...props} />));
+  return () => root.unmount();
 }
 
 export function mountProspects(

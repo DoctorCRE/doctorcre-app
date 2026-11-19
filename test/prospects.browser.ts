@@ -49,6 +49,13 @@ test("partners see and manage prospects from Deals", async (t) => {
         display_name: "Client Example",
         kind: "company",
       };
+      const storedParty = { ...matchedClient, id: "00000000-0000-4000-8000-000000000007", kind: "person" };
+      const storedTwin = { ...storedParty, id: "00000000-0000-4000-8000-000000000009" };
+      const missingHowFound = {
+        ...storedParty,
+        id: "00000000-0000-4000-8000-000000000008",
+        display_name: "Example Outside Practice",
+      };
       const dealId = "00000000-0000-4000-8000-000000000003";
       const newName = "Example Pine Prospect";
       let prospects = [prospect, birchProspect];
@@ -121,10 +128,15 @@ test("partners see and manage prospects from Deals", async (t) => {
               }
               if (path === "/api/engine/deals") {
                 conversionAttempts++;
+                if (body.client_id === missingHowFound.id)
+                  return Response.json(
+                    { error: "database_refused_the_statement", rule: "lead_or_client_how_found" },
+                    { status: 422 },
+                  );
                 assert.deepEqual(body, {
                   idempotency_key: body.idempotency_key,
                   prospect_id: birchProspect.party_id,
-                  client_id: width === 1440 ? birchProspect.party_id : matchedClient.id,
+                  client_id: width === 1440 ? birchProspect.party_id : storedParty.id,
                   name: "Example Edited Deal",
                   owner: "joe",
                   phase: "research",
@@ -187,13 +199,12 @@ test("partners see and manage prospects from Deals", async (t) => {
             if (path.endsWith("/parties/search")) {
               const params = new URL(request.url).searchParams;
               const query = params.get("query");
-              if (params.get("role") === "client") {
-                assert.equal(query, matchedClient.display_name);
-                return Response.json({ parties: [matchedClient] });
-              }
+              assert.equal(params.has("role"), false);
               if (query === "Knownx") return Response.json({ error: "engine_unavailable" }, { status: 503 });
               return Response.json({
-                parties: [known, matchedClient].filter((match) => match.display_name.startsWith(query ?? "")),
+                parties: [known, matchedClient, storedParty, storedTwin, missingHowFound].filter((match) =>
+                  match.display_name.startsWith(query ?? ""),
+                ),
               });
             }
             if (path === `/api/engine/deals/${dealId}`)
@@ -413,6 +424,7 @@ test("partners see and manage prospects from Deals", async (t) => {
         const addDeal = page.getByRole("dialog", { name: "Add deal" });
         assert.equal(await addDeal.getByLabel("Client", { exact: true }).inputValue(), "Client Example");
         assert.equal(await addDeal.getByLabel("Deal name").inputValue(), "Client Example");
+        assert.equal(await addDeal.getByLabel("Phase", { exact: true }).count(), 1);
         await addDeal.getByRole("button", { name: "Cancel" }).click();
       }
       await name.fill(newName);
@@ -442,7 +454,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       await turn.click();
       const form = page.getByRole("dialog", { name: "Add deal" });
       const nameField = form.getByLabel("Deal name");
-      const clientField = form.getByLabel("Client", { exact: true });
+      const clientField = form.getByRole("textbox", { name: "Client", exact: true });
       const ownerField = form.getByLabel("Owner");
       const phaseField = form.getByLabel("Phase");
       const notesField = form.getByLabel("Notes");
@@ -457,7 +469,15 @@ test("partners see and manage prospects from Deals", async (t) => {
       await notesField.fill("Edited before saving");
       await ownerField.selectOption("joe");
       if (width === 1440) await form.getByRole("button", { name: `Use ${birchProspect.name} as client` }).click();
-      else await clientField.fill(matchedClient.display_name);
+      else {
+        await clientField.fill("Clint Example");
+        await form.getByText("No matching people or companies.").waitFor({ timeout: 5000 });
+        await clientField.fill("Client Ex");
+        await form.getByRole("button", { name: "Client Example · Company" }).waitFor({ timeout: 5000 });
+        await form.getByRole("button", { name: `Client Example · Person · ${storedTwin.id}`, exact: true }).waitFor();
+        await form.getByRole("button", { name: `Client Example · Person · ${storedParty.id}`, exact: true }).click();
+        assert.equal(await clientField.inputValue(), storedParty.display_name);
+      }
       await save.click();
       assert.equal(conversionAttempts, 0, "phase must be chosen");
       await phaseField.selectOption("Research");
@@ -467,6 +487,17 @@ test("partners see and manage prospects from Deals", async (t) => {
       await form.getByText("Reload Deals before adding a deal.").waitFor();
       assert.equal(conversionAttempts, 0);
       savesEnabled = true;
+      if (width === 390) {
+        await clientField.fill("Example Outside");
+        await form.getByRole("button", { name: "Example Outside Practice · Person" }).click();
+        await save.click();
+        await form.getByText("Record how you found this person or company before using them as a client.").waitFor();
+        await clientField.fill("Client Ex");
+        await save.click();
+        await form.getByText("Choose a client from the matches.").waitFor();
+        assert.equal(conversionAttempts, 1, "typing a name does not pick a client");
+        await form.getByRole("button", { name: `Client Example · Person · ${storedParty.id}`, exact: true }).click();
+      }
       await save.click();
       await form.getByText("This person or company is no longer a prospect.").waitFor();
       assert.equal(await nameField.inputValue(), "Example Edited Deal");
@@ -486,7 +517,7 @@ test("partners see and manage prospects from Deals", async (t) => {
         .getByText("Edited before saving", { exact: true });
       await dealNote.waitFor();
       assert.equal(await dealNote.count(), 1);
-      assert.equal(conversionAttempts, width === 1440 ? 3 : 2);
+      assert.equal(conversionAttempts, 3);
       assert.equal(convertedNotes.length, 1);
       await page.getByRole("button", { name: "Back to deals" }).click();
       await page
