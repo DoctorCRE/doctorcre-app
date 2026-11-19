@@ -10,7 +10,7 @@ import { renderDealVendors } from './deal-vendors.js';
 import { renderClientPortalLink } from './client-portal-link.js';
 import { pageDocContext, selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createCommandDock } from './command-dock.js';
-import { readWithDeadline } from './auto-refresh.mjs';
+import { fetchRead, readWithDeadline } from './auto-refresh.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient } from './live-client.js';
@@ -346,6 +346,7 @@ function applyBoardSnapshot(board) {
   const saveSwitchChanged = Boolean(state.nextDealSaves) !== (board.next_deal_saves === true);
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
+  $('mondayReviewLink').hidden = board.engine_weekly_review !== true;
   if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
@@ -1600,7 +1601,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   factReviewPanel = null;
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
-  if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
+  if (!fromHistory && (history.state?.doctorcreDealWorkspace || openingFromMondayReview())) { history.back(); return; }
   selectDocRecord('deal', null);
   pageDocContext?.release('getDeal');
   ++panelReadSequence; ++contextReadSequence;
@@ -2115,12 +2116,47 @@ function mountDock() {
 
 
 let itemSheet;
+function openingFromMondayReview() {
+  if (!incomingScope.has('deal') || !document.referrer) return false;
+  const referrer = new URL(document.referrer);
+  return referrer.origin === location.origin && referrer.pathname === '/deals'
+    && referrer.searchParams.get('view') === 'review' && new URL(location.href).searchParams.has('deal');
+}
+
 async function boot() {
   mountPrefs();
+  const resolved = resolveDealroomBoot(globalThis.location || { hostname: '', search: '' });
+  if ($('mondayReview')) {
+    if (resolved.mode !== 'live') return;
+    state.client = createLiveClient();
+    const { mountMondayReview } = await import('./ui-monday-review.generated.js');
+    mountMondayReview($('mondayReview'), {
+      async read() {
+        const day = new Date(`${businessDay()}T00:00:00Z`);
+        day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7);
+        const response = await fetchRead(`/api/engine/weekly-reviews?week_of=${day.toISOString().slice(0, 10)}`);
+        if (!response.ok) throw new Error('Review unavailable');
+        return response.json();
+      },
+      async dealNotes(id) {
+        const detail = await readDealDetail(id);
+        return detail.thread.filter(note => note.kind === 'note').slice(0, 3).map(note => ({
+          id: note.id, summary: noteText(note.text), by: note.actor, at: note.at || note.created_at || note.recorded_at,
+        }));
+      },
+      phaseLabel: phase => columnBySlug(phase)?.label,
+      authorLabel, dateLabel: formatCalendarDate, timeLabel: sourceTime,
+    });
+    return;
+  }
+  if (openingFromMondayReview()) {
+    $('panelClose').textContent = '← Back to Monday review';
+    $('panelClose').setAttribute('aria-label', 'Back to Monday review');
+  }
+  if (incomingScope.get('mode') === 'live') $('mondayReviewLink').href = '/deals?view=review&mode=live';
 
   mountDock();
   wire();
-  const resolved = resolveDealroomBoot(globalThis.location || { hostname: '', search: '' });
   state.client = resolved.mode === 'live' ? createLiveClient() : await (await import("./fixture-client.js")).createFixtureClient(resolved.options);
   mountNotificationBadge(state.client);
   itemSheet = mountDealItemSheet({document,today:todayIso,read:readDealDetail,send:runFollowUp,pending:key => pendingCommand(commandState,key),refresh:() => {state.boardSync.requestRefresh('deal-item');refreshPanel();}});

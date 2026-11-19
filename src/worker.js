@@ -275,8 +275,9 @@ async function engineResponse(request, env) {
         if (!call) return copySessionCookies(response, new Response(text, { status: response.status, headers: JSON_HEADERS }));
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
-          if (board?.schema_version === 'local-deals-board.v2' && await switchedOn(env, NEXT_DEAL_SAVES)) {
-            text = JSON.stringify({ ...board, next_deal_saves: true });
+          if (board?.schema_version === 'local-deals-board.v2') {
+            text = JSON.stringify({ ...board, engine_weekly_review: true,
+              ...(await switchedOn(env, NEXT_DEAL_SAVES) ? { next_deal_saves: true } : {}) });
           }
         }
         if (call.params.name === 'get-deal-room' && response.ok) {
@@ -647,7 +648,9 @@ async function handleRequest(request, env) {
     return assetResponse(request, env, `/${APP_ROUTES.get(pathname)}`);
   }
 
-  const routeAsset = pathname === "/deals" && url.searchParams.get("view") === "national" ? "index.html"
+  const dealView = pathname === '/deals' ? url.searchParams.get('view') : null;
+  const routeAsset = dealView === 'review' ? 'monday-review.html'
+    : dealView === 'national' ? "index.html"
     : pathname === "/" && url.searchParams.get("view") === "charts" ? "charts.html"
     : APP_ROUTES.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
   if (routeAsset) {
@@ -655,6 +658,10 @@ async function handleRequest(request, env) {
     const gateRequest = gateRequestFor(request, pathname);
     const gate = await carrResponse(gateRequest, env, true);
     if (gate.status !== 200) return gateRequest === request ? gate : restoreOriginalReturnTo(gate, request);
+    if (dealView === 'review' && !await switchedOn(env, DEALS)) {
+      url.searchParams.delete('view');
+      return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
+    }
     return copySessionCookies(gate, await assetResponse(request, env, `/${routeAsset}`));
   }
 
@@ -670,7 +677,9 @@ async function handleRequest(request, env) {
       response.headers.set('allow', 'GET, HEAD, POST');
       return response;
     }
-    if (pathname.startsWith('/api/engine/documents/') && !await switchedOn(env, DEALS))
+    const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
+    if ((weeklyReview && request.method === 'POST')
+        || ((weeklyReview || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     if (!env?.ENGINE?.fetch) return json({ error: 'engine_unavailable' }, 503);
     try {
