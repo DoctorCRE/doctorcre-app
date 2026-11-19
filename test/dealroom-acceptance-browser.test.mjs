@@ -1040,6 +1040,80 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
   assert.deepEqual(oldReads, []);
 });
 
+for (const width of [1440, 390]) test(`National account rows open the deal before offering attention at ${width}px`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  t.after(() => page.close());
+  await page.clock.setFixedTime(new Date('2026-11-19T15:00:00Z'));
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `national-rows-${width}`, viewer: 'joe', reset: true } });
+  const account = crypto.randomUUID();
+  const deal = { id: crypto.randomUUID(), name: 'Example Clinic Expansion', phase: 'research', owner: 'joe', seen: 1,
+    account_client_id: account, market: 'Market unspecified in source', next_date: '2026-11-18', next_step: 'Review the floor plan',
+    open_actions: [{ id: crypto.randomUUID(), owner: 'joe', description: 'Review the floor plan', due_on: '2026-11-18' }] };
+  const closing = { ...deal, id: crypto.randomUUID(), name: 'Example Dental Office', phase: 'closing',
+    market: 'Example City', next_date: '2026-11-23', next_step: 'Sign the lease',
+    open_actions: [{ id: crypto.randomUUID(), owner: 'joe', description: 'Sign the lease', due_on: '2026-11-23' }] };
+  const writes = [];
+  let savesOn = false;
+  const env = {
+    ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' || (savesOn && key === 'deals-saves-from-engine') ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe',
+        deals: [deal, closing], accounts: [{ account_client_id: account, account_name: 'Example National Account', account_owner: 'joe' }] });
+      if (path === `/api/engine/deals/${deal.id}`) return Response.json({ ...deal, deal_id: deal.id });
+      assert.equal(path, `/api/engine/deals/${deal.id}/changes`);
+      const { fields } = await request.json();
+      writes.push(fields);
+      deal.attention = fields.needs_attention;
+      return Response.json({ deal_id: deal.id, change_id: ++deal.seen });
+    } },
+  };
+  // Loopback uses fixture mode by default. Keep the same synthetic Worker backing the detail.
+  await page.route(`**/deals?deal=${deal.id}`, route => route.fulfill({
+    status: 302, headers: { location: `/deals?deal=${deal.id}&mode=live` },
+  }));
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    if (!['deal-room-board', 'get-deal-room', 'patch-deal-field'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+    }), env);
+    return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+  });
+
+  const accountUrl = `${origin}/deals?view=national&mode=live`;
+  const openAccount = () => page.getByRole('button', { name: /Example National Account/ }).click();
+  const row = page.getByRole('row').filter({ hasText: deal.name });
+  await page.goto(accountUrl);
+  await openAccount();
+  assert.equal(await row.getByRole('button').first().getAttribute('aria-label'), `Flag for attention on ${deal.name}`);
+  assert.match(await page.locator('#stats').innerText(), /2 active work · 1 overdue dates · 1 at closing/);
+
+  savesOn = true;
+  await page.goto(accountUrl);
+  await openAccount();
+  const first = row.getByRole('button').first();
+  assert.equal(await first.innerText(), deal.name);
+  const mark = row.getByRole('button', { name: `Mark needs attention on ${deal.name}`, exact: true });
+  await mark.waitFor();
+  assert.ok((await mark.innerText()).startsWith('Mark needs attention'));
+  assert.match(await row.innerText(), /No market recorded/);
+  assert.match(await page.getByRole('row').filter({ hasText: closing.name }).innerText(), /Example City/);
+  assert.match(await page.locator('#stats').innerText(), /2 open deals · 1 late · 1 closing/);
+  await first.click();
+  await page.getByRole('heading', { name: deal.name, exact: true }).waitFor({ timeout: 5000 });
+  assert.deepEqual(writes, []);
+
+  await page.goto(accountUrl);
+  await openAccount();
+  await page.locator('#boardSection').screenshot({ path: join(evidence, `national-account-${width}.png`) });
+  await mark.click();
+  const clear = row.getByRole('button', { name: `Clear needs attention on ${deal.name}`, exact: true });
+  await clear.click();
+  await mark.waitFor();
+  assert.deepEqual(writes, [{ needs_attention: true }, { needs_attention: false }]);
+});
+
 test('National Accounts saves inline changes using the version on the deal board', async t => {
   const page = await browser.newPage();
   t.after(() => page.close());
