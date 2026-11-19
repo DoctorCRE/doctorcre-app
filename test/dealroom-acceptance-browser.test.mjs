@@ -1471,7 +1471,7 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   const earlier = await oldHistory.getByRole('listitem').allTextContents();
   assert.equal(earlier.length, 3);
   assert.match(earlier[0], /Joe.*Jan 5, 2025.*6:00 PM CST.*Prepared a document.*Example lease <draft>.*Fields filled.*0.*Fields still needed.*2/s);
-  assert.match(earlier[1], /Doc.*Jan 5, 2025.*6:00 PM CST.*Checked the address.*Found.*No.*Feb 3, 2025/s);
+  assert.match(earlier[1], /Automatically.*Jan 5, 2025.*6:00 PM CST.*Checked the address.*Result: Nothing found.*Feb 3, 2025/s);
   assert.match(earlier[2], /Dell.*Jan 4, 2025.*6:00 PM CST.*Changed the next step date.*Next step date cleared.*Jan 6, 2025/s);
   assert.doesNotMatch(earlier.join(' '), /2025-01-|next_date|set-next-action|record-finding|expires_on|\[object Object\]/);
   assert.equal(await oldHistory.locator('a, button, input, select, textarea, [contenteditable]').count(), 0);

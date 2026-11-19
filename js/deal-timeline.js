@@ -220,24 +220,13 @@ const OLD_HISTORY_ACTION = new Map(Object.entries({
   'update-deal:closed_on': 'Changed the closing date',
   'update-deal:invoiced_on': 'Changed the invoice date',
   'update-deal:lane': 'Changed the board lane',
-  'update-deal:notes_path': 'Changed the notes file',
+  'update-deal:notes_path': 'Updated where the deal notes are kept',
   'update-deal:outcome': 'Changed the deal outcome',
   'update-deal:phase': 'Changed the phase',
   'update-deal:salesforce_id': 'Changed the Salesforce reference',
 }));
 
-const OLD_HISTORY_JOB = new Map(Object.entries({
-  agent: 'Doc (assistant)',
-  candidate_sweep: 'Follow-up review',
-  intake: 'Intake',
-  lead_stage: 'Lead updates',
-  mail_capture: 'Mail filing',
-  old_system: 'Old system',
-  publisher: 'Publishing',
-  readings: 'Post readings',
-  review_close: 'Review close',
-}));
-const historicalActor = slug => OLD_HISTORY_JOB.get(slug) || timelineActor(slug) || 'Author unavailable';
+const historicalActor = slug => timelineActor(slug) || 'Author unavailable';
 const historicalPartner = slug => slug === 'joe-local' ? 'Joe'
   : Object.hasOwn(ACTOR_LABEL, slug) ? ACTOR_LABEL[slug] : 'Name unavailable';
 const words = value => value.replace(/(^|[_-]+)([a-z])/g, (_, separator, letter) =>
@@ -251,21 +240,37 @@ const COUNTER_BASIS = new Map([
   ['usd_mo_gross', 'gross per month'], ['usd_yr_gross', 'gross per year'],
 ]);
 
+const OLD_ACTIVITY_NAMES = new Map([
+  ...Object.entries(activityLabels),
+  ['email_in', 'Email received'], ['email_out', 'Email sent'], ['text', 'Text message'],
+  ['counter_sent', 'Counteroffer sent'], ['counter_received', 'Counteroffer received'],
+  ['loi', 'Letter of intent'], ['lease_signed', 'Lease signed'],
+]);
+const OLD_SUGGESTION_NAMES = new Map([
+  ['file_to_deal', 'File email to this deal'], ['possible_new_deal', 'Possible new deal'],
+  ['phase_move', 'Move to another phase'], ['next_step', 'Set a next step'], ['reply_draft', 'Draft a reply'],
+]);
+const OLD_HISTORY_KIND = new Map([
+  ['add-critical-date', ['Date type', criticalDateLabel]],
+  ['log-activity', ['Activity type', kind => OLD_ACTIVITY_NAMES.get(kind) || words(kind)]],
+  ['dismiss-email-proposal', ['Suggestion type', kind => OLD_SUGGESTION_NAMES.get(kind) || words(kind)]],
+]);
+
 // References to old rows carry no display name. Only show facts the event actually held.
 const OLD_HISTORY_FACTS = {
-  name: ['Deal name'], client: ['Client'], client_name: ['Client'], client_ref: ['Client reference'],
+  name: ['Deal name'], client_name: ['Client'],
   phase: ['Phase', value => value === 'dead' ? 'Lost' : columnBySlug(value)?.label || words(value)],
   deal_type: ['Deal type', words], market: ['Market'], agent_name: ['Market agent'],
   market_agent: ['Market agent'], lead: ['Deal owner', historicalPartner], owner: ['Assigned to', historicalPartner],
   assignee: ['Assigned to', historicalPartner], set_by: ['Set by', historicalActor],
   lane: ['Board lane', words], next_action: ['Next step'], next_step: ['Next step'],
-  description: ['Next step'], summary: ['Summary'], reason: ['Reason'], outcome: ['Outcome'],
+  description: ['Next step'], summary: ['Summary'], reason: ['Reason'], outcome: ['Outcome', words],
   status: ['Status', words], closed_on: ['Closing date', historicalDay], invoiced_on: ['Invoice date', historicalDay],
   next_date: ['Next step date', historicalDay], due: ['Due date', historicalDay], due_on: ['Due date', historicalDay],
-  kind: ['Kind', criticalDateLabel], found: ['Found'], expires_on: ['Expires', historicalDay],
+  found: ['Result', value => value ? 'Found' : 'Nothing found'], expires_on: ['Expires', historicalDay],
   proposes_correction: ['Suggested correction to', words], source: ['Where it came from'],
-  building_created: ['New building added'], spaces: ['Spaces'], ownership: ['Ownership entries'],
-  client_portal_url: ['Client website'], notes_path: ['Notes file', value => value.split('/').pop()],
+  building_created: ['New building added'], spaces: ['Spaces'], ownership: ['Owners listed'],
+  client_portal_url: ['Client website'],
   salesforce_id: ['Salesforce reference'], round: ['Round'], side: ['From', words],
   rate: ['Rate', value => closedMoney.format(value)],
   basis: ['Rate basis', value => COUNTER_BASIS.get(value) || 'Details unavailable'],
@@ -282,10 +287,12 @@ function historicalValue(value, format) {
   return String(value);
 }
 
-function importedFacts(oldValue, newValue) {
-  const before = oldValue ?? {};
-  const after = newValue ?? {};
-  return Object.entries(OLD_HISTORY_FACTS).flatMap(([key, [label, format]]) => {
+function importedFacts({ verb, old_value, new_value }) {
+  const before = old_value ?? {};
+  const after = new_value ?? {};
+  const kind = OLD_HISTORY_KIND.get(verb);
+  const facts = kind ? { ...OLD_HISTORY_FACTS, kind } : OLD_HISTORY_FACTS;
+  return Object.entries(facts).flatMap(([key, [label, format]]) => {
     const had = Object.hasOwn(before, key);
     const has = Object.hasOwn(after, key);
     if (!had && !has) return [];
@@ -303,7 +310,7 @@ export function renderImportedDealHistory(history) {
   const rows = history.filter(entry => entry?.imported === true).reverse().map(event => {
     const key = event.field == null ? event.verb : `${event.verb}:${event.field}`;
     const action = OLD_HISTORY_ACTION.get(key);
-    const facts = action ? importedFacts(event.old_value, event.new_value) : '';
+    const facts = action ? importedFacts(event) : '';
     return `<li><b>${esc(historicalActor(event.actor))}</b> <time datetime="${esc(event.recorded_at)}">${esc(sourceTime(event.recorded_at))}</time>
       <div>${action || 'Earlier deal activity'}</div>${facts ? `<p class="note-original">${esc(facts)}</p>` : ''}</li>`;
   });
