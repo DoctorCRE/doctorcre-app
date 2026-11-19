@@ -14,7 +14,7 @@ import { readWithDeadline } from './auto-refresh.mjs';
 import { fetchRead } from './current-read.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
-import { createLiveClient } from './live-client.js';
+import { createLiveClient, dealTypeLabel } from './live-client.js';
 import { loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
 import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
@@ -156,11 +156,18 @@ function parkFormHtml(nextDealSaves) {
     : '<label>Park reason<input name="reason" maxlength="500" required></label>';
   return `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm">${fields}<button class="btn park-control" type="submit">Park deal</button></form></details>`;
 }
-function dealTypeFacts(deal, fromEngine, fallback = '') {
-  const unrecordedRenewal = fromEngine && deal.renewal_lease_unrecorded === true;
-  const type = (unrecordedRenewal ? deal.kind && deal.type : deal.type) || fallback;
-  return (type ? `<div><dt>Type</dt><dd>${esc(type)}</dd></div>` : '')
-    + (unrecordedRenewal ? '<div><dt>Deal reason</dt><dd><span>Renewal</span><br><small>Lease not recorded</small></dd></div>' : '');
+function dealTypeFacts(deal) {
+  const facts = [{ label: 'Type', value: dealTypeLabel(deal.kind) || 'Not recorded' }];
+  const reason = dealTypeLabel(deal.reason);
+  if (reason) {
+    facts.push({ label: 'Deal reason', value: reason, note: deal.renewal_lease_unrecorded ? 'Lease not recorded' : '' });
+  }
+  return facts;
+}
+function renderDealFacts(facts) {
+  return facts.map(({label, value, note}) => `<div><dt>${esc(label)}</dt><dd>${note
+    ? `<span>${esc(value)}</span><br><small>${esc(note)}</small>`
+    : esc(value)}</dd></div>`).join('');
 }
 function boardNextStepHtml(deal) {
   const steps = (deal.open_actions || []).filter(step => step.description?.trim());
@@ -329,21 +336,49 @@ async function submitDeal(event) {
   } finally { creatingDeal = false; syncDealCreation(); }
 }
 
+function endedDealCards(archived, lost, query) {
+  const fromEngine = state.boardFromEngine;
+  let rows;
+  if (fromEngine) {
+    rows = (archived || []).filter(d => d.workspace_kind !== 'national_account' && !d.account_client_id
+      && (state.filter === 'all' || d.owner === state.filter));
+  } else {
+    const records = new Map(state.deals);
+    for (const deal of archived || []) records.set(deal.id,{...records.get(deal.id),...deal});
+    rows = (lost ? lostDeals : closedDeals)([...records.values()], state.filter, query);
+  }
+  const cards = rows.map(deal => {
+    const closeDate = fromEngine
+      ? formatCalendarDate(calendarDay(deal.closed_on) || '') || 'Close date not recorded'
+      : deal.closed_on ? dateWords(deal.closed_on) : 'Not recorded';
+    const facts = [
+      { label: 'Client', value: deal.client_name || (!fromEngine && deal.client_ref) || 'Not recorded' },
+      ...(fromEngine ? dealTypeFacts(deal) : [{ label: 'Type', value: deal.type || 'Not recorded' }]),
+      { label: 'Close date', value: closeDate },
+    ];
+    if (lost && deal.lost_reason) {
+      facts.push({ label: fromEngine ? 'Reason for loss' : 'Reason', value: deal.lost_reason });
+    }
+    facts.push({ label: 'Owner', value: actorName(deal.owner) });
+    return { deal, title: dealTitle(deal), facts };
+  });
+  const search = query.trim().toLowerCase();
+  return fromEngine && search ? cards.filter(({title, facts}) =>
+    [title, ...facts.flatMap(({value, note}) => [value, note])].some(value => value?.toLowerCase().includes(search))
+  ) : cards;
+}
+
 function renderClosedDeals() {
   const lost = state.view === 'lost';
   const label = lost ? 'lost' : 'closed';
   $('closedDealsTitle').textContent = lost ? 'Lost deals' : 'Closed deals';
   document.querySelector('label[for=closedSearch]').textContent = `Search ${label} deals`;
   const archived = lost ? state.lostDeals : state.closedDeals;
-  const records = new Map(state.deals);
-  for (const deal of archived || []) records.set(deal.id,{...records.get(deal.id),...deal});
-  const rows = (lost ? lostDeals : closedDeals)([...records.values()], state.filter, $('closedSearch').value);
-  $('closedCount').textContent = archived === null ? 'Closed history is unavailable. Refresh to try again.' : `${rows.length} ${label} deal${rows.length === 1 ? '' : 's'}`;
-  $('closedDealsList').innerHTML = rows.map(d => `<article class="closed-deal glass" data-id="${esc(d.id)}">
-    <h3><button type="button" class="card-open" data-open-deal="${esc(d.id)}">${esc(dealTitle(d))}</button></h3><dl><div><dt>Client</dt><dd>${esc(d.client_name || d.client_ref || 'Not recorded')}</dd></div>
-    ${dealTypeFacts(d, state.boardFromEngine, 'Not recorded')}<div><dt>Close date</dt><dd>${esc(d.closed_on ? dateWords(d.closed_on) : 'Not recorded')}</dd></div>
-    ${lost && d.lost_reason ? `<div><dt>${state.boardFromEngine ? 'Reason for loss' : 'Reason'}</dt><dd>${esc(d.lost_reason)}</dd></div>` : ''}
-    <div><dt>Owner</dt><dd>${esc(actorName(d.owner))}</dd></div></dl>${renderDealVendors(d.vendors)}${autoHtml(d)}</article>`).join('') || (archived === null ? '' : `<p>No ${label} deals match this search.</p>`);
+  const cards = endedDealCards(archived, lost, $('closedSearch').value);
+  $('closedCount').textContent = archived === null ? 'Closed history is unavailable. Refresh to try again.' : `${cards.length} ${label} deal${cards.length === 1 ? '' : 's'}`;
+  $('closedDealsList').innerHTML = cards.map(({deal, title, facts}) => `<article class="closed-deal glass" data-id="${esc(deal.id)}">
+    <h3><button type="button" class="card-open" data-open-deal="${esc(deal.id)}">${esc(title)}</button></h3>
+    <dl>${renderDealFacts(facts)}</dl>${renderDealVendors(deal.vendors)}${autoHtml(deal)}</article>`).join('') || (archived === null ? '' : `<p>No ${label} deals match this search.</p>`);
 }
 
 function visibleBoardDeals() {
@@ -1473,6 +1508,7 @@ function dealEmailFollowupsHtml(followups, canDecide) {
 function workspaceHtml(detail) {
   const fromEngine = isEngineDealDetail(detail);
   const d = detail.deal;
+  const typeFacts = fromEngine ? dealTypeFacts(d) : d.type ? [{ label: 'Type', value: d.type }] : [];
   const items = detail.items || d.items || [];
   const { text: nextStep, dueOn, item: nextItem, otherActions } = dealNextStep(d, detail.next_actions || [], items);
   const today = todayIso();
@@ -1500,7 +1536,7 @@ function workspaceHtml(detail) {
         return `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
       }).join('')}</ul>` : ''}
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
-      <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${dealTypeFacts(d, fromEngine)}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
+      <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${renderDealFacts(typeFacts)}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
       ${closedValue > 0 ? `<dl class="deal-snapshot-facts"><div><dt>Closed value</dt><dd>${closedValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</dd></div></dl>` : ''}
       ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
     </section>
