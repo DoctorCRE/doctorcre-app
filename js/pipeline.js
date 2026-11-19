@@ -252,6 +252,7 @@ async function openAddDeal(client = null, conversion = null) {
     picker.hidden = !usePicker;
     unmountDealClientPicker = mountDealClientPicker?.(picker, {
       ...(prospect ? { prospect } : { client: client ?? undefined }),
+      labels: { kind: fieldLabel('kind'), reason: fieldLabel('reason') },
       request: fetchRead, leaseDate: formatCalendarDate, onPick: () => { $('addDealError').textContent = ''; },
     });
     $('addDealOwner').value = prospect ? prospect.owner ?? '' : state.selfActor || 'joe';
@@ -2016,7 +2017,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   marketTermsPanel = null;
   if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
   if (!fromHistory && incomingScope.has('deal')) {
-    const origin = dealsPageOrigin('review') || nationalClosedOrigin();
+    const origin = dealsPageOrigin('review') || nationalDealOrigin();
     if (origin) { returnToDealsPage(origin); return; }
   }
   selectDocRecord('deal', null);
@@ -2608,9 +2609,9 @@ function dealsPageOrigin(view) {
     && referrer.searchParams.get('view') === view ? referrer : null;
 }
 
-function nationalClosedOrigin() {
+function nationalDealOrigin() {
   const origin = dealsPageOrigin('national');
-  return origin?.searchParams.get('account') && origin.searchParams.get('account_view') === 'closed' ? origin : null;
+  return incomingScope.get('close') === '1' || origin?.searchParams.get('account_view') === 'closed' ? origin : null;
 }
 
 function returnToDealsPage(origin) {

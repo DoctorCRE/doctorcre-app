@@ -260,11 +260,11 @@ const OLD_HISTORY_KIND = new Map([
 const OLD_HISTORY_FACTS = {
   name: ['Deal name'], client_name: ['Client'],
   phase: ['Phase', value => value === 'dead' ? 'Lost' : columnBySlug(value)?.label || words(value)],
-  deal_type: ['Deal type', words], market: ['Market'], agent_name: ['Market agent'],
+  deal_type: [fieldLabel('kind'), words], market: ['Market'], agent_name: ['Market agent'],
   market_agent: ['Market agent'], lead: ['Deal owner', historicalPartner], owner: ['Assigned to', historicalPartner],
   assignee: ['Assigned to', historicalPartner], set_by: ['Set by', historicalActor],
   lane: ['Board lane', words], next_action: ['Next step'], next_step: ['Next step'],
-  description: ['Next step'], summary: ['Summary'], reason: ['Reason'], outcome: ['Outcome', words],
+  description: ['Next step'], summary: ['Summary'], reason: [fieldLabel('reason')], outcome: ['Outcome', words],
   status: ['Status', words], closed_on: ['Closing date', historicalDay], invoiced_on: ['Invoice date', historicalDay],
   next_date: ['Next step date', historicalDay], due: ['Due date', historicalDay], due_on: ['Due date', historicalDay],
   found: ['Result', value => value ? 'Found' : 'Nothing found'], expires_on: ['Expires', historicalDay],

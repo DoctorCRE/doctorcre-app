@@ -12,7 +12,7 @@ import { dealTypeLabel } from './live-client.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
-import { columnByValue, dealInsightLines } from './pipeline-model.js';
+import { CLOSED_SLUG, columnByValue, dealInsightLines } from './pipeline-model.js';
 import { selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createClient, PHASES, PHICON, ACTOR_LABEL, phaseLabel } from './client.js';
 import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
@@ -596,8 +596,9 @@ function boardRow(deal, nationalAccountRows) {
   const parked = deal.operating_state === 'parked';
   const presence = state.presence.filter(lease => lease.deal_id === deal.id && lease.actor !== state.selfActor && new Date(lease.expires_at) > new Date());
   const today = state.boardFromEngine ? businessDay() : new Date().toLocaleDateString('en-CA');
-  // Older records store this placeholder when there is no market.
-  const market = nationalAccountRows && (!deal.market?.trim() || deal.market === 'Market unspecified in source')
+  const recordedMarket = deal.market?.trim();
+  const market = state.boardFromEngine && deal.account_client_id &&
+    (!recordedMarket || /^market unspecified(?: in source)?$/i.test(recordedMarket))
     ? 'No market recorded' : deal.market;
   return {
     id: deal.id, name: deal.name, parked, attention: Boolean(deal.attention), phase: deal.phase,
@@ -1707,7 +1708,14 @@ function showConflict(conflict) {
 
 async function openDeal(dealId, { close = false, fromClosed = false } = {}) {
   const params = new URLSearchParams({ deal: dealId });
-  if (close) params.set('close', '1');
+  if (close) {
+    params.set('close', '1');
+    if (state.accountId) {
+      const returnTo = new URL(location.href);
+      returnTo.searchParams.set('account', state.accountId);
+      history.replaceState(history.state, '', returnTo);
+    }
+  }
   if (close || fromClosed) {
     const mode = new URLSearchParams(location.search).get('mode');
     if (mode) params.set('mode', mode);
@@ -1836,8 +1844,11 @@ function wireEvents() {
   document.addEventListener('change', async (event) => {
     if (event.target.matches('[data-phase]')) {
       const id = event.target.dataset.phase;
-      if (state.nextDealSaves && event.target.value === 'Closed') await openDeal(id, { close: true });
-      else await patchField(id,'phase',event.target.value);
+      const phase = event.target.value;
+      if (state.nextDealSaves && columnByValue(phase)?.slug === CLOSED_SLUG) {
+        event.target.value = state.deals.get(id)?.phase || '';
+        await openDeal(id, { close: true });
+      } else await patchField(id, 'phase', phase);
     }
     if (event.target.matches('[data-owner]')) await patchField(event.target.dataset.owner,'owner',event.target.value || null);
   });

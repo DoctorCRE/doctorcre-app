@@ -3,6 +3,7 @@ import { overdueLabel } from './deal-review-model.js';
 import { dealName, noteText } from './pipeline-model.js';
 import { calendarDay } from './deal-timeline.js';
 import { daysBetween } from './calendar-model.js';
+import { fieldLabel } from './change-receipts.mjs';
 import { ACTOR_LABEL } from './client.js';
 import { renderDealVendors } from './deal-vendors.js';
 import { automaticMove, invoiceClose } from './local-deals-model.js';
@@ -125,12 +126,11 @@ export function autoHtml(deal) {
   return move ? `<div class="auto-move"><span>${esc(move.text.slice(0, move.text.lastIndexOf(' ')))}</span> <time>${esc(move.text.slice(move.text.lastIndexOf(' ') + 1))}</time></div>` : '';
 }
 export function dealTypeFacts(deal, dealTypeLabel) {
-  const facts = [{ label: 'Type', value: dealTypeLabel(deal.kind) || 'Not recorded' }];
-  const reason = dealTypeLabel(deal.reason);
-  if (reason) {
-    facts.push({ label: 'Deal reason', value: reason, note: deal.renewal_lease_unrecorded ? 'Lease not recorded' : '' });
-  }
-  return facts;
+  return [
+    { label: fieldLabel('kind'), value: dealTypeLabel(deal.kind) || 'Not recorded' },
+    { label: fieldLabel('reason'), value: dealTypeLabel(deal.reason) || 'Not recorded',
+      note: deal.renewal_lease_unrecorded ? 'Lease not recorded' : '' },
+  ];
 }
 export function renderDealFacts(facts) {
   return facts.map(({label, value, note}) => `<div><dt>${esc(label)}</dt><dd>${note
