@@ -44,7 +44,7 @@ import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceCl
 import { sourceTime } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
-  dealTimeline, engineTimelineEntries, renderImportedDealHistory, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
+  dealTimeline, engineTimelineEntries, renderImportedDealHistory, criticalDateLabel, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
 } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
 import { mountVisibilityPoll } from './visibility-poll.mjs';
@@ -1371,10 +1371,21 @@ function writeWorkspaceHistory(data, url, push = false) {
   history[push ? 'pushState' : 'replaceState']({...data, doctorcreWorkspaceIndex:workspaceHistoryIndex}, '', url);
 }
 writeWorkspaceHistory(history.state, location.href);
+function renderNextCriticalDate(date) {
+  const day = calendarDay(date?.due_on);
+  if (!day) return '';
+  return `<div class="workspace-critical-date"><dt>Next critical date</dt><dd>${esc(criticalDateLabel(date.kind))} · <time datetime="${day}">${dateWords(day)}</time></dd></div>`;
+}
 function renderWorkspaceFacts(detail) {
   const d = detail.deal;
+  const fromEngine = isEngineDealDetail(detail);
   const client = d.client_name || d.client_ref;
-  $('workspaceFacts').innerHTML = `<dl class="workspace-facts">${client && client !== dealTitle(d) ? `<div class="workspace-client"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}<div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}</dd></div><div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div></dl>`;
+  $('workspaceFacts').innerHTML = `<dl class="workspace-facts">
+    ${client && client !== dealTitle(d) ? `<div class="workspace-client"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}
+    <div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}</dd></div>
+    <div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div>
+    ${fromEngine ? renderNextCriticalDate(d.next_critical_date) : ''}
+  </dl>`;
 }
 function selectWorkspaceTab(id) {
   workspaceTab = id;
@@ -1491,11 +1502,29 @@ function dealEmailFollowupsHtml(followups, canDecide) {
   }).join('') || '<p>No email follow-ups.</p>'}`;
 }
 
+function renderSnapshotFacts(deal, fromEngine) {
+  const facts = [];
+  if (fromEngine && deal.market) facts.push({ label: 'Market', value: deal.market });
+  if (deal.workspace_kind === 'national_account' || deal.account_client_id) {
+    facts.push({ label: 'Market agent', value: deal.market_agent || 'Unassigned' });
+  }
+  if (fromEngine) facts.push(...dealTypeFacts(deal));
+  else if (deal.type) facts.push({ label: 'Type', value: deal.type });
+  if (deal.outcome) facts.push({ label: 'Outcome', value: deal.outcome[0].toUpperCase() + deal.outcome.slice(1) });
+
+  const value = Number(deal.closed_value);
+  const closedValue = value > 0 && (!fromEngine || isClosedDeal(deal))
+    ? { label: 'Closed value', value: value.toLocaleString('en-US', { style: 'currency', currency: 'USD' }) }
+    : null;
+  if (fromEngine && closedValue) facts.push(closedValue);
+  return `<dl class="deal-snapshot-facts">${renderDealFacts(facts)}</dl>
+    ${!fromEngine && closedValue ? `<dl class="deal-snapshot-facts">${renderDealFacts([closedValue])}</dl>` : ''}`;
+}
+
 function workspaceHtml(detail) {
   const fromEngine = isEngineDealDetail(detail);
   const ownStep = canEditOwnDealStep(detail);
   const d = detail.deal;
-  const typeFacts = fromEngine ? dealTypeFacts(d) : d.type ? [{ label: 'Type', value: d.type }] : [];
   const items = detail.items || d.items || [];
   const [leadStep, ...remainingSteps] = fromEngine ? dealOwnerFirstSteps(d, detail.next_actions) : [];
   const { text: nextStep, dueOn, item: nextItem, otherActions } = fromEngine
@@ -1512,7 +1541,6 @@ function workspaceHtml(detail) {
     : parkingNote ? `<p>${esc(parkingNote)}</p>${parker}` : parker || '<p>Parked</p>';
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !isClosedDeal(d);
   const canAddCriticalDate = detail.next_deal_saves === true && Number.isSafeInteger(d.seen);
-  const closedValue = Number(d.closed_value);
   const invoice = invoiceClose(d);
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && !isClosedDeal(d) : controlsAvailable)
     ? clientPortalSetupHtml() : '';
@@ -1520,14 +1548,13 @@ function workspaceHtml(detail) {
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
       ${fromEngine ? renderClientPortalLink(d.client_portal_url, d.id) || '<p>No client website linked.</p>' : ''}
       ${invoice ? `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${esc(invoice.evidence_date)}">${esc(dateWords(invoice.evidence_date))}</time>${state.nextDealSaves ? ' <button class="btn" type="button" data-undo-invoice>Undo invoice close</button>' : ''}</div>` : ''}
-      ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span></p>` : '<p>No next step or key date set.</p>'}
+      ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span></p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
       ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
         const day = calendarDay(action.due_on);
         return `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
       }).join('')}</ul>` : ''}
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
-      <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${renderDealFacts(typeFacts)}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
-      ${closedValue > 0 ? `<dl class="deal-snapshot-facts"><div><dt>Closed value</dt><dd>${closedValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</dd></div></dl>` : ''}
+      ${renderSnapshotFacts(d, fromEngine)}
       ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
     </section>
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
