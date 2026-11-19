@@ -2049,6 +2049,7 @@ for (const width of [1440, 390]) {
   test(`Monday review keeps engine order and your place at ${width}px`, async t => {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     t.after(() => page.close());
+    const origin = await dealFixtureOrigin(t);
     await page.clock.setFixedTime(new Date('2026-11-16T04:00:00Z'));
     const [deal, prospect, dropped, parked] = Array.from({ length: 4 }, () => crypto.randomUUID());
     const row = { id: deal, deal_id: deal, name: 'Zephyr Deal', phase: 'research', owner: 'dell', seen: 1,
