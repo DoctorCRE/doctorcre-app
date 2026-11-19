@@ -4,7 +4,8 @@ export function preserveBoardFocus({ board, document, paint, announce = () => {}
   const card = board.contains(active) ? active.closest?.('.kanban-card') : null;
   const id = card?.dataset.id;
   const control = active?.dataset?.open === id ? 'open'
-    : active?.dataset?.move === id ? 'move' : 'card';
+    : active?.dataset?.move === id ? 'move'
+    : active?.dataset?.undoPhase === id ? 'undo-phase' : 'card';
 
   paint();
   if (!id) return;

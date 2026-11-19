@@ -312,7 +312,7 @@ const CUTOVER_SAVES = new Set([
   'patch-deal-field', 'update-deal', 'set-next-step', 'complete-deal-item', 'record-deal-item',
   'add-deal-note', 'new-deal', 'set-market-agent', 'add-critical-date',
   'remove-deal-participant', 'confirm-critical-date', 'resolve-critical-date',
-  'instruct-deal-item', 'revert-deal-field', 'resolve-conflict', 'undo-invoice-close',
+  'instruct-deal-item', 'revert-deal-field', 'resolve-conflict', 'undo-invoice-close', 'undo-automatic-phase-move',
   'create-national-account', 'set-national-account-owner', 'create-national-market-deal',
 ]);
 const isUuid = value => isString(value) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -342,6 +342,10 @@ function nextDealSave(verb, args) {
   if (!isUuid(deal)) return null;
   const changes = patch => post(`/deals/${deal}/changes`, { seen_change_id, ...patch });
   switch (verb) {
+    case 'undo-automatic-phase-move':
+      return isUuid(args.event_id) ? post(`/deals/${deal}/phase/undo`, {
+        event_id: args.event_id, base_version: seen_change_id,
+      }) : null;
     case 'undo-invoice-close':
       return isUuid(args.invoice_id) ? post(`/invoice-emails/${args.invoice_id}/undo`) : null;
     case 'set-market-agent':
@@ -354,11 +358,7 @@ function nextDealSave(verb, args) {
     }
     case 'add-critical-date': {
       const { kind, due_on, source, note } = args;
-      const phaseDate = kind === 'phase_effective_date';
-      return post(`/deals/${deal}/critical-dates`, {
-        kind: phaseDate ? 'other' : kind, due_on, source,
-        note: phaseDate ? 'Phase effective date' : note,
-      });
+      return post(`/deals/${deal}/critical-dates`, { kind, due_on, source, note });
     }
     case 'confirm-critical-date':
     case 'resolve-critical-date': {
@@ -453,6 +453,8 @@ async function cutoverSave(request, env, call) {
   const accountSave = name === 'create-national-account' || name === 'set-national-account-owner';
   const fromNext = creating || accountSave ? args.next_deal_save === true
     : Number.isSafeInteger(args.seen_change_id) && args.seen_change_id >= 0;
+  const phaseUndo = name === 'undo-automatic-phase-move';
+  if (phaseUndo && (!on || !fromNext)) return saveRefusal(call, 'version_conflict', 'Reload Deals before using Undo.');
   if (!on && !fromNext) return null;
   if (creating && (!on || !fromNext)) return saveRefusal(call, 'reload_deals', 'Reload Deals before adding a deal.');
   if (accountSave && (!on || !fromNext || !await switchedOn(env, DEALS)))
@@ -469,6 +471,10 @@ async function cutoverSave(request, env, call) {
   const body = await response.json().catch(() => null);
   if (!isObject(body)) return unavailable(false);
   if (!response.ok) {
+    if (phaseUndo && body.error === 'version_conflict'
+        && body.hint === 'Undo would return this deal to Closed deals or Lost deals.') {
+      return saveRefusal(call, 'undo_returns_to_ended_deals', body.hint);
+    }
     if (name === 'create-national-account' && body.error === 'account_name_exists' && !args.force_new) {
       return mcpReply(call, response, JSON.stringify({
         needs_confirm: true, candidates: body.candidates,
@@ -501,6 +507,7 @@ async function cutoverSave(request, env, call) {
   const saved = accountSave ? isUuid(body.account_client_id) && body.owner === args.owner
       && (name === 'create-national-account' || body.account_client_id === args.account_client_id)
     : creating ? isUuid(body.deal_id) && Number.isSafeInteger(body.change_id) && body.change_id >= 0
+    : phaseUndo ? body.deal_id === args.deal && isString(body.phase) && isString(body.phase_changed_at)
     : name === 'undo-invoice-close' ? body.invoice_id === args.invoice_id && body.status === 'undone'
     : save.path.endsWith('/changes') ? body.deal_id === args.deal
     : save.body.party_id ? body.deal_id === args.deal && body.party_id === save.body.party_id && body.role === save.body.role
