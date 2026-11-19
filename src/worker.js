@@ -275,8 +275,9 @@ async function engineResponse(request, env) {
         if (!call) return copySessionCookies(response, new Response(text, { status: response.status, headers: JSON_HEADERS }));
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
-          if (board?.schema_version === 'local-deals-board.v2' && await switchedOn(env, NEXT_DEAL_SAVES)) {
-            text = JSON.stringify({ ...board, next_deal_saves: true });
+          if (board?.schema_version === 'local-deals-board.v2') {
+            text = JSON.stringify({ ...board, engine_prospects: true,
+              ...(await switchedOn(env, NEXT_DEAL_SAVES) ? { next_deal_saves: true } : {}) });
           }
         }
         if (call.params.name === 'get-deal-room' && response.ok) {
@@ -706,6 +707,9 @@ async function handleRequest(request, env) {
       return response;
     }
     if (pathname.startsWith('/api/engine/documents/') && !await switchedOn(env, DEALS))
+      return json({ error: 'not_found' }, 404);
+    if (/^\/api\/engine\/prospects(?:\/|$)/.test(pathname) &&
+        (request.method === 'POST' || !await switchedOn(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     if (!env?.ENGINE?.fetch) return json({ error: 'engine_unavailable' }, 503);
     try {
