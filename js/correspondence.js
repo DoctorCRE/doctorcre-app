@@ -24,3 +24,18 @@ export async function loadEvidence(detail = {}) {
   const items = newestFirst(detail.email_threads.map(row => ({ title: row.subject || 'No subject recorded', when: row.latest_message_at })), item => item.when);
   return { threads: { state: 'ready', count: items.length, items }, meetings };
 }
+
+export function renderCorrespondence(entries) {
+  const heading = '<h3>Emails and meetings</h3>';
+  if (!Array.isArray(entries)) return `${heading}<p>Emails and meetings unavailable.</p><button class="btn" type="button" data-refresh-detail>Retry emails and meetings</button>`;
+  if (!entries.length) return `${heading}<p>No emails or meetings yet.</p>`;
+  return `<section class="correspondence-evidence" aria-label="Emails and meetings">${heading}
+    <ol class="evidence-timeline" role="list">${entries.map(entry => {
+      const meeting = entry.kind === 'meeting';
+      const title = meeting ? entry.title?.trim() || 'Untitled meeting' : entry.subject || 'No subject';
+      const context = meeting ? 'Meeting' : `Email · ${entry.sender_name || entry.sender || 'Unknown sender'}`;
+      return `<li class="evidence-item"><b${meeting ? ' class="meeting-caption"' : ''}>${esc(title)}</b>
+        <div class="evidence-source">${esc(context)}</div>
+        <time datetime="${esc(entry.happened_at)}">${esc(sourceTime(entry.happened_at))}</time></li>`;
+    }).join('')}</ol></section>`;
+}

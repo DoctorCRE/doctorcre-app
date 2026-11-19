@@ -15,7 +15,7 @@ import { fetchRead } from './current-read.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient } from './live-client.js';
-import { loadEvidence, renderEvidence } from './correspondence.js';
+import { loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
 import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
@@ -1139,7 +1139,7 @@ function syncUpdateForm() {
 }
 function validateDetail(detail, id) {
   if (!detail?.deal || detail.deal.id !== id || typeof detail.deal.name !== 'string') throw new Error('Invalid detail');
-  for (const field of ['activities','thread','next_actions','critical_dates','participants','premises','negotiation_rounds','documents','history','email_follow_ups']) {
+  for (const field of ['activities','thread','next_actions','critical_dates','participants','premises','negotiation_rounds','documents','history','email_follow_ups','correspondence']) {
     if (detail[field] !== undefined && (!Array.isArray(detail[field]) || detail[field].some(row => !row || typeof row !== 'object'))) throw new Error('Invalid detail section');
   }
   return prepareDealDetail(detail);
@@ -1291,8 +1291,9 @@ function selectWorkspaceTab(id) {
   }
   if (id === 'tours') void dealToursPanel?.load();
   $('panelContextOpenWrap').hidden = id !== 'overview' || !state.panelDetail;
-  if (id === 'correspondence' && state.panelDetail) {
-    $('panelEvidenceSection').open = true;
+  if (id === 'correspondence') {
+    const legacyEvidence = $('panelEvidenceSection');
+    if (legacyEvidence) legacyEvidence.open = true;
   }
 }
 function workspaceNotesHtml(detail) {
@@ -1476,7 +1477,9 @@ function workspaceHtml(detail) {
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden></section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
-    <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2><details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details><div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
+    <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2>
+      ${fromEngine ? `<div data-detail-read="correspondence">${renderCorrespondence(detail.correspondence)}</div>` : '<details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>'}
+      <div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
 function criticalDateFormHtml() {
   return `<details class="add-critical-date"><summary>Add critical date</summary>
