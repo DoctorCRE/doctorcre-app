@@ -79,6 +79,7 @@ export function createAutomaticPhaseUndo({
     if (!feedback.message) feedbackByDeal.delete(deal);
     render();
     if (feedback.message) report(feedback.message);
+    return result;
   }
 
   return { undo };

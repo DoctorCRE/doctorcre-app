@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { localDeals, needsAttention } from '../js/deal-review-model.js';
+import { autoHtml } from '../js/deal-items.js';
 import { urgencyOrder, automaticMove, noteEntries, PHASE_TRIGGERS } from '../js/local-deals-model.js';
 import { carrInterface } from "./carr-contract.mjs";
 
@@ -26,11 +27,11 @@ test('overdue uses the Chicago business day across browser timezones', () => {
 });
 test('automatic move and invoice close name only dated evidence with an exact undo target',() => {
  const change={event_id:'event-1',prior_phase:'research',phase:'negotiation',automatic:true,reason:'LOI sent',evidence_date:'2026-10-03'};
- assert.deepEqual(automaticMove({...base,phase_change:change}),{eventId:'event-1',text:'Moved automatically: LOI sent 10/3'});
- assert.equal(automaticMove({...base,phase:'Closed',phase_change:{...change,phase:'closed',reason:'invoice'}}).text,'Closed automatically: invoice 10/3');
+ assert.match(autoHtml({...base,phase_change:change}), /Moved automatically: LOI sent<\/span> <time[^>]*>Sat, Oct 3, 2026<\/time>/);
+ assert.match(autoHtml({...base,phase:'Closed',phase_change:{...change,phase:'closed',reason:'invoice'}}), /Closed automatically: invoice<\/span> <time[^>]*>Sat, Oct 3, 2026<\/time>/);
  for(const field of ['event_id','prior_phase','evidence_date']) assert.equal(automaticMove({...base,phase_change:{...change,[field]:null}}),null);
  assert.equal(automaticMove({...base,phase_change:{...change,automatic:false}}),null);
- assert.equal(automaticMove({...base,phase_change:{...change,reason:null}}).text,'Moved automatically: phase changed 10/3');
+ assert.match(autoHtml({...base,phase_change:{...change,reason:null}}), /Moved automatically: phase changed<\/span> <time[^>]*>Sat, Oct 3, 2026<\/time>/);
 });
 test('notes summarize but retain original entry, including hostile text as data',() => {
  const original='Demo email <script>never execute</script> '+ 'Detailed clause. '.repeat(40);

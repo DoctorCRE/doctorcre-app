@@ -370,7 +370,7 @@ test('W4 a long automatic reason keeps its date visible without persistent card 
   await refresh(page);
   const card = page.locator('[data-id="d14"]');
   const date = card.locator('.auto-move time');
-  assert.equal(await date.textContent(), '10/3');
+  assert.equal(await date.textContent(), 'Sat, Oct 3, 2026');
   const outer = await card.boundingBox(), stamp = await date.boundingBox();
   assert.ok(stamp.y >= outer.y && stamp.y + stamp.height <= outer.y + outer.height);
   assert.equal(await card.locator('[data-undo]').count(), 0);
