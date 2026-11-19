@@ -1,4 +1,4 @@
-import { type FormEvent, useRef, useState } from "react";
+import { type ComponentProps, type FormEvent, useRef, useState } from "react";
 
 type Reply =
   | { ok: true; data: Record<string, unknown>; sent: Record<string, unknown> }
@@ -103,6 +103,15 @@ function ProspectSaveFeedback({ save, reload }: { save: ReturnType<typeof usePro
 }
 
 type Props = { id: string; client: ProspectClient; saved: () => void };
+export function NoteField(props: ComponentProps<"input">) {
+  return (
+    <label>
+      Add note
+      <input {...props} required placeholder="Write a note and press Enter" />
+    </label>
+  );
+}
+
 export function ProspectNote({ id, client, saved }: Props) {
   const form = useRef<HTMLFormElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -122,17 +131,7 @@ export function ProspectNote({ id, client, saved }: Props) {
   return (
     <>
       <form className="field" ref={form} onSubmit={submit}>
-        <label>
-          Add note
-          <input
-            ref={input}
-            name="summary"
-            required
-            disabled={note.blocked}
-            onChange={() => setMessage("")}
-            placeholder="Write a note and press Enter"
-          />
-        </label>
+        <NoteField ref={input} name="summary" disabled={note.blocked} onChange={() => setMessage("")} />
       </form>
       <ProspectSaveFeedback save={note} />
       {message && <p role="status">{message}</p>}

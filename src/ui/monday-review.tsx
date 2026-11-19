@@ -1,6 +1,6 @@
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { type ProspectClient, ProspectFollowUp, ProspectNote } from "./prospect-saves";
+import { NoteField, type ProspectClient, ProspectFollowUp, ProspectNote } from "./prospect-saves";
 
 type Stamp = { by: string | null; at: string | null };
 type Note = Stamp & { id: string; summary: string };
@@ -20,17 +20,21 @@ type ReviewItem = {
   reviewVersion: number | null;
   followUps: { owner: string | null; next_step_id: string; change_id: number }[];
 };
-type DealEdit = { kind: "note"; text: string } | { kind: "step"; text: string; due: string | null };
+type DealStep = { id: string; change_id?: number | null; description: string; due_on: string | null };
+type DealEdit =
+  | { kind: "note"; text: string }
+  | { kind: "step"; text: string; due: string | null; current: DealStep | null };
 type ReviewEdits = {
   actor: string;
   today: string;
   prospect: ProspectClient;
   mark: (row: ReviewItem, confirm: boolean) => ReturnType<ProspectClient["saveProspect"]>;
-  deal: (row: ReviewItem, edit: DealEdit) => Promise<{ status: string } | null>;
+  step: (id: string) => Promise<DealStep | null>;
+  deal: (row: ReviewItem, edit: DealEdit) => Promise<{ status: string; hint?: string } | null>;
 };
 type ReviewData = {
-  read: () => Promise<unknown>;
-  edits: () => Promise<ReviewEdits | null>;
+  read: () => Promise<{ review: unknown; canEdit: boolean }>;
+  edits: () => Promise<ReviewEdits>;
   dealNotes: (id: string) => Promise<Note[]>;
   phaseLabel: (phase: string) => string | undefined;
   dateLabel: (date: string) => string | null;
@@ -148,63 +152,99 @@ function DealEditor({
   saved: () => void;
   kind: "note" | "step";
 }) {
-  const original = useRef<ReviewItem | null>(null);
+  const [current, setCurrent] = useState<DealStep | null | "unavailable">();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const hint = useId();
   const note = kind === "note";
+  const step = current === "unavailable" ? null : current;
+  const load = useCallback(() => {
+    setCurrent(undefined);
+    void edits.step(row.id).then(setCurrent, () => setCurrent("unavailable"));
+  }, [edits, row.id]);
+  useEffect(() => {
+    if (!note) load();
+  }, [note, load]);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget,
       values = new FormData(form);
-    const text = String(values.get("text") ?? "").trim();
-    if (!text || busy) return;
-    setBusy(true);
-    try {
-      const result = await edits.deal(
-        original.current ?? row,
-        note ? { kind, text } : { kind, text, due: String(values.get("due") || "") || null },
-      );
-      if (result?.status === "ok") {
-        original.current = null;
-        if (note) form.reset();
-        setMessage(note ? "Note added." : "Next step saved.");
-        saved();
-      } else if (result?.status === "conflict") {
-        original.current = null;
-        setMessage("Changed by the other partner. Review reloaded.");
-        saved();
-      } else setMessage("Could not confirm the save. Try again with the same text.");
-    } catch {
-      setMessage("Could not confirm the save. Try again with the same text.");
-    } finally {
-      setBusy(false);
+    const text = String(values.get("text") ?? "").trim(),
+      due = String(values.get("due") ?? "") || null;
+    if (!text || busy || (!note && (current === undefined || current === "unavailable"))) return;
+    if (due && due < edits.today) {
+      setMessage("Next date must be today or later.");
+      return;
     }
+    setBusy(true);
+    const result = await edits
+      .deal(row, note ? { kind, text } : { kind, text, due, current: step ?? null })
+      .catch(() => null);
+    if (result?.status === "ok" || result?.status === "conflict") {
+      if (!note) load();
+      else if (result.status === "ok") form.reset();
+      saved();
+    }
+    setMessage(
+      result?.status === "ok"
+        ? note
+          ? "Note added."
+          : "Next step saved."
+        : result?.status === "conflict"
+          ? "The next step changed. Review it before saving again."
+          : (result?.hint ?? "Could not confirm the save. Try again with the same text."),
+    );
+    setBusy(false);
   }
+
+  const overdue = Boolean(step?.due_on && step.due_on < edits.today);
   return (
-    <form
-      className="field"
-      onSubmit={(event) => void submit(event)}
-      onChange={() => {
-        if (!note) original.current ??= row;
-      }}
-    >
-      <label>
-        {note ? "Add note" : "Next step"}
-        <input name="text" disabled={busy} required defaultValue={note ? "" : (row.step ?? "")} />
-      </label>
-      {!note && (
-        <>
-          <label>
-            Due date
-            <input name="due" type="date" min={edits.today} disabled={busy} defaultValue={row.due ?? ""} />
-          </label>
-          <button className="btn" type="submit" disabled={busy}>
-            Save next step
-          </button>
-        </>
+    <>
+      {!note &&
+        (current === undefined ? (
+          <p>Loading your next step…</p>
+        ) : (
+          current === "unavailable" && (
+            <p>
+              Could not load your next step.{" "}
+              <button className="btn" type="button" onClick={load}>
+                Retry
+              </button>
+            </p>
+          )
+        ))}
+      {(note || current === null || step) && (
+        <form className="field" noValidate={!note} onSubmit={(event) => void submit(event)}>
+          {note ? (
+            <NoteField name="text" disabled={busy} />
+          ) : (
+            <>
+              <label>
+                Next step
+                <input name="text" required disabled={busy} defaultValue={step?.description ?? ""} />
+              </label>
+              <label>
+                Next date
+                <input
+                  name="due"
+                  type="date"
+                  min={edits.today}
+                  disabled={busy}
+                  defaultValue={overdue ? "" : (step?.due_on ?? "")}
+                  aria-describedby={overdue ? hint : undefined}
+                />
+              </label>
+              {overdue && <small id={hint}>Current next date is overdue.</small>}
+              <button className="btn" type="submit" disabled={busy}>
+                Save next step
+              </button>
+            </>
+          )}
+        </form>
       )}
       {message && <p role="status">{message}</p>}
-    </form>
+    </>
   );
 }
 
@@ -221,25 +261,32 @@ function ReviewActions({
   saved: () => void;
   marked: (row: ReviewItem, changedByOtherPartner: boolean) => void;
 }) {
-  const pendingRow = useRef<ReviewItem | null>(null);
+  const [pendingRow, setPendingRow] = useState<ReviewItem | null>(null);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState("");
+  const [stepOpened, setStepOpened] = useState(false);
   async function mark() {
     if (busy) return;
     setBusy(true);
     try {
-      const request = pendingRow.current ?? row;
-      const result = await edits.mark(request, pending);
+      const request = pendingRow ?? row;
+      const result = await edits.mark(request, pendingRow !== null);
       if (result.ok || result.problem.error === "version_conflict" || result.problem.error === "not_found") {
-        pendingRow.current = null;
-        setPending(false);
-        setFailed(false);
+        setPendingRow(null);
+        setFailure("");
         marked(request, !result.ok);
       } else {
-        pendingRow.current = result.pending ? request : null;
-        setPending(result.pending);
-        setFailed(true);
+        setPendingRow(result.pending ? request : null);
+        const error = text(result.problem.error)?.toLowerCase();
+        setFailure(
+          result.pending
+            ? "Could not confirm the review mark."
+            : error === "authorization_refused" || error === "actor_not_provisioned"
+              ? "This account cannot change the review mark."
+              : error === "authentication_required" || error === "session_changed"
+                ? "Sign in again to change the review mark."
+                : "The review mark could not be saved. Reload the review and try again.",
+        );
       }
     } finally {
       setBusy(false);
@@ -255,10 +302,10 @@ function ReviewActions({
     <>
       {row.reviewVersion !== null && (!row.reviewed || row.reviewed.id) && (
         <button className="btn" type="button" disabled={busy} onClick={() => void mark()}>
-          {pending ? "Check outcome" : row.reviewed ? "Undo" : "Reviewed"}
+          {pendingRow ? "Check outcome" : row.reviewed ? "Undo" : "Reviewed"}
         </button>
       )}
-      {failed && <p role="alert">Could not confirm the review mark.</p>}
+      {failure && <p role="alert">{failure}</p>}
       {list ? (
         <details>
           <summary>Add note</summary>
@@ -267,10 +314,14 @@ function ReviewActions({
       ) : (
         note
       )}
-      <details>
+      <details
+        onToggle={(event) => {
+          if (event.currentTarget.open) setStepOpened(true);
+        }}
+      >
         <summary>{row.kind === "deal" ? "Change next step" : "Follow-up"}</summary>
         {row.kind === "deal" ? (
-          <DealEditor row={row} edits={edits} saved={saved} kind="step" />
+          stepOpened && <DealEditor row={row} edits={edits} saved={saved} kind="step" />
         ) : (
           <ProspectFollowUp
             id={row.id}
@@ -357,6 +408,7 @@ function Review({ data }: { data: ReviewData }) {
   const [rows, setRows] = useState<ReviewItem[] | "unavailable" | null>(null);
   const mode = url.searchParams.get("mode");
   const [edits, setEdits] = useState<ReviewEdits | null>(null);
+  const partnerEdits = useRef<Promise<ReviewEdits> | null>(null);
   const [message, setMessage] = useState("");
   const [revision, setRevision] = useState(0);
   const sequence = useRef(0);
@@ -365,8 +417,17 @@ function Review({ data }: { data: ReviewData }) {
     async (initial = false) => {
       const request = ++sequence.current;
       try {
-        const fresh = parseReview(await data.read());
+        const { review, canEdit } = await data.read();
+        const fresh = parseReview(review);
+        if (canEdit) {
+          partnerEdits.current ??= data.edits().catch((error) => {
+            partnerEdits.current = null;
+            throw error;
+          });
+        }
+        const editing = canEdit ? await partnerEdits.current?.catch(() => null) : null;
         if (request === sequence.current) {
+          setEdits(editing ?? null);
           setRows(fresh);
           setRevision(request);
         }
@@ -387,8 +448,7 @@ function Review({ data }: { data: ReviewData }) {
   }
   useEffect(() => {
     void reload(true);
-    void data.edits().then(setEdits, () => setEdits(null));
-  }, [data, reload]);
+  }, [reload]);
   useEffect(() => {
     if (!Array.isArray(rows) || restored.current) return;
     restored.current = true;
