@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AddProspect, ManageProspect } from "./prospect-management";
-import { type ProspectClient, ProspectFollowUp, ProspectNote, prospectsPath } from "./prospect-saves";
+import {
+  type Partner,
+  type ProspectClient,
+  ProspectFollowUp,
+  ProspectNote,
+  partners,
+  prospectsPath,
+  uuid,
+} from "./prospect-saves";
 
-const partners = { joe: "Joe", dell: "Dell" };
 const howFound: Readonly<Record<string, string>> = {
   referral: "Referral",
   vendor: "Vendor",
@@ -18,11 +25,9 @@ const howFound: Readonly<Record<string, string>> = {
   not_recorded: "Not recorded",
 };
 
-type Partner = keyof typeof partners;
 type RequestProspect = (path: string, init?: RequestInit) => Promise<Response>;
 type AuthorLabel = (by: string | null) => string;
 type Filters = { owner: string; attention: boolean; actor: Partner | null; canSave: boolean };
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const record = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 const partner = (value: unknown): value is Partner => value === "joe" || value === "dell";

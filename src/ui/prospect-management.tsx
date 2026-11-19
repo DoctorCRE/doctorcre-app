@@ -1,10 +1,20 @@
-import { type FormEvent, useEffect, useState } from "react";
-import { type ProspectClient, ProspectSaveFeedback, prospectsPath, useProspectSave } from "./prospect-saves";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import {
+  type Partner,
+  type ProspectClient,
+  ProspectSaveFeedback,
+  partners,
+  prospectsPath,
+  useProspectSave,
+  uuid,
+} from "./prospect-saves";
 
-type Partner = "joe" | "dell";
-type Match = { id: string; display_name: string; kind: "person" | "company" };
-type Client = { id: string; name: string };
-const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const kinds = [
+  { value: "person", label: "Person" },
+  { value: "company", label: "Company" },
+] as const;
+type PartyKind = (typeof kinds)[number]["value"];
+type Match = { id: string; display_name: string; kind: PartyKind };
 const isId = (value: unknown): value is string => typeof value === "string" && uuid.test(value);
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object";
 function isMatch(value: unknown): value is Match {
@@ -12,32 +22,28 @@ function isMatch(value: unknown): value is Match {
     object(value) &&
     isId(value.id) &&
     typeof value.display_name === "string" &&
-    (value.kind === "person" || value.kind === "company")
+    kinds.some((kind) => kind.value === value.kind)
   );
 }
 
-export function AddProspect({
-  client,
-  sources,
-  refresh,
-  addDeal,
-}: {
+type AddProps = {
   client: ProspectClient;
   sources: Record<string, string>;
   refresh: () => void;
-  addDeal: (client: Client) => void;
-}) {
+  addDeal: (client: { id: string; name: string }) => void;
+};
+export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
   const [name, setName] = useState("");
-  const [note, setNote] = useState("");
-  const [kind, setKind] = useState("");
+  const [kind, setKind] = useState<PartyKind>();
   const [found, setFound] = useState("");
   const [picked, pick] = useState<Match>();
   const [matches, setMatches] = useState<Match[]>([]);
   const [message, setMessage] = useState("");
+  const form = useRef<HTMLFormElement>(null);
   const save = useProspectSave(client, prospectsPath, "add", "party_id", () => {
+    form.current?.reset();
     setName("");
-    setNote("");
-    setKind("");
+    setKind(undefined);
     setFound("");
     pick(undefined);
     setMatches([]);
@@ -51,9 +57,9 @@ export function AddProspect({
     void client
       .prospectRequest(`${prospectsPath}/search?query=${encodeURIComponent(query)}`, { signal: controller.signal })
       .then(async (response) => {
-        const data: unknown = await response.json();
-        if (response.ok && object(data) && Array.isArray(data.parties) && !controller.signal.aborted)
-          setMatches(data.parties.filter(isMatch));
+        const data: unknown = response.ok ? await response.json() : null;
+        if (!controller.signal.aborted)
+          setMatches(object(data) && Array.isArray(data.parties) ? data.parties.filter(isMatch) : []);
       })
       .catch(() => {
         if (!controller.signal.aborted) setMatches([]);
@@ -74,71 +80,49 @@ export function AddProspect({
       setMessage("Enter a prospect name.");
       return;
     }
+    if (!picked && !kind) {
+      setMessage("Choose Person or Company.");
+      return;
+    }
     setMessage("");
     const party = picked ? { party_id: picked.id } : { name: name.trim(), kind };
-    void save.send({ ...party, ...(found && { how_found: found }), ...(note.trim() && { note: note.trim() }) });
+    const note = String(new FormData(event.currentTarget).get("note") ?? "").trim();
+    void save.send({ ...party, ...(found && { how_found: found }), ...(note && { note }) });
   }
 
   return (
-    <form className="prospect-add field" onSubmit={submit}>
-      <div className="prospect-add-line">
-        <input
-          aria-label="Prospect name"
-          placeholder="Name"
-          maxLength={100}
-          value={name}
-          disabled={save.blocked}
-          onChange={(event) => {
-            setName(event.currentTarget.value);
-            if (picked) setFound("");
-            pick(undefined);
-            setMatches([]);
-            setMessage("");
-            save.clear();
-          }}
-          required
-        />
-        <input
-          aria-label="Optional first note"
-          placeholder="Note"
-          value={note}
-          disabled={save.blocked}
-          onChange={(event) => setNote(event.currentTarget.value)}
-        />
-      </div>
-      {!picked && matches.length > 0 && (
-        <ul aria-label="Matching people and companies">
-          {matches.map((match) => (
-            <li key={match.id}>
-              <button
-                type="button"
-                className="btn"
-                disabled={save.blocked}
-                onClick={() => {
-                  pick(match);
-                  setName(match.display_name);
-                  setFound("");
-                  save.clear();
-                }}
-              >
-                {match.display_name} · {match.kind}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+    <form ref={form} className="prospect-add field" onSubmit={submit} onFocus={() => setMessage("")}>
+      <input
+        aria-label="Prospect name"
+        placeholder="Name"
+        maxLength={100}
+        value={name}
+        disabled={save.blocked}
+        onChange={(event) => {
+          setName(event.currentTarget.value);
+          if (picked) setFound("");
+          pick(undefined);
+          setMatches([]);
+          setMessage("");
+          save.clear();
+        }}
+        required
+      />
+      <input name="note" aria-label="Optional first note" placeholder="Note" disabled={save.blocked} />
       {choosingKind && (
-        <select
-          aria-label="Person or company"
-          required
-          disabled={save.blocked}
-          value={kind}
-          onChange={(event) => setKind(event.currentTarget.value)}
-        >
-          <option value="">Person / company</option>
-          <option value="person">Person</option>
-          <option value="company">Company</option>
-        </select>
+        <fieldset className="prospect-kind" aria-label="Person or company" disabled={save.blocked}>
+          {kinds.map(({ value, label }) => (
+            <button
+              key={value}
+              className="btn"
+              type="button"
+              aria-pressed={kind === value}
+              onClick={() => setKind(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </fieldset>
       )}
       {(choosingKind || found || missingFound) && (
         <select
@@ -161,6 +145,27 @@ export function AddProspect({
       <button className="btn" type="submit" disabled={save.blocked}>
         Add prospect
       </button>
+      {!picked && matches.length > 0 && (
+        <ul aria-label="Matching people and companies">
+          {matches.map((match) => (
+            <li key={match.id}>
+              <button
+                type="button"
+                className="btn"
+                disabled={save.blocked}
+                onClick={() => {
+                  pick(match);
+                  setName(match.display_name);
+                  setFound("");
+                  save.clear();
+                }}
+              >
+                {match.display_name} · {match.kind}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {message && <p role="status">{message}</p>}
       {dealIds.length > 0 ? (
         <p role="alert">
@@ -188,21 +193,16 @@ export function AddProspect({
 }
 
 type VersionedProspect = { party_id: string; owner: Partner | null; needs_attention: boolean; change_id: number };
-export function ManageProspect({
-  row,
-  actor,
-  client,
-  saved,
-  reload,
-  drop,
-}: {
+type ManageProps = {
   row: VersionedProspect;
   actor: Partner;
   client: ProspectClient;
   saved: () => void;
   reload: () => void;
   drop: () => void;
-}) {
+};
+export function ManageProspect({ row, actor, client, saved, reload, drop }: ManageProps) {
+  const [dropping, setDropping] = useState(false);
   const id = row.party_id;
   const changes = useProspectSave(client, `${prospectsPath}/${id}/changes`, `${id}:changes`, "party_id", saved);
   const archive = useProspectSave(client, `${prospectsPath}/${id}/drop`, `${id}:drop`, "party_id", drop);
@@ -215,38 +215,25 @@ export function ManageProspect({
     const reason = String(new FormData(event.currentTarget).get("reason") ?? "").trim();
     if (reason) void archive.send({ reason });
   }
+  const claim = !row.owner ? "Claim" : row.owner === actor ? `Hand off to ${partners[other]}` : "Take ownership";
+  const attention = row.needs_attention ? "Clear needs attention" : "Mark needs attention";
+  function action(label: string, onClick: () => void, expanded?: boolean) {
+    return (
+      <button type="button" className="btn" disabled={blocked} onClick={onClick} aria-expanded={expanded}>
+        {label}
+      </button>
+    );
+  }
   return (
-    <div className="prospect-management">
-      <div>
-        <button
-          type="button"
-          className="btn"
-          disabled={blocked}
-          onClick={() => change({ owner: row.owner === actor ? other : actor })}
-        >
-          {row.owner === null
-            ? "Claim"
-            : row.owner !== actor
-              ? "Take ownership"
-              : `Hand off to ${other === "joe" ? "Joe" : "Dell"}`}
-        </button>
-        {row.owner && (
-          <button type="button" className="btn" disabled={blocked} onClick={() => change({ owner: null })}>
-            Unclaim
-          </button>
-        )}
-        <button
-          type="button"
-          className="btn"
-          disabled={blocked}
-          onClick={() => change({ needs_attention: !row.needs_attention })}
-        >
-          {row.needs_attention ? "Clear needs attention" : "Mark needs attention"}
-        </button>
+    <>
+      <div className="prospect-management">
+        {action(claim, () => change({ owner: row.owner === actor ? other : actor }))}
+        {row.owner && action("Unclaim", () => change({ owner: null }))}
+        {action(attention, () => change({ needs_attention: !row.needs_attention }))}
+        {action("Drop prospect", () => setDropping(!dropping), dropping)}
       </div>
       <ProspectSaveFeedback save={changes} reload={reload} />
-      <details>
-        <summary>Drop prospect</summary>
+      {dropping && (
         <form className="field" onSubmit={dropProspect}>
           <label>
             Reason
@@ -256,8 +243,8 @@ export function ManageProspect({
             Confirm drop
           </button>
         </form>
-        <ProspectSaveFeedback save={archive} />
-      </details>
-    </div>
+      )}
+      <ProspectSaveFeedback save={archive} />
+    </>
   );
 }
