@@ -9,6 +9,7 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
   const body = dialog.querySelector('[data-item-body]');
   const drafts = new Map();
   let selected = null, sequence = 0, trigger = null;
+  let baseVersion;
   const same = selection => selected === selection && dialog.open;
   const operationKey = (verb, selection) => `${verb}:${selection.deal}:${selection.item}`;
   function syncPending() {
@@ -22,6 +23,14 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
       done.textContent = 'Check outcome';
       done.disabled = completion.status === 'pending';
     }
+  }
+  function offerReload(message) {
+    const button = body.querySelector('[data-complete-item]');
+    button.removeAttribute('data-complete-item');
+    button.setAttribute('data-retry-item', '');
+    button.textContent = 'Reload item';
+    body.querySelector('[data-item-status]').textContent = message;
+    return button;
   }
   function paint(item, message = '') {
     dialog.querySelector('h2').textContent = item.title;
@@ -37,6 +46,12 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
       if (!same(selection) || ticket !== sequence) return;
       const item = (detail.items || detail.deal.items || []).find(row => row.id === selection.item);
       if (!item) throw new Error('Item unavailable');
+      baseVersion = undefined;
+      if (detail.next_deal_saves === true && item.status === 'open') {
+        const version = detail.next_actions?.find(step => step.id === item.id)?.change_id;
+        if (!Number.isSafeInteger(version) || version < 0) throw new Error('Invalid item version');
+        baseVersion = version;
+      }
       paint(item, message);
     } catch {
       if (same(selection) && ticket === sequence) {
@@ -51,13 +66,17 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
     const verb = 'complete-deal-item';
     const selection = selected;
     if (!selection || body.getAttribute('aria-busy') === 'true') return;
+    const key = operationKey(verb, selection);
+    const retained = pending(key);
+    const args = retained?.request ?? {
+      deal: selection.deal, item_id: selection.item,
+      ...(baseVersion !== undefined && { base_version: baseVersion }),
+    };
     body.setAttribute('aria-busy', 'true');
     body.querySelectorAll('button,textarea').forEach(node => { node.disabled = true; });
     let result;
     try {
-      result = await send(operationKey(verb, selection), { verb,
-        args: { deal: selection.deal, item_id: selection.item },
-        summary: 'Complete item' });
+      result = await send(key, { verb, args, summary: 'Complete item' });
     } catch { result = { message: 'Change not confirmed. Check outcome before trying again.' }; }
     if (result?.status === 'ok') {
       refresh();
@@ -66,9 +85,13 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
     if (!visible || !dialog.open || visible.deal !== selection.deal || visible.item !== selection.item) return;
     body.removeAttribute('aria-busy');
     if (result?.status === 'ok') await load(visible, 'Item marked done');
-    else {
+    else if (body.querySelector('[data-complete-item]')) {
       body.querySelectorAll('button,textarea').forEach(node => { node.disabled = false; });
       body.querySelector('[type="submit"]').disabled = true;
+      if (result?.code === 'version_conflict') {
+        offerReload(result.hint || 'This item changed while it was open. Reload it before marking it done.').focus();
+        return;
+      }
       body.querySelector('[data-item-status]').textContent = result?.message || 'Change not confirmed';
       syncPending();
       if (result?.status !== 'failed') {
@@ -82,7 +105,10 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
   dialog.addEventListener('click', event => {
     if (event.target.closest('[data-close-item]')) dialog.close();
     if (event.target.closest('[data-complete-item]')) save();
-    if (event.target.closest('[data-retry-item]')) load(selected);
+    if (event.target.closest('[data-retry-item]')) {
+      body.innerHTML = '<p role="status">Updating…</p>';
+      load(selected);
+    }
   });
   dialog.addEventListener('close', () => {
     const deal = selected?.deal;
