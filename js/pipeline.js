@@ -11,6 +11,7 @@ import { renderClientPortalLink } from './client-portal-link.js';
 import { pageDocContext, selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createCommandDock } from './command-dock.js';
 import { readWithDeadline } from './auto-refresh.mjs';
+import { fetchRead } from './current-read.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient } from './live-client.js';
@@ -80,11 +81,11 @@ const state = {
   intent: null,
   boardStatus: 'starting',
   nextDealSaves: false,
+  prospectCount: null,
   unplaced: 0,
 };
 
 let prospects;
-let prospectCount = null;
 
 let commandState = {};
 let dock = { record: () => {}, mount: () => {}, render: () => {}, forget: () => {} };
@@ -222,7 +223,8 @@ function renderBoardMessage(status = state.boardSync?.status()) {
     return;
   }
   const headline = boardHeadline(groupByColumn(visibleBoardDeals()));
-  say(prospectCount === null ? headline : `${headline} · ${prospectCount} prospect${prospectCount === 1 ? '' : 's'}`);
+  const count = state.prospectCount;
+  say(typeof count === 'number' ? `${headline} · ${count} prospect${count === 1 ? '' : 's'}` : headline);
 }
 
 function renderBoard() {
@@ -410,7 +412,7 @@ function syncProspects(enabled) {
     prospects?.dispose();
     lane?.remove();
     prospects = undefined;
-    prospectCount = null;
+    state.prospectCount = null;
     return;
   }
   if (lane) { prospects?.refresh(); return; }
@@ -421,8 +423,8 @@ function syncProspects(enabled) {
   $('kanban').prepend(lane);
   void import('./ui-deal-prospects.generated.js').then(({ mountProspects }) => {
     if (!lane.isConnected) return;
-    prospects = mountProspects(lane, state.client, count => {
-      prospectCount = count;
+    prospects = mountProspects(lane, { prospectRequest: fetchRead, saveProspect: state.client.saveProspect }, count => {
+      state.prospectCount = count;
       renderBoardMessage();
     }, authorLabel);
     renderBoard();

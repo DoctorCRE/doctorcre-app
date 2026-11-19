@@ -77,10 +77,15 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
               if (path.endsWith("/activities")) {
                 assert.deepEqual(body.about, [{ party_id: party }]);
                 assert.equal(body.kind, "note");
+                if (body.summary === "Save refused for account")
+                  return Response.json({ error: "actor_not_provisioned" }, { status: 422 });
+                if (body.summary === "Save refused for data")
+                  return Response.json({ error: "database_refused_the_statement" }, { status: 422 });
+                if (!writeKeys.includes(body.idempotency_key))
+                  notes = [{ ...note, activity_id: crypto.randomUUID(), summary: body.summary, by: actor }, ...notes];
                 writeKeys.push(body.idempotency_key);
                 if (firstNote) {
                   firstNote = false;
-                  notes = [{ ...note, activity_id: crypto.randomUUID(), summary: body.summary, by: actor }, ...notes];
                   return Response.json({ error: "engine_unavailable" }, { status: 503 });
                 }
                 return Response.json({ activity_id: party }, { status: 201 });
@@ -189,18 +194,36 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
       await dialog.getByText("Other partner update", { exact: true }).waitFor();
       if (width === 1440) {
         const input = dialog.getByRole("textbox", { name: "Add note" });
-        await input.fill("Note returned on retry");
+        const checkOutcome = dialog.getByRole("button", { name: "Check outcome" });
+        await input.fill("Earlier note");
         await input.press("Enter");
-        await dialog.getByRole("button", { name: "Check outcome" }).click();
-        await dialog.getByText("Note returned on retry", { exact: true }).waitFor();
+        await checkOutcome.waitFor();
+        await dialog.getByRole("button", { name: "Back to Deals" }).click();
+        await open.click();
+        await input.fill("New draft");
+        await input.press("Enter");
+        await checkOutcome.click();
+        await settles(async () => assert.equal(await input.isEnabled(), true));
+        assert.equal(await input.inputValue(), "New draft");
         assert.equal(writeKeys.length, 2);
         assert.equal(writeKeys[0], writeKeys[1]);
-        const summary = dialog.getByRole("textbox", { name: "Follow-up", exact: true });
+        await input.press("Enter");
+        await dialog.getByText("New draft", { exact: true }).waitFor();
+        assert.notEqual(writeKeys[2], writeKeys[1]);
+        await input.fill("Save refused for account");
+        await input.press("Enter");
+        await dialog.getByText("Your account is not set up to save prospects. Ask the app administrator.").waitFor();
+        await input.fill("Save refused for data");
+        await input.press("Enter");
+        await dialog.getByText("The change was refused. Reload the prospect, then try again.").waitFor();
+        const summary = dialog.getByRole("textbox", { name: "Your follow-up", exact: true });
         await summary.fill("Send the details");
         await dialog.getByLabel("Follow-up date").fill("2026-11-20");
         step.change_id++;
         step.what = "Other follow-up";
-        const save = dialog.getByRole("button", { name: "Set follow-up" });
+        await dialog.getByRole("button", { name: "Reload prospect", exact: true }).click();
+        await dialog.getByText(/Other follow-up/).waitFor();
+        const save = dialog.getByRole("button", { name: "Set your follow-up" });
         await save.click();
         await dialog.getByText("This prospect changed while you were editing.").waitFor();
         assert.equal(await summary.inputValue(), "Send the details");
