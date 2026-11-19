@@ -40,7 +40,7 @@ import {
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
 import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceClose, isEngineDealDetail, prepareDealDetail, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
-import { mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates, dealTimeline, dateCaption, calendarDay } from './deal-timeline.js';
+import { mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates, dealTimeline, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
 import { mountVisibilityPoll } from './visibility-poll.mjs';
 
@@ -1263,6 +1263,7 @@ function workspaceHtml(detail) {
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
   const parked = d.operating_state === 'parked';
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !isClosedDeal(d);
+  const canAddCriticalDate = detail.next_deal_saves === true && Number.isSafeInteger(d.seen);
   const closedValue = Number(d.closed_value);
   const invoice = invoiceClose(d);
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && !isClosedDeal(d) : controlsAvailable)
@@ -1291,7 +1292,9 @@ function workspaceHtml(detail) {
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}">${parked ? `<p>${esc(concise(d.parking_note) || 'Parked')}</p><button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm"><label>Park reason<input name="reason" maxlength="500" required></label><button class="btn park-control" type="submit">Park deal</button></form></details>`}</div></div>` : ''}</div>
     <div data-detail-read="prospect">${controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
     ${!fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
-    <h2>Critical dates</h2>${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
+    <h2>Critical dates</h2>
+    <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
+    ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
@@ -1300,6 +1303,55 @@ function workspaceHtml(detail) {
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem)}</div>${renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2><details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details><div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
+function criticalDateFormHtml() {
+  return `<details class="add-critical-date"><summary>Add critical date</summary>
+    <form id="detailAddDateForm">
+      <div><label for="criticalDateKind">Kind</label><select id="criticalDateKind" name="kind" required><option value="">Choose a kind</option>
+        ${CRITICAL_DATE_OPTIONS.map(([kind, label]) => `<option value="${kind}">${label}</option>`).join('')}
+      </select></div>
+      <label>Date<input name="due_on" type="date" required></label>
+      <label>Where did this date come from?<input name="source" maxlength="1000" required></label>
+      <label>Note (optional)<input name="note" maxlength="1000"></label>
+      <button class="btn" type="submit">Save critical date</button>
+      <p role="status"></p>
+    </form>
+  </details>`;
+}
+
+async function addCriticalDate(deal, form, values) {
+  if (!state.panelDetail?.next_deal_saves) return;
+  const source = String(values.get('source')).trim();
+  const status = form.querySelector('[role="status"]');
+  if (!source) {
+    status.textContent = 'Enter where the date came from.';
+    form.elements.source.focus();
+    return;
+  }
+  const note = String(values.get('note')).trim();
+  for (const control of form.elements) control.disabled = true;
+  status.textContent = 'Saving…';
+  try {
+    const result = await runFollowUp(`add-critical-date:${deal}`, {
+      verb: 'add-critical-date',
+      args: { deal, kind: values.get('kind'), due_on: values.get('due_on'), source, note: note || undefined },
+      summary: 'Add critical date',
+    });
+    if (result?.status !== 'ok') {
+      status.textContent = result?.hint || result?.message || 'The date could not be confirmed.';
+      return;
+    }
+    if (!form.isConnected) return;
+    form.reset();
+    status.textContent = '';
+    const editor = form.closest('details');
+    editor.open = false;
+    editor.querySelector('summary').focus();
+    showToast('Critical date added');
+  } finally {
+    for (const control of form.elements) control.disabled = false;
+  }
+}
+
 function clientPortalSetupHtml() {
   return `<details class="client-portal-register"><summary>Set up client website</summary><form id="detailClientPortalForm" class="client-portal-form"><label for="clientPortalSlug">Website name</label><input id="clientPortalSlug" name="slug" required maxlength="63" pattern="[a-z0-9][a-z0-9\\-]*" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="practice-name" data-detail-focus="client-portal-slug"><label for="clientPortalPassword">Password</label><input id="clientPortalPassword" type="password" name="password" required maxlength="1024" autocomplete="off" autocapitalize="none" spellcheck="false" data-detail-focus="client-portal-password"><button class="btn" type="submit">Register website</button></form></details><p id="detailClientPortalStatus" role="status"></p>`;
 }
@@ -1374,7 +1426,7 @@ async function readPanel(id) {
         if (fresh.dataset.detailRead === 'checklist') { checklistPanel?.update(detail); continue; }
         if (isEngineDealDetail(detail) && fresh.dataset.detailRead === 'client-portal'
             && current.querySelector('form') && fresh.querySelector('form')) continue;
-        if (fresh.dataset.detailRead === 'board-controls' && current.dataset.available === fresh.dataset.available) continue;
+        if (['board-controls', 'add-critical-date'].includes(fresh.dataset.detailRead) && current.dataset.available === fresh.dataset.available) continue;
         if (fresh.dataset.detailRead === 'parking' && current.dataset.parked === 'false' && fresh.dataset.parked === 'false') continue;
         if (current.innerHTML !== fresh.innerHTML) {
           const expanded = new Set([...current.querySelectorAll('.deal-note details[open]')].map(n => n.closest('.deal-note').dataset.id));
@@ -2122,6 +2174,10 @@ function wire() {
         args:{ deal:id, proposal_id:proposal, decision:choice, ...(edits && { edits }) },
         summary:'Email follow-up',
       });
+      return;
+    }
+    if (e.target.id === 'detailAddDateForm') {
+      await addCriticalDate(id, e.target, form);
       return;
     }
     const date = e.target.dataset.dateDecision;

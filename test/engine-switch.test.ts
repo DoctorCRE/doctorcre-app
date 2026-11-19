@@ -1441,7 +1441,7 @@ const movedToEngine = [
     "add-critical-date",
     { kind: "phase_effective_date", due_on: "2027-01-02", source: "Sample agreement", note: "Signed" },
     `/deals/${dealId}/critical-dates`,
-    { kind: "other", due_on: "2027-01-02", source: "Sample agreement", note: "Phase effective date" },
+    { kind: "phase_effective_date", due_on: "2027-01-02", source: "Sample agreement", note: "Signed" },
     { critical_date_id: stepId, status: "open" },
     201,
   ],
