@@ -275,8 +275,9 @@ async function engineResponse(request, env) {
         if (!call) return copySessionCookies(response, new Response(text, { status: response.status, headers: JSON_HEADERS }));
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
-          if (board?.schema_version === 'local-deals-board.v2' && await switchedOn(env, NEXT_DEAL_SAVES)) {
-            text = JSON.stringify({ ...board, next_deal_saves: true });
+          if (board?.schema_version === 'local-deals-board.v2') {
+            text = JSON.stringify({ ...board, engine_prospects: true, board_from_engine: true,
+              ...(await switchedOn(env, NEXT_DEAL_SAVES) ? { next_deal_saves: true } : {}) });
           }
         }
         if (call.params.name === 'get-deal-room' && response.ok) {
@@ -707,12 +708,29 @@ async function handleRequest(request, env) {
       response.headers.set('allow', 'GET, HEAD, POST');
       return response;
     }
+    const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);
+    if (website && (!await switchedOn(env, DEALS) || (!website[1] && !await switchedOn(env, NEXT_DEAL_SAVES))))
+      return json({ error: 'not_found' }, 404);
     const marketDealRead = pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
     if ((marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS))
       return json({ error: 'not_found' }, 404);
+    const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
+    const prospectSave = prospects && request.method === 'POST';
+    const prospectDestination = prospectSave && ({
+      '/api/engine/prospects/note': '/api/engine/activities',
+      '/api/engine/prospects/follow-up': '/api/engine/next-steps',
+    })[pathname];
+    if (prospects && (!await switchedOn(env, DEALS) ||
+        (prospectSave && (!prospectDestination || !await switchedOn(env, NEXT_DEAL_SAVES)))))
+      return json({ error: 'not_found' }, 404);
     if (!env?.ENGINE?.fetch) return json({ error: 'engine_unavailable' }, 503);
     try {
-      return await env.ENGINE.fetch(new Request(request, { redirect: 'manual' }));
+      const forwarded = new Request(request, { redirect: 'manual' });
+      if (prospectDestination) {
+        url.pathname = prospectDestination;
+        return await env.ENGINE.fetch(new Request(url, forwarded));
+      }
+      return await env.ENGINE.fetch(forwarded);
     } catch {
       return json({ error: 'engine_unavailable' }, 503);
     }

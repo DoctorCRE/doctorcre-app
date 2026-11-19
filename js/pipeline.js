@@ -7,10 +7,11 @@ import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
 import { showToast } from './toast.js';
 import { renderDealVendors } from './deal-vendors.js';
-import { renderClientPortalLink } from './client-portal-link.js';
+import { openEngineClientWebsite, renderClientPortalLink, saveEngineClientWebsite } from './client-portal-link.js';
 import { pageDocContext, selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createCommandDock } from './command-dock.js';
 import { readWithDeadline } from './auto-refresh.mjs';
+import { fetchRead } from './current-read.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient } from './live-client.js';
@@ -80,8 +81,12 @@ const state = {
   intent: null,
   boardStatus: 'starting',
   nextDealSaves: false,
+  boardFromEngine: false,
+  prospectCount: null,
   unplaced: 0,
 };
+
+let prospects;
 
 let commandState = {};
 let dock = { record: () => {}, mount: () => {}, render: () => {}, forget: () => {} };
@@ -113,7 +118,7 @@ function cardHtml(deal) {
     attributes: `data-id="${esc(deal.id)}" data-attention="${attention}" data-phase="${esc(deal.phase)}" draggable="true" tabindex="0"${pending ? ' data-pending="true"' : ''}${state.lifted === deal.id ? ' data-lifted="true"' : ''} aria-label="${esc(dealTitle(deal))}, ${esc(columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
     meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}`,
-    body: `<div class="deal-alert">${renderDealSummary(deal,{today,board:true})}${renderDealItems(deal,{today,buttons:true,empty:false,board:true})}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url)}${autoHtml(deal)}` });
+    body: `<div class="deal-alert">${renderDealSummary(deal,{today,board:true})}${renderDealItems(deal,{today,buttons:true,empty:false,board:true})}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url, state.boardFromEngine ? deal.id : null)}${autoHtml(deal)}` });
 }
 function rowHtml(deal) {
   const nextStep = noteText(deal.next_step);
@@ -218,7 +223,9 @@ function renderBoardMessage(status = state.boardSync?.status()) {
     say('The board is unavailable. Refresh to try again.');
     return;
   }
-  say(boardHeadline(groupByColumn(visibleBoardDeals())));
+  const headline = boardHeadline(groupByColumn(visibleBoardDeals()));
+  const count = state.prospectCount;
+  say(typeof count === 'number' ? `${headline} · ${count} prospect${count === 1 ? '' : 's'}` : headline);
 }
 
 function renderBoard() {
@@ -243,8 +250,12 @@ function renderBoard() {
   const grouped = groupByColumn(rows);
   state.unplaced = grouped.unplaced.length;
   const focusedStage = board.contains(document.activeElement) ? document.activeElement?.dataset?.collapseStage : null;
+  const lane = $('prospectsLane');
+  const list = state.view === 'list';
   preserveBoardFocus({ board, document, announce, paint() {
-    board.innerHTML = state.view === 'list' ? `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>Stage</span><span>Next step</span><span>Owner</span></div>${urgencyOrder(state.parkedOpen ? rows : active).map(d => d.operating_state === 'parked' ? parkedHtml(d) : rowHtml(d)).join('')}</div>` : grouped.columns.map((column) => {
+    for (const child of [...board.children]) if (child !== lane) child.remove();
+    const insert = list ? 'beforebegin' : 'afterend';
+    (lane ?? board).insertAdjacentHTML(lane ? insert : 'afterbegin', list ? `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>Stage</span><span>Next step</span><span>Owner</span></div>${urgencyOrder(state.parkedOpen ? rows : active).map(d => d.operating_state === 'parked' ? parkedHtml(d) : rowHtml(d)).join('')}</div>` : grouped.columns.map((column) => {
       const cards = urgencyOrder(column.deals);
       const collapsed = state.collapsedColumns.has(column.slug);
       const content = collapsed
@@ -256,7 +267,7 @@ function renderBoard() {
         <h3 title="${esc(PHASE_TRIGGERS[column.slug])}"><button type="button" data-collapse-stage="${esc(column.slug)}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(column.label)}">${esc(column.label)}<small>${cards.length}</small><span aria-hidden="true">${collapsed ? '+' : '−'}</span></button></h3>
         ${content}
       </section>`;
-    }).join('') + emptyStagesNote(grouped.columns.filter(c => !c.deals.length).length) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${grouped.parked.length}</summary><div class="parked-cards">${grouped.parked.map(parkedHtml).join('')}</div></details>`;
+    }).join('') + emptyStagesNote(grouped.columns.filter(c => !c.deals.length).length) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${grouped.parked.length}</summary><div class="parked-cards">${grouped.parked.map(parkedHtml).join('')}</div></details>`);
   } });
   const note = $('boardNote');
   if (note) {
@@ -265,6 +276,7 @@ function renderBoard() {
       ? `${state.unplaced} deals need a phase`
       : '';
   }
+  prospects?.show(state.filter, state.scopeFilter === 'flagged', state.selfActor, state.nextDealSaves);
   if (focusedStage) board.querySelector(`[data-collapse-stage="${CSS.escape(focusedStage)}"]`)?.focus();
   renderPendingWrites();
 }
@@ -346,6 +358,8 @@ function applyBoardSnapshot(board) {
   const saveSwitchChanged = Boolean(state.nextDealSaves) !== (board.next_deal_saves === true);
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
+  state.boardFromEngine = board.board_from_engine === true;
+  syncProspects(board.engine_prospects === true);
   if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
@@ -392,6 +406,31 @@ function applyBoardSnapshot(board) {
     || (previousPanelRow && JSON.stringify(previousPanelRow) !== JSON.stringify(state.deals.get(state.panelDeal))))) {
     void refreshPanel({changed:true});
   }
+}
+
+function syncProspects(enabled) {
+  let lane = $('prospectsLane');
+  if (!enabled) {
+    prospects?.dispose();
+    lane?.remove();
+    prospects = undefined;
+    state.prospectCount = null;
+    return;
+  }
+  if (lane) { prospects?.refresh(); return; }
+  lane = document.createElement('section');
+  lane.id = 'prospectsLane';
+  lane.className = 'kanban-column glass';
+  lane.setAttribute('aria-labelledby', 'prospects-title');
+  $('kanban').prepend(lane);
+  void import('./ui-deal-prospects.generated.js').then(({ mountProspects }) => {
+    if (!lane.isConnected) return;
+    prospects = mountProspects(lane, { prospectRequest: fetchRead, saveProspect: state.client.saveProspect }, count => {
+      state.prospectCount = count;
+      renderBoardMessage();
+    }, authorLabel);
+    renderBoard();
+  });
 }
 
 async function loadBoard() {
@@ -1226,8 +1265,11 @@ function workspaceHtml(detail) {
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !isClosedDeal(d);
   const closedValue = Number(d.closed_value);
   const invoice = invoiceClose(d);
+  const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && !isClosedDeal(d) : controlsAvailable)
+    ? clientPortalSetupHtml() : '';
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
+      ${fromEngine ? renderClientPortalLink(d.client_portal_url, d.id) || '<p>No client website linked.</p>' : ''}
       ${invoice ? `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${esc(invoice.evidence_date)}">${esc(dateWords(invoice.evidence_date))}</time>${state.nextDealSaves ? ' <button class="btn" type="button" data-undo-invoice>Undo invoice close</button>' : ''}</div>` : ''}
       ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${dueDateHtml(dueOn)}</span></p>` : '<p>No next step or key date set.</p>'}
       ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
@@ -1237,8 +1279,9 @@ function workspaceHtml(detail) {
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
       <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${d.type ? `<div><dt>Type</dt><dd>${esc(d.type)}</dd></div>` : ''}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
       ${closedValue > 0 ? `<dl class="deal-snapshot-facts"><div><dt>Closed value</dt><dd>${closedValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</dd></div></dl>` : ''}
-      ${d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
+      ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
     </section>
+    ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     <section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>
     <div data-detail-read="checklist"></div>
     <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000" required></textarea><details id="detailNextStepEditor"><summary>Change next step</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">Next step</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${todayIso()}"${d.next_date && d.next_date < todayIso() ? ' aria-describedby="detailUpdateDateHint"' : ''}>${d.next_date && d.next_date < todayIso() ? '<small id="detailUpdateDateHint">Current next date is overdue.</small>' : ''}</div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
@@ -1247,7 +1290,7 @@ function workspaceHtml(detail) {
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}">${parked ? `<p>${esc(concise(d.parking_note) || 'Parked')}</p><button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm"><label>Park reason<input name="reason" maxlength="500" required></label><button class="btn park-control" type="submit">Park deal</button></form></details>`}</div></div>` : ''}</div>
     <div data-detail-read="prospect">${controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
-    <div data-detail-read="client-portal">${!d.client_portal_url && controlsAvailable ? clientPortalSetupHtml() : ''}</div>
+    ${!fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     <h2>Critical dates</h2>${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
@@ -1264,6 +1307,20 @@ async function registerClientPortal(id, form) {
   const slug = String(form.get('slug')).trim().toLowerCase();
   const status = $('detailClientPortalStatus');
   status.textContent = 'Registering…';
+  if (state.panelDetail?.next_deal_saves) {
+    const input = $('clientPortalPassword');
+    const button = $('detailClientPortalForm').querySelector('button');
+    if (button.disabled) return;
+    button.disabled = true;
+    input.value = '';
+    const message = await saveEngineClientWebsite(id, slug, String(form.get('password')));
+    button.disabled = false;
+    if (state.panelDeal !== id) return;
+    if (status.isConnected) status.textContent = message || 'Website saved.';
+    if (!message) await refreshPanel({ changed: true });
+    else if (input.isConnected) input.focus();
+    return;
+  }
   const result = await runFollowUp(`client-portal:${id}`, {
     verb: 'register-client-portal', args: { deal: id, slug, password: String(form.get('password')) },
     summary: 'Client website',
@@ -1315,6 +1372,8 @@ async function readPanel(id) {
         const current = $('panelBody').querySelector(`[data-detail-read="${fresh.dataset.detailRead}"]`);
         if (!current) continue;
         if (fresh.dataset.detailRead === 'checklist') { checklistPanel?.update(detail); continue; }
+        if (isEngineDealDetail(detail) && fresh.dataset.detailRead === 'client-portal'
+            && current.querySelector('form') && fresh.querySelector('form')) continue;
         if (fresh.dataset.detailRead === 'board-controls' && current.dataset.available === fresh.dataset.available) continue;
         if (fresh.dataset.detailRead === 'parking' && current.dataset.parked === 'false' && fresh.dataset.parked === 'false') continue;
         if (current.innerHTML !== fresh.innerHTML) {
@@ -1751,17 +1810,17 @@ function wireBoard() {
     renderBoard();
   });
   board.addEventListener('dragover', (event) => {
-    const column = event.target.closest('.kanban-column');
+    const column = event.target.closest('.kanban-column[data-column]');
     if (!column) return;
     event.preventDefault();
     column.dataset.drop = 'true';
   });
   board.addEventListener('dragleave', (event) => {
-    const column = event.target.closest('.kanban-column');
+    const column = event.target.closest('.kanban-column[data-column]');
     if (column) column.removeAttribute('data-drop');
   });
   board.addEventListener('drop', (event) => {
-    const column = event.target.closest('.kanban-column');
+    const column = event.target.closest('.kanban-column[data-column]');
     if (!column) return;
     event.preventDefault();
     column.removeAttribute('data-drop');
@@ -1830,6 +1889,16 @@ function wire() {
   });
 
   document.addEventListener('click', async (event) => {
+    const website = event.target.closest('[data-open-client-website]');
+    if (website) {
+      const id = website.dataset.openClientWebsite;
+      const onDealPage = $('panelBody').contains(website);
+      website.disabled = true;
+      const message = await openEngineClientWebsite(id);
+      website.disabled = false;
+      if (message && (!onDealPage || state.panelDeal === id)) showToast(message, { error: true });
+      return;
+    }
     const item = event.target.closest('[data-deal-item]');
     if (item) { itemSheet.open(item.dataset.itemDeal,item.dataset.dealItem,item); return; }
     const revive = event.target.closest('button[data-revive]');
@@ -1963,7 +2032,7 @@ function wire() {
     if (event.target.id !== 'panelEvidenceSection') return;
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
-  $('panelBody').addEventListener('click', e => {
+  $('panelBody').addEventListener('click', async e => {
     if (e.target.closest('[data-undo-invoice]')) void undoInvoiceClose();
     if (e.target.closest('[data-discard-update]') && !pendingCommand(commandState, updateKey(state.panelDeal)) && !pendingCommand(commandState, nextStepKey(state.panelDeal))) { discardUpdate(state.panelDeal); syncUpdateForm(); }
     if (e.target.closest('[data-review-update-step]') && updateDraft?.conflict) {
