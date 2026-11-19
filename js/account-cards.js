@@ -1,5 +1,5 @@
 // Portfolio cards render only the account rows supplied by deal-room-board.
-export function renderAccountCards(accounts, { esc, relative, actorName, dateLabel }) {
+export function renderAccountCards(accounts, { esc, relative, actorName, dateLabel, engine }) {
   if (!accounts.length) return '<div class="empty">No national accounts yet. Add the first portfolio when it is won.</div>';
   return accounts.map((item) => {
     const name = esc(item.account_name || 'National account');
@@ -9,6 +9,16 @@ export function renderAccountCards(accounts, { esc, relative, actorName, dateLab
       : Number(item.attention_deals || 0) > 0 || Number(item.stale_deals || 0) > 0 ? 'attention'
       : count > 0 ? 'healthy' : 'dormant';
     const owner = esc(actorName(item.account_owner));
+    if (engine) return `
+      <button type="button" class="account-card" data-account="${esc(item.account_client_id)}" data-pulse="${pulse}">
+        <header><h2>${name}</h2><span class="account-owner" title="Account owner">${owner}</span></header>
+        <div class="account-metrics">
+          <div><b>${count}</b><span>Open deals</span></div>
+          <div${overdue > 0 ? ' class="is-alert"' : ''}><b>${overdue}</b><span>Late next steps</span></div>
+          <div><b>${Number(item.parked_deals || 0)}</b><span>Parked deals</span></div>
+        </div>
+        <p class="account-summary"><span class="account-open">Open account</span></p>
+      </button>`;
     const next = item.next_action;
     return `
     <button type="button" class="account-card" data-account="${esc(item.account_client_id)}" data-pulse="${pulse}">

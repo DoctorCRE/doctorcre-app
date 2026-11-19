@@ -385,7 +385,7 @@ function renderAccounts() {
   grid.innerHTML = renderAccountCards(state.accounts.map(item => ({ ...item, next_action: accountPriority(
     [...state.deals.values()].filter(deal => deal.account_client_id === item.account_client_id
       && (deal.operating_state || 'active') === 'active' && !deal.invoiced_on)
-  ).next })), { esc, relative, actorName, dateLabel });
+  ).next })), { esc, relative, actorName, dateLabel, engine:state.nextDealSaves });
 }
 
 /**
@@ -1007,7 +1007,10 @@ function openForm({ context='Deal Room', title, submit='Save', form, national, o
   $('#dialogSubmit').textContent = submit;
   formView?.dispose();
   if (typeof form === 'string') {
-    $('#dialogBody').innerHTML = form;
+    $('#dialogBody').innerHTML = national
+      ? `${national.name ? `<p>Check creation outcome for ${esc(national.name)} before starting another record.</p>` : ''}
+        <fieldset id="nationalCreationFields"${national.disabled ? ' disabled' : ''}>${form}</fieldset>`
+      : form;
     formView = null;
   } else formView = mountDealRoomForm($('#dialogBody'), form, national);
   $('#formError').hidden = true;
@@ -1196,25 +1199,39 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
   const held = state.nationalCreations[key];
   if (form.kind === 'market-deal') form = { ...form, existing:Boolean(held && !held.request.research_evidence) };
   let confirmation = state.nationalConfirmations[key];
-  const renderCandidates = () => formView.candidates(confirmation ? {
-    hint:confirmation.hint, candidates:confirmation.candidates, held:Boolean(state.nationalCreations[key]?.request.force_new),
-    onEdit:() => {
+  const separate = typeof form === 'string' ? 'separate company' : 'separate brand';
+  const renderCandidates = () => {
+    const onEdit = () => {
       delete state.nationalConfirmations[key];
       confirmation = null;
       renderCandidates();
       $('#nationalCreationFields').disabled = false;
       $('#dialogSubmit').textContent = submit;
       $('#formError').hidden = true;
-    },
-  } : null);
-  openForm({context, title, submit:held ? 'Check creation outcome' : confirmation ? 'Create separate brand' : submit,
+    };
+    const held = Boolean(state.nationalCreations[key]?.request.force_new);
+    if (formView) {
+      formView.candidates(confirmation ? {...confirmation, held, onEdit} : null);
+      return;
+    }
+    $('#nationalCandidates')?.remove();
+    if (!confirmation) return;
+    $('#dialogBody').insertAdjacentHTML('beforeend', `<div id="nationalCandidates">
+      <p>${esc(confirmation.hint)}</p><ul>${confirmation.candidates.map(({ name }) => `<li>${esc(name)}</li>`).join('')}</ul>
+      <div class="field"><label><input type="checkbox" name="confirm_separate" required${held ? ' checked disabled' : ''}>
+        This is a separate company.</label></div>
+      <button type="button" id="nationalEditDetails"${held ? ' disabled' : ''}>Edit account details</button>
+    </div>`);
+    $('#nationalEditDetails').onclick = onEdit;
+  };
+  openForm({context, title, submit:held ? 'Check creation outcome' : confirmation ? `Create ${separate}` : submit,
     form, national:{ name:held ? held.request.name || held.request.deal_name : null, disabled:Boolean(held || confirmation) },
     onSubmit:async data => {
       if (state.selfActor !== actor || accountId && account()?.account_client_id !== accountId)
         throw new Error('The account or signed-in partner changed. Reopen this form in its original account and session.');
       const pending = state.nationalCreations[key];
       if (!pending && confirmation && data.get('confirm_separate') !== 'on')
-        throw new Error('Review the existing candidates and confirm a separate brand before creating it.');
+        throw new Error(`Confirm this is a ${separate} before creating it.`);
       const args = pending?.request || (confirmation ? {...confirmation.request,force_new:true} : request(data));
       const started = beginCommand(state.nationalCreations, {operationKey:key,args,newKey:uuidv4});
       if (!started.started) throw new Error('Creation is still being sent. Wait for the server to answer.');
@@ -1229,7 +1246,7 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
           confirmation = {request:started.request,candidates:result.candidates,hint:result.hint};
           state.nationalConfirmations[key] = confirmation;
           renderCandidates();
-          $('#dialogSubmit').textContent = 'Create separate brand';
+          $('#dialogSubmit').textContent = `Create ${separate}`;
           return false;
         }
         if (result?.ok !== true || result.needs_confirm || result.error || result.conflict ||
@@ -1250,7 +1267,7 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
           confirm.disabled = unknown;
           if (!unknown) confirm.checked = false;
         }
-        $('#dialogSubmit').textContent = unknown ? 'Check creation outcome' : confirmation ? 'Create separate brand' : submit;
+        $('#dialogSubmit').textContent = unknown ? 'Check creation outcome' : confirmation ? `Create ${separate}` : submit;
         if (unknown) throw new Error(commandMessage(outcome,'Creation'));
         if (error.payload?.error === 'research_evidence_required') throw new Error('Research evidence is required: the sub-client name did not match an existing client under this account. Choose New sub-client and provide reviewed sources.');
         throw error;
@@ -1362,9 +1379,22 @@ function addTeamDealForm() {
     } });
 }
 
+function accountOwnerField(id, owner) {
+  return `<div class="field"><label for="${id}">Account owner</label><select id="${id}" name="owner">
+    ${['joe','dell'].map(partner => `<option value="${partner}"${owner === partner ? ' selected' : ''}>${actorName(partner)}</option>`).join('')}
+  </select></div>`;
+}
+
 function addAccountForm() {
-  nationalCreationForm({ operationKey:'account', context:'National accounts', title:'Add national account', submit:'Create account', form:{ kind:'account', owners:[state.selfActor, state.selfActor === 'joe' ? 'dell' : 'joe'].map(value => [value,actorName(value)]) },
-    request:data => ({name:String(data.get('name') || '').trim(),owner:String(data.get('owner')),vertical:String(data.get('vertical') || '').trim(),research_evidence:nationalResearchEvidence(data)}),
+  const engine = state.nextDealSaves === true;
+  const owners = [state.selfActor, state.selfActor === 'joe' ? 'dell' : 'joe'].map(value => [value,actorName(value)]);
+  const form = engine ? `<div class="field"><label for="accountName">Company name</label><input id="accountName" name="name" required></div>
+    ${accountOwnerField('accountOwner',state.selfActor)}` : {kind:'account', owners};
+  nationalCreationForm({ operationKey:'account', context:'National accounts', title:'Add national account', submit:'Create account', form,
+    request:data => ({
+      name:String(data.get('name') || '').trim(), owner:String(data.get('owner')),
+      ...(engine ? {next_deal_save:true} : {vertical:String(data.get('vertical') || '').trim(),research_evidence:nationalResearchEvidence(data)}),
+    }),
     send:args => state.client.createNationalAccount(args), receiptId:'account_client_id', success:'National account created' });
 }
 
@@ -1380,10 +1410,19 @@ function addMarketDealForm() {
 function accountOwnerForm() {
   const selected = account();
   const operationKey = `national-owner:${selected.account_client_id}`;
-  openForm({ operationKey, draftKey:operationKey, context:selected.account_name, title:'Change account owner', submit:'Save owner', form:{ kind:'account-owner', owner:selected.account_owner },
+  const engine = state.nextDealSaves === true;
+  const form = engine ? accountOwnerField('newAccountOwner',selected.account_owner)
+    : {kind:'account-owner', owner:selected.account_owner};
+  openForm({ operationKey, draftKey:operationKey, context:selected.account_name, title:'Change account owner', submit:'Save owner', form,
     onSubmit:async (data) => {
       let request = state.commands?.pending(operationKey);
-      if (!request) {
+      if (!request && engine) {
+        const version = selected.base_version;
+        if (!Number.isSafeInteger(version) || version < 0)
+          throw new Error('Reload Deals before saving the account owner.');
+        request = { account_client_id:selected.account_client_id, owner:data.get('owner'),
+          base_version:version, next_deal_save:true };
+      } else if (!request) {
         const board = await state.client.getBoard({ workspace: 'national_account' });
         if (board.actor !== state.selfActor) throw new Error('Session changed. Reopen this account before saving.');
         const current = board.accounts?.find(row => row.account_client_id === selected.account_client_id);
@@ -1393,7 +1432,11 @@ function accountOwnerForm() {
           base_version: reviewedReplacementVersion(selected, current, ['account_owner'], operationKey) };
       }
       await appWrite(operationKey, request, args => state.client.setNationalAccountOwner(args));
-      await loadHome(); showToast(`${selected.account_name} owner updated`);
+      if (!engine) { await loadHome(); showToast(`${selected.account_name} owner updated`); return; }
+      try {
+        await loadHome();
+        showToast(`${selected.account_name} owner updated`);
+      } catch { showToast('Owner saved. Reload Deals to see the current owner.'); }
     } });
 }
 
