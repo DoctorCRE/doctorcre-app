@@ -37,6 +37,7 @@ type ProspectActions = {
   backToReview: (() => void) | null;
 };
 type Filters = { owner: string; attention: boolean; actor: Partner | null; canSave: boolean };
+type ProspectVariant = "tile" | "row";
 const record = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 const partner = (value: unknown): value is Partner => value === "joe" || value === "dell";
@@ -311,6 +312,7 @@ function ProspectDetail({
 
 function ProspectLane({
   filters,
+  variant,
   revision,
   client,
   authorLabel,
@@ -319,6 +321,7 @@ function ProspectLane({
   actions: { addDeal, turnIntoDeal, backToReview },
 }: {
   filters: Filters;
+  variant: ProspectVariant;
   revision: number;
   client: ProspectClient;
   authorLabel: AuthorLabel;
@@ -355,7 +358,7 @@ function ProspectLane({
         const next = row.follow_ups[0];
         return (
           <article
-            className="kanban-card work-card work-card--tile"
+            className={`kanban-card work-card work-card--${variant}`}
             data-attention={row.needs_attention}
             key={row.party_id}
           >
@@ -414,10 +417,12 @@ export function mountProspects(
   const root = createRoot(host);
   let revision = 0;
   let filters: Filters = { owner: "all", attention: false, actor: null, canSave: false };
+  let variant: ProspectVariant = "tile";
   function render() {
     root.render(
       <ProspectLane
         filters={filters}
+        variant={variant}
         client={client}
         authorLabel={authorLabel}
         revision={revision}
@@ -432,8 +437,9 @@ export function mountProspects(
     render();
   }
   return {
-    show(owner: string, attention: boolean, actor: unknown, canSave: boolean) {
+    show(owner: string, attention: boolean, actor: unknown, canSave: boolean, nextVariant: ProspectVariant) {
       filters = { owner, attention, actor: partner(actor) ? actor : null, canSave };
+      variant = nextVariant;
       render();
     },
     refresh,
