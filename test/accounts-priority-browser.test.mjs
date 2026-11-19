@@ -129,7 +129,7 @@ for (const reverse of [false, true]) {
     });
     await page.goto(`${server.origin}/deals?view=national&mode=fixture`);
     const card = page.locator('.account-card').first();
-    assert.equal(await page.title(), 'Deals');
+    assert.equal(await page.title(), 'Deals · DoctorCRE');
     assert.equal(await card.locator('.account-next-action span').first().innerText(), 'Next step');
     const cardAction = await card.locator('.account-next-action strong').innerText();
     await card.click();
