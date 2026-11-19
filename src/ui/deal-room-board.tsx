@@ -2,6 +2,17 @@ import { Fragment } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
+type Caption = { text: string; date: string; when: string | null; overdue?: boolean; owner?: string };
+type Item = {
+  item: { id: string; title: string; due_on: string | null };
+  href: string;
+  date: string | null;
+  overdue: boolean;
+};
+type PhaseReceipt = {
+  move: { day: string; date: string; action: { eventId: string; version: number; busy: boolean } | null } | null;
+  message?: string;
+};
 type Row = {
   id: string;
   name: string;
@@ -14,18 +25,58 @@ type Row = {
   phase: string;
   due: string;
   dueClass: string;
-  phaseMoveRef?: (node: HTMLDivElement | null) => void;
+  phaseMove: PhaseReceipt | null;
   retries: { cell: string; label: string }[];
   step:
     | { kind: "local"; text: string; empty: boolean; owner: string }
-    | {
-        kind: "national";
-        summaryRef: (node: HTMLButtonElement | null) => void;
-        itemsRef: (node: HTMLDivElement | null) => void;
-        agent: string;
-      };
+    | { kind: "national"; next: Caption | null; last: Caption | null; items: Item[]; agent: string };
 };
 type Props = { rows: Row[]; phases: { value: string; label: string }[]; nationalAccountRows: boolean };
+
+function StepCaption({ label, caption }: { label: "Next: " | "Last: "; caption: Caption }) {
+  return (
+    <span className={label === "Last: " ? "deal-summary-line deal-summary-last" : "deal-summary-line"}>
+      <span className="deal-summary-label">{label}</span>
+      <span className="deal-summary-text">{caption.text}</span>
+      <span className="deal-summary-facts">
+        {caption.date && (
+          <>
+            {" · "}
+            <time data-overdue={caption.overdue} dateTime={caption.when ?? undefined}>
+              {caption.date}
+            </time>
+          </>
+        )}
+        {caption.owner}
+      </span>
+    </span>
+  );
+}
+
+function PhaseMove({ receipt, deal }: { receipt: PhaseReceipt; deal: string }) {
+  const { move, message } = receipt;
+  return (
+    <>
+      {move && (
+        <div className="auto-move">
+          <span>Moved automatically</span> <time dateTime={move.day}>{move.date}</time>
+          {move.action && (
+            <button
+              type="button"
+              data-undo-phase={deal}
+              data-event-id={move.action.eventId}
+              data-base-version={move.action.version}
+              aria-disabled={move.action.busy || undefined}
+            >
+              Undo
+            </button>
+          )}
+        </div>
+      )}
+      {message && <p className="auto-move">{message}</p>}
+    </>
+  );
+}
 
 // Native document handlers must read the selected value before the next snapshot.
 // Ref assignments update snapshots without React restoring an old controlled value.
@@ -65,7 +116,7 @@ function DealRoomBoard({ rows, phases, nationalAccountRows }: Props) {
                     </Fragment>
                   ))}
                 </div>
-                {row.phaseMoveRef && <div ref={row.phaseMoveRef} />}
+                {row.phaseMove && <PhaseMove receipt={row.phaseMove} deal={row.id} />}
               </div>
             </div>
           </td>
@@ -90,14 +141,33 @@ function DealRoomBoard({ rows, phases, nationalAccountRows }: Props) {
           <td>
             {row.step.kind === "national" ? (
               <>
-                <button
-                  type="button"
-                  className="step-button"
-                  data-next-step={row.id}
-                  disabled={row.parked}
-                  ref={row.step.summaryRef}
-                />
-                <div ref={row.step.itemsRef} />
+                <button type="button" className="step-button" data-next-step={row.id} disabled={row.parked}>
+                  {row.step.next ? (
+                    <StepCaption label="Next: " caption={row.step.next} />
+                  ) : (
+                    <span className="deal-summary-line">No next step set</span>
+                  )}
+                  {row.step.last && <StepCaption label="Last: " caption={row.step.last} />}
+                </button>
+                {row.step.items.length > 0 && (
+                  <div>
+                    <p className="deal-items-label">Still needed:</p>
+                    <ol className="deal-items">
+                      {row.step.items.map(({ item, href, date, overdue }) => (
+                        <li key={item.id} data-overdue={overdue}>
+                          <a data-home-key={`deal:${row.id}:${item.id}`} href={href}>
+                            {item.title}
+                          </a>
+                          {date && (
+                            <time className="deal-item-due" dateTime={item.due_on ?? undefined}>
+                              {date}
+                            </time>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
               </>
             ) : (
               <button

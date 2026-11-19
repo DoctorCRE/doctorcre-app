@@ -1,7 +1,7 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderLastDealStep, renderOverdueFlag } from './deal-items.js';
+import { createAutomaticPhaseUndo, dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderLastDealStep, renderOverdueFlag } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
@@ -42,7 +42,7 @@ import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } 
 import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceClose, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
 import {
-  createAutomaticPhaseUndo, mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
+  mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
   dealTimeline, engineTimelineEntries, renderImportedDealHistory, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
 } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
@@ -1446,9 +1446,6 @@ function dueDateHtml(day, today) {
   const daysLate = today && day < today ? daysBetween(day, today) : 0;
   return `Due <time datetime="${esc(day)}">${esc(dateWords(day))}</time>${daysLate ? ` · ${daysLate} day${daysLate === 1 ? '' : 's'} late` : ''}`;
 }
-
-
-
 function undoInvoiceClose() {
   const deal = state.panelDetail?.deal;
   const invoice = invoiceClose(deal);

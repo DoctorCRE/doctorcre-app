@@ -1041,6 +1041,9 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
 });
 
 for (const width of [1440, 390]) test(`National account rows open the deal before offering attention at ${width}px`, async t => {
+  const fixture = await (await createQaServer({ buildRoot: join(outDir, 'site') })).start();
+  t.after(() => fixture.close());
+  const { origin } = fixture;
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   t.after(() => page.close());
   await page.clock.setFixedTime(new Date('2026-11-19T15:00:00Z'));

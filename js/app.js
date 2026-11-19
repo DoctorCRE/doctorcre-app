@@ -6,8 +6,7 @@ import { mountDealRoomAgenda } from './ui-agenda.generated.js';
 import { dealStepVersion, partnerDealStep } from './local-deals-model.js';
 import { businessDay } from './business-date.js';
 import { formatCalendarDate } from './visual-system.js';
-import { renderDealSummary, renderDealItems } from './deal-items.js';
-import { createAutomaticPhaseUndo } from './deal-timeline.js';
+import { createAutomaticPhaseUndo, dealItemRows, dealLastCaption, dealNextCaption } from './deal-items.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
@@ -544,20 +543,14 @@ function renderFocus(deals) {
 }
 
 
-function dealMarkupRef(html) {
-  return node => {
-    if (node && node.innerHTML !== html) node.innerHTML = html;
-  };
-}
-
 function boardRow(deal, nationalAccountRows) {
   const days = daysFromNow(deal.next_date);
   const parked = deal.operating_state === 'parked';
   const presence = state.presence.filter(lease => lease.deal_id === deal.id && lease.actor !== state.selfActor && new Date(lease.expires_at) > new Date());
   const today = state.boardFromEngine ? businessDay() : new Date().toLocaleDateString('en-CA');
+  // Older records store this placeholder when there is no market.
   const market = nationalAccountRows && (!deal.market?.trim() || deal.market === 'Market unspecified in source')
     ? 'No market recorded' : deal.market;
-  const phaseMoveHtml = nationalAccountRows ? automaticPhase.receiptHtml(deal) : '';
   return {
     id: deal.id, name: deal.name, parked, attention: Boolean(deal.attention), phase: deal.phase,
     classes: [parked ? 'parked' : '', deal.attention ? 'attention' : '', days !== null && days < 0 ? 'overdue' : ''].join(' '),
@@ -569,13 +562,13 @@ function boardRow(deal, nationalAccountRows) {
       parking: parked ? parkingReasonLabel(deal.parking_reason) : null,
       presence: presence[0] ? `${actorName(presence[0].actor)} is editing` : null,
     }).filter(([, value]) => value),
-    ...(phaseMoveHtml && { phaseMoveRef: dealMarkupRef(phaseMoveHtml) }),
+    phaseMove: nationalAccountRows ? automaticPhase.receipt(deal) : null,
     title: presence.length ? `${actorName(presence.at(-1).actor)} is editing ${presence.at(-1).field}` : '',
     due: dateLabel(deal.next_date), dueClass: days !== null && days < 0 ? 'over' : days !== null && days <= 3 ? 'soon' : '',
     retries: unresolvedFieldWrites(state.fieldWrites, deal.id).map(entry => ({ cell: entry.cell, label: fieldLabel(entry.field) })),
     step: deal.workspace_kind === 'national_account'
-      ? { kind: 'national', summaryRef: dealMarkupRef(renderDealSummary(deal, { today, viewer: state.selfActor, actorName })),
-        itemsRef: dealMarkupRef(renderDealItems(deal, { today, empty: false, board: true })), agent: deal.market_agent || 'Assign agent…' }
+      ? { kind: 'national', next: dealNextCaption(deal, { today, viewer: state.selfActor, actorName }),
+        last: dealLastCaption(deal.last_step), items: dealItemRows(deal, { today, board: true }), agent: deal.market_agent || 'Assign agent…' }
       : { kind: 'local', text: deal.next_step || 'Set the next step…', empty: !deal.next_step, owner: deal.owner || '' },
   };
 }

@@ -2,6 +2,9 @@ import { workCard } from './work-card.js';
 import { overdueLabel } from './deal-review-model.js';
 import { noteText } from './pipeline-model.js';
 import { calendarDay } from './deal-timeline.js';
+import { performCommand } from './command-feedback.mjs';
+import { formatCalendarDate } from './visual-system.js';
+import { uuidv4 } from './uuid.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
@@ -23,10 +26,17 @@ export function renderDealAlert(deal, { today = '' } = {}) {
     status: overdueLabel(deal.overdue_since, today) || '', body: renderDealItems(deal, { today }) });
 }
 
-export function renderDealItems(deal, { today = '', buttons = false, empty = true, board = false } = {}) {
+export function dealItemRows(deal, { today = '', board = false } = {}) {
   const nextItem = board ? dealNextStep(deal).item : null;
-  const items = openDealItems(deal).filter(item => item !== nextItem);
-  return items.length ? `<p class="deal-items-label">Still needed:</p><ol class="deal-items">${items.map(item => `<li data-overdue="${Boolean(item.due_on && item.due_on < today)}">${buttons ? renderDealItemButton(deal.id, item) : `<a data-home-key="deal:${esc(deal.id)}:${esc(item.id)}" href="${esc(dealItemHref(deal.id, item.id))}">${esc(item.title)}</a>`}${item.due_on ? `<time class="deal-item-due" datetime="${esc(item.due_on)}">${esc(monthDay(item.due_on) || item.due_on)}</time>` : ''}</li>`).join('')}</ol>` : empty ? '<p class="deal-items-empty">No action items recorded</p>' : '';
+  return openDealItems(deal).filter(item => item !== nextItem).map(item => ({
+    item, href: dealItemHref(deal.id, item.id), date: monthDay(item.due_on) || item.due_on,
+    overdue: Boolean(item.due_on && item.due_on < today),
+  }));
+}
+
+export function renderDealItems(deal, { today = '', buttons = false, empty = true, board = false } = {}) {
+  const rows = dealItemRows(deal, { today, board });
+  return rows.length ? `<p class="deal-items-label">Still needed:</p><ol class="deal-items">${rows.map(({ item, href, date, overdue }) => `<li data-overdue="${overdue}">${buttons ? renderDealItemButton(deal.id, item) : `<a data-home-key="deal:${esc(deal.id)}:${esc(item.id)}" href="${esc(href)}">${esc(item.title)}</a>`}${date ? `<time class="deal-item-due" datetime="${esc(item.due_on)}">${esc(date)}</time>` : ''}</li>`).join('')}</ol>` : empty ? '<p class="deal-items-empty">No action items recorded</p>' : '';
 }
 
 function shortDate(value, today) {
@@ -63,28 +73,33 @@ export function renderDealItemButton(dealId, item, text = item.title, className 
   return `<button type="button"${className ? ` class="${className}"` : ''} data-deal-item="${esc(item.id)}" data-item-deal="${esc(dealId)}">${esc(text)}</button>`;
 }
 
-export function renderDealSummary(deal, { today = '', viewer = '', board = false, actorName = name => name } = {}) {
-  const { text, dueOn, action, item } = dealNextStep(deal);
-  const lines = [];
-  if (text) {
-    const overdue = Boolean(dueOn && dueOn < today);
-    const date = overdue && action ? '' : shortDate(dueOn, today);
-    const owner = !board && action?.owner && viewer && action.owner !== viewer ? ` · ${actorName(action.owner)}` : '';
-    const label = board && item ? renderDealItemButton(deal.id, item, text, 'deal-summary-text') : `<span class="deal-summary-text">${esc(text)}</span>`;
-    lines.push(`<span class="deal-summary-line"><span class="deal-summary-label">Next: </span>${label}<span class="deal-summary-facts">${date ? ` · <time data-overdue="${overdue}" datetime="${esc(dueOn)}">${esc(date)}</time>` : ''}${esc(owner)}</span></span>`);
-  } else {
-    lines.push('<span class="deal-summary-line">No next step set</span>');
-  }
-  return lines.join('') + renderLastDealStep(deal.last_step);
+export function dealNextCaption(deal, { today = '', viewer = '', board = false, actorName = name => name } = {}) {
+  const { text, dueOn: when, action, item } = dealNextStep(deal);
+  if (!text) return null;
+  const overdue = Boolean(when && when < today);
+  const date = overdue && action ? '' : shortDate(when, today);
+  const owner = !board && action?.owner && viewer && action.owner !== viewer ? ` · ${actorName(action.owner)}` : '';
+  return { text, when, date, overdue, owner, item };
 }
 
-export function renderLastDealStep(last) {
-  const lastText = noteText(last?.summary);
-  const lastDate = shortDate(last?.occurred_at, '');
-  if (lastText && lastDate) {
-    return `<span class="deal-summary-line deal-summary-last"><span class="deal-summary-label">Last: </span><span class="deal-summary-text">${esc(lastText)}</span><span class="deal-summary-facts"> · <time datetime="${esc(last.occurred_at)}">${esc(lastDate)}</time></span></span>`;
-  }
-  return '';
+export function dealLastCaption(last) {
+  const text = noteText(last?.summary);
+  const date = shortDate(last?.occurred_at, '');
+  return text && date ? { text, date, when: last.occurred_at } : null;
+}
+
+export function renderDealSummary(deal, options = {}) {
+  const next = dealNextCaption(deal, options);
+  const last = renderLastDealStep(deal.last_step);
+  if (!next) return '<span class="deal-summary-line">No next step set</span>' + last;
+  const { text, when, date, overdue, owner, item } = next;
+  const label = options.board && item ? renderDealItemButton(deal.id, item, text, 'deal-summary-text') : `<span class="deal-summary-text">${esc(text)}</span>`;
+  return `<span class="deal-summary-line"><span class="deal-summary-label">Next: </span>${label}<span class="deal-summary-facts">${date ? ` · <time data-overdue="${overdue}" datetime="${esc(when)}">${esc(date)}</time>` : ''}${esc(owner)}</span></span>` + last;
+}
+
+export function renderLastDealStep(step) {
+  const last = dealLastCaption(step);
+  return last ? `<span class="deal-summary-line deal-summary-last"><span class="deal-summary-label">Last: </span><span class="deal-summary-text">${esc(last.text)}</span><span class="deal-summary-facts"> · <time datetime="${esc(last.when)}">${esc(last.date)}</time></span></span>` : '';
 }
 
 export function renderDealItemDetail(item, { today = '' } = {}) {
@@ -94,4 +109,69 @@ export function renderDealItemDetail(item, { today = '' } = {}) {
     const bullets = (item.bullets || []).filter(bullet => bullet.kind === kind);
     return bullets.length ? `<section><h3>${label}</h3><ul>${bullets.map(bullet => `<li>${bullet.date ? `<time datetime="${esc(bullet.date)}">${esc(bullet.date)}</time> · ` : ''}${esc(bullet.text)}</li>`).join('')}</ul></section>` : '';
   }).join('')}<form data-item-instruction><label for="dealItemInstruction">Tell Dr. CRE</label><textarea id="dealItemInstruction" name="text" aria-label="Tell Dr. CRE" rows="3" maxlength="240" required></textarea><button type="submit" class="btn btn-primary" disabled>Save instruction</button><p>Not submitted. This control cannot send a request to Dr. CRE.</p></form><button type="button" class="btn" data-complete-item${item.status === 'done' ? ' disabled' : ''}>${item.status === 'done' ? 'Done' : 'Mark done'}</button><p role="status" data-item-status></p>`;
+}
+
+export function createAutomaticPhaseUndo({ state, render, report, refreshedMessage }) {
+  const feedbackByDeal = new Map();
+  let commandState = {};
+
+  function receipt(deal) {
+    const event = deal.phase_change;
+    const day = calendarDay(event?.evidence_date);
+    const entry = feedbackByDeal.get(deal.id);
+    const feedback = entry?.eventId && entry.eventId !== event?.event_id ? null : entry;
+    const move = event?.source === 'copied' && event.automatic === true && event.event_id && day;
+    const returnsToEndedDeals = move && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
+      || feedback?.code === 'undo_returns_to_ended_deals');
+    const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
+    const action = move && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
+      ? { eventId: event.event_id, version: deal.seen, busy: Boolean(feedback?.busy) } : null;
+    return { move: move ? { day, date: formatCalendarDate(day) || day, action } : null, message };
+  }
+
+  function receiptHtml(deal, legacy) {
+    const { move, message } = receipt(deal);
+    const undo = move?.action;
+    const button = undo ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(undo.eventId)}" data-base-version="${undo.version}"${undo.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
+    const mark = move ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${move.day}">${esc(move.date)}</time>${button}</div>` : legacy;
+    return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
+  }
+
+  async function undo(button) {
+    if (!state.nextDealSaves || button.getAttribute('aria-disabled') === 'true') return;
+    const { undoPhase: deal, eventId: event_id, baseVersion } = button.dataset;
+    if (feedbackByDeal.get(deal)?.busy) return;
+    const feedback = { busy: true, eventId: null, code: null, message: '' };
+    feedbackByDeal.set(deal, feedback);
+    render();
+    const seen_change_id = Number(baseVersion);
+    const result = await performCommand({
+      operationKey: `phase-undo:${state.selfActor}:${deal}:${event_id}:${seen_change_id}`,
+      args: { deal, event_id, seen_change_id },
+      getState: () => commandState,
+      setState: next => { commandState = next; },
+      newKey: uuidv4,
+      call: request => state.client.undoAutomaticPhaseMove(request),
+    });
+    if (feedbackByDeal.get(deal) !== feedback) return;
+    if (result.status === 'ok' || result.code === 'version_conflict') {
+      const refreshed = await state.boardSync.requestRefresh('after-phase-undo');
+      if (feedbackByDeal.get(deal) !== feedback) return;
+      feedback.message = result.status === 'ok'
+        ? refreshed.applied ? '' : 'Move undone. Refresh Deals to see the current phase.'
+        : refreshed.applied ? `This deal changed. ${refreshedMessage}` : 'This deal changed. Refresh Deals to see the current phase.';
+    } else {
+      feedback.eventId = event_id;
+      feedback.code = result.code;
+      feedback.message = result.hint || (result.status === 'unknown'
+        ? 'Undo could not be confirmed. Use Undo again to check what happened.'
+        : 'Undo could not be saved.');
+    }
+    feedback.busy = false;
+    if (!feedback.message) feedbackByDeal.delete(deal);
+    render();
+    if (feedback.message) report(feedback.message);
+  }
+
+  return { receipt, receiptHtml, undo, clear: () => feedbackByDeal.clear() };
 }
