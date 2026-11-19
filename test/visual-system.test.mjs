@@ -66,6 +66,7 @@ test("clock and calendar formatting are 12-hour AM/PM and a readable calendar da
   assert.equal(formatClock("2026-09-16T09:05:00Z"), "9:05 AM");
   assert.equal(formatClock("2026-09-16T23:59:00Z"), "11:59 PM");
   assert.equal(formatClock("not a time"), null);
+  assert.equal(formatCalendarDate(null), null);
   assert.equal(formatCalendarDate("2026-09-16"), "Wed, Sep 16, 2026");
   assert.equal(formatCalendarDate("2026-09-18T00:00:00Z"), "Fri, Sep 18, 2026");
   assert.equal(weekdayName("2026-09-16"), "Wednesday");

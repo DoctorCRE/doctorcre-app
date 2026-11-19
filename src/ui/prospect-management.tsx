@@ -263,7 +263,7 @@ function RenewalLease({
         <option value="">Choose a lease</option>
         {choices.kind === "ready" &&
           choices.leases.map((lease) => {
-            const expires = lease.expiration_on ? leaseDate(lease.expiration_on) : null;
+            const expires = leaseDate(lease.expiration_on);
             return (
               <option key={lease.lease_id} value={lease.lease_id}>
                 {lease.address} · {expires ? `Expires ${expires}` : "Expiration not recorded"}

@@ -973,7 +973,7 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   const reason = dialog.getByLabel('Deal reason');
   const lease = dialog.getByLabel('Lease to renew');
   const company = dialog.getByRole('button', { name: 'Example Practice · Company · Austin · 3 deals' });
-  const person = dialog.getByRole('button', { name: 'Example Practice · Person · No city recorded · 1 deal' });
+  const person = dialog.getByRole('button', { name: 'Example Practice · Person · No city recorded · 1 deal', exact: true });
   assert.equal(await kind.inputValue(), '');
   assert.equal(await reason.inputValue(), '');
   await clientInput.fill('Example Unknown');

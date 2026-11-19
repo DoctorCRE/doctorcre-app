@@ -145,12 +145,15 @@ for (const width of [390, 1440]) test(`use a company on file as a national accou
   const pick = page.getByRole('button',{name:'Make this company a national account',exact:true});
   await start(candidates[0].name);
   const matches = page.locator('#nationalCandidates');
-  const row = details => matches.getByRole('listitem').filter({hasText:details});
+  const row = details => matches.getByRole('listitem').filter({
+    has:page.getByText(`Demo Company · ${details}`,{exact:true}),
+  });
   const missingRow = row('Austin · 3 deals');
   const existingRow = row('No city recorded · 1 deal');
   const chosenRow = row('Waco · 0 deals');
   const promotedRow = row('Denton · 2 deals');
   await missingRow.waitFor({timeout:3000});
+  await existingRow.waitFor({timeout:3000});
   assert.equal(await pick.count(), 3);
   for (const {id} of candidates) assert.equal(await matches.getByText(id,{exact:false}).count(),0);
   assert.equal(await missingRow.getByRole('button').evaluate(button => button.classList.contains('primary')),true);
