@@ -22,6 +22,126 @@ before(async () => {
   await mkdir(evidence, { recursive: true });
 });
 
+for (const width of [1440, 390]) {
+  test(`parking and renewal captions at ${width}px`, async t => {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    t.after(() => page.close());
+    const deal = (name, fields) => ({ id: crypto.randomUUID(), name, owner: 'joe', phase: 'research', seen: 1, ...fields });
+    const parked = { operating_state: 'parked', parking_reason: 'client_paused' };
+    const automatic = deal('Example Automatic Parking', { ...parked, parked_automatically: true, parked_by: null });
+    const partner = deal('Example Partner Parking', { ...parked, parking_note: 'Waiting for the tenant', parked_automatically: false, parked_by: 'dell' });
+    const renewal = { reason: 'renewal', renewal_lease_unrecorded: true, client_name: 'Example Practice', closed_on: '2026-11-02' };
+    const won = deal('Example Closed Renewal', { ...renewal, type: 'renewal', phase: 'closed', outcome: 'won' });
+    const lost = deal('Example Lost Renewal', { ...renewal, kind: 'relocation', type: 'relocation', phase: 'dead', outcome: 'lost', lost_reason: 'Plans changed' });
+    const withLease = deal('Example Renewal With Lease', { reason: 'renewal', type: 'renewal', phase: 'dead', outcome: 'lost' });
+    const rows = [automatic, partner, won, lost, withLease];
+    const board = () => ({ schema_version: 'local-deals-board.v2', actor: 'joe',
+      deals: [automatic, partner], closed_deals: [won], lost_deals: [lost, withLease] });
+    const switches = new Set();
+    let revivals = 0;
+    const env = {
+      ENGINE_ROUTING: { get: async key => switches.has(key) ? 'on' : null },
+      ENGINE: { fetch: async request => {
+        const path = new URL(request.url).pathname;
+        if (path === '/api/engine/deals') return Response.json(board());
+        if (path === `/api/engine/deals/${automatic.id}/changes`) {
+          const { idempotency_key, ...change } = await request.json();
+          assert.match(idempotency_key, /^[\da-f-]{36}$/);
+          assert.deepEqual(change, { seen_change_id: 1, fields: { parking_reason: null, parking_note: null } });
+          Object.assign(automatic, { operating_state: 'active', parking_reason: null, parked_automatically: false, seen: 2 });
+          revivals++;
+          return Response.json({ deal_id: automatic.id, change_id: automatic.seen });
+        }
+        const row = rows.find(item => path === `/api/engine/deals/${item.id}`);
+        return row ? Response.json({ ...row, deal_id: row.id, email_follow_ups: [] }) : new Response(null, { status: 404 });
+      } },
+      CARR: { fetch: async request => {
+        const { id, params } = await request.json();
+        const data = params.name === 'deal-room-board' ? board() : rows.find(item => item.id === params.arguments.deal);
+        return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
+      } },
+    };
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `deal-captions-${width}`, viewer: 'joe', reset: true } });
+    await page.route('**/mcp', async route => {
+      const request = route.request();
+      if (!['deal-room-board', 'get-deal-room', 'patch-deal-field'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+      const response = await handleDoctorcreRequest(new Request(request.url(), {
+        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+      }), env);
+      return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+    });
+
+    const card = row => page.locator(`article[data-id="${row.id}"]`);
+    const detail = page.locator('#recordPanel');
+    const caption = (scope, text) => scope.getByText(text, { exact: true });
+    const capture = (locator, name) => locator.screenshot({ path: join(evidence, `deal-captions-${width}-${name}.png`) });
+    const openParked = () => page.getByRole('button', { name: 'Parked', exact: true }).click();
+    const openDetail = async row => {
+      await caption(card(row), row.name).click();
+      await detail.getByRole('heading', { name: row.name, exact: true }).waitFor();
+    };
+    const back = () => page.getByRole('button', { name: 'Back to deals', exact: true }).click();
+    const boardUrl = `${origin}/deals?mode=live`;
+    await page.goto(boardUrl);
+    await openParked();
+    await card(automatic).waitFor();
+    assert.equal(await caption(card(automatic), 'Parked automatically').count(), 0);
+    await openDetail(automatic);
+    await detail.getByRole('button', { name: 'Revive', exact: true }).waitFor();
+    assert.equal(await caption(detail, 'Parked automatically').count(), 0);
+    await page.goto(`${boardUrl}&view=closed`);
+    await caption(card(won), 'Renewal').waitFor();
+    assert.equal(await caption(card(won), 'Lease not recorded').count(), 0);
+    await openDetail(won);
+    await caption(detail, 'Renewal').waitFor();
+    assert.equal(await caption(detail, 'Lease not recorded').count(), 0);
+
+    switches.add('deals-from-engine');
+    await page.goto(boardUrl);
+    await openParked();
+    await caption(card(automatic), 'Parked automatically').waitFor({ timeout: 5000 });
+    await caption(card(partner), 'Parked by Dell').waitFor({ timeout: 5000 });
+    await capture(page.locator('.parked-lane'), 'parked');
+    await openDetail(automatic);
+    await caption(detail, 'Parked automatically').waitFor({ timeout: 5000 });
+    await capture(detail.locator('[data-detail-read="parking"]'), 'automatic-detail');
+    await back();
+    await openDetail(partner);
+    await caption(detail, 'Parked by Dell').waitFor({ timeout: 5000 });
+    await back();
+    for (const [label, row] of [['Closed deals', won], ['Lost deals', lost]]) {
+      await page.getByRole('button', { name: label, exact: true }).click();
+      await caption(card(row), 'Renewal').waitFor({ timeout: 5000 });
+      await caption(card(row), 'Lease not recorded').waitFor({ timeout: 5000 });
+      if (row === lost) {
+        await caption(card(row), 'Relocation').waitFor();
+        await caption(card(row), 'Reason for loss').waitFor();
+        await caption(card(row), 'Plans changed').waitFor();
+        await caption(card(withLease), 'Renewal').waitFor();
+        assert.equal(await caption(card(withLease), 'Lease not recorded').count(), 0);
+      }
+      await capture(card(row), row.outcome);
+      await openDetail(row);
+      const facts = detail.locator('.deal-snapshot-facts').filter({ hasText: 'Renewal' });
+      await caption(facts, 'Renewal').waitFor({ timeout: 5000 });
+      await caption(facts, 'Lease not recorded').waitFor({ timeout: 5000 });
+      await capture(facts, `${row.outcome}-detail`);
+      await back();
+    }
+
+    switches.add('deals-saves-from-engine');
+    await page.goto(`${boardUrl}&view=list`);
+    await openParked();
+    await caption(card(automatic), 'Parked automatically').waitFor({ timeout: 5000 });
+    await card(automatic).getByRole('button', { name: 'Revive', exact: true }).click();
+    await page.getByText('Deal revived', { exact: true }).waitFor();
+    await page.goto(boardUrl);
+    await page.locator('.kanban-column').getByRole('button', { name: automatic.name, exact: true }).waitFor();
+    assert.equal(revivals, 1);
+    assert.equal(await caption(card(automatic), 'Parked automatically').count(), 0);
+  });
+}
+
 for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, true], ['dell', true, true], ['dell', true, false]]) {
   test(`deal files and email follow-ups for ${actor} with Deals reads ${readsOn ? 'on' : 'off'} and saves ${savesOn ? 'on' : 'off'}`, async t => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
@@ -1116,8 +1236,8 @@ test('switched-on Deals sets up a client website and opens it unlocked in a new 
   ]);
 });
 
-async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = false, linked = true } = {}) {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = false, linked = true, width = 1280 } = {}) {
+  const page = await browser.newPage({ viewport: { width, height: 960 } });
   t.after(() => page.close());
   const deal = crypto.randomUUID();
   const website = 'https://share.doctorcre.com/example-website';
@@ -1146,7 +1266,7 @@ async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = f
   };
   await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-client-website', viewer: 'joe', reset: true } });
   await routeClientWebsiteWorker(page, env);
-  return { page, deal, website, grant, enginePaths };
+  return { page, deal, row, website, grant, enginePaths };
 }
 
 for (const [blocked, toast] of [
@@ -1179,9 +1299,23 @@ for (const [closed, savesOn] of [[true, true], [false, false]]) {
   });
 }
 
-for (const readsOn of [true, false]) {
-  test(`board card client website with Deals reads ${readsOn ? 'on' : 'off'}`, async t => {
-    const { page, deal, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn: false });
+for (const [width, readsOn] of [[1440, true], [390, true], [1440, false], [390, false]]) {
+  test(`board card client website with Deals reads ${readsOn ? 'on' : 'off'} at ${width}px`, async t => {
+    const { page, deal, row, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn: false, width });
+    const prospects = Promise.withResolvers();
+    const changes = Promise.withResolvers();
+    if (readsOn) {
+      await page.clock.install();
+      await page.route('**/ui-deal-prospects.generated.js', async route => {
+        await prospects.promise;
+        await route.continue();
+      });
+      await page.route('**/api/engine/prospects', route => route.fulfill({ json: { prospects: [] } }));
+      await page.route('**/pipeline/changes*', async route => {
+        await changes.promise;
+        await route.fulfill({ json: { events: [], capture_sessions: [{ state: 'recording' }] } });
+      });
+    }
     await page.context().route(url => url.href === website || url.href === `${website}/?grant=${grant}`, route =>
       route.fulfill({ body: '<h1>Example client website</h1>', contentType: 'text/html' }));
     await page.goto(`${origin}/deals?mode=live`);
@@ -1193,9 +1327,22 @@ for (const readsOn of [true, false]) {
     assert.deepEqual(grants(), []);
     const open = card.getByRole(readsOn ? 'button' : 'link', { name: /Client website/ });
     assert.equal(await open.count(), 1);
-    if (readsOn) await card.screenshot({ path: join(evidence, 'client-website-card.png') });
+    await open.focus();
+    if (readsOn) {
+      prospects.resolve();
+      await page.getByText('No prospects in this view', { exact: true }).waitFor();
+      assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Prospects loading moved website focus');
+      changes.resolve();
+      await page.getByText('Capture: recording', { exact: true }).waitFor();
+      assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Change feed moved website focus');
+      await card.screenshot({ path: join(evidence, `client-website-card-${width}.png`) });
+      row.open_actions = [{ id: 'example-step', description: 'Confirm the example floor plan' }];
+      await page.clock.fastForward(61_000);
+      await card.getByText('Confirm the example floor plan', { exact: true }).waitFor();
+      assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Board refresh moved website focus');
+    }
     const popupOpened = page.waitForEvent('popup');
-    await open.press('Enter');
+    await page.keyboard.press('Enter');
     const popup = await popupOpened;
     await popup.getByRole('heading', { name: 'Example client website' }).waitFor();
     assert.equal(popup.url(), readsOn ? `${website}/?grant=${grant}` : website);
