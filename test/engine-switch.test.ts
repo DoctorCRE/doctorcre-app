@@ -47,6 +47,52 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
   return { env, send, engine, carr, kv };
 }
 
+test("document writes require both Deals switches and preserve bytes and session headers", async () => {
+  const bytes = "%PDF-1.7 synthetic";
+  const digest = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bytes))).toString("hex");
+  const files = `/api/engine/files/${digest}`;
+  const documents = "/api/engine/deals/00000000-0000-4000-8000-000000000001/documents";
+  for (const [path, method, body] of [
+    [files, "PUT", bytes],
+    [documents, "POST", "{}"],
+  ] as const) {
+    for (const [reads, saves] of [
+      [false, false],
+      [true, false],
+      [false, true],
+      [true, true],
+    ]) {
+      const f = fixture(
+        new Map([
+          ["deals-from-engine", reads ? "on" : "off"],
+          ["deals-saves-from-engine", saves ? "on" : "off"],
+        ]),
+      );
+      const response = await worker.fetch(
+        new Request(origin + path, {
+          method,
+          body,
+          headers: { cookie: "session=synthetic", "x-carr-csrf": "synthetic", "content-length": String(body.length) },
+        }),
+        f.env,
+      );
+      assert.equal(response.status, reads && saves ? 200 : 404);
+      assert.deepEqual(f.carr, []);
+      if (reads && saves) {
+        const [forwarded] = f.engine;
+        assert.ok(forwarded);
+        assert.equal(forwarded.url, origin + path);
+        assert.equal(forwarded.method, method);
+        assert.equal(forwarded.headers.get("x-carr-csrf"), "synthetic");
+        assert.equal(forwarded.headers.get("cookie"), "session=synthetic");
+        assert.equal(forwarded.headers.get("content-length"), String(body.length));
+        assert.equal(await forwarded.text(), body);
+      } else assert.deepEqual(f.engine, []);
+    }
+  }
+  assert.equal((await worker.fetch(new Request(origin + documents, { method: "PUT" }), fixture().env)).status, 405);
+});
+
 test("a filed deal document streams from the engine only with Deals reads on", async () => {
   const url = `${origin}/api/engine/documents/00000000-0000-4000-8000-000000000001`;
   const request = () => new Request(url, { headers: { cookie: "session=synthetic" } });

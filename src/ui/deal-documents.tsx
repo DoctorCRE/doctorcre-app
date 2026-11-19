@@ -6,6 +6,8 @@ import { DocumentTextViewer } from "./deal-document-text-viewer";
 
 import type { QuoteAskClient } from "./document-quote-next-ask";
 
+export { mountDealDocumentUpload } from "./deal-document-upload.tsx";
+
 type Document = {
   id: string;
   display_name: string;

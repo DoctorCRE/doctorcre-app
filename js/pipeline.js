@@ -8,6 +8,7 @@ import { engagementWriterFor } from './prospect-engagement.mjs';
 import { showToast } from './toast.js';
 import { renderDealVendors } from './deal-vendors.js';
 import { openEngineClientWebsite, renderClientPortalLink, saveEngineClientWebsite } from './client-portal-link.js';
+import { sessionFetch } from './private-session.js';
 import { pageDocContext, selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createCommandDock } from './command-dock.js';
 import { readWithDeadline } from './auto-refresh.mjs';
@@ -1487,11 +1488,11 @@ function undoInvoiceClose() {
 }
 
 function filedDocumentsHtml(documents) {
-  return `<h2>Documents</h2>${documents.length ? `<ul class="deal-document-list">${documents.map(file => {
+  return documents.length ? `<ul class="deal-document-list">${documents.map(file => {
     const version = `Version ${file.version}`;
     return `<li><h3><a href="/api/engine/documents/${encodeURIComponent(file.id)}" aria-label="${esc(`${file.name}, ${version}`)}" data-detail-focus="file-${esc(file.id)}">${esc(file.name)}</a></h3>
       <p>${esc(version)}${file.prepared_at ? ` · ${esc(sourceTime(file.prepared_at))}` : ''}</p></li>`;
-  }).join('')}</ul>` : '<p>No documents filed for this deal.</p>'}`;
+  }).join('')}</ul>` : '<p>No documents filed for this deal.</p>';
 }
 
 function dealEmailFollowupsHtml(followups, canDecide) {
@@ -1587,7 +1588,7 @@ function workspaceHtml(detail) {
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
-    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
+    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden></section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
@@ -1698,12 +1699,13 @@ async function readPanel(id) {
     const detail = await readDealDetail(id);
     if (state.panelDeal !== id || seq !== panelReadSequence || panelRead?.again) return;
     const wasEngineDetail = isEngineDealDetail(state.panelDetail);
+    const savesChanged = state.panelDetail?.next_deal_saves !== detail.next_deal_saves;
     state.panelDetail = detail;
     const contextRead = pageDocContext?.begin('getDeal', [id]);
     pageDocContext?.finish(contextRead, detail);
     selectDocRecord('deal', id);
     updateDetailTimestamp();
-    if (!$('panelBody').querySelector('.deal-opening-snapshot') || wasEngineDetail !== isEngineDealDetail(detail)) paintPanel(detail);
+    if (!$('panelBody').querySelector('.deal-opening-snapshot') || wasEngineDetail !== isEngineDealDetail(detail) || savesChanged) paintPanel(detail);
     else {
       if ($('detailPhase') && document.activeElement !== $('detailPhase')) $('detailPhase').value = columnByValue(detail.deal.phase)?.slug || '';
       if ($('detailOwner') && document.activeElement !== $('detailOwner')) $('detailOwner').value = detail.deal.owner || '';
@@ -1877,28 +1879,41 @@ function paintPanel(detail) {
     dispose() { toursDisposed = true; toursMounted?.dispose(); },
   };
   let documentsDisposed = false, documentsLoading = false, documentsMounted;
-  dealDocumentsPanel = isEngineDealDetail(detail) ? null : {
+  const engineDocuments = isEngineDealDetail(detail);
+  dealDocumentsPanel = engineDocuments && !detail.next_deal_saves ? null : {
     async load() {
       if (documentsDisposed || documentsLoading || documentsMounted) return;
       documentsLoading = true;
-      const root = $('workspace-documents');
-      root.textContent = 'Loading documents…';
+      const root = $(engineDocuments ? 'deal-document-upload' : 'workspace-documents');
+      root.textContent = engineDocuments ? 'Loading upload form…' : 'Loading documents…';
       try {
-        const { mountDealDocuments } = await import('./ui-deal-documents.generated.js');
+        const { mountDealDocuments, mountDealDocumentUpload } = await import('./ui-deal-documents.generated.js');
         if (documentsDisposed) return;
         root.replaceChildren();
-        documentsMounted = mountDealDocuments(root, { dealId: detail.deal.id, client: state.client });
+        documentsMounted = engineDocuments ? mountDealDocumentUpload(root, {
+          dealId: detail.deal.id,
+          documents: state.panelDetail.documents,
+          request: sessionFetch,
+          async refreshDocuments() {
+            await refreshPanel({ changed: true });
+            return documentsDisposed ? [] : state.panelDetail.documents;
+          },
+        }) : mountDealDocuments(root, { dealId: detail.deal.id, client: state.client });
       } catch {
         if (!documentsDisposed) {
-          root.textContent = 'Documents unavailable. ';
-          const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn'; retry.textContent = 'Retry documents';
+          root.textContent = engineDocuments ? 'Upload form unavailable. ' : 'Documents unavailable. ';
+          const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn';
+          retry.textContent = engineDocuments ? 'Retry upload form' : 'Retry documents';
           retry.addEventListener('click', () => void dealDocumentsPanel?.load()); root.append(retry);
         }
       } finally { documentsLoading = false; }
     },
-    refresh() { return documentsMounted?.refresh(); },
-    hasUnsavedChanges() { return documentsMounted?.hasUnsavedChanges() || false; },
-    confirmLeave() { return documentsMounted?.confirmLeave() ?? true; },
+    refresh() {
+      if (engineDocuments) documentsMounted?.update(state.panelDetail.documents);
+      else return documentsMounted?.refresh();
+    },
+    hasUnsavedChanges() { return documentsMounted?.hasUnsavedChanges?.() || false; },
+    confirmLeave() { return documentsMounted?.confirmLeave?.() ?? true; },
     dispose() { documentsDisposed = true; documentsMounted?.dispose(); },
   };
   let clientDisposed = false, clientLoading = false, clientMounted;

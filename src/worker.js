@@ -727,11 +727,16 @@ async function handleRequest(request, env) {
   }
 
   if (pathname.startsWith('/api/engine/')) {
-    if (request.method !== 'GET' && request.method !== 'HEAD' && request.method !== 'POST') {
+    const documentWriteMethod = /^\/api\/engine\/files\/[a-f0-9]{64}$/.test(pathname) ? 'PUT'
+      : /^\/api\/engine\/deals\/[^/]+\/documents$/.test(pathname) ? 'POST' : null;
+    const allowed = documentWriteMethod ? [documentWriteMethod] : ['GET', 'HEAD', 'POST'];
+    if (!allowed.includes(request.method)) {
       const response = json({ error: 'method_not_allowed' }, 405);
-      response.headers.set('allow', 'GET, HEAD, POST');
+      response.headers.set('allow', allowed.join(', '));
       return response;
     }
+    if (documentWriteMethod && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
+      return json({ error: 'not_found' }, 404);
     const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);
     if (website && (!await switchedOn(env, DEALS) || (!website[1] && !await switchedOn(env, NEXT_DEAL_SAVES))))
       return json({ error: 'not_found' }, 404);
