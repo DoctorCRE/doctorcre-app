@@ -131,7 +131,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
   async function composerDetail(tourId) { return validateDetail(await request(`/api/tours/detail?tour_id=${encodeURIComponent(tourId)}`), tourId); }
   let createPending = null, createBusy = false, createPhase = "ready", sessionBinding = "", navigationBusy = false, restoredTourId = "", libraryReady = false;
   let sheetPending = null, sheetConflict = null, sheetBusy = false, sheetMessage = "", tourAction = null, tourActionPreparing = false;
-  let sheetAutosaveTimer = null, sheetComposing = false;
+  let sheetAutosaveTimer = null, sheetComposing = false, sheetReadback = null;
   function cancelSheetAutosave() { clearTimeout(sheetAutosaveTimer); sheetAutosaveTimer = null; }
   const otherWritesKey = "doctorcre-tour-other-writes-v1";
   function persistOtherWrites() {
@@ -1115,7 +1115,8 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       state.cheatDirty = $("#cheat-content").value !== pending.draft;
       state.cheatDraftRevision = state.cheatDirty ? revision : null;
       sheetMessage = "Internal cheat sheet save confirmed.";
-      await loadTour(tourId, { throwOnFailure:true, keepEditorVisible:true });
+      sheetReadback = loadTour(tourId, { throwOnFailure:true, keepEditorVisible:true });
+      await sheetReadback;
       sheetMessage = "Internal cheat sheet save confirmed."; status(sheetMessage);
     } catch (error) {
       if (state.sessionInvalidated) return;
@@ -1135,6 +1136,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
           : "The current sheet could not be read. Your draft is kept; try saving again.";
       }
     } finally {
+      sheetReadback = null;
       sheetBusy = false; if (!state.sessionInvalidated) renderSheetRecovery();
       if (confirmed && state.cheatDirty && state.tour?.id === tourId && binding === sessionBinding) {
         $("#cheat-content").dispatchEvent(new Event("input"));
@@ -1428,6 +1430,9 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     latest => latest.pdf_render_job_id === job && latest.pdf_qc_run_digest === qc);
   }));
   window.addEventListener('beforeunload', event => {
+    if (sheetReadback && !state.cheatDirty && event.detail && typeof event.detail === "object") {
+      event.detail.readback = sheetReadback;
+    }
     if (savedSearchPanel?.dirty() || state.selectionDirty || state.cheatDirty || sheetBusy || sheetPending || sheetConflict || tourAction ||
         composer?.dirty || composer?.plan || composer?.busy || createBusy || createPending || state.shareBusy ||
         (embedded && !state.tour && [...$('#create-tour-form').querySelectorAll('input')].some(input => input.value && !['create-subject-id', 'create-subject-type'].includes(input.id)))) {
