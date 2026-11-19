@@ -1865,6 +1865,12 @@ test("national account creation and owner changes follow the Deals switches", as
       { name: "Demo Separate Company", owner: "dell", force_new: true },
     ],
     [
+      "create-national-account",
+      { name: "Demo Matching Company", owner: "dell" },
+      "/national-accounts",
+      { name: "Demo Matching Company", owner: "dell", company_id: account },
+    ],
+    [
       "set-national-account-owner",
       { account_client_id: account, owner: "dell", base_version: 0 },
       `/national-accounts/${account}/owner`,

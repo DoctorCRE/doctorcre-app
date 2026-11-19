@@ -230,6 +230,8 @@ body.has-app-layout:has(#confirmDock:not([hidden])) .toast { bottom: calc(var(--
 .field textarea { min-height: 90px; resize: vertical; }
 .field input:disabled, .field input:disabled:not([type="radio"]):not([type="checkbox"]), .field select:disabled, .field textarea:disabled { color: var(--fg-muted); opacity: 0.55; cursor: not-allowed; }
 #nationalCreationFields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.national-company-choices { display: grid; gap: var(--space-3); list-style: none; padding: 0; }
+.national-company-choices li { display: grid; justify-items: start; gap: var(--space-1); overflow-wrap: anywhere; }
 #nationalCreationFields > .field, #nationalCreationFields > .field-row, #nationalCreationFields > fieldset, #marketResearch { margin-bottom: var(--space-4); }
 #nationalCreationFields fieldset, #marketResearch fieldset { min-width: 0; border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); padding: var(--space-4); }
 #nationalCreationFields fieldset legend, #marketResearch legend { padding: 0 var(--space-2); }
