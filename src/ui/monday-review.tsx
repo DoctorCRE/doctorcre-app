@@ -31,6 +31,12 @@ const text = (value: unknown) => (typeof value === "string" ? value : null);
 const stamp = (value: Record<string, unknown>) => ({ by: text(value.by), at: text(value.at) });
 const itemKey = (item: ReviewItem) => `${item.kind}-${item.id}`;
 
+const statusLabels = new Map([
+  ["closed", "Closed"],
+  ["lost", "Lost"],
+  ["dropped", "Dropped"],
+]);
+
 function parseReview(result: unknown): ReviewItem[] {
   if (!record(result) || !Array.isArray(result.items)) throw new Error("Invalid review");
   return result.items.map((row: unknown) => {
@@ -48,16 +54,7 @@ function parseReview(result: unknown): ReviewItem[] {
       name,
       owner: text(row.owner),
       phase: text(row.phase),
-      status:
-        row.state === "closed"
-          ? "Closed"
-          : row.state === "lost"
-            ? "Lost"
-            : row.state === "dropped"
-              ? "Dropped"
-              : row.operating_state === "parked"
-                ? "Parked"
-                : null,
+      status: statusLabels.get(text(row.state) ?? "") ?? (row.operating_state === "parked" ? "Parked" : null),
       attention: row.attention === true || row.needs_attention === true,
       step: text(deal ? row.next_step : step.what),
       due: text(deal ? row.next_date : step.due_on),
@@ -119,6 +116,7 @@ function Item({ item, data, list, mode }: { item: ReviewItem; data: ReviewData; 
   const owner = item.owner ? data.authorLabel(item.owner) : deal ? "Unassigned" : "Unclaimed";
   const due = item.due ? data.dateLabel(item.due) : null;
   const key = itemKey(item);
+  const prospectNotes = <Notes data={data} notes={item.note ? [item.note] : []} />;
   return (
     <>
       <h2>
@@ -156,8 +154,13 @@ function Item({ item, data, list, mode }: { item: ReviewItem; data: ReviewData; 
       )}
       {deal ? (
         <DealNotes id={item.id} data={data} list={list} />
+      ) : list ? (
+        <details>
+          <summary>Latest notes</summary>
+          {prospectNotes}
+        </details>
       ) : (
-        <Notes data={data} notes={item.note ? [item.note] : []} />
+        prospectNotes
       )}
     </>
   );
@@ -237,7 +240,7 @@ function Review({ data }: { data: ReviewData }) {
           </fieldset>
           <div data-review-items>
             {!item ? (
-              <p>{rows.length ? "No unreviewed items." : "No deals or prospects to review this week."}</p>
+              <p>{rows.length ? "Everything is reviewed this week." : "No deals or prospects to review this week."}</p>
             ) : (
               <>
                 <ol className="monday-review-items">
