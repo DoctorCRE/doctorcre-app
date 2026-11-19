@@ -475,6 +475,16 @@ test("partners see and manage prospects from Deals", async (t) => {
         await clientField.fill("Client Ex");
         await form.getByRole("button", { name: "Client Example · Company" }).waitFor({ timeout: 5000 });
         await form.getByRole("button", { name: `Client Example · Person · ${storedTwin.id}`, exact: true }).waitFor();
+        assert.equal(
+          await form.getByRole("list", { name: "Matching people and companies" }).evaluate((list) => {
+            const right = list.closest("dialog")?.getBoundingClientRect().right ?? 0;
+            return [...list.querySelectorAll("button")].every(
+              (button) => button.getBoundingClientRect().right <= right,
+            );
+          }),
+          true,
+          "each client match fits inside the dialog",
+        );
         await form.getByRole("button", { name: `Client Example · Person · ${storedParty.id}`, exact: true }).click();
         assert.equal(await clientField.inputValue(), storedParty.display_name);
       }

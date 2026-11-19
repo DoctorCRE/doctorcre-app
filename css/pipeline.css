@@ -84,7 +84,8 @@
 .prospect-add.field select { width: auto; max-width: 100%; height: var(--touch); }
 .prospect-add > :is(p, ul) { flex-basis: 100%; }
 .prospect-add ul, .prospect-client-matches { margin: 0; padding: 0; list-style: none; }
-.prospect-client-matches .btn { overflow-wrap: anywhere; width: 100%; }
+#addDealClientPicker .field { grid-template-columns: minmax(0, 1fr); }
+#addDealClientPicker .btn { overflow-wrap: anywhere; white-space: normal; width: 100%; }
 .prospect-kind { display: flex; flex-wrap: wrap; gap: var(--space-1); min-width: 0; margin: 0; padding: 0; border: 0; }
 .prospect-management { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .prospect-dialog form label { display: grid; gap: var(--space-2); }
