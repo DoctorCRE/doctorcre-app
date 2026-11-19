@@ -1,7 +1,8 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { createAutomaticPhaseUndo, dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderLastDealStep, renderOverdueFlag } from './deal-items.js';
+import { createAutomaticPhaseUndo } from './ui-automatic-phase-undo.generated.js';
+import { automaticPhaseReceipt, dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderLastDealStep, renderOverdueFlag, renderPhaseReceipt } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
@@ -109,11 +110,12 @@ function say(text) {
 const dateWords = (value) => (value ? formatCalendarDate(value) || value : 'no date recorded');
 
 const automaticPhase = createAutomaticPhaseUndo({
-  state, render: renderBoard, report: announce, refreshedMessage: 'The card was refreshed.',
+  state, performCommand, newKey: uuidv4, render: renderBoard, report: announce, refreshedMessage: 'The card was refreshed.',
 });
 
 function cardPhaseMoveHtml(deal, legacy = '') {
-  return state.nextDealSaves && state.view === 'board' ? automaticPhase.receiptHtml(deal, legacy) : legacy;
+  return state.nextDealSaves && state.view === 'board'
+    ? renderPhaseReceipt(deal, automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id)), legacy) : legacy;
 }
 
 function autoHtml(deal) {

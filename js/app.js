@@ -2,11 +2,12 @@ import { isTextEntry } from './ui-keyboard-input.generated.js';
 import { mountDealRoomForm } from './ui-deal-room-forms.generated.js';
 import { nameMatchDetails } from './ui-name-match.generated.js';
 import { mountDealRoomBoard } from './ui-board.generated.js';
+import { createAutomaticPhaseUndo } from './ui-automatic-phase-undo.generated.js';
 import { mountDealRoomAgenda } from './ui-agenda.generated.js';
 import { dealStepVersion, partnerDealStep } from './local-deals-model.js';
 import { businessDay } from './business-date.js';
 import { formatCalendarDate } from './visual-system.js';
-import { createAutomaticPhaseUndo, dealItemRows, dealLastCaption, dealNextCaption } from './deal-items.js';
+import { automaticPhaseReceipt, dealItemRows, dealLastCaption, dealNextCaption } from './deal-items.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
@@ -85,7 +86,7 @@ const esc = escapeText;
 const actorName = (slug) => ACTOR_LABEL[slug] || slug || 'Unassigned';
 const account = () => state.accounts.find((item) => item.account_client_id === state.accountId) || null;
 const automaticPhase = createAutomaticPhaseUndo({
-  state, render: renderBoardOnly, report: message => showToast(message), refreshedMessage: 'The row was refreshed.',
+  state, performCommand, newKey: uuidv4, render: renderBoardOnly, report: message => showToast(message), refreshedMessage: 'The row was refreshed.',
 });
 
 function daysFromNow(value) {
@@ -562,7 +563,7 @@ function boardRow(deal, nationalAccountRows) {
       parking: parked ? parkingReasonLabel(deal.parking_reason) : null,
       presence: presence[0] ? `${actorName(presence[0].actor)} is editing` : null,
     }).filter(([, value]) => value),
-    phaseMove: nationalAccountRows ? automaticPhase.receipt(deal) : null,
+    phaseMove: nationalAccountRows ? automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id)) : null,
     title: presence.length ? `${actorName(presence.at(-1).actor)} is editing ${presence.at(-1).field}` : '',
     due: dateLabel(deal.next_date), dueClass: days !== null && days < 0 ? 'over' : days !== null && days <= 3 ? 'soon' : '',
     retries: unresolvedFieldWrites(state.fieldWrites, deal.id).map(entry => ({ cell: entry.cell, label: fieldLabel(entry.field) })),

@@ -2,9 +2,7 @@ import { workCard } from './work-card.js';
 import { overdueLabel } from './deal-review-model.js';
 import { noteText } from './pipeline-model.js';
 import { calendarDay } from './deal-timeline.js';
-import { performCommand } from './command-feedback.mjs';
 import { formatCalendarDate } from './visual-system.js';
-import { uuidv4 } from './uuid.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
@@ -111,67 +109,22 @@ export function renderDealItemDetail(item, { today = '' } = {}) {
   }).join('')}<form data-item-instruction><label for="dealItemInstruction">Tell Dr. CRE</label><textarea id="dealItemInstruction" name="text" aria-label="Tell Dr. CRE" rows="3" maxlength="240" required></textarea><button type="submit" class="btn btn-primary" disabled>Save instruction</button><p>Not submitted. This control cannot send a request to Dr. CRE.</p></form><button type="button" class="btn" data-complete-item${item.status === 'done' ? ' disabled' : ''}>${item.status === 'done' ? 'Done' : 'Mark done'}</button><p role="status" data-item-status></p>`;
 }
 
-export function createAutomaticPhaseUndo({ state, render, report, refreshedMessage }) {
-  const feedbackByDeal = new Map();
-  let commandState = {};
+export function automaticPhaseReceipt(deal, entry) {
+  const event = deal.phase_change;
+  const day = calendarDay(event?.evidence_date);
+  const feedback = entry?.eventId && entry.eventId !== event?.event_id ? null : entry;
+  const move = event?.source === 'copied' && event.automatic === true && event.event_id && day;
+  const returnsToEndedDeals = move && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
+    || feedback?.code === 'undo_returns_to_ended_deals');
+  const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
+  const action = move && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
+    ? { eventId: event.event_id, version: deal.seen, busy: Boolean(feedback?.busy) } : null;
+  return { move: move ? { day, date: formatCalendarDate(day) || day, action } : null, message };
+}
 
-  function receipt(deal) {
-    const event = deal.phase_change;
-    const day = calendarDay(event?.evidence_date);
-    const entry = feedbackByDeal.get(deal.id);
-    const feedback = entry?.eventId && entry.eventId !== event?.event_id ? null : entry;
-    const move = event?.source === 'copied' && event.automatic === true && event.event_id && day;
-    const returnsToEndedDeals = move && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
-      || feedback?.code === 'undo_returns_to_ended_deals');
-    const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
-    const action = move && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
-      ? { eventId: event.event_id, version: deal.seen, busy: Boolean(feedback?.busy) } : null;
-    return { move: move ? { day, date: formatCalendarDate(day) || day, action } : null, message };
-  }
-
-  function receiptHtml(deal, legacy) {
-    const { move, message } = receipt(deal);
-    const undo = move?.action;
-    const button = undo ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(undo.eventId)}" data-base-version="${undo.version}"${undo.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
-    const mark = move ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${move.day}">${esc(move.date)}</time>${button}</div>` : legacy;
-    return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
-  }
-
-  async function undo(button) {
-    if (!state.nextDealSaves || button.getAttribute('aria-disabled') === 'true') return;
-    const { undoPhase: deal, eventId: event_id, baseVersion } = button.dataset;
-    if (feedbackByDeal.get(deal)?.busy) return;
-    const feedback = { busy: true, eventId: null, code: null, message: '' };
-    feedbackByDeal.set(deal, feedback);
-    render();
-    const seen_change_id = Number(baseVersion);
-    const result = await performCommand({
-      operationKey: `phase-undo:${state.selfActor}:${deal}:${event_id}:${seen_change_id}`,
-      args: { deal, event_id, seen_change_id },
-      getState: () => commandState,
-      setState: next => { commandState = next; },
-      newKey: uuidv4,
-      call: request => state.client.undoAutomaticPhaseMove(request),
-    });
-    if (feedbackByDeal.get(deal) !== feedback) return;
-    if (result.status === 'ok' || result.code === 'version_conflict') {
-      const refreshed = await state.boardSync.requestRefresh('after-phase-undo');
-      if (feedbackByDeal.get(deal) !== feedback) return;
-      feedback.message = result.status === 'ok'
-        ? refreshed.applied ? '' : 'Move undone. Refresh Deals to see the current phase.'
-        : refreshed.applied ? `This deal changed. ${refreshedMessage}` : 'This deal changed. Refresh Deals to see the current phase.';
-    } else {
-      feedback.eventId = event_id;
-      feedback.code = result.code;
-      feedback.message = result.hint || (result.status === 'unknown'
-        ? 'Undo could not be confirmed. Use Undo again to check what happened.'
-        : 'Undo could not be saved.');
-    }
-    feedback.busy = false;
-    if (!feedback.message) feedbackByDeal.delete(deal);
-    render();
-    if (feedback.message) report(feedback.message);
-  }
-
-  return { receipt, receiptHtml, undo, clear: () => feedbackByDeal.clear() };
+export function renderPhaseReceipt(deal, { move, message }, legacy) {
+  const undo = move?.action;
+  const button = undo ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(undo.eventId)}" data-base-version="${undo.version}"${undo.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
+  const mark = move ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${move.day}">${esc(move.date)}</time>${button}</div>` : legacy;
+  return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
 }
