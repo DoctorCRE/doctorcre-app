@@ -276,7 +276,7 @@ async function engineResponse(request, env) {
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
           if (board?.schema_version === 'local-deals-board.v2') {
-            text = JSON.stringify({ ...board, engine_prospects: true, engine_weekly_review: true,
+            text = JSON.stringify({ ...board, engine_prospects: true, board_from_engine: true,
               ...(await switchedOn(env, NEXT_DEAL_SAVES) ? { next_deal_saves: true } : {}) });
           }
         }
@@ -701,6 +701,9 @@ async function handleRequest(request, env) {
       response.headers.set('allow', 'GET, HEAD, POST');
       return response;
     }
+    const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);
+    if (website && (!await switchedOn(env, DEALS) || (!website[1] && !await switchedOn(env, NEXT_DEAL_SAVES))))
+      return json({ error: 'not_found' }, 404);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     if ((weeklyReview && request.method === 'POST')
         || ((weeklyReview || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
