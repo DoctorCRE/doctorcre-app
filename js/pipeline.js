@@ -152,7 +152,7 @@ function parkingDetailsHtml(deal) {
 }
 function parkFormHtml(nextDealSaves) {
   const fields = nextDealSaves
-    ? `<label>Park reason<select name="reason" required><option value="">Choose a reason</option>${Array.from(PARKING_REASONS, ([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label><label>Note (optional)<textarea name="note" maxlength="500"></textarea></label>`
+    ? `<label>Park reason<select name="reason" required><option value="">Choose a reason</option>${Array.from(PARKING_REASONS, ([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label><label>Parking note (optional)<textarea name="note" maxlength="500"></textarea></label>`
     : '<label>Park reason<input name="reason" maxlength="500" required></label>';
   return `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm">${fields}<button class="btn park-control" type="submit">Park deal</button></form></details>`;
 }

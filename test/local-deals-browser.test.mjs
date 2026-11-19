@@ -1194,7 +1194,7 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     assert.equal(await form.isVisible(), true);
     await reason.selectOption({ label: 'Other' });
     const note = 'Wait for the <revised> plans';
-    await form.getByLabel('Note (optional)').fill(note);
+    await form.getByLabel('Parking note (optional)').fill(note);
     const artifacts = new URL('out/test-artifacts/park-revive/', root);
     await mkdir(artifacts, { recursive: true });
     await form.screenshot({ path: new URL(`${width}-form.png`, artifacts).pathname });
