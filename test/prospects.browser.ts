@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 import test from "node:test";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
@@ -14,6 +15,7 @@ test("partners see and manage prospects from Deals", async (t) => {
   const CARR = { fetch: async () => Response.json(session) };
   const server = await startWorkerFixture({ assets: await appAssetSnapshot(), env: { CARR } });
   t.after(() => server.close());
+  await mkdir(".scratch/name-matches", { recursive: true });
   const browser = await chromium.launch();
   t.after(() => browser.close());
 
@@ -48,14 +50,25 @@ test("partners see and manage prospects from Deals", async (t) => {
         id: "00000000-0000-4000-8000-000000000004",
         display_name: "Client Example",
         kind: "company",
+        city: "Austin",
+        deal_count: 3,
+        is_national_account: true,
       };
       const renewalLease = {
         lease_id: "00000000-0000-4000-8000-000000000010",
         address: "10 Example Road",
         expiration_on: "2031-06-01",
+        renewed_by: { deal_id: party, name: "Example Prior Renewal" },
       };
-      const storedParty = { ...matchedClient, id: "00000000-0000-4000-8000-000000000007", kind: "person" };
-      const storedTwin = { ...storedParty, id: "00000000-0000-4000-8000-000000000009" };
+      const storedParty = {
+        ...matchedClient,
+        id: "00000000-0000-4000-8000-000000000007",
+        kind: "person",
+        city: null,
+        deal_count: 1,
+        is_national_account: false,
+      };
+      const storedTwin = { ...storedParty, id: "00000000-0000-4000-8000-000000000009", city: "Waco", deal_count: 0 };
       const missingHowFound = {
         ...storedParty,
         id: "00000000-0000-4000-8000-000000000008",
@@ -528,11 +541,17 @@ test("partners see and manage prospects from Deals", async (t) => {
         await form.getByRole("button", { name: `Use ${birchProspect.name} as client` }).click();
         await form.getByText("No leases found for this client.").waitFor();
         await clientField.fill("Client Ex");
-        await form.getByRole("button", { name: "Client Example · Company" }).click();
+        const company = form.getByRole("button", { name: "Client Example · Company · Austin · 3 deals", exact: true });
+        await company.waitFor();
+        await form.screenshot({ path: `.scratch/name-matches/prospect-${width}.png` });
+        await company.click();
         const lease = form.getByLabel("Lease to renew");
-        await lease.locator("option").filter({ hasText: "10 Example Road · Expires Sun, Jun 1, 2031" }).waitFor({
-          state: "attached",
-        });
+        await lease
+          .locator("option")
+          .filter({ hasText: "10 Example Road · Expires Sun, Jun 1, 2031 · already renewed by Example Prior Renewal" })
+          .waitFor({
+            state: "attached",
+          });
         await phaseField.selectOption("Research");
         await save.click();
         assert.equal(conversionAttempts, 0, "a renewal must name a lease");
@@ -543,8 +562,16 @@ test("partners see and manage prospects from Deals", async (t) => {
         await clientField.fill("Clint Example");
         await form.getByText("No matching people or companies.").waitFor({ timeout: 5000 });
         await clientField.fill("Client Ex");
-        await form.getByRole("button", { name: "Client Example · Company" }).waitFor({ timeout: 5000 });
-        await form.getByRole("button", { name: `Client Example · Person · ${storedTwin.id}`, exact: true }).waitFor();
+        await form
+          .getByRole("button", { name: "Client Example · Company · Austin · 3 deals" })
+          .waitFor({ timeout: 5000 });
+        const openAccount = form.getByRole("link", { name: "Open account", exact: true });
+        assert.equal(
+          await openAccount.getAttribute("href"),
+          `/deals?view=national&account=${matchedClient.id}&mode=live`,
+        );
+        assert.equal(await form.getByText(storedTwin.id, { exact: false }).count(), 0);
+        await form.getByRole("button", { name: "Client Example · Person · Waco · 0 deals", exact: true }).waitFor();
         assert.equal(
           await form.getByRole("list", { name: "Matching people and companies" }).evaluate((list) => {
             const right = list.closest("dialog")?.getBoundingClientRect().right ?? 0;
@@ -555,7 +582,10 @@ test("partners see and manage prospects from Deals", async (t) => {
           true,
           "each client match fits inside the dialog",
         );
-        await form.getByRole("button", { name: `Client Example · Person · ${storedParty.id}`, exact: true }).click();
+        await form.screenshot({ path: `.scratch/name-matches/prospect-${width}.png` });
+        await form
+          .getByRole("button", { name: "Client Example · Person · No city recorded · 1 deal", exact: true })
+          .click();
         assert.equal(await clientField.inputValue(), storedParty.display_name);
       }
       await save.click();
@@ -576,7 +606,9 @@ test("partners see and manage prospects from Deals", async (t) => {
         await save.click();
         await form.getByText("Choose a client from the matches.").waitFor();
         assert.equal(conversionAttempts, 1, "typing a name does not pick a client");
-        await form.getByRole("button", { name: `Client Example · Person · ${storedParty.id}`, exact: true }).click();
+        await form
+          .getByRole("button", { name: "Client Example · Person · No city recorded · 1 deal", exact: true })
+          .click();
       }
       await save.click();
       await form.getByText("This person or company is no longer a prospect.").waitFor();

@@ -145,6 +145,7 @@ export function formatClock(value) {
 
 /** "Wed, Sep 16, 2026" — the calendar, in the order a calendar reads. */
 export function formatCalendarDate(value) {
+  if (value === null) return null;
   const date = asDate(value);
   if (!date) return null;
   return `${WEEKDAYS[date.getUTCDay()].slice(0, 3)}, ${MONTHS[date.getUTCMonth()]} ${date.getUTCDate()}, ${date.getUTCFullYear()}`;

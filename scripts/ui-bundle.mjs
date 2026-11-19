@@ -69,6 +69,7 @@ export const UI_ENTRIES = {
   'ui-task-done': 'home/task-done',
   'ui-deal-reviews': 'home/deal-update-reviews',
   'ui-deal-room-forms': 'deal-room-forms',
+  'ui-name-match': 'name-match',
 };
 const UI_OUTPUTS = new Set([...Object.keys(UI_ENTRIES).map(name => `js/${name}.generated.js`), 'public-shell/sw.js']);
 export const isUiAsset = path => UI_OUTPUTS.has(path) || /^js\/ui-shared-[A-Z0-9]+\.generated\.js$/.test(path);
