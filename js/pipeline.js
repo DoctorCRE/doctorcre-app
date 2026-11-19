@@ -409,6 +409,11 @@ function applyBoardSnapshot(board) {
   }
 }
 
+function prospectClient() {
+  return { prospectRequest: fetchRead, saveProspect: (path, operation, receipt, args) =>
+    state.client.savePartnerRecord(path, `prospect:${operation}`, receipt, args) };
+}
+
 function syncProspects(enabled) {
   let lane = $('prospectsLane');
   if (!enabled) {
@@ -426,7 +431,7 @@ function syncProspects(enabled) {
   $('kanban').prepend(lane);
   void import('./ui-deal-prospects.generated.js').then(({ mountProspects }) => {
     if (!lane.isConnected) return;
-    prospects = mountProspects(lane, { prospectRequest: fetchRead, saveProspect: state.client.saveProspect }, count => {
+    prospects = mountProspects(lane, prospectClient(), count => {
       state.prospectCount = count;
       renderBoardMessage();
     }, authorLabel, incomingScope.has('prospect') && mondayReviewOrigin() ? backToMondayReview : null);
@@ -574,7 +579,7 @@ async function runFollowUp(operationKey, step) {
   const pending = pendingCommand(commandState, operationKey);
   let args = step.args;
   if (['add-deal-note', 'set-next-step', 'record-deal-item', 'complete-deal-item', 'add-critical-date'].includes(step.verb)) {
-    const deal = state.panelDeal === args.deal ? state.panelDetail?.deal : state.deals.get(args.deal);
+    const deal = (state.panelDeal === args.deal ? state.panelDetail?.deal : state.deals.get(args.deal)) ?? step.reviewed;
     const seen = pending ? pending.request.seen_change_id
       : step.verb === 'add-critical-date' && !state.nextDealSaves ? undefined : deal?.seen;
     if (Number.isSafeInteger(seen)) {
@@ -642,7 +647,7 @@ async function runFollowUp(operationKey, step) {
   });
   if (step.verb === 'register-client-portal' && result.status === 'ok') state.boardSync.requestRefresh('client-portal');
   if (fromEngine && result.status === 'ok') {
-    state.boardSync.requestRefresh('after-write');
+    state.boardSync?.requestRefresh('after-write');
     if (state.panelDeal === args.deal) await refreshPanel({ changed: true });
   }
   if (step.verb === 'add-deal-note' && operationKey === updateKey(state.panelDeal) && state.panelDetail) {
@@ -2205,13 +2210,41 @@ async function boot() {
     if (resolved.mode !== 'live') return;
     state.client = createLiveClient();
     const { mountMondayReview } = await import('./ui-monday-review.generated.js');
+    const day = new Date(`${businessDay()}T00:00:00Z`);
+    day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7);
+    const week = day.toISOString().slice(0, 10), path = '/api/engine/weekly-reviews';
     mountMondayReview($('mondayReview'), {
       async read() {
-        const day = new Date(`${businessDay()}T00:00:00Z`);
-        day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7);
-        const response = await fetchRead(`/api/engine/weekly-reviews?week_of=${day.toISOString().slice(0, 10)}`);
+        const response = await fetchRead(`${path}?week_of=${week}`);
         if (!response.ok) throw new Error('Review unavailable');
         return response.json();
+      },
+      async edits() {
+        const board = await state.client.getBoard();
+        if (!board.next_deal_saves || !board.actor) return null;
+        state.selfActor = board.actor;
+        return {
+          actor: board.actor, prospect: prospectClient(), today: todayIso(),
+          mark(row, confirm) {
+            const markId = row.reviewed?.id;
+            const key = `weekly:${week}:${row.kind}:${row.id}:${markId ?? 'mark'}`;
+            const seen_change_id = row.reviewVersion;
+            const fields = markId ? { seen_change_id }
+              : { seen_change_id, week_of: week, [row.kind === 'deal' ? 'deal_id' : 'party_id']: row.id };
+            return state.client.savePartnerRecord(markId ? `${path}/${encodeURIComponent(markId)}/remove` : path,
+              key, 'review_id', confirm ? undefined : fields);
+          },
+          async deal(row, edit) {
+            if (!Number.isSafeInteger(row.seen)) return { status: 'failed' };
+            const isNote = edit.kind === 'note';
+            return runFollowUp(isNote ? updateKey(row.id) : nextStepKey(row.id), {
+              verb: isNote ? 'add-deal-note' : 'set-next-step',
+              args: { deal: row.id, text: edit.text, ...(!isNote && { next_date: edit.due }) },
+              summary: isNote ? 'Deal update' : 'Next step',
+              reviewed: { seen: row.seen, next_step: row.step, next_date: row.due },
+            });
+          },
+        };
       },
       async dealNotes(id) {
         const detail = await readDealDetail(id);

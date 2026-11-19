@@ -705,7 +705,7 @@ async function handleRequest(request, env) {
     if (website && (!await switchedOn(env, DEALS) || (!website[1] && !await switchedOn(env, NEXT_DEAL_SAVES))))
       return json({ error: 'not_found' }, 404);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
-    if ((weeklyReview && request.method === 'POST')
+    if ((weeklyReview && request.method === 'POST' && !await switchedOn(env, NEXT_DEAL_SAVES))
         || ((weeklyReview || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
