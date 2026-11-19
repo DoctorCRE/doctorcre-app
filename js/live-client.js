@@ -2,7 +2,7 @@ import { validEmailDraftReceipt, validEmailDraftSaveReceipt } from './email-draf
 import { sessionFetch } from './private-session.js';
 import { PHASE_BY_SLUG } from './client.js';
 import { requireReviewReceipt } from './deal-review-model.js';
-import { isEngineDealDetail } from './local-deals-model.js';
+import { isEngineDealDetail, legacyDealTypeLabel } from './local-deals-model.js';
 /**
  * Live client: same interface as fixture, against the deployed Worker.
  * Verbs travel as MCP JSON-RPC tools/call over the cookie-authenticated /mcp
@@ -31,25 +31,6 @@ const CREATION_REFUSALS = new Set([
 const NEXT_CREATION_REFUSALS = new Set([
   'database_refused_the_statement', 'invalid_field_value', 'unknown_owner', 'version_conflict', 'not_a_prospect',
 ]);
-
-// Each entry has the engine caption and, where mapped today, the legacy caption.
-const TYPE_TO_UI = new Map([
-  ['lease', ['Lease']],
-  ['purchase', ['Purchase', 'Purchase']],
-  ['sale_leaseback', ['Sale-leaseback']],
-  ['build_to_suit', ['Build-to-suit']],
-  ['other', ['Other', 'Other']],
-  ['start_up', ['Start-up']],
-  ['startup', ['Start-up', 'Startup']],
-  ['relocation', ['Relocation', 'Relocation']],
-  ['expansion', ['Expansion', 'Expansion']],
-  ['renewal', ['Renewal', 'Renewal']],
-  ['additional_office', ['Additional office', '2nd Office']],
-]);
-
-export function dealTypeLabel(type) {
-  return TYPE_TO_UI.get(type)?.[0];
-}
 
 /**
  * @param {Object} [opts]
@@ -255,7 +236,7 @@ export function createLiveClient(opts = {}) {
   const dealToUi = (d) => ({
     ...d,
     phase: PHASE_TO_UI[d.phase] || d.phase,
-    type: TYPE_TO_UI.get(d.type)?.[1] ?? d.type,
+    type: legacyDealTypeLabel(d.type),
     next_step: d.next_step || '',
     market: d.market ?? d.city ?? '',
     version: d.version ?? d.base_version,

@@ -4,8 +4,7 @@ import { dealName, noteText } from './pipeline-model.js';
 import { calendarDay } from './deal-timeline.js';
 import { ACTOR_LABEL } from './client.js';
 import { renderDealVendors } from './deal-vendors.js';
-import { dealTypeLabel } from './live-client.js';
-import { automaticMove } from './local-deals-model.js';
+import { automaticMove, dealTypeLabel } from './local-deals-model.js';
 import { formatCalendarDate } from './visual-system.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));

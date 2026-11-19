@@ -5,6 +5,29 @@ import { radarToday } from './lease-radar-model.js';
 
 export const isEngineDealDetail = detail => Array.isArray(detail?.email_follow_ups);
 
+// Each entry has the engine caption and, where mapped today, the legacy caption.
+const TYPE_TO_UI = new Map([
+  ['lease', ['Lease']],
+  ['purchase', ['Purchase', 'Purchase']],
+  ['sale_leaseback', ['Sale-leaseback']],
+  ['build_to_suit', ['Build-to-suit']],
+  ['other', ['Other', 'Other']],
+  ['start_up', ['Start-up']],
+  ['startup', ['Start-up', 'Startup']],
+  ['relocation', ['Relocation', 'Relocation']],
+  ['expansion', ['Expansion', 'Expansion']],
+  ['renewal', ['Renewal', 'Renewal']],
+  ['additional_office', ['Additional office', '2nd Office']],
+]);
+
+export function dealTypeLabel(type) {
+  return TYPE_TO_UI.get(type)?.[0];
+}
+
+export function legacyDealTypeLabel(type) {
+  return TYPE_TO_UI.get(type)?.[1] ?? type;
+}
+
 export const PHASE_TRIGGERS = Object.freeze({
   pending: 'Prospective client', research: 'ETL signed', site_selection: 'Tour prepared or scheduled',
   negotiation: 'LOI submitted', legal: 'Draft lease prepared', due_diligence: 'Lease signed',
