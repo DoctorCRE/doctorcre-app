@@ -33,10 +33,11 @@ for (const width of [1440, 390]) {
     const renewal = { reason: 'renewal', renewal_lease_unrecorded: true, client_name: 'Example Practice', closed_on: '2026-11-02' };
     const won = deal('Example Closed Renewal', { ...renewal, type: 'renewal', phase: 'closed', outcome: 'won' });
     const lost = deal('Example Lost Renewal', { ...renewal, kind: 'relocation', type: 'relocation', phase: 'dead', outcome: 'lost', lost_reason: 'Plans changed' });
+    const lostUnknown = deal('Example Lost Renewal With Unknown Type', { ...renewal, type: 'renewal', phase: 'dead', outcome: 'lost' });
     const withLease = deal('Example Renewal With Lease', { reason: 'renewal', type: 'renewal', phase: 'dead', outcome: 'lost' });
-    const rows = [automatic, partner, won, lost, withLease];
+    const rows = [automatic, partner, won, lost, lostUnknown, withLease];
     const board = () => ({ schema_version: 'local-deals-board.v2', actor: 'joe',
-      deals: [automatic, partner], closed_deals: [won], lost_deals: [lost, withLease] });
+      deals: [automatic, partner], closed_deals: [won], lost_deals: [lost, lostUnknown, withLease] });
     const switches = new Set();
     let revivals = 0;
     const env = {
@@ -113,8 +114,11 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: label, exact: true }).click();
       await caption(card(row), 'Renewal').waitFor({ timeout: 5000 });
       await caption(card(row), 'Lease not recorded').waitFor({ timeout: 5000 });
+      const typeRow = item => caption(card(item), 'Type').locator('..');
+      await caption(typeRow(row), row === lost ? 'Relocation' : 'Not recorded').waitFor({ timeout: 5000 });
       if (row === lost) {
-        await caption(card(row), 'Relocation').waitFor();
+        await caption(typeRow(lostUnknown), 'Not recorded').waitFor({ timeout: 5000 });
+        await caption(card(lostUnknown), 'Lease not recorded').waitFor();
         await caption(card(row), 'Reason for loss').waitFor();
         await caption(card(row), 'Plans changed').waitFor();
         await caption(card(withLease), 'Renewal').waitFor();
@@ -133,9 +137,12 @@ for (const width of [1440, 390]) {
     await page.goto(`${boardUrl}&view=list`);
     await openParked();
     await caption(card(automatic), 'Parked automatically').waitFor({ timeout: 5000 });
+    const refreshedBoard = page.waitForResponse(response => revivals === 1 && response.url().endsWith('/mcp')
+      && response.request().postDataJSON()?.params?.name === 'deal-room-board');
     await card(automatic).getByRole('button', { name: 'Revive', exact: true }).click();
     await page.getByText('Deal revived', { exact: true }).waitFor();
-    await page.goto(boardUrl);
+    await refreshedBoard;
+    await page.getByRole('button', { name: 'Board', exact: true }).click();
     await page.locator('.kanban-column').getByRole('button', { name: automatic.name, exact: true }).waitFor();
     assert.equal(revivals, 1);
     assert.equal(await caption(card(automatic), 'Parked automatically').count(), 0);

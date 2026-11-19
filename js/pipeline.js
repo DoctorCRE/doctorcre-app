@@ -138,7 +138,7 @@ function parkingAttributionHtml(deal) {
 }
 function dealTypeFacts(deal, fromEngine, fallback = '') {
   const unrecordedRenewal = fromEngine && deal.renewal_lease_unrecorded === true;
-  const type = unrecordedRenewal ? deal.kind && deal.type : deal.type || fallback;
+  const type = (unrecordedRenewal ? deal.kind && deal.type : deal.type) || fallback;
   return (type ? `<div><dt>Type</dt><dd>${esc(type)}</dd></div>` : '')
     + (unrecordedRenewal ? '<div><dt>Deal reason</dt><dd><span>Renewal</span><br><small>Lease not recorded</small></dd></div>' : '');
 }
@@ -1860,7 +1860,6 @@ function fieldPatch(field, value) {
     operating_state: value.state,
     parking_note: value.note || null,
     parking_reason: value.reason || null,
-    ...(state.nextDealSaves ? { parked_automatically: false, parked_by: value.state === 'parked' ? state.selfActor : null } : {}),
   };
 }
 async function setOperatingState(id, value) {
