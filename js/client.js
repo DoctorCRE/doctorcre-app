@@ -44,6 +44,7 @@
  * @property {string} id
  * @property {string} name
  * @property {string} type
+ * @property {string|null} [kind]
  * @property {string} phase
  * @property {Actor|null} owner
  * @property {boolean} attention
@@ -59,6 +60,9 @@
  * @property {'active'|'parked'} operating_state whether this Salesforce-linked row is current work
  * @property {'prospect_never_active'|'client_paused'|'other'|null} parking_reason
  * @property {string|null} parking_note
+ * @property {Actor|null} [parked_by]
+ * @property {boolean} [parked_automatically]
+ * @property {boolean} [renewal_lease_unrecorded]
  *
  * @typedef {Object} ThreadEntry
  * @property {string} id
