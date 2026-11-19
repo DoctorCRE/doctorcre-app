@@ -127,6 +127,12 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
       );
       const lane = page.locator("#prospectsLane");
       assert.match((await lane.textContent()) ?? "", /Unclaimed[\s\S]*Needs attention[\s\S]*Thu, Nov 19/);
+      assert.equal(
+        await lane
+          .locator(".work-card-meta")
+          .evaluate((element) => element.clientWidth > (element.parentElement?.clientWidth ?? 0) / 2),
+        true,
+      );
       await page.getByRole("button", { name: "List", exact: true }).click();
       await open.waitFor();
       assert.equal(await open.count(), 1);

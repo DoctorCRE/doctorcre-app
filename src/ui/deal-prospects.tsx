@@ -309,12 +309,15 @@ function ProspectLane({
               {owner(row.owner)}
               {row.needs_attention && <span className="work-card-status">Needs attention</span>}
             </div>
-            {row.latest_note && (
-              <p className="next-line">
-                {row.latest_note.summary?.split("\n")[0]} · {noteBy(row.latest_note)}
-              </p>
-            )}
-            <p className="next-line">{next ? `${label(next.owner)} · ${due(next.due_on)}` : "No follow-up set"}</p>
+            <div className="work-card-body">
+              {row.latest_note && (
+                <>
+                  <p className="next-line">{row.latest_note.summary?.split("\n")[0]}</p>
+                  <small>{noteBy(row.latest_note)}</small>
+                </>
+              )}
+              <p className="next-line">{next ? `${label(next.owner)} · ${due(next.due_on)}` : "No follow-up set"}</p>
+            </div>
           </article>
         );
       })}

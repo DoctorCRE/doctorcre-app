@@ -222,7 +222,7 @@ function renderBoardMessage(status = state.boardSync?.status()) {
     return;
   }
   const headline = boardHeadline(groupByColumn(visibleBoardDeals()));
-  say(prospectCount === null ? headline : `${headline} · ${prospectCount} prospects`);
+  say(prospectCount === null ? headline : `${headline} · ${prospectCount} prospect${prospectCount === 1 ? '' : 's'}`);
 }
 
 function renderBoard() {
