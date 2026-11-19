@@ -819,7 +819,6 @@ function Inbox({ client }: { client: InboxClient }) {
         <BulkControls
           finish={finishBatch}
           client={client}
-          engine={query.data?.engine_marks === true}
           picked={picked}
           selected={selected}
           locked={singleBusy || !!pending || !!reviewing || !online}

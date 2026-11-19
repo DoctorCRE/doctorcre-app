@@ -5,7 +5,6 @@ import type { InboxClient, InboxItem, Snapshot } from "./inbox";
 
 type Props = {
   client: InboxClient;
-  engine?: boolean;
   picked: readonly InboxItem[];
   selected: ReadonlySet<string>;
   locked: boolean;
@@ -16,18 +15,7 @@ type Props = {
   finish(): void;
 };
 const labels = { applied: "Applied", already: "Already", not_found: "Not found", not_allowed: "Not allowed" };
-export function BulkControls({
-  client,
-  engine,
-  picked,
-  selected,
-  locked,
-  select,
-  snapshot,
-  prepare,
-  lock,
-  finish,
-}: Props) {
+export function BulkControls({ client, picked, selected, locked, select, snapshot, prepare, lock, finish }: Props) {
   const [state, setState] = useState<BatchState>({ kind: "selection" });
   const current = useRef(state);
   const mounted = useRef(true);
@@ -127,11 +115,9 @@ export function BulkControls({
       {picked.length > 0 && (
         <fieldset className="inbox-bulk" aria-label="Selected cards">
           <strong>{picked.length} selected</strong>
-          {!engine && (
-            <button type="button" disabled={blocked || picked.length > 100} onClick={() => apply("settle")}>
-              Settle selected
-            </button>
-          )}
+          <button type="button" disabled={blocked || picked.length > 100} onClick={() => apply("settle")}>
+            Settle selected
+          </button>
           <button
             type="button"
             disabled={blocked || picked.length > 100}
