@@ -1193,13 +1193,12 @@ function nationalResearchEvidence(data) {
   return {sources, field_evidence, discrepancies:String(data.get('research_discrepancies') || '').split('\n').map(line => line.trim()).filter(Boolean)};
 }
 
-function nationalCreationForm({operationKey, context, title, submit, form, request, send, receiptId, success, accountId}) {
+function nationalCreationForm({operationKey, context, title, submit, form, request, send, receiptId, success, accountId, separate}) {
   const actor = state.selfActor;
   const key = `${actor}:${operationKey}`;
   const held = state.nationalCreations[key];
   if (form.kind === 'market-deal') form = { ...form, existing:Boolean(held && !held.request.research_evidence) };
   let confirmation = state.nationalConfirmations[key];
-  const separate = typeof form === 'string' ? 'separate company' : 'separate brand';
   const renderCandidates = () => {
     const onEdit = () => {
       delete state.nationalConfirmations[key];
@@ -1240,7 +1239,7 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
       if ($('#nationalEditDetails')) $('#nationalEditDetails').disabled = true;
       try {
         const result = await send(started.request);
-        if (result?.needs_confirm === true && result.ok !== false && !result.error && !result.conflict && receiptId === 'account_client_id' && !started.request.force_new &&
+        if (separate && result?.needs_confirm === true && result.ok !== false && !result.error && !result.conflict && !started.request.force_new &&
             Array.isArray(result.candidates) && result.candidates.length && result.candidates.every(candidate => typeof candidate.id === 'string' && typeof candidate.name === 'string')) {
           state.nationalCreations = settleCommand(state.nationalCreations,key,{status:'conflict'});
           confirmation = {request:started.request,candidates:result.candidates,hint:result.hint};
@@ -1398,6 +1397,7 @@ function addAccountForm() {
   const form = engine ? `<div class="field"><label for="accountName">Company name</label><input id="accountName" name="name" required></div>
     ${accountOwnerField('accountOwner',state.selfActor)}` : {kind:'account', owners};
   nationalCreationForm({ operationKey:'account', context:'National accounts', title:'Add national account', submit:'Create account', form,
+    separate:engine ? 'separate company' : 'separate brand',
     request:data => ({
       name:String(data.get('name') || '').trim(), owner:String(data.get('owner')),
       ...(engine ? {next_deal_save:true} : {vertical:String(data.get('vertical') || '').trim(),research_evidence:nationalResearchEvidence(data)}),
@@ -1419,7 +1419,7 @@ function engineMarketDealForm(selected) {
     <fieldset id="newMarketLocation" hidden disabled>
       <div class="field"><label for="marketLocationKind">Location type</label><select id="marketLocationKind" name="location_kind" required>
         <option value="">Choose a type</option><option value="person">Person</option><option value="company">Company</option></select></div>
-      <div class="field"><label for="marketLocationName">Location name</label><input id="marketLocationName" name="location_name" required></div>
+      <div class="field"><label for="marketLocationName">Name</label><input id="marketLocationName" name="location_name" required></div>
     </fieldset>
     ${marketAgentPicker(true)}`;
   const owner = state.selfActor;
@@ -1501,7 +1501,6 @@ function accountOwnerForm() {
           base_version: reviewedReplacementVersion(selected, current, ['account_owner'], operationKey) };
       }
       await appWrite(operationKey, request, args => state.client.setNationalAccountOwner(args));
-      if (!engine) { await loadHome(); showToast(`${selected.account_name} owner updated`); return; }
       try {
         await loadHome();
         showToast(`${selected.account_name} owner updated`);

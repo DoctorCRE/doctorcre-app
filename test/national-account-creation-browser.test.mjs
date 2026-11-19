@@ -47,6 +47,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`na
   await page.locator('[name="research_observed_at"]').fill('2026-10-22T10:00');
   await page.locator('#dialogSubmit').click();
   await page.getByText('Demo Existing Brand (demo-existing-org)').waitFor();
+  assert.equal(await page.locator('#dialogSubmit').textContent(),'Create separate brand');
   assert.equal(await page.locator('#formDialog').isVisible(),true);
   await page.locator('#dialogSubmit').click(); assert.equal(sent.length,1);
   await page.locator('[name="confirm_separate"]').check();
@@ -87,6 +88,7 @@ test('engine-backed national accounts confirm separate companies and save owner 
   const account = {account_client_id:accountId, account_name:'Demo Separate Company',
     account_client_ref:'C-999999', account_owner:'joe', base_version:0, open_deals:0, overdue_deals:0, parked_deals:0};
   const accounts = [], writes = [];
+  let ownerAttempts = 0;
   const env = {ENGINE_ROUTING:{get:async () => 'on'}, ENGINE:{fetch:async request => {
     const path = new URL(request.url).pathname;
     if (path === '/api/engine/deals')
@@ -97,6 +99,8 @@ test('engine-backed national accounts confirm separate companies and save owner 
       if (!args.force_new) return Response.json({error:'account_name_exists',candidates:[{id:'demo-company',name:account.account_name}]}, {status:409});
       accounts.push(account);
     } else {
+      if (++ownerAttempts === 1)
+        return Response.json({error:'invalid_field_value',fields:['owner']}, {status:422});
       account.account_owner = args.owner;
       account.base_version++;
     }
@@ -136,10 +140,16 @@ test('engine-backed national accounts confirm separate companies and save owner 
   await card.click();
   await page.locator('#ownerButton').click();
   await page.getByLabel('Account owner',{exact:true}).selectOption('dell');
-  await page.getByRole('button',{name:'Save owner',exact:true}).click();
+  const saveOwner = page.getByRole('button',{name:'Save owner',exact:true});
+  await saveOwner.click();
+  const refusal = page.locator('#formError');
+  await refusal.waitFor();
+  assert.equal(await refusal.textContent(),'Choose Joe or Dell as the owner.');
+  await saveOwner.click();
   await page.locator('#accountContextOwner').getByText('Owned by Dell').waitFor();
-  assert.equal(writes[2].path,`/api/engine/national-accounts/${accountId}/owner`);
-  assert.deepEqual(writes[2].args, {owner:'dell',base_version:0,idempotency_key:writes[2].args.idempotency_key});
+  const savedOwner = writes.at(-1);
+  assert.equal(savedOwner.path,`/api/engine/national-accounts/${accountId}/owner`);
+  assert.deepEqual(savedOwner.args, {owner:'dell',base_version:0,idempotency_key:savedOwner.args.idempotency_key});
   await page.locator('#accountBack').click();
   await card.getByText('Dell',{exact:true}).waitFor();
 });
@@ -245,10 +255,10 @@ test('engine-backed market deals use account locations and an optional existing 
   await page.getByLabel('Deal name',{exact:true}).fill('Demo Second Market Deal');
   await page.getByLabel('Location',{exact:true}).selectOption({label:'New location'});
   await page.getByLabel('Location type',{exact:true}).selectOption({label:'Company'});
-  await page.getByLabel('Location name',{exact:true}).fill('Demo Existing Location');
+  await page.getByLabel('Name',{exact:true}).fill('Demo Existing Location');
   await submit.click();
   await page.getByText('Choose the existing location with that name.',{exact:true}).waitFor();
-  await page.getByLabel('Location name',{exact:true}).fill('Demo New Location');
+  await page.getByLabel('Name',{exact:true}).fill('Demo New Location');
   await submit.click();
   await page.locator('#rows').getByRole('button',{name:'Demo Second Market Deal',exact:true}).waitFor();
   assert.deepEqual(writes.at(-1), {idempotency_key:writes.at(-1).idempotency_key,name:'Demo Second Market Deal',
@@ -260,7 +270,7 @@ test('engine-backed market deals use account locations and an optional existing 
   await page.getByLabel('Deal name',{exact:true}).fill('Demo Third Market Deal');
   await page.getByLabel('Location',{exact:true}).selectOption({label:'New location'});
   await page.getByLabel('Location type',{exact:true}).selectOption({label:'Person'});
-  await page.getByLabel('Location name',{exact:true}).fill('Demo New Person');
+  await page.getByLabel('Name',{exact:true}).fill('Demo New Person');
   await submit.click();
   await page.locator('#rows').getByRole('button',{name:'Demo Third Market Deal',exact:true}).waitFor();
   assert.deepEqual(writes.at(-1).new_location, {name:'Demo New Person',kind:'person'});

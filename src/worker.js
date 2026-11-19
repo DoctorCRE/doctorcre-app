@@ -482,6 +482,7 @@ async function cutoverSave(request, env, call) {
     const hint = accountSave
       ? body.error === 'version_conflict' ? 'This account changed. Reload Deals before saving the owner.'
         : body.error === 'not_found' ? 'This account is no longer available.'
+        : name === 'set-national-account-owner' ? 'Choose Joe or Dell as the owner.'
         : 'Check the company name and choose Joe or Dell as the owner.'
       : badMarketAgent ? 'Choose an existing person as the market agent.'
       : marketDeal && body.error === 'not_found' ? 'This national account is no longer available.'
