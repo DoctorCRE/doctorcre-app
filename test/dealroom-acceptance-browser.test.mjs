@@ -698,17 +698,21 @@ for (const width of [1440, 390]) {
     const deal = { id: '00000000-0000-4000-8000-000000000080', name: 'Example Two-Partner Deal',
       owner: 'dell', phase: 'research', seen: 1, open_actions: [otherStep, ownerStep],
       items: [{ id: 'example-item', title: 'Check the plans', status: 'open', due_on: '2026-11-18', bullets: [] }],
-      next_step: otherStep.description, next_date: otherStep.due_on };
+      next_step: otherStep.description, next_date: otherStep.due_on,
+      phase_change: { source: 'copied', automatic: true, event_id: crypto.randomUUID(), prior_phase: 'pending', evidence_date: '2026-11-16' },
+      last_step: { summary: 'Reviewed the example offer', occurred_at: '2026-11-17T18:00:00Z' } };
     const checklistOnly = { ...deal, id: '00000000-0000-4000-8000-000000000081', name: 'Example Checklist Deal',
-      next_step: 'Check the plans', open_actions: [], items: [
+      next_step: 'Check the plans', open_actions: [], phase_change: null, items: [
         { id: 'example-checklist-item', title: 'Check the plans', status: 'open', due_on: otherStep.due_on, bullets: [] },
       ] };
     const singleStep = { ...deal, id: '00000000-0000-4000-8000-000000000082', name: 'Example One-Step Deal',
       open_actions: [{ ...otherStep, due_on: '2026-11-19' }] };
+    const parkedDeal = { ...checklistOnly, id: crypto.randomUUID(), name: 'Example A Parked Deal',
+      operating_state: 'parked', parking_reason: 'client_paused', parked_automatically: true };
     const account = crypto.randomUUID();
     const national = { ...deal, id: crypto.randomUUID(), name: 'Example Location Deal',
       account_client_id: account, workspace_kind: 'national_account' };
-    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [deal, checklistOnly, singleStep, national],
+    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [parkedDeal, deal, checklistOnly, singleStep, national],
       accounts: [{ account_client_id: account, account_name: 'Example Account', account_owner: 'dell' }] };
     const writes = [], moves = [];
     const steps = new Map([deal, national].map(row => [row.id, structuredClone(row.open_actions)]));
@@ -754,15 +758,32 @@ for (const width of [1440, 390]) {
       await card.waitFor({ timeout: 5000 });
       const visibleText = await card.innerText();
       assert.match(visibleText, /Send the floor plan.*Due Wed, Nov 18.*1 day late/);
-      assert.doesNotMatch(visibleText, /Call the architect|\d+ days late|overdue/);
+      assert.doesNotMatch(visibleText, /Call the architect|\d+ days late|overdue|Still needed|Last:/);
+      assert.equal(await card.getByText('Moved automatically', { exact: true }).isVisible(), true);
+      assert.equal(await card.locator('.auto-move time').innerText(), 'Mon, Nov 16, 2026');
+      assert.equal(await card.getByRole('button', { name: 'Undo', exact: true }).count(), view === 'Board' ? 1 : 0);
       const empty = page.locator(`article[data-id="${checklistOnly.id}"]`);
       assert.match(await empty.innerText(), /No next step set/);
-      assert.doesNotMatch(await empty.innerText(), /days? late|overdue/);
+      assert.doesNotMatch(await empty.innerText(), /days? late|overdue|Still needed|Last:/);
       const onlyStep = page.locator(`article[data-id="${singleStep.id}"]`);
       assert.match(await onlyStep.innerText(), /Call the architect.*Due Thu, Nov 19/);
       assert.doesNotMatch(await onlyStep.innerText(), /days? late|overdue/);
       assert.ok(await card.evaluate(el => el.scrollWidth <= el.clientWidth));
       await card.screenshot({ path: join(evidence, `owner-next-step-${width}-${view.toLowerCase()}.png`) });
+      const parked = page.locator(`#kanban [data-id="${parkedDeal.id}"]`);
+      assert.equal(await parked.isVisible(), false);
+      if (view === 'List') {
+        await page.getByRole('button', { name: 'Parked', exact: true }).click();
+        const group = page.getByRole('region', { name: 'Parked · 1' });
+        assert.equal(await group.getByRole('button', { name: parkedDeal.name, exact: true }).isVisible(), true);
+        assert.equal(await parked.getByRole('button', { name: 'Revive', exact: true }).isVisible(), true);
+        assert.equal(await parked.count(), 1);
+        assert.equal(await page.locator('#kanban .deal-row').last().getAttribute('data-id'), parkedDeal.id);
+        assert.equal(await page.locator('.deal-list-head').textContent(), 'DealPhaseNext stepOwner');
+        await group.screenshot({ path: join(evidence, `parked-list-${width}.png`) });
+        await page.getByRole('button', { name: 'Parked', exact: true }).click();
+        assert.equal(await parked.isVisible(), false);
+      }
     }
     await page.getByRole('button', { name: deal.name, exact: true }).click();
     const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
