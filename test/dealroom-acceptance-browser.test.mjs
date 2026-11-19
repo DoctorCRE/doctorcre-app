@@ -347,7 +347,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     const filedEmail = { activity_id: crypto.randomUUID(), kind: 'email', subject: actor === 'joe' ? '(no subject)' : '',
       sender_name: 'Example Sender', happened_at: '2026-11-01T14:00:00+00:00' };
     let email_follow_ups = [
-      { proposal_id: first, kind: 'next_step', what: 'Send the plan', owner: 'dell', due_on: '2026-11-02', email: filedEmail },
+      { proposal_id: first, kind: 'next_step', what: 'Send the plan (no subject)', owner: 'dell', due_on: '2026-11-02', email: filedEmail },
       { proposal_id: crypto.randomUUID(), kind: 'file_to_deal', email: filedEmail },
       { proposal_id: second, kind: 'file_to_deal', evidence: 'The letter is attached.',
         email: { subject: 'Letter attached', sender: 'sender@example.test' } },
@@ -461,7 +461,8 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       assert.match(await planCard.innerText(), /Example Sender.*Nov 1/);
       assert.doesNotMatch(await planCard.innerText(), /File email to this deal/);
       assert.match(await letterCard.innerText(), /File email to this deal/);
-      assert.match(await followups.innerText(), /Send the plan.*Dell.*16 days late/);
+      assert.match(await followups.innerText(), /Send the plan \(No subject\).*Dell.*16 days late/);
+      assert.doesNotMatch(await planCard.innerText(), /\(no subject\)/);
       assert.doesNotMatch(await followups.innerText(), /2026-11-01T|file_to_deal/);
       const progress = page.locator('.deal-checklist');
       await progress.locator(':scope > summary').getByText('lease end', { exact: true }).waitFor();
