@@ -1299,18 +1299,23 @@ for (const [closed, savesOn] of [[true, true], [false, false]]) {
   });
 }
 
-for (const [width, readsOn] of [[1440, true], [390, true], [1440, false], [390, false]]) {
-  test(`board card client website with Deals reads ${readsOn ? 'on' : 'off'} at ${width}px`, async t => {
-    const { page, deal, row, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn: false, width });
+for (const [width, readsOn, savesOn] of [
+  [1440, true, false], [390, true, false], [1440, false, false], [390, false, false],
+  [1440, true, true], [390, true, true],
+]) {
+  test(`board card client website with Deals reads ${readsOn ? 'on' : 'off'} and saves ${savesOn ? 'on' : 'off'} at ${width}px`, async t => {
+    const { page, deal, row, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn, width });
     const prospects = Promise.withResolvers();
     const changes = Promise.withResolvers();
-    if (readsOn) {
-      await page.clock.install();
+    if (readsOn) await page.clock.install();
+    if (savesOn) {
       await page.route('**/ui-deal-prospects.generated.js', async route => {
         await prospects.promise;
         await route.continue();
       });
       await page.route('**/api/engine/prospects', route => route.fulfill({ json: { prospects: [] } }));
+    }
+    if (readsOn && !savesOn) {
       await page.route('**/pipeline/changes*', async route => {
         await changes.promise;
         await route.fulfill({ json: { events: [], capture_sessions: [{ state: 'recording' }] } });
@@ -1328,10 +1333,12 @@ for (const [width, readsOn] of [[1440, true], [390, true], [1440, false], [390, 
     const open = card.getByRole(readsOn ? 'button' : 'link', { name: /Client website/ });
     assert.equal(await open.count(), 1);
     await open.focus();
-    if (readsOn) {
+    if (savesOn) {
       prospects.resolve();
       await page.getByText('No prospects in this view', { exact: true }).waitFor();
       assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Prospects loading moved website focus');
+    }
+    if (readsOn && !savesOn) {
       changes.resolve();
       await page.getByText('Capture: recording', { exact: true }).waitFor();
       assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Change feed moved website focus');
@@ -1626,6 +1633,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('checkbox', { name: 'Not reviewed' }).check();
     assert.deepEqual(await items.getByRole('link').allTextContents(), ['Birch Prospect', 'Alder Deal']);
     await page.getByRole('checkbox', { name: 'Not reviewed' }).uncheck();
+    savesOn = true;
     await page.getByRole('link', { name: 'Birch Prospect' }).click();
     const dialog = page.getByRole('dialog', { name: 'Birch Prospect' });
     await dialog.getByText(/Joe · Call back/).waitFor();
@@ -1651,7 +1659,6 @@ for (const width of [1440, 390]) {
     assert.equal(await items.count(), 0);
 
     review = originalReview;
-    savesOn = true;
     const readsBeforeReview = boardReads;
     await page.goto(`${origin}/deals?view=review&mode=live`);
     await page.getByRole('button', { name: 'Undo', exact: true }).click();
