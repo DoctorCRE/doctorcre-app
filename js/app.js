@@ -1251,7 +1251,7 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
         }
         if (result?.ok !== true || result.needs_confirm || result.error || result.conflict ||
             typeof result[receiptId] !== 'string' || !result[receiptId].trim() ||
-            accountId && result.account_client_id !== accountId) {
+            accountId && !started.request.next_deal_save && result.account_client_id !== accountId) {
           if (result?.ok === false || result?.error) throw Object.assign(new Error(result.hint || 'Creation was refused. Review the fields before trying again.'), {payload:{error:result.error || 'creation_refused',hint:result.hint}});
           throw new Error('Creation could not be confirmed. Check creation outcome before starting another record.');
         }
@@ -1296,17 +1296,49 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
   }
 }
 
+function marketAgentPicker(optional = false) {
+  return `<div class="field"><label for="agentSearch">Search people</label>
+    <input id="agentSearch" maxlength="100">
+    <button id="agentFind" type="button" class="btn">Find people</button>
+    <small id="agentSearchStatus" role="status"></small></div>
+    <div class="field"><label for="agentPerson">Market agent${optional ? ' (optional)' : ''}</label>
+    <select id="agentPerson" name="agent_party_id"${optional ? '' : ' required'}><option value="">${optional ? 'No market agent' : 'Choose a person'}</option></select></div>`;
+}
+
+function wireMarketAgentPicker() {
+  const input = $('#agentSearch'), people = $('#agentPerson'), status = $('#agentSearchStatus');
+  let search;
+  const placeholder = people.options[0];
+  const clear = () => {
+    search?.abort();
+    people.replaceChildren(placeholder);
+    people.value = '';
+    status.textContent = '';
+  };
+  input.oninput = clear;
+  $('#agentFind').onclick = async () => {
+    clear();
+    const query = input.value.trim();
+    if (!query) { status.textContent = 'Enter a name to find people.'; return; }
+    const request = new AbortController();
+    search = request;
+    status.textContent = 'Finding people…';
+    try {
+      const matches = await state.client.searchPeople(query, request.signal);
+      if (request.signal.aborted) return;
+      people.append(...matches.map(([id, name]) => new Option(name, id)));
+      status.textContent = matches.length ? '' : 'No people matched that name.';
+    } catch {
+      if (!request.signal.aborted) status.textContent = 'People could not be loaded, so try again.';
+    }
+  };
+}
+
 function marketAgentForm(dealId) {
   const operationKey = `market-agent:${dealId}`;
   const deal = state.deals.get(dealId);
   const next = state.nextDealSaves;
-  const form = next ? `<p>Current agent: ${esc(deal.market_agent || 'Unassigned')}</p>
-    <div class="field"><label for="agentSearch">Search people</label>
-    <input id="agentSearch" maxlength="100">
-    <button id="agentFind" type="button" class="btn">Find people</button>
-    <small id="agentSearchStatus" role="status"></small></div>
-    <div class="field"><label for="agentPerson">Market agent</label>
-    <select id="agentPerson" name="agent_party_id" required><option value="">Choose a person</option></select></div>`
+  const form = next ? `<p>Current agent: ${esc(deal.market_agent || 'Unassigned')}</p>${marketAgentPicker()}`
     : { kind:'market-agent', agent:deal.market_agent || '', market:deal.market || '' };
   openForm({ operationKey, draftKey:next ? null : operationKey,
     title:`${next ? 'Market agent' : 'Market assignment'} — ${deal.name}`, submit:next ? 'Save market agent' : 'Save assignment', form,
@@ -1332,32 +1364,7 @@ function marketAgentForm(dealId) {
       });
       await loadHome(); showToast(`Market agent confirmed on ${deal.name}`);
     } });
-  if (next) {
-    const input = $('#agentSearch'), people = $('#agentPerson'), status = $('#agentSearchStatus');
-    let search;
-    const clear = () => {
-      search?.abort();
-      people.replaceChildren(new Option('Choose a person', ''));
-      status.textContent = '';
-    };
-    input.oninput = clear;
-    $('#agentFind').onclick = async () => {
-      clear();
-      const query = input.value.trim();
-      if (!query) { status.textContent = 'Enter a name to find people.'; return; }
-      const request = new AbortController();
-      search = request;
-      status.textContent = 'Finding people…';
-      try {
-        const matches = await state.client.searchPeople(query, request.signal);
-        if (request.signal.aborted) return;
-        people.append(...matches.map(([id, name]) => new Option(name, id)));
-        status.textContent = matches.length ? '' : 'No people matched that name.';
-      } catch {
-        if (!request.signal.aborted) status.textContent = 'People could not be loaded, so try again.';
-      }
-    };
-  }
+  if (next) wireMarketAgentPicker();
 }
 
 function addTeamDealForm() {
@@ -1398,8 +1405,70 @@ function addAccountForm() {
     send:args => state.client.createNationalAccount(args), receiptId:'account_client_id', success:'National account created' });
 }
 
+function engineMarketDealForm(selected) {
+  const accountId = selected.account_client_id;
+  const form = `<div class="field"><label for="marketDealName">Deal name</label><input id="marketDealName" name="name" required></div>
+    <div class="field"><label for="marketChoice">Market</label>
+      <select id="marketChoice" name="market_id" required><option value="">Choose a market</option></select>
+      <small id="marketChoicesStatus" role="status"></small>
+      <button id="marketChoicesReload" type="button" class="btn" hidden>Reload choices</button></div>
+    <div class="field"><label for="marketLocationMode">Location</label><select id="marketLocationMode" name="location_mode">
+      <option value="existing">Existing location</option><option value="new">New location</option></select></div>
+    <div class="field" id="existingMarketLocation"><label for="marketLocation">Existing location</label>
+      <select id="marketLocation" name="client_id" required><option value="">Choose a location</option></select></div>
+    <fieldset id="newMarketLocation" hidden disabled>
+      <div class="field"><label for="marketLocationKind">Location type</label><select id="marketLocationKind" name="location_kind" required>
+        <option value="">Choose a type</option><option value="person">Person</option><option value="company">Company</option></select></div>
+      <div class="field"><label for="marketLocationName">Location name</label><input id="marketLocationName" name="location_name" required></div>
+    </fieldset>
+    ${marketAgentPicker(true)}`;
+  const owner = state.selfActor;
+  nationalCreationForm({ operationKey:`market:${accountId}`, accountId, context:selected.account_name, title:'Add market deal',
+    submit:'Create market deal', form, request:data => {
+      const name = String(data.get('name') || '').trim();
+      const market_id = data.get('market_id');
+      const market_agent_id = data.get('agent_party_id');
+      const location = data.get('location_mode') === 'new'
+        ? {new_location:{name:String(data.get('location_name') || '').trim(),kind:data.get('location_kind')}}
+        : {client_id:data.get('client_id')};
+      if (!name || !market_id || !(location.client_id || location.new_location?.name && location.new_location.kind))
+        throw new Error('Enter a deal name and choose a market and location.');
+      return {next_deal_save:true, account_client_id:accountId, name, market_id, owner, phase:'pending', reason:'start_up',
+        ...location, ...(market_agent_id && {market_agent_id})};
+    },
+    send:args => state.client.createNationalMarketDeal(args), receiptId:'deal_id', success:`Market deal added to ${selected.account_name}` });
+  wireMarketAgentPicker();
+  const mode = $('#marketLocationMode'), existing = $('#existingMarketLocation'), added = $('#newMarketLocation');
+  const market = $('#marketChoice'), location = $('#marketLocation'), status = $('#marketChoicesStatus');
+  const reload = $('#marketChoicesReload');
+  mode.onchange = () => {
+    const creating = mode.value === 'new';
+    existing.hidden = location.disabled = creating;
+    added.hidden = added.disabled = !creating;
+  };
+  const loadChoices = async () => {
+    reload.hidden = true;
+    status.textContent = 'Loading markets and locations…';
+    try {
+      const choices = await state.client.getMarketDealChoices(accountId);
+      market.append(...choices.markets.map(([id,name]) => new Option(name,id)));
+      location.append(...choices.locations.map(([id,name]) => new Option(name,id)));
+      mode.options[0].disabled = !choices.locations.length;
+      if (!choices.locations.length) mode.value = 'new';
+      mode.onchange();
+      status.textContent = choices.markets.length ? '' : 'No markets are available.';
+    } catch {
+      status.textContent = 'Markets and locations could not be loaded.';
+      reload.hidden = false;
+    }
+  };
+  reload.onclick = loadChoices;
+  void loadChoices();
+}
+
 function addMarketDealForm() {
   const selected = account();
+  if (state.nextDealSaves) { engineMarketDealForm(selected); return; }
   nationalCreationForm({ operationKey:`market:${selected.account_client_id}`, accountId:selected.account_client_id, context:selected.account_name, title:'Add market transaction', submit:'Create market deal', form:{ kind:'market-deal', accountName:selected.account_name, existing:false },
     request:data => ({account_client_id:selected.account_client_id,
       ...Object.fromEntries(['client_name','deal_name','market','state','agent_name','segment'].map(field => [field,String(data.get(field) || '').trim()])),

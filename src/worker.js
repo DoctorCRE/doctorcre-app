@@ -312,7 +312,7 @@ const CUTOVER_SAVES = new Set([
   'add-deal-note', 'new-deal', 'set-market-agent', 'add-critical-date',
   'remove-deal-participant', 'confirm-critical-date', 'resolve-critical-date',
   'instruct-deal-item', 'revert-deal-field', 'resolve-conflict', 'undo-invoice-close',
-  'create-national-account', 'set-national-account-owner',
+  'create-national-account', 'set-national-account-owner', 'create-national-market-deal',
 ]);
 const isUuid = value => isString(value) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 
@@ -323,6 +323,12 @@ function nextDealSave(verb, args) {
   if (verb === 'new-deal') {
     const { name, client_id, owner, phase, kind, reason, market_id, renews_lease_id } = args;
     return isUuid(client_id) ? post('/deals', { name, client_id, owner, phase, kind, reason, market_id, renews_lease_id }) : null;
+  }
+  if (verb === 'create-national-market-deal') {
+    const { account_client_id, market_id, name, owner, phase, reason, client_id, new_location, market_agent_id } = args;
+    if (!isUuid(account_client_id) || !isUuid(market_id)) return null;
+    return post('/deals', { national_account_id: account_client_id, market_id, name, owner, phase, reason,
+      client_id, new_location, market_agent_id });
   }
   if (verb === 'create-national-account') {
     const { name, owner, force_new } = args;
@@ -411,6 +417,8 @@ const DEAL_CREATE_REFUSALS = new Map([
   ['deal_market_id_fkey', 'Choose an existing market.'],
   ['deal_renewal_names_lease', 'Renewals need an existing lease. The Add deal form cannot link a lease yet.'],
   ['deal_name_exists', 'A deal with this name already exists.'],
+  ['location_not_in_account', 'This location is no longer in the account. Reopen Add market deal to choose a location.'],
+  ['location_name_exists', 'Choose the existing location with that name.'],
 ]);
 
 function dealPeopleAndDateHint(name, body) {
@@ -439,7 +447,8 @@ function dealPeopleAndDateHint(name, body) {
 async function cutoverSave(request, env, call) {
   const { name, arguments: args } = call.params;
   const on = await switchedOn(env, NEXT_DEAL_SAVES);
-  const creating = name === 'new-deal';
+  const marketDeal = name === 'create-national-market-deal';
+  const creating = name === 'new-deal' || marketDeal;
   const accountSave = name === 'create-national-account' || name === 'set-national-account-owner';
   const fromNext = creating || accountSave ? args.next_deal_save === true
     : Number.isSafeInteger(args.seen_change_id) && args.seen_change_id >= 0;
@@ -467,12 +476,15 @@ async function cutoverSave(request, env, call) {
     }
     if (name === 'undo-invoice-close' && body.rule === 'invoice_email_undo_current') body.error = 'version_conflict';
     const peopleOrDate = name === 'set-market-agent' || name === 'remove-deal-participant' || name.endsWith('-critical-date');
+    const badMarketAgent = marketDeal && body.error === 'invalid_field_value' && Array.isArray(body.fields) && body.fields.includes('market_agent_id');
     const invalidClosingDate = name === 'update-deal' && body.error === 'invalid_field_value'
       && Array.isArray(body.fields) && body.fields.length === 1 && body.fields[0] === 'phase';
     const hint = accountSave
       ? body.error === 'version_conflict' ? 'This account changed. Reload Deals before saving the owner.'
         : body.error === 'not_found' ? 'This account is no longer available.'
         : 'Check the company name and choose Joe or Dell as the owner.'
+      : badMarketAgent ? 'Choose an existing person as the market agent.'
+      : marketDeal && body.error === 'not_found' ? 'This national account is no longer available.'
       : creating
       ? DEAL_CREATE_REFUSALS.get(body.error === 'database_refused_the_statement' ? body.rule : body.error)
         ?? 'Check the deal details and try again.'
@@ -694,7 +706,8 @@ async function handleRequest(request, env) {
       response.headers.set('allow', 'GET, HEAD, POST');
       return response;
     }
-    if (pathname.startsWith('/api/engine/documents/') && !await switchedOn(env, DEALS))
+    const marketDealRead = pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
+    if ((marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS))
       return json({ error: 'not_found' }, 404);
     if (!env?.ENGINE?.fetch) return json({ error: 'engine_unavailable' }, 503);
     try {

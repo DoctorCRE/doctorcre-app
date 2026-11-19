@@ -142,3 +142,128 @@ test('engine-backed national accounts confirm separate companies and save owner 
   await page.locator('#accountBack').click();
   await card.getByText('Dell',{exact:true}).waitFor();
 });
+
+test('engine-backed market deals use account locations and an optional existing agent', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({viewport:{width:1280,height:900}});
+  const id = n => `00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+  const [account, market, location, agent] = [1, 2, 3, 4].map(id);
+  const deals = [], writes = [];
+  let marketReadFailed = false;
+  const env = {ENGINE_ROUTING:{get:async () => 'on'}, ENGINE:{fetch:async request => {
+    const {pathname,search} = new URL(request.url);
+    if (pathname === '/api/engine/deals' && request.method === 'GET')
+      return Response.json({schema_version:'local-deals-board.v2',actor:'joe',deals,
+        accounts:[{account_client_id:account,account_name:'Demo National Company',account_owner:'joe',open_deals:deals.length}]});
+    if (pathname === '/api/engine/markets') {
+      if (!marketReadFailed) {
+        marketReadFailed = true;
+        return new Response(null, {status:503});
+      }
+      return Response.json([{market_id:market,name:'Demo Metro'}]);
+    }
+    if (pathname === `/api/engine/national-accounts/${account}/locations`)
+      return Response.json([{party_id:location,name:'Demo Existing Location',kind:'person'}]);
+    if (pathname === '/api/engine/parties/search') {
+      assert.equal(search,'?kind=person&query=Demo+Agent');
+      return Response.json({ok:true,schema_version:'party-search.v1',parties:[{id:agent,display_name:'Demo Agent',kind:'person'}]});
+    }
+    if (pathname.startsWith('/api/engine/deals/')) {
+      const row = deals.find(deal => pathname.endsWith(deal.id));
+      return Response.json({...row,deal_id:row.id,actor:'joe'});
+    }
+    assert.equal(pathname,'/api/engine/deals');
+    const args = await request.json();
+    const prior = writes.find(write => write.idempotency_key === args.idempotency_key);
+    writes.push(args);
+    if (prior) return Response.json({deal_id:deals[0].id,change_id:24,replayed:true});
+    if (!args.client_id && args.new_location.name === 'Demo Existing Location')
+      return Response.json({error:'location_name_exists'}, {status:409});
+    const dealId = id(10 + writes.length);
+    deals.push({id:dealId,name:args.name,phase:'pending',owner:'joe',account_client_id:account,
+      market:'Demo Metro',market_agent:args.market_agent_id ? 'Demo Agent' : null});
+    if (writes.length === 1) return new Response(null,{status:503});
+    return Response.json({deal_id:dealId,change_id:24}, {status:201});
+  }}};
+  const marketReads = /\/api\/engine\/(markets|national-accounts\/[^/]+\/locations)$/;
+  await page.route('**/auth/session', route => route.fulfill({json:{actor:{slug:'joe'},csrf_token:'synthetic-session'}}));
+  await page.route('**/api/**', route => route.fulfill({json:{}}));
+  const answerThroughWorker = async route => {
+    const request = route.request();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: request.postData(),
+    }), env);
+    return route.fulfill({status:response.status,contentType:'application/json',body:await response.text()});
+  };
+  await page.route('**/deals?deal=*', route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has('mode')) return route.continue();
+    url.searchParams.set('mode','live');
+    return route.fulfill({status:302,headers:{location:url.href}});
+  });
+  await page.route(marketReads, answerThroughWorker);
+  await page.route('**/mcp', async route => {
+    if (['deal-room-board','get-deal-room','create-national-market-deal','search-parties-v1'].includes(route.request().postDataJSON().params.name))
+      return answerThroughWorker(route);
+    return route.fulfill({json:{result:{content:[{type:'text',text:'{}'}]}}});
+  });
+
+  await page.goto(`${server.origin}/deals?view=national&mode=live`);
+  await page.getByRole('button',{name:/Demo National Company.*Open account/}).click();
+  const open = page.getByRole('button',{name:'Add market deal',exact:true});
+  const submit = page.getByRole('button',{name:'Create market deal',exact:true});
+  const chooseMarket = page.getByLabel('Market',{exact:true});
+  await open.click();
+  await page.getByLabel('Deal name',{exact:true}).fill('Demo First Market Deal');
+  await page.getByRole('button',{name:'Reload choices',exact:true}).click();
+  await chooseMarket.selectOption({label:'Demo Metro'});
+  await page.getByLabel('Existing location',{exact:true}).selectOption({label:'Demo Existing Location'});
+  await page.getByLabel('Search people',{exact:true}).fill('Demo Agent');
+  await page.getByRole('button',{name:'Find people',exact:true}).click();
+  await page.getByLabel('Market agent (optional)',{exact:true}).selectOption({label:'Demo Agent'});
+  await submit.click();
+  await page.getByRole('button',{name:'Check creation outcome',exact:true}).click();
+  const first = page.locator('#rows').getByRole('button',{name:'Demo First Market Deal',exact:true});
+  await first.waitFor();
+  assert.equal(await first.count(),1);
+  assert.deepEqual(writes[1],writes[0]);
+  assert.match(await page.locator('#rows').textContent(),/Demo Metro.*Demo Agent/s);
+  assert.deepEqual(writes[0], {idempotency_key:writes[0].idempotency_key,name:'Demo First Market Deal',
+    national_account_id:account,market_id:market,client_id:location,market_agent_id:agent,
+    owner:'joe',phase:'pending',reason:'start_up'});
+  await first.click();
+  await page.getByRole('heading',{name:'Demo First Market Deal',exact:true}).waitFor();
+  await page.goto(`${server.origin}/deals?view=national&mode=live`);
+  await page.getByRole('button',{name:/Demo National Company.*Open account/}).click();
+
+  await open.click();
+  await chooseMarket.selectOption({label:'Demo Metro'});
+  await page.getByLabel('Deal name',{exact:true}).fill('Demo Second Market Deal');
+  await page.getByLabel('Location',{exact:true}).selectOption({label:'New location'});
+  await page.getByLabel('Location type',{exact:true}).selectOption({label:'Company'});
+  await page.getByLabel('Location name',{exact:true}).fill('Demo Existing Location');
+  await submit.click();
+  await page.getByText('Choose the existing location with that name.',{exact:true}).waitFor();
+  await page.getByLabel('Location name',{exact:true}).fill('Demo New Location');
+  await submit.click();
+  await page.locator('#rows').getByRole('button',{name:'Demo Second Market Deal',exact:true}).waitFor();
+  assert.deepEqual(writes.at(-1), {idempotency_key:writes.at(-1).idempotency_key,name:'Demo Second Market Deal',
+    national_account_id:account,market_id:market,new_location:{name:'Demo New Location',kind:'company'},
+    owner:'joe',phase:'pending',reason:'start_up'});
+
+  await open.click();
+  await chooseMarket.selectOption({label:'Demo Metro'});
+  await page.getByLabel('Deal name',{exact:true}).fill('Demo Third Market Deal');
+  await page.getByLabel('Location',{exact:true}).selectOption({label:'New location'});
+  await page.getByLabel('Location type',{exact:true}).selectOption({label:'Person'});
+  await page.getByLabel('Location name',{exact:true}).fill('Demo New Person');
+  await submit.click();
+  await page.locator('#rows').getByRole('button',{name:'Demo Third Market Deal',exact:true}).waitFor();
+  assert.deepEqual(writes.at(-1).new_location, {name:'Demo New Person',kind:'person'});
+  assert.notEqual(writes.at(-2).idempotency_key,writes.at(-1).idempotency_key);
+  await page.locator('#accountBack').click();
+  await page.getByRole('button',{name:/Demo National Company.*3 Open deals/}).waitFor();
+});
