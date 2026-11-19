@@ -279,7 +279,7 @@ function renderBoard() {
       ? `${state.unplaced} deals need a phase`
       : '';
   }
-  prospects?.show(state.filter, state.scopeFilter === 'flagged');
+  prospects?.show(state.filter, state.scopeFilter === 'flagged', state.selfActor, state.nextDealSaves);
   if (focusedStage) board.querySelector(`[data-collapse-stage="${CSS.escape(focusedStage)}"]`)?.focus();
   renderPendingWrites();
 }
@@ -428,7 +428,7 @@ function syncProspects(enabled) {
   $('kanban').prepend(lane);
   void import('./ui-deal-prospects.generated.js').then(({ mountProspects }) => {
     if (!lane.isConnected) return;
-    prospects = mountProspects(lane, fetchRead, count => {
+    prospects = mountProspects(lane, { prospectRequest: fetchRead, saveProspect: state.client.saveProspect }, count => {
       state.prospectCount = count;
       renderBoardMessage();
     }, authorLabel);
