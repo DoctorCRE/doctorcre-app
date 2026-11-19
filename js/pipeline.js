@@ -135,6 +135,7 @@ function parkedHtml(deal) {
 }
 
 let dealCreation = null;
+let pickedDealClient = null;
 let creatingDeal = false;
 function syncDealCreation() {
   $('addDealFields').disabled = creatingDeal || Boolean(dealCreation);
@@ -142,10 +143,15 @@ function syncDealCreation() {
   $('addDealCancel').disabled = creatingDeal;
   $('addDealSubmit').textContent = creatingDeal ? 'Saving…' : dealCreation ? 'Check creation outcome' : 'Create deal';
 }
-function openAddDeal() {
+function openAddDeal(client = null) {
   if (!dealCreation) {
+    pickedDealClient = client;
     $('addDealForm').reset();
     $('addDealOwner').value = state.selfActor || 'joe';
+    if (client) {
+      $('addDealClient').value = client.name;
+      $('addDealName').value = client.name;
+    }
     $('addDealError').textContent = '';
   }
   syncDealCreation();
@@ -161,7 +167,8 @@ async function submitDeal(event) {
     if (!args.name || !args.client) {
       errorBox.textContent = 'Enter a deal name and an existing client.'; errorBox.focus(); return;
     }
-    dealCreation = {...args, lane:'territory', next_deal_save:state.nextDealSaves, idempotency_key:uuidv4()};
+    const client_id = args.client === pickedDealClient?.name ? pickedDealClient.id : undefined;
+    dealCreation = {...args, client_id, lane:'territory', next_deal_save:state.nextDealSaves, idempotency_key:uuidv4()};
   }
   const request = dealCreation;
   creatingDeal = true; syncDealCreation(); errorBox.textContent = '';
@@ -424,7 +431,7 @@ function syncProspects(enabled) {
     prospects = mountProspects(lane, state.client, count => {
       prospectCount = count;
       renderBoardMessage();
-    });
+    }, openAddDeal);
     renderBoard();
   });
 }
@@ -1885,7 +1892,7 @@ function wire() {
   });
 
   $('addDealStage').innerHTML = OPEN_COLUMNS.map(c => `<option value="${esc(c.value)}">${esc(c.label)}</option>`).join('');
-  $('addDealOpen').addEventListener('click', openAddDeal);
+  $('addDealOpen').addEventListener('click', () => openAddDeal());
   $('addDealForm').addEventListener('submit', submitDeal);
   $('addDealCancel').addEventListener('click', () => $('addDealDialog').close());
   $('addDealDialog').addEventListener('cancel', event => { if (creatingDeal) event.preventDefault(); });

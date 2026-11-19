@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { type ProspectClient, ProspectFollowUp, ProspectNote } from "./prospect-saves";
+import { AddProspect, ManageProspect } from "./prospect-management";
+import { type ProspectClient, ProspectFollowUp, ProspectNote, prospectsPath } from "./prospect-saves";
 
-const path = "/api/engine/prospects";
 const partners = { joe: "Joe", dell: "Dell" };
 const howFound = {
   referral: "Referral",
@@ -73,7 +73,9 @@ function parseProspect(value: unknown) {
     !textOrNull(value.how_found) ||
     !(value.owner === null || partner(value.owner)) ||
     typeof value.needs_attention !== "boolean" ||
-    !Array.isArray(value.follow_ups)
+    !Array.isArray(value.follow_ups) ||
+    typeof value.change_id !== "number" ||
+    !Number.isSafeInteger(value.change_id)
   )
     return invalid();
   return {
@@ -82,6 +84,7 @@ function parseProspect(value: unknown) {
     how_found: value.how_found,
     owner: value.owner,
     needs_attention: value.needs_attention,
+    change_id: value.change_id,
     follow_ups: value.follow_ups.map(parseStep),
     latest_note: value.latest_note === null ? null : parseNote(value.latest_note),
   };
@@ -178,7 +181,12 @@ function ProspectDetail({
   const dialog = useRef<HTMLDialogElement>(null);
   const followUps = useRef<HTMLHeadingElement>(null);
   const [revision, update] = useState(0);
-  const { value: row, unavailable } = useProspectRead(client.prospectRequest, `${path}/${id}`, revision, parseDetail);
+  const { value: row, unavailable } = useProspectRead(
+    client.prospectRequest,
+    `${prospectsPath}/${id}`,
+    revision,
+    parseDetail,
+  );
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
@@ -228,6 +236,19 @@ function ProspectDetail({
                 reload={reload}
               />
             )}
+            {filters.canSave && filters.actor && (
+              <ManageProspect
+                row={row}
+                actor={filters.actor}
+                client={client}
+                saved={saved}
+                reload={reload}
+                drop={() => {
+                  dialog.current?.close();
+                  refreshLane();
+                }}
+              />
+            )}
             <h3>Notes</h3>
             {row.notes.length ? (
               <ul>
@@ -262,17 +283,19 @@ function ProspectLane({
   client,
   count,
   refresh,
+  addDeal,
 }: {
   filters: Filters;
   revision: number;
   client: ProspectClient;
   count: (value: number | null) => void;
   refresh: () => void;
+  addDeal: (client: { id: string; name: string }) => void;
 }) {
   const query = new URLSearchParams(location.search);
   const initial = query.get("prospect");
   const [opened, open] = useState(initial && uuid.test(initial) ? initial : null);
-  const { value: rows, unavailable } = useProspectRead(client.prospectRequest, path, revision, parseLane);
+  const { value: rows, unavailable } = useProspectRead(client.prospectRequest, prospectsPath, revision, parseLane);
   const visible = rows?.filter(
     (row) =>
       (filters.owner === "all" || !row.owner || row.owner === filters.owner) &&
@@ -282,6 +305,7 @@ function ProspectLane({
   return (
     <>
       <h3 id="prospects-title">Prospects {visible && <small>{visible.length}</small>}</h3>
+      {filters.canSave && <AddProspect client={client} sources={howFound} refresh={refresh} addDeal={addDeal} />}
       {unavailable ? (
         <p role="alert">
           Could not load prospects.{" "}
@@ -333,12 +357,26 @@ function ProspectLane({
   );
 }
 
-export function mountProspects(host: HTMLElement, client: ProspectClient, count: (value: number | null) => void) {
+export function mountProspects(
+  host: HTMLElement,
+  client: ProspectClient,
+  count: (value: number | null) => void,
+  addDeal: (client: { id: string; name: string }) => void,
+) {
   const root = createRoot(host);
   let revision = 0;
   let filters: Filters = { owner: "all", attention: false, actor: null, canSave: false };
   function render() {
-    root.render(<ProspectLane filters={filters} client={client} revision={revision} count={count} refresh={refresh} />);
+    root.render(
+      <ProspectLane
+        filters={filters}
+        client={client}
+        revision={revision}
+        count={count}
+        refresh={refresh}
+        addDeal={addDeal}
+      />,
+    );
   }
   function refresh() {
     revision++;

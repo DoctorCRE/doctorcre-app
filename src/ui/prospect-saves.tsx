@@ -8,9 +8,9 @@ export type ProspectClient = {
   saveProspect: (path: string, operation: string, receipt: string, args?: object) => Promise<Reply>;
 };
 type SaveState = { kind: "ready" | "saving" } | { kind: "refused"; problem: Record<string, unknown>; pending: boolean };
-const prospects = "/api/engine/prospects";
+export const prospectsPath = "/api/engine/prospects";
 
-function useProspectSave(
+export function useProspectSave(
   client: ProspectClient,
   url: string,
   operation: string,
@@ -41,7 +41,13 @@ function useProspectSave(
   };
 }
 
-function ProspectSaveFeedback({ save, reload }: { save: ReturnType<typeof useProspectSave>; reload?: () => void }) {
+export function ProspectSaveFeedback({
+  save,
+  reload,
+}: {
+  save: ReturnType<typeof useProspectSave>;
+  reload?: () => void;
+}) {
   if (save.state.kind !== "refused") return null;
   const { problem, pending } = save.state;
   if (pending)
@@ -83,7 +89,7 @@ function ProspectSaveFeedback({ save, reload }: { save: ReturnType<typeof usePro
 type Props = { id: string; client: ProspectClient; saved: () => void };
 export function ProspectNote({ id, client, saved }: Props) {
   const form = useRef<HTMLFormElement>(null);
-  const note = useProspectSave(client, `${prospects}/note`, `${id}:note`, "activity_id", () => {
+  const note = useProspectSave(client, `${prospectsPath}/note`, `${id}:note`, "activity_id", () => {
     form.current?.reset();
     saved();
   });
@@ -118,7 +124,7 @@ export function ProspectFollowUp({
 }) {
   const form = useRef<HTMLFormElement>(null);
   const base = useRef<{ step: StepVersion | undefined }>(null);
-  const save = useProspectSave(client, `${prospects}/follow-up`, `${id}:follow-up`, "next_step_id", () => {
+  const save = useProspectSave(client, `${prospectsPath}/follow-up`, `${id}:follow-up`, "next_step_id", () => {
     form.current?.reset();
     base.current = null;
     saved();
