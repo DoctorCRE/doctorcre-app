@@ -474,6 +474,7 @@ const FOLLOW_UP_SENDERS = {
   'add-critical-date': (request) => state.client.addCriticalDate(request),
   'confirm-critical-date': request => state.client.confirmCriticalDate(request),
   'resolve-critical-date': request => state.client.resolveCriticalDate(request),
+  'decide-engine-deal-email': request => state.client.decideDealEmail(request),
   'update-deal': (request) => state.client.updateDeal(request),
   'register-client-portal': (request) => state.client.registerClientPortal(request),
   'undo-invoice-close': (request) => state.client.undoInvoiceClose(request),
@@ -566,7 +567,8 @@ async function runFollowUp(operationKey, step) {
       if (!Number.isSafeInteger(args.seen_change_id)) args = { ...args, base_version: current.version };
     }
   }
-  const fromEngine = Number.isSafeInteger(args.seen_change_id);
+  const decidesEmail = step.verb === 'decide-engine-deal-email';
+  const fromEngine = decidesEmail || Number.isSafeInteger(args.seen_change_id);
   if (!pending) operations.set(operationKey, { kind: 'command', verb: step.verb, args, send, summary: step.summary });
   dock.record(operationKey, { summary: step.summary, status: 'sending', undo: false });
   const updateActor = isUpdate ? state.selfActor : null;
@@ -588,13 +590,15 @@ async function runFollowUp(operationKey, step) {
     dockRequest = { ...dockRequest };
     delete dockRequest.password;
   }
-  const reload = fromEngine && result.code === 'version_conflict';
+  const reload = decidesEmail
+    ? ['already_decided', 'not_found', 'deal_email_routing_changed'].includes(result.code)
+    : fromEngine && result.code === 'version_conflict';
   dock.record(operationKey, {
     summary: operations.get(operationKey).summary,
     status: result.status === 'blocked' ? 'unknown' : result.status,
     reason: (fromEngine && result.hint) || result.message || null,
     // eslint-disable-next-line no-restricted-syntax -- Only another dock action can resend the retained follow-up; this receipt exposes retry state.
-    retry: !reload && (result.status === 'blocked' || result.retry), reload, undo: false, request: dockRequest,
+    retry: !reload && (result.status === 'blocked' || result.retry), reload, canDispatch: !decidesEmail, undo: false, request: dockRequest,
   });
   if (step.verb === 'register-client-portal' && result.status === 'ok') state.boardSync.requestRefresh('client-portal');
   if (fromEngine && result.status === 'ok') {
@@ -1185,7 +1189,7 @@ function filedDocumentsHtml(documents) {
   }).join('')}</ul>` : '<p>No documents filed for this deal.</p>'}`;
 }
 
-function dealEmailFollowupsHtml(followups) {
+function dealEmailFollowupsHtml(followups, canDecide) {
   const today = todayIso();
   return `<h2>Email follow-ups</h2>${followups.map(row => {
     const email = row.email || {};
@@ -1194,7 +1198,16 @@ function dealEmailFollowupsHtml(followups) {
       : row.kind === 'phase_move' ? `Move to ${columnBySlug(row.to_phase)?.label || 'the next phase'}`
       : row.what || 'Review email';
     const owner = row.kind === 'next_step' ? ACTOR_LABEL[row.owner] : '';
-    return workCard({className:'email-proposal', title:esc(email.subject || 'Email follow-up'),
+    const id = esc(row.proposal_id);
+    const actions = canDecide ? `<form data-email-decision="${id}">
+      ${row.kind === 'next_step' ? `<div class="deal-next-step-fields">
+        <label>Next step<input name="what" value="${esc(row.what)}" maxlength="10000" required data-detail-focus="step-${id}"></label>
+        <label>Due date<input type="date" name="due_on" value="${esc(row.due_on)}" data-detail-focus="date-${id}"></label>
+      </div>` : ''}
+      <button class="btn" type="submit" value="accept" data-detail-focus="accept-${id}">Accept</button>
+      <button class="btn" type="submit" value="dismiss" formnovalidate data-detail-focus="dismiss-${id}">Dismiss</button>
+    </form>` : '';
+    return workCard({className:'email-proposal', title:esc(email.subject || 'Email follow-up'), actions,
       meta:sender ? `<p>${esc(sender)}</p>` : '',
       body:`<p>${esc(change)}${owner ? ` · ${esc(owner)}` : ''}${row.due_on ? ` · ${dueDateHtml(row.due_on, today)}` : ''}</p>${email.summary ? `<p>${esc(email.summary)}</p>` : ''}
         ${row.evidence ? `<details><summary>Read email excerpt</summary><q>${esc(row.evidence)}</q></details>` : ''}`});
@@ -1229,7 +1242,7 @@ function workspaceHtml(detail) {
     <section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>
     <div data-detail-read="checklist"></div>
     <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000" required></textarea><details id="detailNextStepEditor"><summary>Change next step</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">Next step</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${todayIso()}"${d.next_date && d.next_date < todayIso() ? ' aria-describedby="detailUpdateDateHint"' : ''}>${d.next_date && d.next_date < todayIso() ? '<small id="detailUpdateDateHint">Current next date is overdue.</small>' : ''}</div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
-    <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail.email_follow_ups) : '<p role="status">Updating email follow-ups…</p>'}</section>
+    <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail.email_follow_ups, detail.next_deal_saves) : '<p role="status">Updating email follow-ups…</p>'}</section>
     ${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}">${parked ? `<p>${esc(concise(d.parking_note) || 'Parked')}</p><button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm"><label>Park reason<input name="reason" maxlength="500" required></label><button class="btn park-control" type="submit">Park deal</button></form></details>`}</div></div>` : ''}</div>
@@ -1311,6 +1324,12 @@ async function readPanel(id) {
           const historyOpen = current.querySelector('.updates-history')?.open;
           const dateOpens = new Set([...current.querySelectorAll('[data-date-id] details[open]')].map(n => n.closest('[data-date-id]').dataset.dateId));
           const oldScroll = current.scrollLeft;
+          if (fresh.dataset.detailRead === 'email-followups') {
+            for (const input of current.querySelectorAll('[data-email-decision] input')) {
+              const replacement = fresh.querySelector(`[data-detail-focus="${CSS.escape(input.dataset.detailFocus)}"]`);
+              if (replacement && replacement.defaultValue === input.defaultValue) replacement.value = input.value;
+            }
+          }
           if (fresh.dataset.detailRead === 'updates') disposeActivityAttribution();
           current.replaceWith(fresh);
           if (fresh.dataset.detailRead === 'updates') mountPanelActivityAttribution();
@@ -2016,6 +2035,26 @@ function wire() {
   });
   $('panelBody').addEventListener('submit', async e => {
     e.preventDefault(); const id=state.panelDeal; const form = new FormData(e.target);
+    const proposal = e.target.dataset.emailDecision;
+    const choice = e.submitter?.value;
+    if (proposal && state.panelDetail?.next_deal_saves && ['accept', 'dismiss'].includes(choice)) {
+      let edits;
+      if (choice === 'accept' && form.has('what')) {
+        const what = String(form.get('what')).trim();
+        if (!what) {
+          showToast('Enter a next step before accepting.', {error:true});
+          e.target.elements.what.focus();
+          return;
+        }
+        edits = { what, due_on: form.get('due_on') || null };
+      }
+      await runFollowUp(`deal-email:${id}:${proposal}`, {
+        verb:'decide-engine-deal-email',
+        args:{ deal:id, proposal_id:proposal, decision:choice, ...(edits && { edits }) },
+        summary:'Email follow-up',
+      });
+      return;
+    }
     const date = e.target.dataset.dateDecision;
     if (date && state.nextDealSaves && Number.isSafeInteger(state.panelDetail?.deal?.seen)) {
       const decision = e.submitter?.value;

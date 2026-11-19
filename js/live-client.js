@@ -65,7 +65,7 @@ export function createLiveClient(opts = {}) {
   const sessionWrites = new Set(['link-parties', 'set-next-step', 'set-market-agent', 'set-national-account-owner', 'create-national-account',
     'create-national-market-deal', 'start-deal-review', 'review-deal', 'end-deal-review',
     'resolve-candidate', 'resolve-post-call-candidate', 'answer-work-request-for-joe', 'add-industry-event', 'update-industry-event',
-    'undo-call-change', 'review-call-outcome', 'review-deal-update', 'confirm-email-filing', 'confirm-email-next-step', 'confirm-email-deal-progress', 'dismiss-email-proposal', 'snooze-email-proposal', 'handle-email-proposal', 'edit-email-draft', 'submit-email-draft', 'register-client-portal', 'record-human-fact', 'resolve-fact-review']);
+    'undo-call-change', 'review-call-outcome', 'review-deal-update', 'confirm-email-filing', 'confirm-email-next-step', 'confirm-email-deal-progress', 'dismiss-email-proposal', 'snooze-email-proposal', 'handle-email-proposal', 'edit-email-draft', 'submit-email-draft', 'register-client-portal', 'record-human-fact', 'resolve-fact-review', 'decide-engine-deal-email']);
 
   const readTimeoutMs = opts.readTimeoutMs || 10_000;
   const rpc = (verb, args = {}, signal) => {
@@ -370,7 +370,9 @@ export function createLiveClient(opts = {}) {
         premises: page.premises || [],
         negotiation_rounds: page.negotiation_rounds || [],
         documents: page.documents || [],
-        ...(isEngineDealDetail(page) ? { email_follow_ups: page.email_follow_ups } : {}),
+        ...(isEngineDealDetail(page) ? {
+          email_follow_ups: page.email_follow_ups, next_deal_saves: page.next_deal_saves === true,
+        } : {}),
         lease: page.lease ?? null,
         checklist: page.checklist ?? null,
         schema_version: page.schema_version,
@@ -434,6 +436,9 @@ export function createLiveClient(opts = {}) {
     async readDealUpdateReviews(args = {}) { return rpc('read-deal-update-reviews', args); },
     async reviewDealUpdate(args) { return write('review-deal-update', args); },
     async listEmailProposals(args = {}, signal) { return rpc('list-email-proposals', args, signal); },
+    async decideDealEmail({ proposal_id, decision, idempotency_key, edits }) {
+      return write('decide-engine-deal-email', { proposal_id, decision, idempotency_key, ...(edits && { edits }) });
+    },
     async previewEmailNextStep(args) { return rpc('preview-email-next-step', args); },
     async previewEmailDealProgress(args) { return rpc('preview-email-deal-progress', args); },
     async previewEmailFiling(args) { return rpc('preview-email-filing', args); },

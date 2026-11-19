@@ -69,6 +69,49 @@ test("a filed deal document streams from the engine only with Deals reads on", a
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array([0, 128, 255]));
 });
 
+test("deal email decisions use the engine only with both Deals switches on", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const key = "00000000-0000-4000-8000-000000000002";
+  const decision = call("decide-engine-deal-email", { proposal_id: id, decision: "accept", idempotency_key: key });
+  for (const switchKey of ["deals-from-engine", "deals-saves-from-engine"]) {
+    const disabled = fixture(new Map([[switchKey, "on"]]));
+    const response = await disabled.send(decision);
+    assert.equal(disabled.engine.length, 0);
+    assert.equal(disabled.carr.length, 0);
+    assert.equal((await response.json()).result.isError, true);
+  }
+  const enabled = fixture("on", async () => Response.json({ proposal_id: id, status: "accepted" }));
+  const response = await enabled.send(decision, { origin, cookie: "session=synthetic", "x-carr-csrf": "synthetic" });
+  const request = enabled.engine[0];
+  assert.ok(request);
+  assert.equal(request.url, `${origin}/api/engine/proposals/${id}/decision`);
+  assert.equal(request.headers.get("x-carr-csrf"), "synthetic");
+  assert.deepEqual(await request.json(), { decision: "accept", idempotency_key: key });
+  assert.deepEqual(JSON.parse((await response.json()).result.content[0].text), {
+    ok: true,
+    proposal_id: id,
+    status: "accepted",
+  });
+  assert.deepEqual(enabled.carr, []);
+
+  const settled = fixture("on", async () => Response.json({ error: "already_decided" }, { status: 409 }));
+  const conflict = await (await settled.send(decision)).json();
+  assert.equal(conflict.result.isError, true);
+  assert.equal(JSON.parse(conflict.result.content[0].text).error, "already_decided");
+  assert.deepEqual(settled.carr, []);
+
+  const openStep = fixture("on", async () => Response.json({ error: "open_step_exists" }, { status: 409 }));
+  const refusal = await (await openStep.send(decision)).json();
+  assert.equal(
+    JSON.parse(refusal.result.content[0].text).hint,
+    "You already have an open step on this deal. Finish or change it first, or dismiss this suggestion.",
+  );
+
+  const unconfirmed = fixture("on", async () => Response.json({ proposal_id: id, status: "dismissed" }));
+  assert.equal((await unconfirmed.send(decision)).status, 503);
+  assert.deepEqual(unconfirmed.carr, []);
+});
+
 for (const value of [null, "off", "ON", "", new Error("KV failed")]) {
   test(`off or unavailable switch preserves CARR request (${String(value)})`, async () => {
     const f = fixture(value);

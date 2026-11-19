@@ -1,0 +1,12 @@
+{
+  "schema_version": "engine-deal-email-decision.v1",
+  "producer": {
+    "repository": "DoctorCRE/doctorcre-engine",
+    "source_commit": "558a71a8922631492ae049e909c098f2950db031"
+  },
+  "verb": "decide-engine-deal-email",
+  "write": "POST /api/engine/proposals/{proposal_id}/decision with decision (accept or dismiss) and idempotency_key",
+  "edits": "When accepting a next step, optional edits supply what and due_on. A null due_on clears the date.",
+  "result": "The engine returns the proposal_id and status (accepted or dismissed). The app confirms success when both match the request.",
+  "switches": ["deals-from-engine", "deals-saves-from-engine"]
+}

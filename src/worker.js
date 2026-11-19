@@ -2,6 +2,7 @@ import carrSchema from "../contracts/carr-interface.v1/schema.json" with { type:
 import carrVersion from "../contracts/carr-interface.v1/version.json" with { type: "json" };
 import { routeContract, routeKey, actionLinkRoute } from "../js/routes.js";
 import { BOARD_ROUTE, boardIdFromPath, legacyBoardDestination } from '../js/progress-board-route.js';
+import { isEngineDealDetail } from '../js/local-deals-model.js';
 
 const APP_ROUTES = new Map(Object.entries(routeContract.routes));
 const REDIRECTS = new Map(Object.entries(routeContract.redirects || {}));
@@ -270,6 +271,12 @@ async function engineResponse(request, env) {
             text = JSON.stringify({ ...board, next_deal_saves: true });
           }
         }
+        if (call.params.name === 'get-deal-room' && response.ok) {
+          const detail = JSON.parse(text);
+          if (isEngineDealDetail(detail) && await switchedOn(env, NEXT_DEAL_SAVES)) {
+            text = JSON.stringify({ ...detail, next_deal_saves: true });
+          }
+        }
         if (call.params.name === 'read-home-inbox-v5' && response.ok) {
           const inbox = JSON.parse(text);
           if (inbox?.schema_version === 'home-inbox.v5') text = JSON.stringify({ ...inbox, engine_marks: true });
@@ -469,6 +476,14 @@ const ENGINE_SAVES = new Map([
 // Engine refusals that wrote nothing and leave the answer to the old system: a
 // save it cannot make, or a key the old system's receipt holds.
 const OLD_SYSTEM_ANSWERS = new Map([[501, 'old_system_required'], [409, 'key_reuse']]);
+const DEAL_EMAIL_REFUSALS = new Map([
+  ['open_step_exists', 'You already have an open step on this deal. Finish or change it first, or dismiss this suggestion.'],
+  ['database_refused_the_statement', 'This email can’t be filed on this deal. Dismiss this suggestion.'],
+  ['invalid_field_value', 'Check the suggestion and any changes you made, or dismiss it.'],
+  ['version_conflict', 'This deal has moved since the suggestion. Dismiss it.'],
+  ['already_decided', 'This suggestion is already gone. Reload the deal to see what remains.'],
+  ['not_found', 'This suggestion is already gone. Reload the deal to see what remains.'],
+]);
 
 // The switch picks which system takes a save first. Each replays only its own
 // receipt and refuses the other's as key_reuse, so a retry that crossed the
@@ -479,6 +494,29 @@ async function engineSave(request, env) {
   const url = new URL(request.url);
   const call = await mcpCall(request, url);
   if (call?.method !== 'tools/call' || !isObject(call.params?.arguments)) return null;
+  if (call.params.name === 'decide-engine-deal-email') {
+    if (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))
+      return saveRefusal(call, 'deal_email_routing_changed', 'Reload the deal before reviewing this email.');
+    const { proposal_id, decision, idempotency_key, edits } = call.params.arguments;
+    if (!isUuid(proposal_id) || !isUuid(idempotency_key) || !['accept', 'dismiss'].includes(decision)
+        || (edits !== undefined && (decision !== 'accept' || !isObject(edits))))
+      return saveRefusal(call, 'invalid_arguments', 'Choose an email follow-up to review.');
+    const response = await sendEngineSave(request, env, `/api/engine/proposals/${proposal_id}/decision`, {
+      decision, idempotency_key, ...(edits && { edits }),
+    });
+    if (!response || response.status >= 500) return unavailable(false);
+    if ([401, 403, 429].includes(response.status)) return response;
+    const body = await response.json().catch(() => null);
+    if (!isObject(body)) return unavailable(false);
+    if (!response.ok) {
+      const error = isString(body.error) ? body.error : 'suggestion_refused';
+      const hint = DEAL_EMAIL_REFUSALS.get(error) ?? 'This suggestion could not be saved. Review the linked record or dismiss the suggestion.';
+      return mcpReply(call, response, JSON.stringify({ ...body, error, hint }), true);
+    }
+    if (body.error || body.proposal_id !== proposal_id || body.status !== (decision === 'accept' ? 'accepted' : 'dismissed'))
+      return unavailable(false);
+    return mcpReply(call, response, JSON.stringify({ ...body, ok: true }), false);
+  }
   if (call.params.name === 'save-engine-home-mark') {
     if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     return engineAnswer(request, env, call, { path: '/api/engine/home/marks' }, { allowHandoff: false });

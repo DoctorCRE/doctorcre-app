@@ -22,8 +22,8 @@ before(async () => {
   await mkdir(evidence, { recursive: true });
 });
 
-for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) {
-  test(`deal files and email follow-ups for ${actor} with Deals reads ${readsOn ? 'on' : 'off'}`, async t => {
+for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, true], ['dell', true, true], ['dell', true, false]]) {
+  test(`deal files and email follow-ups for ${actor} with Deals reads ${readsOn ? 'on' : 'off'} and saves ${savesOn ? 'on' : 'off'}`, async t => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     t.after(() => page.close());
     await page.clock.setFixedTime(new Date('2026-11-18T15:00:00Z'));
@@ -34,11 +34,23 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
       { id: letter, name: 'Example Letter.pdf', version: 1, prepared_at: '2026-11-02T14:00:00+00:00' },
       { id: earlierPlan, name: 'Example Plan.pdf', version: 1, prepared_at: '2026-11-01T14:00:00+00:00' },
     ];
-    const email_follow_ups = [
+    const refusals = actor === 'joe' && savesOn ? [
+      ['next_step', 409, 'open_step_exists', 'You already have an open step on this deal. Finish or change it first, or dismiss this suggestion.'],
+      ['file_to_deal', 400, 'database_refused_the_statement', 'This email can’t be filed on this deal. Dismiss this suggestion.'],
+      ['next_step', 422, 'invalid_field_value', 'Check the suggestion and any changes you made, or dismiss it.'],
+      ['phase_move', 409, 'version_conflict', 'This deal has moved since the suggestion. Dismiss it.'],
+      ['phase_move', 409, 'already_decided', 'This suggestion is already gone. Reload the deal to see what remains.'],
+    ].map(([kind, status, error, hint], index) => ({
+      kind, status, error, hint, id: crypto.randomUUID(), subject: `Example follow-up ${index + 1}`,
+    })) : [];
+    let email_follow_ups = [
       { proposal_id: first, kind: 'next_step', what: 'Send the plan', owner: 'dell', due_on: '2026-11-02',
         email: { subject: 'Plan ready', sender_name: 'Example Sender', happened_at: '2026-11-01T14:00:00+00:00' } },
       { proposal_id: second, kind: 'file_to_deal', evidence: 'The letter is attached.',
         email: { subject: 'Letter attached', sender: 'sender@example.test' } },
+      ...refusals.map(({ kind, id, subject }) => ({
+        proposal_id: id, kind, what: 'Review the example', to_phase: 'legal', email: { subject, sender: 'sender@example.test' },
+      })),
     ];
     const completed = { id: 'executed_lease', label: 'Executed lease', status: 'complete', due_on: null,
       evidence_ref: 'Example Plan.pdf', source: { document: 'lease-guide' } };
@@ -46,13 +58,26 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
       evidence_ref: 'Example option notice', source: { record_verb: 'add-critical-date' } };
     const checklist = { schema_version: 'deal-checklist.v1', template_state: 'current',
       phases: [{ label: 'Legal / lease', items: [completed, overdue] }], due_items: [overdue] };
-    const carr = [], opened = [];
+    const carr = [], opened = [], decisions = [];
     const env = {
-      ENGINE_ROUTING: { get: async key => readsOn && key === 'deals-from-engine' ? 'on' : null },
+      ENGINE_ROUTING: { get: async key => ({ 'deals-from-engine': readsOn, 'deals-saves-from-engine': savesOn })[key] ? 'on' : null },
       ENGINE: { fetch: async request => {
         const path = new URL(request.url).pathname;
         if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor, deals: [row] });
         if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, checklist, documents, email_follow_ups });
+        if (request.method === 'POST') {
+          const id = path.split('/').at(-2);
+          assert.equal(path, `/api/engine/proposals/${id}/decision`);
+          assert.ok(request.headers.get('x-carr-csrf'));
+          const { idempotency_key, decision, edits } = await request.json();
+          assert.match(idempotency_key, /^[\da-f-]{36}$/);
+          decisions.push([id, decision, edits]);
+          const refusal = refusals.find(row => row.id === id && decision === 'accept');
+          if (refusal && refusal.error !== 'already_decided') return Response.json({ error: refusal.error }, { status: refusal.status });
+          email_follow_ups = email_follow_ups.filter(row => row.proposal_id !== id);
+          if (refusal) return Response.json({ error: refusal.error }, { status: refusal.status });
+          return Response.json({ proposal_id: id, status: decision === 'accept' ? 'accepted' : 'dismissed' });
+        }
         const id = path.split('/').at(-1);
         const file = documents.find(file => file.id === id);
         assert.ok(file, path);
@@ -73,7 +98,7 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
         return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
       } },
     };
-    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `deal-file-read-${actor}-${readsOn}`, viewer: actor, reset: true } });
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `deal-file-read-${actor}-${readsOn}-${savesOn}`, viewer: actor, reset: true } });
     const routeThroughWorker = async route => {
       const request = route.request();
       const response = await handleDoctorcreRequest(new Request(request.url(), {
@@ -83,7 +108,7 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
     };
     await page.route('**/api/engine/documents/*', routeThroughWorker);
     await page.route('**/mcp', route => [
-      'deal-room-board', 'get-deal-room', 'list-deal-documents', 'list-email-proposals',
+      'deal-room-board', 'get-deal-room', 'list-deal-documents', 'list-email-proposals', 'decide-engine-deal-email',
     ].includes(route.request().postDataJSON()?.params?.name) ? routeThroughWorker(route) : route.continue());
 
     await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
@@ -113,6 +138,40 @@ for (const [actor, readsOn] of [['joe', false], ['joe', true], ['dell', true]]) 
       assert.doesNotMatch(await progress.innerText(), /2026-11-14|add-critical-date|\brecorded\b/i);
       await progress.evaluate(element => element.scrollIntoView({ block: 'end' }));
       await progress.screenshot({ path: join(evidence, `engine-checklist-${actor}.png`) });
+      if (savesOn) {
+        await followups.evaluate(element => element.scrollIntoView({ block: 'end' }));
+        await followups.screenshot({ path: join(evidence, `engine-followups-${actor}.png`) });
+        const planCard = followups.getByRole('article').filter({ hasText: 'Plan ready' });
+        const letterCard = followups.getByRole('article').filter({ hasText: 'Letter attached' });
+        await planCard.getByLabel('Next step', { exact: true }).fill('Send the revised plan');
+        const dueDate = planCard.getByLabel('Due date', { exact: true });
+        await dueDate.fill(actor === 'joe' ? '2026-11-21' : '');
+        await planCard.getByRole('button', { name: 'Accept', exact: true }).click();
+        await planCard.waitFor({ state: 'detached' });
+        await letterCard.getByRole('button', { name: 'Dismiss', exact: true }).click();
+        await letterCard.waitFor({ state: 'detached' });
+        assert.deepEqual(decisions.slice(0, 2), [
+          [first, 'accept', { what: 'Send the revised plan', due_on: actor === 'joe' ? '2026-11-21' : null }],
+          [second, 'dismiss', undefined],
+        ]);
+        for (const refusal of refusals) {
+          const card = followups.getByRole('article').filter({ hasText: refusal.subject });
+          await card.getByRole('button', { name: 'Accept', exact: true }).click();
+          const receipt = page.locator('#receiptDock .receipt').filter({ hasText: refusal.hint });
+          await receipt.waitFor();
+          assert.equal(await receipt.getByRole('button', { name: 'Try again' }).count(), 0);
+          const reload = receipt.getByRole('button', { name: 'Reload deal' });
+          if (refusal.error === 'already_decided') await reload.click();
+          else {
+            assert.equal(await reload.count(), 0);
+            if (refusal.kind === 'next_step') await card.getByLabel('Next step', { exact: true }).fill('');
+            await card.getByRole('button', { name: 'Dismiss', exact: true }).click();
+          }
+          await card.waitFor({ state: 'detached' });
+          if (refusal.error !== 'already_decided') assert.deepEqual(decisions.at(-1), [refusal.id, 'dismiss', undefined]);
+        }
+        await followups.getByText('No email follow-ups.', { exact: true }).waitFor();
+      } else assert.equal(await followups.getByRole('button').count(), 0);
     }
     await page.getByRole('tab', { name: 'Documents', exact: true }).click();
     const tab = page.getByRole('tabpanel', { name: 'Documents', exact: true });
