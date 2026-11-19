@@ -2156,7 +2156,8 @@ for (const width of [1440, 390]) {
   test(`a National deal shows its facts once and its next confirmed date at ${width}px`, async t => {
     const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Los_Angeles' });
     t.after(() => page.close());
-    await page.clock.setFixedTime(new Date('2026-11-19T06:30:00Z'));
+    const fixture = await (await createQaServer({ buildRoot: join(outDir, 'site') })).start();
+    t.after(() => fixture.close());
     const [deal, account, lease, confirmed, proposed] = Array.from({ length: 5 }, () => crypto.randomUUID());
     const nextDate = { id: confirmed, kind: 'lease_expiration', due_on: '2026-11-19' };
     const row = {
@@ -2184,7 +2185,8 @@ for (const width of [1440, 390]) {
         return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
       } },
     };
-    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `national-deal-facts-${width}`, viewer: 'joe', reset: true } });
+    const seeded = await page.request.post(`${fixture.origin}/api/test/seed`, { data: { namespace: 'national-deal-facts', viewer: 'joe' } });
+    assert.equal(seeded.status(), 200);
     await page.route('**/mcp', async route => {
       const request = route.request();
       if (!['deal-room-board', 'get-deal-room'].includes(request.postDataJSON()?.params?.name)) return route.continue();
@@ -2199,7 +2201,7 @@ for (const width of [1440, 390]) {
     const snapshot = detail.getByRole('region', { name: 'Deal snapshot' });
     const nextCriticalDate = header.getByText('Next critical date', { exact: true }).locator('..');
     const open = async () => {
-      await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+      await page.goto(`${fixture.origin}/deals?deal=${deal}&mode=live`);
       await snapshot.waitFor();
     };
     await open();

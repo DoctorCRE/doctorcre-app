@@ -42,7 +42,7 @@ import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceCl
 import { sourceTime } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
-  dealTimeline, engineTimelineEntries, renderImportedDealHistory, renderNextCriticalDate, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
+  dealTimeline, engineTimelineEntries, renderImportedDealHistory, criticalDateLabel, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
 } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
 import { mountVisibilityPoll } from './visibility-poll.mjs';
@@ -1351,10 +1351,15 @@ function writeWorkspaceHistory(data, url, push = false) {
   history[push ? 'pushState' : 'replaceState']({...data, doctorcreWorkspaceIndex:workspaceHistoryIndex}, '', url);
 }
 writeWorkspaceHistory(history.state, location.href);
+function renderNextCriticalDate(date) {
+  const day = calendarDay(date?.due_on);
+  if (!day) return '';
+  return `<div class="workspace-critical-date"><dt>Next critical date</dt><dd>${esc(criticalDateLabel(date.kind))} · <time datetime="${day}">${dateWords(day)}</time></dd></div>`;
+}
 function renderWorkspaceFacts(detail) {
   const d = detail.deal;
   const fromEngine = isEngineDealDetail(detail);
-  const client = d.client_name || (!fromEngine && d.client_ref);
+  const client = d.client_name || d.client_ref;
   $('workspaceFacts').innerHTML = `<dl class="workspace-facts">
     ${client && client !== dealTitle(d) ? `<div class="workspace-client"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}
     <div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}</dd></div>

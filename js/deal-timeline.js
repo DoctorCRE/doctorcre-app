@@ -2,7 +2,6 @@ import { createMcpRequests } from './mcp-requests.mjs';
 import { createCurrentRead } from './current-read.mjs';
 
 import { businessDay } from './business-date.js';
-import { formatCalendarDate } from './visual-system.js';
 import { COLUMNS, columnBySlug, columnByValue, noteText, PHASE_DATE_KIND } from './pipeline-model.js';
 import { compareInstants, escapeText, fieldLabel, readableValue } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
@@ -26,7 +25,7 @@ const DATE_KINDS = [
 export const CRITICAL_DATE_OPTIONS = DATE_KINDS.flatMap(({ saveKind, label }) => saveKind ? [[saveKind, label]] : []);
 const dateKind = kind => kind && DATE_KINDS.find(d => d.kind === kind || d.saveKind === kind || d.aliases?.includes(kind));
 
-function criticalDateLabel(kind, definition = dateKind(kind)) {
+export function criticalDateLabel(kind, definition = dateKind(kind)) {
   const words = kind?.replace(/[_-]+/g, ' ') || '';
   return definition?.label || words.charAt(0).toUpperCase() + words.slice(1);
 }
@@ -37,11 +36,6 @@ export function calendarDay(value) {
   if (!/^\d{4}-\d\d-\d\d$/.test(day)) return null;
   const stamp = Date.parse(day + 'T00:00:00Z');
   return Number.isFinite(stamp) && new Date(stamp).toISOString().slice(0,10) === day ? day : null;
-}
-export function renderNextCriticalDate(date) {
-  const day = calendarDay(date?.due_on);
-  if (!day) return '';
-  return `<div class="workspace-critical-date"><dt>Next critical date</dt><dd>${esc(criticalDateLabel(date.kind))} · <time datetime="${day}">${formatCalendarDate(day)}</time></dd></div>`;
 }
 const today = now => businessDay(new Date(now));
 export function dateCaption(day) {
