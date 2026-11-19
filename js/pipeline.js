@@ -1220,8 +1220,9 @@ function validateDetail(detail, id) {
   }
   return prepareDealDetail(detail);
 }
-function readDealDetail(id) {
-  return readWithDeadline(signal => state.client.getDeal(id, { signal })).then(detail => validateDetail(detail, id));
+function readDealDetail(id, signal) {
+  return readWithDeadline(current => state.client.getDeal(id, { signal: current }), { signal })
+    .then(detail => validateDetail(detail, id));
 }
 function validateUpdateStep(draft, form) {
   $('detailNextStepEditor').open = true;
@@ -2572,14 +2573,25 @@ async function boot() {
   const resolved = resolveDealroomBoot(globalThis.location || { hostname: '', search: '' });
   if ($('mondayReview')) {
     if (resolved.mode !== 'live') return;
+    if (incomingScope.get('view') === 'dropped-prospect') {
+      const { mountDroppedProspect } = await import('./ui-deal-prospects.generated.js');
+      const origin = dealsPageOrigin('review');
+      const returnTo = origin?.href || '/deals?view=review&mode=live';
+      document.title = 'Prospect · DoctorCRE';
+      mountDroppedProspect($('mondayReview'), {
+        id: incomingScope.get('prospect'), request: fetchRead, authorLabel, returnTo,
+        back: origin ? () => returnToDealsPage(origin) : undefined,
+      });
+      return;
+    }
     state.client = createLiveClient();
     const { mountMondayReview } = await import('./ui-monday-review.generated.js');
     const day = new Date(`${businessDay()}T00:00:00Z`);
     day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7);
     const week = day.toISOString().slice(0, 10), path = '/api/engine/weekly-reviews';
     mountMondayReview($('mondayReview'), {
-      async read() {
-        const response = await fetchRead(`${path}?week_of=${week}`);
+      async read(signal) {
+        const response = await fetchRead(`${path}?week_of=${week}`, { signal });
         if (!response.ok) throw new Error('Review unavailable');
         return { review: await response.json(), canEdit: response.headers.get('x-doctorcre-deal-saves') === 'on' };
       },
@@ -2611,8 +2623,8 @@ async function boot() {
           },
         };
       },
-      async dealNotes(id) {
-        const detail = await readDealDetail(id);
+      async dealNotes(id, signal) {
+        const detail = await readDealDetail(id, signal);
         return detail.thread.filter(note => note.kind === 'note').slice(0, 3).map(note => ({
           id: note.id, summary: noteText(note.text), by: note.actor, at: note.at || note.created_at || note.recorded_at,
         }));

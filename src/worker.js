@@ -709,7 +709,8 @@ async function handleRequest(request, env) {
   }
 
   const dealView = pathname === '/deals' ? url.searchParams.get('view') : null;
-  const routeAsset = dealView === 'review' ? 'monday-review.html'
+  const reviewView = dealView === 'review' || dealView === 'dropped-prospect';
+  const routeAsset = reviewView ? 'monday-review.html'
     : dealView === 'national' ? "index.html"
     : pathname === "/" && url.searchParams.get("view") === "charts" ? "charts.html"
     : APP_ROUTES.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
@@ -718,7 +719,7 @@ async function handleRequest(request, env) {
     const gateRequest = gateRequestFor(request, pathname);
     const gate = await carrResponse(gateRequest, env, true);
     if (gate.status !== 200) return gateRequest === request ? gate : restoreOriginalReturnTo(gate, request);
-    if (dealView === 'review' && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))) {
+    if (reviewView && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))) {
       url.searchParams.delete('view');
       return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
     }

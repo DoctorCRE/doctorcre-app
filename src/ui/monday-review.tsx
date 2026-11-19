@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { NoteField, type ProspectClient, ProspectFollowUp, ProspectNote } from "./prospect-saves";
+import { refreshWhileVisible } from "./visible-refresh";
 
 type Stamp = { by: string | null; at: string | null };
 type Note = Stamp & { id: string; summary: string };
@@ -10,7 +11,7 @@ type ReviewItem = {
   name: string;
   owner: string | null;
   phase: string | null;
-  status: string | null;
+  status: keyof typeof statusLabels | null;
   attention: boolean;
   step: string | null;
   due: string | null;
@@ -33,9 +34,9 @@ type ReviewEdits = {
   deal: (row: ReviewItem, edit: DealEdit) => Promise<{ status: string; hint?: string; message?: string } | null>;
 };
 type ReviewData = {
-  read: () => Promise<{ review: unknown; canEdit: boolean }>;
+  read: (signal?: AbortSignal) => Promise<{ review: unknown; canEdit: boolean }>;
   edits: () => Promise<ReviewEdits>;
-  dealNotes: (id: string) => Promise<Note[]>;
+  dealNotes: (id: string, signal: AbortSignal) => Promise<Note[]>;
   phaseLabel: (phase: string) => string | undefined;
   dateLabel: (date: string) => string | null;
   timeLabel: (time: string | null) => string;
@@ -50,11 +51,12 @@ const version = (value: unknown) =>
 const stamp = (value: Record<string, unknown>) => ({ by: text(value.by), at: text(value.at) });
 const itemKey = (item: ReviewItem) => `${item.kind}-${item.id}`;
 
-const statusLabels = new Map([
-  ["closed", "Closed"],
-  ["lost", "Lost"],
-  ["dropped", "Dropped"],
-]);
+const statusLabels = {
+  closed: "Closed",
+  lost: "Lost",
+  dropped: "Dropped",
+  parked: "Parked",
+};
 
 function parseReview(result: unknown): ReviewItem[] {
   if (!record(result) || !Array.isArray(result.items)) throw new Error("Invalid review");
@@ -74,7 +76,12 @@ function parseReview(result: unknown): ReviewItem[] {
       name,
       owner: text(row.owner),
       phase: text(row.phase),
-      status: statusLabels.get(text(row.state) ?? "") ?? (row.operating_state === "parked" ? "Parked" : null),
+      status:
+        row.state === "closed" || row.state === "lost" || (!deal && row.state === "dropped")
+          ? row.state
+          : row.operating_state === "parked"
+            ? "parked"
+            : null,
       attention: row.attention === true || row.needs_attention === true,
       step: text(deal ? row.next_step : step?.what),
       due: text(deal ? row.next_date : step?.due_on),
@@ -108,29 +115,33 @@ function Notes({ notes, data }: { notes: Note[]; data: ReviewData }) {
 
 function DealNotes({ id, data, list, revision }: { id: string; data: ReviewData; list: boolean; revision: number }) {
   const [open, setOpen] = useState(!list);
-  const [notes, setNotes] = useState<Note[] | "unavailable" | null>(null);
-  const load = useCallback(() => {
-    void data.dealNotes(id).then(setNotes, () => setNotes("unavailable"));
-  }, [data.dealNotes, id]);
-  const lastRevision = useRef(revision);
+  const [notes, setNotes] = useState<Note[] | null>(null);
+  const [failedRead, setFailedRead] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const readVersion = `${revision}:${attempt}`;
   useEffect(() => {
-    if (open && (notes === null || lastRevision.current !== revision)) {
-      lastRevision.current = revision;
-      load();
-    }
-  }, [open, load, notes, revision]);
+    if (!open) return;
+    return refreshWhileVisible(async (signal) => {
+      try {
+        const fresh = await data.dealNotes(id, signal);
+        if (!signal.aborted) setNotes(fresh);
+      } catch {
+        if (!signal.aborted) setFailedRead(readVersion);
+      }
+    });
+  }, [open, data.dealNotes, id, readVersion]);
   return (
     <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>Latest notes</summary>
-      {notes === "unavailable" ? (
+      {notes ? (
+        <Notes notes={notes} data={data} />
+      ) : failedRead === readVersion ? (
         <p>
           Could not load notes.{" "}
-          <button className="btn" type="button" onClick={load}>
+          <button className="btn" type="button" onClick={() => setAttempt((value) => value + 1)}>
             Retry
           </button>
         </p>
-      ) : notes ? (
-        <Notes notes={notes} data={data} />
       ) : (
         <p>Loading notes…</p>
       )}
@@ -289,6 +300,17 @@ function ReviewActions({
       setBusy(false);
     }
   }
+  const reviewMark = (
+    <>
+      {row.reviewVersion !== null && (!row.reviewed || row.reviewed.id) && (
+        <button className="btn" type="button" disabled={busy} onClick={() => void mark()}>
+          {pendingRow ? "Check outcome" : row.reviewed ? "Undo" : "Reviewed"}
+        </button>
+      )}
+      {failure && <p role="alert">{failure}</p>}
+    </>
+  );
+  if (row.status === "dropped") return reviewMark;
   const note =
     row.kind === "deal" ? (
       <DealEditor row={row} edits={edits} saved={saved} kind="note" />
@@ -297,12 +319,7 @@ function ReviewActions({
     );
   return (
     <>
-      {row.reviewVersion !== null && (!row.reviewed || row.reviewed.id) && (
-        <button className="btn" type="button" disabled={busy} onClick={() => void mark()}>
-          {pendingRow ? "Check outcome" : row.reviewed ? "Undo" : "Reviewed"}
-        </button>
-      )}
-      {failure && <p role="alert">{failure}</p>}
+      {reviewMark}
       {list ? (
         <details>
           <summary>Add note</summary>
@@ -348,8 +365,10 @@ function Item({
 }) {
   const deal = item.kind === "deal";
   const params = new URLSearchParams({ [deal ? "deal" : "prospect"]: item.id });
+  if (item.status === "dropped") params.set("view", "dropped-prospect");
   if (mode) params.set("mode", mode);
   const phase = deal ? data.phaseLabel(item.phase ?? "") : "Prospect";
+  const status = item.status && statusLabels[item.status];
   const owner = item.owner ? data.authorLabel(item.owner) : deal ? "Unassigned" : "Unclaimed";
   const due = item.due ? data.dateLabel(item.due) : null;
   const key = itemKey(item);
@@ -360,17 +379,18 @@ function Item({
         <a
           id={key}
           href={`/deals?${params}`}
-          onClick={() => {
-            history.replaceState({ ...history.state, reviewScroll: scrollY, reviewLink: key }, "");
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            const reviewUrl = new URL(location.href);
+            reviewUrl.searchParams.set("item", key);
+            history.replaceState({ ...history.state, reviewScroll: scrollY, reviewLink: key }, "", reviewUrl);
           }}
         >
           {item.name}
         </a>
       </h2>
       <p>
-        {[phase, owner, item.status !== phase && item.status, item.attention && "Needs attention"]
-          .filter(Boolean)
-          .join(" · ")}
+        {[phase, owner, status !== phase && status, item.attention && "Needs attention"].filter(Boolean).join(" · ")}
       </p>
       <p>
         {item.step ? (
@@ -452,6 +472,36 @@ function Review({ data }: { data: ReviewData }) {
   useEffect(() => {
     void reload(true);
   }, [reload]);
+  const hasProspects = Array.isArray(rows) && rows.some((row) => row.kind === "prospect");
+  useEffect(() => {
+    if (!hasProspects || !revision) return;
+    return refreshWhileVisible(
+      async (signal) => {
+        const request = sequence.current;
+        try {
+          const { review } = await data.read(signal);
+          const fresh = new Map(
+            parseReview(review)
+              .filter((row) => row.kind === "prospect")
+              .map((row) => [row.id, row]),
+          );
+          if (signal.aborted || request !== sequence.current) return;
+          // Refresh notes without changing the rows, marks or versions a partner is working through.
+          setRows((current) =>
+            Array.isArray(current)
+              ? current.map((row) => {
+                  const incoming = row.kind === "prospect" ? fresh.get(row.id) : undefined;
+                  return incoming ? { ...row, note: incoming.note } : row;
+                })
+              : current,
+          );
+        } catch {
+          // Keep the last notes visible while the next read retries.
+        }
+      },
+      { immediate: false },
+    );
+  }, [data, hasProspects, revision]);
   useEffect(() => {
     if (!Array.isArray(rows) || restored.current) return;
     restored.current = true;
