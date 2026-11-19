@@ -9,6 +9,7 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
   const body = dialog.querySelector('[data-item-body]');
   const drafts = new Map();
   let selected = null, sequence = 0, trigger = null;
+  let baseVersion;
   const same = selection => selected === selection && dialog.open;
   const operationKey = (verb, selection) => `${verb}:${selection.deal}:${selection.item}`;
   function syncPending() {
@@ -22,7 +23,6 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
       done.textContent = 'Check outcome';
       done.disabled = completion.status === 'pending';
     }
-    return completion;
   }
   function offerReload(message) {
     const button = body.querySelector('[data-complete-item]');
@@ -37,9 +37,7 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
     body.innerHTML = renderDealItemDetail(item,{today:today()});
     body.querySelector('textarea').value = drafts.get(selected.item) || '';
     body.querySelector('[data-item-status]').textContent = message;
-    if (!syncPending() && item.status === 'open' && selected.baseVersion === null) {
-      offerReload('Reload the item before marking it done.');
-    }
+    syncPending();
   }
   async function load(selection, message = '') {
     const ticket = ++sequence;
@@ -48,10 +46,11 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
       if (!same(selection) || ticket !== sequence) return;
       const item = (detail.items || detail.deal.items || []).find(row => row.id === selection.item);
       if (!item) throw new Error('Item unavailable');
-      selection.baseVersion = undefined;
-      if (detail.next_deal_saves === true) {
+      baseVersion = undefined;
+      if (detail.next_deal_saves === true && item.status === 'open') {
         const version = detail.next_actions?.find(step => step.id === item.id)?.change_id;
-        selection.baseVersion = Number.isSafeInteger(version) && version >= 0 ? version : null;
+        if (!Number.isSafeInteger(version) || version < 0) throw new Error('Invalid item version');
+        baseVersion = version;
       }
       paint(item, message);
     } catch {
@@ -69,8 +68,6 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
     if (!selection || body.getAttribute('aria-busy') === 'true') return;
     const key = operationKey(verb, selection);
     const retained = pending(key);
-    const { baseVersion } = selection;
-    if (!retained && baseVersion === null) return;
     const args = retained?.request ?? {
       deal: selection.deal, item_id: selection.item,
       ...(baseVersion !== undefined && { base_version: baseVersion }),

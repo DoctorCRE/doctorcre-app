@@ -2014,7 +2014,8 @@ for (const width of [1440, 390]) test(`a changed checklist item stays open until
         schema_version: 'local-deals-board.v2', actor: 'joe', deals: [{ ...row, items: [item] }],
       });
       if (pathname === `/api/engine/deals/${deal}`) return Response.json({
-        ...row, email_follow_ups: [], items: [item], next_actions: [step],
+        ...row, email_follow_ups: [], items: [item],
+        next_actions: [{ ...step, change_id: step.status === 'open' ? change_id : null }],
       });
       if (pathname !== `/api/engine/next-steps/${step.id}/end`) return new Response(null, { status: 404 });
       const command = await request.json();
