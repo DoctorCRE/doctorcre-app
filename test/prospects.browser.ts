@@ -3,7 +3,7 @@ import test from "node:test";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import worker from "../src/worker.js";
-import { chromium } from "./browser-harness.mjs";
+import { chromium, settles } from "./browser-harness.mjs";
 
 const party = "00000000-0000-4000-8000-000000000001";
 const note = { activity_id: party, by: "dell", at: "2026-11-18T15:40:00Z", summary: "First line\nSecond line" };
@@ -32,6 +32,16 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
         follow_ups: [step],
         latest_note: note,
         change_id: 12,
+      };
+      const birchProspect = {
+        ...prospect,
+        party_id: "00000000-0000-4000-8000-000000000006",
+        name: "Example Birch Practice",
+        owner: "dell",
+        how_found: "not_recorded",
+        needs_attention: false,
+        latest_note: { ...note, by: "agent" },
+        follow_ups: [{ ...step, owner: "dell", due_on: "2026-11-12" }],
       };
       const board = { schema_version: "local-deals-board.v2", actor, deals: [] };
       let enabled = false;
@@ -84,7 +94,12 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
               Object.assign(step, { what: body.what, due_on: body.due_on });
               return Response.json({ next_step_id: party }, { status: 201 });
             }
-            if (path.endsWith("/prospects")) return Response.json({ count: 1, prospects: [prospect] });
+            if (path.endsWith("/prospects")) return Response.json({ count: 2, prospects: [prospect, birchProspect] });
+            if (path.endsWith(birchProspect.party_id))
+              return Response.json({
+                ...birchProspect,
+                notes: [birchProspect.latest_note, { ...note, activity_id: birchProspect.party_id, by: null }],
+              });
             if (path.endsWith(party)) return Response.json({ ...prospect, notes });
             return Response.json(board);
           },
@@ -130,9 +145,38 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
       assert.equal(
         await lane
           .locator(".work-card-meta")
+          .first()
           .evaluate((element) => element.clientWidth > (element.parentElement?.clientWidth ?? 0) / 2),
         true,
       );
+      if (width === 1440) {
+        const headline = page.locator("#boardLive");
+        const chips = page.locator("#boardChips");
+        const birch = lane.getByRole("button", { name: "Example Birch Practice" });
+        await birch.waitFor();
+        await settles(async () => assert.match((await headline.textContent()) ?? "", / · 2 prospects$/));
+        assert.match((await lane.textContent()) ?? "", /Dell · Due Thu, Nov 12 \(6 days late\)/);
+        assert.match((await lane.textContent()) ?? "", /Doc \(assistant\) · Wed, Nov 18, 9:40 AM/);
+        await chips.getByRole("button", { name: "Joe", exact: true }).click();
+        await birch.waitFor({ state: "detached" });
+        await open.waitFor();
+        await settles(async () => assert.match((await headline.textContent()) ?? "", / · 1 prospect$/));
+        await chips.getByRole("button", { name: "Dell", exact: true }).click();
+        await birch.waitFor();
+        await open.waitFor();
+        await settles(async () => assert.match((await headline.textContent()) ?? "", / · 2 prospects$/));
+        await birch.click();
+        const claimedDetail = page.getByRole("dialog", { name: "Example Birch Practice" });
+        await claimedDetail.getByText("Claimed by Dell", { exact: true }).waitFor();
+        await claimedDetail.getByText("How found · Not recorded", { exact: true }).waitFor();
+        await claimedDetail.getByText(/^Author not recorded ·/).waitFor();
+        await page.goto(`${server.origin}/deals?mode=live&filter=flagged`);
+        await open.waitFor();
+        assert.equal(await birch.count(), 0);
+        await settles(async () => assert.match((await headline.textContent()) ?? "", / · 1 prospect$/));
+        await page.goto(`${server.origin}/deals?mode=live`);
+        await open.waitFor();
+      }
       await page.getByRole("button", { name: "List", exact: true }).click();
       await open.waitFor();
       assert.equal(await open.count(), 1);
