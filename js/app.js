@@ -383,7 +383,8 @@ function renderChrome() {
   $('#closedDealsView').hidden = !closed;
   $('#openDealPageViews').hidden = closed;
   $('#openDealToolbar').hidden = closed;
-  $('#boardSection').hidden = isAccountHome || closed;
+  $('#boardSection').hidden = isAccountHome;
+  $('#boardSection').classList.toggle('show-closed-deals', closed);
 }
 
 function openNationalAccount(id, view = 'open') {
