@@ -1,7 +1,7 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderOverdueFlag } from './deal-items.js';
+import { dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderLastDealStep, renderOverdueFlag } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
@@ -142,29 +142,46 @@ function dealTypeFacts(deal, fromEngine, fallback = '') {
   return (type ? `<div><dt>Type</dt><dd>${esc(type)}</dd></div>` : '')
     + (unrecordedRenewal ? '<div><dt>Deal reason</dt><dd><span>Renewal</span><br><small>Lease not recorded</small></dd></div>' : '');
 }
+function boardNextStepHtml(deal) {
+  const steps = (deal.open_actions || []).filter(step => step.description?.trim());
+  const step = steps.find(step => step.owner === deal.owner) ?? steps[0];
+  if (!step) return '<p class="deal-board-next-step">No next step set</p>';
+  return `<p class="deal-board-next-step">${esc(step.description.trim())} · ${dueDateHtml(calendarDay(step.due_on), businessDay())}</p>`;
+}
+function cardStepsHtml(deal, today) {
+  const summary = state.boardFromEngine
+    ? boardNextStepHtml(deal) + renderLastDealStep(deal.last_step)
+    : renderDealSummary(deal, { today, board: true });
+  return summary + renderDealItems(deal, { today, buttons: true, empty: false, board: !state.boardFromEngine });
+}
 function cardHtml(deal) {
-  const today = todayIso(), overdue = overdueLabel(overdueSince(deal, today), today);
-  const attention = Boolean(overdue);
+  const today = todayIso();
+  const overdue = state.boardFromEngine ? '' : overdueLabel(overdueSince(deal, today), today);
+  const attention = state.boardFromEngine ? deal.attention === true : Boolean(overdue);
   const pending = pendingCommand(state.fieldWrites, cellKey(deal.id, 'phase'));
   return workCard({ variant: 'tile', className: 'kanban-card', heading: 'h4',
     attributes: `data-id="${esc(deal.id)}" data-attention="${attention}" data-phase="${esc(deal.phase)}" draggable="true" tabindex="0"${pending ? ' data-pending="true"' : ''}${state.lifted === deal.id ? ' data-lifted="true"' : ''} aria-label="${esc(dealTitle(deal))}, ${esc(columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
     meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}`,
-    body: `<div class="deal-alert">${renderDealSummary(deal,{today,board:true})}${renderDealItems(deal,{today,buttons:true,empty:false,board:true})}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url, state.boardFromEngine ? deal.id : null)}${cardPhaseMoveHtml(deal, autoHtml(deal))}` });
+    body: `<div class="deal-alert">${cardStepsHtml(deal, today)}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url, state.boardFromEngine ? deal.id : null)}${cardPhaseMoveHtml(deal, autoHtml(deal))}` });
 }
 function rowHtml(deal) {
   const nextStep = noteText(deal.next_step);
-  const today = todayIso(), overdue = overdueLabel(overdueSince(deal, today), today);
-  return workCard({ variant: 'row', className: 'kanban-card deal-row', heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0" data-attention="${needsAttention(deal)}"`,
+  const today = todayIso();
+  const overdue = state.boardFromEngine ? '' : overdueLabel(overdueSince(deal, today), today);
+  const summary = state.boardFromEngine ? boardNextStepHtml(deal)
+    : `<p class="next-line" title="${esc(nextStep)}">${nextStep.trim() ? esc(nextStep) : 'Next step missing'}</p>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}`;
+  const attention = state.boardFromEngine ? deal.attention === true : needsAttention(deal);
+  return workCard({ variant: 'row', className: 'kanban-card deal-row', heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0" data-attention="${attention}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
     meta: `<span class="owner">${esc(actorName(deal.owner))}</span>`,
-    body: `<span class="deal-stage">${esc(columnLabel(deal.phase))}</span><div class="deal-row-next"><p class="next-line" title="${esc(nextStep)}">${nextStep.trim() ? esc(nextStep) : 'Next step missing'}</p>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}${renderDealVendors(deal.vendors)}${autoHtml(deal)}</div>` });
+    body: `<span class="deal-stage">${esc(columnLabel(deal.phase))}</span><div class="deal-row-next">${summary}${renderDealVendors(deal.vendors)}${autoHtml(deal)}</div>` });
 }
 function parkedHtml(deal) {
   const note = deal.parking_note === 'unverified import — 2026-10-01 records audit; revive if active' ? 'Imported Oct 1, not yet confirmed. Revive if still active.' : deal.parking_note;
   return workCard({ variant: 'tile', className: 'kanban-card parked-card', heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0"`,
     title: esc(dealTitle(deal)), meta: esc(actorName(deal.owner)), status: deal.parking_reason !== 'other' ? deal.parking_reason?.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase()) : '',
-    body: `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${state.boardFromEngine ? parkingAttributionHtml(deal) : ''}${renderDealSummary(deal, { today: todayIso(), board: true })}${renderDealItems(deal, { today: todayIso(), buttons: true, empty: false, board: true })}${renderDealVendors(deal.vendors)}${cardPhaseMoveHtml(deal)}`,
+    body: `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${state.boardFromEngine ? parkingAttributionHtml(deal) : ''}${cardStepsHtml(deal, todayIso())}${renderDealVendors(deal.vendors)}${cardPhaseMoveHtml(deal)}`,
     actions: `<button class="btn btn-quiet" type="button" data-revive="${esc(deal.id)}">Revive</button>` });
 }
 
