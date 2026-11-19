@@ -23,7 +23,7 @@ import {
 import { MailPriorities } from "./mail-priorities";
 import { ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
-import { completionLabel, HomeSections, HomeWelcome } from "./sections";
+import { completionLabel, HomeSections, HomeWelcome, lateDays } from "./sections";
 
 type SnoozePreview = Readonly<{
   items: readonly InboxItem[];
@@ -90,8 +90,11 @@ function Inbox({ client }: { client: InboxClient }) {
   });
   useEffect(() => {
     const host = document.getElementById("homeRoot");
-    if (home && !query.isPending && host) markHomeReady(host);
-  }, [home, query.isPending]);
+    if (home && !query.isPending && host) {
+      host.toggleAttribute("data-engine-home", query.data?.engine_marks === true);
+      markHomeReady(host);
+    }
+  }, [home, query.isPending, query.data?.engine_marks]);
   const [reviewing, setReviewing] = useState<(InboxItem & { focusedSuggestionId?: string }) | null>(null);
   const reviewOpener = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
@@ -405,6 +408,7 @@ function Inbox({ client }: { client: InboxClient }) {
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
+    const daysLate = item.engine_marks && item.section === "inbox" && item.action_id ? lateDays(item.due_on) : 0;
     const linkedRecord = source && (
       <a className="inbox-source" href={source}>
         {sourcePage === "call" ? "Call summary" : (namedRecord && item.context_label) || `Open ${sourcePage}`}
@@ -482,7 +486,8 @@ function Inbox({ client }: { client: InboxClient }) {
               {due && (
                 <>
                   {" "}
-                  {item.context_label && "· "}Due {due}
+                  {item.context_label && "· "}
+                  {daysLate ? `${daysLate} day${daysLate === 1 ? "" : "s"} late` : <>Due {due}</>}
                 </>
               )}
             </p>
@@ -752,6 +757,7 @@ function Inbox({ client }: { client: InboxClient }) {
           {home ? (
             <HomeSections
               items={items}
+              engine={query.data?.engine_marks === true}
               pinned={reviewing}
               current={reviewing?.item_id || item_id}
               search={search}

@@ -96,11 +96,21 @@ export function EngineMailPriorities({
     queryFn: ({ signal }) => readPriorities(signal),
     enabled: expanded,
   });
+  const rows = query.data?.items.flatMap((row) => {
+    const card = items.find(
+      (item) =>
+        item.item_id === row.item_id &&
+        item.base_version === row.base_version &&
+        hasEngineReview(item) &&
+        (!row.proposal || matchesProposal(item, row.proposal)),
+    );
+    return card ? [{ row, card }] : [];
+  });
   return (
     <section className="home-panel" aria-label="Mail priorities" aria-busy={expanded && query.isFetching}>
       <h2>Mail priorities</h2>
       <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-        {expanded ? "Hide mail priorities" : "Show mail priorities"}
+        {expanded ? "Collapse mail priorities" : "Expand mail priorities"}
       </button>
       {expanded && (
         <>
@@ -108,24 +118,17 @@ export function EngineMailPriorities({
           {query.isError && <p role="status">Mail priorities unavailable.</p>}
           {query.data && (
             <>
-              {!query.data.items.length && <p role="status">No mail priorities right now.</p>}
+              {!rows?.length && <p role="status">No mail priorities right now.</p>}
               {query.data.more && <p>Showing the 25 most urgent.</p>}
               <ol>
-                {query.data.items.map((row) => {
-                  const match = items.find(
-                    (item) =>
-                      item.item_id === row.item_id &&
-                      item.base_version === row.base_version &&
-                      hasEngineReview(item) &&
-                      (!row.proposal || matchesProposal(item, row.proposal)),
-                  );
+                {rows?.map(({ row, card }) => {
                   return (
                     <li key={row.item_id}>
                       <button
                         type="button"
-                        disabled={locked || !match}
+                        disabled={locked}
                         onClick={(event) => {
-                          if (match) review(match, event.currentTarget, row.proposal ?? undefined);
+                          review(card, event.currentTarget, row.proposal ?? undefined);
                         }}
                       >
                         {row.sender} · {row.subject}
