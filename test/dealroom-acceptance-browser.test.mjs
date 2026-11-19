@@ -1361,6 +1361,7 @@ for (const width of [1440, 390]) {
     assert.equal(await page.getByRole('table', { name: 'Active and parked deals' }).count(), 0);
     assert.equal(await page.getByRole('group', { name: 'Filter deals' }).count(), 0);
     const search = view.getByRole('searchbox', { name: 'Search closed deals' });
+    assert.equal(await search.getAttribute('placeholder'), 'Deal, client, kind, or close date');
     await search.fill('Mon, Nov 2, 2026');
     assert.deepEqual(await titles(), [dated.name]);
     await search.clear();
