@@ -94,7 +94,7 @@ export function ProspectNote({ id, client, saved }: Props) {
   }
   return (
     <>
-      <form ref={form} onSubmit={submit}>
+      <form className="field" ref={form} onSubmit={submit}>
         <label>
           Add note
           <input name="summary" required disabled={note.blocked} placeholder="Write a note and press Enter" />
@@ -141,6 +141,7 @@ export function ProspectFollowUp({
   return (
     <>
       <form
+        className="field"
         ref={form}
         onChange={() => {
           base.current ??= { step: current };
