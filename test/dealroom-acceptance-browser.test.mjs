@@ -151,15 +151,16 @@ for (const width of [1440, 390]) {
 
 for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, true], ['dell', true, true], ['dell', true, false]]) {
   test(`deal files and email follow-ups for ${actor} with Deals reads ${readsOn ? 'on' : 'off'} and saves ${savesOn ? 'on' : 'off'}`, async t => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+    const page = await browser.newPage({ viewport: { width: actor === 'joe' ? 1440 : 390, height: 1000 } });
     t.after(() => page.close());
     await page.clock.setFixedTime(new Date('2026-11-18T15:00:00Z'));
     const [deal, plan, earlierPlan, letter, first, second] = Array.from({ length: 6 }, () => crypto.randomUUID());
+    const namespace = `deal-file-read-${actor}-${readsOn}-${savesOn}`;
     const row = { id: deal, deal_id: deal, name: 'Example File Deal', phase: 'research', seen: 1, owner: 'joe' };
     const documents = [
-      { id: plan, name: 'Example Plan.pdf', version: 2, prepared_at: '2026-11-03T14:00:00+00:00' },
-      { id: letter, name: 'Example Letter.pdf', version: 1, prepared_at: '2026-11-02T14:00:00+00:00' },
-      { id: earlierPlan, name: 'Example Plan.pdf', version: 1, prepared_at: '2026-11-01T14:00:00+00:00' },
+      { id: plan, name: 'Example Plan.pdf', kind: 'lease', version: 2, prepared_at: '2026-11-03T14:00:00+00:00' },
+      { id: letter, name: 'Example Letter.pdf', kind: 'loi', version: 1, prepared_at: '2026-11-02T14:00:00+00:00' },
+      { id: earlierPlan, name: 'Example Plan.pdf', kind: 'lease', version: 1, prepared_at: '2026-11-01T14:00:00+00:00' },
     ];
     const refusals = actor === 'joe' && savesOn ? [
       ['next_step', 409, 'open_step_exists', 'You already have an open step on this deal. Finish or change it first, or dismiss this suggestion.'],
@@ -186,12 +187,41 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     const checklist = { schema_version: 'deal-checklist.v1', template_state: 'current',
       phases: [{ label: 'Legal / lease', items: [completed, overdue] }], due_items: [overdue] };
     const carr = [], opened = [], decisions = [];
+    const bytes = Buffer.from('%PDF-1.7 synthetic revised plan');
+    const hash = Buffer.from(await crypto.subtle.digest('SHA-256', bytes)).toString('hex');
+    const writes = [], uploads = [];
+    const revised = { id: crypto.randomUUID(), name: 'Revised plan.pdf', kind: 'lease', version: 3 };
     const env = {
       ENGINE_ROUTING: { get: async key => ({ 'deals-from-engine': readsOn, 'deals-saves-from-engine': savesOn })[key] ? 'on' : null },
       ENGINE: { fetch: async request => {
         const path = new URL(request.url).pathname;
-        if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor, deals: [row] });
+        if (path === '/api/engine/deals') {
+          const partner = request.headers.get('cookie')?.includes(`fixture.${namespace}.dell`) ? 'dell' : 'joe';
+          return Response.json({ schema_version: 'local-deals-board.v2', actor: partner, deals: [row] });
+        }
         if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, checklist, documents, email_follow_ups });
+        if (path === `/api/engine/files/${hash}`) {
+          assert.equal(request.method, 'PUT');
+          assert.ok(request.headers.get('x-carr-csrf'));
+          assert.deepEqual(Buffer.from(await request.arrayBuffer()), bytes);
+          uploads.push(hash);
+          return Response.json({ sha256: hash }, { status: uploads.length === 1 ? 201 : 200 });
+        }
+        if (path === `/api/engine/deals/${deal}/documents`) {
+          assert.equal(request.method, 'POST');
+          assert.ok(request.headers.get('x-carr-csrf'));
+          assert.equal(uploads.length, writes.length + 1);
+          const body = await request.json();
+          assert.match(body.idempotency_key, /^[\da-f-]{36}$/);
+          writes.push(body);
+          if (writes.length === 1) {
+            documents.unshift(revised);
+            if (actor === 'dell') return Response.json({ document_id: revised.id, deal_id: deal }, { status: 201 });
+            return Response.json({ error: 'engine_unavailable' }, { status: 503 });
+          }
+          if (body.kind !== revised.kind) return Response.json({ error: 'already_filed', document_id: revised.id }, { status: 409 });
+          return Response.json({ document_id: revised.id, deal_id: deal, replayed: true });
+        }
         if (request.method === 'POST') {
           const id = path.split('/').at(-2);
           assert.equal(path, `/api/engine/proposals/${id}/decision`);
@@ -225,7 +255,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
         return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
       } },
     };
-    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `deal-file-read-${actor}-${readsOn}-${savesOn}`, viewer: actor, reset: true } });
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace, viewer: actor, reset: true } });
     const routeThroughWorker = async route => {
       const request = route.request();
       const response = await handleDoctorcreRequest(new Request(request.url(), {
@@ -233,10 +263,15 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       }), env);
       await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
     };
-    await page.route('**/api/engine/documents/*', routeThroughWorker);
-    await page.route('**/mcp', route => [
-      'deal-room-board', 'get-deal-room', 'list-deal-documents', 'list-email-proposals', 'decide-engine-deal-email',
-    ].includes(route.request().postDataJSON()?.params?.name) ? routeThroughWorker(route) : route.continue());
+    async function routeEngine(target) {
+      await target.route('**/api/engine/documents/*', routeThroughWorker);
+      await target.route('**/api/engine/files/*', routeThroughWorker);
+      await target.route('**/api/engine/deals/*/documents', routeThroughWorker);
+      await target.route('**/mcp', route => [
+        'deal-room-board', 'get-deal-room', 'list-deal-documents', 'list-email-proposals', 'decide-engine-deal-email',
+      ].includes(route.request().postDataJSON()?.params?.name) ? routeThroughWorker(route) : route.continue());
+    }
+    await routeEngine(page);
 
     await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
     const followups = page.getByRole('region', { name: 'Email follow-ups' });
@@ -318,6 +353,44 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       assert.deepEqual(opened, [plan, letter, earlierPlan]);
       assert.doesNotMatch(await tab.innerText(), /2026-11-01T/);
       assert.deepEqual(carr, []);
+      const upload = tab.getByRole('button', { name: 'Upload to this deal', exact: true });
+      if (savesOn) {
+        await upload.waitFor({ timeout: 5000 });
+        const type = tab.getByLabel('Document type');
+        const replaces = tab.getByLabel('Replaces');
+        await tab.getByLabel('File', { exact: true }).setInputFiles({ name: revised.name, mimeType: 'application/pdf', buffer: bytes });
+        await type.selectOption({ label: 'Lease' });
+        assert.deepEqual(await replaces.locator('option').allTextContents(), ['None', 'Example Plan.pdf · Version 2', 'Example Plan.pdf · Version 1']);
+        await replaces.selectOption(plan);
+        await page.evaluate(() => scrollTo({ top: 0, behavior: 'instant' }));
+        await page.screenshot({ path: join(evidence, `engine-upload-${actor}.png`) });
+        await upload.click();
+        if (actor === 'joe') {
+          await tab.getByText('Could not confirm the upload. Try again.').waitFor();
+          await upload.click();
+        }
+        await tab.getByRole('link', { name: 'Revised plan.pdf, Version 3' }).waitFor();
+        const [firstWrite, replay] = writes;
+        assert.deepEqual(firstWrite, { idempotency_key: firstWrite.idempotency_key, sha256: hash, name: revised.name, kind: 'lease', supersedes_id: plan });
+        if (actor === 'joe') assert.deepEqual(replay, firstWrite);
+        const other = await browser.newPage({ viewport: page.viewportSize() });
+        t.after(() => other.close());
+        const otherActor = actor === 'joe' ? 'dell' : 'joe';
+        await other.request.post(`${origin}/api/test/seed`, { data: { namespace, viewer: otherActor } });
+        await routeEngine(other);
+        await other.goto(`${origin}/deals?deal=${deal}&mode=live`);
+        await other.getByRole('tab', { name: 'Documents', exact: true }).click();
+        await other.getByRole('link', { name: 'Revised plan.pdf, Version 3' }).waitFor();
+        await page.reload();
+        await page.getByRole('tab', { name: 'Documents', exact: true }).click();
+        await tab.getByRole('link', { name: 'Revised plan.pdf, Version 3' }).waitFor();
+        assert.equal(await tab.getByRole('link', { name: 'Example Plan.pdf, Version 2' }).count(), 1);
+        await tab.getByLabel('File', { exact: true }).setInputFiles({ name: revised.name, mimeType: 'application/pdf', buffer: bytes });
+        await type.selectOption({ label: 'LOI' });
+        await upload.click();
+        await tab.getByText('This file is already on this deal as Revised plan.pdf.').waitFor();
+        assert.equal(writes.at(-1).supersedes_id, undefined);
+      } else assert.equal(await upload.count(), 0);
       await tab.screenshot({ path: join(evidence, `engine-documents-${actor}.png`) });
     } else {
       await tab.getByText('No documents filed for this deal.').waitFor();
