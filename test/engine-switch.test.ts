@@ -1780,3 +1780,118 @@ test("switched Mail priorities use the engine's unfiltered read", async () => {
   assert.equal(await (await worker.fetch(request, off.env)).text(), "old");
   assert.equal(off.engine.length, 0);
 });
+
+test("client website setup and opening use their Deals switches without changing the legacy save", async () => {
+  const deal = "00000000-0000-4000-8000-000000000001";
+  const path = `/api/engine/deals/${deal}/client-website`;
+  const args = { slug: "example-website", password: "synthetic-password", idempotency_key: deal };
+  for (const [reads, saves] of [
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ]) {
+    const f = fixture(
+      new Map([
+        ["deals-from-engine", reads ? "on" : "off"],
+        ["deals-saves-from-engine", saves ? "on" : "off"],
+      ]),
+    );
+    const headers = {
+      origin,
+      cookie: "session=synthetic",
+      "x-carr-csrf": "synthetic",
+      "content-type": "application/json",
+    };
+    const setup = await worker.fetch(
+      new Request(origin + path, { method: "POST", headers, body: JSON.stringify(args) }),
+      f.env,
+    );
+    const open = await worker.fetch(
+      new Request(origin + path + "/open", { method: "POST", headers, body: "{}" }),
+      f.env,
+    );
+    assert.equal(setup.status, reads && saves ? 200 : 404);
+    assert.equal(open.status, reads ? 200 : 404);
+    assert.deepEqual(
+      f.engine.map((request) => new URL(request.url).pathname),
+      [...(reads && saves ? [path] : []), ...(reads ? [path + "/open"] : [])],
+    );
+    if (reads && saves) assert.deepEqual(await f.engine[0]?.json(), args);
+    if (reads) {
+      assert.deepEqual(await f.engine.at(-1)?.json(), {});
+      assert.equal(f.engine.at(-1)?.headers.get("x-carr-csrf"), "synthetic");
+    }
+    assert.deepEqual(f.carr, []);
+    if (!reads && !saves) {
+      const legacy = call("register-client-portal", { deal, ...args });
+      assert.equal(await (await f.send(legacy, headers)).text(), "old");
+      assert.deepEqual(f.carr, [JSON.stringify(legacy)]);
+    }
+  }
+});
+
+test("national account creation and owner changes follow the Deals switches", async () => {
+  const account = "00000000-0000-4000-8000-000000000011";
+  const key = "00000000-0000-4000-8000-000000000012";
+  for (const [name, oldArgs, path, body] of [
+    [
+      "create-national-account",
+      { name: "Demo Separate Company", owner: "dell" },
+      "/national-accounts",
+      { name: "Demo Separate Company", owner: "dell", force_new: true },
+    ],
+    [
+      "set-national-account-owner",
+      { account_client_id: account, owner: "dell", base_version: 0 },
+      `/national-accounts/${account}/owner`,
+      { owner: "dell", base_version: 0 },
+    ],
+  ] as const) {
+    const legacy = call(name, { ...oldArgs, idempotency_key: key });
+    const off = fixture(new Map());
+    assert.equal(await (await off.send(legacy)).text(), "old");
+    assert.deepEqual(
+      off.carr.map((text) => JSON.parse(text)),
+      [legacy],
+    );
+    assert.equal(off.engine.length, 0);
+
+    const next = call(name, { ...oldArgs, ...body, idempotency_key: key, next_deal_save: true });
+    for (const routing of [new Map(), dealsReadOn, new Map([["deals-saves-from-engine", "on"]])]) {
+      const partial = fixture(routing);
+      assert.equal((await (await partial.send(next)).json()).result.isError, true);
+      assert.equal(partial.engine.length, 0);
+      assert.deepEqual(partial.carr, []);
+    }
+
+    const on = fixture("on", async () => Response.json({ account_client_id: account, owner: "dell" }));
+    const response = await on.send(next, { origin, cookie: "session=synthetic", "x-carr-csrf": "synthetic" });
+    assert.deepEqual(on.carr, []);
+    assert.equal(on.engine[0]?.url, `${origin}/api/engine${path}`);
+    assert.equal(on.engine[0]?.headers.get("x-carr-csrf"), "synthetic");
+    assert.deepEqual(await on.engine[0]?.json(), { ...body, idempotency_key: key });
+    assert.deepEqual(JSON.parse((await response.json()).result.content[0].text), {
+      ok: true,
+      account_client_id: account,
+      owner: "dell",
+    });
+  }
+});
+
+test("an existing company name asks for separate-company confirmation", async () => {
+  const candidates = [{ id: "00000000-0000-4000-8000-000000000013", name: "Demo Matching Company" }];
+  const on = fixture("on", async () => Response.json({ error: "account_name_exists", candidates }, { status: 409 }));
+  const response = await on.send(
+    call("create-national-account", {
+      next_deal_save: true,
+      idempotency_key: "00000000-0000-4000-8000-000000000012",
+      name: candidates[0]?.name,
+      owner: "joe",
+    }),
+  );
+  const result = (await response.json()).result;
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(JSON.parse(result.content[0].text).candidates, candidates);
+  assert.equal(JSON.parse(result.content[0].text).needs_confirm, true);
+});
