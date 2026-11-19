@@ -5,8 +5,9 @@ import { mountDealRoomBoard } from './ui-board.generated.js';
 import { mountDealRoomAgenda } from './ui-agenda.generated.js';
 import { dealStepVersion, partnerDealStep } from './local-deals-model.js';
 import { businessDay } from './business-date.js';
+import { daysBetween, toDay } from './calendar-model.js';
 import { formatCalendarDate } from './visual-system.js';
-import { automaticPhaseReceipt, dealItemRows, dealLastCaption, dealNextCaption, renderEndedDealList } from './deal-items.js';
+import { automaticPhaseReceipt, dealDueDate, dealItemRows, dealLastCaption, dealNextCaption, renderEndedDealList } from './deal-items.js';
 import { dealTypeLabel } from './live-client.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
@@ -82,6 +83,7 @@ const state = {
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const today = () => new Date(new Date().toDateString());
+const engineToday = () => state.boardFromEngine ? businessDay() : undefined;
 const esc = escapeText;
 const actorName = (slug) => ACTOR_LABEL[slug] || slug || 'Unassigned';
 const account = () => state.accounts.find((item) => item.account_client_id === state.accountId) || null;
@@ -89,15 +91,23 @@ const automaticPhase = prepareAutomaticPhaseUndo({
   state, performCommand, newKey: uuidv4, render: renderBoardOnly, report: message => showToast(message), refreshedMessage: 'The row was refreshed.',
 });
 
-function daysFromNow(value) {
+function daysFromNow(value, centralToday) {
   if (!value) return null;
+  if (centralToday) {
+    const day = toDay(value);
+    return day ? daysBetween(centralToday, day) : null;
+  }
   const baseline = today();
   baseline.setHours(12);
   return Math.round((new Date(`${value}T12:00:00`) - baseline) / 864e5);
 }
 
-function dateLabel(value) {
+function dateLabel(value, centralToday) {
   if (!value) return 'Not set';
+  if (centralToday) {
+    const due = dealDueDate(value, centralToday);
+    return due ? `Due ${due.date}${due.late ? ` · ${due.late}` : ''}` : 'Not set';
+  }
   const days = daysFromNow(value);
   const date = new Date(`${value}T12:00:00`).toLocaleDateString('en-US', { month:'short', day:'numeric' });
   if (days < 0) return `${date} · ${Math.abs(days)}d overdue`;
@@ -121,7 +131,7 @@ function isStale(deal) {
 
 function reasonFor(deal) {
   if (deal.operating_state === 'parked') return parkingReasonLabel(deal.parking_reason);
-  const days = daysFromNow(deal.next_date);
+  const days = daysFromNow(deal.next_date, engineToday());
   if (deal.attention) return 'Flagged for attention';
   if (days !== null && days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} overdue`;
   if (!deal.next_step) return 'No next step';
@@ -131,7 +141,7 @@ function reasonFor(deal) {
 }
 
 function priority(deal) {
-  const days = daysFromNow(deal.next_date);
+  const days = daysFromNow(deal.next_date, engineToday());
   return (deal.attention ? 10000 : 0) + (days !== null && days < 0 ? 7000 + Math.abs(days) : 0)
     + (!deal.next_step ? 4000 : 0) + (isStale(deal) ? 2000 : 0)
     + (deal.workspace_kind === 'national_account' && !deal.market_agent ? 1000 : 0);
@@ -340,7 +350,7 @@ function workspaceDeals() {
   if (state.filter === 'parked') deals = deals.filter((deal) => deal.operating_state === 'parked');
   else deals = deals.filter((deal) => (deal.operating_state || 'active') === 'active');
   if (state.filter === 'mine') deals = deals.filter((deal) => deal.owner === state.selfActor);
-  if (state.filter === 'attention') deals = deals.filter((deal) => deal.attention || (daysFromNow(deal.next_date) ?? 0) < 0);
+  if (state.filter === 'attention') deals = deals.filter((deal) => deal.attention === true || (!state.boardFromEngine && (daysFromNow(deal.next_date) ?? 0) < 0));
   if (state.filter === 'flagged') deals = deals.filter((deal) => deal.attention === true && (!state.deepLinkMine || deal.owner === state.selfActor));
   if (state.filter === 'stale') deals = deals.filter(isStale);
   if (state.filter === 'missing') deals = deals.filter((deal) => !deal.next_step);
@@ -432,7 +442,7 @@ function renderNationalClosedDeals() {
 function accountPriority(deals) {
   const ordered = [...deals].sort((a, b) => (a.next_date || '9999-12-31').localeCompare(b.next_date || '9999-12-31')
     || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-  const overdue = ordered.filter((deal) => (daysFromNow(deal.next_date) ?? 0) < 0);
+  const overdue = ordered.filter((deal) => (daysFromNow(deal.next_date, engineToday()) ?? 0) < 0);
   return { overdue, next: ordered[0] };
 }
 
@@ -441,7 +451,7 @@ function renderAccounts() {
   grid.innerHTML = renderAccountCards(state.accounts.map(item => ({ ...item, next_action: accountPriority(
     [...state.deals.values()].filter(deal => deal.account_client_id === item.account_client_id
       && (deal.operating_state || 'active') === 'active' && !deal.invoiced_on)
-  ).next })), { esc, relative, actorName, dateLabel, engine:state.nextDealSaves });
+  ).next })), { esc, relative, actorName, dateLabel: value => dateLabel(value, engineToday()), engine:state.nextDealSaves });
 }
 
 /**
@@ -550,7 +560,7 @@ function renderStats(deals, accountDetail) {
       <span class="next-action-label${overdue.length ? ' is-alert' : ''}">${overdue.length ? 'Next overdue action' : 'Next market action'}</span>
       <button type="button" class="next-account-action" data-open-deal="${esc(next.id)}">
         <strong>${esc(next.next_step || 'Set the next step')}</strong>
-        <span>${esc(next.name)} · ${esc(dateLabel(next.next_date))}</span>
+        <span>${esc(next.name)} · ${esc(dateLabel(next.next_date, engineToday()))}</span>
         <span class="next-action-open">Open deal →</span>
       </button>
       <p class="account-urgency">${counts}</p>` : '';
@@ -564,7 +574,7 @@ function renderStats(deals, accountDetail) {
       <div class="stat"><strong>${deals.filter((deal) => deal.parking_reason === 'other').length}</strong><span>Other reason</span></div>`;
     return;
   }
-  const overdue = deals.filter((deal) => (daysFromNow(deal.next_date) ?? 0) < 0).length;
+  const overdue = deals.filter((deal) => (daysFromNow(deal.next_date, engineToday()) ?? 0) < 0).length;
   const clarity = deals.filter((deal) => !deal.next_step || isStale(deal)).length;
   $('#stats').innerHTML = `
     <div class="stat"><strong>${deals.length}</strong><span>Active work</span></div>
@@ -582,7 +592,7 @@ function renderFocus(deals) {
 
 
 function boardRow(deal, nationalAccountRows) {
-  const days = daysFromNow(deal.next_date);
+  const days = daysFromNow(deal.next_date, engineToday());
   const parked = deal.operating_state === 'parked';
   const presence = state.presence.filter(lease => lease.deal_id === deal.id && lease.actor !== state.selfActor && new Date(lease.expires_at) > new Date());
   const today = state.boardFromEngine ? businessDay() : new Date().toLocaleDateString('en-CA');
@@ -602,7 +612,7 @@ function boardRow(deal, nationalAccountRows) {
     }).filter(([, value]) => value),
     phaseMove: nationalAccountRows ? automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id)) : null,
     title: presence.length ? `${actorName(presence.at(-1).actor)} is editing ${presence.at(-1).field}` : '',
-    due: dateLabel(deal.next_date), dueClass: days !== null && days < 0 ? 'over' : days !== null && days <= 3 ? 'soon' : '',
+    due: dateLabel(deal.next_date, engineToday()), dueClass: days !== null && days < 0 ? 'over' : days !== null && days <= 3 ? 'soon' : '',
     retries: unresolvedFieldWrites(state.fieldWrites, deal.id).map(entry => ({ cell: entry.cell, label: fieldLabel(entry.field) })),
     step: deal.workspace_kind === 'national_account'
       ? { kind: 'national', next: dealNextCaption(deal, { today, viewer: state.selfActor, actorName }),
@@ -632,7 +642,7 @@ function installCallMode() {
     agendaDeals,
     scope: () => ({ workspace_kind: state.workspace, ...(state.accountId ? { account_client_id: state.accountId } : {}) }),
     dealName: (id) => state.deals.get(id)?.name,
-    dateLabel,
+    dateLabel: value => dateLabel(value, engineToday()),
     toast: (message) => showToast(message),
     get startAgenda() { return state.nextDealSaves ? undefined : startAgenda; },
     onConfirmed: loadHome,
@@ -734,7 +744,7 @@ function renderAgendaView() {
     disabled: state.accessDenied || Object.values(screenCommands).some(command => command.status === 'pending'),
     review: review && deal ? { title: review.title, index: review.index, total: review.deals.length,
       deal: { id: deal.id, name: deal.name, context: deal.market || deal.client_name || '', reason: reasonFor(deal),
-        phase: phaseLabel(deal.phase), nextStep: deal.next_step || 'Not set', nextDate: dateLabel(deal.next_date),
+        phase: phaseLabel(deal.phase), nextStep: deal.next_step || 'Not set', nextDate: dateLabel(deal.next_date, engineToday()),
         marketAgent: deal.workspace_kind === 'national_account' ? deal.market_agent || 'Unassigned' : null } } : null,
     confirms: state.confirms.map(({ id, label }) => ({ id, label })), confirmError: state.confirmError || null,
   });

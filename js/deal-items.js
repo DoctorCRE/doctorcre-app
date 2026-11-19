@@ -2,9 +2,10 @@ import { workCard } from './work-card.js';
 import { overdueLabel } from './deal-review-model.js';
 import { dealName, noteText } from './pipeline-model.js';
 import { calendarDay } from './deal-timeline.js';
+import { daysBetween } from './calendar-model.js';
 import { ACTOR_LABEL } from './client.js';
 import { renderDealVendors } from './deal-vendors.js';
-import { automaticMove } from './local-deals-model.js';
+import { automaticMove, invoiceClose } from './local-deals-model.js';
 import { formatCalendarDate } from './visual-system.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -48,6 +49,13 @@ function shortDate(value, today) {
   const options = { month: 'short', day: 'numeric', timeZone: 'UTC' };
   if (!today || day >= today) options.weekday = 'short';
   return date.toLocaleDateString('en-US', options).replace(',', '');
+}
+
+export function dealDueDate(value, today) {
+  const day = calendarDay(value);
+  if (!day) return null;
+  const daysLate = today && day < today ? daysBetween(day, today) : 0;
+  return { day, date: formatCalendarDate(day), late: daysLate ? `${daysLate} day${daysLate === 1 ? '' : 's'} late` : '' };
 }
 
 export function dealNextStep(deal, actions = deal.open_actions || [], items = deal.items || []) {
@@ -129,7 +137,16 @@ export function renderDealFacts(facts) {
     ? `<span>${esc(value)}</span><br><small>${esc(note)}</small>`
     : esc(value)}</dd></div>`).join('');
 }
-export function renderEndedDealList(view, { rows, dealTypeLabel, lost = false, fromEngine = true, unavailable = false }) {
+export function renderInvoiceClose(deal, canUndo = false) {
+  const day = calendarDay(invoiceClose(deal)?.evidence_date);
+  if (!day) return '';
+  return `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${day}">${formatCalendarDate(day)}</time>${canUndo ? ' <button class="btn" type="button" data-undo-invoice>Undo invoice close</button>' : ''}</div>`;
+}
+
+export function renderEndedDealList(view, {
+  rows, dealTypeLabel, lost = false, fromEngine = true, unavailable = false,
+  unavailableMessage = 'Closed history is unavailable. Refresh to try again.',
+}) {
   const search = view.querySelector('#closedSearch').value.trim().toLowerCase();
   const cards = rows.map(deal => {
     const formatted = formatCalendarDate(fromEngine ? calendarDay(deal.closed_on) || '' : deal.closed_on || '');
@@ -148,11 +165,16 @@ export function renderEndedDealList(view, { rows, dealTypeLabel, lost = false, f
     [title, ...facts.flatMap(({value, note}) => [value, note])].some(value => value?.toLowerCase().includes(search)));
 
   const label = lost ? 'lost' : 'closed';
-  view.querySelector('#closedCount').textContent = unavailable ? 'Closed history is unavailable. Refresh to try again.'
+  view.querySelector('#closedCount').textContent = unavailable ? unavailableMessage
     : `${cards.length} ${label} deal${cards.length === 1 ? '' : 's'}`;
-  view.querySelector('#closedDealsList').innerHTML = cards.map(({deal, title, facts}) => `<article class="closed-deal" data-id="${esc(deal.id)}">
-    <h3><button type="button" class="card-open" data-open-deal="${esc(deal.id)}">${esc(title)}</button></h3>
-    <dl>${renderDealFacts(facts)}</dl>${renderDealVendors(deal.vendors)}${autoHtml(deal)}</article>`).join('') || (unavailable ? '' : `<p>No ${label} deals match this search.</p>`);
+  const empty = unavailable ? '' : `<p>No ${label} deals${search || !fromEngine ? ' match this search' : ''}.</p>`;
+  view.querySelector('#closedDealsList').innerHTML = cards.map(({deal, title, facts}) => {
+    const receipt = !fromEngine ? autoHtml(deal) : lost ? '' : renderInvoiceClose(deal)
+      || renderPhaseReceipt(deal, automaticPhaseReceipt(deal, null, { showEngineMoves: true, canUndo: false }), '');
+    return `<article class="closed-deal" data-id="${esc(deal.id)}">
+      <h3><button type="button" class="card-open" data-open-deal="${esc(deal.id)}">${esc(title)}</button></h3>
+      <dl>${renderDealFacts(facts)}</dl>${renderDealVendors(deal.vendors)}${receipt}</article>`;
+  }).join('') || empty;
 }
 
 export function automaticPhaseReceipt(deal, entry, { showEngineMoves = false, canUndo = true } = {}) {
