@@ -1189,7 +1189,7 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     const dealName = await openDeal.textContent();
     await openDeal.click();
     const header = page.locator('#recordPanel header.workspace-header');
-    const parkedStatus = header.getByText('Parked', { exact: true });
+    const parkedStatus = header.getByText(/ · Parked$/);
     const form = page.locator('#detailParkForm');
     await page.getByText('Park', { exact: true }).click();
     const reason = form.getByLabel('Park reason');
@@ -1247,6 +1247,7 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
       pageNote: await parking.getByText(importNote, { exact: true }).count(),
       parkedInHeader: await parkedStatus.count(),
     }, { cardNote: 1, pageNote: 1, parkedInHeader: 1 });
+    assert.equal(await parkedStatus.textContent(), 'Due Diligence · Parked');
     const criticalDate = header.getByText('Next critical date', { exact: true }).locator('..');
     assert.equal(await criticalDate.getByText('Wed, Oct 21, 2026', { exact: true }).isVisible(), true);
     await header.screenshot({ path: new URL(`${width}-import-header.png`, artifacts).pathname });

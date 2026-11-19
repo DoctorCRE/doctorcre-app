@@ -86,6 +86,7 @@ for (const width of [1440, 390]) {
       await detail.getByRole('heading', { name: row.name, exact: true }).waitFor();
     };
     const back = () => page.getByRole('button', { name: 'Back to deals', exact: true }).click();
+    const parkedPhase = caption(detail.locator('#workspaceFacts'), 'Research · Parked');
     const boardUrl = `${origin}/deals?mode=live`;
     await page.goto(boardUrl);
     await openParked();
@@ -94,6 +95,7 @@ for (const width of [1440, 390]) {
     await openDetail(automatic);
     await detail.getByRole('button', { name: 'Revive', exact: true }).waitFor();
     assert.equal(await caption(detail, 'Parked automatically').count(), 0);
+    assert.equal(await parkedPhase.count(), 0);
     await page.goto(`${boardUrl}&view=closed`);
     await caption(card(won), 'Renewal').waitFor();
     assert.equal(await card(undated).count(), 0);
@@ -110,6 +112,7 @@ for (const width of [1440, 390]) {
     await capture(page.locator('.parked-lane'), 'parked');
     await openDetail(automatic);
     await caption(detail, 'Parked automatically').waitFor({ timeout: 5000 });
+    assert.equal(await parkedPhase.isVisible(), true);
     await capture(detail.locator('[data-detail-read="parking"]'), 'automatic-detail');
     await back();
     await openDetail(partner);

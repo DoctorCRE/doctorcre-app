@@ -1392,11 +1392,11 @@ function renderWorkspaceFacts(detail) {
   const d = detail.deal;
   const fromEngine = isEngineDealDetail(detail);
   const client = d.client_name || d.client_ref;
+  const parked = fromEngine && d.operating_state === 'parked';
   $('workspaceFacts').innerHTML = `<dl class="workspace-facts">
     ${client && client !== dealTitle(d) ? `<div class="workspace-client"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}
-    <div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}</dd></div>
+    <div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}${parked ? ' · Parked' : ''}</dd></div>
     <div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div>
-    ${detail.next_deal_saves === true && d.operating_state === 'parked' ? '<div><dt>Status</dt><dd>Parked</dd></div>' : ''}
     ${fromEngine ? renderNextCriticalDate(d.next_critical_date) : ''}
   </dl>`;
 }
