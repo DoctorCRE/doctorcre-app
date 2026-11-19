@@ -2353,3 +2353,69 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   await panel.getByText('No emails or meetings yet.', { exact: true }).waitFor();
   assert.equal(await rows.count(), 0);
 });
+
+for (const width of [1440, 390]) test(`a changed checklist item stays open until reviewed again at ${width}px`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  t.after(() => page.close());
+  const deal = crypto.randomUUID();
+  const step = { id: crypto.randomUUID(), title: 'Review the floor plan', due_on: '2026-11-24', status: 'open', change_id: 0 };
+  const row = { id: deal, deal_id: deal, name: 'Example Deal', owner: 'joe', phase: 'research', seen: 23 };
+  const writes = [];
+  const env = {
+    ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const { pathname } = new URL(request.url);
+      const { change_id, ...item } = step;
+      if (pathname === '/api/engine/deals') return Response.json({
+        schema_version: 'local-deals-board.v2', actor: 'joe', deals: [{ ...row, items: [item] }],
+      });
+      if (pathname === `/api/engine/deals/${deal}`) return Response.json({
+        ...row, email_follow_ups: [], items: [item],
+        next_actions: [{ ...step, change_id: step.status === 'open' ? change_id : null }],
+      });
+      if (pathname !== `/api/engine/next-steps/${step.id}/end`) return new Response(null, { status: 404 });
+      const command = await request.json();
+      writes.push(command);
+      if (command.base_version !== undefined && command.base_version !== change_id)
+        return Response.json({ error: 'version_conflict', current_version: change_id }, { status: 409 });
+      step.status = 'done';
+      return Response.json({ next_step_id: step.id, status: 'done', change_id: change_id + 1 });
+    } },
+  };
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `checklist-version-${width}`, viewer: 'joe', reset: true } });
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    if (!['deal-room-board', 'get-deal-room', 'complete-deal-item'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+    }), env);
+    await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
+  });
+
+  await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+  await page.locator('#recordPanel').getByRole('button', { name: step.title, exact: true }).click();
+  const sheet = page.getByRole('dialog', { name: step.title });
+  const done = sheet.getByRole('button', { name: 'Mark done', exact: true });
+  await done.waitFor();
+  Object.assign(step, { due_on: '2026-11-26', change_id: 17 });
+  await done.click();
+  const reload = sheet.getByRole('button', { name: 'Reload item' });
+  await reload.waitFor({ timeout: 5000 });
+  assert.match(await sheet.getByRole('status').textContent(), /item changed/i);
+  assert.equal(await done.count(), 0);
+  assert.equal(await sheet.locator('time').textContent(), 'Nov 24');
+  assert.deepEqual(writes.map(({ base_version }) => base_version), [0]);
+  assert.equal(step.status, 'open');
+  assert.equal(await sheet.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+  await sheet.screenshot({ path: join(evidence, `checklist-conflict-${width}.png`) });
+
+  await reload.click();
+  await done.waitFor();
+  assert.equal(await sheet.locator('time').textContent(), 'Nov 26');
+  assert.equal(writes.length, 1);
+  await done.click();
+  await sheet.getByText('Item marked done', { exact: true }).waitFor();
+  assert.equal(step.status, 'done');
+  assert.deepEqual(writes.map(({ base_version }) => base_version), [0, 17]);
+  assert.notEqual(writes[0].idempotency_key, writes[1].idempotency_key);
+});
