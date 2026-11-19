@@ -1910,9 +1910,10 @@ test("client website setup and opening use their Deals switches without changing
       new Request(origin + path, { method: "POST", headers, body: JSON.stringify(args) }),
       f.env,
     );
+    const configured = { ...f.env, CLIENT_WEBSITE_ORIGIN: "https://share.example.test" };
     const open = await worker.fetch(
       new Request(origin + path + "/open", { method: "POST", headers, body: "{}" }),
-      f.env,
+      configured,
     );
     assert.equal(setup.status, reads && saves ? 200 : 404);
     assert.equal(open.status, reads ? 200 : 404);

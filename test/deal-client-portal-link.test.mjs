@@ -60,6 +60,23 @@ test("the deal opens a grant only at its configured share origin", async (t) => 
   assert.deepEqual(opened, [staging + grantPath, production + grantPath]);
 });
 
+test("the app refuses to request a grant without a configured share origin", async (t) => {
+  const endpoint = "https://app.example.test/api/engine/deals/00000000-0000-4000-8000-000000000001/client-website/open";
+  const forward = t.mock.fn(async () => Response.json({
+    url: "https://share.doctorcre.com/example-site/?grant=00000000-0000-4000-8000-000000000002",
+  }));
+  for (const origin of [undefined, "", "http://share.example.test"]) {
+    const response = await worker.fetch(new Request(endpoint, { method: "POST" }), {
+      CLIENT_WEBSITE_ORIGIN: origin,
+      ENGINE_ROUTING: new Map([["deals-from-engine", "on"]]),
+      ENGINE: { fetch: forward },
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "client_website_origin_unconfigured" });
+  }
+  assert.equal(forward.mock.callCount(), 0);
+});
+
 async function open(t,width=1280,{portal=null,closed=false}={}) {
  const browser=await chromium.launch();t.after(()=>browser.close());
  const page=await browser.newPage({viewport:{width,height:960}});
