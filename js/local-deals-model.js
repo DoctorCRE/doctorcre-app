@@ -29,24 +29,24 @@ export function concise(value, limit = 100) {
   const text = noteText(value).replace(/\s+/g,' ').trim();
   return text.length <= limit ? text : text.slice(0, limit - 1).trimEnd() + '…';
 }
+export const isPhaseMoveReceipt = receipt => receipt?.source === 'copied' || receipt?.source === 'call_capture';
+
 export function invoiceClose(deal) {
   const receipt = deal?.phase_change;
   return Number.isSafeInteger(deal?.seen) && receipt?.phase === 'closed' && receipt.automatic === true
-    && receipt.event_id && receipt.prior_phase && /^\d{4}-\d{2}-\d{2}$/.test(receipt.evidence_date) ? receipt : null;
+    && !isPhaseMoveReceipt(receipt) && receipt.event_id && receipt.prior_phase
+    && /^\d{4}-\d{2}-\d{2}$/.test(receipt.evidence_date) ? receipt : null;
 }
 export function automaticMove(deal) {
   const event = deal.phase_change;
   if (!event?.automatic || !event.event_id || !event.prior_phase || !event.evidence_date) return null;
-  const date = String(event.evidence_date).slice(0,10).split('-');
-  if (date.length !== 3 || !Number.isFinite(Date.parse(event.evidence_date))) return null;
-  if (invoiceClose(deal)) {
-    return { eventId: event.event_id, text: `Closed automatically: Invoice received ${Number(date[1])}/${Number(date[2])}` };
-  }
+  const day = String(event.evidence_date).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(Date.parse(event.evidence_date))) return null;
+  if (invoiceClose(deal)) return { day, label: 'Closed automatically: Invoice received' };
   const reason = concise(event.reason || 'phase changed', 50);
-  // The board projection does not bind automatic=true to a Doc actor.
   const prefix = /invoice/i.test(reason) && (event.phase === 'closed' || deal.phase === 'Closed')
     ? 'Closed automatically' : 'Moved automatically';
-  return { eventId: event.event_id, text: `${prefix}: ${reason} ${Number(date[1])}/${Number(date[2])}` };
+  return { day, label: `${prefix}: ${reason}` };
 }
 export function noteEntries(detail) {
   const activities = (detail.activities || []).map(a => ({

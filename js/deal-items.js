@@ -5,7 +5,8 @@ import { calendarDay } from './deal-timeline.js';
 import { daysBetween } from './calendar-model.js';
 import { ACTOR_LABEL } from './client.js';
 import { renderDealVendors } from './deal-vendors.js';
-import { automaticMove, invoiceClose } from './local-deals-model.js';
+import { automaticMove, invoiceClose, isPhaseMoveReceipt } from './local-deals-model.js';
+import { sourceTime } from './email-source-line.js';
 import { formatCalendarDate } from './visual-system.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -133,7 +134,9 @@ export function renderDealItemDetail(item, { today = '' } = {}) {
 
 export function autoHtml(deal) {
   const move = automaticMove(deal);
-  return move ? `<div class="auto-move"><span>${esc(move.text.slice(0, move.text.lastIndexOf(' ')))}</span> <time>${esc(move.text.slice(move.text.lastIndexOf(' ') + 1))}</time></div>` : '';
+  if (!move) return '';
+  const day = calendarDay(move.day);
+  return day ? `<div class="auto-move"><span>${esc(move.label)}</span> <time datetime="${day}">${formatCalendarDate(day)}</time></div>` : '';
 }
 export function dealTypeFacts(deal, dealTypeLabel) {
   const facts = [{ label: 'Type', value: dealTypeLabel(deal.kind) || 'Not recorded' }];
@@ -193,19 +196,20 @@ export function automaticPhaseReceipt(deal, entry, { showEngineMoves = false, ca
   const day = calendarDay(event?.evidence_date);
   const datedMove = event?.automatic === true && event.event_id && day;
   const feedback = canUndo && (!entry?.eventId || entry.eventId === event?.event_id) ? entry : null;
-  const undoableMove = canUndo && event?.source === 'copied' && datedMove;
+  const undoableMove = canUndo && isPhaseMoveReceipt(event) && datedMove;
   const returnsToEndedDeals = undoableMove && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
     || feedback?.code === 'undo_returns_to_ended_deals');
   const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
   const action = undoableMove && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
     ? { eventId: event.event_id, version: deal.seen, busy: Boolean(feedback?.busy) } : null;
-  const move = datedMove && (showEngineMoves || undoableMove) ? { day, date: formatCalendarDate(day) || day, action } : null;
+  const callTime = event?.source === 'call_capture' ? sourceTime(event.call?.happened_at, undefined, '') : '';
+  const move = datedMove && (showEngineMoves || undoableMove) ? { day, date: formatCalendarDate(day), callTime, action } : null;
   return { move, message };
 }
 
 export function renderPhaseReceipt(deal, { move, message }, legacy) {
   const undo = move?.action;
-  const button = undo ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(undo.eventId)}" data-base-version="${undo.version}"${undo.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
-  const mark = move ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${move.day}">${esc(move.date)}</time>${button}</div>` : legacy;
+  const button = undo ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(undo.eventId)}" data-base-version="${undo.version}" data-detail-focus="phase-undo"${undo.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
+  const mark = move ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? `<div>Call on ${esc(move.callTime)}</div>` : ''}${button}</div>` : legacy;
   return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
 }
