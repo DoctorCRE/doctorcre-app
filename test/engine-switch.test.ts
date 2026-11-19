@@ -1372,6 +1372,29 @@ test("invoice Undo sends the reviewed receipt to the signed-in engine", async ()
   assert.equal(JSON.parse((await refusal.json()).result.content[0].text).error, "version_conflict");
 });
 
+test("automatic phase Undo never leaves the app when either Deals switch is off", async () => {
+  const args = { deal: dealId, event_id: invoiceId, idempotency_key: operationId };
+  for (const switches of [new Map(), dealsReadOn, new Map([["deals-saves-from-engine", "on"]])]) {
+    const f = fixture(switches);
+    for (const undoArgs of [args, { ...args, seen_change_id: 0 }]) {
+      const response = await f.send(call("undo-automatic-phase-move", undoArgs), saveHeaders);
+      assert.equal(f.engine.length + f.carr.length, 0);
+      const { result } = await response.json();
+      assert.equal(result.isError, true);
+    }
+    const read = await f.send(call());
+    if (switches.has("deals-from-engine")) {
+      assert.equal((await read.json()).result.content[0].text, payload);
+      assert.equal(f.engine.length, 1);
+      assert.equal(f.carr.length, 0);
+    } else {
+      assert.equal(await read.text(), "old");
+      assert.equal(f.carr.length, 1);
+      assert.equal(f.engine.length, 0);
+    }
+  }
+});
+
 const changesPath = `/deals/${dealId}/changes`;
 const creation = {
   next_deal_save: true,
@@ -1441,7 +1464,7 @@ const movedToEngine = [
     "add-critical-date",
     { kind: "phase_effective_date", due_on: "2027-01-02", source: "Sample agreement", note: "Signed" },
     `/deals/${dealId}/critical-dates`,
-    { kind: "other", due_on: "2027-01-02", source: "Sample agreement", note: "Phase effective date" },
+    { kind: "phase_effective_date", due_on: "2027-01-02", source: "Sample agreement", note: "Signed" },
     { critical_date_id: stepId, status: "open" },
     201,
   ],
