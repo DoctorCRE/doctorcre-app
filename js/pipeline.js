@@ -1497,17 +1497,21 @@ function filedDocumentsHtml(documents) {
   }).join('')}</ul>` : '<p>No documents filed for this deal.</p>';
 }
 
-function dealEmailFollowupsHtml(followups, canDecide) {
+function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_saves }) {
   const today = businessDay();
+  const filed = new Set(correspondence?.filter(entry => entry.kind === 'email' && entry.activity_id).map(entry => entry.activity_id));
+  const followups = email_follow_ups.filter(row => row.kind !== 'file_to_deal' || !filed.has(row.email?.activity_id));
   return `<h2>Email follow-ups</h2>${followups.map(row => {
     const email = row.email || {};
-    const sender = [email.sender_name || email.sender, email.happened_at && sourceTime(email.happened_at)].filter(Boolean).join(' · ');
+    const sender = [email.sender_name || email.sender || 'Unknown sender', email.happened_at && sourceTime(email.happened_at)].filter(Boolean).join(' · ');
+    const subject = email.subject?.trim();
+    const title = subject && subject.toLowerCase() !== '(no subject)' ? subject : '(No subject)';
     const change = row.kind === 'file_to_deal' ? 'File email to this deal'
       : row.kind === 'phase_move' ? `Move to ${columnBySlug(row.to_phase)?.label || 'the next phase'}`
       : row.what || 'Review email';
     const owner = row.kind === 'next_step' ? ACTOR_LABEL[row.owner] : '';
     const id = esc(row.proposal_id);
-    const actions = canDecide ? `<form data-email-decision="${id}">
+    const actions = next_deal_saves ? `<form data-email-decision="${id}">
       ${row.kind === 'next_step' ? `<div class="deal-next-step-fields">
         <label>Next step<input name="what" value="${esc(row.what)}" maxlength="10000" required data-detail-focus="step-${id}"></label>
         <label>Due date<input type="date" name="due_on" value="${esc(row.due_on)}" data-detail-focus="date-${id}"></label>
@@ -1515,8 +1519,8 @@ function dealEmailFollowupsHtml(followups, canDecide) {
       <button class="btn" type="submit" value="accept" data-detail-focus="accept-${id}">Accept</button>
       <button class="btn" type="submit" value="dismiss" formnovalidate data-detail-focus="dismiss-${id}">Dismiss</button>
     </form>` : '';
-    return workCard({className:'email-proposal', title:esc(email.subject || 'Email follow-up'), actions,
-      meta:sender ? `<p>${esc(sender)}</p>` : '',
+    return workCard({className:'email-proposal', title:esc(title), actions,
+      meta:`<p>${esc(sender)}</p>`,
       body:`<p>${esc(change)}${owner ? ` · ${esc(owner)}` : ''}${row.due_on ? ` · ${dueDateHtml(row.due_on, today)}` : ''}</p>${email.summary ? `<p>${esc(email.summary)}</p>` : ''}
         ${row.evidence ? `<details><summary>Read email excerpt</summary><q>${esc(row.evidence)}</q></details>` : ''}`});
   }).join('') || '<p>No email follow-ups.</p>'}`;
@@ -1531,6 +1535,12 @@ function renderSnapshotFacts(deal, fromEngine) {
   if (fromEngine) facts.push(...dealTypeFacts(deal, dealTypeLabel));
   else if (deal.type) facts.push({ label: 'Type', value: deal.type });
   if (deal.outcome) facts.push({ label: 'Outcome', value: deal.outcome[0].toUpperCase() + deal.outcome.slice(1) });
+  if (fromEngine && deal.outcome === 'lost') {
+    facts.push(
+      { label: 'Reason for loss', value: deal.lost_reason || 'Not recorded' },
+      { label: 'Close date', value: formatCalendarDate(calendarDay(deal.closed_on)) || 'Close date not recorded' },
+    );
+  }
 
   const value = Number(deal.closed_value);
   const closedValue = value > 0 && (!fromEngine || isClosedDeal(deal))
@@ -1555,6 +1565,8 @@ function workspaceHtml(detail) {
     ? { text: leadStep?.description.trim(), dueOn: calendarDay(leadStep?.due_on), otherActions: remainingSteps }
     : dealNextStep(d, detail.next_actions || [], items);
   const today = fromEngine ? businessDay() : todayIso();
+  const stepLabel = fromEngine ? 'Next step' : dueOn && dueOn < today ? 'Overdue action' : 'Next action';
+  const itemOwners = fromEngine ? new Map(detail.next_actions?.map(step => [step.id, step.owner])) : undefined;
   const prospect = state.deals.get(d.id);
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
   const parked = d.operating_state === 'parked';
@@ -1573,12 +1585,12 @@ function workspaceHtml(detail) {
       ${websiteLink}
       ${renderInvoiceClose(d, state.nextDealSaves)}
       ${fromEngine ? `<div data-phase-move>${detailPhaseMoveHtml(detail)}</div>` : ''}
-      ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span></p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
+      ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span></p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
       ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
         const day = calendarDay(action.due_on);
         return `<li${stepFocusAttrs(fromEngine ? action : null)}>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
       }).join('')}</ul>` : ''}
-      <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
+      <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false,itemOwners})}</div>
       ${renderSnapshotFacts(d, fromEngine)}
       ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
     </section>
@@ -1588,10 +1600,10 @@ function workspaceHtml(detail) {
     <section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>
     <div data-detail-read="checklist"></div>
     <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000"${detail.next_deal_saves ? '' : ' required'}></textarea><details id="detailNextStepEditor"><summary>${ownStep ? 'Change your next step' : 'Change next step'}</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">${ownStep ? 'Your next step' : 'Next step'}</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${today}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
-    <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail.email_follow_ups, detail.next_deal_saves) : '<p role="status">Updating email follow-ups…</p>'}</section>
+    <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail) : '<p role="status">Updating email follow-ups…</p>'}</section>
     ${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
-    <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div></div>` : fromEngine ? `<div data-detail-read="parking">${nextParking && parked ? parkingSummary : parker}</div>` : ''}</div>
+    <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner">${fromEngine ? '' : '<option value="">Unassigned</option>'}${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div></div>` : fromEngine ? `<div data-detail-read="parking">${nextParking && parked ? parkingSummary : parker}</div>` : ''}</div>
     <div data-detail-read="prospect">${controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
     ${!fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     <h2>Critical dates</h2>
