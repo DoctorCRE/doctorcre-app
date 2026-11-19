@@ -517,7 +517,7 @@ function applyBoardSnapshot(board) {
 }
 
 function showProspects() {
-  prospects?.show(state.filter, state.scopeFilter === 'flagged', state.selfActor, state.nextDealSaves);
+  prospects?.show(state.filter, state.scopeFilter === 'flagged', state.selfActor, state.nextDealSaves, state.view === 'list' ? 'row' : 'tile');
 }
 
 function prospectClient() {

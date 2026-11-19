@@ -70,7 +70,14 @@ test("partners see and manage prospects from Deals", async (t) => {
       let converted: CreatedDeal | undefined;
       let conversionKey: string | undefined;
       let refuseConversion = true;
-      const deals: CreatedDeal[] = [];
+      const existingDeal = {
+        id: "00000000-0000-4000-8000-000000000011",
+        name: "Example Maple Deal",
+        owner: actor,
+        phase: "pending",
+        client_name: "Example Maple",
+      };
+      const deals: CreatedDeal[] = [existingDeal];
       const board = { schema_version: "local-deals-board.v2", actor, deals };
       let enabled = false;
       let savesEnabled = false,
@@ -347,13 +354,53 @@ test("partners see and manage prospects from Deals", async (t) => {
         await page.goto(`${server.origin}/deals?mode=live`);
         await open.waitFor();
       }
-      await page.getByRole("button", { name: "List", exact: true }).click();
-      await open.waitFor();
-      assert.equal(await open.count(), 1);
+      const prospectNames = [prospect.name, birchProspect.name];
+      const entries = lane.getByRole("article");
+      const deal = page.getByRole("button", { name: existingDeal.name, exact: true });
+      await deal.waitFor();
+      assert.equal(
+        await deal.evaluate((button) => button.closest("[data-column]")?.previousElementSibling?.id),
+        "prospectsLane",
+      );
+      const titles = () => entries.getByRole("heading").allTextContents();
+      assert.deepEqual(await titles(), prospectNames);
+      const tileRadius = await entries.first().evaluate((entry) => getComputedStyle(entry).borderRadius);
+      assert.notEqual(tileRadius, "0px");
+      const tileText = await entries.allTextContents();
+      await page.screenshot({ path: `out/test-artifacts/prospect-list-rows/board-${width}.png` });
+
+      const list = page.getByRole("button", { name: "List", exact: true });
+      await list.click();
+      await settles(async () =>
+        assert.equal(await entries.first().evaluate((entry) => getComputedStyle(entry).borderRadius), "0px"),
+      );
+      assert.deepEqual(await titles(), prospectNames);
+      assert.deepEqual(await entries.allTextContents(), tileText);
+      const dealBox = await deal.boundingBox();
+      const prospectBox = await entries.first().boundingBox();
+      assert.ok(dealBox && prospectBox && dealBox.y + dealBox.height <= prospectBox.y);
+      const titleBox = await open.boundingBox();
+      const noteBox = await entries.first().getByText("First line", { exact: true }).boundingBox();
+      assert.ok(titleBox && noteBox);
+      if (width === 1440) assert.ok(noteBox.x >= titleBox.x + titleBox.width);
+      else assert.ok(noteBox.y >= titleBox.y + titleBox.height);
+      if (width === 390) await entries.first().evaluate((entry) => entry.scrollIntoView({ block: "center" }));
+      await page.screenshot({ path: `out/test-artifacts/prospect-list-rows/list-${width}.png` });
+      await birchName.click();
+      await birchDetail.getByText("Claimed by Dell", { exact: true }).waitFor();
+      await birchDetail.getByRole("button", { name: "Back to Deals" }).click();
       await open.click();
       const dialog = page.getByRole("dialog", { name: "Example Elm Practice" });
       await dialog.waitFor();
       assert.match((await dialog.textContent()) ?? "", /Referral[\s\S]*Call again[\s\S]*First line/);
+      await dialog.getByRole("button", { name: "Back to Deals" }).click();
+      await page.getByRole("button", { name: "Board", exact: true }).click();
+      await settles(async () =>
+        assert.equal(await entries.first().evaluate((entry) => getComputedStyle(entry).borderRadius), tileRadius),
+      );
+      assert.deepEqual(await titles(), prospectNames);
+      await list.click();
+      await open.click();
       await dialog.getByRole("button", { name: "Turn into deal" }).click();
       const unclaimedForm = page.getByRole("dialog", { name: "Add deal" });
       const unclaimedOwner = unclaimedForm.getByLabel("Owner");
