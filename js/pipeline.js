@@ -2565,12 +2565,12 @@ async function boot() {
     if (resolved.mode !== 'live') return;
     if (incomingScope.get('view') === 'dropped-prospect') {
       const { mountDroppedProspect } = await import('./ui-deal-prospects.generated.js');
-      const origin = mondayReviewOrigin();
+      const origin = dealsPageOrigin('review');
       const returnTo = origin?.href || '/deals?view=review&mode=live';
       document.title = 'Prospect · DoctorCRE';
       mountDroppedProspect($('mondayReview'), {
         id: incomingScope.get('prospect'), request: fetchRead, authorLabel, returnTo,
-        back: origin ? backToMondayReview : undefined,
+        back: origin ? () => returnToDealsPage(origin) : undefined,
       });
       return;
     }
