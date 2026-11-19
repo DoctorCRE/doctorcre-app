@@ -5,6 +5,7 @@ import type { InboxClient, InboxItem, Snapshot } from "./inbox";
 
 type Props = {
   client: InboxClient;
+  engine?: boolean;
   picked: readonly InboxItem[];
   selected: ReadonlySet<string>;
   locked: boolean;
@@ -17,6 +18,7 @@ type Props = {
 const labels = { applied: "Applied", already: "Already", not_found: "Not found", not_allowed: "Not allowed" };
 export function BulkControls({
   client,
+  engine,
   picked,
   selected,
   locked,
@@ -125,9 +127,11 @@ export function BulkControls({
       {picked.length > 0 && (
         <fieldset className="inbox-bulk" aria-label="Selected cards">
           <strong>{picked.length} selected</strong>
-          <button type="button" disabled={blocked || picked.length > 100} onClick={() => apply("settle")}>
-            Settle selected
-          </button>
+          {!engine && (
+            <button type="button" disabled={blocked || picked.length > 100} onClick={() => apply("settle")}>
+              Settle selected
+            </button>
+          )}
           <button
             type="button"
             disabled={blocked || picked.length > 100}
