@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { proposalRefusal, type Suggestion } from "./engine-review.ts";
+import { draftReference, proposalRefusal, type Suggestion } from "./engine-review.ts";
 import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
 import { type Operation, reviewError } from "./review";
 
@@ -34,13 +34,14 @@ const emailDate = new Intl.DateTimeFormat("en-US", {
 });
 type Props = {
   item: InboxItem;
+  focusedSuggestionId: string | undefined;
   client: InboxClient["review"];
   children: ReactNode;
   close(): void;
   busy(value: boolean): void;
   confirmed(item: InboxItem | null, receipt?: TaskReceipt, snapshot?: Snapshot): void;
 };
-export function ReviewCard({ item, client, close, busy, confirmed, children }: Props) {
+export function ReviewCard({ item, focusedSuggestionId, client, close, busy, confirmed, children }: Props) {
   const [state, setState] = useState<State>({ phase: "loading" });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -53,6 +54,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
   const host = useRef<HTMLElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const anchor = useRef(item);
+  const focusSuggestion = useCallback((section: HTMLElement | null) => section?.focus(), []);
   const reconcileFacts = useCallback((detail: Review) => {
     if (detail.kind !== "fact_review") return;
     const choices = detail.operations[0] ? availableDecisions(detail.operations[0], detail) : [];
@@ -102,6 +104,10 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
   }, [client, reconcileFacts]);
   const waiting = state.phase === "submitting" || lock.current;
   const review = "review" in state ? state.review : null;
+  const proposals = review && "proposals" in review ? (review.proposals ?? []) : [];
+  const proposalLed = item.item_id.startsWith("suggestion:");
+  const canSaveDraft = review?.operations.some((op) => op.verb === "edit-email-draft");
+  const canDeclineDraft = review?.operations.some((op) => op.verb === "dismiss-email-proposal");
   const editable = state.phase === "ready" || state.phase === "editing" || state.phase === "proposal-refused";
   async function reload() {
     if (!client || lock.current) return;
@@ -136,12 +142,24 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
       const result = await client.run(anchor.current, request);
       if (!alive.current) return;
       confirmed(result.item, result.receipt, result.snapshot);
+      if (request.verb === "decide-engine-home-proposal" && detail.kind === "reply_draft" && result.item) {
+        const before = draftReference(anchor.current);
+        const after = draftReference(result.item);
+        if (!before || after?.id !== before.id || after.version !== before.version)
+          throw Object.assign(Error("The draft changed."), { payload: { error: "version_conflict" } });
+        const refreshed = await client.load(result.item);
+        if (!alive.current) return;
+        anchor.current = result.item;
+        setState({ phase: "ready", review: refreshed });
+        setMessage(request.args.decision === "accept" ? "Suggestion accepted." : "Suggestion dismissed.");
+        return;
+      }
       if (result.snapshot && request.verb !== "edit-email-draft") {
         close();
         return;
       }
       if (request.verb === "edit-email-draft") {
-        if (!result.item)
+        if (!result.item || (result.snapshot && result.item.source_version !== String(result.saved_version)))
           throw Object.assign(Error("The saved draft changed."), { payload: { error: "version_conflict" } });
         anchor.current = result.item;
         const next = await client.load(result.item);
@@ -160,7 +178,9 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
           phase: "done",
           message:
             request.verb === "submit-email-draft"
-              ? "Reply submitted to the existing sender. Delivery is not yet confirmed."
+              ? item.engine_marks
+                ? "Sending"
+                : "Reply submitted to the existing sender. Delivery is not yet confirmed."
               : "This card is confirmed. Its current state is shown in your inbox.",
         });
         setMessage("");
@@ -193,7 +213,14 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
     if (!review || !editable || lock.current || !form.current) return;
     if (op.verb !== "dismiss-email-proposal" && !form.current.reportValidity()) return;
     let input: Record<string, unknown> = {};
-    if (op.verb === "edit-email-draft" || op.verb === "submit-email-draft") input = { subject, body };
+    if (op.verb === "edit-email-draft" || op.verb === "submit-email-draft")
+      input = {
+        subject,
+        body,
+        ...(op.verb === "submit-email-draft" &&
+          review.kind === "reply_draft" &&
+          review.attachments && { document_ids: review.attachments.map((row) => row.id) }),
+      };
     if (op.verb === "dismiss-email-proposal") {
       if (!reason.trim()) {
         setMessage("Give a reason before declining this draft.");
@@ -234,7 +261,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
     void run({ verb: op.verb, args: { ...op.args, ...input, idempotency_key: crypto.randomUUID() } }, review);
   }
   function decideSuggestion(proposal: Suggestion, decision: "accept" | "dismiss") {
-    if (review?.kind !== "suggestions" || !form.current || !editable) return;
+    if (!review || !form.current || !editable) return;
     const fields = new FormData(form.current);
     const what = fields.get(`${proposal.id}-what`);
     const edits = decision === "accept" && proposal.editable;
@@ -255,6 +282,81 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
       review,
     );
   }
+  const suggestionFields = (
+    <>
+      {review?.kind === "reply_draft" && proposals.length > 0 && <h4>Suggestions</h4>}
+      {proposals.length > 0 &&
+        proposals.map((proposal) => (
+          <section
+            key={proposal.id}
+            aria-label={proposal.label}
+            tabIndex={focusedSuggestionId === proposal.id ? -1 : undefined}
+            ref={focusedSuggestionId === proposal.id ? focusSuggestion : undefined}
+          >
+            <h4>
+              {proposal.label}
+              {proposal.target ? ` · ${proposal.target}` : ""}
+            </h4>
+            {proposal.source && (
+              <>
+                <p>
+                  {proposal.source.from}
+                  {proposal.source.occurredAt && (
+                    <>
+                      {" "}
+                      on{" "}
+                      <time dateTime={proposal.source.occurredAt}>
+                        {emailDate.format(new Date(proposal.source.occurredAt))}
+                      </time>
+                    </>
+                  )}
+                </p>
+                {proposal.source.subject && <p>{proposal.source.subject}</p>}
+                {proposal.source.excerpt && <blockquote>{proposal.source.excerpt}</blockquote>}
+              </>
+            )}
+            <p>Words that prompted this suggestion</p>
+            <blockquote>{proposal.evidence}</blockquote>
+            {proposal.editable ? (
+              <>
+                <label>
+                  Next step <input name={`${proposal.id}-what`} defaultValue={proposal.what ?? ""} />
+                </label>
+                <label>
+                  Due date <input type="date" name={`${proposal.id}-date`} defaultValue={proposal.dueOn ?? ""} />
+                </label>
+              </>
+            ) : (
+              proposal.what && <p>{proposal.what}</p>
+            )}
+            {!proposal.canAccept && (
+              <p>This step changed after the suggestion. Mark it done from the step, or choose Not yet.</p>
+            )}
+            <div className="inbox-actions">
+              {(["accept", "dismiss"] as const).map((decision) => (
+                <button
+                  key={decision}
+                  type="button"
+                  disabled={
+                    decision === "accept" &&
+                    (!proposal.canAccept || (state.phase === "proposal-refused" && state.id === proposal.id))
+                  }
+                  onClick={() => decideSuggestion(proposal, decision)}
+                >
+                  {proposal.completion
+                    ? decision === "accept"
+                      ? "Yes, it’s done"
+                      : "Not yet"
+                    : decision === "accept"
+                      ? "Accept"
+                      : "Dismiss"}
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+    </>
+  );
   return (
     <section
       className="home-inline-review"
@@ -308,7 +410,9 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
           <fieldset disabled={!editable}>
             <legend>
               {review.kind === "reply_draft"
-                ? "Exact reply for review"
+                ? proposalLed
+                  ? "Suggestions and reply draft"
+                  : "Exact reply for review"
                 : review.kind === "fact_review"
                   ? "Evidence and decision"
                   : review.kind === "suggestions"
@@ -316,74 +420,15 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                     : "Task"}
             </legend>
             {review.kind === "action" && <p>{review.title}</p>}
-            {review.kind === "suggestions" &&
-              review.proposals.map((proposal) => (
-                <section key={proposal.id}>
-                  <h4>
-                    {proposal.label}
-                    {proposal.target ? ` · ${proposal.target}` : ""}
-                  </h4>
-                  {proposal.source && (
-                    <>
-                      <p>
-                        {proposal.source.from}
-                        {proposal.source.occurredAt && (
-                          <>
-                            {" "}
-                            on{" "}
-                            <time dateTime={proposal.source.occurredAt}>
-                              {emailDate.format(new Date(proposal.source.occurredAt))}
-                            </time>
-                          </>
-                        )}
-                      </p>
-                      {proposal.source.subject && <p>{proposal.source.subject}</p>}
-                      {proposal.source.excerpt && <blockquote>{proposal.source.excerpt}</blockquote>}
-                    </>
-                  )}
-                  <p>Words that prompted this suggestion</p>
-                  <blockquote>{proposal.evidence}</blockquote>
-                  {proposal.editable ? (
-                    <>
-                      <label>
-                        Next step <input name={`${proposal.id}-what`} defaultValue={proposal.what ?? ""} />
-                      </label>
-                      <label>
-                        Due date <input type="date" name={`${proposal.id}-date`} defaultValue={proposal.dueOn ?? ""} />
-                      </label>
-                    </>
-                  ) : (
-                    proposal.what && <p>{proposal.what}</p>
-                  )}
-                  {!proposal.canAccept && (
-                    <p>This step changed after the suggestion. Mark it done from the step, or choose Not yet.</p>
-                  )}
-                  <div className="inbox-actions">
-                    {(["accept", "dismiss"] as const).map((decision) => (
-                      <button
-                        key={decision}
-                        type="button"
-                        disabled={
-                          decision === "accept" &&
-                          (!proposal.canAccept || (state.phase === "proposal-refused" && state.id === proposal.id))
-                        }
-                        onClick={() => decideSuggestion(proposal, decision)}
-                      >
-                        {proposal.completion
-                          ? decision === "accept"
-                            ? "Yes, it’s done"
-                            : "Not yet"
-                          : decision === "accept"
-                            ? "Accept"
-                            : "Dismiss"}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
+            {proposalLed && suggestionFields}
             {review.kind === "reply_draft" && (
               <>
-                {review.recipients ? (
+                {review.addresses ? (
+                  <>
+                    <p>To: {review.addresses.to || "Unavailable"}</p>
+                    <p>CC: {review.addresses.cc || "Unavailable"}</p>
+                  </>
+                ) : review.recipients ? (
                   <>
                     <p>To: {review.recipients.to.join(", ")}</p>
                     <p>CC: {review.recipients.cc.join(", ")}</p>
@@ -391,12 +436,21 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                 ) : (
                   <p>Send recipients are unavailable.</p>
                 )}
-                {!review.operations.some((op) => op.verb === "submit-email-draft") && (
-                  <p>
-                    Sending unavailable:{" "}
-                    {review.sendUnavailableReason || "The source record does not allow sending this draft."}
-                  </p>
+                {review.statusMessage ? (
+                  <p role="status">{review.statusMessage}</p>
+                ) : (
+                  !review.operations.some((op) => op.verb === "submit-email-draft") && (
+                    <p>
+                      Sending unavailable:{" "}
+                      {review.sendUnavailableReason || "The source record does not allow sending this draft."}
+                    </p>
+                  )
                 )}
+                {review.attachments?.map((attachment) => (
+                  <p key={attachment.id}>
+                    <a href={`/api/engine/documents/${encodeURIComponent(attachment.id)}`}>{attachment.name}</a>
+                  </p>
+                ))}
                 <details>
                   <summary>Current saved reply</summary>
                   <p>{review.subject}</p>
@@ -406,6 +460,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                   Subject
                   <input
                     value={subject}
+                    disabled={!review.operations.length}
                     onChange={(event) => setSubject(event.target.value)}
                     maxLength={998}
                     required
@@ -416,22 +471,29 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                   <textarea
                     aria-label="Message"
                     value={body}
+                    disabled={!review.operations.length}
                     onChange={(event) => setBody(event.target.value)}
                     rows={8}
                     maxLength={20000}
                     required
                   />
                 </label>
-                <p>
-                  Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to
-                  these recipients.
-                </p>
-                <label>
-                  Reason for declining
-                  <input value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} />
-                </label>
+                {canSaveDraft && (
+                  <p>
+                    {item.engine_marks
+                      ? "Save draft keeps your edits. Send reply approves this exact text from your mailbox."
+                      : "Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to these recipients."}
+                  </p>
+                )}
+                {canDeclineDraft && (
+                  <label>
+                    Reason for declining
+                    <input value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} />
+                  </label>
+                )}
               </>
             )}
+            {!proposalLed && suggestionFields}
             {review.kind === "fact_review" && (
               <>
                 <p>Canonical value: {review.canonical}</p>
@@ -567,7 +629,7 @@ export function ReviewCard({ item, client, close, busy, confirmed, children }: P
                 }
                 onClick={() => choose(op)}
               >
-                {labels[op.verb]}
+                {item.engine_marks && op.verb === "submit-email-draft" ? "Send reply" : labels[op.verb]}
               </button>
             ))}
           </div>

@@ -53,6 +53,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
     action_id: null, action_version: null, due_on: null, kind_label: 'Update', title: 'The sample deal moved ahead',
   });
   const details = new Map();
+  let mailRows = [];
   const proposalRefusals = new Map();
   const snapshot = reader => ({ ...state, items: state.items.map(item => ({
     ...item, title: `${item.title} (${reader})`,
@@ -77,12 +78,16 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
         reads.push('GET /api/engine/home/inbox');
         return Response.json(snapshot('new inbox'));
       }
+      if (path === '/api/engine/home/mail-priorities') {
+        assert.equal(new URL(request.url).search, '');
+        return Response.json({ ok: true, schema_version: 'home-mail-priorities.v1', items: mailRows, more: false });
+      }
       const [, , , collection, id, action] = path.split('/');
       if (request.method === 'GET') return Response.json(details.get(id));
       if (collection !== 'home') {
         const args = await request.json();
         writes.push([path, args]);
-        const item = state.items.find(row => [row.action_id, row.reply_draft_id, row.completion_review?.proposal_id].includes(id) ||
+        const item = state.items.find(row => [row.action_id, row.reply_draft_id, row.fallback_reply_draft?.id, row.completion_review?.proposal_id].includes(id) ||
           row.suggestions?.some(suggestion => suggestion.id === id));
         assert.ok(item);
         if (collection === 'next-steps') {
@@ -100,14 +105,39 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
             proposalRefusals.delete(id);
             return Response.json({ error }, { status });
           }
+          mailRows = mailRows.filter(row => row.proposal_id !== id);
           if (item.completion_review) delete item.completion_review;
           else {
             item.suggestions = item.suggestions.filter(row => row.id !== id);
-            if (!item.suggestions.length) state.items.splice(state.items.indexOf(item), 1);
+            if (item.reply_draft_id) item.due_on = item.suggestions.map(row => details.get(row.id)?.due_on).filter(Boolean).sort()[0] ?? null;
+            if (!item.suggestions.length && !item.reply_draft_id) state.items.splice(state.items.indexOf(item), 1);
           }
           return Response.json({ proposal_id: id, status: args.decision === 'accept' ? 'accepted' : 'dismissed' });
         }
-        throw Error('Unexpected engine collection');
+        const draft = details.get(id);
+        assert.equal(args.version, draft.version);
+        draft.version++;
+        draft.subject = args.subject ?? draft.subject;
+        draft.body = args.body ?? draft.body;
+        draft.status = action === 'submission' ? 'approved' : action === 'dismissal' ? 'dismissed' : 'pending';
+        const receipt = { draft_id: id, version: draft.version, status: draft.status };
+        if (item.fallback_reply_draft) {
+          item.fallback_reply_draft = { id, version: String(draft.version), status: draft.status, failure_reason: null };
+          return Response.json(receipt);
+        }
+        if (draft.status !== 'pending' && item.suggestions?.length) {
+          const [first] = item.suggestions;
+          const { reply_draft_id, reply_draft_status, ...remaining } = item;
+          state.items.splice(state.items.indexOf(item), 1, { ...remaining, item_id: `suggestion:${first.id}`, source_id: first.id,
+            kind_label: 'Task', title: 'Remaining email suggestion', source_version: '43',
+            ...(draft.status === 'approved' && { fallback_reply_draft: { id, version: String(draft.version), status: 'approved', failure_reason: null } }) });
+          mailRows = mailRows.filter(row => row.reply_draft_id !== id);
+          return Response.json(receipt);
+        }
+        if (draft.status === 'dismissed') state.items.splice(state.items.indexOf(item), 1);
+        Object.assign(item, { source_version: String(draft.version), reply_draft_status: draft.status, source_state: action === 'submission' ? 'working' : 'needs_attention',
+          section: action === 'submission' ? 'working' : 'inbox' });
+        return Response.json(receipt);
       }
       assert.equal(path, '/api/engine/home/marks');
       const args = await request.json();
@@ -123,6 +153,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
       return Response.json(mark(args, 'new inbox'));
     } },
     CARR: { fetch: async request => {
+      if (request.method === 'GET') return Response.json({ error: 'not_found' }, { status: 404 });
       const { id, params: { name, arguments: args } } = await request.json();
       if (name === 'read-home-inbox-v5') reads.push(name);
       let payload = name === 'read-home-inbox-v5' ? snapshot('current inbox') : { ok: true, items: [], deals: [] };
@@ -134,11 +165,13 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
       return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } });
     } },
   };
-  await page.route('**/mcp', async route => {
+  const routeWorker = async route => {
     const request = route.request();
     const response = await worker.fetch(new Request(request.url(), { method: request.method(), headers: request.headers(), body: request.postData() }), env);
     await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
-  });
+  };
+  await page.route('**/mcp', routeWorker);
+  await page.route('**/api/v1/intelligence/mail-needs-partner?*', routeWorker);
 
   await open('/?mode=live');
   const reader = enabled ? 'new inbox' : 'current inbox';
@@ -236,19 +269,37 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
 
   const proposal = '00000000-0000-0000-0000-000000000020';
   const log = '00000000-0000-0000-0000-000000000021';
+  const draft = '00000000-0000-0000-0000-000000000022';
   const next = '00000000-0000-0000-0000-000000000023';
+  const decline = '00000000-0000-0000-0000-000000000024';
+  const leading = '00000000-0000-0000-0000-000000000025';
   const phase = '00000000-0000-0000-0000-000000000026';
+  const nested = '00000000-0000-0000-0000-000000000027';
+  const remaining = '00000000-0000-0000-0000-000000000028';
+  const dismissNested = '00000000-0000-0000-0000-000000000029';
   const evidence = { evidence: 'Discussed next steps.', source_activity: { kind: 'call', summary: 'The sample call summary.', happened_at: NOW.toISOString() } };
   state.items[2].completion_review = { proposal_id: proposal, can_resolve: false };
   details.set(proposal, { ...evidence, proposal_id: proposal, kind: 'next_step_done' });
   const notice = state.items[3];
   state.items.push(
-    { ...notice, title: 'Call suggestions', item_id: `capture_session:${log}`, source_id: log, source_type: 'capture_session',
-      deal_id: null, kind_label: 'Call', suggestions: [{ id: log }, { id: next }, { id: phase }] },
+    { ...notice, title: 'Call suggestions', item_id: `suggestion:${log}`, source_id: log, source_type: 'capture_session',
+      deal_id: null, kind_label: 'Call', suggestions: [{ id: log }, { id: phase }] },
+    { ...notice, title: 'Email suggestions', item_id: `suggestion:${leading}`, source_id: leading, source_type: 'email_proposal',
+      deal_id: null, kind_label: 'Task', suggestions: [{ id: leading }, { id: next }] },
+    { ...notice, title: 'Reply to the sample email', item_id: `reply_draft:${draft}`, source_id: draft, source_type: 'email_proposal',
+      deal_id: null, due_on: '2026-11-04', kind_label: 'Reply draft', source_version: '1', reply_draft_id: draft,
+      suggestions: [{ id: nested }, { id: dismissNested }, { id: remaining }] },
   );
   details.set(log, { ...evidence, proposal_id: log, kind: 'log_call', target_name: 'Example Dental', what: 'Log the sample call' });
   details.set(next, { ...evidence, proposal_id: next, kind: 'next_step', what: 'Share the plan', due_on: '2026-11-04' });
   details.set(phase, { ...evidence, proposal_id: phase, kind: 'phase_move', to_phase: 'legal' });
+  details.set(leading, { ...evidence, proposal_id: leading, kind: 'possible_new_deal' });
+  details.set(nested, { ...evidence, proposal_id: nested, kind: 'next_step', what: 'Share the sample plan', due_on: '2026-11-04' });
+  details.set(remaining, { ...evidence, proposal_id: remaining, kind: 'possible_new_deal' });
+  details.set(dismissNested, { ...evidence, proposal_id: dismissNested, kind: 'file_to_deal' });
+  details.set(draft, { draft_id: draft, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
+    to: 'sender@example.test', cc: 'partner@example.test', attachments: [{ document_id: dealId, name: 'Sample plan' }],
+    source_activity: { sender: 'sender@example.test', subject: 'Sample email', body: 'Please share the sample plan.', happened_at: NOW.toISOString() } });
   await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
   const cardFor = name => inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name }) });
   const review = cardFor(/Did this happen\? Review the sample site/);
@@ -268,32 +319,132 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   assert.equal(writes.at(-1)[1].decision, 'dismiss');
   await inbox.getByRole('region', { name: 'Needs your attention', exact: true }).getByRole('button', { name: /^See all/ }).click();
   const suggestions = cardFor(/Call suggestions/);
+  const reply = cardFor(/Reply to the sample email/);
+  for (const [row, id] of [[suggestions, `suggestion:${log}`], [reply, `reply_draft:${draft}`]]) {
+    const base_version = state.items.find(card => card.item_id === id).base_version;
+    await row.getByRole('button', { name: 'Snooze', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+    await row.waitFor({ state: 'detached' });
+    assert.equal(writes.at(-1)[1].item_id, id);
+    assert.equal(writes.at(-1)[1].base_version, base_version);
+    await undo.click();
+    await row.waitFor();
+  }
   await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
   await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
   assert.equal(writes.at(-1)[1].decision, 'accept');
-  for (const [error, status, message] of [
-    ['open_step_exists', 409, /You already have an open step for this client or deal/],
-    ['invalid_field_value', 422, /This suggestion could not be saved/],
-  ]) {
-    proposalRefusals.set(next, [error, status]);
-    await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
-    await suggestions.getByRole('alert').filter({ hasText: message }).waitFor();
-    assert.equal(await suggestions.getByRole('button', { name: 'Retry same review request' }).count(), 0);
-    await page.keyboard.press('Escape');
-    await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
-  }
-  await suggestions.getByRole('textbox', { name: 'Next step', exact: true }).fill('Share the revised plan');
-  await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
-  await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
-  assert.deepEqual(writes.at(-1)[1].edits, { what: 'Share the revised plan', due_on: '2026-11-04' });
   proposalRefusals.set(phase, ['version_conflict', 409]);
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).click();
   await suggestions.getByRole('alert').filter({ hasText: /This deal has moved since the suggestion/ }).waitFor();
   assert.equal(await suggestions.getByRole('button', { name: 'Review updated card' }).count(), 0);
   await suggestions.getByRole('button', { name: 'Dismiss', exact: true }).click();
   await suggestions.waitFor({ state: 'detached' });
+  assert.equal(writes.at(-1)[1].decision, 'dismiss');
+  const priority = { item_id: `suggestion:${leading}`, base_version: notice.base_version, conversation_id: 'sample-conversation',
+    kind: 'next_step', proposal_id: next, reply_draft_id: null, sender: 'Sample Sender', subject: 'Sample message', suggestion: 'Share the plan',
+    due_on: '2026-11-04', source_activity: { kind: 'email', id: log, happened_at: NOW.toISOString() } };
+  const mail = page.getByRole('region', { name: 'Mail priorities', exact: true });
+  mailRows = [{ ...priority, kind: 'reply_draft', item_id: `reply_draft:${draft}` }];
+  await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
+  await mail.getByText('Mail priorities unavailable.', { exact: true }).waitFor();
+  mailRows = [priority];
+  const priorityButton = mail.getByRole('button', { name: 'Sample Sender · Sample message', exact: true });
+  await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
+  await priorityButton.press('Enter');
+  assert.equal(await mail.locator('li').count(), 1);
+  const email = cardFor(/Email suggestions/);
+  await email.getByRole('heading', { name: 'Possible new deal', exact: true }).waitFor();
+  const step = email.getByRole('region', { name: 'Next step', exact: true });
+  assert.equal(await step.evaluate(section => section === document.activeElement), true);
+  for (const [error, status, message] of [
+    ['open_step_exists', 409, /You already have an open step for this client or deal/],
+    ['invalid_field_value', 422, /This suggestion could not be saved/],
+  ]) {
+    proposalRefusals.set(next, [error, status]);
+    await step.getByRole('button', { name: 'Accept', exact: true }).click();
+    await email.getByRole('alert').filter({ hasText: message }).waitFor();
+    assert.equal(await email.getByRole('button', { name: 'Retry same review request' }).count(), 0);
+    await page.keyboard.press('Escape');
+    await priorityButton.click();
+  }
+  await step.getByRole('textbox', { name: 'Next step', exact: true }).fill('Share the revised plan');
+  await step.getByRole('button', { name: 'Accept', exact: true }).click();
+  await email.getByRole('textbox', { name: 'Next step', exact: true }).waitFor({ state: 'detached' });
+  assert.ok(writes.at(-1)[0].includes(next));
+  assert.deepEqual(writes.at(-1)[1].edits, { what: 'Share the revised plan', due_on: '2026-11-04' });
+  mailRows = [{ ...priority, conversation_id: 'sample-draft-conversation', item_id: `reply_draft:${draft}`,
+    base_version: state.items.find(row => row.reply_draft_id === draft).base_version,
+    kind: 'reply_draft', proposal_id: null, reply_draft_id: draft, subject: 'Sample draft message' }];
+  await reply.getByText(/Due Nov 4/).waitFor();
+  await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
+  await mail.getByRole('button', { name: 'Sample Sender · Sample draft message', exact: true }).click();
+  await reply.getByText('Please share the sample plan.', { exact: true }).waitFor();
+  await reply.getByRole('link', { name: 'Sample plan', exact: true }).waitFor();
+  await reply.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited reply.');
+  assert.equal(await cardFor(/Remaining email suggestion/).count(), 0);
+  await reply.getByRole('button', { name: 'Accept', exact: true }).first().click();
+  await reply.getByText('Suggestion accepted.', { exact: true }).waitFor();
+  assert.match(writes.at(-1)[0], new RegExp(`/proposals/${nested}/decision$`));
+  await reply.getByRole('button', { name: 'Dismiss', exact: true }).first().click();
+  await reply.getByText('Suggestion dismissed.', { exact: true }).waitFor();
+  assert.match(writes.at(-1)[0], new RegExp(`/proposals/${dismissNested}/decision$`));
+  assert.equal(writes.at(-1)[1].decision, 'dismiss');
+  assert.equal(await reply.getByRole('textbox', { name: 'Message', exact: true }).inputValue(), 'Edited reply.');
+  await reply.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await reply.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
+  assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, subject: 'Sample reply', body: 'Edited reply.' });
+  const draftCard = state.items.find(row => row.reply_draft_id === draft);
+  await reply.getByRole('button', { name: 'Send reply', exact: true }).click();
+  const fallback = cardFor(/Remaining email suggestion/);
+  await fallback.getByText('Sending', { exact: true }).waitFor();
+  assert.equal(await reply.count(), 0);
+  assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 2, subject: 'Sample reply',
+    body: 'Edited reply.', to: 'sender@example.test', cc: 'partner@example.test', document_ids: [dealId] });
+  await fallback.getByRole('button', { name: 'Open', exact: true }).click();
+  await fallback.getByRole('status').filter({ hasText: 'Sending' }).waitFor();
+  assert.equal(await fallback.getByRole('button', { name: 'Accept', exact: true }).isEnabled(), true);
+  assert.equal(await fallback.getByRole('button', { name: 'Send reply', exact: true }).count(), 0);
+  await fallback.getByRole('button', { name: 'Close review' }).click();
+  const draftRecord = details.get(draft);
+  const fallbackCard = state.items.find(row => row.item_id === `suggestion:${remaining}`);
+  Object.assign(draftRecord, { status: 'failed', failure_reason: 'submission_recipients_invalid' });
+  Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
+  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
+  await fallback.getByText(/^Didn't send/).waitFor();
+  await fallback.getByRole('button', { name: 'Open', exact: true }).click();
+  await fallback.getByRole('status').filter({ hasText: /^Didn't send/ }).waitFor();
+  await fallback.getByRole('status').filter({ hasText: /Reply from Outlook/ }).waitFor();
+  assert.equal(await fallback.getByText(/Check the recipients|Save draft keeps your edits/).count(), 0);
+  assert.equal(await fallback.getByRole('textbox', { name: 'Reason for declining' }).count(), 0);
+  assert.equal(await fallback.getByRole('button', { name: 'Send reply', exact: true }).count(), 0);
+  await fallback.getByRole('button', { name: 'Close review' }).click();
+  draftRecord.failure_reason = 'aborted_before_dispatch';
+  fallbackCard.fallback_reply_draft.failure_reason = draftRecord.failure_reason;
+  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
+  await fallback.getByText(/Sending stopped before delivery/).waitFor();
+  await fallback.getByRole('button', { name: 'Open', exact: true }).click();
+  await fallback.getByRole('button', { name: 'Send reply', exact: true }).click();
+  await fallback.getByRole('button', { name: 'Open', exact: true }).waitFor();
+  assert.equal(writes.at(-1)[1].version, 3);
+  details.set(decline, { ...details.get(draft), draft_id: decline, version: 1, status: 'pending' });
+  state.items.push({ ...notice, title: 'Another sample draft', item_id: `reply_draft:${decline}`, source_id: decline,
+    source_type: 'email_proposal', deal_id: null, kind_label: 'Reply draft', source_version: '1', reply_draft_id: decline });
+  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
+  const declined = cardFor(/Another sample draft/);
+  await declined.getByRole('button', { name: 'Open', exact: true }).click();
+  await declined.getByRole('textbox', { name: 'Reason for declining' }).fill('Already answered.');
+  await declined.getByRole('button', { name: 'Decline draft', exact: true }).click();
+  await declined.waitFor({ state: 'detached' });
+  assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, reason: 'Already answered.' });
+  delete fallbackCard.fallback_reply_draft;
+  state.items.push({ ...draftCard, section: 'settled', disposition: 'settled', suggestions: [],
+    auto_settled: true, source_state: 'done', source_version: String(draftRecord.version), reply_draft_status: 'sent', completed_at: NOW.toISOString() });
+  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
+  const sent = inbox.getByRole('region', { name: 'Done today', exact: true });
+  await sent.getByText(/^Sent /).waitFor();
+  assert.equal(await sent.getByRole('button', { name: /Snooze|Undo/ }).count(), 0);
 
   const lease = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
   await lease.getByRole('button', { name: 'Snooze', exact: true }).click();

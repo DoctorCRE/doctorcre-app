@@ -138,6 +138,9 @@ const HOME_WRITES = new Map([
   ['end-engine-home-step', ['next-steps', 'end']],
   ['reopen-engine-home-step', ['next-steps', 'reopen']],
   ['decide-engine-home-proposal', ['proposals', 'decision']],
+  ['edit-engine-home-draft', ['reply-drafts', 'edit']],
+  ['dismiss-engine-home-draft', ['reply-drafts', 'dismissal']],
+  ['submit-engine-home-draft', ['reply-drafts', 'submission']],
 ]);
 const homeDetail = path => ({ key: HOME, path: '/api/engine/' + path, segment: 'id',
   args: { id: value => isUuid(value) }, accepts: ({ id }) => isUuid(id) });
@@ -165,7 +168,9 @@ const ENGINE_READS = new Map([
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
   ['territory-state-board', { key: LEADS, path: '/api/engine/territory-state-board', args: { vertical: isString, city: isString, state: isString } }],
   ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {} }],
+  ['/api/v1/intelligence/mail-needs-partner', { key: HOME, path: '/api/engine/home/mail-priorities', forwardQuery: false, engineOnly: true }],
   ['read-engine-home-proposal', homeDetail('proposals')],
+  ['read-engine-home-draft', homeDetail('reply-drafts')],
   ['read-invoice-tracker', { key: INVOICES, path: '/api/engine/invoices', args: {} }],
   ['ideal-client-profile', { key: CHARTS, path: '/api/engine/client-fit', args: { vertical: isString, city: isString, state: isString } }],
   ['capture-queue', { key: NATIONAL_DEALS, path: '/api/engine/capture-queue', args: {} }],
@@ -196,7 +201,7 @@ function mcpReply(call, response, text, isError) {
 // The registered read a request asks for: a business GET, or a tool call with its arguments.
 async function engineRead(request, url) {
   if (request.method === 'GET') {
-    const [, path, record = ''] = BUSINESS_GET.exec(url.pathname) ?? [];
+    const [, path, record = ''] = BUSINESS_GET.exec(url.pathname) ?? [null, url.pathname];
     const read = ENGINE_READS.get(path);
     return read && !(read.listOnly && record) ? { read, record } : null;
   }
@@ -238,7 +243,10 @@ async function engineResponse(request, env) {
       for (const [key, value] of Object.entries(args)) {
         if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
       }
-    } else url.pathname = read.path + record;
+    } else {
+      url.pathname = read.path + record;
+      if (read.forwardQuery === false) url.search = '';
+    }
     const response = await Promise.race([
       (async () => {
         const response = await env.ENGINE.fetch(new Request(url, { headers, signal: controller.signal, redirect: 'manual' }));
@@ -294,7 +302,7 @@ async function engineResponse(request, env) {
     if (response) return response;
   } catch { /* The switch below decides whether this read can fall back. */ }
   finally { clearTimeout(timer); reader?.releaseLock(); }
-  return read.key === DEALS && await switchedOn(env, NEXT_DEAL_SAVES)
+  return read.engineOnly || (read.key === DEALS && await switchedOn(env, NEXT_DEAL_SAVES))
     ? json({ error: 'engine_unavailable' }, 503) : null;
 }
 

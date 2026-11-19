@@ -65,6 +65,7 @@ export type Snapshot = Readonly<{
   truncated: boolean;
   limit: 1000;
   items: InboxItem[];
+  engine_marks?: true;
   working_collapsed: true;
 }> &
   (
@@ -313,7 +314,14 @@ export function parseSnapshot(value: unknown): Snapshot {
   });
   if (new Set(items.map((item) => item.item_id)).size !== items.length)
     throw Error("Inbox returned duplicate items. Refresh to try again.");
-  const shared = { ok: true, truncated: value.truncated, limit: 1000, items, working_collapsed: true } as const;
+  const shared = {
+    ok: true,
+    truncated: value.truncated,
+    limit: 1000,
+    items,
+    ...(value.engine_marks === true && { engine_marks: true as const }),
+    working_collapsed: true,
+  } as const;
   return contract.settlement
     ? { ...shared, schema_version: contract.schema, auto_settle_enabled: true }
     : { ...shared, schema_version: "home-inbox.v2", auto_settle_enabled: false };
@@ -401,7 +409,13 @@ export type ReviewRequest =
 export type CardReview =
   | Exclude<Review, { kind: "reply_draft" }>
   | { kind: "suggestions"; operations: []; proposals: Suggestion[] }
-  | (Extract<Review, { kind: "reply_draft" }> & { email: IncomingEmail | null });
+  | (Extract<Review, { kind: "reply_draft" }> & {
+      email: IncomingEmail | null;
+      proposals?: Suggestion[];
+      addresses?: { to: string | null; cc: string | null };
+      attachments?: { id: string; name: string }[];
+      statusMessage?: string | null;
+    });
 
 function incomingEmail(value: unknown): IncomingEmail | null {
   const source = object(value) && object(value.detail) ? value.detail.source : null;
@@ -503,11 +517,12 @@ export function createInboxClient(
       async run(item, request) {
         if (navigator.onLine === false) throw Error("Offline. Nothing was sent.");
         if (hasEngineReview(item)) {
-          await saveEngineReview(rpc, item, request);
+          const version = await saveEngineReview(rpc, item, request);
           const snapshot = await read();
           return {
             item: snapshot.items.find((row) => row.item_id === item.item_id) ?? null,
             snapshot,
+            ...(version === undefined ? {} : { saved_version: version }),
           };
         }
         const value = await rpc(request.verb, request.args);

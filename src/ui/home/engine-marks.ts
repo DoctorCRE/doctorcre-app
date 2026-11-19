@@ -3,7 +3,8 @@ import type { Action, InboxItem } from "./inbox.tsx";
 type Target = Pick<InboxItem, "item_id" | "base_version">;
 export type MarkSelection = { action: Action; until?: string };
 export type MarkUndo = Target & { disposition: "settled" | "snoozed" | null; snoozed_until: string | null };
-export const markTarget = (item_id: string) => /^(next_action|capture_post_call_action|notification):/.test(item_id);
+export const markTarget = (item_id: string) =>
+  /^(next_action|capture_post_call_action|notification|suggestion|reply_draft):/.test(item_id);
 export function restoreMark(previous: MarkUndo): MarkSelection {
   if (previous.disposition === "settled") return { action: "settle" };
   if (previous.disposition === "snoozed" && previous.snoozed_until && Date.parse(previous.snoozed_until) > Date.now())

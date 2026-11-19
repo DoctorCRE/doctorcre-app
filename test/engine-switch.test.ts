@@ -1748,14 +1748,35 @@ test("the Home switch routes guarded step and review actions through signed-in e
   await f.send(call("end-engine-home-step", { id, ...step }));
   await f.send(call("read-engine-home-proposal", { id }));
   await f.send(call("decide-engine-home-proposal", { id, idempotency_key: id, decision: "accept" }));
+  await f.send(call("read-engine-home-draft", { id }));
+  await f.send(
+    call("edit-engine-home-draft", { id, idempotency_key: id, version: 2, subject: "Example", body: "Example reply" }),
+  );
   assert.deepEqual(
     f.engine.map((request) => [request.method, new URL(request.url).pathname]),
     [
       ["POST", `/api/engine/next-steps/${id}/end`],
       ["GET", `/api/engine/proposals/${id}`],
       ["POST", `/api/engine/proposals/${id}/decision`],
+      ["GET", `/api/engine/reply-drafts/${id}`],
+      ["POST", `/api/engine/reply-drafts/${id}/edit`],
     ],
   );
   assert.deepEqual(await f.engine[0]?.json(), step);
   assert.deepEqual(f.carr, []);
+});
+
+test("switched Mail priorities use the engine's unfiltered read", async () => {
+  const result = { ok: true, schema_version: "home-mail-priorities.v1", items: [], more: false };
+  const f = fixture(new Map([["home-from-engine", "on"]]), async () => Response.json(result));
+  const request = new Request(`${origin}/api/v1/intelligence/mail-needs-partner?limit=25`, {
+    headers: { cookie: "session=synthetic" },
+  });
+  assert.deepEqual(await (await worker.fetch(request, f.env)).json(), result);
+  assert.equal(f.engine[0]?.url, `${origin}/api/engine/home/mail-priorities`);
+  assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
+  assert.deepEqual(f.carr, []);
+  const off = fixture(null);
+  assert.equal(await (await worker.fetch(request, off.env)).text(), "old");
+  assert.equal(off.engine.length, 0);
 });
