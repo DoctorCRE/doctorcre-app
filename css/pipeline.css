@@ -244,6 +244,7 @@ button.client-portal-link:disabled { cursor: wait; }
 .workspace-facts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: var(--space-3); margin-block: var(--space-3); }
 .workspace-facts dt { color: var(--fg-muted); font-size: var(--font-size-1); }
 .workspace-facts dd { margin: 0; }
+.workspace-facts .workspace-critical-date { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); }
 #workspaceTabs { display: flex; overflow-x: auto; gap: var(--space-2); }
 .workspace-tab { flex: none; min-height: 44px; min-width: 44px; padding: var(--space-3); color: var(--fg-muted); background: transparent; border: 0; border-bottom: 3px solid transparent; font: inherit; white-space: nowrap; cursor: pointer; }
 .workspace-tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
@@ -271,6 +272,8 @@ button.client-portal-link:disabled { cursor: wait; }
   .workspace-facts .workspace-client { grid-column: 1 / -1; }
   .workspace-facts .workspace-client dd { display: block; overflow: hidden; text-overflow: ellipsis; }
   .workspace-facts dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .workspace-facts .workspace-critical-date { white-space: normal; }
+  .workspace-critical-date dt { position: static; width: auto; height: auto; clip-path: none; }
   .workspace-facts dd { display: inline; }
   .workspace-facts .workspace-client-labeled { display: flex; align-items: baseline; gap: var(--space-1); }
   .workspace-facts .workspace-client-labeled dt { position: static; width: auto; height: auto; clip-path: none; }

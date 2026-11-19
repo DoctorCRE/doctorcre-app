@@ -2275,9 +2275,16 @@ for (const width of [1440, 390]) {
   });
 }
 
+async function dealFixtureOrigin(t) {
+  const fixture = await (await createQaServer({ buildRoot: join(outDir, 'site') })).start();
+  t.after(() => fixture.close());
+  return fixture.origin;
+}
+
 for (const width of [1440, 390]) test(`the deal shows its emails and meetings together at ${width}px`, async t => {
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   t.after(() => page.close());
+  const fixtureOrigin = await dealFixtureOrigin(t);
   await page.clock.install({ time: new Date('2026-11-19T18:00:00Z') });
   const deal = { deal_id: crypto.randomUUID(), name: 'Example Floor Plan', phase: 'research', owner: 'joe', seen: 1 };
   const subject = 'Floor plan <draft>';
@@ -2309,7 +2316,8 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
       return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(detail) }] } });
     } },
   };
-  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `deal-correspondence-${width}`, viewer: 'joe', reset: true } });
+  const seeded = await page.request.post(`${fixtureOrigin}/api/test/seed`, { data: { namespace: 'deal-correspondence', viewer: 'joe' } });
+  assert.equal(seeded.status(), 200);
   await page.route('**/mcp', async route => {
     const request = route.request();
     if (request.postDataJSON()?.params?.name !== 'get-deal-room') return route.continue();
@@ -2321,7 +2329,7 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
 
   const tab = page.getByRole('tab', { name: 'Correspondence & notes' });
   const panel = page.getByRole('tabpanel', { name: 'Correspondence & notes' });
-  await page.goto(`${origin}/deals?deal=${deal.deal_id}&mode=live`);
+  await page.goto(`${fixtureOrigin}/deals?deal=${deal.deal_id}&mode=live`);
   await tab.click();
   await panel.getByRole('heading', { name: 'Email threads', exact: true }).waitFor();
   await panel.getByRole('heading', { name: 'Meetings', exact: true }).waitFor();
@@ -2358,6 +2366,7 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
 for (const width of [1440, 390]) test(`a changed checklist item stays open until reviewed again at ${width}px`, async t => {
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   t.after(() => page.close());
+  const fixtureOrigin = await dealFixtureOrigin(t);
   const deal = crypto.randomUUID();
   const step = { id: crypto.randomUUID(), title: 'Review the floor plan', due_on: '2026-11-24', status: 'open', change_id: 0 };
   const row = { id: deal, deal_id: deal, name: 'Example Deal', owner: 'joe', phase: 'research', seen: 23 };
@@ -2383,7 +2392,8 @@ for (const width of [1440, 390]) test(`a changed checklist item stays open until
       return Response.json({ next_step_id: step.id, status: 'done', change_id: change_id + 1 });
     } },
   };
-  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `checklist-version-${width}`, viewer: 'joe', reset: true } });
+  const seeded = await page.request.post(`${fixtureOrigin}/api/test/seed`, { data: { namespace: 'checklist-version', viewer: 'joe' } });
+  assert.equal(seeded.status(), 200);
   await page.route('**/mcp', async route => {
     const request = route.request();
     if (!['deal-room-board', 'get-deal-room', 'complete-deal-item'].includes(request.postDataJSON()?.params?.name)) return route.continue();
@@ -2393,7 +2403,7 @@ for (const width of [1440, 390]) test(`a changed checklist item stays open until
     await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
   });
 
-  await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+  await page.goto(`${fixtureOrigin}/deals?deal=${deal}&mode=live`);
   await page.locator('#recordPanel').getByRole('button', { name: step.title, exact: true }).click();
   const sheet = page.getByRole('dialog', { name: step.title });
   const done = sheet.getByRole('button', { name: 'Mark done', exact: true });
@@ -2420,3 +2430,84 @@ for (const width of [1440, 390]) test(`a changed checklist item stays open until
   assert.deepEqual(writes.map(({ base_version }) => base_version), [0, 17]);
   assert.notEqual(writes[0].idempotency_key, writes[1].idempotency_key);
 });
+
+for (const width of [1440, 390]) {
+  test(`a National deal shows its facts once and its next confirmed date at ${width}px`, async t => {
+    const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Los_Angeles' });
+    t.after(() => page.close());
+    const fixtureOrigin = await dealFixtureOrigin(t);
+    const [deal, account, lease, confirmed, proposed] = Array.from({ length: 5 }, () => crypto.randomUUID());
+    const nextDate = { id: confirmed, kind: 'lease_expiration', due_on: '2026-11-19' };
+    const row = {
+      id: deal, deal_id: deal, name: 'Example Expansion', client_name: 'Example Practice', phase: 'closed',
+      owner: 'dell', workspace_kind: 'national_account', account_client_id: account,
+      type: 'purchase', kind: 'purchase', reason: 'renewal', renews_lease_id: lease,
+      market: 'Example City', market_agent: 'Example Agent', outcome: 'won', closed_value: '125000',
+      next_date: '2026-11-18',
+    };
+    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [], closed_deals: [], lost_deals: [] };
+    let readsOn = false;
+    let criticalDate = nextDate;
+    const env = {
+      ENGINE_ROUTING: { get: async key => readsOn && key === 'deals-from-engine' ? 'on' : null },
+      ENGINE: { fetch: async request => Response.json(new URL(request.url).pathname.endsWith(deal) ? {
+        ...row, email_follow_ups: [], next_critical_date: criticalDate,
+        critical_dates: [
+          { id: proposed, kind: 'option_notice', due_on: '2026-11-17', status: 'proposed' },
+          { ...nextDate, status: criticalDate ? 'open' : 'cleared' },
+        ],
+      } : board) },
+      CARR: { fetch: async request => {
+        const { id, params } = await request.json();
+        const data = params.name === 'deal-room-board' ? board : row;
+        return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
+      } },
+    };
+    const seeded = await page.request.post(`${fixtureOrigin}/api/test/seed`, { data: { namespace: 'national-deal-facts', viewer: 'joe' } });
+    assert.equal(seeded.status(), 200);
+    await page.route('**/mcp', async route => {
+      const request = route.request();
+      if (!['deal-room-board', 'get-deal-room'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+      const response = await handleDoctorcreRequest(new Request(request.url(), {
+        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+      }), env);
+      return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+    });
+
+    const detail = page.locator('#recordPanel');
+    const header = detail.locator('#workspaceFacts');
+    const snapshot = detail.getByRole('region', { name: 'Deal snapshot' });
+    const nextCriticalDate = header.getByText('Next critical date', { exact: true }).locator('..');
+    const open = async () => {
+      await page.goto(`${fixtureOrigin}/deals?deal=${deal}&mode=live`);
+      await snapshot.waitFor();
+    };
+    await open();
+    assert.equal(await nextCriticalDate.count(), 0);
+    assert.equal(await snapshot.getByText('Example City', { exact: true }).count(), 0);
+
+    readsOn = true;
+    await open();
+    await nextCriticalDate.getByText('Thu, Nov 19, 2026', { exact: true }).waitFor({ timeout: 5000 });
+    assert.match(await nextCriticalDate.textContent(), /Lease expiration/);
+    assert.equal(await header.locator('time').count(), 1);
+    assert.equal(await detail.getByText('Example Practice', { exact: true }).count(), 1);
+    assert.equal(await snapshot.getByText('No next step set.', { exact: true }).count(), 1);
+    for (const [label, value] of [['Market', 'Example City'], ['Type', 'Purchase'], ['Deal reason', 'Renewal'],
+      ['Market agent', 'Example Agent'], ['Closed value', '$125,000.00']]) {
+      const fact = snapshot.getByText(label, { exact: true });
+      assert.equal(await fact.count(), 1);
+      assert.equal(await fact.locator('..').getByText(value, { exact: true }).count(), 1);
+      assert.equal(await header.getByText(value, { exact: true }).count(), 0);
+    }
+    assert.equal(await snapshot.getByText('Lease not recorded').count(), 0);
+    assert.ok(!(await detail.textContent()).includes(lease));
+    assert.equal(await detail.locator(`a[href*="${lease}"]`).count(), 0);
+    assert.ok(await header.evaluate(element => element.scrollWidth <= element.clientWidth));
+    await page.screenshot({ path: join(evidence, `deal-facts-${width}.png`) });
+
+    criticalDate = null;
+    await detail.getByRole('button', { name: 'Refresh deal' }).click();
+    await nextCriticalDate.waitFor({ state: 'detached' });
+  });
+}
