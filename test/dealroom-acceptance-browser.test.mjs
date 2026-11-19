@@ -714,7 +714,9 @@ test('switched-on Deals selects an existing market agent and decides critical da
   const [deal, account, person, date, prior, older] = Array.from({ length: 6 }, () => crypto.randomUUID());
   const row = { id: deal, name: 'Example Market Deal', phase: 'research', seen: 1, owner: 'joe', account_client_id: account, market_agent: 'Previous Agent' };
   const critical = { id: date, kind: 'lease_end', due_on: '2027-01-02', status: 'proposed' };
-  const dates = [critical];
+  const dates = [critical, {
+    id: crypto.randomUUID(), kind: 'phase_effective_date', due_on: '2027-01-01', status: 'open',
+  }];
   let participants = [
     { party_id: prior, role: 'market_agent' },
     { party_id: older, role: 'market_agent' },
@@ -737,7 +739,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
         ] });
       }
       if (request.method === 'GET') return Response.json(path.endsWith(deal)
-        ? { ...row, deal_id: deal, critical_dates: dates, participants }
+        ? { ...row, deal_id: deal, critical_dates: dates, participants, email_follow_ups: [] }
         : { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row],
           accounts: [{ account_client_id: account, account_name: 'Example National Account', account_owner: 'joe' }] });
       const { idempotency_key, ...body } = await request.json();
@@ -786,6 +788,10 @@ test('switched-on Deals selects an existing market agent and decides critical da
     return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
   });
 
+  await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+  await page.getByRole('heading', { name: 'Critical dates', exact: true }).waitFor();
+  assert.equal(await page.getByText('Add critical date', { exact: true }).count(), 0);
+  assert.equal(await page.locator('.critical-date').filter({ hasText: 'Jan 1, 2027' }).locator(':scope > span').textContent(), 'Phase effective date');
   await page.goto(`${origin}/deals?view=national&mode=live`);
   await page.getByRole('button', { name: /Example National Account/ }).click();
   await page.getByRole('button', { name: 'Previous Agent' }).click();
@@ -836,12 +842,51 @@ test('switched-on Deals selects an existing market agent and decides critical da
   await card.getByRole('button', { name: 'Mark done' }).click();
   await card.getByText('Done', { exact: true }).waitFor();
 
+  const add = page.getByText('Add critical date', { exact: true });
+  assert.equal(await add.count(), 1);
+  await add.click();
+  const kind = page.getByLabel('Kind', { exact: true });
+  await kind.selectOption({ label: 'Phase effective date' });
+  await page.getByLabel('Date', { exact: true }).fill('2027-01-04');
+  const dateSource = page.getByRole('textbox', { name: 'Where did this date come from?' });
+  const saveDate = page.getByRole('button', { name: 'Save critical date', exact: true });
+  await dateSource.fill('   ');
+  await saveDate.click();
+  await page.getByText('Enter where the date came from.', { exact: true }).waitFor();
+  assert.equal(writes.filter(([path]) => path.endsWith('/critical-dates')).length, 0);
+  await dateSource.fill('Example letter');
+  await page.getByLabel('Note (optional)', { exact: true }).fill('Signed by both sides');
+  await saveDate.click();
+  await page.getByText('Critical date added', { exact: true }).waitFor();
+  const added = page.locator('.critical-date').filter({ hasText: 'Jan 4, 2027' });
+  await added.getByText('Phase effective date', { exact: true }).waitFor();
+  await added.getByText('Details', { exact: true }).click();
+  await added.getByText('Signed by both sides', { exact: false }).waitFor();
+  await added.screenshot({ path: join(evidence, 'engine-added-phase-date.png') });
+
+  for (const [value, label, day, caption] of [
+    ['option_notice', 'Option notice', '2027-01-05', 'Jan 5, 2027'],
+    ['other', 'Other', '2027-01-06', 'Jan 6, 2027'],
+  ]) {
+    if (!await kind.isVisible()) await add.click();
+    await kind.selectOption(value);
+    assert.equal(await kind.locator('option:checked').textContent(), label);
+    await page.getByLabel('Date', { exact: true }).fill(day);
+    await dateSource.fill('Example contract');
+    await page.getByLabel('Note (optional)', { exact: true }).fill('Example clause');
+    await saveDate.click();
+    const card = page.locator('.critical-date').filter({ hasText: caption });
+    assert.equal(await card.locator(':scope > span').textContent(), label);
+    await card.getByText('Details', { exact: true }).click();
+    await card.getByText('Example clause', { exact: false }).waitFor();
+  }
+
   await page.locator('#detailPhase').selectOption('site_selection');
   await page.getByLabel('Record this as a critical date').check();
-  await page.getByLabel('Effective date').fill('2027-01-03');
-  await page.getByLabel('Where did this date come from?').fill('Example agreement');
+  await page.getByLabel('Phase effective date', { exact: true }).fill('2027-01-03');
+  await dateSource.fill('Example agreement');
   await page.getByRole('button', { name: 'Move to Site selection' }).click();
-  const effectiveDate = page.locator('.critical-date').filter({ hasText: 'Phase effective date' });
+  const effectiveDate = page.locator('.critical-date').filter({ hasText: 'Jan 3, 2027' });
   await effectiveDate.getByText('Confirmed', { exact: true }).waitFor();
   assert.equal(await effectiveDate.getByText('Phase effective date', { exact: true }).count(), 1);
   assert.equal(await effectiveDate.getByText('Jan 3, 2027', { exact: true }).count(), 1);
@@ -853,8 +898,11 @@ test('switched-on Deals selects an existing market agent and decides critical da
     [`/api/engine/deals/${deal}/parties/remove`, { party_id: older, role: 'market_agent' }],
     [`/api/engine/critical-dates/${date}/confirm`, {}],
     [`/api/engine/critical-dates/${date}/resolve`, { resolution: 'done', reason: 'The review is complete' }],
+    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'phase_effective_date', due_on: '2027-01-04', source: 'Example letter', note: 'Signed by both sides' }],
+    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'option_notice', due_on: '2027-01-05', source: 'Example contract', note: 'Example clause' }],
+    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'other', due_on: '2027-01-06', source: 'Example contract', note: 'Example clause' }],
     [`/api/engine/deals/${deal}/changes`, { seen_change_id: 1, phase: { from: 'research', to: 'site_selection' } }],
-    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'other', due_on: '2027-01-03', source: 'Example agreement', note: 'Phase effective date' }],
+    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'phase_effective_date', due_on: '2027-01-03', source: 'Example agreement' }],
   ]);
 });
 

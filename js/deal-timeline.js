@@ -2,23 +2,34 @@ import { createMcpRequests } from './mcp-requests.mjs';
 import { createCurrentRead } from './current-read.mjs';
 
 import { businessDay } from './business-date.js';
-import { COLUMNS, columnBySlug, columnByValue, noteText } from './pipeline-model.js';
+import { COLUMNS, columnBySlug, columnByValue, noteText, PHASE_DATE_KIND } from './pipeline-model.js';
 import { compareInstants, escapeText, fieldLabel, readableValue } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
-import { concise } from './local-deals-model.js';
+import { concise, isEngineDealDetail } from './local-deals-model.js';
 import { ACTOR_LABEL, authorLabel } from './client.js';
 
 const DAY = 86400000;
 const esc = escapeText;
 // Wire kinds, never prose matching or dates inferred from lease duration.
-const DATE_KINDS = Object.freeze([
-  { kind:'loi_expiry', label:'LOI', kinds:['loi_expiry','loi','loi_due'], deadline:true },
-  { kind:'due_diligence', label:'Due diligence', kinds:['due_diligence','due_diligence_deadline','dd_deadline'], deadline:true },
-  { kind:'lease_commencement', label:'Lease commencement', kinds:['lease_commencement','commencement'] },
-  { kind:'lease_expiration', label:'Lease expiration', kinds:['lease_expiration'], deadline:true },
-  { kind:'rent_start', label:'Rent start', kinds:['rent_start','rent_commencement'] },
-  { kind:'option_window', label:'Options', kinds:['option_window','option_notice','option_exercise'], deadline:true },
-]);
+const DATE_KINDS = [
+  { kind: 'loi_expiry', label: 'LOI expiry', aliases: ['loi', 'loi_due'], saveKind: 'loi_expiry', deadline: true },
+  { kind: 'due_diligence', label: 'Due diligence', aliases: ['due_diligence_deadline', 'dd_deadline'], saveKind: 'due_diligence', deadline: true },
+  { kind: 'lease_commencement', label: 'Lease commencement', aliases: ['commencement'] },
+  { kind: 'lease_expiration', label: 'Lease expiration', saveKind: 'lease_end', deadline: true },
+  { kind: 'rent_start', label: 'Rent start', aliases: ['rent_commencement'], saveKind: 'rent_start' },
+  { kind: 'option_window', label: 'Option notice', aliases: ['option_exercise'], saveKind: 'option_notice', deadline: true },
+  { kind: PHASE_DATE_KIND, label: 'Phase effective date', saveKind: PHASE_DATE_KIND, optional: true },
+  { kind: 'other', label: 'Other', saveKind: 'other', optional: true },
+];
+
+export const CRITICAL_DATE_OPTIONS = DATE_KINDS.flatMap(({ saveKind, label }) => saveKind ? [[saveKind, label]] : []);
+const dateKind = kind => kind && DATE_KINDS.find(d => d.kind === kind || d.saveKind === kind || d.aliases?.includes(kind));
+
+function criticalDateLabel(kind, definition) {
+  const words = kind?.replace(/[_-]+/g, ' ') || '';
+  return definition?.label || words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function calendarDay(value) {
   if (typeof value !== 'string') return null;
   const day = value.slice(0,10);
@@ -54,12 +65,12 @@ export function dealTimeline(detail, now = Date.now(), dateDecisions = false) {
     if (calendarDay(lease.expiration_on)) recordedDates.push({id:`lease-${lease.id}-expiration`,kind:'lease_expiration',due_on:lease.expiration_on,note:lease.evidence_ref,source:lease.source});
   }
   const rows = recordedDates.map((row,i) => {
-    const kind = dateDecisions && row.kind === 'lease_end' ? 'lease_expiration' : row.kind;
-    const definition = DATE_KINDS.find(d => d.kinds.includes(kind));
+    const definition = dateKind(row.kind);
     const value = row.due_on ?? row.date;
     const original = noteText(row.note);
-    const namedOther = row.kind === 'other' && original;
-    return {dateState:calendarDay(value) ? 'dated' : value == null || value === '' ? 'missing' : 'invalid',id:row.id || `date-${i}`,kind:definition?.kind || row.kind,label:namedOther || definition?.label || row.kind?.replace(/[_-]+/g,' ') || row.label || 'Date',
+    const namedOther = row.kind === 'other' && !isEngineDealDetail(detail) && original;
+    const kindLabel = criticalDateLabel(row.kind, definition);
+    return {dateState:calendarDay(value) ? 'dated' : value == null || value === '' ? 'missing' : 'invalid',id:row.id || `date-${i}`,kind:definition?.kind || row.kind,label:namedOther || kindLabel || row.label || 'Date',
       day:calendarDay(value),original:namedOther ? '' : original,
       evidence:row.source || '',status:row.status,deadline:Boolean(definition?.deadline)};
   });
@@ -68,7 +79,7 @@ export function dealTimeline(detail, now = Date.now(), dateDecisions = false) {
   const undated = rows.filter(row => !row.day);
   for (const row of rows.filter(row => row.day)) {
     const key = dateDecisions && isSavedDate(row) ? row.id
-      : JSON.stringify([row.kind, row.day, row.status || '', row.kind === 'other' ? row.label : null]);
+      : JSON.stringify([row.kind, row.day, row.status || '', row.kind === 'other' ? row.original || row.label : null]);
     const existing = grouped.get(key);
     const references = [row.original,row.evidence].filter(Boolean);
     if (existing) existing.references.push(...references);
@@ -76,7 +87,7 @@ export function dealTimeline(detail, now = Date.now(), dateDecisions = false) {
   }
   const dates = [...grouped.values()].map(({references,...row}) => ({...row,
     original:[...new Set(references)].join('\n\n')})).sort((a,b) => a.day.localeCompare(b.day));
-  const missing = DATE_KINDS.filter(d => !rows.some(row => row.kind === d.kind));
+  const missing = DATE_KINDS.filter(d => !d.optional && !rows.some(row => row.kind === d.kind));
   const entries = (detail.entries || []).filter(e => e.source !== 'hold').map(e => ({...e, day:calendarDay(e.when), type:e.kind}));
   return {phases,dates,undated,missing,entries,today:today(now)};
 }
