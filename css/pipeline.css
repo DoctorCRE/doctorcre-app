@@ -74,7 +74,12 @@
 /* Columns are a tonal step below the cards, so a card is not a box inside a box. */
 .kanban { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: var(--space-2) var(--space-1); }
 .kanban:has(.kanban-column) { max-height: 65dvh; }
+@media (min-width: 761px) {
+  .kanban:has(#prospectsLane):not(:has(.deal-list)) { grid-template-columns: repeat(8, minmax(120px, 1fr)); }
+}
 .kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); }
+#prospectsLane .work-card { overflow-wrap: anywhere; }
+.prospect-dialog li p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .kanban-column { min-width: 0; padding: var(--space-2) var(--space-1); background: var(--ground); overflow-wrap: anywhere; }
 .kanban-column > h3 { position: sticky; top: 0; z-index: 2; margin: 0; min-height: var(--space-7); font-size: var(--font-size-1); background: var(--ground); }
 .kanban-column > h3 button { display: flex; align-items: center; gap: var(--space-1); width: 100%; min-height: var(--touch); padding: var(--space-1) 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
@@ -200,6 +205,8 @@
 #panelEmailFollowups { overflow-wrap: anywhere; }
 
 .client-portal-link { display: inline-block; min-height: 2.75rem; padding: var(--space-2) 0; font-size: var(--font-size-1); }
+button.client-portal-link { border: 0; background: none; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 0.15em; cursor: pointer; }
+button.client-portal-link:disabled { cursor: wait; }
 .client-portal-form { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2); margin: var(--space-3) 0; }
 .client-portal-form label { flex: 1 0 100%; }
 .client-portal-form input { flex: 1 1 14rem; min-width: 0; min-height: 2.75rem; }

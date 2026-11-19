@@ -56,6 +56,7 @@ export const UI_ENTRIES = {
   'ui-vendor-meetings': 'vendor-meetings',
   'ui-vendor-markets': 'vendor-markets',
   'ui-calendar-panels': 'calendar-panels',
+  'ui-deal-prospects': 'deal-prospects',
   'ui-deal-documents': 'deal-documents',
   'ui-checklist': 'deal-checklist',
   'ui-client-publications': 'client-publications',
