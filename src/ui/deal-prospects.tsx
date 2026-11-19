@@ -167,7 +167,7 @@ function useProspectRead<T>(
         const incoming = parse(value);
         const merge = loaded ? mergeRefresh : undefined;
         setState((state) => ({ value: merge && state.value !== undefined ? merge(state.value, incoming) : incoming }));
-        if (mergeRefresh) etag = response.headers.get("etag");
+        etag = response.headers.get("etag");
         loaded = true;
       } catch {
         if (!signal.aborted && !loaded) {

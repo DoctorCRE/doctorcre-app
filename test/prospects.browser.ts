@@ -639,6 +639,22 @@ test("an open prospect shows a partner's new note without disturbing the draft o
         change_id: 12,
       };
       const path = `/api/engine/prospects/${party}`;
+      await page.addInitScript((path) => {
+        let count = 0;
+        Object.defineProperty(window, "prospectDetailFetchCount", { get: () => count });
+        const fetch = window.fetch.bind(window);
+        window.fetch = (input, init) => {
+          const url = input instanceof Request ? input.url : input;
+          if (new URL(url, location.href).pathname === path) count++;
+          return fetch(input, init);
+        };
+      }, path);
+      const detailFetchCount = () =>
+        page.evaluate(() => {
+          const count: unknown = Reflect.get(window, "prospectDetailFetchCount");
+          if (typeof count !== "number") throw Error("Missing prospect detail fetch count");
+          return count;
+        });
       const tags: (string | null)[] = [];
       let notes = [oldNote];
       const env = {
@@ -700,13 +716,13 @@ test("an open prospect shows a partner's new note without disturbing the draft o
 
       await visibility("hidden");
       await page.clock.fastForward(15_000);
-      assert.deepEqual(tags, [null, '"1"', '"1"']);
+      assert.equal(await detailFetchCount(), 3, "the hidden tab starts no prospect detail fetches");
       await Promise.all([detailResponse(304), visibility("visible")]);
       assert.deepEqual(tags, [null, '"1"', '"1"', '"2"']);
       await dialog.getByRole("button", { name: "Back to Deals" }).click();
       await dialog.waitFor({ state: "detached" });
       await page.clock.fastForward(15_000);
-      assert.equal(tags.length, 4);
+      assert.equal(await detailFetchCount(), 4, "closing the dialog stops prospect detail fetches");
     } finally {
       await page.close();
     }
