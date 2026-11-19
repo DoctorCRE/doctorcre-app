@@ -93,9 +93,10 @@ export function mountDealTours(
   function checkDeparture() {
     const detail: { readback?: Promise<unknown> } = {};
     const frame = active() && !departureApproved ? element.querySelector("iframe") : null;
-    const blocked = frame?.contentWindow
-      ? !frame.contentWindow.dispatchEvent(new CustomEvent("beforeunload", { cancelable: true, detail }))
-      : false;
+    if (!frame?.contentWindow) return { blocked: false, readback: undefined };
+    const leaving = element.ownerDocument.createEvent("CustomEvent");
+    leaving.initCustomEvent("beforeunload", false, true, detail);
+    const blocked = !frame.contentWindow.dispatchEvent(leaving);
     return { blocked, readback: detail.readback };
   }
   function hasUnsavedChanges() {
