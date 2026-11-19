@@ -5,7 +5,7 @@ import { businessDay } from './business-date.js';
 import { COLUMNS, columnBySlug, columnByValue, noteText, PHASE_DATE_KIND } from './pipeline-model.js';
 import { compareInstants, escapeText, fieldLabel, readableValue } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
-import { concise, isEngineDealDetail } from './local-deals-model.js';
+import { concise, isEngineDealDetail, PARKING_REASONS } from './local-deals-model.js';
 import { ACTOR_LABEL, authorLabel } from './client.js';
 
 const DAY = 86400000;
@@ -129,6 +129,11 @@ function changeText({ field, new_value }) {
     return `Moved to ${phase}`;
   }
   if (field === 'operating_state') {
+    const reason = new_value?.state === 'parked' && PARKING_REASONS.get(new_value.reason);
+    if (reason) {
+      const note = typeof new_value.note === 'string' ? new_value.note : '';
+      return ['Parked', reason, note].filter(Boolean).join(' · ');
+    }
     const state = typeof new_value === 'string' ? new_value : readableValue(field, new_value);
     return /^(active|active work)$/i.test(state) ? 'Active again' : state;
   }

@@ -2234,6 +2234,8 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   ];
   const dealChanges = [
     ['operating_state', 'Parked · Client paused · Back in spring', 'Parked · Client paused · Back in spring'],
+    ['operating_state', { state: 'parked', reason: 'other' }, 'Parked · Other'],
+    ['operating_state', { state: 'parked', reason: 'prospect_never_active', note: 'Example note' }, 'Parked · Prospect never active · Example note'],
     ['operating_state', 'Active', 'Active again'],
     ['attention', false, 'Needs attention cleared'],
     ['won_value', 125000, 'Closed value · $125,000'],
@@ -2350,6 +2352,7 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   for (const description of ['Needs attention', ...dealChanges.map(([, , label]) => label)]) {
     assert.equal(descriptions.filter(text => text === description).length, 1, description);
   }
+  await rows.filter({ hasText: 'Parked · Other' }).screenshot({ path: join(evidence, `timeline-parking-${width}.png`) });
   assert.doesNotMatch(contents.join(' '), /2026-11-|move-phase|add deal note|Active work ·|Attention flag/);
 
   savesOn = true;
