@@ -1167,7 +1167,10 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
       const getDeal = state.client.getDeal.bind(state.client);
       const engineFields = deal => {
         if (deal.id === 'd14') return { ...deal, client_portal_url: 'https://example.com/synthetic-site' };
-        if (deal.id === 'd06') return { ...deal, parked_automatically: true, parked_by: null };
+        if (deal.id === 'd06') return {
+          ...deal, parked_automatically: true, parked_by: null,
+          parking_note: 'unverified import — 2026-10-01 records audit; revive if active',
+        };
         return deal;
       };
       state.client.getBoard = async (...args) => {
@@ -1184,10 +1187,13 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     const openDeal = originalColumn.locator('[data-id="d14"] .card-open');
     const dealName = await openDeal.textContent();
     await openDeal.click();
+    const header = page.locator('#recordPanel header.workspace-header');
+    const parkedStatus = header.getByText('Parked', { exact: true });
     const form = page.locator('#detailParkForm');
     await page.getByText('Park', { exact: true }).click();
     const reason = form.getByLabel('Park reason');
     await reason.waitFor({ timeout: 3000 });
+    assert.equal(await parkedStatus.count(), 0);
     assert.deepEqual(await reason.locator('option:not([value=""])').allTextContents(),
       ['Client paused', 'Prospect never active', 'Other']);
     await form.getByRole('button', { name: 'Park deal' }).click();
@@ -1231,8 +1237,17 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
 
     const automatic = page.locator('.parked-card[data-id="d06"]');
     await automatic.getByText('Parked automatically', { exact: true }).waitFor();
+    await automatic.screenshot({ path: new URL(`${width}-import-card.png`, artifacts).pathname });
     await automatic.locator('.card-open').press('Enter');
     await parking.getByText('Parked automatically', { exact: true }).waitFor();
+    const importNote = 'Imported Oct 1, not yet confirmed. Revive if still active.';
+    assert.deepEqual({
+      cardNote: await automatic.getByText(importNote, { exact: true }).count(),
+      pageNote: await parking.getByText(importNote, { exact: true }).count(),
+      parkedInHeader: await parkedStatus.count(),
+    }, { cardNote: 1, pageNote: 1, parkedInHeader: 1 });
+    await header.screenshot({ path: new URL(`${width}-import-header.png`, artifacts).pathname });
+    await parking.screenshot({ path: new URL(`${width}-import-parking.png`, artifacts).pathname });
     assert.deepEqual(errors, []);
   });
 });
