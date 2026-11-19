@@ -129,8 +129,8 @@ function changeText({ field, new_value }) {
     return `Moved to ${phase}`;
   }
   if (field === 'operating_state') {
-    const reason = new_value?.state === 'parked' && PARKING_REASONS.get(new_value.reason);
-    if (reason) {
+    if (new_value?.state === 'parked') {
+      const reason = PARKING_REASONS.get(new_value.reason);
       const note = typeof new_value.note === 'string' ? new_value.note : '';
       return ['Parked', reason, note].filter(Boolean).join(' · ');
     }
