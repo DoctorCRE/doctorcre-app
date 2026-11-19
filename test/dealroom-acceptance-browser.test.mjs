@@ -1,7 +1,7 @@
 import { temporaryDirectory } from '../scripts/temp-directory.mjs';
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { text } from 'node:stream/consumers';
 import { fileURLToPath } from 'node:url';
@@ -1338,3 +1338,122 @@ test('the switched-on Timeline shows one ordered history including a newly saved
   await filter.selectOption('');
   await timeline.screenshot({ path: join(evidence, 'engine-timeline.png') });
 });
+
+for (const width of [1440, 390]) {
+  test(`Monday review keeps engine order and your place at ${width}px`, async t => {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    t.after(() => page.close());
+    await page.clock.setFixedTime(new Date('2026-11-16T04:00:00Z'));
+    const [deal, prospect, parked] = Array.from({ length: 3 }, () => crypto.randomUUID());
+    const row = { id: deal, deal_id: deal, name: 'Zephyr Deal', phase: 'research', owner: 'dell' };
+    const prospectNote = { by: 'dell', at: '2026-11-09T15:00:00Z', summary: 'Example prospect note' };
+    const prospectRow = { party_id: prospect, name: 'Birch Prospect', owner: null, how_found: 'referral',
+      change_id: 2, latest_note: prospectNote, reviewed: null, state: 'dropped', needs_attention: true,
+      follow_ups: [{ next_step_id: prospect, owner: 'joe', change_id: 1, what: 'Call back', due_on: '2026-11-16' }] };
+    const parkedRow = { deal_id: parked, name: 'Alder Deal', phase: 'pending', reviewed: null,
+      state: 'open', operating_state: 'parked' };
+    const reviewed = { by: 'joe', at: '2026-11-09T15:00:00Z' };
+    let review = [{ ...row, reviewed, state: 'open' }, prospectRow, parkedRow];
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `monday-review-${width}`, viewer: 'joe', reset: true } });
+    let enabled = false;
+    const weeks = [];
+    const env = {
+      ASSETS: { fetch: async () => new Response(await readFile(join(outDir, 'site', 'monday-review.html')), {
+        headers: { 'content-type': 'text/html' },
+      }) },
+      ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' && enabled ? 'on' : null },
+      ENGINE: { fetch: async request => {
+        const url = new URL(request.url);
+        if (url.pathname === '/api/engine/weekly-reviews') {
+          weeks.push(url.searchParams.get('week_of'));
+          return Response.json({ items: review });
+        }
+        if (url.pathname === '/api/engine/prospects') return Response.json({ count: 0, prospects: [] });
+        if (url.pathname.endsWith(prospect)) return Response.json({ ...prospectRow, notes: [] });
+        if (url.pathname.endsWith(parked)) return Response.json(parkedRow);
+        if (url.pathname.endsWith(deal)) return Response.json({ ...row, thread: [
+          { id: 'example-note', kind: 'note', text: 'Example new note', actor: 'joe', recorded_at: '2026-11-09T15:00:00Z' },
+        ] });
+        return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] });
+      } },
+      CARR: { fetch: async request => {
+        if (request.method === 'GET') return new Response('Signed in');
+        const { id } = await request.json();
+        return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ deals: [row] }) }] } });
+      } },
+    };
+    await page.route(url => url.pathname === '/mcp' || url.pathname === '/api/engine/weekly-reviews'
+      || url.pathname.startsWith('/api/engine/prospects')
+      || (url.pathname === '/deals' && url.searchParams.get('view') === 'review'), async route => {
+      const request = route.request();
+      if (request.method() === 'POST' && !['deal-room-board', 'get-deal-room'].includes(request.postDataJSON()?.params?.name))
+        return route.continue();
+      const response = await handleDoctorcreRequest(new Request(request.url(), {
+        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+      }), env);
+      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
+    });
+    const reviewPath = `${origin}/api/engine/weekly-reviews?week_of=2026-11-09`;
+    assert.equal((await handleDoctorcreRequest(new Request(reviewPath), env)).status, 404);
+    await page.goto(`${origin}/deals?view=review&mode=live`);
+    assert.equal(new URL(page.url()).searchParams.get('view'), null);
+    await page.getByRole('button', { name: row.name }).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Monday review' }).count(), 0);
+    assert.deepEqual(weeks, []);
+
+    enabled = true;
+    await page.goto(`${origin}/deals?owner=joe&mode=live`);
+    await page.getByRole('link', { name: 'Monday review' }).click();
+    await page.getByText('1 of 3 reviewed this week').waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Parked', exact: true }).count(), 0);
+    assert.deepEqual(weeks, ['2026-11-09']);
+    await page.getByText(/Reviewed by Joe · Nov 9/).waitFor();
+    await page.getByText('Example new note').waitFor();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('link', { name: 'Birch Prospect' }).waitFor();
+    await page.getByText(/Prospect · Unclaimed · Dropped · Needs attention/).waitFor();
+    await page.getByText(/Due Mon, Nov 16/).waitFor();
+    await page.getByText(prospectNote.summary).waitFor();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page.getByRole('link', { name: row.name }).waitFor();
+    await page.getByRole('button', { name: 'As a list' }).click();
+    const items = page.getByRole('main', { name: 'Monday review' }).getByRole('listitem');
+    assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Alder Deal']);
+    assert.match(await page.getByRole('link', { name: 'Birch Prospect' }).getAttribute('href'), new RegExp(`prospect=${prospect}`));
+    const prospectItem = items.filter({ hasText: prospectRow.name });
+    const note = prospectItem.getByText(prospectNote.summary);
+    const latestNotes = prospectItem.getByText('Latest notes', { exact: true });
+    assert.equal(await latestNotes.count(), 1);
+    assert.equal(await note.isVisible(), false);
+    await latestNotes.click();
+    await note.waitFor();
+    await latestNotes.click();
+    await note.waitFor({ state: 'hidden' });
+    await items.filter({ hasText: parkedRow.name }).getByText(/Unassigned · Parked/).waitFor();
+    await page.getByRole('checkbox', { name: 'Not reviewed' }).check();
+    assert.deepEqual(await items.getByRole('link').allTextContents(), ['Birch Prospect', 'Alder Deal']);
+    await page.getByRole('checkbox', { name: 'Not reviewed' }).uncheck();
+    await page.getByRole('link', { name: 'Birch Prospect' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Birch Prospect' });
+    await dialog.getByText(/Joe · Call back/).waitFor();
+    await dialog.getByRole('button', { name: 'Back to Monday review' }).click();
+    await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
+    await page.getByRole('link', { name: prospectRow.name }).and(page.locator(':focus')).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: join(evidence, `monday-review-${width}.png`), fullPage: true });
+    await page.getByRole('link', { name: row.name }).click();
+    await page.locator('#panelTitle').getByText(row.name).waitFor();
+    await page.getByRole('button', { name: 'Back to Monday review' }).click();
+    await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
+    assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Alder Deal']);
+    await page.getByRole('link', { name: parkedRow.name }).click();
+    await page.locator('#panelTitle').getByText(parkedRow.name).waitFor();
+
+    review = review.map(item => ({ ...item, reviewed }));
+    await page.getByRole('button', { name: 'Back to Monday review' }).click();
+    await page.getByText('3 of 3 reviewed this week').waitFor();
+    await page.getByRole('checkbox', { name: 'Not reviewed' }).check();
+    assert.equal(await page.getByText('Everything is reviewed this week.', { exact: true }).isVisible(), true);
+    assert.equal(await items.count(), 0);
+  });
+}

@@ -388,3 +388,15 @@ button.client-portal-link:disabled { cursor: wait; }
 .client-publications textarea { min-height: 120px; }
 .client-publications .btn { min-height: 44px; white-space: normal; }
 @media (max-width: 480px) { .client-preview { padding: 12px; } }
+
+.deal-heading-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2, .5rem); }
+#mondayReview { max-width: 760px; overflow-wrap: anywhere; }
+#mondayReview [data-review-items] { margin-block: 1rem; }
+.monday-review-items { display: grid; gap: .75rem; padding: 0; list-style: none; }
+.monday-review-item { padding: 1rem; }
+.monday-review-item h2 { margin-block: 0 .4rem; }
+.monday-review-item p { margin-block: .4rem; }
+.monday-review-controls { border: 0; padding: 0; }
+.monday-review-controls label { display: inline-flex; align-items: center; gap: .4rem; min-height: var(--touch); }
+.monday-review-controls input[type="checkbox"] { width: 1rem; height: 1rem; min-width: 1rem; min-height: 1rem; }
+.monday-review-page .app-layout-page-tools { display: none; }

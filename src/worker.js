@@ -692,7 +692,9 @@ async function handleRequest(request, env) {
     return assetResponse(request, env, `/${APP_ROUTES.get(pathname)}`);
   }
 
-  const routeAsset = pathname === "/deals" && url.searchParams.get("view") === "national" ? "index.html"
+  const dealView = pathname === '/deals' ? url.searchParams.get('view') : null;
+  const routeAsset = dealView === 'review' ? 'monday-review.html'
+    : dealView === 'national' ? "index.html"
     : pathname === "/" && url.searchParams.get("view") === "charts" ? "charts.html"
     : APP_ROUTES.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
   if (routeAsset) {
@@ -700,6 +702,10 @@ async function handleRequest(request, env) {
     const gateRequest = gateRequestFor(request, pathname);
     const gate = await carrResponse(gateRequest, env, true);
     if (gate.status !== 200) return gateRequest === request ? gate : restoreOriginalReturnTo(gate, request);
+    if (dealView === 'review' && !await switchedOn(env, DEALS)) {
+      url.searchParams.delete('view');
+      return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
+    }
     return copySessionCookies(gate, await assetResponse(request, env, `/${routeAsset}`));
   }
 
@@ -718,8 +724,10 @@ async function handleRequest(request, env) {
     const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);
     if (website && (!await switchedOn(env, DEALS) || (!website[1] && !await switchedOn(env, NEXT_DEAL_SAVES))))
       return json({ error: 'not_found' }, 404);
+    const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     const marketDealRead = pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
-    if ((marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS))
+    if ((weeklyReview && request.method === 'POST')
+        || ((weeklyReview || marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
     const prospectSave = prospects && request.method === 'POST';
