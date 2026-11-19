@@ -45,10 +45,15 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
       };
       const board = { schema_version: "local-deals-board.v2", actor, deals: [] };
       let enabled = false;
+      let savesEnabled = false,
+        firstNote = true;
+      const writeKeys: string[] = [];
       const env = {
         GIT_SHA: "0".repeat(40),
         APP_ENV: "fixture",
-        ENGINE_ROUTING: { get: async () => (enabled ? "on" : null) },
+        ENGINE_ROUTING: {
+          get: async (key: string) => (enabled && (key === "deals-from-engine" || savesEnabled) ? "on" : null),
+        },
         CARR: {
           fetch: async (request: Request) => {
             if (new URL(request.url).pathname !== "/mcp") return Response.json(session);
@@ -65,6 +70,35 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
         ENGINE: {
           fetch: async (request: Request) => {
             const path = new URL(request.url).pathname;
+            if (request.method === "POST") {
+              const body = await request.json();
+              assert.equal(request.headers.get("x-carr-csrf"), session.csrf_token);
+              assert.match(body.idempotency_key, /^[\da-f-]{36}$/);
+              if (path.endsWith("/activities")) {
+                assert.deepEqual(body.about, [{ party_id: party }]);
+                assert.equal(body.kind, "note");
+                if (body.summary === "Save refused for account")
+                  return Response.json({ error: "actor_not_provisioned" }, { status: 422 });
+                if (body.summary === "Save refused for data")
+                  return Response.json({ error: "database_refused_the_statement" }, { status: 422 });
+                if (!writeKeys.includes(body.idempotency_key))
+                  notes = [{ ...note, activity_id: crypto.randomUUID(), summary: body.summary, by: actor }, ...notes];
+                writeKeys.push(body.idempotency_key);
+                if (firstNote) {
+                  firstNote = false;
+                  return Response.json({ error: "engine_unavailable" }, { status: 503 });
+                }
+                return Response.json({ activity_id: party }, { status: 201 });
+              }
+              assert.equal(path, "/api/engine/next-steps");
+              assert.equal(body.replaces, "current");
+              assert.equal(body.party_id, party);
+              assert.equal(body.seen_current_step.next_step_id, step.next_step_id);
+              if (body.seen_current_step.change_id !== step.change_id)
+                return Response.json({ error: "version_conflict" }, { status: 409 });
+              Object.assign(step, { what: body.what, due_on: body.due_on });
+              return Response.json({ next_step_id: party }, { status: 201 });
+            }
             if (path.endsWith("/prospects")) return Response.json({ count: 2, prospects: [prospect, birchProspect] });
             if (path.endsWith(birchProspect.party_id))
               return Response.json({
@@ -78,6 +112,12 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
       };
       assert.equal((await worker.fetch(new Request(`${server.origin}/api/engine/prospects`), env)).status, 404);
       enabled = true;
+      const blocked = await worker.fetch(
+        new Request(`${server.origin}/api/engine/prospects/note`, { method: "POST" }),
+        env,
+      );
+      assert.equal(blocked.status, 404);
+      savesEnabled = true;
       await page.route(/\/(mcp|api\/engine\/.*)$/, async (route) => {
         const request = route.request();
         const body = request.postData();
@@ -152,6 +192,46 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
       notes = [{ ...note, activity_id: crypto.randomUUID(), summary: "Other partner update" }, ...notes];
       await dialog.getByRole("button", { name: "Reload prospect" }).click();
       await dialog.getByText("Other partner update", { exact: true }).waitFor();
+      if (width === 1440) {
+        const input = dialog.getByRole("textbox", { name: "Add note" });
+        const checkOutcome = dialog.getByRole("button", { name: "Check outcome" });
+        await input.fill("Earlier note");
+        await input.press("Enter");
+        await checkOutcome.waitFor();
+        await dialog.getByRole("button", { name: "Back to Deals" }).click();
+        await open.click();
+        await input.fill("New draft");
+        await input.press("Enter");
+        await checkOutcome.click();
+        await settles(async () => assert.equal(await input.isEnabled(), true));
+        assert.equal(await input.inputValue(), "New draft");
+        assert.equal(writeKeys.length, 2);
+        assert.equal(writeKeys[0], writeKeys[1]);
+        await input.press("Enter");
+        await dialog.getByText("New draft", { exact: true }).waitFor();
+        assert.notEqual(writeKeys[2], writeKeys[1]);
+        await input.fill("Save refused for account");
+        await input.press("Enter");
+        await dialog.getByText("Your account is not set up to save prospects. Ask the app administrator.").waitFor();
+        await input.fill("Save refused for data");
+        await input.press("Enter");
+        await dialog.getByText("The change was refused. Reload the prospect, then try again.").waitFor();
+        const summary = dialog.getByRole("textbox", { name: "Your follow-up", exact: true });
+        await summary.fill("Send the details");
+        await dialog.getByLabel("Follow-up date").fill("2026-11-20");
+        step.change_id++;
+        step.what = "Other follow-up";
+        await dialog.getByRole("button", { name: "Reload prospect", exact: true }).click();
+        await dialog.getByText(/Other follow-up/).waitFor();
+        const save = dialog.getByRole("button", { name: "Set your follow-up" });
+        await save.click();
+        await dialog.getByText("This prospect changed while you were editing.").waitFor();
+        assert.equal(await summary.inputValue(), "Send the details");
+        await dialog.getByRole("button", { name: "Reload changes", exact: true }).click();
+        await dialog.getByText(/Other follow-up/).waitFor();
+        await save.click();
+        await dialog.getByText(/Send the details · Due Fri, Nov 20/).waitFor();
+      }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     } finally {
       await page.close();
