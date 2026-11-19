@@ -1204,3 +1204,137 @@ for (const readsOn of [true, false]) {
     assert.equal(new URL(page.url()).searchParams.has('deal'), false);
   });
 }
+
+test('the switched-on Timeline shows one ordered history including a newly saved note', async t => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+  t.after(() => page.close());
+  await page.clock.setFixedTime(new Date('2026-11-18T15:00:00Z'));
+  const deal = crypto.randomUUID();
+  const row = { id: deal, deal_id: deal, name: 'Example Timeline Deal', phase: 'legal', seen: 1, owner: 'joe' };
+  const thread = [{ id: 'copied-note', kind: 'note', text: 'Tour plans confirmed', actor: 'dell', created_at: '2026-11-17T20:00:00Z' }];
+  const beforeDocument = '2026-11-16T13:00:00Z';
+  const stepChanges = [
+    ['Send the floor plan', 'done', 'Done'],
+    ['Ask for the rent quote', 'cancelled', 'Cancelled'],
+    ['Book an evening tour', 'expired', 'Expired'],
+  ];
+  const dates = [
+    ['due-diligence', 'due_diligence', 'open', 'Due diligence · Confirmed'],
+    ['lease-end', 'lease_end', 'cleared', 'Lease expiration · Done'],
+    ['option', 'option_notice', 'dropped', 'Option notice · Dropped'],
+    ['phase-effective', 'phase_effective_date', 'passed', 'Phase effective date · Passed'],
+  ];
+  const dealChanges = [
+    ['operating_state', 'Parked · Client paused · Back in spring', 'Parked · Client paused · Back in spring'],
+    ['operating_state', 'Active', 'Active again'],
+    ['attention', false, 'Needs attention cleared'],
+    ['won_value', 125000, 'Closed value · $125,000'],
+    ['won_value', 125050.5, 'Closed value · $125,050.50'],
+  ];
+  const events = [
+    { id: 'copied-event', activity_id: 'copied-note', verb: 'add-deal-note', field: 'note', new_value: { note: thread[0].text }, actor: 'dell', recorded_at: '2026-11-17T20:00:01Z' },
+    { id: 'move', verb: 'move-phase', field: 'phase', new_value: 'legal', actor: 'agent', recorded_at: '2026-11-18T01:00:00Z' },
+    { id: 'attention', verb: 'update-deal', field: 'attention', new_value: true, actor: 'joe', recorded_at: '2026-11-17T14:00:00Z' },
+    ...dealChanges.map(([field, new_value], i) => ({
+      id: `change-${i}`, verb: 'update-deal', field, new_value, actor: 'joe', recorded_at: beforeDocument,
+    })),
+  ];
+  const detail = { ...row, thread, events, email_follow_ups: [],
+    phase_started_on: { legal: '2026-11-17' },
+    documents: [{ id: 'file', name: 'Example plan.pdf', actor: 'mail_capture', prepared_at: '2026-11-16T14:00:00Z' }],
+    next_actions: [
+      { id: 'step', owner: 'dell', actor: 'joe', description: 'Check the floor plan', status: 'open', updated_at: '2026-11-17T18:00:00Z' },
+      ...stepChanges.map(([description, status]) => ({
+        id: status, owner: 'dell', actor: 'joe', description, status, due_on: '2026-11-19', updated_at: beforeDocument,
+      })),
+    ],
+    critical_dates: dates.map(([id, kind, status]) => ({
+      id, kind, status, due_on: '2026-11-19', actor: 'dell',
+      updated_at: status === 'open' ? '2026-11-17T19:00:00Z' : beforeDocument,
+    })),
+  };
+  let switchesOn = false;
+  const carr = [], engine = [];
+  const env = {
+    ENGINE_ROUTING: { get: async key => switchesOn && ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      engine.push(path);
+      if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] });
+      if (path === `/api/engine/deals/${deal}`) return Response.json(detail);
+      assert.equal(path, '/api/engine/activities');
+      const { kind, about, summary, happened_at } = await request.json();
+      assert.deepEqual({ kind, about, summary }, { kind: 'note', about: [{ deal_id: deal }], summary: 'Tour plans confirmed' });
+      const id = crypto.randomUUID();
+      thread.push({ id, kind, text: summary, actor: 'joe', created_at: happened_at });
+      return Response.json({ activity_id: id }, { status: 201 });
+    } },
+    CARR: { fetch: async request => {
+      const { id, params: { name } } = await request.json();
+      carr.push(name);
+      const data = name === 'deal-room-board'
+        ? { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] }
+        : { ...row, thread, phase_started_on: detail.phase_started_on };
+      return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
+    } },
+  };
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-timeline', viewer: 'joe', reset: true } });
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    if (!['deal-room-board', 'get-deal-room', 'add-deal-note'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+    }), env);
+    return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
+  });
+
+  const timeline = page.getByRole('tabpanel', { name: 'Timeline' });
+  const openTimeline = async () => {
+    await page.getByRole('tab', { name: 'Timeline' }).click();
+    await timeline.getByText('Tour plans confirmed', { exact: true }).first().waitFor();
+  };
+  await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+  await openTimeline();
+  assert.equal(await timeline.getByText('Phase timeline', { exact: true }).count(), 1);
+  assert.ok(carr.includes('get-deal-room'));
+  assert.deepEqual(engine, []);
+
+  switchesOn = true;
+  await page.reload();
+  await openTimeline();
+  const rows = timeline.getByRole('listitem');
+  const contents = await rows.allTextContents();
+  assert.equal(contents.length, 6 + stepChanges.length + (dates.length - 1) + dealChanges.length);
+  assert.match(contents[0], /Automatically.*Nov 17.*7:00 PM.*Legal/);
+  assert.match(contents[1], /Dell.*Nov 17.*2:00 PM.*Tour plans confirmed/);
+  assert.match(contents[2], /Dell.*Nov 17.*1:00 PM.*Due diligence.*Due Nov 19/);
+  assert.match(contents[3], /Joe.*Check the floor plan$/);
+  assert.match(contents[5], /Automatically.*Nov 16.*Example plan\.pdf/);
+  const descriptions = await rows.locator('p').allTextContents();
+  for (const [description, , state] of stepChanges) {
+    assert.ok(descriptions.includes(`${description} · ${state} · Due Nov 19, 2026`), `Next step should say ${state}`);
+  }
+  for (const [, , , caption] of dates) {
+    assert.ok(descriptions.includes(`${caption} · Due Nov 19, 2026`), `Critical date should say ${caption}`);
+  }
+  for (const description of ['Needs attention', ...dealChanges.map(([, , label]) => label)]) {
+    assert.equal(descriptions.filter(text => text === description).length, 1, description);
+  }
+  assert.doesNotMatch(contents.join(' '), /2026-11-|move-phase|add deal note|Active work ·|Attention flag/);
+
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await page.getByLabel('Update', { exact: true }).fill('Tour plans confirmed');
+  await page.getByRole('button', { name: 'Add update' }).click();
+  await page.locator('#detailUpdateStatus').getByText('Update added', { exact: true }).waitFor();
+  await openTimeline();
+  const notes = rows.filter({ hasText: 'Tour plans confirmed' });
+  assert.equal(await notes.count(), 2);
+  assert.match(await notes.nth(0).innerText(), /Joe\s+Nov 18, 9:00 AM/);
+  assert.match(await notes.nth(1).innerText(), /Dell\s+Nov 17, 2:00 PM/);
+  assert.doesNotMatch(carr.join(' '), /add-deal-note/);
+  const filter = timeline.getByLabel('Filter by type');
+  await filter.selectOption('Note');
+  assert.equal(await rows.count(), 2);
+  await filter.selectOption('');
+  await timeline.screenshot({ path: join(evidence, 'engine-timeline.png') });
+});
