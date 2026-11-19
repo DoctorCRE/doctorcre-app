@@ -954,7 +954,6 @@
     "src/ui/deal-room-forms.tsx": "15e53a0dd63f4b0982adbd6efdf153ab7a2ad85c00bf62de01a770c5ee9ae3c5",
     "src/ui/fact-review.tsx": "4d73d76ce647f05393ff42e68a451731725c451f15d16cf915ea950981aedc23",
     "src/ui/home-list-limit.ts": "4202e5206652dd42f511351a82e708aa5ad88f9d515b1836874aca0fd1c38fac",
-    "src/ui/home/bulk-controls.tsx": "0a7f618916e1cabecb4ac404277304b6c9176d9142cb5246b631d8870bce1a98",
     "src/ui/home/deal-update-reviews.tsx": "2c88217bcc5b4bcc7e19862de473d460b372ff99b1f63ea9a6d4b544fc5d6274",
     "src/ui/home/mail-priorities-client.ts": "312cdaaa3e0306e005b4ca8efea6123dc8547bfeea86df0d9a2b32c1087bd8a1",
     "src/ui/home/mail-priorities-start.ts": "fb2c037494a9078e032490f09b651455e2e62145c2e4dce323b11c487d9fca75",
