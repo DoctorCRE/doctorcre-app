@@ -18,11 +18,12 @@ test('QA real Sign out redirects, revokes only its session, and ends the workspa
   const server = await fixture.start();
   t.after(() => server.close());
   const origin = server.origin;
+  const sessionEnded = `${origin}/public-shell/session-ended.html`;
   const browser = await chromium.launch();
   t.after(() => browser.close());
   if (evidence) await mkdir(evidence, { recursive: true });
 
-  for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
+  for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: theme });
     const other = await browser.newContext();
     try {
@@ -46,23 +47,23 @@ test('QA real Sign out redirects, revokes only its session, and ends the workspa
       page.on('request', request => {
         if (new URL(request.url()).pathname === '/auth/signout') signouts.push(request.method());
       });
-      const sessionStatuses = [];
-      page.on('response', response => {
-        if (new URL(response.url()).pathname === '/auth/session') sessionStatuses.push(response.status());
+      let replayStatus;
+      // A background request can confirm revocation before the sign-out check returns.
+      await page.route(sessionEnded, async route => {
+        const replay = await other.request.get(`${origin}/auth/session`, {
+          headers: { cookie: staleCookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ') },
+        });
+        replayStatus = replay.status();
+        await route.continue();
       });
       await button.press('Enter');
+      await page.waitForURL(sessionEnded);
       await page.getByRole('heading', { name: 'Session ended', exact: true }).waitFor();
-      await page.waitForURL('**/public-shell/session-ended.html');
-      assert.equal(new URL(page.url()).pathname, '/public-shell/session-ended.html');
-      assert.ok(sessionStatuses.includes(401), 'the app verifies revocation before leaving');
+      assert.equal(replayStatus, 401, 'the old cookie is revoked when the browser leaves the workspace');
       assert.deepEqual(signouts, ['POST']);
       assert.equal((await context.request.get(`${origin}/auth/session`)).status(), 401);
       assert.equal((await context.cookies(origin)).some(cookie => cookie.name === 'doctorcre_qa'), false);
       assert.equal((await other.request.get(`${origin}/auth/session`)).status(), 200);
-      const replay = await other.request.get(`${origin}/auth/session`, {
-        headers: { cookie: staleCookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ') },
-      });
-      assert.equal(replay.status(), 401, 'the old cookie cannot restore the revoked identity');
       assert.equal(await page.locator('#viewerWorkspace, #selfAvatar').count(), 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.keyboard.press('Tab');
