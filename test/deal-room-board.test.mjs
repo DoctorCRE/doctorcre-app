@@ -17,7 +17,7 @@ test('board rows keep focus and native command values across snapshot renders', 
     const rows = document.createElement('tbody');
     table.append(rows);
     document.body.append(table);
-    const row = { id: 'synthetic', name: '<Sample>', classes: '', meta: ['Austin'], title: '', parked: false,
+    const row = { id: 'synthetic', name: '<Sample>', classes: '', meta: [['market', 'Austin']], title: '', parked: false,
       attention: false, icon: '○', phase: 'Research', due: 'Not set', dueClass: '', retries: [],
       step: { kind: 'local', text: 'Call broker', empty: false, owner: 'joe' } };
     const view = mountDealRoomBoard(rows);
@@ -30,7 +30,7 @@ test('board rows keep focus and native command values across snapshot renders', 
     select.value = 'Closing';
     select.dispatchEvent(new Event('change', { bubbles: true }));
     const commandValue = values[0];
-    view.render({ rows: [{ ...row, phase: 'Closing', meta: ['Austin', 'Dell is editing'], title: 'Dell is editing phase' }], phases });
+    view.render({ rows: [{ ...row, phase: 'Closing', meta: [['market', 'Austin'], ['presence', 'Dell is editing']], title: 'Dell is editing phase' }], phases });
     const focused = document.activeElement === select;
     const stable = rows.querySelector('[data-phase]') === select;
     const value = select.value;

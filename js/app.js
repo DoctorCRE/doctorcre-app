@@ -6,7 +6,7 @@ import { mountDealRoomAgenda } from './ui-agenda.generated.js';
 import { dealStepVersion, partnerDealStep } from './local-deals-model.js';
 import { businessDay } from './business-date.js';
 import { formatCalendarDate } from './visual-system.js';
-import { renderDealSummary, renderDealItems } from './deal-items.js';
+import { automaticPhaseReceipt, dealItemRows, dealLastCaption, dealNextCaption } from './deal-items.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
@@ -26,7 +26,7 @@ import {
   createBoardSync, batchTouchesBoard, resolveCurrentRow, SYNC_STATES, HEALTH,
 } from './board-sync.mjs';
 import {
-  cellKey, performFieldWrite, unresolvedFieldWrites, fieldWriteMessage, nextCellBase,
+  cellKey, performFieldWrite, unresolvedFieldWrites, fieldWriteMessage, nextCellBase, prepareAutomaticPhaseUndo,
 } from './field-write-reconciliation.mjs';
 import { beginCommand, settleCommand, classifyCommandOutcome, commandMessage, pendingCommand, performCommand } from './command-feedback.mjs';
 import { renderAccountCards } from './account-cards.js';
@@ -84,6 +84,9 @@ const today = () => new Date(new Date().toDateString());
 const esc = escapeText;
 const actorName = (slug) => ACTOR_LABEL[slug] || slug || 'Unassigned';
 const account = () => state.accounts.find((item) => item.account_client_id === state.accountId) || null;
+const automaticPhase = prepareAutomaticPhaseUndo({
+  state, performCommand, newKey: uuidv4, render: renderBoardOnly, report: message => showToast(message), refreshedMessage: 'The row was refreshed.',
+});
 
 function daysFromNow(value) {
   if (!value) return null;
@@ -223,9 +226,12 @@ async function loadHome() {
 
 function applyBoardSnapshot(home) {
   if (state.accessDenied) return;
+  const previousActor = state.selfActor;
+  const previousSaveSwitch = Boolean(state.nextDealSaves);
   state.nextDealSaves = home.next_deal_saves === true;
   state.boardFromEngine = home.board_from_engine === true;
   state.selfActor = home.actor || state.client.selfActor || state.selfActor;
+  if (previousActor !== state.selfActor || previousSaveSwitch !== state.nextDealSaves) automaticPhase.clear();
   state.deals = new Map((home.deals || []).map((deal) => [deal.id, {
     workspace_kind: deal.account_client_id ? 'national_account' : 'team', ...deal,
   }]));
@@ -464,13 +470,24 @@ function renderBoardOnly() {
   renderPendingWrites();
   if ($('#boardSection').hidden) return;
   const deals = workspaceDeals();
+  const accountDetail = state.workspace === 'national_account' && Boolean(state.accountId) && !state.query;
+  const nationalAccountRows = accountDetail && state.nextDealSaves;
   setDocFilters({ workspace:state.workspace, account:state.accountId, filter:state.filter, query:state.query });
   if (state.boardSync?.status().board_health === 'ok' && !state.boardSync.status().board_read_in_flight) publishDocRead('getBoard', { deals }, []);
-  renderStats(deals);
+  renderStats(deals, accountDetail && state.filter !== 'parked');
   renderFocus(deals);
   const rows = $('#rows');
+  const undoDeal = document.activeElement?.dataset?.undoPhase;
   boardRows ||= mountDealRoomBoard(rows);
-  boardRows.render({ rows: deals.map(boardRow), phases: PHASES.map(value => ({ value, label: phaseLabel(value) })) });
+  boardRows.render({
+    rows: deals.map(deal => boardRow(deal, nationalAccountRows)),
+    phases: PHASES.map(value => ({ value, label: phaseLabel(value) })),
+    nationalAccountRows,
+  });
+  if (undoDeal && document.activeElement === document.body) {
+    const id = CSS.escape(undoDeal);
+    ($(`[data-undo-phase="${id}"]`, rows) || $(`[data-open-deal="${id}"]`, rows))?.focus({ preventScroll: true });
+  }
   $('#tableFrame').classList.toggle('has-deal-summaries', deals.length > 0 && deals.every(deal => deal.workspace_kind === 'national_account'));
   const emptySearch = Boolean(state.query && !deals.length);
   $('#stats').hidden = emptySearch;
@@ -482,11 +499,15 @@ function renderBoardOnly() {
     : state.filter === 'parked' ? 'No parked deals.' : 'No active work matches this filter.';
 }
 
-function renderStats(deals) {
-  const accountDetail = state.workspace === 'national_account' && state.accountId && !state.query && state.filter !== 'parked';
-  $('#stats').classList.toggle('account-priority', Boolean(accountDetail));
+function renderStats(deals, accountDetail) {
+  $('#stats').classList.toggle('account-priority', accountDetail);
   if (accountDetail) {
     const { overdue, next } = accountPriority(deals);
+    const closing = deals.filter(deal => deal.phase === 'Closing').length;
+    const late = `<span${overdue.length ? ' class="is-alert"' : ''}>${overdue.length} ${state.nextDealSaves ? 'late' : 'overdue dates'}</span>`;
+    const counts = state.nextDealSaves
+      ? `${deals.length} open deals · ${late} · ${closing} closing`
+      : `${deals.length} active work · ${late} · ${closing} at closing`;
     $('#stats').innerHTML = next ? `
       <span class="next-action-label${overdue.length ? ' is-alert' : ''}">${overdue.length ? 'Next overdue action' : 'Next market action'}</span>
       <button type="button" class="next-account-action" data-open-deal="${esc(next.id)}">
@@ -494,7 +515,7 @@ function renderStats(deals) {
         <span>${esc(next.name)} · ${esc(dateLabel(next.next_date))}</span>
         <span class="next-action-open">Open deal →</span>
       </button>
-      <p class="account-urgency">${deals.length} active work · <span${overdue.length ? ' class="is-alert"' : ''}>${overdue.length} overdue dates</span> · ${deals.filter((deal) => deal.phase === 'Closing').length} at closing</p>` : '';
+      <p class="account-urgency">${counts}</p>` : '';
     return;
   }
   if (state.filter === 'parked') {
@@ -522,24 +543,32 @@ function renderFocus(deals) {
 }
 
 
-function boardRow(deal) {
+function boardRow(deal, nationalAccountRows) {
   const days = daysFromNow(deal.next_date);
   const parked = deal.operating_state === 'parked';
   const presence = state.presence.filter(lease => lease.deal_id === deal.id && lease.actor !== state.selfActor && new Date(lease.expires_at) > new Date());
   const today = state.boardFromEngine ? businessDay() : new Date().toLocaleDateString('en-CA');
+  // Older records store this placeholder when there is no market.
+  const market = nationalAccountRows && (!deal.market?.trim() || deal.market === 'Market unspecified in source')
+    ? 'No market recorded' : deal.market;
   return {
     id: deal.id, name: deal.name, parked, attention: Boolean(deal.attention), phase: deal.phase,
     classes: [parked ? 'parked' : '', deal.attention ? 'attention' : '', days !== null && days < 0 ? 'overdue' : ''].join(' '),
     icon: deal.attention ? '⚠' : (PHICON[deal.phase] || '○'),
-    meta: [deal.market, deal.type, state.query && deal.account_name ? deal.account_name : null,
-      parked ? parkingReasonLabel(deal.parking_reason) : null,
-      presence[0] ? `${actorName(presence[0].actor)} is editing` : null].filter(Boolean),
+    meta: Object.entries({
+      market,
+      type: deal.type,
+      account: state.query ? deal.account_name : null,
+      parking: parked ? parkingReasonLabel(deal.parking_reason) : null,
+      presence: presence[0] ? `${actorName(presence[0].actor)} is editing` : null,
+    }).filter(([, value]) => value),
+    phaseMove: nationalAccountRows ? automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id)) : null,
     title: presence.length ? `${actorName(presence.at(-1).actor)} is editing ${presence.at(-1).field}` : '',
     due: dateLabel(deal.next_date), dueClass: days !== null && days < 0 ? 'over' : days !== null && days <= 3 ? 'soon' : '',
     retries: unresolvedFieldWrites(state.fieldWrites, deal.id).map(entry => ({ cell: entry.cell, label: fieldLabel(entry.field) })),
     step: deal.workspace_kind === 'national_account'
-      ? { kind: 'national', summaryHtml: renderDealSummary(deal, { today, viewer: state.selfActor, actorName }),
-        itemsHtml: renderDealItems(deal, { today, empty: false, board: true }), agent: deal.market_agent || 'Assign agent…' }
+      ? { kind: 'national', next: dealNextCaption(deal, { today, viewer: state.selfActor, actorName }),
+        last: dealLastCaption(deal.last_step), items: dealItemRows(deal, { today, board: true }), agent: deal.market_agent || 'Assign agent…' }
       : { kind: 'local', text: deal.next_step || 'Set the next step…', empty: !deal.next_step, owner: deal.owner || '' },
   };
 }
@@ -595,6 +624,7 @@ function renderScreenActions() {
 }
 function refuseScreenAccess() {
   state.accessDenied = true;
+  automaticPhase.clear();
   screenCommands = {};
   state.review = null; state.confirms = []; state.deals.clear();
   renderAgendaView();
@@ -1722,6 +1752,7 @@ function wireEvents() {
       else { if ($('#dealDialog').open) $('#dealDialog').close(); parkDealForm(dealId); }
       return;
     }
+    const phaseUndo = event.target.closest('[data-undo-phase]'); if (phaseUndo) { await automaticPhase.undo(phaseUndo); return; }
     const open = event.target.closest('[data-open-deal]'); if (open) { await openDeal(open.dataset.openDeal); return; }
     const attention = event.target.closest('[data-attention]'); if (attention) { const deal=state.deals.get(attention.dataset.attention); await patchField(deal.id,'attention',!deal.attention); return; }
     const step = event.target.closest('[data-next-step],[data-agenda-step]');

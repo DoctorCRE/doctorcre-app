@@ -349,3 +349,27 @@ export async function performFieldWrite({ deal, field, value, base = null, extra
     response: result.response,
   };
 }
+export function prepareAutomaticPhaseUndo(options) {
+  const feedbackByDeal = new Map();
+  let session = 0;
+  let loading;
+  return {
+    feedback: deal => feedbackByDeal.get(deal),
+    clear() {
+      session++;
+      feedbackByDeal.clear();
+    },
+    async undo(button) {
+      const clickedIn = session;
+      loading ||= import('./ui-automatic-phase-undo.generated.js')
+        .then(({ createAutomaticPhaseUndo }) => createAutomaticPhaseUndo({ ...options, feedbackByDeal }))
+        .catch(() => {
+          loading = null;
+          options.report('Undo could not be loaded. Try again.');
+          return null;
+        });
+      const controller = await loading;
+      if (clickedIn === session) await controller?.undo(button);
+    },
+  };
+}
