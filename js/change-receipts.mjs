@@ -31,6 +31,8 @@ const VALUE_MAX = 140;
 const FIELD_LABEL = Object.freeze({
   phase: 'Phase',
   owner: 'Owner',
+  kind: 'Deal kind',
+  reason: 'Deal reason',
   attention: 'Attention flag',
   next_date: 'Next date',
   next_step: 'Next step',

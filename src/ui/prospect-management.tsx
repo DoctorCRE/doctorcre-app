@@ -50,12 +50,15 @@ function nationalAccountHref(id: string) {
 
 type PickedClient = { id: string; name: string };
 type LeaseDate = (date: string | null) => string | null;
-type DealClientPickerProps = { request: PartyRequest; onPick: () => void; leaseDate: LeaseDate } & (
-  | { prospect: { party_id: string; name: string }; client?: never }
-  | { prospect?: never; client?: PickedClient }
-);
+type DealFieldLabels = { kind: string; reason: string };
+type DealClientPickerProps = {
+  request: PartyRequest;
+  onPick: () => void;
+  leaseDate: LeaseDate;
+  labels: DealFieldLabels;
+} & ({ prospect: { party_id: string; name: string }; client?: never } | { prospect?: never; client?: PickedClient });
 
-export function DealClientPicker({ prospect, client, request, leaseDate, onPick }: DealClientPickerProps) {
+export function DealClientPicker({ prospect, client, request, leaseDate, labels, onPick }: DealClientPickerProps) {
   const [name, setName] = useState(client?.name ?? "");
   const [picked, setPicked] = useState(client);
   const [matches, setMatches] = useState<Match[]>();
@@ -143,7 +146,7 @@ export function DealClientPicker({ prospect, client, request, leaseDate, onPick 
         <small role="status">{prospect ? "No matching people or companies." : "No matching clients."}</small>
       )}
       {unavailable && <small role="status">Search is unavailable. Try again.</small>}
-      <DealTerms client={picked} request={request} leaseDate={leaseDate} />
+      <DealTerms client={picked} request={request} leaseDate={leaseDate} labels={labels} />
     </div>
   );
 }
@@ -152,17 +155,19 @@ function DealTerms({
   client,
   request,
   leaseDate,
+  labels,
 }: {
   client: PickedClient | undefined;
   request: PartyRequest;
   leaseDate: LeaseDate;
+  labels: DealFieldLabels;
 }) {
   const [reason, setReason] = useState("");
   return (
     <>
       <div className="field-grid">
         <div className="field">
-          <label htmlFor="addDealKind">Deal kind</label>
+          <label htmlFor="addDealKind">{labels.kind}</label>
           <select id="addDealKind" name="kind">
             <option value="">Unknown</option>
             <option value="lease">Lease</option>
@@ -173,7 +178,7 @@ function DealTerms({
           </select>
         </div>
         <div className="field">
-          <label htmlFor="addDealReason">Deal reason</label>
+          <label htmlFor="addDealReason">{labels.reason}</label>
           <select
             id="addDealReason"
             name="reason"

@@ -41,7 +41,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
@@ -142,11 +142,6 @@ function renderPhaseUndo() {
 }
 
 const dealTitle = (deal) => dealName(deal.name);
-const PARKING_REASONS = new Map([
-  ['client_paused', 'Client paused'],
-  ['prospect_never_active', 'Prospect never active'],
-  ['other', 'Other'],
-]);
 function parkingAttributionHtml(deal) {
   if (deal.parked_automatically === true) return '<p>Parked automatically</p>';
   const parker = Object.hasOwn(ACTOR_LABEL, deal.parked_by) ? actorName(deal.parked_by) : '';
@@ -272,6 +267,7 @@ async function openAddDeal(client = null, conversion = null) {
     picker.hidden = !usePicker;
     unmountDealClientPicker = mountDealClientPicker?.(picker, {
       ...(prospect ? { prospect } : { client: client ?? undefined }),
+      labels: { kind: fieldLabel('kind'), reason: fieldLabel('reason') },
       request: fetchRead, leaseDate: formatCalendarDate, onPick: () => { $('addDealError').textContent = ''; },
     });
     $('addDealOwner').value = prospect ? prospect.owner ?? '' : state.selfActor || 'joe';
@@ -999,9 +995,10 @@ function openCompletion(intent) {
 
   const isClosed = intent.to === CLOSED_SLUG;
   const closingInEngine = isClosed && Number.isSafeInteger(intent.seen);
-  $('completionTitle').textContent = closingInEngine ? `Close ${intent.name}` : moveTitle(intent);
-  $('completionPaused').hidden = closingInEngine;
-  $('completionMoveDetails').hidden = closingInEngine;
+  const wonOrLost = closingInEngine || intent.wonOrLost;
+  $('completionTitle').textContent = wonOrLost ? `Close ${intent.name}` : moveTitle(intent);
+  $('completionPaused').hidden = Boolean(wonOrLost);
+  $('completionMoveDetails').hidden = Boolean(wonOrLost);
   $('completionLostReason').value = '';
   const closed = $('completionClosedNote');
   if (closed) {
@@ -1020,7 +1017,7 @@ function openCompletion(intent) {
   if (wonValue) wonValue.value = '';
   renderOutcomeState();
   const confirm = $('completionConfirm');
-  if (confirm) confirm.textContent = closingInEngine ? 'Save outcome' : `Move to ${intent.to_label}`;
+  if (confirm) confirm.textContent = wonOrLost ? 'Save outcome' : `Move to ${intent.to_label}`;
   $('completionEvidence').value = '';
   $('completionReason').value = '';
   $('completionQuote').value = '';
@@ -1036,7 +1033,7 @@ function openCompletion(intent) {
   if (errors) { errors.hidden = true; errors.textContent = ''; }
   renderCriticalState();
   if (typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
-  if (!closingInEngine) $('completionEvidence')?.focus();
+  if (!wonOrLost) $('completionEvidence')?.focus();
 }
 
 const outcomeRadios = () => [...document.querySelectorAll('input[name="completionOutcome"]')];
@@ -1051,7 +1048,7 @@ function todayIso() {
 function renderOutcomeState() {
   const field = $('completionWonValueField');
   if (field) field.hidden = chosenOutcome() !== 'won';
-  $('completionLostReasonField').hidden = !$('completionMoveDetails').hidden || chosenOutcome() !== 'lost';
+  $('completionLostReasonField').hidden = !Number.isSafeInteger(state.intent?.seen) || chosenOutcome() !== 'lost';
 }
 
 function renderCriticalState() {
@@ -2049,7 +2046,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   marketTermsPanel = null;
   if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
   if (!fromHistory && incomingScope.has('deal')) {
-    const origin = dealsPageOrigin('review') || nationalClosedOrigin();
+    const origin = dealsPageOrigin('review') || nationalDealOrigin();
     if (origin) { returnToDealsPage(origin); return; }
   }
   selectDocRecord('deal', null);
@@ -2176,13 +2173,13 @@ function leasePhase(dealId) {
     .catch(() => { /* a courtesy, never a requirement */ });
 }
 
-function beginMove(dealId, toSlug, deal = state.deals.get(dealId)) {
+function beginMove(dealId, toSlug, deal = state.deals.get(dealId), { wonOrLost = false } = {}) {
   const intent = moveIntent(deal, toSlug);
   state.lifted = null;
   state.target = null;
   if (!intent) { renderBoard(); return; }
   announce(`Reviewing ${intent.name} for ${intent.to_label}. Nothing has been saved yet.`);
-  openCompletion(intent);
+  openCompletion({ ...intent, wonOrLost });
 }
 
 
@@ -2647,9 +2644,9 @@ function dealsPageOrigin(view) {
     && referrer.searchParams.get('view') === view ? referrer : null;
 }
 
-function nationalClosedOrigin() {
+function nationalDealOrigin() {
   const origin = dealsPageOrigin('national');
-  return origin?.searchParams.get('account') && origin.searchParams.get('account_view') === 'closed' ? origin : null;
+  return incomingScope.get('close') === '1' || origin?.searchParams.get('account_view') === 'closed' ? origin : null;
 }
 
 function returnToDealsPage(origin) {
@@ -2762,9 +2759,10 @@ async function boot() {
       writeWorkspaceHistory(history.state, url);
       await board;
       const deal = state.panelDetail?.deal;
-      if (state.panelDeal === linkedDeal && state.nextDealSaves && Number.isSafeInteger(deal?.seen) && !isClosedDeal(deal)) {
-        beginMove(linkedDeal, CLOSED_SLUG, deal);
-      }
+      if (state.panelDeal !== linkedDeal || !deal || isClosedDeal(deal)) return;
+      if (state.nextDealSaves && !Number.isSafeInteger(deal.seen)) return;
+      const closingDeal = state.nextDealSaves ? deal : { ...deal, seen: undefined };
+      beginMove(linkedDeal, CLOSED_SLUG, closingDeal, { wonOrLost: true });
     } else if (incomingScope.get('item')) void itemSheet.open(linkedDeal, incomingScope.get('item'));
   });
   mountVisibilityPoll({ lifecycle: true, poll: refreshPanel });

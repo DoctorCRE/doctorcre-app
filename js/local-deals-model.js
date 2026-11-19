@@ -5,6 +5,12 @@ import { radarToday } from './lease-radar-model.js';
 
 export const isEngineDealDetail = detail => Array.isArray(detail?.email_follow_ups);
 
+export const PARKING_REASONS = new Map([
+  ['client_paused', 'Client paused'],
+  ['prospect_never_active', 'Prospect never active'],
+  ['other', 'Other'],
+]);
+
 export const PHASE_TRIGGERS = Object.freeze({
   pending: 'Prospective client', research: 'ETL signed', site_selection: 'Tour prepared or scheduled',
   negotiation: 'LOI submitted', legal: 'Draft lease prepared', due_diligence: 'Lease signed',

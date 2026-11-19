@@ -5,7 +5,7 @@ import { businessDay } from './business-date.js';
 import { COLUMNS, columnBySlug, columnByValue, noteText, PHASE_DATE_KIND } from './pipeline-model.js';
 import { compareInstants, escapeText, fieldLabel, readableValue } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
-import { concise, isEngineDealDetail } from './local-deals-model.js';
+import { concise, isEngineDealDetail, PARKING_REASONS } from './local-deals-model.js';
 import { ACTOR_LABEL, authorLabel } from './client.js';
 
 const DAY = 86400000;
@@ -129,6 +129,11 @@ function changeText({ field, new_value }) {
     return `Moved to ${phase}`;
   }
   if (field === 'operating_state') {
+    if (new_value?.state === 'parked') {
+      const reason = PARKING_REASONS.get(new_value.reason);
+      const note = typeof new_value.note === 'string' ? new_value.note : '';
+      return ['Parked', reason, note].filter(Boolean).join(' · ');
+    }
     const state = typeof new_value === 'string' ? new_value : readableValue(field, new_value);
     return /^(active|active work)$/i.test(state) ? 'Active again' : state;
   }
@@ -260,11 +265,11 @@ const OLD_HISTORY_KIND = new Map([
 const OLD_HISTORY_FACTS = {
   name: ['Deal name'], client_name: ['Client'],
   phase: ['Phase', value => value === 'dead' ? 'Lost' : columnBySlug(value)?.label || words(value)],
-  deal_type: ['Deal type', words], market: ['Market'], agent_name: ['Market agent'],
+  deal_type: [fieldLabel('kind'), words], market: ['Market'], agent_name: ['Market agent'],
   market_agent: ['Market agent'], lead: ['Deal owner', historicalPartner], owner: ['Assigned to', historicalPartner],
   assignee: ['Assigned to', historicalPartner], set_by: ['Set by', historicalActor],
   lane: ['Board lane', words], next_action: ['Next step'], next_step: ['Next step'],
-  description: ['Next step'], summary: ['Summary'], reason: ['Reason'], outcome: ['Outcome', words],
+  description: ['Next step'], summary: ['Summary'], reason: [fieldLabel('reason')], outcome: ['Outcome', words],
   status: ['Status', words], closed_on: ['Closing date', historicalDay], invoiced_on: ['Invoice date', historicalDay],
   next_date: ['Next step date', historicalDay], due: ['Due date', historicalDay], due_on: ['Due date', historicalDay],
   found: ['Result', value => value ? 'Found' : 'Nothing found'], expires_on: ['Expires', historicalDay],
