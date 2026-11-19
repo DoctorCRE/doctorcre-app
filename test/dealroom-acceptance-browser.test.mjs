@@ -1784,3 +1784,68 @@ for (const width of [1440, 390]) {
     }
   });
 }
+
+for (const width of [1440, 390]) test(`the deal shows its emails and meetings together at ${width}px`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  t.after(() => page.close());
+  await page.clock.install({ time: new Date('2026-11-19T18:00:00Z') });
+  const deal = { deal_id: crypto.randomUUID(), name: 'Example Floor Plan', phase: 'research', owner: 'joe', seen: 1 };
+  const subject = 'Floor plan <draft>';
+  const title = 'Review the floor plan and confirm whether the revised layout has room for the extra exam room and the new reception desk';
+  const email_threads = [{ subject, latest_message_at: '2026-11-19T17:30:00+00:00' }];
+  const thread = [{ kind: 'note', text: 'Bring the sample plan', actor: 'joe', created_at: '2026-11-18T12:00:00Z' }];
+  const correspondence = [
+    { activity_id: 'new-email', kind: 'email', subject, sender_name: 'Example Architect', sender: 'design@example.test', happened_at: '2026-11-19T17:30:00+00:00' },
+    { activity_id: 'meeting', kind: 'meeting', title, happened_at: '2026-11-19T16:00:00+00:00' },
+    { activity_id: 'old-email', kind: 'email', subject, sender_name: null, sender: 'plans@example.test', happened_at: '2026-11-18T15:00:00+00:00' },
+  ];
+  let readsOn = false;
+  let entries = correspondence;
+  const env = {
+    ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' && readsOn ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      assert.equal(new URL(request.url).pathname, `/api/engine/deals/${deal.deal_id}`);
+      return Response.json({ ...deal, thread, email_threads, email_follow_ups: [], correspondence: entries });
+    } },
+    CARR: { fetch: async request => {
+      const { id } = await request.json();
+      const detail = { ...deal, thread, email_threads, activities: [{ id: 'meeting', kind: 'meeting', source: 'calendar', summary: title, occurred_at: '2026-11-19T16:00:00Z' }] };
+      return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(detail) }] } });
+    } },
+  };
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `deal-correspondence-${width}`, viewer: 'joe', reset: true } });
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    if (request.postDataJSON()?.params?.name !== 'get-deal-room') return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+    }), env);
+    return route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
+  });
+
+  const tab = page.getByRole('tab', { name: 'Correspondence & notes' });
+  const panel = page.getByRole('tabpanel', { name: 'Correspondence & notes' });
+  await page.goto(`${origin}/deals?deal=${deal.deal_id}&mode=live`);
+  await tab.click();
+  await panel.getByRole('heading', { name: 'Email threads', exact: true }).waitFor();
+  await panel.getByRole('heading', { name: 'Meetings', exact: true }).waitFor();
+
+  readsOn = true;
+  await page.reload();
+  await tab.click();
+  await panel.getByText('Example Architect', { exact: false }).waitFor({ timeout: 5_000 });
+  const rows = panel.getByRole('listitem');
+  assert.equal(await rows.count(), 3);
+  assert.match(await rows.nth(0).innerText(), /Floor plan <draft>[\s\S]*Example Architect[\s\S]*Nov 19, 11:30 AM CST/);
+  assert.match(await rows.nth(1).innerText(), /^Review the floor plan[\s\S]*Nov 19, 10:00 AM CST/);
+  assert.match(await rows.nth(2).innerText(), /Floor plan <draft>[\s\S]*plans@example\.test[\s\S]*Nov 18, 9:00 AM CST/);
+  assert.equal(await panel.getByRole('region', { name: 'Deal notes' }).getByText('Bring the sample plan').count(), 1);
+  assert.equal(await page.getByText('File email to this deal', { exact: true }).count(), 0);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await panel.screenshot({ path: join(evidence, `deal-correspondence-${width}.png`) });
+
+  entries = [];
+  await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
+  await panel.getByText('No emails or meetings yet.', { exact: true }).waitFor();
+  assert.equal(await rows.count(), 0);
+});
