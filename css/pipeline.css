@@ -74,7 +74,12 @@
 /* Columns are a tonal step below the cards, so a card is not a box inside a box. */
 .kanban { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: var(--space-2) var(--space-1); }
 .kanban:has(.kanban-column) { max-height: 65dvh; }
+@media (min-width: 761px) {
+  .kanban:has(#prospectsLane):not(:has(.deal-list)) { grid-template-columns: repeat(8, minmax(120px, 1fr)); }
+}
 .kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); }
+#prospectsLane .work-card { overflow-wrap: anywhere; }
+.prospect-dialog li p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .kanban-column { min-width: 0; padding: var(--space-2) var(--space-1); background: var(--ground); overflow-wrap: anywhere; }
 .kanban-column > h3 { position: sticky; top: 0; z-index: 2; margin: 0; min-height: var(--space-7); font-size: var(--font-size-1); background: var(--ground); }
 .kanban-column > h3 button { display: flex; align-items: center; gap: var(--space-1); width: 100%; min-height: var(--touch); padding: var(--space-1) 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
