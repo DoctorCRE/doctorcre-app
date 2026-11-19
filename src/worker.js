@@ -275,8 +275,9 @@ async function engineResponse(request, env) {
         if (!call) return copySessionCookies(response, new Response(text, { status: response.status, headers: JSON_HEADERS }));
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
-          if (board?.schema_version === 'local-deals-board.v2' && await switchedOn(env, NEXT_DEAL_SAVES)) {
-            text = JSON.stringify({ ...board, next_deal_saves: true });
+          if (board?.schema_version === 'local-deals-board.v2') {
+            const savesOn = await switchedOn(env, NEXT_DEAL_SAVES);
+            text = JSON.stringify({ ...board, board_from_engine: true, ...(savesOn ? { next_deal_saves: true } : {}) });
           }
         }
         if (call.params.name === 'get-deal-room' && response.ok) {

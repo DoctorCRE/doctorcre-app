@@ -80,6 +80,7 @@ const state = {
   intent: null,
   boardStatus: 'starting',
   nextDealSaves: false,
+  boardFromEngine: false,
   unplaced: 0,
 };
 
@@ -113,7 +114,7 @@ function cardHtml(deal) {
     attributes: `data-id="${esc(deal.id)}" data-attention="${attention}" data-phase="${esc(deal.phase)}" draggable="true" tabindex="0"${pending ? ' data-pending="true"' : ''}${state.lifted === deal.id ? ' data-lifted="true"' : ''} aria-label="${esc(dealTitle(deal))}, ${esc(columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
     meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}`,
-    body: `<div class="deal-alert">${renderDealSummary(deal,{today,board:true})}${renderDealItems(deal,{today,buttons:true,empty:false,board:true})}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url)}${autoHtml(deal)}` });
+    body: `<div class="deal-alert">${renderDealSummary(deal,{today,board:true})}${renderDealItems(deal,{today,buttons:true,empty:false,board:true})}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url, state.boardFromEngine ? deal.id : null)}${autoHtml(deal)}` });
 }
 function rowHtml(deal) {
   const nextStep = noteText(deal.next_step);
@@ -346,6 +347,7 @@ function applyBoardSnapshot(board) {
   const saveSwitchChanged = Boolean(state.nextDealSaves) !== (board.next_deal_saves === true);
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
+  state.boardFromEngine = board.board_from_engine === true;
   if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
@@ -1226,13 +1228,11 @@ function workspaceHtml(detail) {
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !isClosedDeal(d);
   const closedValue = Number(d.closed_value);
   const invoice = invoiceClose(d);
-  const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves : controlsAvailable)
+  const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && !isClosedDeal(d) : controlsAvailable)
     ? clientPortalSetupHtml() : '';
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
-      ${fromEngine ? d.client_portal_url
-        ? '<button class="btn btn-quiet client-portal-link" type="button" data-open-client-website>Client website<span class="sr-only"> (opens in a new tab)</span></button>'
-        : '<p>No client website linked.</p>' : ''}
+      ${fromEngine ? renderClientPortalLink(d.client_portal_url, d.id) || '<p>No client website linked.</p>' : ''}
       ${invoice ? `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${esc(invoice.evidence_date)}">${esc(dateWords(invoice.evidence_date))}</time>${state.nextDealSaves ? ' <button class="btn" type="button" data-undo-invoice>Undo invoice close</button>' : ''}</div>` : ''}
       ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${dueDateHtml(dueOn)}</span></p>` : '<p>No next step or key date set.</p>'}
       ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
@@ -1852,6 +1852,16 @@ function wire() {
   });
 
   document.addEventListener('click', async (event) => {
+    const website = event.target.closest('[data-open-client-website]');
+    if (website) {
+      const id = website.dataset.openClientWebsite;
+      const onDealPage = $('panelBody').contains(website);
+      website.disabled = true;
+      const message = await openEngineClientWebsite(id);
+      website.disabled = false;
+      if (message && (!onDealPage || state.panelDeal === id)) showToast(message, { error: true });
+      return;
+    }
     const item = event.target.closest('[data-deal-item]');
     if (item) { itemSheet.open(item.dataset.itemDeal,item.dataset.dealItem,item); return; }
     const revive = event.target.closest('button[data-revive]');
@@ -1986,15 +1996,6 @@ function wire() {
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
   $('panelBody').addEventListener('click', async e => {
-    const website = e.target.closest('[data-open-client-website]');
-    if (website && state.panelDeal) {
-      const id = state.panelDeal;
-      website.disabled = true;
-      const message = await openEngineClientWebsite(id);
-      website.disabled = false;
-      if (message && state.panelDeal === id) showToast(message, { error: true });
-      return;
-    }
     if (e.target.closest('[data-undo-invoice]')) void undoInvoiceClose();
     if (e.target.closest('[data-discard-update]') && !pendingCommand(commandState, updateKey(state.panelDeal)) && !pendingCommand(commandState, nextStepKey(state.panelDeal))) { discardUpdate(state.panelDeal); syncUpdateForm(); }
     if (e.target.closest('[data-review-update-step]') && updateDraft?.conflict) {

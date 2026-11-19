@@ -2,10 +2,12 @@ import { escapeText as esc } from './change-receipts.mjs';
 import { sessionFetch } from './private-session.js';
 import { uuidv4 } from './uuid.js';
 
-/** The "Client website" link for a deal; empty when it has none. Only https links become anchors. */
-export function renderClientPortalLink(url) {
+export function renderClientPortalLink(url, grantDeal) {
   if (typeof url !== 'string' || !/^https:\/\//i.test(url)) return '';
-  return `<a class="client-portal-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Client website<span class="sr-only"> (opens in a new tab)</span></a>`;
+  const label = 'Client website<span class="sr-only"> (opens in a new tab)</span>';
+  return grantDeal
+    ? `<button class="client-portal-link" type="button" data-open-client-website="${esc(grantDeal)}">${label}</button>`
+    : `<a class="client-portal-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
 }
 
 const websitePath = deal => `/api/engine/deals/${encodeURIComponent(deal)}/client-website`;
