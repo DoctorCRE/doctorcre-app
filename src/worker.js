@@ -670,6 +670,9 @@ async function handleRequest(request, env) {
       response.headers.set('allow', 'GET, HEAD, POST');
       return response;
     }
+    const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);
+    if (website && (!await switchedOn(env, DEALS) || (!website[1] && !await switchedOn(env, NEXT_DEAL_SAVES))))
+      return json({ error: 'not_found' }, 404);
     if (pathname.startsWith('/api/engine/documents/') && !await switchedOn(env, DEALS))
       return json({ error: 'not_found' }, 404);
     if (!env?.ENGINE?.fetch) return json({ error: 'engine_unavailable' }, 503);

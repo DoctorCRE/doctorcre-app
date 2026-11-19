@@ -1780,3 +1780,53 @@ test("switched Mail priorities use the engine's unfiltered read", async () => {
   assert.equal(await (await worker.fetch(request, off.env)).text(), "old");
   assert.equal(off.engine.length, 0);
 });
+
+test("client website setup and opening use their Deals switches without changing the legacy save", async () => {
+  const deal = "00000000-0000-4000-8000-000000000001";
+  const path = `/api/engine/deals/${deal}/client-website`;
+  const args = { slug: "example-website", password: "synthetic-password", idempotency_key: deal };
+  for (const [reads, saves] of [
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ]) {
+    const f = fixture(
+      new Map([
+        ["deals-from-engine", reads ? "on" : "off"],
+        ["deals-saves-from-engine", saves ? "on" : "off"],
+      ]),
+    );
+    const headers = {
+      origin,
+      cookie: "session=synthetic",
+      "x-carr-csrf": "synthetic",
+      "content-type": "application/json",
+    };
+    const setup = await worker.fetch(
+      new Request(origin + path, { method: "POST", headers, body: JSON.stringify(args) }),
+      f.env,
+    );
+    const open = await worker.fetch(
+      new Request(origin + path + "/open", { method: "POST", headers, body: "{}" }),
+      f.env,
+    );
+    assert.equal(setup.status, reads && saves ? 200 : 404);
+    assert.equal(open.status, reads ? 200 : 404);
+    assert.deepEqual(
+      f.engine.map((request) => new URL(request.url).pathname),
+      [...(reads && saves ? [path] : []), ...(reads ? [path + "/open"] : [])],
+    );
+    if (reads && saves) assert.deepEqual(await f.engine[0]?.json(), args);
+    if (reads) {
+      assert.deepEqual(await f.engine.at(-1)?.json(), {});
+      assert.equal(f.engine.at(-1)?.headers.get("x-carr-csrf"), "synthetic");
+    }
+    assert.deepEqual(f.carr, []);
+    if (!reads && !saves) {
+      const legacy = call("register-client-portal", { deal, ...args });
+      assert.equal(await (await f.send(legacy, headers)).text(), "old");
+      assert.deepEqual(f.carr, [JSON.stringify(legacy)]);
+    }
+  }
+});
