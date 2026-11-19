@@ -626,8 +626,8 @@ for (const width of [1440, 390]) {
     assert.equal(await snapshot.locator('.deal-items time[datetime="2026-11-18"]').evaluate(node => node.closest("li").dataset.overdue === "true"), true);
     await snapshot.screenshot({ path: join(evidence, `owner-next-step-${width}-detail.png`) });
 
-    await page.getByText('Change next step', { exact: true }).click();
-    const localStep = page.getByLabel('Next step', { exact: true });
+    await page.getByText('Change your next step', { exact: true }).click();
+    const localStep = page.getByLabel('Your next step', { exact: true });
     assert.equal(await localStep.inputValue(), otherStep.description);
     await localStep.fill('Confirm the plan');
     await page.getByLabel('Next date', { exact: true }).fill('2026-11-23');
@@ -664,13 +664,27 @@ for (const width of [1440, 390]) {
     assert.equal(current.description, 'Ask for the updated plan');
     assert.deepEqual(steps.get(national.id)[1], ownerStep);
 
+    await nationalRow.locator('[data-next-step]').click();
+    await nationalStep.waitFor();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    Object.assign(current, { description: 'Confirm the lender meeting', due_on: '2026-11-24', change_id: 90 });
+    await nationalRow.locator('[data-next-step]').click();
+    await nationalStep.waitFor();
+    assert.equal(await nationalStep.inputValue(), 'Confirm the lender meeting');
+    assert.equal(await page.locator('#stepDate').inputValue(), '2026-11-24');
+    await nationalStep.fill('Confirm the meeting time');
+    await save.click();
+    await page.locator('#formDialog').waitFor({ state: 'hidden' });
+    assert.deepEqual(writes[3].seen_current_step, { next_step_id: otherStep.id, change_id: 90 });
+    assert.equal(current.description, 'Confirm the meeting time');
+
     await page.goto(`${origin}/deals?deal=${deal.id}&mode=live`);
     await page.locator('#detailPhase').selectOption('legal', { timeout: 10000 });
     await page.locator('#completionNextStep').fill('Discuss the updated plan with the lender');
     await page.getByRole('button', { name: 'Move to Legal' }).click();
     await page.getByRole('region', { name: 'Deal snapshot' }).getByText('Discuss the updated plan with the lender', { exact: false }).waitFor();
     assert.deepEqual(moves, [{ from: 'research', to: 'legal' }]);
-    assert.deepEqual(writes[3].seen_current_step, { next_step_id: otherStep.id, change_id: 78 });
+    assert.deepEqual(writes[4].seen_current_step, { next_step_id: otherStep.id, change_id: 78 });
     assert.deepEqual(steps.get(deal.id)[1], ownerStep);
   });
 }
@@ -1803,7 +1817,8 @@ for (const width of [1440, 390]) {
         if (url.pathname === '/api/engine/prospects') return Response.json({ count: 0, prospects: [] });
         if (url.pathname.endsWith(prospect)) return Response.json({ ...prospectRow, notes: [] });
         if (url.pathname.endsWith(parked)) return Response.json(parkedRow);
-        if (url.pathname.endsWith(deal)) return Response.json({ ...row, next_step: review[0].next_step, next_date: review[0].next_date, next_actions, thread: [...dealNotes,
+        if (url.pathname.endsWith(deal)) return Response.json({ ...row, next_step: review[0].next_step, next_date: review[0].next_date,
+          next_actions, email_follow_ups: [], thread: [...dealNotes,
           { id: 'example-note', kind: 'note', text: 'Example new note', actor: 'joe', recorded_at: '2026-11-09T15:00:00Z' },
         ] });
         if (url.pathname === '/api/engine/deals') boardReads++;
@@ -1980,9 +1995,10 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: 'Back', exact: true }).click();
       await page.getByRole('link', { name: row.name }).click();
       await page.getByLabel('Update', { exact: true }).fill('Example deal page update');
-      await page.getByText('Change next step', { exact: true }).click();
-      assert.equal(await step.inputValue(), 'Send the revised plan');
-      await step.fill('Send the final plan');
+      await page.getByText('Change your next step', { exact: true }).click();
+      const localStep = page.getByLabel('Your next step', { exact: true });
+      assert.equal(await localStep.inputValue(), 'Send the revised plan');
+      await localStep.fill('Send the final plan');
       await page.getByRole('button', { name: 'Add update' }).click();
       await page.locator('#detailUpdateStatus').getByText('Update added', { exact: true }).waitFor();
       assert.deepEqual(stepBody().seen_current_step, { next_step_id: next_actions[2].id, change_id: 9 });

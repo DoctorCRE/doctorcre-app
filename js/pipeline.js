@@ -1134,8 +1134,11 @@ function refusePanelDetail(error) {
   $('panelBody').innerHTML = '<p role="status">Unavailable. Sign in to reload this record. <a href="/auth/login">Sign in</a> <button class="btn" type="button" data-refresh-detail>Retry</button></p>';
   return true;
 }
+function canEditOwnDealStep(detail) {
+  return (state.nextDealSaves || detail.next_deal_saves) && Number.isSafeInteger(detail.deal.seen);
+}
 function reviewedDealStep(detail) {
-  if (!(state.nextDealSaves || detail.next_deal_saves) || !Number.isSafeInteger(detail.deal.seen)) return detail.deal;
+  if (!canEditOwnDealStep(detail)) return detail.deal;
   const currentStep = partnerDealStep(detail, state.selfActor);
   return { currentStep, next_step: currentStep?.description, next_date: currentStep?.due_on };
 }
@@ -1472,6 +1475,7 @@ function dealEmailFollowupsHtml(followups, canDecide) {
 
 function workspaceHtml(detail) {
   const fromEngine = isEngineDealDetail(detail);
+  const ownStep = canEditOwnDealStep(detail);
   const d = detail.deal;
   const items = detail.items || d.items || [];
   const [leadStep, ...remainingSteps] = fromEngine ? dealOwnerFirstSteps(d, detail.next_actions) : [];
@@ -1508,7 +1512,7 @@ function workspaceHtml(detail) {
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     <section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>
     <div data-detail-read="checklist"></div>
-    <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000"${detail.next_deal_saves ? '' : ' required'}></textarea><details id="detailNextStepEditor"><summary>Change next step</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">Next step</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${today}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
+    <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000"${detail.next_deal_saves ? '' : ' required'}></textarea><details id="detailNextStepEditor"><summary>${ownStep ? 'Change your next step' : 'Change next step'}</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">${ownStep ? 'Your next step' : 'Next step'}</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${today}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
     <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail.email_follow_ups, detail.next_deal_saves) : '<p role="status">Updating email follow-ups…</p>'}</section>
     ${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>

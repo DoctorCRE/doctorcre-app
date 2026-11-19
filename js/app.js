@@ -1126,6 +1126,10 @@ async function nextStepForm(dealId) {
     return { seen: detail.deal.seen, currentStep: partnerDealStep(detail, actor) };
   };
   const reviewed = fromEngine && !pending ? await readStep() : undefined;
+  const kept = state.formDrafts?.get(draftKey);
+  if (reviewed && kept && !kept.conflict && Object.keys(kept.values).length === 0) {
+    state.formDrafts.delete(draftKey);
+  }
   const step = (state.formDrafts?.get(draftKey)?.reviewed ?? reviewed)?.currentStep;
   const date = fromEngine ? (step?.due_on >= businessDay() ? step.due_on : '') : deal.next_date;
   openForm({ draftKey, reviewed, title:`Next step — ${deal.name}`, submit:pending ? 'Check outcome' : 'Set next step',
