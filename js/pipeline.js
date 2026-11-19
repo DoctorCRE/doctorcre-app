@@ -304,7 +304,7 @@ function renderBoard() {
       ? `${state.unplaced} deals need a phase`
       : '';
   }
-  prospects?.show(state.filter, state.scopeFilter === 'flagged', state.selfActor, state.nextDealSaves);
+  showProspects();
   if (focusedStage) board.querySelector(`[data-collapse-stage="${CSS.escape(focusedStage)}"]`)?.focus();
   renderPendingWrites();
 }
@@ -438,6 +438,10 @@ function applyBoardSnapshot(board) {
   }
 }
 
+function showProspects() {
+  prospects?.show(state.filter, state.scopeFilter === 'flagged', state.selfActor, state.nextDealSaves);
+}
+
 function prospectClient() {
   return { prospectRequest: fetchRead, saveProspect: (path, operation, receipt, args) =>
     state.client.savePartnerRecord(path, `prospect:${operation}`, receipt, args) };
@@ -467,7 +471,7 @@ function syncProspects(enabled) {
       addDeal: openAddDeal,
       backToReview: incomingScope.has('prospect') && mondayReviewOrigin() ? backToMondayReview : null,
     });
-    renderBoard();
+    showProspects();
   });
 }
 
@@ -504,7 +508,6 @@ async function pollOnce(initial = false) {
     actorLabel: actorName,
   });
   renderReceipts();
-  if (!document.querySelector('dialog[open]')) renderBoard();
 }
 
 
