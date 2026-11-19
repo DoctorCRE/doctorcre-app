@@ -38,7 +38,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceClose, isEngineDealDetail, prepareDealDetail, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceClose, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
@@ -149,9 +149,13 @@ function renderDealFacts(facts) {
     ? `<span>${esc(value)}</span><br><small>${esc(note)}</small>`
     : esc(value)}</dd></div>`).join('');
 }
+function dealOwnerFirstSteps(deal, actions) {
+  const steps = ordinaryOpenSteps(actions);
+  const ownerStep = steps.find(step => step.owner === deal.owner);
+  return ownerStep ? [ownerStep, ...steps.filter(step => step !== ownerStep)] : steps;
+}
 function boardNextStepHtml(deal) {
-  const steps = (deal.open_actions || []).filter(step => step.description?.trim());
-  const step = steps.find(step => step.owner === deal.owner) ?? steps[0];
+  const [step] = dealOwnerFirstSteps(deal, deal.open_actions);
   if (!step) return '<p class="deal-board-next-step">No next step set</p>';
   return `<p class="deal-board-next-step"><span>${esc(step.description.trim())}</span> · ${dueDateHtml(calendarDay(step.due_on), businessDay())}</p>`;
 }
@@ -159,7 +163,8 @@ function cardStepsHtml(deal, today) {
   const summary = state.boardFromEngine
     ? boardNextStepHtml(deal) + renderLastDealStep(deal.last_step)
     : renderDealSummary(deal, { today, board: true });
-  return summary + renderDealItems(deal, { today, buttons: true, empty: false, board: !state.boardFromEngine });
+  return summary + renderDealItems(deal, { today: state.boardFromEngine ? businessDay() : today,
+    buttons: true, empty: false, board: !state.boardFromEngine });
 }
 function cardHtml(deal) {
   const today = todayIso();
@@ -172,12 +177,14 @@ function cardHtml(deal) {
     meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}`,
     body: `<div class="deal-alert">${cardStepsHtml(deal, today)}</div>${renderDealVendors(deal.vendors)}${renderClientPortalLink(deal.client_portal_url, state.boardFromEngine ? deal.id : null)}${cardPhaseMoveHtml(deal, autoHtml(deal))}` });
 }
-function rowHtml(deal) {
+function legacyRowStepHtml(deal) {
   const nextStep = noteText(deal.next_step);
   const today = todayIso();
-  const overdue = state.boardFromEngine ? '' : overdueLabel(overdueSince(deal, today), today);
-  const summary = state.boardFromEngine ? boardNextStepHtml(deal)
-    : `<p class="next-line" title="${esc(nextStep)}">${nextStep.trim() ? esc(nextStep) : 'Next step missing'}</p>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}`;
+  const overdue = overdueLabel(overdueSince(deal, today), today);
+  return `<p class="next-line" title="${esc(nextStep)}">${nextStep.trim() ? esc(nextStep) : 'Next step missing'}</p>${renderOverdueFlag(deal.id, dealTitle(deal), overdue)}`;
+}
+function rowHtml(deal) {
+  const summary = state.boardFromEngine ? boardNextStepHtml(deal) : legacyRowStepHtml(deal);
   const attention = state.boardFromEngine ? deal.attention === true : needsAttention(deal);
   return workCard({ variant: 'row', className: 'kanban-card deal-row', heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0" data-attention="${attention}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
@@ -745,32 +752,28 @@ async function runFollowUp(operationKey, step) {
       try { detail = await state.client.getDeal(args.deal); }
       catch { /* A missing current version cannot authorize a replacement. */ }
       const current = detail?.deal;
+      const reviewed = step.reviewed || state.deals.get(args.deal);
+      const seen = fromEngine && detail ? dealStepVersion(partnerDealStep(detail, state.selfActor)) : undefined;
+      const previous = fromEngine ? dealStepVersion(reviewed?.currentStep) : undefined;
       if (current?.id !== args.deal || (fromEngine
-        ? !Number.isSafeInteger(current.seen) || !state.selfActor
+        ? !state.selfActor || seen === undefined || previous === undefined
         : !Number.isSafeInteger(current.version) || current.version < 1)) {
         // eslint-disable-next-line no-restricted-syntax -- Only the manual retry button can reread the step after this failure.
         dock.record(operationKey, { summary: step.summary, status: 'failed', retry: true, undo: false,
           reason: 'The current next step could not be read. Try again before saving it.' });
         return null;
       }
-      const reviewed = step.reviewed || state.deals.get(args.deal);
-      const owned = fromEngine ? partnerDealStep(detail) : null;
-      const previous = reviewed?.currentStep;
-      const text = fromEngine ? owned?.description : current.next_step;
-      const date = fromEngine ? owned?.due_on : current.next_date;
-      if (!reviewed || (fromEngine && (previous === undefined || previous?.id !== owned?.id || previous?.change_id !== owned?.change_id))
-          || noteText(reviewed.next_step) !== noteText(text) || (reviewed.next_date || null) !== (date || null)) {
+      const changed = fromEngine ? previous?.next_step_id !== seen?.next_step_id || previous?.change_id !== seen?.change_id
+        : !reviewed || noteText(reviewed.next_step) !== noteText(current.next_step) ||
+          (reviewed.next_date || null) !== (current.next_date || null);
+      if (changed) {
         const message = fromEngine ? 'The next step changed. Review it before saving again.'
-          : `Current next step: ${noteText(text) || 'None'} (${date || 'no date'}). Review before retrying.`;
+          : `Current next step: ${noteText(current.next_step) || 'None'} (${current.next_date || 'no date'}). Review before retrying.`;
         // eslint-disable-next-line no-restricted-syntax -- Conflict metadata only sets retry=false; it never automatically replaces changed next-step fields.
         dock.record(operationKey, { summary: step.summary, status: 'conflict', retry: false, undo: false, reason: message });
         return { status: 'conflict', message };
       }
-      if (!fromEngine) args = { ...args, base_version: current.version };
-      // Older deal reads can return an open step without its change ID.
-      else if (!owned || Number.isSafeInteger(owned.change_id)) {
-        args = { ...args, seen_current_step: owned ? { next_step_id: owned.id, change_id: owned.change_id } : null };
-      }
+      args = fromEngine ? { ...args, seen_current_step: seen } : { ...args, base_version: current.version };
     }
   }
   const decidesEmail = step.verb === 'decide-engine-deal-email';
@@ -826,6 +829,14 @@ async function runMove(intent, form) {
   if (plan.errors.length) return { ok: false, errors: plan.errors };
 
   const [phaseStep, ...followUps] = plan.steps;
+  const replacement = followUps.find(step => step.verb === 'set-next-step');
+  if (replacement) {
+    replacement.reviewed = await intent.reviewedStep;
+    if (state.intent !== intent) return { ok: false, errors: [] };
+    if (dealStepVersion(replacement.reviewed?.currentStep) === undefined) {
+      return { ok: false, errors: ['The current next step could not be read. Reopen the move to try again.'] };
+    }
+  }
   if (phaseStep.verb === 'update-deal') {
     const result = await runFollowUp(`close-deal:${intent.deal}`, phaseStep);
     if (result.code === 'version_conflict') return { ok: false, errors: [], reload: true };
@@ -936,7 +947,14 @@ async function runUndo(eventId) {
 
 
 function openCompletion(intent) {
-  state.intent = intent;
+  const replaceNextStep = state.nextDealSaves && Number.isSafeInteger(intent.seen) && intent.to !== CLOSED_SLUG;
+  const actor = state.selfActor;
+  const detail = state.panelDetail;
+  const reviewedStep = replaceNextStep
+    ? (detail?.deal.id === intent.deal ? Promise.resolve(detail) : readDealDetail(intent.deal))
+      .then(current => actor && actor === state.selfActor ? reviewedDealStep(current) : null, () => null)
+    : null;
+  state.intent = { ...intent, reviewedStep };
   const dialog = $('completionDialog');
   if (!dialog) return;
 
@@ -967,7 +985,10 @@ function openCompletion(intent) {
   $('completionEvidence').value = '';
   $('completionReason').value = '';
   $('completionQuote').value = '';
-  $('completionNextStep').value = '';
+  const nextStep = $('completionNextStep');
+  nextStep.labels[0].textContent = replaceNextStep ? 'Your next step' : 'Next item (2–4 words)';
+  nextStep.maxLength = replaceNextStep ? 10000 : 100;
+  nextStep.value = '';
   $('completionNextWhen').value = '';
   $('completionDate').value = '';
   $('completionCritical').checked = false;
@@ -1148,17 +1169,20 @@ function refusePanelDetail(error) {
   $('panelBody').innerHTML = '<p role="status">Unavailable. Sign in to reload this record. <a href="/auth/login">Sign in</a> <button class="btn" type="button" data-refresh-detail>Retry</button></p>';
   return true;
 }
-function partnerDealStep(detail) {
-  return detail.next_actions?.find(action => action?.status === 'open' && !action.title && action.owner === state.selfActor) ?? null;
+function canEditOwnDealStep(detail) {
+  return (state.nextDealSaves || detail.next_deal_saves) && Number.isSafeInteger(detail.deal.seen);
 }
 function reviewedDealStep(detail) {
-  if (!(state.nextDealSaves || detail.next_deal_saves) || !Number.isSafeInteger(detail.deal.seen)) return detail.deal;
-  const currentStep = partnerDealStep(detail);
+  if (!canEditOwnDealStep(detail)) return detail.deal;
+  const currentStep = partnerDealStep(detail, state.selfActor);
   return { currentStep, next_step: currentStep?.description, next_date: currentStep?.due_on };
 }
 function editableStepDate(reviewed) {
   const date = reviewed.next_date || '';
-  return reviewed.currentStep !== undefined && date < todayIso() ? '' : date;
+  return reviewed.currentStep !== undefined && date < businessDay() ? '' : date;
+}
+function updateStepChanged(draft) {
+  return draft.step.trim() !== noteText(draft.reviewed.next_step).trim() || draft.date !== editableStepDate(draft.reviewed);
 }
 function syncUpdateForm() {
   const form = $('detailUpdateForm');
@@ -1177,16 +1201,19 @@ function syncUpdateForm() {
   form.elements.text.disabled = Boolean(pending) || updateDraft.noteSaved || !state.selfActor;
   form.elements.step.value = updateDraft.step;
   form.elements.date.value = updateDraft.date;
-  const overdue = Boolean(updateDraft.reviewed.next_date && updateDraft.reviewed.next_date < todayIso());
+  const canSaveStepOnly = updateDraft.reviewed.currentStep !== undefined;
+  const changed = updateStepChanged(updateDraft);
+  const overdue = Boolean(updateDraft.reviewed.next_date && updateDraft.reviewed.next_date < (canSaveStepOnly ? businessDay() : todayIso()));
   $('detailUpdateDateHint').hidden = !overdue;
   if (overdue) form.elements.date.setAttribute('aria-describedby', 'detailUpdateDateHint');
   else form.elements.date.removeAttribute('aria-describedby');
   form.elements.step.disabled = form.elements.date.disabled = Boolean(pending || pendingStep) || !state.selfActor;
   const button = form.querySelector('button[type="submit"]');
   button.disabled = pending?.status === 'pending' || pendingStep?.status === 'pending' || !state.selfActor;
-  button.textContent = pending || pendingStep ? 'Check outcome' : 'Add update';
+  button.textContent = pending || pendingStep ? 'Check outcome'
+    : canSaveStepOnly && changed && (!updateDraft.text.trim() || updateDraft.noteSaved) ? 'Save next step' : 'Add update';
   form.querySelector('[data-review-update-step]').hidden = !updateDraft.conflict;
-  form.querySelector('[data-discard-update]').disabled = Boolean(pending || pendingStep) || !updateDraft.text;
+  form.querySelector('[data-discard-update]').disabled = Boolean(pending || pendingStep) || !(updateDraft.text || (canSaveStepOnly && changed));
   if (!pending) $('detailUpdateStatus').textContent = updateDraft.noteSaved ? updateDraft.message || 'Update added; next step still needs to be saved.' : updateDraft.text ? 'Unsent draft · kept while this page is open' : updateDraft.message || '';
   if (pending) $('detailUpdateStatus').textContent = pending.message || 'Saving update…';
 }
@@ -1203,7 +1230,7 @@ function readDealDetail(id) {
 function validateUpdateStep(draft, form) {
   $('detailNextStepEditor').open = true;
   if (!draft.step.trim()) { $('detailUpdateStatus').textContent = 'Enter a next step'; form.elements.step.focus(); return false; }
-  if (draft.date && draft.date < todayIso()) {
+  if (draft.date && draft.date < (draft.reviewed.currentStep !== undefined ? businessDay() : todayIso())) {
     $('detailUpdateStatus').textContent = draft.date === draft.reviewed.next_date
       ? 'Current next date is overdue. Enter a new date today or later.'
       : 'Next date must be today or later';
@@ -1217,18 +1244,20 @@ async function saveUpdate(id) {
   if (pending?.status === 'pending' || !state.selfActor || draftActor !== state.selfActor) return;
   const form = $('detailUpdateForm');
   const text = form?.elements.text.value.trim();
-  if (!pending && !text) { $('detailUpdateStatus').textContent = 'Enter an update'; return; }
   const draft = updateDraft;
   const actor = state.selfActor;
   const step = draft.step.trim();
-  const changed = step !== noteText(draft.reviewed.next_step).trim() || draft.date !== editableStepDate(draft.reviewed);
+  const changed = updateStepChanged(draft);
+  const stepOnly = draft.reviewed.currentStep !== undefined && changed;
+  if (!pending && !text && !draft.noteSaved && !stepOnly) { $('detailUpdateStatus').textContent = 'Enter an update'; return; }
+  if (changed && draft.conflict) { form.querySelector('[data-review-update-step]').focus(); return; }
   const pendingStep = pendingCommand(commandState, nextStepKey(id));
   if (changed && !pendingStep && !validateUpdateStep(draft, form)) return;
   if (draft.sending) return;
   if (!draft.stepStarted && pendingCommand(commandState, nextStepKey(id))) { $('detailUpdateStatus').textContent = 'Resolve the pending next step before adding an update.'; return; }
   draft.sending = true;
   try {
-    if (!draft.noteSaved) {
+    if (!draft.noteSaved && (pending || text)) {
       const args = pending?.request || {deal:id,text};
       const promise = runFollowUp(key,{verb:'add-deal-note',args,summary:'Deal update'});
       syncUpdateForm();
@@ -1247,7 +1276,7 @@ async function saveUpdate(id) {
       const result = await runFollowUp(nextStepKey(id), {verb:'set-next-step', args:{deal:id,text:step,next_date:draft.date || null}, reviewed:draft.reviewed, summary:'Next step'});
       if (result?.status !== 'ok') {
         draft.conflict = result?.status === 'conflict';
-        draft.message = `Update added; next step not saved. ${result?.hint || result?.message || 'Review the current next step and retry.'}`;
+        draft.message = `${draft.noteSaved ? 'Update added; next step not saved. ' : ''}${result?.hint || result?.message || 'Review the current next step and retry.'}`;
         if (state.panelDeal === id && $('detailUpdateStatus')) {
           syncUpdateForm();
           $('detailUpdateStatus').textContent = draft.message;
@@ -1263,7 +1292,7 @@ async function saveUpdate(id) {
     if (state.panelDeal === id) {
       await refreshPanel();
       if (actor === state.selfActor && updateDraft?.id === id) {
-        updateDraft.message = 'Update added';
+        updateDraft.message = draft.noteSaved ? 'Update added' : 'Next step saved.';
         syncUpdateForm();
       }
     }
@@ -1481,11 +1510,15 @@ function dealEmailFollowupsHtml(followups, canDecide) {
 
 function workspaceHtml(detail) {
   const fromEngine = isEngineDealDetail(detail);
+  const ownStep = canEditOwnDealStep(detail);
   const d = detail.deal;
   const typeFacts = fromEngine ? dealTypeFacts(d) : d.type ? [{ label: 'Type', value: d.type }] : [];
   const items = detail.items || d.items || [];
-  const { text: nextStep, dueOn, item: nextItem, otherActions } = dealNextStep(d, detail.next_actions || [], items);
-  const today = todayIso();
+  const [leadStep, ...remainingSteps] = fromEngine ? dealOwnerFirstSteps(d, detail.next_actions) : [];
+  const { text: nextStep, dueOn, item: nextItem, otherActions } = fromEngine
+    ? { text: leadStep?.description.trim(), dueOn: calendarDay(leadStep?.due_on), otherActions: remainingSteps }
+    : dealNextStep(d, detail.next_actions || [], items);
+  const today = fromEngine ? businessDay() : todayIso();
   const prospect = state.deals.get(d.id);
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
   const parked = d.operating_state === 'parked';
@@ -1502,7 +1535,7 @@ function workspaceHtml(detail) {
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
       ${fromEngine ? renderClientPortalLink(d.client_portal_url, d.id) || '<p>No client website linked.</p>' : ''}
       ${invoice ? `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${esc(invoice.evidence_date)}">${esc(dateWords(invoice.evidence_date))}</time>${state.nextDealSaves ? ' <button class="btn" type="button" data-undo-invoice>Undo invoice close</button>' : ''}</div>` : ''}
-      ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${dueDateHtml(dueOn)}</span></p>` : '<p>No next step or key date set.</p>'}
+      ${nextStep ? `<p class="deal-current-action"><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span></p>` : '<p>No next step or key date set.</p>'}
       ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
         const day = calendarDay(action.due_on);
         return `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
@@ -1515,7 +1548,7 @@ function workspaceHtml(detail) {
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     <section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>
     <div data-detail-read="checklist"></div>
-    <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000" required></textarea><details id="detailNextStepEditor"><summary>Change next step</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">Next step</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${todayIso()}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
+    <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000"${detail.next_deal_saves ? '' : ' required'}></textarea><details id="detailNextStepEditor"><summary>${ownStep ? 'Change your next step' : 'Change next step'}</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">${ownStep ? 'Your next step' : 'Next step'}</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${today}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
     <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail.email_follow_ups, detail.next_deal_saves) : '<p role="status">Updating email follow-ups…</p>'}</section>
     ${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
@@ -2279,33 +2312,38 @@ function wire() {
   $('completionForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const intent = state.intent;
-    if (!intent) return;
-    const outcome = await runMove(intent, {
-      evidence: $('completionEvidence')?.value,
-      changeReason: $('completionReason')?.value,
-      humanQuote: $('completionQuote')?.value,
-      nextStep: $('completionNextStep')?.value,
-      nextWhen: $('completionNextWhen')?.value,
-      effectiveDate: $('completionDate')?.value,
-      recordCriticalDate: $('completionCritical')?.checked === true,
-      dateSource: $('completionSource')?.value,
-      outcome: chosenOutcome(),
-      closedOn: $('completionClosedOn')?.value,
-      wonValue: $('completionWonValue')?.value,
-      lostReason: $('completionLostReason')?.value,
-    });
-    if (state.intent !== intent) return;
-    if (outcome.errors.length) {
-      const errors = $('completionErrors');
-      if (errors) {
-        errors.hidden = false;
-        errors.textContent = outcome.errors.join(' ');
-        errors.focus?.();
+    const confirm = $('completionConfirm');
+    if (!intent || confirm.disabled) return;
+    confirm.disabled = true;
+    try {
+      const outcome = await runMove(intent, {
+        evidence: $('completionEvidence')?.value,
+        changeReason: $('completionReason')?.value,
+        humanQuote: $('completionQuote')?.value,
+        nextStep: $('completionNextStep')?.value,
+        replaceNextStep: Boolean(intent.reviewedStep),
+        nextWhen: $('completionNextWhen')?.value,
+        effectiveDate: $('completionDate')?.value,
+        recordCriticalDate: $('completionCritical')?.checked === true,
+        dateSource: $('completionSource')?.value,
+        outcome: chosenOutcome(),
+        closedOn: $('completionClosedOn')?.value,
+        wonValue: $('completionWonValue')?.value,
+        lostReason: $('completionLostReason')?.value,
+      });
+      if (state.intent !== intent) return;
+      if (outcome.errors.length) {
+        const errors = $('completionErrors');
+        if (errors) {
+          errors.hidden = false;
+          errors.textContent = outcome.errors.join(' ');
+          errors.focus?.();
+        }
+        return;
       }
-      return;
-    }
-    closeCompletion({ cancelled: false });
-    if (!outcome.reload && state.panelDeal === intent.deal) await refreshPanel();
+      closeCompletion({ cancelled: false });
+      if (!outcome.reload && state.panelDeal === intent.deal) await refreshPanel();
+    } finally { confirm.disabled = false; }
   });
 
   $('conflictCancel')?.addEventListener('click', () => $('conflictDialog')?.close());
@@ -2520,8 +2558,8 @@ async function boot() {
         state.selfActor = actor;
         state.client = createLiveClient({ selfActor: actor });
         return {
-          actor, prospect: prospectClient(), today: todayIso(),
-          async step(id) { return partnerDealStep(await readDealDetail(id)); },
+          actor, prospect: prospectClient(), today: businessDay(),
+          async step(id) { return partnerDealStep(await readDealDetail(id), actor); },
           mark(row, confirm) {
             const markId = row.reviewed?.id;
             const key = `weekly:${week}:${row.kind}:${row.id}:${markId ?? 'mark'}`;
@@ -2538,8 +2576,7 @@ async function boot() {
               verb: isNote ? 'add-deal-note' : 'set-next-step',
               args: { deal: row.id, text: edit.text, ...(!isNote && { next_date: edit.due }) },
               summary: isNote ? 'Deal update' : 'Next step',
-              reviewed: isNote ? { seen: row.seen } : { seen: row.seen, currentStep: edit.current,
-                next_step: edit.current?.description, next_date: edit.current?.due_on },
+              reviewed: isNote ? { seen: row.seen } : { seen: row.seen, currentStep: edit.current },
             });
           },
         };
@@ -2565,7 +2602,7 @@ async function boot() {
   wire();
   state.client = resolved.mode === 'live' ? createLiveClient() : await (await import("./fixture-client.js")).createFixtureClient(resolved.options);
   mountNotificationBadge(state.client);
-  itemSheet = mountDealItemSheet({document,today:todayIso,read:readDealDetail,send:runFollowUp,pending:key => pendingCommand(commandState,key),refresh:() => {state.boardSync.requestRefresh('deal-item');refreshPanel();}});
+  itemSheet = mountDealItemSheet({document,today:() => state.boardFromEngine || isEngineDealDetail(state.panelDetail) ? businessDay() : todayIso(),read:readDealDetail,send:runFollowUp,pending:key => pendingCommand(commandState,key),refresh:() => {state.boardSync.requestRefresh('deal-item');refreshPanel();}});
   state.mode = state.client.mode;
   const identity = deploymentIdentity(state.mode);
   $('deploymentBadge').textContent = identity.label;

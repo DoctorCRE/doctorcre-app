@@ -81,3 +81,20 @@ export function prepareDealDetail(detail) {
     thread: newestFirst(detail.thread || [], threadInstant),
     activities: newestFirst(activities, a => a.occurred_at || a.recorded_at) };
 }
+
+export function ordinaryOpenSteps(actions = []) {
+  return actions.filter(step => (step.status === undefined || step.status === 'open') &&
+    !step.title && step.description?.trim());
+}
+
+export function partnerDealStep(detail, actor) {
+  return ordinaryOpenSteps(detail.next_actions).find(step => step.owner === actor) ?? null;
+}
+
+export function dealStepVersion(step) {
+  if (step === null) return null;
+  if (step?.id && Number.isSafeInteger(step.change_id)) {
+    return { next_step_id: step.id, change_id: step.change_id };
+  }
+  return undefined;
+}
