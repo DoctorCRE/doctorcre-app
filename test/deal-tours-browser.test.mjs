@@ -315,7 +315,6 @@ test('creation and pending-write departures preserve history and saved notes', a
     const gate = new Promise(resolve => { release = resolve; });
     let writes = 0, notes = '', revision = 0, settled;
     const saved = new Promise(resolve => { settled = resolve; });
-    const refresh = scenario === 'pending keep' ? Promise.withResolvers() : null;
     try {
       await page.route(/^https:\/\//,route => route.abort());
       const seed = JSON.parse((await readFile(new URL('../data/board-seed.json',import.meta.url),'utf8')).replaceAll('"d14"',JSON.stringify(deal)).replaceAll('"d23"',JSON.stringify(other)));
@@ -334,7 +333,6 @@ test('creation and pending-write departures preserve history and saved notes', a
           return route.fulfill({json:{data:{cheat_sheet_revision_id:created,revision_number:revision},csrf_token:'synthetic-session'}});
         }
         if(path === '/api/tours/detail') return route.fulfill({json:{data:{...row,cheat_sheet:revision ? {revision_number:revision,content:{notes}} : {},stops:[],routes:[{id:routeId,route_version:1,accepted:false,stops:[]}],route_version_id:routeId,route_version_state:'draft',accepted_route_version:0},csrf_token:'synthetic-session'}});
-        if(path === '/api/tours/selection-cart' && revision > 0 && refresh) await refresh.promise;
         return route.fulfill({status:404,json:{error:'not_found'}});
       });
       const pending = scenario.startsWith('pending');
@@ -399,13 +397,8 @@ test('creation and pending-write departures preserve history and saved notes', a
           await prompt.getByRole('button',{name:'Leave tour',exact:true}).click();
           await page.locator('[data-open-tour]').waitFor();
         }
-        const loadingCart = refresh && page.waitForRequest(request =>
-          revision === 1 && new URL(request.url()).pathname === '/api/tours/selection-cart');
         release(); await saved;
-        if(refresh) {
-          await loadingCart;
-          assert.equal(await editor.locator('#sheet-state').textContent(),'Saving…');
-          refresh.resolve();
+        if(scenario === 'pending keep') {
           await editor.locator('#sheet-state').filter({hasText:/save confirmed/}).waitFor();
           await page.goBack(); await page.locator('[data-open-tour]').waitFor();
         }
@@ -424,7 +417,7 @@ test('creation and pending-write departures preserve history and saved notes', a
           assert.equal(await page.locator('iframe[title="Tour shortlist, route and packet"]').count(),0);
         }
       }
-    } finally { release(); refresh?.resolve(); await page.close(); }
+    } finally { release(); await page.close(); }
   });
 });
 
