@@ -76,7 +76,12 @@ export function createAutomaticPhaseUndo({
           ? refreshed.applied
             ? ""
             : "Move undone. Refresh Deals to see the current phase."
-          : result.hint ||
+          : ([
+              "This deal changed. Reload the deal before saving.",
+              "Re-read the record and ask the human before retrying.",
+            ].includes(result.hint || "")
+              ? null
+              : result.hint) ||
             (refreshed.applied
               ? `This deal changed. ${refreshedMessage}`
               : "This deal changed. Refresh Deals to see the current phase.");
