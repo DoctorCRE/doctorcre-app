@@ -398,7 +398,7 @@ function ProspectLane({
   );
 }
 
-export function mountProspectClientPicker(host: HTMLElement, props: Parameters<typeof DealClientPicker>[0]) {
+export function mountDealClientPicker(host: HTMLElement, props: Parameters<typeof DealClientPicker>[0]) {
   const root = createRoot(host);
   flushSync(() => root.render(<DealClientPicker {...props} />));
   return () => root.unmount();

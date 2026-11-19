@@ -418,7 +418,8 @@ const DEAL_CREATE_REFUSALS = new Map([
   ['deal_party_party_id_fkey', 'Choose an existing client.'],
   ['deal_party_client_is_a_client', 'Choose an existing client.'],
   ['deal_market_id_fkey', 'Choose an existing market.'],
-  ['deal_renewal_names_lease', 'Renewals need an existing lease. The Add deal form cannot link a lease yet.'],
+  ['deal_renewal_names_lease', 'Choose an existing lease to renew.'],
+  ['deal_renews_lease_id_fkey', 'Choose an existing lease to renew.'],
   ['deal_name_exists', 'A deal with this name already exists.'],
   ['not_a_prospect', 'This person or company is no longer a prospect.'],
   ['lead_or_client_how_found', 'Record how you found this person or company before using them as a client.'],
@@ -738,6 +739,10 @@ async function handleRequest(request, env) {
     const marketDealRead = pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
     if ((weeklyReview && !await switchedOn(env, NEXT_DEAL_SAVES))
         || ((weeklyReview || marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
+      return json({ error: 'not_found' }, 404);
+    const dealClientLookup = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
+      || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname);
+    if (dealClientLookup && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
     const prospectSave = prospects && request.method === 'POST';

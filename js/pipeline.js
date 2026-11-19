@@ -186,7 +186,7 @@ function parkedHtml(deal) {
 }
 
 let dealCreation = null;
-let pickedDealClient = null;
+let nextDealCreation = false;
 let prospectConversion = null;
 let unmountDealClientPicker;
 let creatingDeal = false;
@@ -196,23 +196,44 @@ function syncDealCreation() {
   $('addDealCancel').disabled = creatingDeal;
   $('addDealSubmit').textContent = creatingDeal ? 'Saving…' : dealCreation ? 'Check creation outcome' : 'Create deal';
 }
-function openAddDeal(client = null, conversion = null) {
+async function openAddDeal(client = null, conversion = null) {
+  const dialog = $('addDealDialog');
+  if (dialog.open) return;
   if (!dealCreation) {
-    pickedDealClient = client;
-    prospectConversion = conversion;
     const prospect = conversion?.prospect;
+    const next = state.nextDealSaves;
+    const usePicker = Boolean(prospect || next);
+    let mountDealClientPicker;
+    if (usePicker) {
+      try {
+        ({ mountDealClientPicker } = await import('./ui-deal-prospects.generated.js'));
+      } catch {
+        showToast('Could not open Add deal. Try again.', { error: true });
+        return;
+      }
+      if (dialog.open) return;
+    }
+
+    prospectConversion = conversion;
+    nextDealCreation = next;
     unmountDealClientPicker?.();
     $('addDealForm').reset();
-    $('addDealLegacyClient').hidden = Boolean(prospect);
-    $('addDealClient').disabled = Boolean(prospect);
-    $('addDealClientPicker').hidden = !prospect;
-    unmountDealClientPicker = conversion?.mountClientPicker($('addDealClientPicker'));
+    $('addDealLegacyClient').hidden = usePicker;
+    $('addDealClient').disabled = usePicker;
+    const picker = $('addDealClientPicker');
+    picker.hidden = !usePicker;
+    unmountDealClientPicker = mountDealClientPicker?.(picker, {
+      ...(prospect ? { prospect } : { client: client ?? undefined }),
+      request: fetchRead, leaseDate: formatCalendarDate, onPick: () => { $('addDealError').textContent = ''; },
+    });
     $('addDealOwner').value = prospect ? prospect.owner ?? '' : state.selfActor || 'joe';
-    $('addDealStageLabel').textContent = prospect || state.nextDealSaves ? 'Phase' : 'Stage';
+    $('addDealStageLabel').textContent = usePicker ? 'Phase' : 'Stage';
     $('addDealStage').selectedIndex = prospect ? 0 : 1;
-    $('addDealType').required = !prospect;
-    $('addDealType').options[0].hidden = !prospect;
-    $('addDealType').selectedIndex = prospect ? 0 : 1;
+    const legacyType = $('addDealType');
+    dialog.classList.toggle('add-deal-with-terms', next);
+    $('addDealTypeField').hidden = next;
+    legacyType.disabled = next;
+    legacyType.selectedIndex = 1;
     if (prospect) {
       $('addDealName').value = prospect.name;
       $('addDealNotes').value = prospect.latest_note?.summary ?? '';
@@ -223,24 +244,24 @@ function openAddDeal(client = null, conversion = null) {
     $('addDealError').textContent = '';
   }
   syncDealCreation();
-  $('addDealDialog').showModal();
+  dialog.showModal();
 }
 async function submitDeal(event) {
   event.preventDefault();
   if (creatingDeal) return;
   const errorBox = $('addDealError');
   if (!dealCreation) {
-    const { client_id: chosenClient, ...args } = Object.fromEntries(new FormData($('addDealForm')));
+    const { client_id, kind, reason, renews_lease_id, ...args } = Object.fromEntries(new FormData($('addDealForm')));
     for (const name of ['name','client','notes']) args[name] = args[name].trim();
     if (!args.name || !args.client) {
       errorBox.textContent = 'Enter a deal name and an existing client.'; errorBox.focus(); return;
     }
-    if (prospectConversion && !chosenClient) {
+    if ((nextDealCreation || prospectConversion) && !client_id) {
       errorBox.textContent = 'Choose a client from the matches.'; errorBox.focus(); return;
     }
-    const client_id = chosenClient || (args.client === pickedDealClient?.name ? pickedDealClient.id : undefined);
     dealCreation = {...args, client_id, prospect_id: prospectConversion?.prospect.party_id,
-      lane:'territory', next_deal_save:state.nextDealSaves, idempotency_key:uuidv4()};
+      kind:kind || undefined, reason:reason || undefined, renews_lease_id,
+      lane:'territory', next_deal_save:nextDealCreation, idempotency_key:uuidv4()};
   }
   const request = dealCreation;
   creatingDeal = true; syncDealCreation(); errorBox.textContent = '';
@@ -519,17 +540,14 @@ function syncProspects(enabled) {
   lane.className = 'kanban-column glass';
   lane.setAttribute('aria-labelledby', 'prospects-title');
   $('kanban').prepend(lane);
-  void import('./ui-deal-prospects.generated.js').then(({ mountProspects, mountProspectClientPicker }) => {
+  void import('./ui-deal-prospects.generated.js').then(({ mountProspects }) => {
     if (!lane.isConnected) return;
     prospects = mountProspects(lane, prospectClient(), count => {
       state.prospectCount = count;
       renderBoardMessage();
     }, authorLabel, {
       addDeal: openAddDeal,
-      turnIntoDeal: (prospect, completed) => openAddDeal(null, {
-        prospect, completed,
-        mountClientPicker: host => mountProspectClientPicker(host, { prospect, request: fetchRead }),
-      }),
+      turnIntoDeal: (prospect, completed) => openAddDeal(null, { prospect, completed }),
       backToReview: incomingScope.has('prospect') && mondayReviewOrigin() ? backToMondayReview : null,
     });
     showProspects();

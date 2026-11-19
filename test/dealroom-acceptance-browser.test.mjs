@@ -857,20 +857,22 @@ test('National Accounts saves inline changes using the version on the deal board
   assert.equal(writes.length, 2);
 });
 
-test('Add deal and Won or Lost save through the new database switch', async t => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 960 }, timezoneId: 'America/Chicago' });
+for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the new database switch at ${width}px`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Chicago' });
   t.after(() => page.close());
-  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-deals', viewer: 'joe', reset: true } });
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `engine-deals-${width}`, viewer: 'joe', reset: true } });
   const clientId = '00000000-0000-4000-8000-000000000040';
   const deals = new Map();
   const writes = [];
   let savesOn = false;
-  let clientList = 'available';
-  const client = { id: `party:${clientId}`, ref: 'C-DEMO', name: 'Example Practice', kind: 'client' };
+  const personId = '00000000-0000-4000-8000-000000000041';
+  const leaseId = '00000000-0000-4000-8000-000000000042';
+  const leaseReads = [];
+  let leasesAvailable = true;
   const refusals = [
     ['Client role', { error: 'database_refused_the_statement', rule: 'deal_party_client_is_a_client' }, 'Choose an existing client.'],
     ['Market', { error: 'database_refused_the_statement', rule: 'deal_market_id_fkey' }, 'Choose an existing market.'],
-    ['Renewal', { error: 'database_refused_the_statement', rule: 'deal_renewal_names_lease' }, 'Renewals need an existing lease. The Add deal form cannot link a lease yet.'],
+    ['Renewal', { error: 'database_refused_the_statement', rule: 'deal_renews_lease_id_fkey' }, 'Choose an existing lease to renew.'],
     ['Duplicate', { error: 'deal_name_exists' }, 'A deal with this name already exists.'],
     ...['invalid_field_value', 'unknown_owner', 'version_conflict'].map(error => [error, { error }, 'Check the deal details and try again.']),
   ];
@@ -878,7 +880,26 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   const env = {
     ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' || (key === 'deals-saves-from-engine' && savesOn) ? 'on' : null },
     ENGINE: { fetch: async request => {
-      const id = new URL(request.url).pathname.split('/')[4];
+      const url = new URL(request.url);
+      const id = url.pathname.split('/')[4];
+      if (url.pathname === '/api/engine/parties/search') {
+        assert.equal(url.searchParams.get('role'), 'client');
+        assert.equal(url.searchParams.has('kind'), false);
+        const query = url.searchParams.get('query');
+        if (query === 'Example Unavailable') return Response.json({}, { status: 503 });
+        const parties = ['person', 'company'].map(kind => ({
+          id: kind === 'person' ? personId : clientId, display_name: 'Example Practice', kind,
+        })).filter(party => party.display_name.startsWith(query));
+        return Response.json({ parties });
+      }
+      if (url.pathname.endsWith('/leases')) {
+        leaseReads.push(id);
+        if (!leasesAvailable) return Response.json({}, { status: 503 });
+        return Response.json(id === clientId ? [
+          { lease_id: leaseId, address: '10 Example Road', expiration_on: '2031-06-01' },
+        ] : []);
+      }
+      if (url.pathname === '/api/engine/prospects') return Response.json({ count: 0, prospects: [] });
       if (request.method === 'GET') {
         if (id) return Response.json({ ...deals.get(id), deal_id: id });
         const rows = [...deals.values()];
@@ -895,10 +916,11 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
       }
       if (!id) {
         const refusal = refusals.find(([name]) => body.name === `Example ${name}`);
-        if (refusal && (refusal[0] !== 'Renewal' || body.reason === 'renewal'))
+        if (refusal)
           return Response.json(refusal[1], { status: 422 });
         const dealId = crypto.randomUUID();
-        deals.set(dealId, { id: dealId, name: body.name, client_name: 'Example Practice', owner: body.owner, phase: body.phase, seen: 1 });
+        deals.set(dealId, { id: dealId, name: body.name, client_name: 'Example Practice', owner: body.owner, phase: body.phase, seen: 1,
+          kind: body.kind, type: body.kind || body.reason, reason: body.reason });
         return Response.json({ deal_id: dealId, change_id: 1 }, { status: 201 });
       }
       if (body.phase.on === earlyDate) return Response.json({ error: 'invalid_field_value', fields: ['phase'] }, { status: 400 });
@@ -909,16 +931,12 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
     } },
     CARR: { fetch: async () => new Response(null, { status: 502 }) },
   };
-  await page.route('**/api/v1/business/relationships?*', route => clientList === 'unavailable'
-    ? route.fulfill({ status: 503 })
-    : route.fulfill({ json: { nodes: clientList === 'multiple'
-      ? [client, { ...client, id: 'party:00000000-0000-4000-8000-000000000041' }] : [client] } }));
-  await page.route('**/mcp', async route => {
+  await page.route(/\/(mcp|api\/engine\/.*)(\?.*)?$/, async route => {
     const request = route.request();
     const body = request.postDataJSON();
-    if (!['deal-room-board', 'get-deal-room', 'new-deal', 'update-deal', 'add-deal-note'].includes(body?.params?.name)) return route.continue();
+    if (body && !['deal-room-board', 'get-deal-room', 'new-deal', 'update-deal', 'add-deal-note'].includes(body.params?.name)) return route.continue();
     const response = await handleDoctorcreRequest(new Request(request.url(), {
-      method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
+      method: request.method(), headers: await request.allHeaders(), body: request.postData() ?? undefined,
     }), env);
     return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
   });
@@ -928,6 +946,11 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   await page.getByRole('button', { name: 'Add deal', exact: true }).click();
   await page.getByLabel('Deal name').fill('Example Stale Form');
   await page.getByLabel('Client', { exact: true }).fill('Example Practice');
+  assert.equal(await page.getByLabel('Type', { exact: true }).isVisible(), true);
+  const lookupPaths = ['/api/engine/parties/search?query=Example&role=client', `/api/engine/clients/${clientId}/leases`];
+  for (const path of lookupPaths) {
+    assert.equal((await handleDoctorcreRequest(new Request(origin + path), env)).status, 404);
+  }
   savesOn = true;
   await page.getByRole('button', { name: 'Create deal' }).click();
   await page.getByText('Reload Deals before adding a deal.', { exact: true }).waitFor();
@@ -936,34 +959,78 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   await page.getByText('0 open deals · 0 parked', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Add deal', exact: true }).click();
   await page.getByLabel('Deal name').fill('Example Unmatched Deal');
-  for (const [list, name, hint] of [
-    ['available', 'Example Unknown', 'There’s no client named “Example Unknown”. Check the spelling or pick an existing client.'],
-    ['multiple', 'Example Practice', 'More than one client has that name, so use the full client reference.'],
-    ['unavailable', 'Example Practice', 'The client list is unavailable, so try again in a moment.'],
-  ]) {
-    clientList = list;
-    await page.getByLabel('Client', { exact: true }).fill(name);
-    await page.getByRole('button', { name: 'Create deal' }).click();
-    const feedback = page.locator('#addDealError').filter({ hasText: /\S/ });
-    await feedback.waitFor();
-    assert.equal(await feedback.textContent(), hint);
-    assert.equal(await page.getByLabel('Client', { exact: true }).isEnabled(), true);
-    assert.equal(writes.length, 0);
-  }
-  clientList = 'available';
+  const dialog = page.getByRole('dialog', { name: 'Add deal' });
+  const clientInput = dialog.getByRole('textbox', { name: 'Client', exact: true });
+  const create = dialog.getByRole('button', { name: 'Create deal' });
+  const kind = dialog.getByLabel('Deal kind');
+  const reason = dialog.getByLabel('Deal reason');
+  const lease = dialog.getByLabel('Lease to renew');
+  const company = dialog.getByRole('button', { name: 'Example Practice · Company' });
+  const person = dialog.getByRole('button', { name: 'Example Practice · Person' });
+  assert.equal(await kind.inputValue(), '');
+  assert.equal(await reason.inputValue(), '');
+  await clientInput.fill('Example Unknown');
+  await dialog.getByText('No matching clients.').waitFor();
+  await create.click();
+  await dialog.getByText('Choose a client from the matches.').waitFor();
+  await clientInput.fill('Example Unavailable');
+  await dialog.getByText('Search is unavailable. Try again.').waitFor();
+  await clientInput.fill('Example Pra');
+  await reason.selectOption('renewal');
+  await person.click();
+  await dialog.getByText('No leases found for this client.').waitFor();
+  await clientInput.fill('Example');
+  leasesAvailable = false;
+  await company.click();
+  await dialog.getByText('Could not load leases.').waitFor();
+  leasesAvailable = true;
+  await dialog.getByRole('button', { name: 'Retry' }).click();
+  await lease.locator('option').filter({ hasText: '10 Example Road · Expires Sun, Jun 1, 2031' }).waitFor({ state: 'attached' });
+  assert.deepEqual(leaseReads, [personId, clientId, clientId]);
+  assert.equal(await lease.evaluate(control => control.matches(':invalid')), true);
+  await create.click();
+  assert.equal(writes.length, 0);
+  await lease.selectOption(leaseId);
+  await clientInput.fill('Example Pra');
+  await company.click();
+  await lease.locator(`option[value="${leaseId}"]`).waitFor({ state: 'attached' });
+  assert.equal(await lease.inputValue(), '');
+  await reason.selectOption('relocation');
+  assert.equal(await lease.count(), 0);
+  await reason.selectOption('renewal');
+  await lease.selectOption(leaseId);
+  await kind.selectOption('lease');
+  await dialog.getByLabel('Deal name').fill('Example Renewal Deal');
+  const [formBox, createBox] = await Promise.all([dialog.boundingBox(), create.boundingBox()]);
+  assert.ok(createBox.y + createBox.height <= formBox.y + formBox.height, `Create deal stays within the dialog (${createBox.y + createBox.height} / ${formBox.y + formBox.height})`);
+  await dialog.screenshot({ path: join(evidence, `engine-renewal-${width}.png`) });
+  await create.click();
+  await page.getByRole('button', { name: 'Example Renewal Deal', exact: true }).click();
+  await page.getByRole('heading', { name: 'Example Renewal Deal', exact: true }).waitFor();
+  assert.partialDeepStrictEqual(writes.shift(), {
+    client_id: clientId, kind: 'lease', reason: 'renewal', renews_lease_id: leaseId,
+  });
+  await page.getByRole('button', { name: 'Back to deals' }).click();
+  await page.getByRole('button', { name: 'Add deal', exact: true }).click();
+
   for (const [name, , hint] of refusals) {
-    await page.getByLabel('Deal name').fill(`Example ${name}`);
-    await page.getByLabel('Type', { exact: true }).selectOption(name === 'Renewal' ? 'renewal' : 'startup');
-    await page.getByRole('button', { name: 'Create deal' }).click();
-    await page.getByText(hint, { exact: true }).waitFor();
-    assert.equal(await page.getByLabel('Deal name').isEnabled(), true);
+    await dialog.getByLabel('Deal name').fill(`Example ${name}`);
+    await clientInput.fill('Example');
+    await company.click();
+    await reason.selectOption(name === 'Renewal' ? 'renewal' : 'start_up');
+    if (name === 'Renewal') await lease.selectOption(leaseId);
+    await create.click();
+    await dialog.getByText(hint, { exact: true }).waitFor();
+    assert.equal(await dialog.getByLabel('Deal name').isEnabled(), true);
   }
   writes.splice(0);
 
   for (const outcome of ['Won', 'Lost']) {
     const name = `Example ${outcome} Deal`;
     await page.getByLabel('Deal name').fill(name);
-    await page.getByLabel('Client', { exact: true }).fill(outcome === 'Won' ? 'c-demo' : 'Example Practice');
+    await clientInput.fill('Example');
+    await company.click();
+    await reason.selectOption(outcome === 'Won' ? '' : 'start_up');
     if (outcome === 'Won') await page.getByLabel('Notes', { exact: true }).fill('Example opening note');
     await page.getByRole('button', { name: 'Create deal' }).click();
     await page.getByRole('button', { name, exact: true }).click();
@@ -987,7 +1054,7 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
     await page.getByRole('button', { name: 'Save outcome' }).click();
     await page.locator('#completionErrors').getByText('Choose a closing date between the day the deal reached its current phase and today.', { exact: true }).waitFor();
     await date.fill(today);
-    await page.screenshot({ path: join(evidence, `engine-${outcome.toLowerCase()}-dialog.png`) });
+    await page.screenshot({ path: join(evidence, `engine-${outcome.toLowerCase()}-dialog-${width}.png`) });
     await page.getByRole('button', { name: 'Save outcome' }).click();
     await page.getByText(`Deal marked ${outcome.toLowerCase()}`, { exact: true }).first().waitFor();
     await page.getByRole('button', { name: 'Back to deals' }).click();
@@ -1008,7 +1075,8 @@ test('Add deal and Won or Lost save through the new database switch', async t =>
   assert.deepEqual(writes.filter(write => write.phase?.to && write.phase.on !== earlyDate).map(write => [write.phase.to, write.fields?.closed_value, write.phase.reason]),
     [['closed', 1000, undefined], ['dead', undefined, 'The client chose another site']]);
   assert.ok(writes.filter(write => write.name).every(write => write.client_id === clientId));
-  assert.ok(writes.filter(write => write.name).every(write => write.reason === 'start_up'));
+  assert.deepEqual(writes.filter(write => write.name).map(write => [write.kind, write.reason, write.renews_lease_id]),
+    [[undefined, undefined, undefined], [undefined, 'start_up', undefined]]);
 });
 
 test('switched-on Deals selects an existing market agent and decides critical dates', async t => {

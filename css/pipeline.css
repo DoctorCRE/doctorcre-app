@@ -162,6 +162,10 @@
 
 .add-deal-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
 .add-deal-fields .field-grid { grid-template-columns: repeat(auto-fit,minmax(min(100%,300px),1fr)); }
+.add-deal-with-terms[open],
+.add-deal-with-terms #addDealForm { display: flex; flex-direction: column; min-height: 0; }
+.add-deal-with-terms .dialog-body { overflow-y: auto; }
+.add-deal-with-terms #addDealError:empty { position: absolute; margin: 0; }
 #addDealError:not(:empty) { color: var(--status-danger-ink); }
 #addDealOpen { margin-top: var(--space-3); }
 

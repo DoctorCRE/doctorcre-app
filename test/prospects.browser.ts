@@ -49,6 +49,11 @@ test("partners see and manage prospects from Deals", async (t) => {
         display_name: "Client Example",
         kind: "company",
       };
+      const renewalLease = {
+        lease_id: "00000000-0000-4000-8000-000000000010",
+        address: "10 Example Road",
+        expiration_on: "2031-06-01",
+      };
       const storedParty = { ...matchedClient, id: "00000000-0000-4000-8000-000000000007", kind: "person" };
       const storedTwin = { ...storedParty, id: "00000000-0000-4000-8000-000000000009" };
       const missingHowFound = {
@@ -136,10 +141,14 @@ test("partners see and manage prospects from Deals", async (t) => {
                 assert.deepEqual(body, {
                   idempotency_key: body.idempotency_key,
                   prospect_id: birchProspect.party_id,
-                  client_id: width === 1440 ? birchProspect.party_id : storedParty.id,
+                  client_id: width === 1440 ? matchedClient.id : storedParty.id,
                   name: "Example Edited Deal",
                   owner: "joe",
                   phase: "research",
+                  kind: "lease",
+                  ...(width === 1440
+                    ? { reason: "renewal", renews_lease_id: renewalLease.lease_id }
+                    : { reason: "start_up" }),
                 });
                 if (refuseConversion) {
                   refuseConversion = false;
@@ -154,7 +163,7 @@ test("partners see and manage prospects from Deals", async (t) => {
                     name: body.name,
                     owner: body.owner,
                     phase: body.phase,
-                    client_name: width === 1440 ? birchProspect.name : matchedClient.display_name,
+                    client_name: matchedClient.display_name,
                   };
                   board.deals.push(converted);
                   prospects = prospects.filter((row) => row.party_id !== birchProspect.party_id);
@@ -196,6 +205,8 @@ test("partners see and manage prospects from Deals", async (t) => {
               Object.assign(step, { what: body.what, due_on: body.due_on });
               return Response.json({ next_step_id: party }, { status: 201 });
             }
+            if (path.endsWith("/leases"))
+              return Response.json(path === `/api/engine/clients/${matchedClient.id}/leases` ? [renewalLease] : []);
             if (path.endsWith("/parties/search")) {
               const params = new URL(request.url).searchParams;
               const query = params.get("query");
@@ -398,7 +409,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       const reason = dialog.getByLabel("Reason", { exact: true });
       const drop = dialog.getByRole("button", { name: "Drop prospect", exact: true });
       const background = (button: HTMLElement) => getComputedStyle(button).backgroundColor;
-      assert.equal(await drop.evaluate(background, undefined, { timeout: 1500 }), await claim.evaluate(background));
+      await settles(async () => assert.equal(await drop.evaluate(background), await claim.evaluate(background)));
       assert.equal(await reason.isVisible(), false);
       await claim.click();
       await dialog.getByRole("button", { name: "Hand off to Dell" }).click();
@@ -437,9 +448,18 @@ test("partners see and manage prospects from Deals", async (t) => {
         await noteInput.press("Enter");
         await lane.getByRole("button", { name: "Add deal" }).click();
         const addDeal = page.getByRole("dialog", { name: "Add deal" });
-        assert.equal(await addDeal.getByLabel("Client", { exact: true }).inputValue(), "Client Example");
+        assert.equal(
+          await addDeal.getByRole("textbox", { name: "Client", exact: true }).inputValue(),
+          "Client Example",
+        );
         assert.equal(await addDeal.getByLabel("Deal name").inputValue(), "Client Example");
-        assert.equal(await addDeal.getByLabel("Phase", { exact: true }).count(), 1);
+        await addDeal.getByLabel("Phase", { exact: true }).waitFor();
+        await addDeal.getByLabel("Deal kind", { exact: true }).waitFor();
+        await addDeal
+          .getByLabel("Deal reason", { exact: true })
+          .locator("option")
+          .filter({ hasText: /^Start-up$/ })
+          .waitFor({ state: "attached" });
         await addDeal.getByRole("button", { name: "Cancel" }).click();
       }
       await name.fill(newName);
@@ -473,6 +493,14 @@ test("partners see and manage prospects from Deals", async (t) => {
       const ownerField = form.getByLabel("Owner");
       const phaseField = form.getByLabel("Phase");
       const notesField = form.getByLabel("Notes");
+      const dealKind = form.getByLabel("Deal kind", { exact: true });
+      const dealReason = form.getByLabel("Deal reason", { exact: true });
+      await dealKind.waitFor();
+      await dealReason
+        .locator("option")
+        .filter({ hasText: /^Start-up$/ })
+        .waitFor({ state: "attached" });
+      assert.equal(await form.getByLabel("Type", { exact: true }).isVisible(), false);
       const save = form.getByRole("button", { name: "Create deal" });
       assert.equal(await nameField.inputValue(), birchProspect.name);
       assert.equal(await notesField.inputValue(), note.summary);
@@ -483,8 +511,35 @@ test("partners see and manage prospects from Deals", async (t) => {
       await nameField.fill("Example Edited Deal");
       await notesField.fill("Edited before saving");
       await ownerField.selectOption("joe");
-      if (width === 1440) await form.getByRole("button", { name: `Use ${birchProspect.name} as client` }).click();
-      else {
+      await dealKind.selectOption("lease");
+      if (width === 1440) {
+        assert.equal(
+          await form.evaluate((dialog) => {
+            const body = dialog.querySelector(".dialog-body");
+            const fields = dialog.querySelector("fieldset");
+            if (!body || !fields) return false;
+            const offset = fields.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+            return Math.abs(offset - Number.parseFloat(getComputedStyle(body).paddingTop)) < 1;
+          }),
+          true,
+          "an empty alert leaves no gap above the form",
+        );
+        await dealReason.selectOption("renewal");
+        await form.getByRole("button", { name: `Use ${birchProspect.name} as client` }).click();
+        await form.getByText("No leases found for this client.").waitFor();
+        await clientField.fill("Client Ex");
+        await form.getByRole("button", { name: "Client Example · Company" }).click();
+        const lease = form.getByLabel("Lease to renew");
+        await lease.locator("option").filter({ hasText: "10 Example Road · Expires Sun, Jun 1, 2031" }).waitFor({
+          state: "attached",
+        });
+        await phaseField.selectOption("Research");
+        await save.click();
+        assert.equal(conversionAttempts, 0, "a renewal must name a lease");
+        await lease.selectOption(renewalLease.lease_id);
+        await phaseField.selectOption("");
+      } else {
+        await dealReason.selectOption("start_up");
         await clientField.fill("Clint Example");
         await form.getByText("No matching people or companies.").waitFor({ timeout: 5000 });
         await clientField.fill("Client Ex");
@@ -531,10 +586,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       if (width === 1440) await form.getByRole("button", { name: "Check creation outcome" }).click();
       await page.getByRole("heading", { name: "Example Edited Deal", exact: true }).waitFor();
       assert.equal(new URL(page.url()).searchParams.get("deal"), dealId);
-      await page
-        .locator("#workspaceFacts")
-        .getByText(width === 1440 ? birchProspect.name : matchedClient.display_name)
-        .waitFor();
+      await page.locator("#workspaceFacts").getByText(matchedClient.display_name).waitFor();
       assert.equal(await birchDetail.count(), 0);
       await page.getByRole("tab", { name: "Correspondence & notes" }).click();
       const dealNote = page

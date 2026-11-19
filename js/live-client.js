@@ -246,23 +246,6 @@ export function createLiveClient(opts = {}) {
     version: d.version ?? d.base_version,
   });
 
-  async function clientIdFor(name) {
-    const query = String(name || '').trim().toLowerCase();
-    const network = await client.getRelationshipNetwork().catch(() => null);
-    const matches = Array.isArray(network?.nodes) ? network.nodes.filter(node => node.kind === 'client'
-      && node.id?.startsWith('party:') && query
-      && [node.name, node.ref].some(value => value?.toLowerCase() === query)) : null;
-    if (matches?.length === 1) return matches[0].id.slice('party:'.length);
-    if (matches?.length === 0) {
-      throw Object.assign(new Error('Client not found'), {
-        writeRefusal: true, payload: { error: 'subject_not_found' },
-      });
-    }
-    const hint = matches === null ? 'The client list is unavailable, so try again in a moment.'
-      : 'More than one client has that name, so use the full client reference.';
-    throw Object.assign(new Error(hint), { writeRefusal: true, creationHint: hint });
-  }
-
   const client = {
     mode: /** @type {const} */ ('live'),
     get selfActor() { return selfActor; },
@@ -623,9 +606,6 @@ export function createLiveClient(opts = {}) {
         let res = operation.receipt;
         if (!res) {
           try {
-            if (request.next_deal_save && !request.prospect_id && !operation.request.client_id) {
-              operation.request.client_id = await clientIdFor(intent.client);
-            }
             res = await write('new-deal', operation.request);
           } catch (error) {
             // Only a verified first creation refusal proves no deal was made.
