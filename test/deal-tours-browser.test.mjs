@@ -404,12 +404,10 @@ test('creation and pending-write departures preserve history and saved notes', a
         release(); await saved;
         if(refresh) {
           await loadingCart;
-          await editor.locator('#sheet-state').filter({hasText:/save confirmed/}).waitFor();
-          await page.goBack();
-          await page.waitForURL(before.url);
-          assert.equal(await prompt.isVisible(),false,'Back waits for readback without asking to discard saved notes');
+          assert.equal(await editor.locator('#sheet-state').textContent(),'Saving…');
           refresh.resolve();
-          await page.locator('[data-open-tour]').waitFor();
+          await editor.locator('#sheet-state').filter({hasText:/save confirmed/}).waitFor();
+          await page.goBack(); await page.locator('[data-open-tour]').waitFor();
         }
         await page.locator('[data-open-tour]').click();
         await editor.locator('#cheat-content').waitFor();

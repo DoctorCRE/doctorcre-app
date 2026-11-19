@@ -90,28 +90,21 @@ export function mountDealTours(
     navigate(url, false);
   }
   let departureApproved = false;
-  function checkDeparture() {
-    const detail: { readback?: Promise<unknown> } = {};
-    const frame = active() && !departureApproved ? element.querySelector("iframe") : null;
-    const blocked = frame?.contentWindow
-      ? !frame.contentWindow.dispatchEvent(new CustomEvent("beforeunload", { cancelable: true, detail }))
-      : false;
-    return { blocked, readback: detail.readback };
-  }
   function hasUnsavedChanges() {
-    return checkDeparture().blocked;
+    if (!active() || departureApproved) return false;
+    const frame = element.querySelector("iframe");
+    if (frame?.contentWindow) {
+      const leaving = element.ownerDocument.createEvent("Event");
+      leaving.initEvent("beforeunload", false, true);
+      return !frame.contentWindow.dispatchEvent(leaving);
+    }
+    return false;
   }
   let departure: { promise: Promise<boolean>; finish(leave: boolean): void } | null = null;
-  async function confirmLeave(): Promise<boolean> {
-    if (!active()) return true;
-    let check = checkDeparture();
-    if (!departure && check.readback) {
-      await check.readback.catch(() => {});
-      if (!active()) return false;
-      check = checkDeparture();
-    }
+  function confirmLeave(): Promise<boolean> {
+    if (!active()) return Promise.resolve(true);
     if (departure) return departure.promise;
-    if (!check.blocked) return true;
+    if (!hasUnsavedChanges()) return Promise.resolve(true);
     const dialog = element.ownerDocument.createElement("dialog");
     dialog.setAttribute("aria-label", "Leave this tour?");
     dialog.className = "dialog deal-tour-departure";
