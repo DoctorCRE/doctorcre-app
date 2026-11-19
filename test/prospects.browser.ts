@@ -143,7 +143,11 @@ test("partners see and manage prospects from Deals", async (t) => {
                 parties: [known, matchedClient].filter((match) => match.display_name.startsWith(query ?? "")),
               });
             }
-            if (path.endsWith("/prospects")) return Response.json({ count: prospects.length, prospects });
+            if (path.endsWith("/prospects")) {
+              return savesEnabled
+                ? Response.json({ count: prospects.length, prospects })
+                : Response.json({ error: "engine_unavailable" }, { status: 503 });
+            }
             if (path.endsWith(birchProspect.party_id))
               return Response.json({
                 ...birchProspect,
@@ -161,7 +165,6 @@ test("partners see and manage prospects from Deals", async (t) => {
         env,
       );
       assert.equal(blocked.status, 404);
-      savesEnabled = true;
       await page.route(/\/(mcp|api\/engine\/.*)$/, async (route) => {
         const request = route.request();
         const body = request.postData();
@@ -180,16 +183,29 @@ test("partners see and manage prospects from Deals", async (t) => {
         });
       });
       await page.goto(`${server.origin}/deals?mode=live`);
+      await page.getByRole("link", { name: "Monday review" }).waitFor();
+      const lane = page.locator("#prospectsLane");
+      const loadError = page.getByRole("alert").filter({ hasText: "Could not load prospects." });
+      assert.equal(await lane.count(), 0, `Prospects lane should be absent at ${width}px before the switch`);
+      assert.equal(await loadError.count(), 0);
+      for (const suffix of ["", `/${party}`, "/search?query=Example"]) {
+        const response = await worker.fetch(new Request(`${server.origin}/api/engine/prospects${suffix}`), env);
+        assert.equal(response.status, 404);
+        assert.deepEqual(await response.json(), { error: "not_found" });
+      }
+
+      savesEnabled = true;
+      await page.reload();
       const open = page.getByRole("button", { name: "Example Elm Practice" });
       await open.waitFor();
       assert.equal(await open.count(), 1);
+      assert.equal(await loadError.count(), 0);
       assert.equal(
         await page
           .locator("#kanban")
           .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length),
         width === 390 ? 1 : 8,
       );
-      const lane = page.locator("#prospectsLane");
       assert.match((await lane.textContent()) ?? "", /Unclaimed[\s\S]*Needs attention[\s\S]*Thu, Nov 19/);
       assert.equal(
         await lane
