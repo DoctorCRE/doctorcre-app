@@ -1,6 +1,6 @@
 import { validEmailDraftReceipt, validEmailDraftSaveReceipt } from './email-draft.js';
 import { sessionFetch } from './private-session.js';
-import { PHASE_BY_SLUG } from './client.js';
+import { PHASE_BY_SLUG, TYPE_TO_UI } from './client.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { isEngineDealDetail } from './local-deals-model.js';
 /**
@@ -32,24 +32,7 @@ const NEXT_CREATION_REFUSALS = new Set([
   'database_refused_the_statement', 'invalid_field_value', 'unknown_owner', 'version_conflict', 'not_a_prospect',
 ]);
 
-// Each entry has the engine caption and, where mapped today, the legacy caption.
-const TYPE_TO_UI = new Map([
-  ['lease', ['Lease']],
-  ['purchase', ['Purchase', 'Purchase']],
-  ['sale_leaseback', ['Sale-leaseback']],
-  ['build_to_suit', ['Build-to-suit']],
-  ['other', ['Other', 'Other']],
-  ['start_up', ['Start-up']],
-  ['startup', ['Start-up', 'Startup']],
-  ['relocation', ['Relocation', 'Relocation']],
-  ['expansion', ['Expansion', 'Expansion']],
-  ['renewal', ['Renewal', 'Renewal']],
-  ['additional_office', ['Additional office', '2nd Office']],
-]);
-
-export function dealTypeLabel(type) {
-  return TYPE_TO_UI.get(type)?.[0];
-}
+export { dealTypeLabel } from './client.js';
 
 /**
  * @param {Object} [opts]

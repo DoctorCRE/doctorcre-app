@@ -6,8 +6,7 @@ import { COLUMNS, columnBySlug, columnByValue, noteText, PHASE_DATE_KIND } from 
 import { compareInstants, escapeText, fieldLabel, readableValue } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
 import { concise, isEngineDealDetail, PARKING_REASONS } from './local-deals-model.js';
-import { ACTOR_LABEL, authorLabel } from './client.js';
-import { dealTypeLabel } from './live-client.js';
+import { ACTOR_LABEL, authorLabel, dealTypeLabel } from './client.js';
 
 const DAY = 86400000;
 const esc = escapeText;
