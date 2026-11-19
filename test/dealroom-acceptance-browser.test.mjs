@@ -1455,6 +1455,8 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   assert.equal(await row.getByRole('button').first().getAttribute('aria-label'), `Flag for attention on ${deal.name}`);
   assert.match(await page.locator('#stats').innerText(), /2 active work · 1 overdue dates · 1 at closing/);
   assert.equal(await row.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
+  await row.getByText('Moved automatically', { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(await row.getByRole('button', { name: /Mark needs attention/ }).count(), 0);
 
   savesOn = true;
   await page.goto(accountUrl);
@@ -3180,6 +3182,8 @@ for (const width of [1440, 390]) test(`Closed deals offers only available automa
       const path = new URL(request.url).pathname;
       if (path === '/api/engine/deals') return Response.json(board());
       writes.push({ path, body: await request.json() });
+      if (path.includes(invoice.phase_change.event_id) && writes.length === 1)
+        return Response.json({ error: 'version_conflict', hint: 'This invoice close cannot be undone.' }, { status: 409 });
       const index = rows.findIndex(item => path.includes(item.id) || path.includes(item.phase_change.event_id));
       if (index >= 0) rows.splice(index, 1);
       return Response.json({ status: 'undone', invoice_id: invoice.phase_change.event_id, deal_id: copied.id, phase: 'legal', phase_changed_at: '2026-11-19T18:00:00Z' });
@@ -3199,9 +3203,11 @@ for (const width of [1440, 390]) test(`Closed deals offers only available automa
   await card(invoice).getByRole('button', { name: 'Undo invoice close' }).waitFor();
   await page.locator('#closedDealsView').screenshot({ path: join(evidence, `closed-undo-${width}.png`) });
   await card(invoice).getByRole('button', { name: 'Undo invoice close' }).click();
-  await card(invoice).waitFor({ state: 'detached' });
+  await card(invoice).getByText('This invoice close cannot be undone.', { exact: true }).waitFor({ timeout: 5000 });
   assert.equal(writes[0].path, `/api/engine/invoice-emails/${invoice.phase_change.event_id}/undo`);
+  await card(invoice).getByRole('button', { name: 'Undo invoice close' }).click();
+  await card(invoice).waitFor({ state: 'detached' });
   await card(copied).getByRole('button', { name: 'Undo', exact: true }).click();
   await card(copied).waitFor({ state: 'detached' });
-  assert.equal(writes[1].path, `/api/engine/deals/${copied.id}/phase/undo`);
+  assert.equal(writes[2].path, `/api/engine/deals/${copied.id}/phase/undo`);
 });

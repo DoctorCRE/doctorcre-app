@@ -528,7 +528,7 @@ function renderBoardOnly() {
   const undoDeal = document.activeElement?.dataset?.undoPhase;
   boardRows ||= mountDealRoomBoard(rows);
   boardRows.render({
-    rows: deals.map(deal => boardRow(deal, nationalAccountRows)),
+    rows: deals.map(deal => boardRow(deal, nationalAccountRows, accountDetail)),
     phases: PHASES.map(value => ({ value, label: phaseLabel(value) })),
     nationalAccountRows,
   });
@@ -591,7 +591,7 @@ function renderFocus(deals) {
 }
 
 
-function boardRow(deal, nationalAccountRows) {
+function boardRow(deal, nationalAccountRows, accountDetail) {
   const days = daysFromNow(deal.next_date, engineToday());
   const parked = deal.operating_state === 'parked';
   const presence = state.presence.filter(lease => lease.deal_id === deal.id && lease.actor !== state.selfActor && new Date(lease.expires_at) > new Date());
@@ -611,7 +611,7 @@ function boardRow(deal, nationalAccountRows) {
       parking: parked ? parkingReasonLabel(deal.parking_reason) : null,
       presence: presence[0] ? `${actorName(presence[0].actor)} is editing` : null,
     }).filter(([, value]) => value),
-    phaseMove: nationalAccountRows ? automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id), { showEngineMoves: state.boardFromEngine, canUndo: state.nextDealSaves }) : null,
+    phaseMove: accountDetail && state.boardFromEngine ? automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id), { showEngineMoves: state.boardFromEngine, canUndo: state.nextDealSaves }) : null,
     title: presence.length ? `${actorName(presence.at(-1).actor)} is editing ${presence.at(-1).field}` : '',
     due: dateLabel(deal.next_date, engineToday()), dueClass: days !== null && days < 0 ? 'over' : days !== null && days <= 3 ? 'soon' : '',
     retries: unresolvedFieldWrites(state.fieldWrites, deal.id).map(entry => ({ cell: entry.cell, label: fieldLabel(entry.field) })),

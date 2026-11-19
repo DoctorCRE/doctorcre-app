@@ -151,10 +151,11 @@ export function renderDealFacts(facts) {
     ? `<span>${esc(value)}</span><br><small>${esc(note)}</small>`
     : esc(value)}</dd></div>`).join('');
 }
-export function renderInvoiceClose(deal, canUndo = false) {
+export function renderInvoiceClose(deal, canUndo = false, feedback = null) {
   const day = calendarDay(invoiceClose(deal)?.evidence_date);
   if (!day) return '';
-  return `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${day}">${formatCalendarDate(day)}</time>${canUndo && deal.phase_change?.undoable !== false ? ` <button class="btn" type="button" data-undo-invoice="${esc(deal.id)}" data-event-id="${esc(deal.phase_change.event_id)}" data-base-version="${deal.seen}">Undo invoice close</button>` : ''}</div>`;
+  const message = feedback && (!feedback.eventId || feedback.eventId === deal.phase_change.event_id) ? feedback.message : null;
+  return `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${day}">${formatCalendarDate(day)}</time>${canUndo && deal.phase_change?.undoable !== false ? ` <button class="btn" type="button" data-undo-invoice="${esc(deal.id)}" data-event-id="${esc(deal.phase_change.event_id)}" data-base-version="${deal.seen}">Undo invoice close</button>` : ''}</div>${message ? `<p class="auto-move">${esc(message)}</p>` : ''}`;
 }
 
 export function renderEndedDealList(view, {
@@ -183,7 +184,7 @@ export function renderEndedDealList(view, {
     : `${cards.length} ${label} deal${cards.length === 1 ? '' : 's'}`;
   const empty = unavailable ? '' : `<p>No ${label} deals${search || !fromEngine ? ' match this search' : ''}.</p>`;
   view.querySelector('#closedDealsList').innerHTML = cards.map(({deal, title, facts}) => {
-    const receipt = !fromEngine ? autoHtml(deal) : lost ? '' : renderInvoiceClose(deal, canUndo)
+    const receipt = !fromEngine ? autoHtml(deal) : lost ? '' : renderInvoiceClose(deal, canUndo, feedback(deal.id))
       || renderPhaseReceipt(deal, automaticPhaseReceipt(deal, feedback(deal.id), { showEngineMoves: true, canUndo }), '');
     return `<article class="closed-deal" data-id="${esc(deal.id)}">
       <h3><button type="button" class="card-open" data-open-deal="${esc(deal.id)}">${esc(title)}</button></h3>
