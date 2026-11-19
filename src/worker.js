@@ -338,11 +338,7 @@ function nextDealSave(verb, args) {
     }
     case 'add-critical-date': {
       const { kind, due_on, source, note } = args;
-      const phaseDate = kind === 'phase_effective_date';
-      return post(`/deals/${deal}/critical-dates`, {
-        kind: phaseDate ? 'other' : kind, due_on, source,
-        note: phaseDate ? 'Phase effective date' : note,
-      });
+      return post(`/deals/${deal}/critical-dates`, { kind, due_on, source, note });
     }
     case 'confirm-critical-date':
     case 'resolve-critical-date': {

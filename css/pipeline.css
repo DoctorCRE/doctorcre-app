@@ -232,6 +232,13 @@
 .deal-workspace [role="tabpanel"] > * { margin-block-end: var(--space-5); }
 .deal-workspace [role="tabpanel"][hidden] { display: none; }
 .deal-workspace :is(button, summary) { min-height: 44px; min-width: 44px; }
+.add-critical-date { margin-block: var(--space-2); }
+.add-critical-date summary { cursor: pointer; min-height: var(--touch); line-height: var(--touch); }
+.add-critical-date form { display: grid; gap: var(--space-2); max-width: 36rem; }
+.add-critical-date label, .add-critical-date form > div { display: grid; gap: var(--space-1); }
+.add-critical-date input, .add-critical-date select { min-height: 44px; min-width: 0; }
+.add-critical-date button { justify-self: start; }
+.add-critical-date [role="status"]:empty { display: none; }
 .workspace-events { list-style: none; padding: 0; }
 .workspace-events li { border-bottom: 1px solid var(--hairline); padding-block: var(--space-4); }
 .workspace-events small { margin-inline-start: var(--space-3); color: var(--fg-muted); }

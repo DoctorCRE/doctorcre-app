@@ -59,7 +59,9 @@ export function dealTimeline(detail, now = Date.now(), dateDecisions = false) {
     const value = row.due_on ?? row.date;
     const original = noteText(row.note);
     const namedOther = row.kind === 'other' && original;
-    return {dateState:calendarDay(value) ? 'dated' : value == null || value === '' ? 'missing' : 'invalid',id:row.id || `date-${i}`,kind:definition?.kind || row.kind,label:namedOther || definition?.label || row.kind?.replace(/[_-]+/g,' ') || row.label || 'Date',
+    const kindWords = row.kind?.replace(/[_-]+/g,' ');
+    const kindLabel = dateDecisions && kindWords ? kindWords[0].toUpperCase() + kindWords.slice(1) : kindWords;
+    return {dateState:calendarDay(value) ? 'dated' : value == null || value === '' ? 'missing' : 'invalid',id:row.id || `date-${i}`,kind:definition?.kind || row.kind,label:namedOther || definition?.label || kindLabel || row.label || 'Date',
       day:calendarDay(value),original:namedOther ? '' : original,
       evidence:row.source || '',status:row.status,deadline:Boolean(definition?.deadline)};
   });
