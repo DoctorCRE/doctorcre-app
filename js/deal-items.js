@@ -36,9 +36,20 @@ export function dealItemRows(deal, { today = '', board = false } = {}) {
   }));
 }
 
-export function renderDealItems(deal, { today = '', buttons = false, empty = true, board = false } = {}) {
+export function renderDealItems(deal, { today = '', buttons = false, empty = true, board = false, itemOwners } = {}) {
   const rows = dealItemRows(deal, { today, board });
-  return rows.length ? `<p class="deal-items-label">Still needed:</p><ol class="deal-items">${rows.map(({ item, href, date, overdue }) => `<li data-overdue="${overdue}">${buttons ? renderDealItemButton(deal.id, item) : `<a data-home-key="deal:${esc(deal.id)}:${esc(item.id)}" href="${esc(href)}">${esc(item.title)}</a>`}${date ? `<time class="deal-item-due" datetime="${esc(item.due_on)}">${esc(date)}</time>` : ''}</li>`).join('')}</ol>` : empty ? '<p class="deal-items-empty">No action items recorded</p>' : '';
+  if (!rows.length) return empty ? '<p class="deal-items-empty">No action items recorded</p>' : '';
+  return `<p class="deal-items-label">Still needed:</p><ol class="deal-items">${rows.map(({ item, href, date, overdue }) => {
+    const title = buttons ? renderDealItemButton(deal.id, item)
+      : `<a data-home-key="deal:${esc(deal.id)}:${esc(item.id)}" href="${esc(href)}">${esc(item.title)}</a>`;
+    const time = (day, text) => `<time class="deal-item-due" datetime="${esc(day)}">${esc(text)}</time>`;
+    const owner = itemOwners?.get(item.id);
+    const due = itemOwners && dealDueDate(item.due_on);
+    const details = itemOwners
+      ? ` · ${esc(ACTOR_LABEL[owner] || owner || 'Owner not recorded')} · ${due ? time(due.day, due.date) : 'No due date'}`
+      : date ? time(item.due_on, date) : '';
+    return `<li data-overdue="${overdue}">${title}${details}</li>`;
+  }).join('')}</ol>`;
 }
 
 function shortDate(value, today) {
