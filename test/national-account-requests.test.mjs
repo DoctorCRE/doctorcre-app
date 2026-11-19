@@ -14,7 +14,7 @@ import { beginCommand, settleCommand, classifyCommandOutcome, commandMessage } f
 const fixture = JSON.parse(await readFile(new URL('./fixtures/national-account-schemas.json', import.meta.url)));
 const app = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
 const forms = app.slice(app.indexOf('function nationalResearchEvidence('), app.indexOf('function showConflict('));
-const open = app.slice(app.indexOf('let formView;'), app.indexOf('function nextStepForm('));
+const open = app.slice(app.indexOf('let formView;'), app.indexOf('async function nextStepForm('));
 
 // Validate the published schema, including extra top-level arguments rejected
 // by CARR's mutation dispatcher even where inputSchema omits that constraint.

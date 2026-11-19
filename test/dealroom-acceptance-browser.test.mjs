@@ -588,10 +588,11 @@ for (const width of [1440, 390]) {
     t.after(() => page.close());
     await page.clock.setFixedTime(new Date('2026-11-19T06:30:00Z'));
     await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `owner-next-step-${width}`, viewer: 'joe', reset: true } });
-    const ownerStep = { id: 'example-owner-step', owner: 'dell', description: 'Send the floor plan', due_on: '2026-11-18' };
-    const otherStep = { id: 'example-other-step', owner: 'joe', description: 'Call the architect', due_on: '2026-11-15' };
+    const ownerStep = { id: crypto.randomUUID(), change_id: 33, owner: 'dell', description: 'Send the floor plan', due_on: '2026-11-18' };
+    const otherStep = { id: crypto.randomUUID(), change_id: 77, owner: 'joe', description: 'Call the architect', due_on: '2026-11-15' };
     const deal = { id: '00000000-0000-4000-8000-000000000080', name: 'Example Two-Partner Deal',
-      owner: 'dell', phase: 'research', seen: 1, items: [], open_actions: [otherStep, ownerStep],
+      owner: 'dell', phase: 'research', seen: 1, open_actions: [otherStep, ownerStep],
+      items: [{ id: 'example-item', title: 'Check the plans', status: 'open', due_on: '2026-11-18', bullets: [] }],
       next_step: otherStep.description, next_date: otherStep.due_on };
     const checklistOnly = { ...deal, id: '00000000-0000-4000-8000-000000000081', name: 'Example Checklist Deal',
       next_step: 'Check the plans', open_actions: [], items: [
@@ -599,20 +600,42 @@ for (const width of [1440, 390]) {
       ] };
     const singleStep = { ...deal, id: '00000000-0000-4000-8000-000000000082', name: 'Example One-Step Deal',
       open_actions: [{ ...otherStep, due_on: '2026-11-19' }] };
-    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [deal, checklistOnly, singleStep] };
+    const account = crypto.randomUUID();
+    const national = { ...deal, id: crypto.randomUUID(), name: 'Example Location Deal',
+      account_client_id: account, workspace_kind: 'national_account' };
+    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [deal, checklistOnly, singleStep, national],
+      accounts: [{ account_client_id: account, account_name: 'Example Account', account_owner: 'dell' }] };
+    const writes = [], moves = [];
+    const steps = new Map([deal, national].map(row => [row.id, structuredClone(row.open_actions)]));
     const env = {
-      ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' ? 'on' : null },
+      ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
       ENGINE: { fetch: async request => {
         const path = new URL(request.url).pathname;
+        if (path === `/api/engine/deals/${deal.id}/changes`) {
+          const body = await request.json();
+          moves.push(body.phase);
+          deal.phase = body.phase.to;
+          return Response.json({ deal_id: deal.id, change_id: ++deal.seen });
+        }
+        if (request.method === 'POST') {
+          assert.equal(path, '/api/engine/next-steps');
+          const body = await request.json();
+          writes.push(body);
+          const own = steps.get(body.deal_id)[0];
+          if (body.seen_current_step?.next_step_id !== own.id || body.seen_current_step?.change_id !== own.change_id)
+            return Response.json({ error: 'version_conflict' }, { status: 409 });
+          Object.assign(own, { description: body.what, due_on: body.due_on, change_id: own.change_id + 1 });
+          return Response.json({ next_step_id: crypto.randomUUID(), change_id: own.change_id }, { status: 201 });
+        }
         if (path === '/api/engine/deals') return Response.json(board);
-        assert.equal(path, `/api/engine/deals/${deal.id}`);
-        return Response.json({ ...deal, deal_id: deal.id, email_follow_ups: [],
-          next_actions: deal.open_actions.map(action => ({ ...action, status: 'open' })) });
+        const row = board.deals.find(row => path === `/api/engine/deals/${row.id}`);
+        return Response.json({ ...row, deal_id: row.id, email_follow_ups: [],
+          next_actions: steps.get(row.id).map(action => ({ ...action, status: 'open' })) });
       } },
     };
     await page.route('**/mcp', async route => {
       const request = route.request();
-      if (!['deal-room-board', 'get-deal-room'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+      if (!['deal-room-board', 'get-deal-room', 'set-next-step', 'add-deal-note', 'patch-deal-field'].includes(request.postDataJSON()?.params?.name)) return route.continue();
       const response = await handleDoctorcreRequest(new Request(request.url(), {
         method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
       }), env);
@@ -643,7 +666,71 @@ for (const width of [1440, 390]) {
       await visibleStep.waitFor();
       assert.equal(await visibleStep.count(), 1);
     }
+    assert.match(await snapshot.locator('.deal-current-action').innerText(), /Overdue action.*Send the floor plan.*Dell.*1 day late/);
+    assert.match(await snapshot.getByRole('listitem').filter({ hasText: otherStep.description }).innerText(), /Call the architect.*Joe/);
+    assert.equal(await snapshot.locator('.deal-items time[datetime="2026-11-18"]').evaluate(node => node.closest("li").dataset.overdue === "true"), true);
     await snapshot.screenshot({ path: join(evidence, `owner-next-step-${width}-detail.png`) });
+
+    await page.getByText('Change your next step', { exact: true }).click();
+    const localStep = page.getByLabel('Your next step', { exact: true });
+    assert.equal(await localStep.inputValue(), otherStep.description);
+    await localStep.fill('Confirm the plan');
+    await page.getByLabel('Next date', { exact: true }).fill('2026-11-23');
+    await page.locator('#detailUpdateForm').screenshot({ path: join(evidence, `owner-next-step-${width}-local-editor.png`) });
+    await page.getByRole('button', { name: 'Save next step', exact: true }).click();
+    await page.getByText('Next step saved.', { exact: true }).waitFor();
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].due_on, '2026-11-23');
+    assert.deepEqual(writes[0].seen_current_step, { next_step_id: otherStep.id, change_id: 77 });
+    assert.deepEqual(steps.get(deal.id)[1], ownerStep);
+    await snapshot.getByText('Confirm the plan', { exact: false }).waitFor();
+
+    await page.goto(`${origin}/deals?view=national&mode=live`);
+    await page.getByRole('button', { name: /Example Account/ }).click();
+    const nationalRow = page.locator(`[data-deal-id="${national.id}"]`);
+    assert.equal(await nationalRow.locator('.deal-items li').getAttribute('data-overdue'), 'true');
+    await nationalRow.locator('[data-next-step]').click();
+    const nationalStep = page.locator('#stepText');
+    await nationalStep.waitFor();
+    assert.equal(await nationalStep.inputValue(), otherStep.description);
+    await nationalStep.fill('Ask for the updated plan');
+    const current = steps.get(national.id)[0];
+    Object.assign(current, { description: 'Send the newest plan', change_id: 78 });
+    const save = page.getByRole('button', { name: 'Set next step', exact: true });
+    await save.click();
+    await page.getByText(/The next step changed/).waitFor();
+    assert.equal(await nationalStep.inputValue(), 'Ask for the updated plan');
+    assert.deepEqual(writes[1].seen_current_step, { next_step_id: otherStep.id, change_id: 77 });
+    await page.getByRole('button', { name: 'Review current values' }).click();
+    await page.locator('#formDialog').screenshot({ path: join(evidence, `owner-next-step-${width}-national-editor.png`) });
+    await save.click();
+    await page.getByText(/Next step confirmed/).waitFor();
+    assert.deepEqual(writes[2].seen_current_step, { next_step_id: otherStep.id, change_id: 78 });
+    assert.equal(current.description, 'Ask for the updated plan');
+    assert.deepEqual(steps.get(national.id)[1], ownerStep);
+
+    await nationalRow.locator('[data-next-step]').click();
+    await nationalStep.waitFor();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    Object.assign(current, { description: 'Confirm the lender meeting', due_on: '2026-11-24', change_id: 90 });
+    await nationalRow.locator('[data-next-step]').click();
+    await nationalStep.waitFor();
+    assert.equal(await nationalStep.inputValue(), 'Confirm the lender meeting');
+    assert.equal(await page.locator('#stepDate').inputValue(), '2026-11-24');
+    await nationalStep.fill('Confirm the meeting time');
+    await save.click();
+    await page.locator('#formDialog').waitFor({ state: 'hidden' });
+    assert.deepEqual(writes[3].seen_current_step, { next_step_id: otherStep.id, change_id: 90 });
+    assert.equal(current.description, 'Confirm the meeting time');
+
+    await page.goto(`${origin}/deals?deal=${deal.id}&mode=live`);
+    await page.locator('#detailPhase').selectOption('legal', { timeout: 10000 });
+    await page.locator('#completionNextStep').fill('Discuss the updated plan with the lender');
+    await page.getByRole('button', { name: 'Move to Legal' }).click();
+    await page.getByRole('region', { name: 'Deal snapshot' }).getByText('Discuss the updated plan with the lender', { exact: false }).waitFor();
+    assert.deepEqual(moves, [{ from: 'research', to: 'legal' }]);
+    assert.deepEqual(writes[4].seen_current_step, { next_step_id: otherStep.id, change_id: 78 });
+    assert.deepEqual(steps.get(deal.id)[1], ownerStep);
   });
 }
 
@@ -912,6 +999,7 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   let savesOn = false;
   const personId = '00000000-0000-4000-8000-000000000041';
   const leaseId = '00000000-0000-4000-8000-000000000042';
+  const otherLeaseId = '00000000-0000-4000-8000-000000000043';
   const leaseReads = [];
   let leasesAvailable = true;
   const refusals = [
@@ -934,6 +1022,8 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
         if (query === 'Example Unavailable') return Response.json({}, { status: 503 });
         const parties = ['person', 'company'].map(kind => ({
           id: kind === 'person' ? personId : clientId, display_name: 'Example Practice', kind,
+          city: kind === 'person' ? null : 'Austin', deal_count: kind === 'person' ? 1 : 3,
+          is_national_account: kind === 'company',
         })).filter(party => party.display_name.startsWith(query));
         return Response.json({ parties });
       }
@@ -941,7 +1031,9 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
         leaseReads.push(id);
         if (!leasesAvailable) return Response.json({}, { status: 503 });
         return Response.json(id === clientId ? [
-          { lease_id: leaseId, address: '10 Example Road', expiration_on: '2031-06-01' },
+          { lease_id: leaseId, address: '10 Example Road', expiration_on: '2031-06-01',
+            renewed_by: { deal_id: personId, name: 'Example Earlier Renewal' } },
+          { lease_id: otherLeaseId, address: '20 Example Road', expiration_on: null, renewed_by: null },
         ] : []);
       }
       if (url.pathname === '/api/engine/prospects') return Response.json({ count: 0, prospects: [] });
@@ -950,7 +1042,9 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
         const rows = [...deals.values()];
         return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe',
           deals: rows.filter(row => !row.outcome), closed_deals: rows.filter(row => row.outcome === 'won'),
-          lost_deals: rows.filter(row => row.outcome === 'lost') });
+          lost_deals: rows.filter(row => row.outcome === 'lost'),
+          accounts: [{ account_client_id: clientId, account_name: 'Example National Account', account_owner: 'joe',
+            base_version: 0, open_deals: 0, overdue_deals: 0, parked_deals: 0 }] });
       }
       const body = await request.json();
       writes.push(body);
@@ -1010,8 +1104,8 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   const kind = dialog.getByLabel('Deal kind');
   const reason = dialog.getByLabel('Deal reason');
   const lease = dialog.getByLabel('Lease to renew');
-  const company = dialog.getByRole('button', { name: 'Example Practice · Company' });
-  const person = dialog.getByRole('button', { name: 'Example Practice · Person' });
+  const company = dialog.getByRole('button', { name: 'Example Practice · Company · Austin · 3 deals' });
+  const person = dialog.getByRole('button', { name: 'Example Practice · Person · No city recorded · 1 deal', exact: true });
   assert.equal(await kind.inputValue(), '');
   assert.equal(await reason.inputValue(), '');
   await clientInput.fill('Example Unknown');
@@ -1022,6 +1116,8 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   await dialog.getByText('Search is unavailable. Try again.').waitFor();
   await clientInput.fill('Example Pra');
   await reason.selectOption('renewal');
+  await person.waitFor();
+  await dialog.screenshot({ path: join(evidence, `engine-client-matches-${width}.png`) });
   await person.click();
   await dialog.getByText('No leases found for this client.').waitFor();
   await clientInput.fill('Example');
@@ -1030,7 +1126,8 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   await dialog.getByText('Could not load leases.').waitFor();
   leasesAvailable = true;
   await dialog.getByRole('button', { name: 'Retry' }).click();
-  await lease.locator('option').filter({ hasText: '10 Example Road · Expires Sun, Jun 1, 2031' }).waitFor({ state: 'attached' });
+  await lease.locator('option').filter({ hasText: '10 Example Road · Expires Sun, Jun 1, 2031 · already renewed by Example Earlier Renewal' }).waitFor({ state: 'attached' });
+  assert.equal(await lease.locator(`option[value="${otherLeaseId}"]`).textContent(), '20 Example Road · Expiration not recorded');
   assert.deepEqual(leaseReads, [personId, clientId, clientId]);
   assert.equal(await lease.evaluate(control => control.matches(':invalid')), true);
   await create.click();
@@ -1044,6 +1141,12 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   assert.equal(await lease.count(), 0);
   await reason.selectOption('renewal');
   await lease.selectOption(leaseId);
+  if (width === 390) {
+    await dialog.getByText('Already renewed by Example Earlier Renewal', { exact: true }).waitFor();
+    await lease.selectOption(otherLeaseId);
+    assert.equal(await dialog.getByText('Already renewed by Example Earlier Renewal', { exact: true }).count(), 0);
+    await lease.selectOption(leaseId);
+  }
   await kind.selectOption('lease');
   await dialog.getByLabel('Deal name').fill('Example Renewal Deal');
   const [formBox, createBox] = await Promise.all([dialog.boundingBox(), create.boundingBox()]);
@@ -1122,6 +1225,11 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   assert.ok(writes.filter(write => write.name).every(write => write.client_id === clientId));
   assert.deepEqual(writes.filter(write => write.name).map(write => [write.kind, write.reason, write.renews_lease_id]),
     [[undefined, undefined, undefined], [undefined, 'start_up', undefined]]);
+  await page.getByRole('button', { name: 'Add deal', exact: true }).click();
+  await clientInput.fill('Example Pra');
+  await dialog.getByRole('link', { name: 'Open account', exact: true }).click();
+  await page.locator('#accountContextName').getByText('Example National Account', { exact: true }).waitFor();
+  assert.equal(writes.length, 7, 'opening an account does not save a deal');
 });
 
 test('switched-on Deals selects an existing market agent and decides critical dates', async t => {
@@ -1714,7 +1822,7 @@ for (const width of [1440, 390]) {
       { id: crypto.randomUUID(), owner: 'dell', status: 'open', description: row.next_step, due_on: row.next_date, change_id: 3 },
       { id: crypto.randomUUID(), owner: 'joe', status: 'open', title: 'Checklist item', description: 'Checklist item', change_id: 4 },
       { id: crypto.randomUUID(), owner: 'joe', status: 'open', description: 'Send a draft', due_on: row.next_date,
-        ...(width === 1440 && { change_id: 5 }) },
+        change_id: 5 },
     ];
     const prospectNote = { by: 'dell', at: '2026-11-09T15:00:00Z', summary: 'Example prospect note' };
     const prospectRow = { party_id: prospect, name: 'Birch Prospect', owner: null, how_found: 'referral',
@@ -1775,7 +1883,8 @@ for (const width of [1440, 390]) {
         if (url.pathname === '/api/engine/prospects') return Response.json({ count: 0, prospects: [] });
         if (url.pathname.endsWith(prospect)) return Response.json({ ...prospectRow, notes: [] });
         if (url.pathname.endsWith(parked)) return Response.json(parkedRow);
-        if (url.pathname.endsWith(deal)) return Response.json({ ...row, next_step: review[0].next_step, next_date: review[0].next_date, next_actions, thread: [...dealNotes,
+        if (url.pathname.endsWith(deal)) return Response.json({ ...row, next_step: review[0].next_step, next_date: review[0].next_date,
+          next_actions, email_follow_ups: [], thread: [...dealNotes,
           { id: 'example-note', kind: 'note', text: 'Example new note', actor: 'joe', recorded_at: '2026-11-09T15:00:00Z' },
         ] });
         if (url.pathname === '/api/engine/deals') boardReads++;
@@ -1920,8 +2029,7 @@ for (const width of [1440, 390]) {
     await saveStep();
     await page.getByText('Next step saved.').waitFor();
     assert.equal(Object.hasOwn(stepBody(), 'due_on'), false);
-    if (width === 1440) assert.deepEqual(stepBody().seen_current_step, { next_step_id: next_actions[2].id, change_id: 5 });
-    else assert.equal(Object.hasOwn(stepBody(), 'seen_current_step'), false);
+    assert.deepEqual(stepBody().seen_current_step, { next_step_id: next_actions[2].id, change_id: 5 });
     assert.equal(writes.filter(([path]) => path === '/api/engine/activities').length, 2);
     assert.equal(writes.filter(([path]) => path === '/api/engine/next-steps').length, 2);
     await page.evaluate(() => scrollTo(0, 0));
@@ -1953,9 +2061,10 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: 'Back', exact: true }).click();
       await page.getByRole('link', { name: row.name }).click();
       await page.getByLabel('Update', { exact: true }).fill('Example deal page update');
-      await page.getByText('Change next step', { exact: true }).click();
-      assert.equal(await step.inputValue(), 'Send the revised plan');
-      await step.fill('Send the final plan');
+      await page.getByText('Change your next step', { exact: true }).click();
+      const localStep = page.getByLabel('Your next step', { exact: true });
+      assert.equal(await localStep.inputValue(), 'Send the revised plan');
+      await localStep.fill('Send the final plan');
       await page.getByRole('button', { name: 'Add update' }).click();
       await page.locator('#detailUpdateStatus').getByText('Update added', { exact: true }).waitFor();
       assert.deepEqual(stepBody().seen_current_step, { next_step_id: next_actions[2].id, change_id: 9 });

@@ -1,7 +1,11 @@
 import { isTextEntry } from './ui-keyboard-input.generated.js';
 import { mountDealRoomForm } from './ui-deal-room-forms.generated.js';
+import { nameMatchDetails } from './ui-name-match.generated.js';
 import { mountDealRoomBoard } from './ui-board.generated.js';
 import { mountDealRoomAgenda } from './ui-agenda.generated.js';
+import { dealStepVersion, partnerDealStep } from './local-deals-model.js';
+import { businessDay } from './business-date.js';
+import { formatCalendarDate } from './visual-system.js';
 import { renderDealSummary, renderDealItems } from './deal-items.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
@@ -220,6 +224,7 @@ async function loadHome() {
 function applyBoardSnapshot(home) {
   if (state.accessDenied) return;
   state.nextDealSaves = home.next_deal_saves === true;
+  state.boardFromEngine = home.board_from_engine === true;
   state.selfActor = home.actor || state.client.selfActor || state.selfActor;
   state.deals = new Map((home.deals || []).map((deal) => [deal.id, {
     workspace_kind: deal.account_client_id ? 'national_account' : 'team', ...deal,
@@ -521,7 +526,7 @@ function boardRow(deal) {
   const days = daysFromNow(deal.next_date);
   const parked = deal.operating_state === 'parked';
   const presence = state.presence.filter(lease => lease.deal_id === deal.id && lease.actor !== state.selfActor && new Date(lease.expires_at) > new Date());
-  const today = new Date().toLocaleDateString('en-CA');
+  const today = state.boardFromEngine ? businessDay() : new Date().toLocaleDateString('en-CA');
   return {
     id: deal.id, name: deal.name, parked, attention: Boolean(deal.attention), phase: deal.phase,
     classes: [parked ? 'parked' : '', deal.attention ? 'attention' : '', days !== null && days < 0 ? 'overdue' : ''].join(' '),
@@ -1008,11 +1013,12 @@ function appWrite(operationKey, args, send) {
 }
 
 let formView;
-function openForm({ context='Deal Room', title, submit='Save', form, national, onSubmit, operationKey = null, draftKey = null }) {
+function openForm({ context='Deal Room', title, submit='Save', form, national, onSubmit, operationKey = null, draftKey = null, reviewed = undefined }) {
   const dialog = $('#formDialog');
   $('#dialogContext').textContent = context;
   $('#dialogTitle').textContent = title;
   $('#dialogSubmit').textContent = submit;
+  $('#dialogSubmit').classList.replace('secondary', 'primary');
   formView?.dispose();
   if (typeof form === 'string') {
     $('#dialogBody').innerHTML = national
@@ -1025,7 +1031,7 @@ function openForm({ context='Deal Room', title, submit='Save', form, national, o
   let draft = null;
   if (draftKey) {
     state.formDrafts ||= new Map();
-    draft = state.formDrafts.get(draftKey) || { values: {} };
+    draft = state.formDrafts.get(draftKey) || { values: {}, reviewed };
     state.formDrafts.set(draftKey, draft);
     for (const control of $$('#dialogBody [name]')) {
       if (Object.hasOwn(draft.values, control.name)) control.value = draft.values[control.name];
@@ -1109,11 +1115,28 @@ function reviewedReplacementVersion(reviewed, current, fields, draftKey) {
   return fresh;
 }
 
-function nextStepForm(dealId) {
+async function nextStepForm(dealId) {
   const deal = state.deals.get(dealId);
   const pending = state.nextStepRequests.get(dealId);
-  const draftKey = `next-step:${dealId}`;
-  openForm({ draftKey, title:`Next step — ${deal.name}`, submit:pending ? 'Check outcome' : 'Set next step', form:{ kind:'next-step', text:pending?.text ?? deal.next_step ?? '', date:pending?.next_date ?? deal.next_date ?? '', pending:Boolean(pending) },
+  const actor = state.selfActor;
+  const fromEngine = state.nextDealSaves && Number.isSafeInteger(deal.seen);
+  const draftKey = fromEngine ? `next-step:${actor}:${dealId}` : `next-step:${dealId}`;
+  const readStep = async () => {
+    const detail = await state.client.getDeal(dealId);
+    if (detail?.deal?.id !== dealId || !Number.isSafeInteger(detail.deal.seen) || !actor || state.selfActor !== actor)
+      throw new Error('The current next step could not be read. Reopen the deal and try again.');
+    return { seen: detail.deal.seen, currentStep: partnerDealStep(detail, actor) };
+  };
+  const reviewed = fromEngine && !pending ? await readStep() : undefined;
+  const kept = state.formDrafts?.get(draftKey);
+  if (reviewed && kept && !kept.conflict && Object.keys(kept.values).length === 0) {
+    state.formDrafts.delete(draftKey);
+  }
+  const step = (state.formDrafts?.get(draftKey)?.reviewed ?? reviewed)?.currentStep;
+  const date = fromEngine ? (step?.due_on >= businessDay() ? step.due_on : '') : deal.next_date;
+  openForm({ draftKey, reviewed, title:`Next step — ${deal.name}`, submit:pending ? 'Check outcome' : 'Set next step',
+    form:{ kind:'next-step', text:pending?.text ?? (fromEngine ? step?.description : deal.next_step) ?? '',
+      date:pending ? pending.next_date ?? '' : date ?? '', pending:Boolean(pending) },
     onSubmit:async (data) => {
       if (state.nextStepInFlight.has(dealId)) throw new Error('Next step is still being sent. Wait for the server to answer.');
       const checking = state.nextStepRequests.has(dealId);
@@ -1121,17 +1144,19 @@ function nextStepForm(dealId) {
       state.nextStepInFlight.add(dealId);
       try {
         if (!request) {
-          const current = (await state.client.getDeal(dealId))?.deal;
-          if (current?.id !== dealId) throw new Error('The current record could not be verified. No write was sent.');
-          state.deals.set(dealId, { ...deal, ...current });
-          const reviewed = state.formDrafts?.get(draftKey)?.reviewed || deal;
-          const fromEngine = Number.isSafeInteger(reviewed.seen) && Number.isSafeInteger(current.seen);
-          if (fromEngine && ((current.next_step || '') !== (reviewed.next_step || '')
-            || (current.next_date || '') !== (reviewed.next_date || ''))) {
-            throw new Error('This deal changed. Reload the deal before saving.');
+          let version;
+          if (fromEngine) {
+            const snapshot = state.formDrafts?.get(draftKey)?.reviewed ?? reviewed;
+            const seen_current_step = dealStepVersion(snapshot?.currentStep);
+            if (state.selfActor !== actor || seen_current_step === undefined)
+              throw new Error('The current next step could not be verified. Reopen the deal and try again.');
+            version = { seen_change_id: snapshot.seen, seen_current_step };
+          } else {
+            const current = (await state.client.getDeal(dealId))?.deal;
+            if (current?.id !== dealId) throw new Error('The current record could not be verified. No write was sent.');
+            state.deals.set(dealId, { ...deal, ...current });
+            version = { base_version: reviewedReplacementVersion(deal, current, ['next_step', 'next_date'], draftKey) };
           }
-          const version = fromEngine ? { seen_change_id: current.seen }
-            : { base_version: reviewedReplacementVersion(deal, current, ['next_step', 'next_date'], draftKey) };
           request = { deal:dealId, text:String(data.get('text') || '').trim(), next_date:data.get('next_date') || null,
             ...version, idempotency_key:uuidv4() };
           state.nextStepRequests.set(dealId, request);
@@ -1155,6 +1180,11 @@ function nextStepForm(dealId) {
         $('#stepText').disabled = false;
         $('#stepDate').disabled = false;
         $('#dialogSubmit').textContent = 'Set next step';
+        if (fromEngine && (error.payload?.error ?? error.code) === 'version_conflict') {
+          const current = await readStep();
+          const message = `The next step changed. Current next step: ${current.currentStep?.description || 'None'} (${formatCalendarDate(current.currentStep?.due_on) || 'no date'}). Review it before saving again.`;
+          throw Object.assign(new Error(message), { replacementConflict: { current, message } });
+        }
         throw error;
       } finally {
         state.nextStepInFlight.delete(dealId);
@@ -1162,8 +1192,8 @@ function nextStepForm(dealId) {
       state.nextStepRequests.delete(dealId);
       // A replay can confirm an older action after a partner made a newer one.
       // Read the current board instead of painting the replay over it.
-      const current = checking ? state.deals.get(dealId) : confirmLocalWrite(dealId, { next_step:request.text, next_date:request.next_date });
-      if (checking) state.boardSync.requestRefresh('after-write');
+      const current = checking || fromEngine ? state.deals.get(dealId) : confirmLocalWrite(dealId, { next_step:request.text, next_date:request.next_date });
+      if (checking || fromEngine) state.boardSync.requestRefresh('after-write');
       showToast(`Next step confirmed on ${current?.name || deal.name}`); renderBoardOnly();
     } });
 }
@@ -1222,19 +1252,50 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
       formView.candidates(confirmation ? {...confirmation, held, onEdit} : null);
       return;
     }
+    const separateButton = $('#dialogSubmit');
+    separateButton.classList.toggle('primary', !confirmation || held);
+    separateButton.classList.toggle('secondary', !!confirmation && !held);
     $('#nationalCandidates')?.remove();
     if (!confirmation) return;
+    const candidateRows = confirmation.candidates.map((candidate, index) => {
+      const {id, name, is_national_account, unavailable} = candidate;
+      const description = `nationalCompanyName${index}`;
+      const details = nameMatchDetails(candidate);
+      const status = pending?.request.company_id === id ? 'Checking creation outcome.'
+        : unavailable ? 'This company is no longer available.' : '';
+      const disabled = held || unavailable ? ' disabled' : '';
+      return `<li><span id="${description}">${esc([name, details].filter(Boolean).join(' · '))}</span>
+        ${status ? `<small role="status">${status}</small>` : ''}
+        ${is_national_account === true
+          ? `<button class="secondary" type="button" data-open-candidate="${esc(id)}" aria-describedby="${description}"${disabled}>Open account</button>`
+          : `<button class="primary" type="submit" name="company_id" value="${esc(id)}" aria-describedby="${description}" formnovalidate${disabled}>
+            Make this company a national account</button>`}
+      </li>`;
+    });
     $('#dialogBody').insertAdjacentHTML('beforeend', `<div id="nationalCandidates">
       <p>${esc(confirmation.hint)}</p>
-      <ul class="national-company-choices">${confirmation.candidates.map(({id, name}, index) => `<li>
-        <span id="nationalCompanyName${index}">${esc(name)}</span>
-        ${chooseCompany ? `<button class="secondary" type="submit" name="company_id" value="${esc(id)}" aria-describedby="nationalCompanyName${index}" formnovalidate${held ? ' disabled' : ''}>
-          Make this company a national account</button>` : ''}
-      </li>`).join('')}</ul>
+      <ul class="national-company-choices">${candidateRows.join('')}</ul>
       <div class="field"><label><input type="checkbox" name="confirm_separate" required${pending?.request.force_new ? ' checked' : ''}${held ? ' disabled' : ''}>
         This is a separate company.</label></div>
       <button type="button" class="text-button" id="nationalEditDetails"${held ? ' disabled' : ''}>Edit account details</button>
     </div>`);
+    $('#nationalCandidates').onclick = async event => {
+      const button = event.target.closest('[data-open-candidate]');
+      if (!button || button.disabled) return;
+      const id = button.dataset.openCandidate;
+      const hasAccount = () => state.accounts.some(item => item.account_client_id === id);
+      if (!hasAccount()) await loadHome().catch(() => {});
+      if (!button.isConnected || !$('#formDialog').open || state.nationalCreations[key]) return;
+      if (!hasAccount()) {
+        $('#formError').textContent = 'This account could not be opened. Try again.';
+        $('#formError').hidden = false;
+        return;
+      }
+      delete state.nationalConfirmations[key];
+      $('#formDialog').close();
+      openNationalAccount(id);
+      $('#accountBack').focus();
+    };
     $('#nationalEditDetails').onclick = onEdit;
   };
   openForm({context, title, submit:held ? 'Check creation outcome' : confirmation ? `Create ${separate}` : submit,
@@ -1244,6 +1305,7 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
         throw new Error('The account or signed-in partner changed. Reopen this form in its original account and session.');
       const pending = state.nationalCreations[key];
       const company = chooseCompany && confirmation?.candidates.find(({id}) => id === data.get('company_id'));
+      if (company?.unavailable || company?.is_national_account === true) return false;
       if (!pending && confirmation && !company && data.get('confirm_separate') !== 'on')
         throw new Error(`Confirm this is a ${separate} before creating it.`);
       const args = pending?.request || (confirmation
@@ -1253,8 +1315,8 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
       if (!started.started) throw new Error('Creation is still being sent. Wait for the server to answer.');
       state.nationalCreations = started.state;
       $('#nationalCreationFields').disabled = true;
-      $('#openExistingNationalAccount')?.remove();
-      for (const button of $$('#nationalCandidates button')) button.disabled = true;
+      if (chooseCompany) renderCandidates();
+      else for (const button of $$('#nationalCandidates button')) button.disabled = true;
       try {
         const result = await send(started.request);
         if (separate && result?.needs_confirm === true && result.ok !== false && !result.error && !result.conflict && !started.request.force_new &&
@@ -1264,7 +1326,7 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
           state.nationalConfirmations[key] = confirmation;
           renderCandidates();
           $('#dialogSubmit').textContent = `Create ${separate}`;
-          $('#nationalCandidates [name="company_id"]')?.focus();
+          $('#nationalCandidates li button')?.focus();
           return false;
         }
         if (result?.ok !== true || result.needs_confirm || result.error || result.conflict ||
@@ -1279,34 +1341,22 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
         const unknown = outcome.status === 'unknown' && outcome.reason !== 'offline';
         state.nationalCreations = settleCommand(state.nationalCreations,key,unknown ? outcome : {status:'refused'});
         $('#nationalCreationFields').disabled = unknown || Boolean(confirmation);
-        for (const button of $$('#nationalCandidates button')) button.disabled = unknown;
-        const confirm = $('[name="confirm_separate"]');
-        if (confirm) {
-          confirm.disabled = unknown;
-          if (!unknown) confirm.checked = false;
+        if (chooseCompany) {
+          const refusal = error.payload?.error;
+          const rejected = confirmation?.candidates.find(({id}) => id === started.request.company_id);
+          if (rejected && refusal === 'not_found') rejected.unavailable = true;
+          if (rejected && refusal === 'already_national_account') rejected.is_national_account = true;
+          renderCandidates();
+        } else {
+          for (const button of $$('#nationalCandidates button')) button.disabled = unknown;
+          const confirm = $('[name="confirm_separate"]');
+          if (confirm) {
+            confirm.disabled = unknown;
+            if (!unknown) confirm.checked = false;
+          }
         }
         $('#dialogSubmit').textContent = unknown ? 'Check creation outcome' : confirmation ? `Create ${separate}` : submit;
         if (unknown) throw new Error(commandMessage(outcome,'Creation'));
-        if (started.request.company_id && error.payload?.error === 'already_national_account') {
-          const id = started.request.company_id;
-          const hasAccount = () => state.accounts.some(item => item.account_client_id === id);
-          const choices = $('#nationalCandidates');
-          if (!hasAccount()) await loadHome().catch(() => {});
-          if (hasAccount() && choices?.isConnected) {
-            const open = document.createElement('button');
-            open.type = 'button';
-            open.id = 'openExistingNationalAccount';
-            open.className = 'secondary';
-            open.textContent = 'Open account';
-            open.onclick = () => {
-              delete state.nationalConfirmations[key];
-              $('#formDialog').close();
-              openNationalAccount(id);
-              $('#accountBack').focus();
-            };
-            choices.append(open);
-          }
-        }
         if (error.payload?.error === 'research_evidence_required') throw new Error('Research evidence is required: the sub-client name did not match an existing client under this account. Choose New sub-client and provide reviewed sources.');
         throw error;
       }
@@ -1674,7 +1724,12 @@ function wireEvents() {
     }
     const open = event.target.closest('[data-open-deal]'); if (open) { await openDeal(open.dataset.openDeal); return; }
     const attention = event.target.closest('[data-attention]'); if (attention) { const deal=state.deals.get(attention.dataset.attention); await patchField(deal.id,'attention',!deal.attention); return; }
-    const step = event.target.closest('[data-next-step],[data-agenda-step]'); if (step) { nextStepForm(step.dataset.nextStep || step.dataset.agendaStep); return; }
+    const step = event.target.closest('[data-next-step],[data-agenda-step]');
+    if (step) {
+      try { await nextStepForm(step.dataset.nextStep || step.dataset.agendaStep); }
+      catch (error) { showToast(error.message, { error: true }); }
+      return;
+    }
     const agent = event.target.closest('[data-market-agent]'); if (agent) { marketAgentForm(agent.dataset.marketAgent); return; }
     const filter = event.target.closest('[data-filter]'); if (filter) { state.filter=filter.dataset.filter; state.deepLinkMine = false; $$('.filter').forEach((b)=>b.classList.toggle('on',b===filter)); renderBoardOnly(); return; }
     if (event.target.closest('[data-close-deal]')) { $('#dealDialog').close(); return; }
@@ -1770,6 +1825,11 @@ async function boot() {
   installCallMode();
   wireEvents();
   await loadHome();
+  const linkedAccount = params.get('account');
+  if (state.workspace === 'national_account' && state.nextDealSaves
+      && state.accounts.some(item => item.account_client_id === linkedAccount)) {
+    openNationalAccount(linkedAccount);
+  }
   const linkedDeal = params.get('deal');
   // A tick that arrives while the last poll is still open is dropped by the
   // coordinator rather than run alongside it, so a slow answer cannot land

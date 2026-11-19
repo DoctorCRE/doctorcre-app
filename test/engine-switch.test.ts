@@ -1909,7 +1909,15 @@ test("national account creation and owner changes follow the Deals switches", as
 });
 
 test("an existing company name asks for separate-company confirmation", async () => {
-  const candidates = [{ id: "00000000-0000-4000-8000-000000000013", name: "Demo Matching Company" }];
+  const candidates = [
+    {
+      id: "00000000-0000-4000-8000-000000000013",
+      name: "Demo Matching Company",
+      city: "Austin",
+      deal_count: 3,
+      is_national_account: true,
+    },
+  ];
   const on = fixture("on", async () => Response.json({ error: "account_name_exists", candidates }, { status: 409 }));
   const response = await on.send(
     call("create-national-account", {
@@ -1923,6 +1931,26 @@ test("an existing company name asks for separate-company confirmation", async ()
   assert.equal(result.isError, undefined);
   assert.deepEqual(JSON.parse(result.content[0].text).candidates, candidates);
   assert.equal(JSON.parse(result.content[0].text).needs_confirm, true);
+});
+
+test("a company conversion with a different account in the receipt stays unconfirmed", async () => {
+  const company_id = "00000000-0000-4000-8000-000000000013";
+  const idempotency_key = "00000000-0000-4000-8000-000000000012";
+  const on = fixture("on", async () =>
+    Response.json({ account_client_id: "00000000-0000-4000-8000-000000000014", owner: "joe" }),
+  );
+  const response = await on.send(
+    call("create-national-account", {
+      next_deal_save: true,
+      company_id,
+      idempotency_key,
+      name: "Example Company",
+      owner: "joe",
+    }),
+  );
+  assert.equal(response.status, 503);
+  assert.equal(on.engine.length, 1);
+  assert.deepEqual(on.carr, []);
 });
 
 test("market-deal choices and saves use the new engine behind the Deals switches", async () => {

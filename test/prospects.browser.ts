@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 import test from "node:test";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
@@ -14,6 +15,7 @@ test("partners see and manage prospects from Deals", async (t) => {
   const CARR = { fetch: async () => Response.json(session) };
   const server = await startWorkerFixture({ assets: await appAssetSnapshot(), env: { CARR } });
   t.after(() => server.close());
+  await mkdir(".scratch/name-matches", { recursive: true });
   const browser = await chromium.launch();
   t.after(() => browser.close());
 
@@ -48,14 +50,25 @@ test("partners see and manage prospects from Deals", async (t) => {
         id: "00000000-0000-4000-8000-000000000004",
         display_name: "Client Example",
         kind: "company",
+        city: "Austin",
+        deal_count: 3,
+        is_national_account: true,
       };
       const renewalLease = {
         lease_id: "00000000-0000-4000-8000-000000000010",
         address: "10 Example Road",
         expiration_on: "2031-06-01",
+        renewed_by: { deal_id: party, name: "Example Prior Renewal" },
       };
-      const storedParty = { ...matchedClient, id: "00000000-0000-4000-8000-000000000007", kind: "person" };
-      const storedTwin = { ...storedParty, id: "00000000-0000-4000-8000-000000000009" };
+      const storedParty = {
+        ...matchedClient,
+        id: "00000000-0000-4000-8000-000000000007",
+        kind: "person",
+        city: null,
+        deal_count: 1,
+        is_national_account: false,
+      };
+      const storedTwin = { ...storedParty, id: "00000000-0000-4000-8000-000000000009", city: "Waco", deal_count: 0 };
       const missingHowFound = {
         ...storedParty,
         id: "00000000-0000-4000-8000-000000000008",
@@ -70,7 +83,14 @@ test("partners see and manage prospects from Deals", async (t) => {
       let converted: CreatedDeal | undefined;
       let conversionKey: string | undefined;
       let refuseConversion = true;
-      const deals: CreatedDeal[] = [];
+      const existingDeal = {
+        id: "00000000-0000-4000-8000-000000000011",
+        name: "Example Maple Deal",
+        owner: actor,
+        phase: "pending",
+        client_name: "Example Maple",
+      };
+      const deals: CreatedDeal[] = [existingDeal];
       const board = { schema_version: "local-deals-board.v2", actor, deals };
       let enabled = false;
       let savesEnabled = false,
@@ -347,13 +367,67 @@ test("partners see and manage prospects from Deals", async (t) => {
         await page.goto(`${server.origin}/deals?mode=live`);
         await open.waitFor();
       }
-      await page.getByRole("button", { name: "List", exact: true }).click();
-      await open.waitFor();
-      assert.equal(await open.count(), 1);
+      const prospectNames = [prospect.name, birchProspect.name];
+      const entries = lane.getByRole("article");
+      const deal = page.getByRole("button", { name: existingDeal.name, exact: true });
+      await deal.waitFor();
+      assert.equal(
+        await deal.evaluate((button) => button.closest("[data-column]")?.previousElementSibling?.id),
+        "prospectsLane",
+      );
+      const titles = () => entries.getByRole("heading").allTextContents();
+      assert.deepEqual(await titles(), prospectNames);
+      const tileRadius = await entries.first().evaluate((entry) => getComputedStyle(entry).borderRadius);
+      assert.notEqual(tileRadius, "0px");
+      const tileText = await entries.allTextContents();
+      await page.screenshot({ path: `out/test-artifacts/prospect-list-rows/board-${width}.png` });
+
+      const list = page.getByRole("button", { name: "List", exact: true });
+      await list.click();
+      await settles(async () =>
+        assert.equal(await entries.first().evaluate((entry) => getComputedStyle(entry).borderRadius), "0px"),
+      );
+      assert.deepEqual(await titles(), prospectNames);
+      assert.deepEqual(await entries.allTextContents(), tileText);
+      const dealBox = await deal.boundingBox();
+      const prospectBox = await entries.first().boundingBox();
+      assert.ok(dealBox && prospectBox && dealBox.y + dealBox.height <= prospectBox.y);
+      const titleBox = await open.boundingBox();
+      const noteBox = await entries.first().getByText("First line", { exact: true }).boundingBox();
+      assert.ok(titleBox && noteBox);
+      if (width === 1440) {
+        const row = entries.first();
+        const columns = page.locator(".deal-list-head");
+        const followUp = await row.getByText("Joe · Due Thu, Nov 19", { exact: true }).boundingBox();
+        const author = await row.getByText(/^Dell · Wed, Nov 18/).boundingBox();
+        const claimant = await row.locator(".work-card-meta").boundingBox();
+        const nextStep = await columns.getByText("Next step", { exact: true }).boundingBox();
+        const owner = await columns.getByText("Owner", { exact: true }).boundingBox();
+        assert.ok(followUp && author && claimant && nextStep && owner);
+        assert.equal(followUp.x, noteBox.x, "the follow-up aligns with the note");
+        assert.equal(author.x, noteBox.x, "the author aligns with the note");
+        assert.equal(noteBox.x, nextStep.x, "prospect details align with Next step");
+        assert.equal(claimant.x, owner.x, "the claimant aligns with Owner");
+      } else {
+        assert.ok(noteBox.y >= titleBox.y + titleBox.height);
+      }
+      if (width === 390) await entries.first().evaluate((entry) => entry.scrollIntoView({ block: "center" }));
+      await page.screenshot({ path: `out/test-artifacts/prospect-list-rows/list-${width}.png` });
+      await birchName.click();
+      await birchDetail.getByText("Claimed by Dell", { exact: true }).waitFor();
+      await birchDetail.getByRole("button", { name: "Back to Deals" }).click();
       await open.click();
       const dialog = page.getByRole("dialog", { name: "Example Elm Practice" });
       await dialog.waitFor();
       assert.match((await dialog.textContent()) ?? "", /Referral[\s\S]*Call again[\s\S]*First line/);
+      await dialog.getByRole("button", { name: "Back to Deals" }).click();
+      await page.getByRole("button", { name: "Board", exact: true }).click();
+      await settles(async () =>
+        assert.equal(await entries.first().evaluate((entry) => getComputedStyle(entry).borderRadius), tileRadius),
+      );
+      assert.deepEqual(await titles(), prospectNames);
+      await list.click();
+      await open.click();
       await dialog.getByRole("button", { name: "Turn into deal" }).click();
       const unclaimedForm = page.getByRole("dialog", { name: "Add deal" });
       const unclaimedOwner = unclaimedForm.getByLabel("Owner");
@@ -528,11 +602,17 @@ test("partners see and manage prospects from Deals", async (t) => {
         await form.getByRole("button", { name: `Use ${birchProspect.name} as client` }).click();
         await form.getByText("No leases found for this client.").waitFor();
         await clientField.fill("Client Ex");
-        await form.getByRole("button", { name: "Client Example · Company" }).click();
+        const company = form.getByRole("button", { name: "Client Example · Company · Austin · 3 deals", exact: true });
+        await company.waitFor();
+        await form.screenshot({ path: `.scratch/name-matches/prospect-${width}.png` });
+        await company.click();
         const lease = form.getByLabel("Lease to renew");
-        await lease.locator("option").filter({ hasText: "10 Example Road · Expires Sun, Jun 1, 2031" }).waitFor({
-          state: "attached",
-        });
+        await lease
+          .locator("option")
+          .filter({ hasText: "10 Example Road · Expires Sun, Jun 1, 2031 · already renewed by Example Prior Renewal" })
+          .waitFor({
+            state: "attached",
+          });
         await phaseField.selectOption("Research");
         await save.click();
         assert.equal(conversionAttempts, 0, "a renewal must name a lease");
@@ -543,8 +623,16 @@ test("partners see and manage prospects from Deals", async (t) => {
         await clientField.fill("Clint Example");
         await form.getByText("No matching people or companies.").waitFor({ timeout: 5000 });
         await clientField.fill("Client Ex");
-        await form.getByRole("button", { name: "Client Example · Company" }).waitFor({ timeout: 5000 });
-        await form.getByRole("button", { name: `Client Example · Person · ${storedTwin.id}`, exact: true }).waitFor();
+        await form
+          .getByRole("button", { name: "Client Example · Company · Austin · 3 deals" })
+          .waitFor({ timeout: 5000 });
+        const openAccount = form.getByRole("link", { name: "Open account", exact: true });
+        assert.equal(
+          await openAccount.getAttribute("href"),
+          `/deals?view=national&account=${matchedClient.id}&mode=live`,
+        );
+        assert.equal(await form.getByText(storedTwin.id, { exact: false }).count(), 0);
+        await form.getByRole("button", { name: "Client Example · Person · Waco · 0 deals", exact: true }).waitFor();
         assert.equal(
           await form.getByRole("list", { name: "Matching people and companies" }).evaluate((list) => {
             const right = list.closest("dialog")?.getBoundingClientRect().right ?? 0;
@@ -555,7 +643,10 @@ test("partners see and manage prospects from Deals", async (t) => {
           true,
           "each client match fits inside the dialog",
         );
-        await form.getByRole("button", { name: `Client Example · Person · ${storedParty.id}`, exact: true }).click();
+        await form.screenshot({ path: `.scratch/name-matches/prospect-${width}.png` });
+        await form
+          .getByRole("button", { name: "Client Example · Person · No city recorded · 1 deal", exact: true })
+          .click();
         assert.equal(await clientField.inputValue(), storedParty.display_name);
       }
       await save.click();
@@ -576,7 +667,9 @@ test("partners see and manage prospects from Deals", async (t) => {
         await save.click();
         await form.getByText("Choose a client from the matches.").waitFor();
         assert.equal(conversionAttempts, 1, "typing a name does not pick a client");
-        await form.getByRole("button", { name: `Client Example · Person · ${storedParty.id}`, exact: true }).click();
+        await form
+          .getByRole("button", { name: "Client Example · Person · No city recorded · 1 deal", exact: true })
+          .click();
       }
       await save.click();
       await form.getByText("This person or company is no longer a prospect.").waitFor();

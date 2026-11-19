@@ -241,7 +241,7 @@ function closingPlan(intent, form) {
  * version this module captured would already be stale by then.
  *
  * @param {ReturnType<typeof moveIntent>} intent
- * @param {{evidence?:string, nextStep?:string, nextWhen?:string,
+ * @param {{evidence?:string, nextStep?:string, nextWhen?:string, replaceNextStep?:boolean,
  *          effectiveDate?:string, recordCriticalDate?:boolean, dateSource?:string,
  *          outcome?:string, closedOn?:string, wonValue?:string|number,
  *          changeReason?:string, humanQuote?:string, lostReason?:string}} [form]
@@ -279,7 +279,13 @@ export function completionPlan(intent, form = {}) {
 
   const nextStep = text(form.nextStep);
   const nextWhen = text(form.nextWhen);
-  if (nextStep) {
+  if (nextStep && form.replaceNextStep) {
+    steps.push({
+      verb: 'set-next-step',
+      args: { deal: intent.deal, text: nextStep, next_date: nextWhen || null },
+      summary: `Next step on ${intent.name}`,
+    });
+  } else if (nextStep) {
     const words = nextStep.split(/\s+/u).length;
     if (words < 2 || words > 4 || nextStep.length > 100) errors.push('Use 2–4 words for the next item title.');
     else steps.push({
