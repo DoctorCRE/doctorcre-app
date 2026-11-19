@@ -42,6 +42,7 @@ button.deal-summary-text { min-height: 44px; padding: 0; border: 0; background: 
   .kanban-card .deal-summary-line { margin-top: var(--space-1); }
 }
 
+/* The title opens the deal because Enter on the card body lifts it for a move. */
 .card-open { min-width: var(--touch); min-height: var(--touch); padding: 0; border: 0; background: none; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .card-open:hover { text-decoration: underline; text-underline-offset: 3px; }
 
