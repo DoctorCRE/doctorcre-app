@@ -1205,236 +1205,6 @@ for (const readsOn of [true, false]) {
   });
 }
 
-for (const width of [1440, 390]) {
-  test(`Monday review keeps engine order and your place at ${width}px`, async t => {
-    const page = await browser.newPage({ viewport: { width, height: 900 } });
-    t.after(() => page.close());
-    await page.clock.setFixedTime(new Date('2026-11-16T04:00:00Z'));
-    const [deal, prospect, parked] = Array.from({ length: 3 }, () => crypto.randomUUID());
-    const row = { id: deal, deal_id: deal, name: 'Zephyr Deal', phase: 'research', owner: 'dell', seen: 1,
-      seen_change_id: 1, next_step: 'Check the lease', next_date: '2026-11-10' };
-    const next_actions = [
-      { id: crypto.randomUUID(), owner: 'dell', status: 'open', description: row.next_step, due_on: row.next_date, change_id: 3 },
-      { id: crypto.randomUUID(), owner: 'joe', status: 'open', title: 'Checklist item', description: 'Checklist item', change_id: 4 },
-      { id: crypto.randomUUID(), owner: 'joe', status: 'open', description: 'Send a draft', due_on: row.next_date,
-        ...(width === 1440 && { change_id: 5 }) },
-    ];
-    const prospectRow = { party_id: prospect, name: 'Birch Prospect', owner: null, how_found: 'referral',
-      change_id: 2, latest_note: null, reviewed: null, seen_change_id: 0, state: 'dropped', needs_attention: true,
-      follow_ups: [{ next_step_id: prospect, owner: 'joe', change_id: 1, what: 'Call back', due_on: '2026-11-16' }] };
-    const parkedRow = { deal_id: parked, name: 'Alder Deal', phase: 'pending', reviewed: null, seen: 2,
-      state: 'open', seen_change_id: 0, operating_state: 'parked' };
-    const reviewId = crypto.randomUUID();
-    const review = [
-      { ...row, reviewed: { review_id: reviewId, by: 'joe', at: '2026-11-09T15:00:00Z' }, state: 'open' }, prospectRow, parkedRow,
-    ];
-    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `monday-review-${width}`, viewer: 'joe', reset: true } });
-    let enabled = false, savesOn = false, boardReads = 0, refuseMark = false, raceStep = false;
-    const writes = [], dealNotes = [];
-    const weeks = [];
-    const env = {
-      ASSETS: { fetch: async () => new Response(await readFile(join(outDir, 'site', 'monday-review.html')), {
-        headers: { 'content-type': 'text/html' },
-      }) },
-      ENGINE_ROUTING: { get: async key => (key === 'deals-from-engine' && enabled) || (key === 'deals-saves-from-engine' && savesOn) ? 'on' : null },
-      ENGINE: { fetch: async request => {
-        const url = new URL(request.url);
-        if (request.method === 'POST') {
-          const body = await request.json();
-          assert.ok(body.idempotency_key);
-          assert.ok(request.headers.get('x-carr-csrf'));
-          writes.push([url.pathname, body]);
-          if (url.pathname === '/api/engine/activities') {
-            if (body.about[0].deal_id) dealNotes.unshift({ id: crypto.randomUUID(), kind: 'note', text: body.summary, actor: 'joe', recorded_at: '2026-11-09T15:00:00Z' });
-            if (body.about[0].party_id) prospectRow.latest_note = { by: 'joe', at: '2026-11-09T15:00:00Z', summary: body.summary };
-            return Response.json({ activity_id: crypto.randomUUID(), change_id: 7 }, { status: 201 });
-          }
-          if (url.pathname === '/api/engine/next-steps') {
-            if (body.party_id) prospectRow.follow_ups[0].what = body.what;
-            else if (body.deal_id === deal) {
-              if (raceStep) {
-                raceStep = false;
-                Object.assign(next_actions[2], { description: 'Send the revised plan', change_id: 9 });
-                return Response.json({ error: 'version_conflict' }, { status: 409 });
-              }
-              Object.assign(next_actions[2], { description: body.what, due_on: body.due_on, change_id: 8 });
-              Object.assign(review[0], { next_step: body.what, next_date: body.due_on });
-            }
-            return Response.json({ next_step_id: crypto.randomUUID(), change_id: 8 }, { status: 201 });
-          }
-          if (refuseMark) return Response.json({ error: 'actor_not_provisioned' }, { status: 422 });
-          const item = body.party_id ? prospectRow : review[0];
-          if (item.seen_change_id !== body.seen_change_id)
-            return Response.json({ error: 'version_conflict', current_version: item.seen_change_id }, { status: 409 });
-          item.seen_change_id++;
-          item.reviewed = url.pathname.endsWith('/remove') ? null : { review_id: reviewId, by: 'joe', at: '2026-11-09T15:00:00Z' };
-          return Response.json({ review_id: reviewId }, { status: item.reviewed ? 201 : 200 });
-        }
-        if (url.pathname === '/api/engine/weekly-reviews') {
-          weeks.push(url.searchParams.get('week_of'));
-          return Response.json({ items: review });
-        }
-        if (url.pathname === '/api/engine/prospects') return Response.json({ count: 0, prospects: [] });
-        if (url.pathname.endsWith(prospect)) return Response.json({ ...prospectRow, notes: [] });
-        if (url.pathname.endsWith(parked)) return Response.json(parkedRow);
-        if (url.pathname.endsWith(deal)) return Response.json({ ...row, next_step: review[0].next_step, next_date: review[0].next_date, next_actions, thread: [...dealNotes,
-          { id: 'example-note', kind: 'note', text: 'Example new note', actor: 'joe', recorded_at: '2026-11-09T15:00:00Z' },
-        ] });
-        if (url.pathname === '/api/engine/deals') boardReads++;
-        return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] });
-      } },
-      CARR: { fetch: async request => {
-        if (request.method === 'GET') return new Response('Signed in');
-        const { id } = await request.json();
-        return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ deals: [row] }) }] } });
-      } },
-    };
-    await page.route(url => url.pathname === '/mcp' || url.pathname.startsWith('/api/engine/weekly-reviews')
-      || url.pathname.startsWith('/api/engine/prospects')
-      || (url.pathname === '/deals' && url.searchParams.get('view') === 'review'), async route => {
-      const request = route.request();
-      if (new URL(request.url()).pathname === '/mcp' && !['deal-room-board', 'get-deal-room', 'add-deal-note', 'set-next-step'].includes(request.postDataJSON()?.params?.name))
-        return route.continue();
-      const response = await handleDoctorcreRequest(new Request(request.url(), {
-        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
-      }), env);
-      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
-    });
-    const reviewPath = `${origin}/api/engine/weekly-reviews?week_of=2026-11-09`;
-    assert.equal((await handleDoctorcreRequest(new Request(reviewPath), env)).status, 404);
-    await page.goto(`${origin}/deals?view=review&mode=live`);
-    assert.equal(new URL(page.url()).searchParams.get('view'), null);
-    await page.getByRole('button', { name: row.name, exact: true }).waitFor();
-    assert.equal(await page.getByRole('link', { name: 'Monday review' }).count(), 0);
-    assert.deepEqual(weeks, []);
-
-    enabled = true;
-    const closedSave = new Request(reviewPath, { method: 'POST', headers: { 'x-carr-csrf': 'synthetic' },
-      body: JSON.stringify({ deal_id: deal, week_of: '2026-11-09', seen_change_id: 1, idempotency_key: crypto.randomUUID() }) });
-    assert.equal((await handleDoctorcreRequest(closedSave, env)).status, 404);
-    await page.goto(`${origin}/deals?owner=joe&mode=live`);
-    await page.getByRole('link', { name: 'Monday review' }).click();
-    await page.getByText('1 of 3 reviewed this week').waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
-    assert.equal(await page.getByRole('button', { name: 'Parked', exact: true }).count(), 0);
-    assert.deepEqual(weeks, ['2026-11-09']);
-    await page.getByText(/Reviewed by Joe · Nov 9/).waitFor();
-    await page.getByText('Example new note').waitFor();
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.getByRole('link', { name: 'Birch Prospect' }).waitFor();
-    await page.getByText(/Prospect · Unclaimed · Dropped · Needs attention/).waitFor();
-    await page.getByText(/Due Mon, Nov 16/).waitFor();
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await page.getByRole('link', { name: row.name }).waitFor();
-    await page.getByRole('button', { name: 'As a list' }).click();
-    const items = page.getByRole('main', { name: 'Monday review' }).getByRole('listitem');
-    assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Alder Deal']);
-    assert.match(await page.getByRole('link', { name: 'Birch Prospect' }).getAttribute('href'), new RegExp(`prospect=${prospect}`));
-    await page.getByRole('checkbox', { name: 'Not reviewed' }).check();
-    assert.deepEqual(await items.getByRole('link').allTextContents(), ['Birch Prospect', 'Alder Deal']);
-    await page.getByRole('checkbox', { name: 'Not reviewed' }).uncheck();
-    await page.getByRole('link', { name: 'Birch Prospect' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Birch Prospect' });
-    await dialog.getByText(/Joe · Call back/).waitFor();
-    await dialog.getByRole('button', { name: 'Back to Monday review' }).click();
-    await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    await page.screenshot({ path: join(evidence, `monday-review-${width}.png`), fullPage: true });
-    await page.getByRole('link', { name: row.name }).click();
-    await page.locator('#panelTitle').getByText(row.name).waitFor();
-    await page.getByRole('button', { name: 'Back to Monday review' }).click();
-    await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
-    assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Alder Deal']);
-    await page.getByRole('link', { name: parkedRow.name }).click();
-    await page.locator('#panelTitle').getByText(parkedRow.name).waitFor();
-
-    savesOn = true;
-    const readsBeforeReview = boardReads;
-    await page.goto(`${origin}/deals?view=review&mode=live`);
-    await page.getByRole('button', { name: 'Undo', exact: true }).click();
-    await page.getByText('0 of 3 reviewed this week').waitFor();
-    await page.reload();
-    await page.getByText('0 of 3 reviewed this week').waitFor();
-    await page.getByRole('button', { name: 'Reviewed', exact: true }).click();
-    await page.getByRole('link', { name: prospectRow.name }).waitFor();
-    await page.getByText('1 of 3 reviewed this week').waitFor();
-    prospectRow.seen_change_id++;
-    prospectRow.reviewed = { review_id: crypto.randomUUID(), by: 'dell', at: '2026-11-09T16:00:00Z' };
-    await page.getByRole('button', { name: 'Reviewed', exact: true }).click();
-    await page.getByText('Changed by the other partner. Review reloaded.').waitFor();
-    await page.getByText(/Reviewed by Dell/).waitFor();
-    assert.equal(writes.filter(([path]) => path.startsWith('/api/engine/weekly-reviews')).length, 3);
-
-    await page.getByLabel('Add note').fill('Example review note');
-    await page.getByLabel('Add note').press('Enter');
-    await page.getByText('Example review note', { exact: true }).waitFor();
-    await page.getByText('Follow-up', { exact: true }).click();
-    await page.getByLabel('Your follow-up').fill('Confirm the address');
-    await page.getByLabel('Follow-up date').fill('2026-11-17');
-    await page.getByRole('button', { name: 'Set your follow-up' }).click();
-    await page.getByText(/Confirm the address · Due/).waitFor();
-
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
-    assert.equal(await page.getByLabel('Add note').getAttribute('placeholder'), 'Write a note and press Enter');
-    await page.getByLabel('Add note').fill('Example deal note');
-    await page.getByLabel('Add note').press('Enter');
-    await page.getByText('Example deal note', { exact: true }).waitFor();
-    await page.getByText('Change next step', { exact: true }).click();
-    const step = page.getByLabel('Next step', { exact: true });
-    const nextDate = page.getByLabel('Next date');
-    const stepBody = () => writes.filter(([path]) => path === '/api/engine/next-steps').at(-1)?.[1];
-    const saveStep = () => page.getByRole('button', { name: 'Save next step' }).click();
-    await step.waitFor();
-    assert.equal(await step.inputValue(), 'Send a draft');
-    assert.equal(await nextDate.inputValue(), '');
-    await page.getByText('Current next date is overdue.').waitFor();
-    await step.fill('Send the plan');
-    await saveStep();
-    await page.getByText('Next step saved.').waitFor();
-    assert.equal(Object.hasOwn(stepBody(), 'due_on'), false);
-    if (width === 1440) assert.deepEqual(stepBody().seen_current_step, { next_step_id: next_actions[2].id, change_id: 5 });
-    else assert.equal(Object.hasOwn(stepBody(), 'seen_current_step'), false);
-    assert.equal(writes.filter(([path]) => path === '/api/engine/activities').length, 2);
-    assert.equal(writes.filter(([path]) => path === '/api/engine/next-steps').length, 2);
-    await page.evaluate(() => scrollTo(0, 0));
-    await page.screenshot({ path: join(evidence, `monday-review-saves-${width}.png`), fullPage: true });
-    if (width === 1440) {
-      raceStep = true;
-      await step.fill('Send the old plan');
-      await saveStep();
-      await page.getByText('The next step changed. Review it before saving again.').waitFor();
-      await step.waitFor();
-      assert.equal(await step.inputValue(), 'Send the revised plan');
-      assert.equal(stepBody().seen_current_step.change_id, 8);
-    }
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    refuseMark = true;
-    await page.getByRole('button', { name: 'Reviewed', exact: true }).click();
-    await page.getByText('This account cannot change the review mark.').waitFor();
-    await page.getByText('Change next step', { exact: true }).click();
-    await step.fill('Call about the plan');
-    await saveStep();
-    await page.getByText('Next step saved.').waitFor();
-    assert.equal(stepBody().deal_id, parked);
-    assert.equal(stepBody().seen_current_step, null);
-    // The shared Today sidebar reads the board on each of the two page loads.
-    assert.equal(boardReads - readsBeforeReview, 2);
-    if (width === 1440) {
-      await page.getByRole('button', { name: 'Back', exact: true }).click();
-      await page.getByRole('button', { name: 'Back', exact: true }).click();
-      await page.getByRole('link', { name: row.name }).click();
-      await page.getByLabel('Update', { exact: true }).fill('Example deal page update');
-      await page.getByText('Change next step', { exact: true }).click();
-      assert.equal(await step.inputValue(), 'Send the revised plan');
-      await step.fill('Send the final plan');
-      await page.getByRole('button', { name: 'Add update' }).click();
-      await page.locator('#detailUpdateStatus').getByText('Update added', { exact: true }).waitFor();
-      assert.deepEqual(stepBody().seen_current_step, { next_step_id: next_actions[2].id, change_id: 9 });
-    }
-  });
-}
-
 test('the switched-on Timeline shows one ordered history including a newly saved note', async t => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
   t.after(() => page.close());
@@ -1568,3 +1338,254 @@ test('the switched-on Timeline shows one ordered history including a newly saved
   await filter.selectOption('');
   await timeline.screenshot({ path: join(evidence, 'engine-timeline.png') });
 });
+
+for (const width of [1440, 390]) {
+  test(`Monday review keeps engine order and your place at ${width}px`, async t => {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    t.after(() => page.close());
+    await page.clock.setFixedTime(new Date('2026-11-16T04:00:00Z'));
+    const [deal, prospect, parked] = Array.from({ length: 3 }, () => crypto.randomUUID());
+    const row = { id: deal, deal_id: deal, name: 'Zephyr Deal', phase: 'research', owner: 'dell', seen: 1,
+      seen_change_id: 1, next_step: 'Check the lease', next_date: '2026-11-10' };
+    const next_actions = [
+      { id: crypto.randomUUID(), owner: 'dell', status: 'open', description: row.next_step, due_on: row.next_date, change_id: 3 },
+      { id: crypto.randomUUID(), owner: 'joe', status: 'open', title: 'Checklist item', description: 'Checklist item', change_id: 4 },
+      { id: crypto.randomUUID(), owner: 'joe', status: 'open', description: 'Send a draft', due_on: row.next_date,
+        ...(width === 1440 && { change_id: 5 }) },
+    ];
+    const prospectNote = { by: 'dell', at: '2026-11-09T15:00:00Z', summary: 'Example prospect note' };
+    const prospectRow = { party_id: prospect, name: 'Birch Prospect', owner: null, how_found: 'referral',
+      change_id: 2, latest_note: prospectNote, reviewed: null, seen_change_id: 0, state: 'dropped', needs_attention: true,
+      follow_ups: [{ next_step_id: prospect, owner: 'joe', change_id: 1, what: 'Call back', due_on: '2026-11-16' }] };
+    const parkedRow = { deal_id: parked, name: 'Alder Deal', phase: 'pending', reviewed: null, seen: 2,
+      state: 'open', seen_change_id: 0, operating_state: 'parked' };
+    const reviewId = crypto.randomUUID();
+    let review = [
+      { ...row, reviewed: { review_id: reviewId, by: 'joe', at: '2026-11-09T15:00:00Z' }, state: 'open' }, prospectRow, parkedRow,
+    ];
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `monday-review-${width}`, viewer: 'joe', reset: true } });
+    let enabled = false, savesOn = false, boardReads = 0, refuseMark = false, raceStep = false;
+    const writes = [], dealNotes = [];
+    const weeks = [];
+    const env = {
+      ASSETS: { fetch: async () => new Response(await readFile(join(outDir, 'site', 'monday-review.html')), {
+        headers: { 'content-type': 'text/html' },
+      }) },
+      ENGINE_ROUTING: { get: async key => (key === 'deals-from-engine' && enabled) || (key === 'deals-saves-from-engine' && savesOn) ? 'on' : null },
+      ENGINE: { fetch: async request => {
+        const url = new URL(request.url);
+        if (request.method === 'POST') {
+          const body = await request.json();
+          assert.ok(body.idempotency_key);
+          assert.ok(request.headers.get('x-carr-csrf'));
+          writes.push([url.pathname, body]);
+          if (url.pathname === '/api/engine/activities') {
+            if (body.about[0].deal_id) dealNotes.unshift({ id: crypto.randomUUID(), kind: 'note', text: body.summary, actor: 'joe', recorded_at: '2026-11-09T15:00:00Z' });
+            if (body.about[0].party_id) prospectRow.latest_note = { by: 'joe', at: '2026-11-09T15:00:00Z', summary: body.summary };
+            return Response.json({ activity_id: crypto.randomUUID(), change_id: 7 }, { status: 201 });
+          }
+          if (url.pathname === '/api/engine/next-steps') {
+            if (body.party_id) prospectRow.follow_ups[0].what = body.what;
+            else if (body.deal_id === deal) {
+              if (raceStep) {
+                raceStep = false;
+                Object.assign(next_actions[2], { description: 'Send the revised plan', change_id: 9 });
+                return Response.json({ error: 'version_conflict' }, { status: 409 });
+              }
+              Object.assign(next_actions[2], { description: body.what, due_on: body.due_on, change_id: 8 });
+              Object.assign(review[0], { next_step: body.what, next_date: body.due_on });
+            }
+            return Response.json({ next_step_id: crypto.randomUUID(), change_id: 8 }, { status: 201 });
+          }
+          if (refuseMark) return Response.json({ error: 'actor_not_provisioned' }, { status: 422 });
+          const item = body.party_id ? prospectRow : review[0];
+          if (item.seen_change_id !== body.seen_change_id)
+            return Response.json({ error: 'version_conflict', current_version: item.seen_change_id }, { status: 409 });
+          item.seen_change_id++;
+          item.reviewed = url.pathname.endsWith('/remove') ? null : { review_id: reviewId, by: 'joe', at: '2026-11-09T15:00:00Z' };
+          return Response.json({ review_id: reviewId }, { status: item.reviewed ? 201 : 200 });
+        }
+        if (url.pathname === '/api/engine/weekly-reviews') {
+          weeks.push(url.searchParams.get('week_of'));
+          return Response.json({ items: review });
+        }
+        if (url.pathname === '/api/engine/prospects') return Response.json({ count: 0, prospects: [] });
+        if (url.pathname.endsWith(prospect)) return Response.json({ ...prospectRow, notes: [] });
+        if (url.pathname.endsWith(parked)) return Response.json(parkedRow);
+        if (url.pathname.endsWith(deal)) return Response.json({ ...row, next_step: review[0].next_step, next_date: review[0].next_date, next_actions, thread: [...dealNotes,
+          { id: 'example-note', kind: 'note', text: 'Example new note', actor: 'joe', recorded_at: '2026-11-09T15:00:00Z' },
+        ] });
+        if (url.pathname === '/api/engine/deals') boardReads++;
+        return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] });
+      } },
+      CARR: { fetch: async request => {
+        if (request.method === 'GET') return new Response('Signed in');
+        const { id } = await request.json();
+        return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ deals: [row] }) }] } });
+      } },
+    };
+    await page.route(url => url.pathname === '/mcp' || url.pathname.startsWith('/api/engine/weekly-reviews')
+      || url.pathname.startsWith('/api/engine/prospects')
+      || (url.pathname === '/deals' && url.searchParams.get('view') === 'review'), async route => {
+      const request = route.request();
+      if (new URL(request.url()).pathname === '/mcp' && !['deal-room-board', 'get-deal-room', 'add-deal-note', 'set-next-step'].includes(request.postDataJSON()?.params?.name))
+        return route.continue();
+      const response = await handleDoctorcreRequest(new Request(request.url(), {
+        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+      }), env);
+      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: Buffer.from(await response.arrayBuffer()) });
+    });
+    const reviewPath = `${origin}/api/engine/weekly-reviews?week_of=2026-11-09`;
+    assert.equal((await handleDoctorcreRequest(new Request(reviewPath), env)).status, 404);
+    await page.goto(`${origin}/deals?view=review&mode=live`);
+    assert.equal(new URL(page.url()).searchParams.get('view'), null);
+    await page.getByRole('button', { name: row.name, exact: true }).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Monday review' }).count(), 0);
+    assert.deepEqual(weeks, []);
+
+    enabled = true;
+    const closedSave = new Request(reviewPath, { method: 'POST', headers: { 'x-carr-csrf': 'synthetic' },
+      body: JSON.stringify({ deal_id: deal, week_of: '2026-11-09', seen_change_id: 1, idempotency_key: crypto.randomUUID() }) });
+    assert.equal((await handleDoctorcreRequest(closedSave, env)).status, 404);
+    await page.goto(`${origin}/deals?owner=joe&mode=live`);
+    await page.getByRole('link', { name: 'Monday review' }).click();
+    await page.getByText('1 of 3 reviewed this week').waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Parked', exact: true }).count(), 0);
+    assert.deepEqual(weeks, ['2026-11-09']);
+    await page.getByText(/Reviewed by Joe · Nov 9/).waitFor();
+    await page.getByText('Example new note').waitFor();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('link', { name: 'Birch Prospect' }).waitFor();
+    await page.getByText(/Prospect · Unclaimed · Dropped · Needs attention/).waitFor();
+    await page.getByText(/Due Mon, Nov 16/).waitFor();
+    await page.getByText(prospectNote.summary).waitFor();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await page.getByRole('link', { name: row.name }).waitFor();
+    await page.getByRole('button', { name: 'As a list' }).click();
+    const items = page.getByRole('main', { name: 'Monday review' }).getByRole('listitem');
+    assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Alder Deal']);
+    assert.match(await page.getByRole('link', { name: 'Birch Prospect' }).getAttribute('href'), new RegExp(`prospect=${prospect}`));
+    const prospectItem = items.filter({ hasText: prospectRow.name });
+    const note = prospectItem.getByText(prospectNote.summary);
+    const latestNotes = prospectItem.getByText('Latest notes', { exact: true });
+    assert.equal(await latestNotes.count(), 1);
+    assert.equal(await note.isVisible(), false);
+    await latestNotes.click();
+    await note.waitFor();
+    await latestNotes.click();
+    await note.waitFor({ state: 'hidden' });
+    await items.filter({ hasText: parkedRow.name }).getByText(/Unassigned · Parked/).waitFor();
+    await page.getByRole('checkbox', { name: 'Not reviewed' }).check();
+    assert.deepEqual(await items.getByRole('link').allTextContents(), ['Birch Prospect', 'Alder Deal']);
+    await page.getByRole('checkbox', { name: 'Not reviewed' }).uncheck();
+    await page.getByRole('link', { name: 'Birch Prospect' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Birch Prospect' });
+    await dialog.getByText(/Joe · Call back/).waitFor();
+    await dialog.getByRole('button', { name: 'Back to Monday review' }).click();
+    await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: join(evidence, `monday-review-${width}.png`), fullPage: true });
+    await page.getByRole('link', { name: row.name }).click();
+    await page.locator('#panelTitle').getByText(row.name).waitFor();
+    await page.getByRole('button', { name: 'Back to Monday review' }).click();
+    await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
+    assert.deepEqual(await items.getByRole('link').allTextContents(), [row.name, 'Birch Prospect', 'Alder Deal']);
+    await page.getByRole('link', { name: parkedRow.name }).click();
+    await page.locator('#panelTitle').getByText(parkedRow.name).waitFor();
+
+    const originalReview = review;
+    review = review.map(item => ({ ...item, reviewed: review[0].reviewed }));
+    await page.getByRole('button', { name: 'Back to Monday review' }).click();
+    await page.getByText('3 of 3 reviewed this week').waitFor();
+    await page.getByRole('checkbox', { name: 'Not reviewed' }).check();
+    assert.equal(await page.getByText('Everything is reviewed this week.', { exact: true }).isVisible(), true);
+    assert.equal(await items.count(), 0);
+
+    review = originalReview;
+    savesOn = true;
+    const readsBeforeReview = boardReads;
+    await page.goto(`${origin}/deals?view=review&mode=live`);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await page.getByText('0 of 3 reviewed this week').waitFor();
+    await page.reload();
+    await page.getByText('0 of 3 reviewed this week').waitFor();
+    await page.getByRole('button', { name: 'Reviewed', exact: true }).click();
+    await page.getByRole('link', { name: prospectRow.name }).waitFor();
+    await page.getByText('1 of 3 reviewed this week').waitFor();
+    prospectRow.seen_change_id++;
+    prospectRow.reviewed = { review_id: crypto.randomUUID(), by: 'dell', at: '2026-11-09T16:00:00Z' };
+    await page.getByRole('button', { name: 'Reviewed', exact: true }).click();
+    await page.getByText('Changed by the other partner. Review reloaded.').waitFor();
+    await page.getByText(/Reviewed by Dell/).waitFor();
+    assert.equal(writes.filter(([path]) => path.startsWith('/api/engine/weekly-reviews')).length, 3);
+
+    await page.getByLabel('Add note').fill('Example review note');
+    await page.getByLabel('Add note').press('Enter');
+    await page.getByText('Example review note', { exact: true }).waitFor();
+    await page.getByText('Follow-up', { exact: true }).click();
+    await page.getByLabel('Your follow-up').fill('Confirm the address');
+    await page.getByLabel('Follow-up date').fill('2026-11-17');
+    await page.getByRole('button', { name: 'Set your follow-up' }).click();
+    await page.getByText(/Confirm the address · Due/).waitFor();
+
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    assert.equal(await page.getByLabel('Add note').getAttribute('placeholder'), 'Write a note and press Enter');
+    await page.getByLabel('Add note').fill('Example deal note');
+    await page.getByLabel('Add note').press('Enter');
+    await page.getByText('Example deal note', { exact: true }).waitFor();
+    await page.getByText('Change next step', { exact: true }).click();
+    const step = page.getByLabel('Next step', { exact: true });
+    const nextDate = page.getByLabel('Next date');
+    const stepBody = () => writes.filter(([path]) => path === '/api/engine/next-steps').at(-1)?.[1];
+    const saveStep = () => page.getByRole('button', { name: 'Save next step' }).click();
+    await step.waitFor();
+    assert.equal(await step.inputValue(), 'Send a draft');
+    assert.equal(await nextDate.inputValue(), '');
+    await page.getByText('Current next date is overdue.').waitFor();
+    await step.fill('Send the plan');
+    await saveStep();
+    await page.getByText('Next step saved.').waitFor();
+    assert.equal(Object.hasOwn(stepBody(), 'due_on'), false);
+    if (width === 1440) assert.deepEqual(stepBody().seen_current_step, { next_step_id: next_actions[2].id, change_id: 5 });
+    else assert.equal(Object.hasOwn(stepBody(), 'seen_current_step'), false);
+    assert.equal(writes.filter(([path]) => path === '/api/engine/activities').length, 2);
+    assert.equal(writes.filter(([path]) => path === '/api/engine/next-steps').length, 2);
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.screenshot({ path: join(evidence, `monday-review-saves-${width}.png`), fullPage: true });
+    if (width === 1440) {
+      raceStep = true;
+      await step.fill('Send the old plan');
+      await saveStep();
+      await page.getByText('The next step changed. Review it before saving again.').waitFor();
+      await step.waitFor();
+      assert.equal(await step.inputValue(), 'Send the revised plan');
+      assert.equal(stepBody().seen_current_step.change_id, 8);
+    }
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    refuseMark = true;
+    await page.getByRole('button', { name: 'Reviewed', exact: true }).click();
+    await page.getByText('This account cannot change the review mark.').waitFor();
+    await page.getByText('Change next step', { exact: true }).click();
+    await step.fill('Call about the plan');
+    await saveStep();
+    await page.getByText('Next step saved.').waitFor();
+    assert.equal(stepBody().deal_id, parked);
+    assert.equal(stepBody().seen_current_step, null);
+    // The shared Today sidebar reads the board on each of the two page loads.
+    assert.equal(boardReads - readsBeforeReview, 2);
+    if (width === 1440) {
+      await page.getByRole('button', { name: 'Back', exact: true }).click();
+      await page.getByRole('button', { name: 'Back', exact: true }).click();
+      await page.getByRole('link', { name: row.name }).click();
+      await page.getByLabel('Update', { exact: true }).fill('Example deal page update');
+      await page.getByText('Change next step', { exact: true }).click();
+      assert.equal(await step.inputValue(), 'Send the revised plan');
+      await step.fill('Send the final plan');
+      await page.getByRole('button', { name: 'Add update' }).click();
+      await page.locator('#detailUpdateStatus').getByText('Update added', { exact: true }).waitFor();
+      assert.deepEqual(stepBody().seen_current_step, { next_step_id: next_actions[2].id, change_id: 9 });
+    }
+  });
+}
