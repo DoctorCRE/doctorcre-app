@@ -1799,13 +1799,19 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
     { activity_id: 'meeting', kind: 'meeting', title, happened_at: '2026-11-19T16:00:00+00:00' },
     { activity_id: 'old-email', kind: 'email', subject, sender_name: null, sender: 'plans@example.test', happened_at: '2026-11-18T15:00:00+00:00' },
   ];
+  const callSummary = 'Discussed the next showing';
+  const activities = [
+    ...correspondence.map(entry => ({ id: entry.activity_id, kind: entry.kind,
+      summary: entry.kind === 'email' ? entry.subject : entry.title, occurred_at: entry.happened_at })),
+    { id: 'call', kind: 'call', summary: callSummary, occurred_at: '2026-11-18T12:00:00Z', actor: 'joe' },
+  ];
   let readsOn = false;
   let entries = correspondence;
   const env = {
     ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' && readsOn ? 'on' : null },
     ENGINE: { fetch: async request => {
       assert.equal(new URL(request.url).pathname, `/api/engine/deals/${deal.deal_id}`);
-      return Response.json({ ...deal, thread, email_threads, email_follow_ups: [], correspondence: entries });
+      return Response.json({ ...deal, thread, email_threads, email_follow_ups: [], correspondence: entries, activities });
     } },
     CARR: { fetch: async request => {
       const { id } = await request.json();
@@ -1844,6 +1850,15 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await panel.screenshot({ path: join(evidence, `deal-correspondence-${width}.png`) });
 
+  for (const tabName of ['Overview', 'Timeline']) {
+    await page.getByRole('tab', { name: tabName, exact: true }).click();
+    const otherPanel = page.getByRole('tabpanel', { name: tabName, exact: true });
+    assert.ok(await otherPanel.getByText(callSummary, { exact: true }).count());
+    for (const text of [subject, title]) {
+      assert.equal(await otherPanel.getByText(text, { exact: true }).count(), 0, `${tabName} shows ${text}`);
+    }
+  }
+  await tab.click();
   entries = [];
   await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
   await panel.getByText('No emails or meetings yet.', { exact: true }).waitFor();
