@@ -134,12 +134,16 @@ function parkingAttributionHtml(deal) {
   const parker = Object.hasOwn(ACTOR_LABEL, deal.parked_by) ? actorName(deal.parked_by) : '';
   return parker ? `<p>Parked by ${esc(parker)}</p>` : '';
 }
+function parkingNoteText(deal) {
+  return deal.parking_note === 'unverified import — 2026-10-01 records audit; revive if active' ? 'Imported Oct 1, not yet confirmed. Revive if still active.' : deal.parking_note;
+}
 function parkingDetailsHtml(deal) {
+  const note = parkingNoteText(deal);
   const reason = PARKING_REASONS.get(deal.parking_reason);
   const timestamp = deal.parked_at ? new Date(deal.parked_at) : null;
   const day = Number.isFinite(timestamp?.getTime()) ? businessDay(timestamp) : null;
   return (reason ? `<p>${reason}</p>` : '<p>Parked</p>')
-    + (deal.parking_note ? `<p class="note-original">${esc(deal.parking_note)}</p>` : '')
+    + (note ? `<p class="note-original">${esc(note)}</p>` : '')
     + (day ? `<p>Parked on <time datetime="${day}">${esc(dateWords(day))}</time></p>` : '')
     + parkingAttributionHtml(deal);
 }
@@ -207,9 +211,8 @@ function rowHtml(deal) {
     body: `<span class="deal-stage">${esc(columnLabel(deal.phase))}</span><div class="deal-row-next">${summary}${parking}${renderDealVendors(deal.vendors)}${website}${cardPhaseMoveHtml(deal, autoHtml(deal))}${revive}</div>` });
 }
 function parkingSummaryHtml(deal) {
-  const note = deal.parking_note === 'unverified import — 2026-10-01 records audit; revive if active' ? 'Imported Oct 1, not yet confirmed. Revive if still active.' : deal.parking_note;
-  return state.nextDealSaves ? parkingDetailsHtml({ ...deal, parking_note: note })
-    : `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${state.boardFromEngine ? parkingAttributionHtml(deal) : ''}`;
+  return state.nextDealSaves ? parkingDetailsHtml(deal)
+    : `<p class="next-line">${esc(parkingNoteText(deal) || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${state.boardFromEngine ? parkingAttributionHtml(deal) : ''}`;
 }
 function parkedHtml(deal) {
   const next = state.nextDealSaves;
@@ -1395,9 +1398,10 @@ function renderWorkspaceFacts(detail) {
   const d = detail.deal;
   const fromEngine = isEngineDealDetail(detail);
   const client = d.client_name || d.client_ref;
+  const parked = fromEngine && d.operating_state === 'parked';
   $('workspaceFacts').innerHTML = `<dl class="workspace-facts">
     ${client && client !== dealTitle(d) ? `<div class="workspace-client"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}
-    <div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}</dd></div>
+    <div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}${parked ? ' · Parked' : ''}</dd></div>
     <div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div>
     ${fromEngine ? renderNextCriticalDate(d.next_critical_date) : ''}
   </dl>`;
