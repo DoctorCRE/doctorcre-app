@@ -14,7 +14,7 @@ import { readWithDeadline } from './auto-refresh.mjs';
 import { fetchRead } from './current-read.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
-import { createLiveClient } from './live-client.js';
+import { createLiveClient, dealTypeLabel } from './live-client.js';
 import { loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
 import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
@@ -136,21 +136,11 @@ function parkingAttributionHtml(deal) {
   const parker = Object.hasOwn(ACTOR_LABEL, deal.parked_by) ? actorName(deal.parked_by) : '';
   return parker ? `<p>Parked by ${esc(parker)}</p>` : '';
 }
-const DEAL_KIND_LABELS = {
-  lease: 'Lease', purchase: 'Purchase', sale_leaseback: 'Sale-leaseback',
-  build_to_suit: 'Build-to-suit', other: 'Other',
-};
-function dealTypeFacts(deal, fromEngine, history = false) {
-  const unrecordedRenewal = fromEngine && deal.renewal_lease_unrecorded === true;
-  const type = fromEngine && history
-    ? DEAL_KIND_LABELS[deal.kind]
-    : unrecordedRenewal && !deal.kind ? null : deal.type;
-  const facts = [];
-  if (type || history || (unrecordedRenewal && isClosedDeal(deal))) {
-    facts.push({ label: 'Type', value: type || 'Not recorded' });
-  }
-  if (unrecordedRenewal || (fromEngine && history && deal.reason === 'renewal')) {
-    facts.push({ label: 'Deal reason', value: 'Renewal', note: unrecordedRenewal ? 'Lease not recorded' : '' });
+function dealTypeFacts(deal) {
+  const facts = [{ label: 'Type', value: dealTypeLabel(deal.kind) || 'Not recorded' }];
+  const reason = dealTypeLabel(deal.reason);
+  if (reason) {
+    facts.push({ label: 'Deal reason', value: reason, note: deal.renewal_lease_unrecorded ? 'Lease not recorded' : '' });
   }
   return facts;
 }
@@ -337,7 +327,7 @@ function endedDealCards(archived, lost, query) {
       : deal.closed_on ? dateWords(deal.closed_on) : 'Not recorded';
     const facts = [
       { label: 'Client', value: deal.client_name || (!fromEngine && deal.client_ref) || 'Not recorded' },
-      ...dealTypeFacts(deal, fromEngine, true),
+      ...(fromEngine ? dealTypeFacts(deal) : [{ label: 'Type', value: deal.type || 'Not recorded' }]),
       { label: 'Close date', value: closeDate },
     ];
     if (lost && deal.lost_reason) {
@@ -1492,6 +1482,7 @@ function dealEmailFollowupsHtml(followups, canDecide) {
 function workspaceHtml(detail) {
   const fromEngine = isEngineDealDetail(detail);
   const d = detail.deal;
+  const typeFacts = fromEngine ? dealTypeFacts(d) : d.type ? [{ label: 'Type', value: d.type }] : [];
   const items = detail.items || d.items || [];
   const { text: nextStep, dueOn, item: nextItem, otherActions } = dealNextStep(d, detail.next_actions || [], items);
   const today = todayIso();
@@ -1517,7 +1508,7 @@ function workspaceHtml(detail) {
         return `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
       }).join('')}</ul>` : ''}
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false})}</div>
-      <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${renderDealFacts(dealTypeFacts(d, fromEngine))}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
+      <dl class="deal-snapshot-facts">${d.workspace_kind === 'national_account' || d.account_client_id ? `<div><dt>Market agent</dt><dd>${esc(d.market_agent || 'Unassigned')}</dd></div>` : ''}${renderDealFacts(typeFacts)}${d.outcome ? `<div><dt>Outcome</dt><dd>${esc(d.outcome[0].toUpperCase()+d.outcome.slice(1))}</dd></div>` : ''}</dl>
       ${closedValue > 0 ? `<dl class="deal-snapshot-facts"><div><dt>Closed value</dt><dd>${closedValue.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</dd></div></dl>` : ''}
       ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
     </section>

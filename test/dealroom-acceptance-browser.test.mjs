@@ -34,12 +34,14 @@ for (const width of [1440, 390]) {
     const won = deal('Example Closed Renewal', { ...renewal, type: 'renewal', phase: 'closed', outcome: 'won' });
     const undated = deal('Example Undated Deal', { phase: 'closed', kind: 'build_to_suit', type: 'build_to_suit',
       client_name: 'Example Clinic', owner: 'dell', outcome: null, closed_on: null, invoiced_on: null });
+    const reasonOnly = deal('Example Former Office', { phase: 'closed', outcome: 'won', closed_on: '2026-10-15',
+      kind: null, type: 'relocation', reason: 'relocation', client_name: 'Example Studio' });
     const lost = deal('Example Lost Renewal', { ...renewal, kind: 'sale_leaseback', type: 'sale_leaseback', phase: 'dead', outcome: 'lost', lost_reason: 'Plans changed' });
     const lostUnknown = deal('Example Lost Renewal With Unknown Type', { ...renewal, type: 'renewal', phase: 'dead', outcome: 'lost' });
-    const withLease = deal('Example Renewal With Lease', { reason: 'renewal', type: 'renewal', phase: 'dead', outcome: 'lost' });
-    const rows = [automatic, partner, won, undated, lost, lostUnknown, withLease];
+    const withLease = deal('Example Renewal With Lease', { kind: 'lease', reason: 'renewal', type: 'lease', phase: 'dead', outcome: 'lost' });
+    const rows = [automatic, partner, won, undated, reasonOnly, lost, lostUnknown, withLease];
     const board = () => ({ schema_version: 'local-deals-board.v2', actor: 'joe',
-      deals: [automatic, partner], closed_deals: [won, undated], lost_deals: [lost, lostUnknown, withLease] });
+      deals: [automatic, partner], closed_deals: [won, undated, reasonOnly], lost_deals: [lost, lostUnknown, withLease] });
     const switches = new Set();
     let revivals = 0;
     const env = {
@@ -113,6 +115,8 @@ for (const width of [1440, 390]) {
     await openDetail(partner);
     await caption(detail, 'Parked by Dell').waitFor({ timeout: 5000 });
     await back();
+    const detailFacts = detail.locator('.deal-snapshot-facts');
+    const fact = (scope, label) => caption(scope, label).locator('..');
     const search = page.locator('#closedSearch');
     const expectSearch = async (query, row) => {
       await search.fill(query);
@@ -122,10 +126,10 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: label, exact: true }).click();
       await caption(card(row), 'Renewal').waitFor({ timeout: 5000 });
       await caption(card(row), 'Lease not recorded').waitFor({ timeout: 5000 });
-      const typeRow = item => caption(card(item), 'Type').locator('..');
-      await caption(typeRow(row), row === lost ? 'Sale-leaseback' : 'Not recorded').waitFor({ timeout: 5000 });
+      const expectedType = row === lost ? 'Sale-leaseback' : 'Not recorded';
+      await caption(fact(card(row), 'Type'), expectedType).waitFor({ timeout: 5000 });
       if (row === lost) {
-        await caption(typeRow(lostUnknown), 'Not recorded').waitFor({ timeout: 5000 });
+        await caption(fact(card(lostUnknown), 'Type'), 'Not recorded').waitFor({ timeout: 5000 });
         await caption(card(lostUnknown), 'Lease not recorded').waitFor();
         await caption(card(row), 'Reason for loss').waitFor();
         await caption(card(row), 'Plans changed').waitFor();
@@ -137,9 +141,11 @@ for (const width of [1440, 390]) {
         await page.getByText('No lost deals match this search.').waitFor();
         await search.clear();
         await openDetail(lostUnknown);
-        await caption(caption(detail.locator('.deal-snapshot-facts'), 'Type').locator('..'), 'Not recorded').waitFor();
+        await caption(fact(detailFacts, 'Type'), 'Not recorded').waitFor();
         await back();
+        await caption(fact(card(withLease), 'Type'), 'Lease').waitFor();
         await openDetail(withLease);
+        await caption(fact(detailFacts, 'Type'), 'Lease').waitFor();
         await back();
       } else {
         await caption(card(undated), 'Close date not recorded').waitFor({ timeout: 5000 });
@@ -150,15 +156,24 @@ for (const width of [1440, 390]) {
         }
         await search.clear();
         await openDetail(undated);
+        await caption(fact(detailFacts, 'Type'), 'Build-to-suit').waitFor();
         await back();
+        await caption(fact(card(reasonOnly), 'Type'), 'Not recorded').waitFor();
+        await caption(fact(card(reasonOnly), 'Deal reason'), 'Relocation').waitFor({ timeout: 5000 });
+        await expectSearch('relocation', reasonOnly);
+        await openDetail(reasonOnly);
+        await caption(fact(detailFacts, 'Type'), 'Not recorded').waitFor();
+        await caption(fact(detailFacts, 'Deal reason'), 'Relocation').waitFor();
+        await back();
+        await search.clear();
         await capture(page.locator('#closedDealsList'), 'closed-list');
       }
       await capture(card(row), row.outcome);
       await openDetail(row);
-      const facts = detail.locator('.deal-snapshot-facts').filter({ hasText: 'Renewal' });
+      const facts = detailFacts.filter({ hasText: 'Renewal' });
       await caption(facts, 'Renewal').waitFor({ timeout: 5000 });
       await caption(facts, 'Lease not recorded').waitFor({ timeout: 5000 });
-      if (row === won) await caption(caption(facts, 'Type').locator('..'), 'Not recorded').waitFor();
+      await caption(fact(facts, 'Type'), expectedType).waitFor();
       await capture(facts, `${row.outcome}-detail`);
       await back();
     }

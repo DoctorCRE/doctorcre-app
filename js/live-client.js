@@ -32,6 +32,25 @@ const NEXT_CREATION_REFUSALS = new Set([
   'database_refused_the_statement', 'invalid_field_value', 'unknown_owner', 'version_conflict', 'not_a_prospect',
 ]);
 
+// Each entry has the engine caption and, where mapped today, the legacy caption.
+const TYPE_TO_UI = new Map([
+  ['lease', ['Lease']],
+  ['purchase', ['Purchase', 'Purchase']],
+  ['sale_leaseback', ['Sale-leaseback']],
+  ['build_to_suit', ['Build-to-suit']],
+  ['other', ['Other', 'Other']],
+  ['start_up', ['Start-up']],
+  ['startup', ['Start-up', 'Startup']],
+  ['relocation', ['Relocation', 'Relocation']],
+  ['expansion', ['Expansion', 'Expansion']],
+  ['renewal', ['Renewal', 'Renewal']],
+  ['additional_office', ['Additional office', '2nd Office']],
+]);
+
+export function dealTypeLabel(type) {
+  return TYPE_TO_UI.get(type)?.[0];
+}
+
 /**
  * @param {Object} [opts]
  * @param {string} [opts.baseUrl] same-origin by default; override for dev
@@ -220,10 +239,6 @@ export function createLiveClient(opts = {}) {
     'Negotiation': 'negotiation', 'Legal': 'legal', 'Diligence': 'due_diligence',
     'Closing': 'closing', 'Closed': 'closed',
   };
-  const TYPE_TO_UI = {
-    startup: 'Startup', relocation: 'Relocation', additional_office: '2nd Office',
-    renewal: 'Renewal', expansion: 'Expansion', purchase: 'Purchase', other: 'Other',
-  };
   // Chip text, built from the candidate's own fields. A proposal must read as
   // a question about a specific deal, and it must never look like something
   // that already happened.
@@ -240,7 +255,7 @@ export function createLiveClient(opts = {}) {
   const dealToUi = (d) => ({
     ...d,
     phase: PHASE_TO_UI[d.phase] || d.phase,
-    type: TYPE_TO_UI[d.type] || d.type,
+    type: TYPE_TO_UI.get(d.type)?.[1] ?? d.type,
     next_step: d.next_step || '',
     market: d.market ?? d.city ?? '',
     version: d.version ?? d.base_version,
