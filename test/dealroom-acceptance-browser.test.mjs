@@ -1584,6 +1584,67 @@ for (const width of [1440, 390]) test(`National Accounts saves inline changes an
   });
 });
 
+for (const width of [1440, 390]) test(`National Accounts asks how the deal ended with new saves off at ${width}px`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Chicago' });
+  t.after(() => page.close());
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `legacy-national-close-${width}`, viewer: 'joe', reset: true } });
+  await page.clock.setFixedTime(new Date('2026-11-19T18:00:00Z'));
+  const account = crypto.randomUUID();
+  const id = crypto.randomUUID();
+  const name = 'Example Market Deal';
+  const row = { id, deal_id: id, name, phase: 'research', base_version: 23, owner: 'joe',
+    account_client_id: account, workspace_kind: 'national_account' };
+  const writes = [];
+  const env = {
+    ENGINE_ROUTING: { get: async () => null },
+    CARR: { fetch: async request => {
+      const { id: requestId, params: { name: verb, arguments: args } } = await request.json();
+      let data = row;
+      if (verb === 'deal-room-board') data = { schema_version: 'local-deals-board.v2', actor: 'joe',
+        deals: row.phase === 'closed' ? [] : [row],
+        accounts: [{ account_client_id: account, account_name: 'Example National Account', account_owner: 'joe' }] };
+      if (verb === 'patch-deal-field' || verb === 'update-deal') {
+        writes.push({ verb, args });
+        if (verb === 'patch-deal-field') row.phase = args.value;
+        else Object.assign(row, args.fields);
+        data = { ok: true, status: 'ok', deal_id: id, version: ++row.base_version };
+      }
+      return Response.json({ jsonrpc: '2.0', id: requestId, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
+    } },
+  };
+  await page.route('**/mcp', async route => {
+    const request = route.request(), body = request.postDataJSON();
+    if (!['deal-room-board', 'get-deal-room', 'patch-deal-field', 'update-deal'].includes(body?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
+    }), env);
+    return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+  });
+
+  await page.goto(`${origin}/deals?view=national&mode=live`);
+  await page.getByRole('button', { name: /Example National Account/ }).click();
+  await page.getByLabel(`Phase for ${name}`).selectOption('Closed');
+  const dialog = page.getByRole('dialog', { name: `Close ${name}` });
+  await dialog.waitFor({ timeout: 5000 });
+  assert.deepEqual(writes, []);
+  assert.equal(await dialog.getByLabel('Paused', { exact: true }).isVisible(), false);
+  await dialog.screenshot({ path: join(evidence, `legacy-national-close-${width}.png`) });
+  const save = dialog.getByRole('button', { name: 'Save outcome' });
+  await save.click();
+  await dialog.getByText('Choose Won or Lost.', { exact: true }).waitFor({ timeout: 5000 });
+  assert.deepEqual(writes, []);
+
+  const outcome = width === 1440 ? 'Won' : 'Lost';
+  await dialog.getByLabel(outcome, { exact: true }).check();
+  assert.deepEqual(writes, []);
+  await save.click();
+  await dialog.waitFor({ state: 'hidden', timeout: 5000 });
+  assert.deepEqual(writes.map(write => write.verb), ['patch-deal-field', 'update-deal']);
+  assert.equal(writes[0].args.value, 'closed');
+  assert.equal(writes[1].args.base_version, 24);
+  assert.deepEqual(writes[1].args.fields, { outcome: outcome.toLowerCase(), closed_on: '2026-11-19' });
+});
+
 for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the new database switch at ${width}px`, async t => {
   const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Chicago' });
   t.after(() => page.close());

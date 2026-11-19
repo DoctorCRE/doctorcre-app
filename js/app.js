@@ -1845,7 +1845,7 @@ function wireEvents() {
     if (event.target.matches('[data-phase]')) {
       const id = event.target.dataset.phase;
       const phase = event.target.value;
-      if (state.nextDealSaves && columnByValue(phase)?.slug === CLOSED_SLUG) {
+      if (columnByValue(phase)?.slug === CLOSED_SLUG) {
         event.target.value = state.deals.get(id)?.phase || '';
         await openDeal(id, { close: true });
       } else await patchField(id, 'phase', phase);

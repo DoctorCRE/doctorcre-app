@@ -313,7 +313,9 @@ export function completionPlan(intent, form = {}) {
 
   if (intent.to === CLOSED_SLUG) {
     const outcome = text(form.outcome);
-    if (!outcome) {
+    if (intent.wonOrLost && outcome !== 'won' && outcome !== 'lost') {
+      errors.push('Choose Won or Lost.');
+    } else if (!outcome) {
       errors.push('Choose the outcome — Won, Lost or Paused — before closing this record.');
     } else if (!isDealOutcome(outcome)) {
       errors.push('Select won, lost, or paused.');

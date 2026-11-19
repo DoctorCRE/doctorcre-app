@@ -995,9 +995,10 @@ function openCompletion(intent) {
 
   const isClosed = intent.to === CLOSED_SLUG;
   const closingInEngine = isClosed && Number.isSafeInteger(intent.seen);
-  $('completionTitle').textContent = closingInEngine ? `Close ${intent.name}` : moveTitle(intent);
-  $('completionPaused').hidden = closingInEngine;
-  $('completionMoveDetails').hidden = closingInEngine;
+  const wonOrLost = closingInEngine || intent.wonOrLost;
+  $('completionTitle').textContent = wonOrLost ? `Close ${intent.name}` : moveTitle(intent);
+  $('completionPaused').hidden = Boolean(wonOrLost);
+  $('completionMoveDetails').hidden = Boolean(wonOrLost);
   $('completionLostReason').value = '';
   const closed = $('completionClosedNote');
   if (closed) {
@@ -1016,7 +1017,7 @@ function openCompletion(intent) {
   if (wonValue) wonValue.value = '';
   renderOutcomeState();
   const confirm = $('completionConfirm');
-  if (confirm) confirm.textContent = closingInEngine ? 'Save outcome' : `Move to ${intent.to_label}`;
+  if (confirm) confirm.textContent = wonOrLost ? 'Save outcome' : `Move to ${intent.to_label}`;
   $('completionEvidence').value = '';
   $('completionReason').value = '';
   $('completionQuote').value = '';
@@ -1032,7 +1033,7 @@ function openCompletion(intent) {
   if (errors) { errors.hidden = true; errors.textContent = ''; }
   renderCriticalState();
   if (typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
-  if (!closingInEngine) $('completionEvidence')?.focus();
+  if (!wonOrLost) $('completionEvidence')?.focus();
 }
 
 const outcomeRadios = () => [...document.querySelectorAll('input[name="completionOutcome"]')];
@@ -1047,7 +1048,7 @@ function todayIso() {
 function renderOutcomeState() {
   const field = $('completionWonValueField');
   if (field) field.hidden = chosenOutcome() !== 'won';
-  $('completionLostReasonField').hidden = !$('completionMoveDetails').hidden || chosenOutcome() !== 'lost';
+  $('completionLostReasonField').hidden = !Number.isSafeInteger(state.intent?.seen) || chosenOutcome() !== 'lost';
 }
 
 function renderCriticalState() {
@@ -2172,13 +2173,13 @@ function leasePhase(dealId) {
     .catch(() => { /* a courtesy, never a requirement */ });
 }
 
-function beginMove(dealId, toSlug, deal = state.deals.get(dealId)) {
+function beginMove(dealId, toSlug, deal = state.deals.get(dealId), { wonOrLost = false } = {}) {
   const intent = moveIntent(deal, toSlug);
   state.lifted = null;
   state.target = null;
   if (!intent) { renderBoard(); return; }
   announce(`Reviewing ${intent.name} for ${intent.to_label}. Nothing has been saved yet.`);
-  openCompletion(intent);
+  openCompletion({ ...intent, wonOrLost });
 }
 
 
@@ -2758,9 +2759,10 @@ async function boot() {
       writeWorkspaceHistory(history.state, url);
       await board;
       const deal = state.panelDetail?.deal;
-      if (state.panelDeal === linkedDeal && state.nextDealSaves && Number.isSafeInteger(deal?.seen) && !isClosedDeal(deal)) {
-        beginMove(linkedDeal, CLOSED_SLUG, deal);
-      }
+      if (state.panelDeal !== linkedDeal || !deal || isClosedDeal(deal)) return;
+      if (state.nextDealSaves && !Number.isSafeInteger(deal.seen)) return;
+      const closingDeal = state.nextDealSaves ? deal : { ...deal, seen: undefined };
+      beginMove(linkedDeal, CLOSED_SLUG, closingDeal, { wonOrLost: true });
     } else if (incomingScope.get('item')) void itemSheet.open(linkedDeal, incomingScope.get('item'));
   });
   mountVisibilityPoll({ lifecycle: true, poll: refreshPanel });
