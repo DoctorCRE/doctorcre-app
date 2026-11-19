@@ -206,19 +206,17 @@ async function openAddDeal(client = null, conversion = null) {
     const picker = $('addDealClientPicker');
     picker.hidden = !usePicker;
     unmountDealClientPicker = mountDealClientPicker?.(picker, {
-      ...(prospect ? { prospect } : { client: client ?? undefined, leaseDate: formatCalendarDate }),
-      request: fetchRead, onPick: () => { $('addDealError').textContent = ''; },
+      ...(prospect ? { prospect } : { client: client ?? undefined }),
+      request: fetchRead, leaseDate: formatCalendarDate, onPick: () => { $('addDealError').textContent = ''; },
     });
     $('addDealOwner').value = prospect ? prospect.owner ?? '' : state.selfActor || 'joe';
     $('addDealStageLabel').textContent = usePicker ? 'Phase' : 'Stage';
     $('addDealStage').selectedIndex = prospect ? 0 : 1;
     const legacyType = $('addDealType');
-    const useTerms = next && !prospect;
-    $('addDealTypeField').hidden = useTerms;
-    legacyType.disabled = useTerms;
-    legacyType.required = !prospect && !useTerms;
-    legacyType.options[0].hidden = !prospect;
-    legacyType.selectedIndex = prospect ? 0 : 1;
+    dialog.classList.toggle('add-deal-with-terms', next);
+    $('addDealTypeField').hidden = next;
+    legacyType.disabled = next;
+    legacyType.selectedIndex = 1;
     if (prospect) {
       $('addDealName').value = prospect.name;
       $('addDealNotes').value = prospect.latest_note?.summary ?? '';
@@ -243,9 +241,6 @@ async function submitDeal(event) {
     }
     if ((nextDealCreation || prospectConversion) && !client_id) {
       errorBox.textContent = 'Choose a client from the matches.'; errorBox.focus(); return;
-    }
-    if (reason === 'renewal' && !renews_lease_id) {
-      errorBox.textContent = 'Choose an existing lease to renew.'; errorBox.focus(); return;
     }
     dealCreation = {...args, client_id, prospect_id: prospectConversion?.prospect.party_id,
       kind:kind || undefined, reason:reason || undefined, renews_lease_id,

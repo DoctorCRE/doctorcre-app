@@ -40,9 +40,9 @@ async function searchParties(request: PartyRequest, query: string, signal: Abort
 
 type PickedClient = { id: string; name: string };
 type LeaseDate = (date: string | null) => string | null;
-type DealClientPickerProps = { request: PartyRequest; onPick: () => void } & (
-  | { prospect: { party_id: string; name: string }; client?: never; leaseDate?: never }
-  | { prospect?: never; client?: PickedClient; leaseDate: LeaseDate }
+type DealClientPickerProps = { request: PartyRequest; onPick: () => void; leaseDate: LeaseDate } & (
+  | { prospect: { party_id: string; name: string }; client?: never }
+  | { prospect?: never; client?: PickedClient }
 );
 
 export function DealClientPicker({ prospect, client, request, leaseDate, onPick }: DealClientPickerProps) {
@@ -124,12 +124,12 @@ export function DealClientPicker({ prospect, client, request, leaseDate, onPick 
         <small role="status">{prospect ? "No matching people or companies." : "No matching clients."}</small>
       )}
       {unavailable && <small role="status">Search is unavailable. Try again.</small>}
-      {leaseDate && <LocalDealTerms client={picked} request={request} leaseDate={leaseDate} />}
+      <DealTerms client={picked} request={request} leaseDate={leaseDate} />
     </div>
   );
 }
 
-function LocalDealTerms({
+function DealTerms({
   client,
   request,
   leaseDate,
