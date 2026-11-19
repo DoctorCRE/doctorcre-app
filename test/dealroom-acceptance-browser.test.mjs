@@ -31,7 +31,7 @@ for (const width of [1440, 390]) {
     const automatic = deal('Example Automatic Parking', { ...parked, parked_automatically: true, parked_by: null });
     const partner = deal('Example Partner Parking', { ...parked, parking_note: 'Waiting for the tenant', parked_automatically: false, parked_by: 'dell' });
     const renewal = { kind: null, reason: 'renewal', renewal_lease_unrecorded: true, client_name: 'Example Practice', closed_on: '2026-11-02' };
-    const won = deal('Example Closed Renewal', { ...renewal, type: 'renewal', phase: 'closed', outcome: 'won' });
+    const won = deal('Example Closed Renewal', { ...renewal, client_name: 'Example Closed Renewal', type: 'renewal', phase: 'closed', outcome: 'won' });
     const undated = deal('Example Undated Deal', { phase: 'closed', kind: 'build_to_suit', type: 'build_to_suit',
       client_name: 'Example Clinic', owner: 'dell', outcome: null, closed_on: null, invoiced_on: null });
     const reasonOnly = deal('Example Former Office', { phase: 'closed', outcome: 'won', closed_on: '2026-10-15',
@@ -82,7 +82,9 @@ for (const width of [1440, 390]) {
     const capture = (locator, name) => locator.screenshot({ path: join(evidence, `deal-captions-${width}-${name}.png`) });
     const openParked = () => page.getByRole('button', { name: 'Parked', exact: true }).click();
     const openDetail = async row => {
-      await caption(card(row), row.name).click();
+      const title = row.operating_state === 'parked' ? caption(card(row), row.name)
+        : card(row).getByRole('button', { name: row.name, exact: true });
+      await title.click();
       await detail.getByRole('heading', { name: row.name, exact: true }).waitFor();
     };
     const back = () => page.getByRole('button', { name: 'Back to deals', exact: true }).click();
@@ -99,6 +101,7 @@ for (const width of [1440, 390]) {
     assert.equal(await card(undated).count(), 0);
     assert.equal(await caption(card(won), 'Lease not recorded').count(), 0);
     await openDetail(won);
+    assert.equal(await caption(detail.locator('#workspaceFacts'), 'Client').count(), 0);
     await caption(detail, 'Renewal').waitFor();
     assert.equal(await caption(detail, 'Lease not recorded').count(), 0);
 
@@ -170,6 +173,7 @@ for (const width of [1440, 390]) {
       }
       await capture(card(row), row.outcome);
       await openDetail(row);
+      if (row === won) await caption(fact(detail.locator('#workspaceFacts'), 'Client'), won.name).waitFor({ timeout: 5000 });
       const facts = detailFacts.filter({ hasText: 'Renewal' });
       await caption(facts, 'Renewal').waitFor({ timeout: 5000 });
       await caption(facts, 'Lease not recorded').waitFor({ timeout: 5000 });
@@ -1039,6 +1043,97 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
   await page.getByRole('heading', { name: success.name, exact: true }).waitFor();
   assert.deepEqual(oldReads, []);
 });
+
+for (const width of [1440, 390]) {
+  test(`National Accounts shows every closed deal in its account at ${width}px`, async t => {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    t.after(() => page.close());
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `national-closed-${width}`, viewer: 'joe', reset: true } });
+    const accounts = ['Example North', 'Example South', 'Example New'].map(account_name => ({
+      account_client_id: crypto.randomUUID(), account_name, account_owner: 'joe',
+    }));
+    const row = (name, account, phase, facts = {}) => ({
+      id: crypto.randomUUID(), name, client_name: name, phase, owner: 'joe',
+      account_client_id: account?.account_client_id, ...facts,
+    });
+    const open = row('Example Open Market', accounts[0], 'research');
+    const undated = row('Example Undated Location', accounts[0], 'closed');
+    const dated = row('Example Dated Location', accounts[0], 'closed', { closed_on: '2026-11-02', kind: 'lease' });
+    const other = row('Example Other Location', accounts[1], 'closed');
+    const local = row('Example Local Deal', null, 'closed');
+    const lost = row('Example Lost Location', accounts[0], 'dead');
+    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', accounts, deals: [open],
+      closed_deals: [dated, undated, local, other], lost_deals: [lost] };
+    let readsOn = false;
+    const env = {
+      ENGINE_ROUTING: { get: async key => readsOn && key === 'deals-from-engine' ? 'on' : null },
+      ENGINE: { fetch: async request => {
+        const path = new URL(request.url).pathname;
+        if (path === '/api/engine/deals') return Response.json(board);
+        const deal = board.closed_deals.find(record => path === `/api/engine/deals/${record.id}`);
+        return deal ? Response.json({ ...deal, deal_id: deal.id, email_follow_ups: [] }) : new Response(null, { status: 404 });
+      } },
+      CARR: { fetch: async request => {
+        const { id } = await request.json();
+        return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(board) }] } });
+      } },
+    };
+    await page.route('**/mcp', async route => {
+      const request = route.request();
+      if (!['deal-room-board', 'get-deal-room'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+      const response = await handleDoctorcreRequest(new Request(request.url(), {
+        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+      }), env);
+      return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+    });
+
+    const nationalUrl = `${origin}/deals?view=national&mode=live`;
+    const openAccount = account => page.getByRole('button', { name: new RegExp(account.account_name) }).click();
+    const closed = page.getByRole('button', { name: 'Closed deals', exact: true });
+    await page.goto(nationalUrl);
+    await openAccount(accounts[0]);
+    assert.equal(await closed.count(), 0);
+
+    readsOn = true;
+    await page.goto(nationalUrl);
+    await openAccount(accounts[0]);
+    await closed.click({ timeout: 5000 });
+    const view = page.getByRole('region', { name: 'Closed deals', exact: true });
+    const titles = () => view.getByRole('heading', { level: 3 }).allTextContents();
+    await view.getByText('2 closed deals', { exact: true }).waitFor();
+    assert.deepEqual(await titles(), [dated.name, undated.name]);
+    assert.equal(await page.getByRole('table', { name: 'Active and parked deals' }).count(), 0);
+    assert.equal(await page.getByRole('group', { name: 'Filter deals' }).count(), 0);
+    const search = view.getByRole('searchbox', { name: 'Search closed deals' });
+    await search.fill('Mon, Nov 2, 2026');
+    assert.deepEqual(await titles(), [dated.name]);
+    await search.clear();
+    await view.getByText('Close date not recorded', { exact: true }).waitFor();
+    await page.screenshot({ path: join(evidence, `national-closed-${width}.png`) });
+    await view.getByRole('button', { name: undated.name, exact: true }).click();
+    await page.locator('#panelTitle').getByText(undated.name, { exact: true }).waitFor();
+    const client = page.locator('#workspaceFacts').getByText('Client', { exact: true }).locator('..');
+    await client.getByText(undated.name, { exact: true }).waitFor({ timeout: 5000 });
+    await page.locator('.workspace-header').screenshot({ path: join(evidence, `same-name-client-${width}.png`) });
+    await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
+    await view.getByText('2 closed deals', { exact: true }).waitFor({ timeout: 5000 });
+    await page.getByRole('button', { name: 'Open deals', exact: true }).click();
+    await page.getByRole('table', { name: 'Active and parked deals' }).getByText(open.name, { exact: true }).waitFor();
+
+    for (const [account, names] of [[accounts[1], [other.name]], [accounts[2], []]]) {
+      await page.getByRole('button', { name: /All national accounts/ }).click();
+      await openAccount(account);
+      await closed.click();
+      await view.getByText(names.length ? '1 closed deal' : '0 closed deals', { exact: true }).waitFor();
+      assert.deepEqual(await titles(), names);
+    }
+
+    await page.goto(`${origin}/deals?view=closed&mode=live`);
+    const localView = page.getByRole('region', { name: 'Closed deals', exact: true });
+    await localView.getByText('1 closed deal', { exact: true }).waitFor();
+    assert.deepEqual(await localView.getByRole('heading', { level: 3 }).allTextContents(), [local.name]);
+  });
+}
 
 test('National Accounts saves inline changes using the version on the deal board', async t => {
   const page = await browser.newPage();

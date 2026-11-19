@@ -1,7 +1,7 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderLastDealStep, renderOverdueFlag } from './deal-items.js';
+import { autoHtml, dealTypeFacts, renderDealFacts, renderEndedDealList, dealNextStep, renderDealItemButton, renderDealItems, renderDealSummary, renderLastDealStep, renderOverdueFlag } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
@@ -15,7 +15,7 @@ import { readWithDeadline } from './auto-refresh.mjs';
 import { fetchRead } from './current-read.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
-import { createLiveClient, dealTypeLabel } from './live-client.js';
+import { createLiveClient } from './live-client.js';
 import { loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
 import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
@@ -39,7 +39,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceClose, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
@@ -127,28 +127,11 @@ function cardPhaseMoveHtml(deal, legacy = '') {
   return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
 }
 
-function autoHtml(deal) {
-  const move = automaticMove(deal);
-  return move ? `<div class="auto-move"><span>${esc(move.text.slice(0, move.text.lastIndexOf(' ')))}</span> <time>${esc(move.text.slice(move.text.lastIndexOf(' ') + 1))}</time></div>` : '';
-}
 const dealTitle = (deal) => dealName(deal.name);
 function parkingAttributionHtml(deal) {
   if (deal.parked_automatically === true) return '<p>Parked automatically</p>';
   const parker = Object.hasOwn(ACTOR_LABEL, deal.parked_by) ? actorName(deal.parked_by) : '';
   return parker ? `<p>Parked by ${esc(parker)}</p>` : '';
-}
-function dealTypeFacts(deal) {
-  const facts = [{ label: 'Type', value: dealTypeLabel(deal.kind) || 'Not recorded' }];
-  const reason = dealTypeLabel(deal.reason);
-  if (reason) {
-    facts.push({ label: 'Deal reason', value: reason, note: deal.renewal_lease_unrecorded ? 'Lease not recorded' : '' });
-  }
-  return facts;
-}
-function renderDealFacts(facts) {
-  return facts.map(({label, value, note}) => `<div><dt>${esc(label)}</dt><dd>${note
-    ? `<span>${esc(value)}</span><br><small>${esc(note)}</small>`
-    : esc(value)}</dd></div>`).join('');
 }
 function dealOwnerFirstSteps(deal, actions) {
   const steps = ordinaryOpenSteps(actions);
@@ -318,49 +301,21 @@ async function submitDeal(event) {
   } finally { creatingDeal = false; syncDealCreation(); }
 }
 
-function endedDealCards(archived, lost, query) {
-  const fromEngine = state.boardFromEngine;
-  let rows;
-  if (fromEngine) {
-    rows = (archived || []).filter(d => d.workspace_kind !== 'national_account' && !d.account_client_id
-      && (state.filter === 'all' || d.owner === state.filter));
-  } else {
-    const records = new Map(state.deals);
-    for (const deal of archived || []) records.set(deal.id,{...records.get(deal.id),...deal});
-    rows = (lost ? lostDeals : closedDeals)([...records.values()], state.filter, query);
-  }
-  const cards = rows.map(deal => {
-    const closeDate = fromEngine
-      ? formatCalendarDate(calendarDay(deal.closed_on) || '') || 'Close date not recorded'
-      : deal.closed_on ? dateWords(deal.closed_on) : 'Not recorded';
-    const facts = [
-      { label: 'Client', value: deal.client_name || (!fromEngine && deal.client_ref) || 'Not recorded' },
-      ...(fromEngine ? dealTypeFacts(deal) : [{ label: 'Type', value: deal.type || 'Not recorded' }]),
-      { label: 'Close date', value: closeDate },
-    ];
-    if (lost && deal.lost_reason) {
-      facts.push({ label: fromEngine ? 'Reason for loss' : 'Reason', value: deal.lost_reason });
-    }
-    facts.push({ label: 'Owner', value: actorName(deal.owner) });
-    return { deal, title: dealTitle(deal), facts };
-  });
-  const search = query.trim().toLowerCase();
-  return fromEngine && search ? cards.filter(({title, facts}) =>
-    [title, ...facts.flatMap(({value, note}) => [value, note])].some(value => value?.toLowerCase().includes(search))
-  ) : cards;
-}
-
 function renderClosedDeals() {
   const lost = state.view === 'lost';
-  const label = lost ? 'lost' : 'closed';
   $('closedDealsTitle').textContent = lost ? 'Lost deals' : 'Closed deals';
-  document.querySelector('label[for=closedSearch]').textContent = `Search ${label} deals`;
+  document.querySelector('label[for=closedSearch]').textContent = lost ? 'Search lost deals' : 'Search closed deals';
   const archived = lost ? state.lostDeals : state.closedDeals;
-  const cards = endedDealCards(archived, lost, $('closedSearch').value);
-  $('closedCount').textContent = archived === null ? 'Closed history is unavailable. Refresh to try again.' : `${cards.length} ${label} deal${cards.length === 1 ? '' : 's'}`;
-  $('closedDealsList').innerHTML = cards.map(({deal, title, facts}) => `<article class="closed-deal glass" data-id="${esc(deal.id)}">
-    <h3><button type="button" class="card-open" data-open-deal="${esc(deal.id)}">${esc(title)}</button></h3>
-    <dl>${renderDealFacts(facts)}</dl>${renderDealVendors(deal.vendors)}${autoHtml(deal)}</article>`).join('') || (archived === null ? '' : `<p>No ${label} deals match this search.</p>`);
+  let rows;
+  if (state.boardFromEngine) {
+    rows = (archived || []).filter(deal => deal.workspace_kind !== 'national_account' && !deal.account_client_id
+      && (state.filter === 'all' || deal.owner === state.filter));
+  } else {
+    const records = new Map(state.deals);
+    for (const deal of archived || []) records.set(deal.id, {...records.get(deal.id), ...deal});
+    rows = (lost ? lostDeals : closedDeals)([...records.values()], state.filter, $('closedSearch').value);
+  }
+  renderEndedDealList($('closedDealsView'), { rows, lost, fromEngine: state.boardFromEngine, unavailable: archived === null });
 }
 
 function visibleBoardDeals() {
@@ -591,7 +546,7 @@ function syncProspects(enabled) {
     }, authorLabel, {
       addDeal: openAddDeal,
       turnIntoDeal: (prospect, completed) => openAddDeal(null, { prospect, completed }),
-      backToReview: incomingScope.has('prospect') && mondayReviewOrigin() ? backToMondayReview : null,
+      backToReview: incomingScope.has('prospect') && dealsPageOrigin('review') ? () => returnToDealsPage(dealsPageOrigin('review')) : null,
     });
     showProspects();
   });
@@ -1355,7 +1310,8 @@ writeWorkspaceHistory(history.state, location.href);
 function renderWorkspaceFacts(detail) {
   const d = detail.deal;
   const client = d.client_name || d.client_ref;
-  $('workspaceFacts').innerHTML = `<dl class="workspace-facts">${client && client !== dealTitle(d) ? `<div class="workspace-client"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}<div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}</dd></div><div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div></dl>`;
+  const fromEngine = isEngineDealDetail(detail);
+  $('workspaceFacts').innerHTML = `<dl class="workspace-facts">${client && (fromEngine || client !== dealTitle(d)) ? `<div class="workspace-client${fromEngine ? ' workspace-client-labeled' : ''}"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}<div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}</dd></div><div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div></dl>`;
 }
 function selectWorkspaceTab(id) {
   workspaceTab = id;
@@ -1992,7 +1948,10 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
   if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
-  if (!fromHistory && incomingScope.has('deal') && mondayReviewOrigin()) { backToMondayReview(); return; }
+  if (!fromHistory && incomingScope.has('deal')) {
+    const origin = dealsPageOrigin('review') || nationalClosedOrigin();
+    if (origin) { returnToDealsPage(origin); return; }
+  }
   selectDocRecord('deal', null);
   pageDocContext?.release('getDeal');
   ++panelReadSequence; ++contextReadSequence;
@@ -2540,16 +2499,21 @@ function mountDock() {
 
 
 let itemSheet;
-function mondayReviewOrigin() {
+function dealsPageOrigin(view) {
   if (!document.referrer) return null;
   const referrer = new URL(document.referrer);
   return referrer.origin === location.origin && referrer.pathname === '/deals'
-    && referrer.searchParams.get('view') === 'review' ? referrer : null;
+    && referrer.searchParams.get('view') === view ? referrer : null;
 }
 
-function backToMondayReview() {
+function nationalClosedOrigin() {
+  const origin = dealsPageOrigin('national');
+  return origin?.searchParams.get('account') && origin.searchParams.get('account_view') === 'closed' ? origin : null;
+}
+
+function returnToDealsPage(origin) {
   if (history.length > 1) history.back();
-  else location.replace(mondayReviewOrigin());
+  else location.replace(origin);
 }
 
 async function boot() {
@@ -2607,7 +2571,7 @@ async function boot() {
     });
     return;
   }
-  if (incomingScope.has('deal') && mondayReviewOrigin()) {
+  if (incomingScope.has('deal') && dealsPageOrigin('review')) {
     $('panelClose').textContent = '← Back to Monday review';
     $('panelClose').setAttribute('aria-label', 'Back to Monday review');
   }
