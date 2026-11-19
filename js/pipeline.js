@@ -146,7 +146,7 @@ function boardNextStepHtml(deal) {
   const steps = (deal.open_actions || []).filter(step => step.description?.trim());
   const step = steps.find(step => step.owner === deal.owner) ?? steps[0];
   if (!step) return '<p class="deal-board-next-step">No next step set</p>';
-  return `<p class="deal-board-next-step">${esc(step.description.trim())} · ${dueDateHtml(calendarDay(step.due_on), businessDay())}</p>`;
+  return `<p class="deal-board-next-step"><span>${esc(step.description.trim())}</span> · ${dueDateHtml(calendarDay(step.due_on), businessDay())}</p>`;
 }
 function cardStepsHtml(deal, today) {
   const summary = state.boardFromEngine
