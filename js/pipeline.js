@@ -676,6 +676,7 @@ async function pollOnce(initial = false) {
 
 function confirmLocalWrite(dealId, patch) {
   const deal = state.deals.get(dealId) || null;
+  // The engine read supplies parking state and attribution together.
   if (!state.nextDealSaves || !Object.hasOwn(patch, 'operating_state')) {
     if (deal) Object.assign(deal, patch);
     state.boardSync.noteLocalWrite(dealId, patch);
