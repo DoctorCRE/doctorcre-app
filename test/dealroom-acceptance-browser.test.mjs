@@ -38,7 +38,8 @@ for (const width of [1440, 390]) {
       kind: null, type: 'relocation', reason: 'relocation', client_name: 'Example Studio' });
     const lost = deal('Example Lost Renewal', { ...renewal, kind: 'sale_leaseback', type: 'sale_leaseback', phase: 'dead', outcome: 'lost', lost_reason: 'Plans changed' });
     const lostNoReason = deal('Example Lost Without Deal Reason', { phase: 'dead', outcome: 'lost' });
-    const lostUnknown = deal('Example Lost Renewal With Unknown Type', { ...renewal, type: 'renewal', phase: 'dead', outcome: 'lost' });
+    const lostUnknown = deal('Example Lost Renewal With Unknown Type', { ...renewal, type: 'renewal', phase: 'dead', outcome: 'lost',
+      closed_on: null, lost_reason: 'not recorded before this system' });
     const withLease = deal('Example Renewal With Lease', { kind: 'lease', reason: 'renewal', type: 'lease', phase: 'dead', outcome: 'lost' });
     const rows = [automatic, partner, won, undated, reasonOnly, lost, lostNoReason, lostUnknown, withLease];
     const board = () => ({ schema_version: 'local-deals-board.v2', actor: 'joe',
@@ -99,6 +100,7 @@ for (const width of [1440, 390]) {
     await detail.getByRole('button', { name: 'Revive', exact: true }).waitFor();
     assert.equal(await caption(detail, 'Parked automatically').count(), 0);
     assert.equal(await parkedPhase.count(), 0);
+    assert.deepEqual(await detail.locator('#detailOwner option').allTextContents(), ['Unassigned', 'Joe', 'Dell']);
     await page.goto(`${boardUrl}&view=closed`);
     await caption(card(won), 'Renewal').waitFor();
     assert.equal(await card(undated).count(), 0);
@@ -107,6 +109,9 @@ for (const width of [1440, 390]) {
     assert.equal(await caption(detail.locator('#workspaceFacts'), 'Client').count(), 0);
     await caption(detail, 'Renewal').waitFor();
     assert.equal(await caption(detail, 'Lease not recorded').count(), 0);
+    await page.goto(`${boardUrl}&deal=${lost.id}`);
+    await detail.getByRole('heading', { name: lost.name, exact: true }).waitFor();
+    assert.equal(await caption(detail, 'Reason for loss').count(), 0);
 
     switches.add('deals-from-engine');
     await page.goto(boardUrl);
@@ -150,6 +155,8 @@ for (const width of [1440, 390]) {
         await search.clear();
         await openDetail(lostUnknown);
         await caption(fact(detailFacts, 'Deal kind'), 'Not recorded').waitFor();
+        await caption(fact(detailFacts, 'Reason for loss'), 'not recorded before this system').waitFor({ timeout: 5000 });
+        await caption(fact(detailFacts, 'Close date'), 'Close date not recorded').waitFor();
         await back();
         await caption(fact(card(withLease), 'Deal kind'), 'Lease').waitFor();
         await openDetail(withLease);
@@ -184,6 +191,10 @@ for (const width of [1440, 390]) {
       await caption(facts, 'Renewal').waitFor({ timeout: 5000 });
       await caption(facts, 'Lease not recorded').waitFor({ timeout: 5000 });
       await caption(fact(facts, 'Deal kind'), expectedType).waitFor();
+      if (row === lost) {
+        await caption(fact(facts, 'Reason for loss'), 'Plans changed').waitFor({ timeout: 5000 });
+        await caption(fact(facts, 'Close date'), 'Mon, Nov 2, 2026').waitFor();
+      }
       await capture(facts, `${row.outcome}-detail`);
       await back();
     }
@@ -333,9 +344,11 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     ].map(([kind, status, error, hint], index) => ({
       kind, status, error, hint, id: crypto.randomUUID(), subject: `Example follow-up ${index + 1}`,
     })) : [];
+    const filedEmail = { activity_id: crypto.randomUUID(), kind: 'email', subject: actor === 'joe' ? '(no subject)' : '',
+      sender_name: 'Example Sender', happened_at: '2026-11-01T14:00:00+00:00' };
     let email_follow_ups = [
-      { proposal_id: first, kind: 'next_step', what: 'Send the plan', owner: 'dell', due_on: '2026-11-02',
-        email: { subject: 'Plan ready', sender_name: 'Example Sender', happened_at: '2026-11-01T14:00:00+00:00' } },
+      { proposal_id: first, kind: 'next_step', what: 'Send the plan', owner: 'dell', due_on: '2026-11-02', email: filedEmail },
+      { proposal_id: crypto.randomUUID(), kind: 'file_to_deal', email: filedEmail },
       { proposal_id: second, kind: 'file_to_deal', evidence: 'The letter is attached.',
         email: { subject: 'Letter attached', sender: 'sender@example.test' } },
       ...refusals.map(({ kind, id, subject }) => ({
@@ -361,7 +374,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
           const partner = request.headers.get('cookie')?.includes(`fixture.${namespace}.dell`) ? 'dell' : 'joe';
           return Response.json({ schema_version: 'local-deals-board.v2', actor: partner, deals: [row] });
         }
-        if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, checklist, documents, email_follow_ups });
+        if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, checklist, documents, email_follow_ups, correspondence: [filedEmail] });
         if (path === `/api/engine/files/${hash}`) {
           assert.equal(request.method, 'PUT');
           assert.ok(request.headers.get('x-carr-csrf'));
@@ -440,10 +453,14 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     await page.goto(`${origin}/deals?mode=live${fromBoard ? '' : `&deal=${deal}`}`);
     if (fromBoard) await page.locator('.kanban-column').getByRole('button', { name: row.name, exact: true }).click();
     const followups = page.getByRole('region', { name: 'Email follow-ups' });
-    await followups.getByText(readsOn ? 'Plan ready' : 'No email follow-ups.', { exact: true }).waitFor();
+    await followups.getByText(readsOn ? '(No subject)' : 'No email follow-ups.', { exact: true }).waitFor({ timeout: 5000 });
     if (readsOn) {
-      for (const subject of ['Plan ready', 'Letter attached']) assert.equal(await followups.getByText(subject, { exact: true }).count(), 1);
-      assert.match(await followups.innerText(), /Example Sender.*Nov 1/);
+      const planCard = followups.getByRole('article').filter({ hasText: '(No subject)' });
+      const letterCard = followups.getByRole('article').filter({ hasText: 'Letter attached' });
+      assert.equal(await planCard.count(), 1);
+      assert.match(await planCard.innerText(), /Example Sender.*Nov 1/);
+      assert.doesNotMatch(await planCard.innerText(), /File email to this deal/);
+      assert.match(await letterCard.innerText(), /File email to this deal/);
       assert.match(await followups.innerText(), /Send the plan.*Dell.*16 days late/);
       assert.doesNotMatch(await followups.innerText(), /2026-11-01T|file_to_deal/);
       const progress = page.locator('.deal-checklist');
@@ -468,8 +485,6 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       if (savesOn) {
         await followups.evaluate(element => element.scrollIntoView({ block: 'end' }));
         await followups.screenshot({ path: join(evidence, `engine-followups-${actor}.png`) });
-        const planCard = followups.getByRole('article').filter({ hasText: 'Plan ready' });
-        const letterCard = followups.getByRole('article').filter({ hasText: 'Letter attached' });
         await planCard.getByLabel('Next step', { exact: true }).fill('Send the revised plan');
         const dueDate = planCard.getByLabel('Due date', { exact: true });
         await dueDate.fill(actor === 'joe' ? '2026-11-21' : '');
@@ -812,9 +827,10 @@ for (const width of [1440, 390]) {
     await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `owner-next-step-${width}`, viewer: 'joe', reset: true } });
     const ownerStep = { id: crypto.randomUUID(), change_id: 33, owner: 'dell', description: 'Send the floor plan', due_on: '2026-11-18' };
     const otherStep = { id: crypto.randomUUID(), change_id: 77, owner: 'joe', description: 'Call the architect', due_on: '2026-11-15' };
+    const item = { id: crypto.randomUUID(), title: 'Check the plans', status: 'open', due_on: '2026-11-18', bullets: [] };
     const deal = { id: '00000000-0000-4000-8000-000000000080', name: 'Example Two-Partner Deal',
       owner: 'dell', phase: 'research', seen: 1, open_actions: [otherStep, ownerStep],
-      items: [{ id: 'example-item', title: 'Check the plans', status: 'open', due_on: '2026-11-18', bullets: [] }],
+      items: [item, { id: crypto.randomUUID(), title: 'Review the layout', status: 'open', due_on: null, bullets: [] }],
       next_step: otherStep.description, next_date: otherStep.due_on,
       phase_change: { source: 'copied', automatic: true, event_id: crypto.randomUUID(), prior_phase: 'pending', evidence_date: '2026-11-16' },
       last_step: { summary: 'Reviewed the example offer', occurred_at: '2026-11-17T18:00:00Z' } };
@@ -827,7 +843,7 @@ for (const width of [1440, 390]) {
     const parkedDeal = { ...checklistOnly, id: crypto.randomUUID(), name: 'Example A Parked Deal',
       operating_state: 'parked', parking_reason: 'client_paused', parked_automatically: true };
     const account = crypto.randomUUID();
-    const national = { ...deal, id: crypto.randomUUID(), name: 'Example Location Deal',
+    const national = { ...deal, id: crypto.randomUUID(), name: 'Example Location Deal', items: [item],
       account_client_id: account, workspace_kind: 'national_account' };
     const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [parkedDeal, deal, checklistOnly, singleStep, national],
       accounts: [{ account_client_id: account, account_name: 'Example Account', account_owner: 'dell' }] };
@@ -856,7 +872,8 @@ for (const width of [1440, 390]) {
         if (path === '/api/engine/deals') return Response.json(board);
         const row = board.deals.find(row => path === `/api/engine/deals/${row.id}`);
         return Response.json({ ...row, deal_id: row.id, email_follow_ups: [],
-          next_actions: steps.get(row.id).map(action => ({ ...action, status: 'open' })) });
+          next_actions: [...steps.get(row.id).map(action => ({ ...action, status: 'open' })),
+            { ...item, owner: 'joe', description: item.title, change_id: 45 }] });
       } },
     };
     await page.route('**/mcp', async route => {
@@ -909,10 +926,18 @@ for (const width of [1440, 390]) {
       await visibleStep.waitFor();
       assert.equal(await visibleStep.count(), 1);
     }
-    assert.match(await snapshot.locator('.deal-current-action').innerText(), /Overdue action.*Send the floor plan.*Dell.*1 day late/);
+    assert.match(await snapshot.locator('.deal-current-action').innerText(), /^Next step.*Send the floor plan.*Dell.*1 day late/);
     assert.match(await snapshot.getByRole('listitem').filter({ hasText: otherStep.description }).innerText(), /Call the architect.*Joe/);
-    assert.equal(await snapshot.locator('.deal-items time[datetime="2026-11-18"]').evaluate(node => node.closest("li").dataset.overdue === "true"), true);
+    const task = snapshot.getByRole('listitem').filter({ hasText: item.title });
+    assert.match(await task.innerText(), /Check the plans.*Joe.*Wed, Nov 18, 2026/s);
+    assert.match(await snapshot.getByRole('listitem').filter({ hasText: 'Review the layout' }).innerText(),
+      /Owner not recorded.*No due date/s);
+    assert.deepEqual(await page.locator('#detailOwner option').allTextContents(), ['Joe', 'Dell']);
     await snapshot.screenshot({ path: join(evidence, `owner-next-step-${width}-detail.png`) });
+    await task.getByRole('button', { name: item.title, exact: true }).click();
+    const itemDialog = page.getByRole('dialog', { name: item.title });
+    await itemDialog.getByRole('button', { name: 'Mark done' }).waitFor();
+    await itemDialog.getByRole('button', { name: 'Close item' }).click();
 
     await page.getByText('Change your next step', { exact: true }).click();
     const localStep = page.getByLabel('Your next step', { exact: true });
