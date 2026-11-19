@@ -27,6 +27,10 @@ const howFound: Readonly<Record<string, string>> = {
 
 type RequestProspect = (path: string, init?: RequestInit) => Promise<Response>;
 type AuthorLabel = (by: string | null) => string;
+type ProspectActions = {
+  addDeal: (client: { id: string; name: string }) => void;
+  backToReview: (() => void) | null;
+};
 type Filters = { owner: string; attention: boolean; actor: Partner | null; canSave: boolean };
 const record = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
@@ -183,6 +187,7 @@ function ProspectDetail({
   refreshLane,
   authorLabel,
   close,
+  closeLabel,
   focusFollowUp,
 }: {
   id: string;
@@ -191,6 +196,7 @@ function ProspectDetail({
   refreshLane: () => void;
   authorLabel: AuthorLabel;
   close: () => void;
+  closeLabel: string;
   focusFollowUp: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -287,7 +293,7 @@ function ProspectDetail({
             Reload prospect
           </button>
           <button type="button" className="btn" onClick={() => dialog.current?.close()}>
-            Back to Deals
+            {closeLabel}
           </button>
         </div>
       </div>
@@ -302,7 +308,7 @@ function ProspectLane({
   authorLabel,
   count,
   refresh,
-  addDeal,
+  actions: { addDeal, backToReview },
 }: {
   filters: Filters;
   revision: number;
@@ -310,11 +316,12 @@ function ProspectLane({
   authorLabel: AuthorLabel;
   count: (value: number | null) => void;
   refresh: () => void;
-  addDeal: (client: { id: string; name: string }) => void;
+  actions: ProspectActions;
 }) {
   const query = new URLSearchParams(location.search);
   const initial = query.get("prospect");
   const [opened, open] = useState(initial && uuid.test(initial) ? initial : null);
+  const returnToReview = initial === opened ? backToReview : null;
   const { value: rows, unavailable } = useProspectRead(client.prospectRequest, prospectsPath, revision, parseLane);
   const visible = rows?.filter(
     (row) =>
@@ -374,7 +381,8 @@ function ProspectLane({
           refreshLane={refresh}
           authorLabel={authorLabel}
           focusFollowUp={initial === opened && query.get("focus") === "follow-up"}
-          close={() => open(null)}
+          close={returnToReview ?? (() => open(null))}
+          closeLabel={returnToReview ? "Back to Monday review" : "Back to Deals"}
         />
       )}
     </>
@@ -386,7 +394,7 @@ export function mountProspects(
   client: ProspectClient,
   count: (value: number | null) => void,
   authorLabel: AuthorLabel,
-  addDeal: (client: { id: string; name: string }) => void,
+  actions: ProspectActions,
 ) {
   const root = createRoot(host);
   let revision = 0;
@@ -400,7 +408,7 @@ export function mountProspects(
         revision={revision}
         count={count}
         refresh={refresh}
-        addDeal={addDeal}
+        actions={actions}
       />,
     );
   }

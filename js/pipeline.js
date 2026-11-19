@@ -387,6 +387,7 @@ function applyBoardSnapshot(board) {
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
   state.boardFromEngine = board.board_from_engine === true;
+  $('mondayReviewLink').hidden = !state.boardFromEngine;
   syncProspects(board.engine_prospects === true);
   if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
@@ -441,6 +442,11 @@ function showProspects() {
   prospects?.show(state.filter, state.scopeFilter === 'flagged', state.selfActor, state.nextDealSaves);
 }
 
+function prospectClient() {
+  return { prospectRequest: fetchRead, saveProspect: (path, operation, receipt, args) =>
+    state.client.savePartnerRecord(path, `prospect:${operation}`, receipt, args) };
+}
+
 function syncProspects(enabled) {
   let lane = $('prospectsLane');
   if (!enabled) {
@@ -458,10 +464,13 @@ function syncProspects(enabled) {
   $('kanban').prepend(lane);
   void import('./ui-deal-prospects.generated.js').then(({ mountProspects }) => {
     if (!lane.isConnected) return;
-    prospects = mountProspects(lane, { prospectRequest: fetchRead, saveProspect: state.client.saveProspect }, count => {
+    prospects = mountProspects(lane, prospectClient(), count => {
       state.prospectCount = count;
       renderBoardMessage();
-    }, authorLabel, openAddDeal);
+    }, authorLabel, {
+      addDeal: openAddDeal,
+      backToReview: incomingScope.has('prospect') && mondayReviewOrigin() ? backToMondayReview : null,
+    });
     showProspects();
   });
 }
@@ -605,7 +614,7 @@ async function runFollowUp(operationKey, step) {
   const pending = pendingCommand(commandState, operationKey);
   let args = step.args;
   if (['add-deal-note', 'set-next-step', 'record-deal-item', 'complete-deal-item', 'add-critical-date'].includes(step.verb)) {
-    const deal = state.panelDeal === args.deal ? state.panelDetail?.deal : state.deals.get(args.deal);
+    const deal = (state.panelDeal === args.deal ? state.panelDetail?.deal : state.deals.get(args.deal)) ?? step.reviewed;
     const seen = pending ? pending.request.seen_change_id
       : step.verb === 'add-critical-date' && !state.nextDealSaves ? undefined : deal?.seen;
     if (Number.isSafeInteger(seen)) {
@@ -614,28 +623,40 @@ async function runFollowUp(operationKey, step) {
     }
   }
   if (step.verb === 'set-next-step') {
-    if (pending) args = { ...args, base_version: pending.request.base_version };
+    if (pending) args = { ...pending.request, ...args };
     else {
       operations.set(operationKey, { kind: 'follow-up-read', step, summary: step.summary });
-      let current;
-      try { current = (await state.client.getDeal(args.deal))?.deal; }
+      const fromEngine = Number.isSafeInteger(args.seen_change_id);
+      let detail;
+      try { detail = await state.client.getDeal(args.deal); }
       catch { /* A missing current version cannot authorize a replacement. */ }
-      if (current?.id !== args.deal || (Number.isSafeInteger(args.seen_change_id)
-        ? !Number.isSafeInteger(current.seen)
+      const current = detail?.deal;
+      if (current?.id !== args.deal || (fromEngine
+        ? !Number.isSafeInteger(current.seen) || !state.selfActor
         : !Number.isSafeInteger(current.version) || current.version < 1)) {
-        // eslint-disable-next-line no-restricted-syntax -- Missing current record version offers a manual reread; 0 follow-up writes until a valid version is read.
+        // eslint-disable-next-line no-restricted-syntax -- Only the manual retry button can reread the step after this failure.
         dock.record(operationKey, { summary: step.summary, status: 'failed', retry: true, undo: false,
-          reason: 'The move was recorded, but the next step was not sent. Retry reading the current record before saving it.' });
+          reason: 'The current next step could not be read. Try again before saving it.' });
         return null;
       }
       const reviewed = step.reviewed || state.deals.get(args.deal);
-      if (!reviewed || noteText(reviewed.next_step) !== noteText(current.next_step) || (reviewed.next_date || null) !== (current.next_date || null)) {
+      const owned = fromEngine ? partnerDealStep(detail) : null;
+      const previous = reviewed?.currentStep;
+      const text = fromEngine ? owned?.description : current.next_step;
+      const date = fromEngine ? owned?.due_on : current.next_date;
+      if (!reviewed || (fromEngine && (previous === undefined || previous?.id !== owned?.id || previous?.change_id !== owned?.change_id))
+          || noteText(reviewed.next_step) !== noteText(text) || (reviewed.next_date || null) !== (date || null)) {
+        const message = fromEngine ? 'The next step changed. Review it before saving again.'
+          : `Current next step: ${noteText(text) || 'None'} (${date || 'no date'}). Review before retrying.`;
         // eslint-disable-next-line no-restricted-syntax -- Conflict metadata only sets retry=false; it never automatically replaces changed next-step fields.
-        dock.record(operationKey, { summary: step.summary, status: 'conflict', retry: false, undo: false,
-          reason: `The next step changed. Current: ${noteText(current.next_step) || 'None'} (${current.next_date || 'no date'}). Review the current record before replacing it.` });
-        return {status:'conflict', message:`Current next step: ${noteText(current.next_step) || 'None'} (${current.next_date || 'no date'}). Review before retrying.`};
+        dock.record(operationKey, { summary: step.summary, status: 'conflict', retry: false, undo: false, reason: message });
+        return { status: 'conflict', message };
       }
-      if (!Number.isSafeInteger(args.seen_change_id)) args = { ...args, base_version: current.version };
+      if (!fromEngine) args = { ...args, base_version: current.version };
+      // Older deal reads can return an open step without its change ID.
+      else if (!owned || Number.isSafeInteger(owned.change_id)) {
+        args = { ...args, seen_current_step: owned ? { next_step_id: owned.id, change_id: owned.change_id } : null };
+      }
     }
   }
   const decidesEmail = step.verb === 'decide-engine-deal-email';
@@ -673,9 +694,10 @@ async function runFollowUp(operationKey, step) {
   });
   if (step.verb === 'register-client-portal' && result.status === 'ok') state.boardSync.requestRefresh('client-portal');
   if (fromEngine && result.status === 'ok') {
-    state.boardSync.requestRefresh('after-write');
+    state.boardSync?.requestRefresh('after-write');
     if (state.panelDeal === args.deal) await refreshPanel({ changed: true });
   }
+  if (step.verb === 'set-next-step' && reload && state.panelDeal === args.deal) await refreshPanel({ changed: true });
   if (step.verb === 'add-deal-note' && operationKey === updateKey(state.panelDeal) && state.panelDetail) {
     if ([401,403].includes(result.http_status)) { refusePanelDetail({status:result.http_status}); return result; }
     syncUpdateForm();
@@ -1012,6 +1034,18 @@ function refusePanelDetail(error) {
   $('panelBody').innerHTML = '<p role="status">Unavailable. Sign in to reload this record. <a href="/auth/login">Sign in</a> <button class="btn" type="button" data-refresh-detail>Retry</button></p>';
   return true;
 }
+function partnerDealStep(detail) {
+  return detail.next_actions?.find(action => action?.status === 'open' && !action.title && action.owner === state.selfActor) ?? null;
+}
+function reviewedDealStep(detail) {
+  if (!(state.nextDealSaves || detail.next_deal_saves) || !Number.isSafeInteger(detail.deal.seen)) return detail.deal;
+  const currentStep = partnerDealStep(detail);
+  return { currentStep, next_step: currentStep?.description, next_date: currentStep?.due_on };
+}
+function editableStepDate(reviewed) {
+  const date = reviewed.next_date || '';
+  return reviewed.currentStep !== undefined && date < todayIso() ? '' : date;
+}
 function syncUpdateForm() {
   const form = $('detailUpdateForm');
   if (!form || !state.panelDeal) return;
@@ -1021,13 +1055,18 @@ function syncUpdateForm() {
   const requirementFieldset = $('requirementEmailForm')?.querySelector('fieldset');
   if (requirementFieldset) requirementFieldset.disabled = !state.selfActor;
   if (!updateDraft || updateDraft.id !== state.panelDeal) {
-    updateDraft = updateDrafts.get(state.panelDeal) || {id:state.panelDeal,text:'', step:noteText(state.panelDetail.deal.next_step), date:state.panelDetail.deal.next_date || '', reviewed:{next_step:state.panelDetail.deal.next_step, next_date:state.panelDetail.deal.next_date}, noteSaved:false};
+    const reviewed = reviewedDealStep(state.panelDetail);
+    updateDraft = updateDrafts.get(state.panelDeal) || {id:state.panelDeal,text:'', step:noteText(reviewed.next_step), date:editableStepDate(reviewed), reviewed, noteSaved:false};
     updateDrafts.set(state.panelDeal, updateDraft);
   }
   form.elements.text.value = pending ? pending.request.text : updateDraft.text;
   form.elements.text.disabled = Boolean(pending) || updateDraft.noteSaved || !state.selfActor;
   form.elements.step.value = updateDraft.step;
   form.elements.date.value = updateDraft.date;
+  const overdue = Boolean(updateDraft.reviewed.next_date && updateDraft.reviewed.next_date < todayIso());
+  $('detailUpdateDateHint').hidden = !overdue;
+  if (overdue) form.elements.date.setAttribute('aria-describedby', 'detailUpdateDateHint');
+  else form.elements.date.removeAttribute('aria-describedby');
   form.elements.step.disabled = form.elements.date.disabled = Boolean(pending || pendingStep) || !state.selfActor;
   const button = form.querySelector('button[type="submit"]');
   button.disabled = pending?.status === 'pending' || pendingStep?.status === 'pending' || !state.selfActor;
@@ -1068,7 +1107,7 @@ async function saveUpdate(id) {
   const draft = updateDraft;
   const actor = state.selfActor;
   const step = draft.step.trim();
-  const changed = step !== noteText(draft.reviewed.next_step).trim() || draft.date !== (draft.reviewed.next_date || '');
+  const changed = step !== noteText(draft.reviewed.next_step).trim() || draft.date !== editableStepDate(draft.reviewed);
   const pendingStep = pendingCommand(commandState, nextStepKey(id));
   if (changed && !pendingStep && !validateUpdateStep(draft, form)) return;
   if (draft.sending) return;
@@ -1094,7 +1133,7 @@ async function saveUpdate(id) {
       const result = await runFollowUp(nextStepKey(id), {verb:'set-next-step', args:{deal:id,text:step,next_date:draft.date || null}, reviewed:draft.reviewed, summary:'Next step'});
       if (result?.status !== 'ok') {
         draft.conflict = result?.status === 'conflict';
-        draft.message = `Update added; next step not saved. ${result?.message || 'Review the current next step and retry.'}`;
+        draft.message = `Update added; next step not saved. ${result?.hint || result?.message || 'Review the current next step and retry.'}`;
         if (state.panelDeal === id && $('detailUpdateStatus')) {
           syncUpdateForm();
           $('detailUpdateStatus').textContent = draft.message;
@@ -1357,7 +1396,7 @@ function workspaceHtml(detail) {
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     <section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>
     <div data-detail-read="checklist"></div>
-    <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000" required></textarea><details id="detailNextStepEditor"><summary>Change next step</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">Next step</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${todayIso()}"${d.next_date && d.next_date < todayIso() ? ' aria-describedby="detailUpdateDateHint"' : ''}>${d.next_date && d.next_date < todayIso() ? '<small id="detailUpdateDateHint">Current next date is overdue.</small>' : ''}</div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
+    <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000" required></textarea><details id="detailNextStepEditor"><summary>Change next step</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">Next step</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${todayIso()}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
     <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail.email_follow_ups, detail.next_deal_saves) : '<p role="status">Updating email follow-ups…</p>'}</section>
     ${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
@@ -1784,6 +1823,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
   if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
+  if (!fromHistory && incomingScope.has('deal') && mondayReviewOrigin()) { backToMondayReview(); return; }
   selectDocRecord('deal', null);
   pageDocContext?.release('getDeal');
   ++panelReadSequence; ++contextReadSequence;
@@ -2165,9 +2205,9 @@ function wire() {
       const draft = updateDraft;
       void readDealDetail(draft.id).then(detail => {
         if (updateDraft !== draft || draftActor !== state.selfActor) return;
-        draft.reviewed = {next_step:detail.deal.next_step, next_date:detail.deal.next_date};
+        draft.reviewed = reviewedDealStep(detail);
         draft.conflict = false;
-        draft.message = `Current next step: ${noteText(detail.deal.next_step) || 'None'} (${detail.deal.next_date || 'no date'}). Retry to replace it.`;
+        draft.message = `Current next step: ${noteText(draft.reviewed.next_step) || 'None'} (${formatCalendarDate(draft.reviewed.next_date) || 'no date'}). Retry to replace it.`;
         syncUpdateForm();
       }).catch(() => { if (updateDraft === draft) $('detailUpdateStatus').textContent = 'Could not read the current next step.'; });
     }
@@ -2314,12 +2354,82 @@ function mountDock() {
 
 
 let itemSheet;
+function mondayReviewOrigin() {
+  if (!document.referrer) return null;
+  const referrer = new URL(document.referrer);
+  return referrer.origin === location.origin && referrer.pathname === '/deals'
+    && referrer.searchParams.get('view') === 'review' ? referrer : null;
+}
+
+function backToMondayReview() {
+  if (history.length > 1) history.back();
+  else location.replace(mondayReviewOrigin());
+}
+
 async function boot() {
   mountPrefs();
+  const resolved = resolveDealroomBoot(globalThis.location || { hostname: '', search: '' });
+  if ($('mondayReview')) {
+    if (resolved.mode !== 'live') return;
+    state.client = createLiveClient();
+    const { mountMondayReview } = await import('./ui-monday-review.generated.js');
+    const day = new Date(`${businessDay()}T00:00:00Z`);
+    day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7);
+    const week = day.toISOString().slice(0, 10), path = '/api/engine/weekly-reviews';
+    mountMondayReview($('mondayReview'), {
+      async read() {
+        const response = await fetchRead(`${path}?week_of=${week}`);
+        if (!response.ok) throw new Error('Review unavailable');
+        return { review: await response.json(), canEdit: response.headers.get('x-doctorcre-deal-saves') === 'on' };
+      },
+      async edits() {
+        const { actor } = await state.client.askSession();
+        state.selfActor = actor;
+        state.client = createLiveClient({ selfActor: actor });
+        return {
+          actor, prospect: prospectClient(), today: todayIso(),
+          async step(id) { return partnerDealStep(await readDealDetail(id)); },
+          mark(row, confirm) {
+            const markId = row.reviewed?.id;
+            const key = `weekly:${week}:${row.kind}:${row.id}:${markId ?? 'mark'}`;
+            const seen_change_id = row.reviewVersion;
+            const fields = markId ? { seen_change_id }
+              : { seen_change_id, week_of: week, [row.kind === 'deal' ? 'deal_id' : 'party_id']: row.id };
+            return state.client.savePartnerRecord(markId ? `${path}/${encodeURIComponent(markId)}/remove` : path,
+              key, 'review_id', confirm ? undefined : fields);
+          },
+          async deal(row, edit) {
+            if (!Number.isSafeInteger(row.seen)) return { status: 'failed' };
+            const isNote = edit.kind === 'note';
+            return runFollowUp(isNote ? updateKey(row.id) : nextStepKey(row.id), {
+              verb: isNote ? 'add-deal-note' : 'set-next-step',
+              args: { deal: row.id, text: edit.text, ...(!isNote && { next_date: edit.due }) },
+              summary: isNote ? 'Deal update' : 'Next step',
+              reviewed: isNote ? { seen: row.seen } : { seen: row.seen, currentStep: edit.current,
+                next_step: edit.current?.description, next_date: edit.current?.due_on },
+            });
+          },
+        };
+      },
+      async dealNotes(id) {
+        const detail = await readDealDetail(id);
+        return detail.thread.filter(note => note.kind === 'note').slice(0, 3).map(note => ({
+          id: note.id, summary: noteText(note.text), by: note.actor, at: note.at || note.created_at || note.recorded_at,
+        }));
+      },
+      phaseLabel: phase => columnBySlug(phase)?.label,
+      authorLabel, dateLabel: formatCalendarDate, timeLabel: sourceTime,
+    });
+    return;
+  }
+  if (incomingScope.has('deal') && mondayReviewOrigin()) {
+    $('panelClose').textContent = '← Back to Monday review';
+    $('panelClose').setAttribute('aria-label', 'Back to Monday review');
+  }
+  if (incomingScope.get('mode') === 'live') $('mondayReviewLink').href = '/deals?view=review&mode=live';
 
   mountDock();
   wire();
-  const resolved = resolveDealroomBoot(globalThis.location || { hostname: '', search: '' });
   state.client = resolved.mode === 'live' ? createLiveClient() : await (await import("./fixture-client.js")).createFixtureClient(resolved.options);
   mountNotificationBadge(state.client);
   itemSheet = mountDealItemSheet({document,today:todayIso,read:readDealDetail,send:runFollowUp,pending:key => pendingCommand(commandState,key),refresh:() => {state.boardSync.requestRefresh('deal-item');refreshPanel();}});

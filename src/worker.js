@@ -395,7 +395,8 @@ function nextDealSave(verb, args) {
       }
       return null;
     case 'set-next-step':
-      return post('/next-steps', { deal_id: deal, what: args.text, due_on: args.next_date ?? undefined, replaces: 'current' });
+      return post('/next-steps', { deal_id: deal, what: args.text, due_on: args.next_date ?? undefined,
+        replaces: 'current', seen_current_step: args.seen_current_step });
     case 'complete-deal-item':
       return isUuid(args.item_id) ? post(`/next-steps/${args.item_id}/end`, { resolution: 'done' }) : null;
     case 'record-deal-item':
@@ -498,7 +499,8 @@ async function cutoverSave(request, env, call) {
         ?? 'Check the deal details and try again.'
       : invalidClosingDate ? 'Choose a closing date between the day the deal reached its current phase and today.'
       : peopleOrDate ? dealPeopleAndDateHint(name, body) ?? 'Review the deal and try saving again.'
-      : body.error === 'version_conflict' ? 'This deal changed. Reload the deal before saving.'
+      : body.error === 'version_conflict' ? name === 'set-next-step'
+        ? 'The next step changed. Review it before saving again.' : 'This deal changed. Reload the deal before saving.'
       : body.error === 'invoice_already_paid' ? 'The invoice has been paid, so the close cannot be undone.'
       : body.error === 'step_ended' ? 'This step was already closed. Reload the deal to see its current steps.'
       : 'The change could not be saved. Review the deal and try again.';
@@ -692,7 +694,9 @@ async function handleRequest(request, env) {
     return assetResponse(request, env, `/${APP_ROUTES.get(pathname)}`);
   }
 
-  const routeAsset = pathname === "/deals" && url.searchParams.get("view") === "national" ? "index.html"
+  const dealView = pathname === '/deals' ? url.searchParams.get('view') : null;
+  const routeAsset = dealView === 'review' ? 'monday-review.html'
+    : dealView === 'national' ? "index.html"
     : pathname === "/" && url.searchParams.get("view") === "charts" ? "charts.html"
     : APP_ROUTES.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
   if (routeAsset) {
@@ -700,6 +704,10 @@ async function handleRequest(request, env) {
     const gateRequest = gateRequestFor(request, pathname);
     const gate = await carrResponse(gateRequest, env, true);
     if (gate.status !== 200) return gateRequest === request ? gate : restoreOriginalReturnTo(gate, request);
+    if (dealView === 'review' && !await switchedOn(env, DEALS)) {
+      url.searchParams.delete('view');
+      return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
+    }
     return copySessionCookies(gate, await assetResponse(request, env, `/${routeAsset}`));
   }
 
@@ -718,8 +726,10 @@ async function handleRequest(request, env) {
     const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);
     if (website && (!await switchedOn(env, DEALS) || (!website[1] && !await switchedOn(env, NEXT_DEAL_SAVES))))
       return json({ error: 'not_found' }, 404);
+    const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     const marketDealRead = pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
-    if ((marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS))
+    if ((weeklyReview && request.method === 'POST' && !await switchedOn(env, NEXT_DEAL_SAVES))
+        || ((weeklyReview || marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
     const prospectSave = prospects && request.method === 'POST';
@@ -739,7 +749,11 @@ async function handleRequest(request, env) {
         url.pathname = prospectDestination;
         return await env.ENGINE.fetch(new Request(url, forwarded));
       }
-      return await env.ENGINE.fetch(forwarded);
+      const response = await env.ENGINE.fetch(forwarded);
+      if (!weeklyReview || request.method !== 'GET' || !response.ok) return response;
+      const review = new Response(response.body, response);
+      review.headers.set('x-doctorcre-deal-saves', await switchedOn(env, NEXT_DEAL_SAVES) ? 'on' : 'off');
+      return review;
     } catch {
       return json({ error: 'engine_unavailable' }, 503);
     }
