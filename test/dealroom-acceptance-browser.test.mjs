@@ -1438,6 +1438,7 @@ for (const width of [1440, 390]) {
     await dialog.getByText(/Joe · Call back/).waitFor();
     await dialog.getByRole('button', { name: 'Back to Monday review' }).click();
     await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
+    await page.getByRole('link', { name: prospectRow.name }).and(page.locator(':focus')).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: join(evidence, `monday-review-${width}.png`), fullPage: true });
     await page.getByRole('link', { name: row.name }).click();

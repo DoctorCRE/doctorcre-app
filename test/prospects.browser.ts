@@ -321,6 +321,7 @@ test("partners see and manage prospects from Deals", async (t) => {
         await lane.getByRole("button", { name: "Add deal" }).click();
         const addDeal = page.getByRole("dialog", { name: "Add deal" });
         assert.equal(await addDeal.getByLabel("Client", { exact: true }).inputValue(), "Client Example");
+        assert.equal(await addDeal.getByLabel("Deal name").inputValue(), "Client Example");
         await addDeal.getByRole("button", { name: "Cancel" }).click();
       }
       await name.fill(newName);
