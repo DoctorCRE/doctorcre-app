@@ -399,7 +399,9 @@ function nextDealSave(verb, args) {
       return post('/next-steps', { deal_id: deal, what: args.text, due_on: args.next_date ?? undefined,
         replaces: 'current', seen_current_step: args.seen_current_step });
     case 'complete-deal-item':
-      return isUuid(args.item_id) ? post(`/next-steps/${args.item_id}/end`, { resolution: 'done' }) : null;
+      return isUuid(args.item_id) ? post(`/next-steps/${args.item_id}/end`, {
+        resolution: 'done', base_version: args.base_version,
+      }) : null;
     case 'record-deal-item':
       return post('/next-steps', { deal_id: deal, what: args.title, due_on: args.due_on ?? undefined,
         item: { title: args.title, bullets: args.bullets, source_ref: args.source_ref } });
@@ -466,6 +468,8 @@ async function cutoverSave(request, env, call) {
   if (accountSave && (!on || !fromNext || !await switchedOn(env, DEALS)))
     return saveRefusal(call, 'reload_deals', 'Reload Deals before saving the account.');
   if (!accountSave && on && !await switchedOn(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
+  if (on && name === 'complete-deal-item' && (!Number.isSafeInteger(args.base_version) || args.base_version < 0))
+    return saveRefusal(call, 'version_conflict', 'Reload the item before marking it done.');
   const save = nextDealSave(name, args);
   if (on && !save) return saveRefusal(call, 'deal_save_unavailable', name === 'set-market-agent' && fromNext
     ? 'Choose an existing person as the market agent.' : 'This change is temporarily unavailable.');
@@ -507,6 +511,7 @@ async function cutoverSave(request, env, call) {
         ?? 'Check the deal details and try again.'
       : invalidClosingDate ? 'Choose a closing date between the day the deal reached its current phase and today.'
       : peopleOrDate ? dealPeopleAndDateHint(name, body) ?? 'Review the deal and try saving again.'
+      : body.error === 'version_conflict' && name === 'complete-deal-item' ? 'This item changed while it was open. Reload it before marking it done.'
       : body.error === 'version_conflict' ? name === 'set-next-step'
         ? 'The next step changed. Review it before saving again.' : 'This deal changed. Reload the deal before saving.'
       : body.error === 'invoice_already_paid' ? 'The invoice has been paid, so the close cannot be undone.'
