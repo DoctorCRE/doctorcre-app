@@ -190,6 +190,126 @@ export function engineTimelineEntries(detail) {
   }).sort((a, b) => b.day.localeCompare(a.day) || compareInstants(a.when, b.when));
 }
 
+const OLD_HISTORY_ACTION = new Map(Object.entries({
+  'add-critical-date': 'Added a critical date',
+  'add-premises': 'Added space to the deal',
+  'backfill-document-attachments:document.attachments': 'Added document attachments',
+  'complete-action:status': 'Finished a next step',
+  'complete-one-action:status': 'Finished a next step',
+  'create-national-market-deal': 'Opened a national account deal',
+  'dismiss-email-proposal': 'Dismissed an email suggestion',
+  import: 'Imported the deal',
+  'log-activity': 'Logged an activity',
+  'log-decision:decision': 'Added a decision',
+  'new-deal': 'Opened the deal',
+  'prepare-document:document': 'Prepared a document',
+  'reattach-deal:client_id': 'Linked the deal to a client',
+  'record-counter': 'Logged a counteroffer',
+  'record-finding:address': 'Checked the address',
+  'record-finding:code_requirement': 'Checked building code requirements',
+  'record-finding:discrepancy': 'Checked for a discrepancy',
+  'record-finding:market_study': 'Added market research',
+  'record-finding:verified': 'Ran a verification check',
+  'register-client-portal:client_portal': 'Set up the client website',
+  'resolve-post-call-candidate:next_action': 'Confirmed a next step from a call',
+  'set-lead': 'Changed the deal owner',
+  'set-market-agent:market_agent': 'Changed the market agent',
+  'set-next-action': 'Set a next step',
+  'set-next-action:next_date': 'Changed the next step date',
+  'set-next-step:next_step': 'Changed the next step',
+  'update-deal:closed_on': 'Changed the closing date',
+  'update-deal:invoiced_on': 'Changed the invoice date',
+  'update-deal:lane': 'Changed the board lane',
+  'update-deal:notes_path': 'Changed the notes file',
+  'update-deal:outcome': 'Changed the deal outcome',
+  'update-deal:phase': 'Changed the phase',
+  'update-deal:salesforce_id': 'Changed the Salesforce reference',
+}));
+
+const OLD_HISTORY_JOB = new Map(Object.entries({
+  agent: 'Doc (assistant)',
+  candidate_sweep: 'Follow-up review',
+  intake: 'Intake',
+  lead_stage: 'Lead updates',
+  mail_capture: 'Mail filing',
+  old_system: 'Old system',
+  publisher: 'Publishing',
+  readings: 'Post readings',
+  review_close: 'Review close',
+}));
+const historicalActor = slug => OLD_HISTORY_JOB.get(slug) || timelineActor(slug) || 'Author unavailable';
+const historicalPartner = slug => slug === 'joe-local' ? 'Joe'
+  : Object.hasOwn(ACTOR_LABEL, slug) ? ACTOR_LABEL[slug] : 'Name unavailable';
+const words = value => value.replace(/(^|[_-]+)([a-z])/g, (_, separator, letter) =>
+  separator ? ' ' + letter : letter.toUpperCase());
+function historicalDay(value) {
+  const day = calendarDay(value);
+  return day ? dateCaption(day) : 'Date unavailable';
+}
+const COUNTER_BASIS = new Map([
+  ['usd_sf_yr', 'per square foot per year'], ['usd_sf_mo', 'per square foot per month'],
+  ['usd_mo_gross', 'gross per month'], ['usd_yr_gross', 'gross per year'],
+]);
+
+// References to old rows carry no display name. Only show facts the event actually held.
+const OLD_HISTORY_FACTS = {
+  name: ['Deal name'], client: ['Client'], client_name: ['Client'], client_ref: ['Client reference'],
+  phase: ['Phase', value => value === 'dead' ? 'Lost' : columnBySlug(value)?.label || words(value)],
+  deal_type: ['Deal type', words], market: ['Market'], agent_name: ['Market agent'],
+  market_agent: ['Market agent'], lead: ['Deal owner', historicalPartner], owner: ['Assigned to', historicalPartner],
+  assignee: ['Assigned to', historicalPartner], set_by: ['Set by', historicalActor],
+  lane: ['Board lane', words], next_action: ['Next step'], next_step: ['Next step'],
+  description: ['Next step'], summary: ['Summary'], reason: ['Reason'], outcome: ['Outcome'],
+  status: ['Status', words], closed_on: ['Closing date', historicalDay], invoiced_on: ['Invoice date', historicalDay],
+  next_date: ['Next step date', historicalDay], due: ['Due date', historicalDay], due_on: ['Due date', historicalDay],
+  kind: ['Kind', criticalDateLabel], found: ['Found'], expires_on: ['Expires', historicalDay],
+  proposes_correction: ['Suggested correction to', words], source: ['Where it came from'],
+  building_created: ['New building added'], spaces: ['Spaces'], ownership: ['Ownership entries'],
+  client_portal_url: ['Client website'], notes_path: ['Notes file', value => value.split('/').pop()],
+  salesforce_id: ['Salesforce reference'], round: ['Round'], side: ['From', words],
+  rate: ['Rate', value => closedMoney.format(value)],
+  basis: ['Rate basis', value => COUNTER_BASIS.get(value) || 'Details unavailable'],
+  template: ['Template', words], filled: ['Fields filled'], owed: ['Fields still needed'],
+  attachments: ['Attachments', value =>
+    [value.pdf && 'PDF', value.working && 'Working copy'].filter(Boolean).join(', ') || 'None'],
+  dropped_post_call_action_ids: ['Earlier call follow-ups cleared', value => String(value.length)],
+};
+
+function historicalValue(value, format) {
+  if (value == null || value === '') return 'None';
+  if (format) return format(value);
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return String(value);
+}
+
+function importedFacts(oldValue, newValue) {
+  const before = oldValue ?? {};
+  const after = newValue ?? {};
+  return Object.entries(OLD_HISTORY_FACTS).flatMap(([key, [label, format]]) => {
+    const had = Object.hasOwn(before, key);
+    const has = Object.hasOwn(after, key);
+    if (!had && !has) return [];
+    const oldText = historicalValue(before[key], format);
+    const newText = historicalValue(after[key], format);
+    if (had && has && oldText !== newText) {
+      return [after[key] === null ? `${label} cleared (was ${oldText})` : `${label}: ${oldText} to ${newText}`];
+    }
+    return [`${label}: ${has ? newText : oldText}`];
+  }).join('\n');
+}
+
+export function renderImportedDealHistory(history) {
+  if (!Array.isArray(history)) return '';
+  const rows = history.filter(entry => entry?.imported === true).reverse().map(event => {
+    const key = event.field == null ? event.verb : `${event.verb}:${event.field}`;
+    const action = OLD_HISTORY_ACTION.get(key);
+    const facts = action ? importedFacts(event.old_value, event.new_value) : '';
+    return `<li><b>${esc(historicalActor(event.actor))}</b> <time datetime="${esc(event.recorded_at)}">${esc(sourceTime(event.recorded_at))}</time>
+      <div>${action || 'Earlier deal activity'}</div>${facts ? `<p class="note-original">${esc(facts)}</p>` : ''}</li>`;
+  });
+  return rows.length ? `<section aria-labelledby="old-deal-history"><h2 id="old-deal-history">History from the old system</h2><ol class="workspace-events">${rows.join('')}</ol></section>` : '';
+}
+
 export function renderDealTimeline(detail, now = Date.now()) {
   const view = dealTimeline(detail,now);
   return `<section class="deal-timeline" data-detail-read="timeline" aria-label="Deal phases and timeline"><h3>Phase timeline</h3><ol class="phase-rail">${view.phases.map(p => `<li${p.current ? ' aria-current="step"' : ''}><span>${esc(p.label)}</span>${p.day ? `<time datetime="${esc(p.day)}">${esc(dateCaption(p.day))}</time>` : ''}</li>`).join('')}</ol></section>`;
