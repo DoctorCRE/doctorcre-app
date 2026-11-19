@@ -398,7 +398,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       const reason = dialog.getByLabel("Reason", { exact: true });
       const drop = dialog.getByRole("button", { name: "Drop prospect", exact: true });
       const background = (button: HTMLElement) => getComputedStyle(button).backgroundColor;
-      assert.equal(await drop.evaluate(background, undefined, { timeout: 1500 }), await claim.evaluate(background));
+      await settles(async () => assert.equal(await drop.evaluate(background), await claim.evaluate(background)));
       assert.equal(await reason.isVisible(), false);
       await claim.click();
       await dialog.getByRole("button", { name: "Hand off to Dell" }).click();
@@ -437,7 +437,10 @@ test("partners see and manage prospects from Deals", async (t) => {
         await noteInput.press("Enter");
         await lane.getByRole("button", { name: "Add deal" }).click();
         const addDeal = page.getByRole("dialog", { name: "Add deal" });
-        assert.equal(await addDeal.getByLabel("Client", { exact: true }).inputValue(), "Client Example");
+        assert.equal(
+          await addDeal.getByRole("textbox", { name: "Client", exact: true }).inputValue(),
+          "Client Example",
+        );
         assert.equal(await addDeal.getByLabel("Deal name").inputValue(), "Client Example");
         assert.equal(await addDeal.getByLabel("Phase", { exact: true }).count(), 1);
         await addDeal.getByRole("button", { name: "Cancel" }).click();

@@ -26,30 +26,36 @@ function isMatch(value: unknown): value is Match {
   );
 }
 
-async function searchParties(request: ProspectClient["prospectRequest"], query: string, signal: AbortSignal) {
-  const response = await request(`${prospectsPath}/search?query=${encodeURIComponent(query)}`, { signal });
+type PartyRequest = ProspectClient["prospectRequest"];
+
+async function searchParties(request: PartyRequest, query: string, signal: AbortSignal, clientsOnly = false) {
+  const params = new URLSearchParams({ query });
+  if (clientsOnly) params.set("role", "client");
+  const path = clientsOnly ? "/api/engine/parties/search" : `${prospectsPath}/search`;
+  const response = await request(`${path}?${params}`, { signal });
   if (!response.ok) throw new Error("Party search unavailable");
   const data: unknown = await response.json();
   return object(data) && Array.isArray(data.parties) ? data.parties.filter(isMatch) : [];
 }
 
-export function DealClientPicker({
-  prospect,
-  request,
-}: {
-  prospect: { party_id: string; name: string };
-  request: ProspectClient["prospectRequest"];
-}) {
-  const [name, setName] = useState("");
-  const [clientId, setClientId] = useState("");
+type PickedClient = { id: string; name: string };
+type LeaseDate = (date: string | null) => string | null;
+type DealClientPickerProps = { request: PartyRequest; onPick: () => void } & (
+  | { prospect: { party_id: string; name: string }; client?: never; leaseDate?: never }
+  | { prospect?: never; client?: PickedClient; leaseDate: LeaseDate }
+);
+
+export function DealClientPicker({ prospect, client, request, leaseDate, onPick }: DealClientPickerProps) {
+  const [name, setName] = useState(client?.name ?? "");
+  const [picked, setPicked] = useState(client);
   const [matches, setMatches] = useState<Match[]>();
   const [unavailable, setUnavailable] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const query = name.trim();
-    if (!query || clientId) return;
+    if (!query || picked) return;
     const controller = new AbortController();
-    void searchParties(request, query, controller.signal).then(
+    void searchParties(request, query, controller.signal, !prospect).then(
       (found) => {
         if (!controller.signal.aborted) setMatches(found);
       },
@@ -58,13 +64,14 @@ export function DealClientPicker({
       },
     );
     return () => controller.abort();
-  }, [name, clientId, request]);
+  }, [name, picked, prospect, request]);
 
   function select(id: string, name: string) {
-    setClientId(id);
+    setPicked({ id, name });
     setName(name);
     setMatches(undefined);
     setUnavailable(false);
+    onPick();
     input.current?.focus();
   }
 
@@ -81,38 +88,165 @@ export function DealClientPicker({
         value={name}
         onChange={(event) => {
           setName(event.currentTarget.value);
-          setClientId("");
+          setPicked(undefined);
           setMatches(undefined);
           setUnavailable(false);
         }}
       />
-      <input type="hidden" name="client_id" value={clientId} />
-      <small id="prospectDealClientHint">Search for a person or company, or use the prospect.</small>
-      <button type="button" className="btn" onClick={() => select(prospect.party_id, prospect.name)}>
-        Use {prospect.name} as client
-      </button>
+      <input type="hidden" name="client_id" value={picked?.id ?? ""} />
+      <small id="prospectDealClientHint">
+        {prospect ? "Search for a person or company, or use the prospect." : "Search for an existing client by name."}
+      </small>
+      {prospect && (
+        <button type="button" className="btn" onClick={() => select(prospect.party_id, prospect.name)}>
+          Use {prospect.name} as client
+        </button>
+      )}
       {matches && matches.length > 0 && (
         <ul className="prospect-client-matches" aria-label="Matching people and companies">
           {matches.map((match) => {
-            const duplicate = matches.some(
+            const sameName = matches.filter(
               (other) =>
-                other.id !== match.id &&
-                other.display_name.toLowerCase() === match.display_name.toLowerCase() &&
-                other.kind === match.kind,
+                other.display_name.toLowerCase() === match.display_name.toLowerCase() && other.kind === match.kind,
             );
             return (
               <li key={match.id}>
                 <button type="button" className="btn" onClick={() => select(match.id, match.display_name)}>
                   {match.display_name} · {match.kind === "person" ? "Person" : "Company"}
-                  {duplicate && ` · ${match.id}`}
+                  {sameName.length > 1 && (prospect ? ` · ${match.id}` : ` · Match ${sameName.indexOf(match) + 1}`)}
                 </button>
               </li>
             );
           })}
         </ul>
       )}
-      {matches?.length === 0 && <small role="status">No matching people or companies.</small>}
+      {matches?.length === 0 && (
+        <small role="status">{prospect ? "No matching people or companies." : "No matching clients."}</small>
+      )}
       {unavailable && <small role="status">Search is unavailable. Try again.</small>}
+      {leaseDate && <LocalDealTerms client={picked} request={request} leaseDate={leaseDate} />}
+    </div>
+  );
+}
+
+function LocalDealTerms({
+  client,
+  request,
+  leaseDate,
+}: {
+  client: PickedClient | undefined;
+  request: PartyRequest;
+  leaseDate: LeaseDate;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <>
+      <div className="field-grid">
+        <div className="field">
+          <label htmlFor="addDealKind">Deal kind</label>
+          <select id="addDealKind" name="kind">
+            <option value="">Unknown</option>
+            <option value="lease">Lease</option>
+            <option value="purchase">Purchase</option>
+            <option value="sale_leaseback">Sale-leaseback</option>
+            <option value="build_to_suit">Build-to-suit</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="addDealReason">Deal reason</label>
+          <select
+            id="addDealReason"
+            name="reason"
+            value={reason}
+            onChange={(event) => setReason(event.currentTarget.value)}
+          >
+            <option value="">Unknown</option>
+            <option value="start_up">Start-up</option>
+            <option value="relocation">Relocation</option>
+            <option value="expansion">Expansion</option>
+            <option value="renewal">Renewal</option>
+            <option value="additional_office">Additional office</option>
+          </select>
+        </div>
+      </div>
+      {reason === "renewal" &&
+        (client ? (
+          <RenewalLease key={client.id} clientId={client.id} request={request} leaseDate={leaseDate} />
+        ) : (
+          <small role="status">Choose a client to see their leases.</small>
+        ))}
+    </>
+  );
+}
+
+type Lease = { lease_id: string; address: string; expiration_on: string | null };
+type LeaseChoices = { kind: "loading" | "unavailable" } | { kind: "ready"; leases: Lease[] };
+function isLease(value: unknown): value is Lease {
+  return (
+    object(value) &&
+    isId(value.lease_id) &&
+    typeof value.address === "string" &&
+    (value.expiration_on === null || typeof value.expiration_on === "string")
+  );
+}
+
+function RenewalLease({
+  clientId,
+  request,
+  leaseDate,
+}: {
+  clientId: string;
+  request: PartyRequest;
+  leaseDate: LeaseDate;
+}) {
+  const [choices, setChoices] = useState<LeaseChoices>({ kind: "loading" });
+  useEffect(() => {
+    if (choices.kind !== "loading") return;
+    const controller = new AbortController();
+    async function read() {
+      try {
+        const response = await request(`/api/engine/clients/${encodeURIComponent(clientId)}/leases`, {
+          signal: controller.signal,
+        });
+        const data: unknown = response.ok ? await response.json() : null;
+        if (!Array.isArray(data) || !data.every(isLease)) throw new Error("Lease list unavailable");
+        if (!controller.signal.aborted) setChoices({ kind: "ready", leases: data });
+      } catch {
+        if (!controller.signal.aborted) setChoices({ kind: "unavailable" });
+      }
+    }
+    void read();
+    return () => controller.abort();
+  }, [choices.kind, clientId, request]);
+
+  return (
+    <div className="field">
+      <label htmlFor="renewalLease">Lease to renew</label>
+      <select id="renewalLease" name="renews_lease_id" required defaultValue="">
+        <option value="">Choose a lease</option>
+        {choices.kind === "ready" &&
+          choices.leases.map((lease) => {
+            const expires = leaseDate(lease.expiration_on);
+            return (
+              <option key={lease.lease_id} value={lease.lease_id}>
+                {lease.address} · {expires ? `Expires ${expires}` : "Expiration not recorded"}
+              </option>
+            );
+          })}
+      </select>
+      {choices.kind === "loading" && <small role="status">Finding leases…</small>}
+      {choices.kind === "ready" && choices.leases.length === 0 && (
+        <small role="status">No leases found for this client.</small>
+      )}
+      {choices.kind === "unavailable" && (
+        <>
+          <small role="status">Could not load leases.</small>
+          <button type="button" className="btn" onClick={() => setChoices({ kind: "loading" })}>
+            Retry
+          </button>
+        </>
+      )}
     </div>
   );
 }
