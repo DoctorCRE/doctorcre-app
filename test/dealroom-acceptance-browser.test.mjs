@@ -2042,3 +2042,83 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   await panel.getByText('No emails or meetings yet.', { exact: true }).waitFor();
   assert.equal(await rows.count(), 0);
 });
+
+for (const width of [1440, 390]) {
+  test(`a National deal shows its facts once and its next confirmed date at ${width}px`, async t => {
+    const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Los_Angeles' });
+    t.after(() => page.close());
+    await page.clock.setFixedTime(new Date('2026-11-19T06:30:00Z'));
+    const [deal, account, lease, confirmed, proposed] = Array.from({ length: 5 }, () => crypto.randomUUID());
+    const nextDate = { id: confirmed, kind: 'lease_expiration', due_on: '2026-11-19' };
+    const row = {
+      id: deal, deal_id: deal, name: 'Example Expansion', client_name: 'Example Practice', phase: 'closed',
+      owner: 'dell', workspace_kind: 'national_account', account_client_id: account,
+      type: 'purchase', kind: 'purchase', reason: 'renewal', renews_lease_id: lease,
+      market: 'Example City', market_agent: 'Example Agent', outcome: 'won', closed_value: '125000',
+      next_date: '2026-11-18',
+    };
+    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [], closed_deals: [], lost_deals: [] };
+    let readsOn = false;
+    let criticalDate = nextDate;
+    const env = {
+      ENGINE_ROUTING: { get: async key => readsOn && key === 'deals-from-engine' ? 'on' : null },
+      ENGINE: { fetch: async request => Response.json(new URL(request.url).pathname.endsWith(deal) ? {
+        ...row, email_follow_ups: [], next_critical_date: criticalDate,
+        critical_dates: [
+          { id: proposed, kind: 'option_notice', due_on: '2026-11-17', status: 'proposed' },
+          { ...nextDate, status: criticalDate ? 'open' : 'cleared' },
+        ],
+      } : board) },
+      CARR: { fetch: async request => {
+        const { id, params } = await request.json();
+        const data = params.name === 'deal-room-board' ? board : row;
+        return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
+      } },
+    };
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `national-deal-facts-${width}`, viewer: 'joe', reset: true } });
+    await page.route('**/mcp', async route => {
+      const request = route.request();
+      if (!['deal-room-board', 'get-deal-room'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+      const response = await handleDoctorcreRequest(new Request(request.url(), {
+        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+      }), env);
+      return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+    });
+
+    const detail = page.locator('#recordPanel');
+    const header = detail.locator('#workspaceFacts');
+    const snapshot = detail.getByRole('region', { name: 'Deal snapshot' });
+    const nextCriticalDate = header.getByText('Next critical date', { exact: true }).locator('..');
+    const open = async () => {
+      await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
+      await snapshot.waitFor();
+    };
+    await open();
+    assert.equal(await nextCriticalDate.count(), 0);
+    assert.equal(await snapshot.getByText('Example City', { exact: true }).count(), 0);
+
+    readsOn = true;
+    await open();
+    await nextCriticalDate.getByText('Thu, Nov 19, 2026', { exact: true }).waitFor({ timeout: 5000 });
+    assert.match(await nextCriticalDate.textContent(), /Lease expiration/);
+    assert.equal(await header.locator('time').count(), 1);
+    assert.equal(await detail.getByText('Example Practice', { exact: true }).count(), 1);
+    assert.equal(await snapshot.getByText('No next step set.', { exact: true }).count(), 1);
+    for (const [label, value] of [['Market', 'Example City'], ['Type', 'Purchase'], ['Deal reason', 'Renewal'],
+      ['Market agent', 'Example Agent'], ['Closed value', '$125,000.00']]) {
+      const fact = snapshot.getByText(label, { exact: true });
+      assert.equal(await fact.count(), 1);
+      assert.equal(await fact.locator('..').getByText(value, { exact: true }).count(), 1);
+      assert.equal(await header.getByText(value, { exact: true }).count(), 0);
+    }
+    assert.equal(await snapshot.getByText('Lease not recorded').count(), 0);
+    assert.ok(!(await detail.textContent()).includes(lease));
+    assert.equal(await detail.locator(`a[href*="${lease}"]`).count(), 0);
+    assert.ok(await header.evaluate(element => element.scrollWidth <= element.clientWidth));
+    await page.screenshot({ path: join(evidence, `deal-facts-${width}.png`) });
+
+    criticalDate = null;
+    await detail.getByRole('button', { name: 'Refresh deal' }).click();
+    await nextCriticalDate.waitFor({ state: 'detached' });
+  });
+}
