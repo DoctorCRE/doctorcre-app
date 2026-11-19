@@ -1591,9 +1591,9 @@ const movedToEngine = [
   ],
   [
     "complete-deal-item",
-    { item_id: stepId },
+    { item_id: stepId, base_version: 0 },
     `/next-steps/${stepId}/end`,
-    { resolution: "done" },
+    { resolution: "done", base_version: 0 },
     { next_step_id: stepId, status: "done" },
     200,
   ],
@@ -1641,7 +1641,7 @@ const movedToEngine = [
 
 for (const [verb, args, path, expected, receipt, status] of movedToEngine) {
   test(`Deals cutover routes ${verb} ${path} once per attempt and keeps its key on retry`, async () => {
-    const { phase_from, ...legacy } = { phase_from: undefined, ...args };
+    const { phase_from, base_version, ...legacy } = { phase_from: undefined, base_version: undefined, ...args };
     const base = { deal: dealId, idempotency_key: operationId, ...legacy };
     const before = call(verb, base);
     const off = fixture(null);
@@ -1649,7 +1649,7 @@ for (const [verb, args, path, expected, receipt, status] of movedToEngine) {
     assert.deepEqual(off.carr, [JSON.stringify(before)]);
     assert.equal(off.engine.length, 0);
     const on = fixture(nextDealsOn, answered(JSON.stringify(receipt), status));
-    const save = call(verb, { ...base, seen_change_id: 23, ...(phase_from && { phase_from }) });
+    const save = call(verb, { ...base, seen_change_id: 23, ...(phase_from && { phase_from }), base_version });
     for (let attempt = 0; attempt < 2; attempt++) {
       const result = (await (await on.send(save, saveHeaders)).json()).result;
       assert.deepEqual(JSON.parse(result.content[0].text), { ...receipt, ok: true });
@@ -1664,6 +1664,24 @@ for (const [verb, args, path, expected, receipt, status] of movedToEngine) {
     }
   });
 }
+
+test("Deals cutover refuses to complete an item without a valid step version", async () => {
+  const f = fixture(nextDealsOn);
+  for (const base_version of [undefined, null, -1, 3.5, "7", Number.MAX_SAFE_INTEGER + 1]) {
+    const save = call("complete-deal-item", {
+      deal: dealId,
+      item_id: stepId,
+      seen_change_id: 23,
+      idempotency_key: operationId,
+      base_version,
+    });
+    const { result } = await (await f.send(save, saveHeaders)).json();
+    assert.equal(result.isError, true);
+    assert.equal(JSON.parse(result.content[0].text).error, "version_conflict");
+  }
+  assert.deepEqual(f.engine, []);
+  assert.deepEqual(f.carr, []);
+});
 
 test("Deals cutover refuses a bare market agent name before sending a write", async () => {
   const f = fixture(nextDealsOn);

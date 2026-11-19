@@ -11,6 +11,7 @@ import {
   prospectsPath,
   uuid,
 } from "./prospect-saves";
+import { refreshWhileVisible } from "./visible-refresh";
 
 const howFound: Readonly<Record<string, string>> = {
   referral: "Referral",
@@ -151,24 +152,36 @@ function useProspectRead<T>(
   route: string,
   revision: number,
   parse: (value: Record<string, unknown>) => T,
+  mergeRefresh?: (current: T, incoming: T) => T,
 ) {
   const [state, setState] = useState<Read<T>>({});
   useEffect(() => {
-    const controller = new AbortController();
-    async function read() {
+    let etag: string | null = null;
+    let loaded = false;
+    async function read(signal: AbortSignal) {
       try {
-        const response = await request(route, { signal: controller.signal });
+        const response = await request(route, etag ? { signal, headers: { "If-None-Match": etag } } : { signal });
+        if (response.status === 304) return;
         const value: unknown = await response.json();
         if (!response.ok || !record(value)) return invalid();
-        if (!controller.signal.aborted) setState({ value: parse(value) });
+        if (signal.aborted) return;
+        const incoming = parse(value);
+        const merge = loaded ? mergeRefresh : undefined;
+        setState((state) => ({ value: merge && state.value !== undefined ? merge(state.value, incoming) : incoming }));
+        etag = response.headers.get("etag");
+        loaded = true;
       } catch {
-        if (!controller.signal.aborted) setState({ unavailable: true });
+        if (!signal.aborted && !loaded) {
+          setState((state) => ({ ...(mergeRefresh ? state : {}), unavailable: true }));
+        }
       }
     }
     if (revision) setState((state) => (state.value ? state : {}));
-    void read();
+    if (mergeRefresh) return refreshWhileVisible(read);
+    const controller = new AbortController();
+    void read(controller.signal);
     return () => controller.abort();
-  }, [request, route, revision, parse]);
+  }, [request, route, revision, parse, mergeRefresh]);
   return state;
 }
 
@@ -179,6 +192,12 @@ function parseDetail(value: Record<string, unknown>) {
     return { ...parseNote(note), id: note.activity_id };
   });
   return { ...parseProspect(value), notes };
+}
+
+type Detail = ReturnType<typeof parseDetail>;
+function refreshNotes(current: Detail, { notes, latest_note }: Detail): Detail {
+  // Keep the edit versions from the opened prospect until an explicit reload or save.
+  return { ...current, notes, latest_note };
 }
 
 function parseLane(value: Record<string, unknown>) {
@@ -215,13 +234,15 @@ function ProspectDetail({
     `${prospectsPath}/${id}`,
     revision,
     parseDetail,
+    refreshNotes,
   );
+  const loaded = row !== undefined;
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
   useEffect(() => {
-    if (focusFollowUp && row) followUps.current?.focus();
-  }, [focusFollowUp, row]);
+    if (focusFollowUp && loaded) followUps.current?.focus();
+  }, [focusFollowUp, loaded]);
   const reload = () => update((value) => value + 1);
   const saved = () => {
     reload();

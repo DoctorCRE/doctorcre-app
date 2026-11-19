@@ -1,13 +1,34 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import test from "node:test";
+import type { Page } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import worker from "../src/worker.js";
-import { chromium, settles } from "./browser-harness.mjs";
+import { chromium, pausedClock, settles } from "./browser-harness.mjs";
 
 const party = "00000000-0000-4000-8000-000000000001";
 const note = { activity_id: party, by: "dell", at: "2026-11-18T15:40:00Z", summary: "First line\nSecond line" };
+
+async function routeWorker(page: Page, env: Parameters<typeof worker.fetch>[1]) {
+  await page.route(/\/(mcp|api\/engine\/.*)$/, async (route) => {
+    const request = route.request();
+    const body = request.postData();
+    const reply = await worker.fetch(
+      new Request(request.url(), {
+        method: request.method(),
+        headers: await request.allHeaders(),
+        ...(body === null ? {} : { body }),
+      }),
+      env,
+    );
+    await route.fulfill({
+      status: reply.status,
+      headers: Object.fromEntries(reply.headers),
+      body: Buffer.from(await reply.arrayBuffer()),
+    });
+  });
+}
 
 test("partners see and manage prospects from Deals", async (t) => {
   const actor = "joe";
@@ -264,23 +285,7 @@ test("partners see and manage prospects from Deals", async (t) => {
         env,
       );
       assert.equal(blocked.status, 404);
-      await page.route(/\/(mcp|api\/engine\/.*)$/, async (route) => {
-        const request = route.request();
-        const body = request.postData();
-        const reply = await worker.fetch(
-          new Request(request.url(), {
-            method: request.method(),
-            headers: await request.allHeaders(),
-            ...(body === null ? {} : { body }),
-          }),
-          env,
-        );
-        await route.fulfill({
-          status: reply.status,
-          headers: Object.fromEntries(reply.headers),
-          body: Buffer.from(await reply.arrayBuffer()),
-        });
-      });
+      await routeWorker(page, env);
       const birchName = page.getByRole("button", { name: birchProspect.name, exact: true });
       const birchDetail = page.getByRole("dialog", { name: birchProspect.name });
       const turn = birchDetail.getByRole("button", { name: "Turn into deal" });
@@ -696,6 +701,121 @@ test("partners see and manage prospects from Deals", async (t) => {
         .waitFor();
       assert.equal(await birchName.count(), 0);
       assert.equal(await lane.getByRole("heading", { name: "Prospects 1" }).count(), 1);
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("an open prospect shows a partner's new note without disturbing the draft or focus", async (t) => {
+  const session = { actor: { slug: "joe" }, csrf_token: "synthetic-csrf" };
+  const CARR = { fetch: async () => Response.json(session) };
+  const server = await startWorkerFixture({ assets: await appAssetSnapshot(), env: { CARR } });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+
+  for (const width of [1440, 390]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    try {
+      await pausedClock(page, new Date("2026-11-18T17:00:00Z").getTime());
+      const oldNote = { ...note, summary: "Asked about the second location" };
+      const newNote = { ...note, activity_id: "second-note", summary: "Sent the floor plan" };
+      const prospect = {
+        party_id: party,
+        name: "Example Elm Practice",
+        how_found: "referral",
+        owner: null,
+        needs_attention: false,
+        follow_ups: [],
+        latest_note: oldNote,
+        change_id: 12,
+      };
+      const path = `/api/engine/prospects/${party}`;
+      await page.addInitScript((path) => {
+        let count = 0;
+        Object.defineProperty(window, "prospectDetailFetchCount", { get: () => count });
+        const fetch = window.fetch.bind(window);
+        window.fetch = (input, init) => {
+          const url = input instanceof Request ? input.url : input;
+          if (new URL(url, location.href).pathname === path) count++;
+          return fetch(input, init);
+        };
+      }, path);
+      const detailFetchCount = () =>
+        page.evaluate(() => {
+          const count: unknown = Reflect.get(window, "prospectDetailFetchCount");
+          if (typeof count !== "number") throw Error("Missing prospect detail fetch count");
+          return count;
+        });
+      const tags: (string | null)[] = [];
+      let notes = [oldNote];
+      const env = {
+        GIT_SHA: "0".repeat(40),
+        APP_ENV: "fixture",
+        CARR,
+        ENGINE_ROUTING: { get: async () => "on" },
+        ENGINE: {
+          fetch: async (request: Request) => {
+            const route = new URL(request.url).pathname;
+            if (route === path) {
+              const etag = `"${notes.length}"`;
+              const condition = request.headers.get("if-none-match");
+              tags.push(condition);
+              const headers = { etag };
+              return condition === etag
+                ? new Response(null, { status: 304, headers })
+                : Response.json({ ...prospect, latest_note: notes[0], notes }, { headers });
+            }
+            if (route === "/api/engine/prospects") return Response.json({ prospects: [prospect], count: 1 });
+            return Response.json({ schema_version: "local-deals-board.v2", actor: "joe", deals: [] });
+          },
+        },
+      };
+      await routeWorker(page, env);
+      await page.goto(`${server.origin}/deals?mode=live&prospect=${party}&focus=follow-up`);
+      const dialog = page.getByRole("dialog", { name: prospect.name });
+      const followUps = dialog.getByRole("heading", { name: "Follow-ups" });
+      await settles(async () => assert.equal(await followUps.evaluate((el) => el === document.activeElement), true));
+      const draft = dialog.getByRole("textbox", { name: "Add note" });
+      await draft.fill("Draft about next week");
+      await draft.evaluate((input) => {
+        if (input instanceof HTMLInputElement) input.setSelectionRange(6, 6);
+      });
+      const checkDraft = async () => {
+        assert.equal(await draft.inputValue(), "Draft about next week");
+        assert.equal(await draft.evaluate((el) => el === document.activeElement), true);
+        assert.equal(await draft.evaluate((el) => el instanceof HTMLInputElement && el.selectionStart), 6);
+      };
+      const detailResponse = (status: number) =>
+        page.waitForResponse((response) => new URL(response.url()).pathname === path && response.status() === status, {
+          timeout: 5000,
+        });
+      const visibility = (value: DocumentVisibilityState) =>
+        page.evaluate((value) => {
+          Object.defineProperty(document, "visibilityState", { configurable: true, value });
+          document.dispatchEvent(new Event("visibilitychange"));
+        }, value);
+
+      await Promise.all([detailResponse(304), page.clock.fastForward(5000)]);
+      await checkDraft();
+      assert.equal(await dialog.getByText(oldNote.summary, { exact: true }).count(), 1);
+
+      notes = [newNote, oldNote];
+      await Promise.all([detailResponse(200), page.clock.fastForward(5000)]);
+      await dialog.getByText(newNote.summary, { exact: true }).waitFor();
+      assert.match((await dialog.textContent()) ?? "", /Sent the floor plan[\s\S]*Asked about the second location/);
+      await checkDraft();
+
+      await visibility("hidden");
+      await page.clock.fastForward(15_000);
+      assert.equal(await detailFetchCount(), 3, "the hidden tab starts no prospect detail fetches");
+      await Promise.all([detailResponse(304), visibility("visible")]);
+      assert.deepEqual(tags, [null, '"1"', '"1"', '"2"']);
+      await dialog.getByRole("button", { name: "Back to Deals" }).click();
+      await dialog.waitFor({ state: "detached" });
+      await page.clock.fastForward(15_000);
+      assert.equal(await detailFetchCount(), 4, "closing the dialog stops prospect detail fetches");
     } finally {
       await page.close();
     }
