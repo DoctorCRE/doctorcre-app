@@ -1065,6 +1065,88 @@ test('Deals shows late steps and can undo a close reported by the engine', async
   assert.deepEqual(oldReads, []);
 });
 
+for (const width of [1440, 390]) test(`a fresh automatic call move shows its evidence and can be undone at ${width}px`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'Asia/Tokyo' });
+  t.after(() => page.close());
+  await page.clock.setFixedTime(new Date('2026-11-19T18:00:00Z'));
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `call-move-${width}`, viewer: 'joe', reset: true } });
+  const receipt = { source: 'call_capture', automatic: true, event_id: crypto.randomUUID(), phase: 'legal',
+    prior_phase: 'research', reason: null, evidence_date: '2026-10-19', recorded_at: '2026-10-21T00:00:00Z',
+    call: { activity_id: crypto.randomUUID(), happened_at: '2026-10-19T02:30:00Z' } };
+  const deal = { id: crypto.randomUUID(), name: 'Example Clinic Move', owner: 'joe', phase: 'legal', seen: 23, phase_change: receipt };
+  const partner = { ...deal, id: crypto.randomUUID(), name: 'Example Partner Move', phase_change: null };
+  const board = () => ({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [deal, partner] });
+  let savesOn = false;
+  const writes = [];
+  const env = {
+    ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' || (savesOn && key === 'deals-saves-from-engine') ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      if (path === '/api/engine/deals') return Response.json(board());
+      if (request.method === 'GET') {
+        const row = [deal, partner].find(item => path === `/api/engine/deals/${item.id}`);
+        assert.ok(row);
+        return Response.json({ ...row, deal_id: row.id, email_follow_ups: [], seen: row.seen + 1 });
+      }
+      assert.equal(path, `/api/engine/deals/${deal.id}/phase/undo`);
+      writes.push(await request.json());
+      Object.assign(deal, { phase: 'research', phase_change: null, seen: 25 });
+      return Response.json({ deal_id: deal.id, phase: deal.phase, phase_changed_at: '2026-11-18T18:00:00Z' });
+    } },
+  };
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    if (!['deal-room-board', 'get-deal-room', 'undo-automatic-phase-move'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+    }), env);
+    return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+  });
+
+  const caption = scope => scope.locator('.auto-move');
+  const undo = scope => scope.getByRole('button', { name: 'Undo', exact: true });
+  const hasCall = async scope => {
+    const mark = caption(scope);
+    await mark.getByText('Moved automatically', { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await mark.count(), 1);
+    assert.equal(await mark.locator('time[datetime="2026-10-19"]').innerText(), 'Mon, Oct 19, 2026');
+    assert.match(await mark.innerText(), /Oct 18, 9:30 PM CDT/);
+  };
+  const card = page.locator(`.kanban-card[data-id="${deal.id}"]`);
+  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  await page.goto(`${origin}/deals?mode=live`);
+  await hasCall(card);
+  assert.equal(await undo(card).count(), 0);
+  await card.getByRole('button', { name: deal.name, exact: true }).click();
+  await hasCall(snapshot);
+  assert.equal(await undo(snapshot).count(), 0);
+
+  savesOn = true;
+  await page.goto(`${origin}/deals?mode=live`);
+  await undo(card).waitFor({ timeout: 5000 });
+  await hasCall(card);
+  assert.equal(await caption(page.locator(`.kanban-card[data-id="${partner.id}"]`)).count(), 0);
+  await card.screenshot({ path: join(evidence, `call-move-board-${width}.png`) });
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  const row = page.locator(`.deal-row[data-id="${deal.id}"]`);
+  await hasCall(row);
+  assert.equal(await undo(row).count(), 0);
+  await row.getByRole('button', { name: deal.name, exact: true }).click();
+  await hasCall(snapshot);
+  await undo(snapshot).waitFor();
+  await snapshot.screenshot({ path: join(evidence, `call-move-detail-${width}.png`) });
+  await undo(snapshot).press('Enter');
+  await caption(snapshot).waitFor({ state: 'detached', timeout: 5000 });
+  assert.equal(await page.locator('#detailPhase').inputValue(), 'research');
+  assert.equal(writes.length, 1);
+  assert.match(writes[0].idempotency_key, /^[a-f\d-]{36}$/i);
+  assert.deepEqual(writes[0], { idempotency_key: writes[0].idempotency_key, event_id: receipt.event_id, base_version: 24 });
+  await page.getByRole('button', { name: 'Back to deals' }).click();
+  await page.getByRole('button', { name: 'Board', exact: true }).click();
+  assert.equal(await card.locator('xpath=ancestor::*[@data-column]').getAttribute('data-column'), 'research');
+  assert.equal(await caption(card).count(), 0);
+});
+
 test('keyboard Undo returns an automatically moved card to the previous phase', async t => {
   const page = await browser.newPage({ timezoneId: 'America/Los_Angeles' });
   t.after(() => page.close());
@@ -1075,6 +1157,9 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
       evidence_date: '2026-10-19', recorded_at: '2026-10-20T00:00:00Z' },
   });
   const success = row('Example Restored Deal');
+  Object.assign(success.phase_change, {
+    source: 'call_capture', call: { activity_id: crypto.randomUUID(), happened_at: '2026-10-19T15:00:00Z' },
+  });
   const closed = row('Example Formerly Closed Deal', 'closed');
   const lost = row('Example Formerly Lost Deal', 'dead');
   const invoiced = row('Example Formerly Invoiced Deal', 'invoiced');

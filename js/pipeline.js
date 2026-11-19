@@ -41,7 +41,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
@@ -111,7 +111,7 @@ function say(text) {
 const dateWords = (value) => (value ? formatCalendarDate(value) || value : 'no date recorded');
 
 const automaticPhase = prepareAutomaticPhaseUndo({
-  state, performCommand, newKey: uuidv4, render: renderBoard, report: announce, refreshedMessage: 'The card was refreshed.',
+  state, performCommand, newKey: uuidv4, render: renderPhaseUndo, report: announce, refreshedMessage: 'The card was refreshed.',
 });
 
 function cardPhaseMoveHtml(deal, legacy = '') {
@@ -119,6 +119,26 @@ function cardPhaseMoveHtml(deal, legacy = '') {
   if (!state.boardFromEngine && !canUndo) return legacy;
   const receipt = automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id), { showEngineMoves: state.boardFromEngine, canUndo });
   return renderPhaseReceipt(deal, receipt, legacy);
+}
+
+function detailPhaseMoveHtml(detail) {
+  const deal = detail.deal;
+  if (!isEngineDealDetail(detail)) return '';
+  const receipt = automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id), {
+    showEngineMoves: isPhaseMoveReceipt(deal.phase_change), canUndo: detail.next_deal_saves === true,
+  });
+  return renderPhaseReceipt(deal, receipt, '');
+}
+
+function renderPhaseUndo() {
+  renderBoard();
+  const host = $('panelBody').querySelector('[data-phase-move]');
+  if (!host || !state.panelDetail) return;
+  const html = detailPhaseMoveHtml(state.panelDetail);
+  if (host.innerHTML === html) return;
+  const focused = host.contains(document.activeElement);
+  host.innerHTML = html;
+  if (focused) (host.querySelector('button') || $('panelBody').querySelector('[data-refresh-detail]'))?.focus({ preventScroll: true });
 }
 
 const dealTitle = (deal) => dealName(deal.name);
@@ -1552,6 +1572,7 @@ function workspaceHtml(detail) {
     <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
       ${websiteLink}
       ${renderInvoiceClose(d, state.nextDealSaves)}
+      ${fromEngine ? `<div data-phase-move>${detailPhaseMoveHtml(detail)}</div>` : ''}
       ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${dueOn && dueOn < today ? 'Overdue action' : 'Next action'}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span></p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
       ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
         const day = calendarDay(action.due_on);
@@ -2292,7 +2313,13 @@ function wire() {
     // eslint-disable-next-line no-restricted-syntax -- Only an explicit retry-button click reconciles the retained field write; no automatic resend occurs.
     if (retry) { retryFieldWrite(retry.dataset.retryWrite); return; }
     const phaseUndo = event.target.closest('button[data-undo-phase]');
-    if (phaseUndo) { await automaticPhase.undo(phaseUndo); return; }
+    if (phaseUndo) {
+      const onDealPage = $('panelBody').contains(phaseUndo);
+      const result = await automaticPhase.undo(phaseUndo);
+      if (onDealPage && state.panelDeal === phaseUndo.dataset.undoPhase
+          && (result?.status === 'ok' || result?.code === 'version_conflict')) await refreshPanel();
+      return;
+    }
     const undo = event.target.closest('button[data-undo]');
     if (undo) { runUndo(undo.dataset.undo); return; }
     const openDeal = event.target.closest('button[data-open-deal]');
