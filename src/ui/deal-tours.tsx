@@ -89,7 +89,8 @@ export function mountDealTours(
     else url.searchParams.delete("tour");
     navigate(url, false);
   }
-  let departureApproved = false;
+  let departureApproved = false,
+    waitingForReadback = false;
   function checkDeparture() {
     const detail: { readback?: Promise<unknown> } = {};
     const frame = active() && !departureApproved ? element.querySelector("iframe") : null;
@@ -107,8 +108,12 @@ export function mountDealTours(
     if (!active()) return true;
     let check = checkDeparture();
     if (!departure && check.readback) {
+      waitingForReadback = true;
+      render();
       await check.readback.catch(() => {});
+      waitingForReadback = false;
       if (!active()) return false;
+      render();
       check = checkDeparture();
     }
     if (departure) return departure.promise;
@@ -204,6 +209,14 @@ export function mountDealTours(
               <button type="button" className="btn btn-quiet" data-back-tours onClick={back}>
                 Back to deal tours
               </button>
+              <div
+                role="status"
+                className={waitingForReadback ? "toast show" : undefined}
+                data-transient
+                style={{ pointerEvents: "none" }}
+              >
+                {waitingForReadback && "Finishing save…"}
+              </div>
               <iframe
                 title="Tour shortlist, route and packet"
                 src={`/tours/route-editor.html?embedded=1&deal=${encodeURIComponent(dealId)}&generation=${detailGeneration}${selection.kind === "ready" ? `&tour=${encodeURIComponent(selection.tour.id)}` : ""}`}

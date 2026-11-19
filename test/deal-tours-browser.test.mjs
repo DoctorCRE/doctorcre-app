@@ -308,14 +308,15 @@ test('creation and pending-write departures preserve history and saved notes', a
   await buildArtifact({root:fileURLToPath(new URL('../',import.meta.url)),outDir:artifact,commit:'1'.repeat(40)});
   const server = await startFixtureServer({env:{DOCTORCRE_FIXTURE_ROOT:`${artifact}/site`}}); t.after(() => server.stop());
   const browser = await chromium.launch({args:[...CHROMIUM_SAFETY_ARGS]}); t.after(() => browser.close());
-  for (const width of [390,1440]) for (const scenario of ['back 1','back 2','back 3','forward 1','forward 2','forward 3','pending keep','pending leave']) await t.test(`${width} ${scenario}`, async () => {
+  for (const width of [390,1440]) for (const scenario of ['back 1','back 2','back 3','forward 1','forward 2','forward 3','pending keep','pending edit','pending leave']) await t.test(`${width} ${scenario}`, async () => {
     const page = await browser.newPage({viewport:{width,height:1000}});
     await traceSheet(page);
     let release;
     const gate = new Promise(resolve => { release = resolve; });
     let writes = 0, notes = '', revision = 0, settled;
     const saved = new Promise(resolve => { settled = resolve; });
-    const refresh = scenario === 'pending keep' ? Promise.withResolvers() : null;
+    const editDuringReadback = scenario === 'pending edit';
+    const refresh = scenario === 'pending keep' || editDuringReadback ? Promise.withResolvers() : null;
     try {
       await page.route(/^https:\/\//,route => route.abort());
       const seed = JSON.parse((await readFile(new URL('../data/board-seed.json',import.meta.url),'utf8')).replaceAll('"d14"',JSON.stringify(deal)).replaceAll('"d23"',JSON.stringify(other)));
@@ -408,7 +409,21 @@ test('creation and pending-write departures preserve history and saved notes', a
           await page.goBack();
           await page.waitForURL(before.url);
           assert.equal(await prompt.isVisible(),false,'Back waits for readback without asking to discard saved notes');
+          const waiting = page.getByRole('status').filter({hasText:'Finishing save…'});
+          await waiting.waitFor();
+          const draft = 'Notes typed while Back waits';
+          const historyMoves = () => page.evaluate(() => window.__sheetTrace.filter(event => event.kind === 'popstate').length);
+          const movesBeforeRelease = editDuringReadback ? await historyMoves() : 0;
+          if (editDuringReadback) await editor.locator('#cheat-content').fill(draft);
           refresh.resolve();
+          await waiting.waitFor({state:'hidden'});
+          if (editDuringReadback) {
+            await prompt.waitFor({timeout:3000});
+            assert.equal(await historyMoves(),movesBeforeRelease,'Prompt for the new edits before replaying Back');
+            await prompt.getByRole('button',{name:'Keep editing',exact:true}).click();
+            assert.equal(await editor.locator('#cheat-content').inputValue(),draft);
+            return;
+          }
           await page.locator('[data-open-tour]').waitFor();
         }
         await page.locator('[data-open-tour]').click();
