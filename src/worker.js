@@ -589,6 +589,8 @@ async function engineSave(request, env) {
   }
   if (call.params.name === 'save-engine-home-mark') {
     if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+    if (!['snooze', 'unsnooze', 'drop', 'done', 'undo_done'].includes(call.params.arguments.action))
+      return saveRefusal(call, 'invalid_arguments', 'Refresh Home and choose an available action.');
     return engineAnswer(request, env, call, { path: '/api/engine/home/marks' }, { allowHandoff: false });
   }
   const homeSave = HOME_WRITES.get(call.params.name);

@@ -2094,3 +2094,13 @@ test("market-deal choices and saves use the new engine behind the Deals switches
     idempotency_key: key,
   });
 });
+
+test("old settle operations cannot reach the engine Home marks door", async () => {
+  const f = fixture(new Map([["home-from-engine", "on"]]));
+  for (const action of ["settle", "unsettle"]) {
+    const response = await f.send(call("save-engine-home-mark", { action }));
+    assert.equal((await response.json()).result.isError, true);
+  }
+  assert.deepEqual(f.engine, []);
+  assert.deepEqual(f.carr, []);
+});

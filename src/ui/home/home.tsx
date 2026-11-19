@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
+import { DropReason } from "./drop-reason.tsx";
 import { EngineMailPriorities } from "./engine-mail-priorities.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
 import { draftCardStatus, hasEngineReview, openStepRefusal } from "./engine-review.ts";
@@ -11,6 +12,8 @@ import {
   type Action,
   type Command,
   command,
+  dropCommand,
+  dropTarget,
   type InboxClient,
   type InboxItem,
   type ItemResult,
@@ -113,6 +116,7 @@ function Inbox({ client }: { client: InboxClient }) {
   const [notice, setNotice] = useState("");
   const [failures, setFailures] = useState<ItemResult[]>([]);
   const [undo, setUndo] = useState<Undo[]>([]);
+  const [dropping, setDropping] = useState<{ item: InboxItem; opener: HTMLButtonElement } | null>(null);
   const [snooze, setSnooze] = useState<SnoozePreview | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
   const root = useRef<HTMLElement>(null);
@@ -201,7 +205,7 @@ function Inbox({ client }: { client: InboxClient }) {
   }, [focusTargets]);
   function finishBatch() {
     const next = root.current?.querySelector<HTMLElement>(
-      '.home-slice[aria-label="Needs your attention"] h3 a, .home-slice[aria-label="Today"] h3 a',
+      '.home-slice[aria-label="Late"] h3 a, .home-slice[aria-label="Needs your attention"] h3 a, .home-slice[aria-label="Today"] h3 a',
     );
     const target = next || root.current?.querySelector<HTMLElement>(".home-slice h2");
     target?.focus();
@@ -231,9 +235,10 @@ function Inbox({ client }: { client: InboxClient }) {
       if (!mounted.current) return;
       const results = await client.run(operation.request);
       if (!mounted.current) return;
-      const successes = results.flatMap((result) => (result.ok ? [result.item] : []));
+      const successes = results.filter((result) => result.ok);
+      const saved = successes.flatMap((result) => (result.item ? [result.item] : []));
       const changed = results.flatMap((result) => (!result.ok && result.current_item ? [result.current_item] : []));
-      const updates = [...successes, ...changed];
+      const updates = [...saved, ...changed];
       const failed = results.filter((result) => !result.ok && !result.current_item);
       cache.setQueryData<Snapshot>(
         queryKey,
@@ -251,15 +256,20 @@ function Inbox({ client }: { client: InboxClient }) {
       select(new Set(failed.map((result) => result.item_id)));
       if ((successes.length || changed.length) && !operation.undoing) {
         setUndo((entries) => [
-          ...entries.filter((entry) => !updates.some((item) => item.item_id === entry.items[0]?.item_id)),
+          ...entries.filter(
+            (entry) =>
+              !results.some((result) => result.ok && result.item_id === entry.items[0]?.item_id) &&
+              !changed.some((item) => item.item_id === entry.items[0]?.item_id),
+          ),
           ...results.flatMap<Undo>((result) => {
             if (!result.ok) return [];
             const { item, undo } = result;
-            if (undo)
-              return [{ mark: undo, items: [{ ...item, item_id: undo.item_id, base_version: undo.base_version }] }];
+            const previous = operation.before.find((before) => before.item_id === result.item_id);
+            if (undo && previous)
+              return [{ mark: undo, items: [{ ...(item ?? previous), base_version: undo.base_version }] }];
+            if (!item || operation.request.action === "drop") return [];
             if (operation.request.action === "complete")
               return result.receipt ? [{ action: "reopen" as const, items: [item], receipt: result.receipt }] : [];
-            const previous = operation.before.find((before) => before.item_id === result.item_id);
             return previous
               ? [
                   {
@@ -278,9 +288,11 @@ function Inbox({ client }: { client: InboxClient }) {
         ]);
       }
       const completion =
-        operation.request.action === "complete" ? successes.map((item) => `Marked done: ${item.title}.`).join(" ") : "";
+        operation.request.action === "complete" ? saved.map((item) => `Marked done: ${item.title}.`).join(" ") : "";
       setNotice(
-        `${completion} ${successes.length + changed.length} confirmed. ${changed.length ? `${changed.length} changed again after confirmation. Showing the latest state. Undo is unavailable for those cards. ` : ""}${failed.length ? `${failed.length} failed or uncertain. Kept for review.` : successes.length ? (operation.undoing ? "Undone." : "You can undo this change.") : ""}`,
+        operation.request.action === "drop" && successes.length
+          ? "Dropped."
+          : `${completion} ${successes.length + changed.length} confirmed. ${changed.length ? `${changed.length} changed again after confirmation. Showing the latest state. Undo is unavailable for those cards. ` : ""}${failed.length ? `${failed.length} failed or uncertain. Kept for review.` : successes.length ? (operation.undoing ? "Undone." : "You can undo this change.") : ""}`,
       );
       if (!failed.length) setPending(null);
       focusRow(operation.undoing ? operation.before.map((item) => item.item_id) : neighbours);
@@ -364,35 +376,41 @@ function Inbox({ client }: { client: InboxClient }) {
   const items = query.data?.items || [];
   const availableUndo = undo.filter((entry) => {
     if (!("mark" in entry)) return true;
-    return items.some(
-      (item) =>
-        item.item_id === entry.mark.item_id &&
-        item.base_version === entry.mark.base_version &&
-        item.source_state !== "done" &&
-        item.source_state !== "working",
-    );
+    const card = items.find((item) => item.item_id === entry.mark.item_id);
+    return card
+      ? card.base_version === entry.mark.base_version &&
+          card.source_state !== "working" &&
+          (card.source_state === "done") === Boolean(entry.mark.completion)
+      : entry.mark.completion;
   });
   const placed = shelves(items, item_id);
+  const visibleShelves = (["working", "held", "done", "snoozed", "settled"] as const).filter(
+    (shelf) => shelf !== "settled" || !query.data?.engine_marks,
+  );
   const picked = items.filter((item) => selected.has(item.item_id));
   function openCard(item: InboxItem, opener: HTMLElement, proposal?: string) {
     reviewOpener.current = opener;
     setReviewing(proposal ? { ...item, focusedSuggestionId: proposal } : item);
   }
-  const openingLocked = busy || !!pending || !!reviewing;
+  const openingLocked = busy || !!pending || !!reviewing || !!dropping;
   function row(item: InboxItem) {
     const primary =
-      item.disposition === "settled"
-        ? "Show in inbox"
-        : item.disposition === "snoozed"
-          ? "Wake"
-          : item.engine_marks && item.kind_label === "Update"
-            ? "Got it"
-            : "Hide from inbox";
-    const markAction = item.disposition === "inbox" ? "settle" : "unsettle";
+      item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
+    const markAction = item.engine_marks ? "unsnooze" : item.disposition === "inbox" ? "settle" : "unsettle";
     const markable =
-      !item.engine_marks ||
-      (item.source_state !== "done" && item.source_state !== "working" && markTarget(item.item_id));
-    const completable = item.action_id !== null && item.source_state === "needs_attention";
+      !item.engine_marks || ((item.section === "inbox" || item.section === "snoozed") && markTarget(item.item_id));
+    const wakeable = markable && (item.engine_marks ? item.section === "snoozed" : item.source_state !== "working");
+    const tourDone =
+      item.engine_marks &&
+      item.home_mark_drop &&
+      item.kind_label === "Tour feedback" &&
+      item.section === "inbox" &&
+      markable;
+    const completable =
+      item.action_id !== null &&
+      item.source_state === "needs_attention" &&
+      (!item.engine_marks || item.section === "inbox");
+    const droppable = dropTarget(item) !== null;
     const open = reviewing?.item_id === item.item_id;
     const reviewClient =
       reviewing &&
@@ -437,7 +455,7 @@ function Inbox({ client }: { client: InboxClient }) {
             reviewing
           )
             return;
-          if (touch.clientX > start.x && markable && item.source_state !== "working") act(markAction, [item]);
+          if (touch.clientX > start.x && wakeable) act(markAction, [item]);
           else if (touch.clientX < start.x && markable) {
             snoozeOpener.current = event.currentTarget.querySelector("h3 a");
             openSnooze([item]);
@@ -516,21 +534,21 @@ function Inbox({ client }: { client: InboxClient }) {
         <div className="inbox-actions">
           <button
             type="button"
-            className={completable ? undefined : "inbox-primary"}
+            className={completable || tourDone ? undefined : "inbox-primary"}
             aria-expanded={open}
             disabled={openingLocked}
             onClick={(event) => openCard(item, event.currentTarget)}
           >
             Open
           </button>
-          {completable && (
+          {(completable || tourDone) && (
             <button
               type="button"
               className="inbox-primary"
               disabled={busy || !!reviewing}
-              onClick={() => act("complete", [item])}
+              onClick={() => act(tourDone ? "done" : "complete", [item])}
             >
-              Mark done
+              {tourDone ? "Done" : "Mark done"}
             </button>
           )}
           {!item.engine_marks && item.source_type === "email_proposal" && item.source_state === "failed" && (
@@ -538,7 +556,7 @@ function Inbox({ client }: { client: InboxClient }) {
               This reply didn't send. Send it from your email, then press Hide from inbox.
             </p>
           )}
-          {markable && item.source_state !== "working" && (
+          {wakeable && (
             <button type="button" disabled={busy || !!reviewing} onClick={() => act(markAction, [item])}>
               {primary}
             </button>
@@ -553,6 +571,15 @@ function Inbox({ client }: { client: InboxClient }) {
               }}
             >
               Snooze
+            </button>
+          )}
+          {droppable && (
+            <button
+              type="button"
+              disabled={busy || !!pending || !!reviewing || !online}
+              onClick={(event) => setDropping({ item, opener: event.currentTarget })}
+            >
+              Drop
             </button>
           )}
         </div>
@@ -777,7 +804,7 @@ function Inbox({ client }: { client: InboxClient }) {
                   <h2>
                     Needs your attention <span>{placed.inbox.length}</span>
                   </h2>
-                  <p>Mark done finishes a task. Hide from inbox leaves the task open.</p>
+                  {!query.data?.engine_marks && <p>Mark done finishes a task. Hide from inbox leaves the task open.</p>}
                 </div>
                 {placed.inbox.length ? (
                   placed.inbox.map(row)
@@ -788,7 +815,7 @@ function Inbox({ client }: { client: InboxClient }) {
                   </div>
                 )}
               </section>
-              {(["working", "held", "done", "snoozed", "settled"] as const).map((shelf) => (
+              {visibleShelves.map((shelf) => (
                 <details className="inbox-shelf" key={shelf} open={placed.current?.section === shelf || undefined}>
                   <summary>
                     <span>
@@ -832,6 +859,7 @@ function Inbox({ client }: { client: InboxClient }) {
           }}
         />
       ) : (
+        !query.data?.engine_marks &&
         picked.length > 0 && (
           <div role="toolbar" className="inbox-bulk" aria-label="Selected cards">
             <strong>{picked.length} selected</strong>
@@ -864,6 +892,20 @@ function Inbox({ client }: { client: InboxClient }) {
             </button>
           </div>
         )
+      )}
+      {dropping && (
+        <DropReason
+          title={dropping.item.title}
+          cancel={() => {
+            dropping.opener.focus();
+            setDropping(null);
+          }}
+          confirm={(reason) => {
+            const item = dropping.item;
+            setDropping(null);
+            void run({ request: dropCommand(item, reason), before: [item] });
+          }}
+        />
       )}
       {snooze && (
         <dialog

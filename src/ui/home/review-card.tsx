@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { DropReason } from "./drop-reason.tsx";
 import { draftReference, proposalRefusal, type Suggestion } from "./engine-review.ts";
 import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
 import { type Operation, reviewError } from "./review";
@@ -46,6 +47,9 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [reason, setReason] = useState("");
+  const [drop, setDrop] = useState<{ title: string; opener: HTMLButtonElement; confirm(reason: string): void } | null>(
+    null,
+  );
   const [decision, setDecision] = useState("approve");
   const [observation, setObservation] = useState("");
   const [message, setMessage] = useState("");
@@ -209,7 +213,7 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
       busy(false);
     }
   }
-  function choose(op: Operation) {
+  function choose(op: Operation, dropReason?: string) {
     if (!review || !editable || lock.current || !form.current) return;
     if (op.verb !== "dismiss-email-proposal" && !form.current.reportValidity()) return;
     let input: Record<string, unknown> = {};
@@ -222,11 +226,12 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
           review.attachments && { document_ids: review.attachments.map((row) => row.id) }),
       };
     if (op.verb === "dismiss-email-proposal") {
-      if (!reason.trim()) {
+      const explanation = dropReason ?? reason.trim();
+      if (!explanation) {
         setMessage("Give a reason before declining this draft.");
         return;
       }
-      input = { reason };
+      input = { reason: explanation };
     }
     if (op.verb === "resolve-fact-review") {
       if (
@@ -260,7 +265,7 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
     }
     void run({ verb: op.verb, args: { ...op.args, ...input, idempotency_key: crypto.randomUUID() } }, review);
   }
-  function decideSuggestion(proposal: Suggestion, decision: "accept" | "dismiss") {
+  function decideSuggestion(proposal: Suggestion, decision: "accept" | "dismiss", reason?: string) {
     if (!review || !form.current || !editable) return;
     const fields = new FormData(form.current);
     const what = fields.get(`${proposal.id}-what`);
@@ -275,12 +280,16 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
         args: {
           id: proposal.id,
           decision,
+          ...(reason && { reason }),
           idempotency_key: crypto.randomUUID(),
           ...(edits && { edits: { what, due_on: fields.get(`${proposal.id}-date`) || null } }),
         },
       },
       review,
     );
+  }
+  function suggestionDecisions(proposal: Suggestion): readonly ("accept" | "dismiss")[] {
+    return proposal.completion || item.home_proposal_drop ? ["accept", "dismiss"] : ["accept"];
   }
   const suggestionFields = (
     <>
@@ -333,7 +342,7 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
               <p>This step changed after the suggestion. Mark it done from the step, or choose Not yet.</p>
             )}
             <div className="inbox-actions">
-              {(["accept", "dismiss"] as const).map((decision) => (
+              {suggestionDecisions(proposal).map((decision) => (
                 <button
                   key={decision}
                   type="button"
@@ -341,7 +350,15 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
                     decision === "accept" &&
                     (!proposal.canAccept || (state.phase === "proposal-refused" && state.id === proposal.id))
                   }
-                  onClick={() => decideSuggestion(proposal, decision)}
+                  onClick={(event) => {
+                    if (decision === "dismiss" && !proposal.completion) {
+                      setDrop({
+                        title: proposal.label.toLowerCase(),
+                        opener: event.currentTarget,
+                        confirm: (reason) => decideSuggestion(proposal, decision, reason),
+                      });
+                    } else decideSuggestion(proposal, decision);
+                  }}
                 >
                   {proposal.completion
                     ? decision === "accept"
@@ -349,7 +366,7 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
                       : "Not yet"
                     : decision === "accept"
                       ? "Accept"
-                      : "Dismiss"}
+                      : "Drop"}
                 </button>
               ))}
             </div>
@@ -485,7 +502,7 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
                       : "Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to these recipients."}
                   </p>
                 )}
-                {canDeclineDraft && (
+                {canDeclineDraft && !item.engine_marks && (
                   <label>
                     Reason for declining
                     <input value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} />
@@ -627,9 +644,17 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
                   (op.verb === "resolve-fact-review" &&
                     (review.kind !== "fact_review" || !availableDecisions(op, review).includes(decision)))
                 }
-                onClick={() => choose(op)}
+                onClick={(event) => {
+                  if (item.engine_marks && op.verb === "dismiss-email-proposal")
+                    setDrop({ title: "draft", opener: event.currentTarget, confirm: (reason) => choose(op, reason) });
+                  else choose(op);
+                }}
               >
-                {item.engine_marks && op.verb === "submit-email-draft" ? "Send reply" : labels[op.verb]}
+                {item.engine_marks && op.verb === "dismiss-email-proposal"
+                  ? "Drop"
+                  : item.engine_marks && op.verb === "submit-email-draft"
+                    ? "Send reply"
+                    : labels[op.verb]}
               </button>
             ))}
           </div>
@@ -650,6 +675,19 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
             Retry same review request
           </button>
         </>
+      )}
+      {drop && (
+        <DropReason
+          title={drop.title}
+          cancel={() => {
+            drop.opener.focus();
+            setDrop(null);
+          }}
+          confirm={(reason) => {
+            setDrop(null);
+            drop.confirm(reason);
+          }}
+        />
       )}
       {message && <p role="status">{message}</p>}
     </section>

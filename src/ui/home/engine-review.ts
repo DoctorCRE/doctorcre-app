@@ -31,7 +31,7 @@ export function draftCardStatus(item: InboxItem) {
   return draft ? draftStatus(draft.status, draft.failureReason) : null;
 }
 
-function proposalIds(item: InboxItem) {
+export function proposalIds(item: InboxItem) {
   const review = "completion_review" in item ? item.completion_review : null;
   if (object(review) && typeof review.proposal_id === "string") return [review.proposal_id];
   const suggestions = "suggestions" in item ? item.suggestions : null;

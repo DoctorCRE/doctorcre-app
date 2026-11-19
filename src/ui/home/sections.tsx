@@ -240,13 +240,15 @@ export function HomeSections({
         current={current}
         row={renderRow}
       />
-      <Slice
-        title="Hidden from inbox"
-        detail="Set aside by you. These tasks may still be open."
-        items={items.filter((item) => placement(item).section === "settled" && !placement(item).auto_settled)}
-        current={current}
-        row={renderRow}
-      />
+      {!engine && (
+        <Slice
+          title="Hidden from inbox"
+          detail="Set aside by you. These tasks may still be open."
+          items={items.filter((item) => placement(item).section === "settled" && !placement(item).auto_settled)}
+          current={current}
+          row={renderRow}
+        />
+      )}
     </div>
   );
 }
