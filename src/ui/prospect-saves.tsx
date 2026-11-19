@@ -1,5 +1,9 @@
 import { type FormEvent, useRef, useState } from "react";
 
+export const partners = { joe: "Joe", dell: "Dell" };
+export type Partner = keyof typeof partners;
+export const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 type Reply =
   | { ok: true; data: Record<string, unknown>; sent: Record<string, unknown> }
   | { ok: false; problem: Record<string, unknown>; pending: boolean };
@@ -9,6 +13,8 @@ export type ProspectClient = {
 };
 type SaveState = { kind: "ready" | "saving" } | { kind: "refused"; problem: Record<string, unknown>; pending: boolean };
 const prospects = "/api/engine/prospects";
+
+export { ProspectSaveFeedback, prospects as prospectsPath, useProspectSave };
 
 function useProspectSave(
   client: ProspectClient,
