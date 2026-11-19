@@ -14,6 +14,7 @@ type Row = {
   phase: string;
   due: string;
   dueClass: string;
+  phaseMoveRef?: (node: HTMLDivElement | null) => void;
   retries: { cell: string; label: string }[];
   step:
     | { kind: "local"; text: string; empty: boolean; owner: string }
@@ -64,6 +65,7 @@ function DealRoomBoard({ rows, phases, nationalAccountRows }: Props) {
                     </Fragment>
                   ))}
                 </div>
+                {row.phaseMoveRef && <div ref={row.phaseMoveRef} />}
               </div>
             </div>
           </td>

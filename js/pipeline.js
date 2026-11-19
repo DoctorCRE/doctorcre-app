@@ -42,7 +42,7 @@ import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } 
 import { lostDeals, closedDeals, urgencyOrder, concise, automaticMove, invoiceClose, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
 import {
-  mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
+  createAutomaticPhaseUndo, mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
   dealTimeline, engineTimelineEntries, renderImportedDealHistory, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
 } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
@@ -86,7 +86,6 @@ const state = {
   boardStatus: 'starting',
   nextDealSaves: false,
   boardFromEngine: false,
-  phaseUndo: new Map(),
   prospectCount: null,
   unplaced: 0,
 };
@@ -109,22 +108,12 @@ function say(text) {
 
 const dateWords = (value) => (value ? formatCalendarDate(value) || value : 'no date recorded');
 
+const automaticPhase = createAutomaticPhaseUndo({
+  state, render: renderBoard, report: announce, refreshedMessage: 'The card was refreshed.',
+});
+
 function cardPhaseMoveHtml(deal, legacy = '') {
-  if (!state.nextDealSaves || state.view !== 'board') return legacy;
-  const event = deal.phase_change;
-  const day = calendarDay(event?.evidence_date);
-  const entry = state.phaseUndo.get(deal.id);
-  const feedback = entry?.eventId && entry.eventId !== event?.event_id ? null : entry;
-  const move = event?.source === 'copied' && event.automatic === true && event.event_id && day;
-  const returnsToEndedDeals = move && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
-    || feedback?.code === 'undo_returns_to_ended_deals');
-  const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
-  const undo = move && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
-    ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(event.event_id)}" data-base-version="${deal.seen}"${feedback?.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
-  const mark = move
-    ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${day}">${esc(dateWords(day))}</time>${undo}</div>`
-    : legacy;
-  return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
+  return state.nextDealSaves && state.view === 'board' ? automaticPhase.receiptHtml(deal, legacy) : legacy;
 }
 
 function autoHtml(deal) {
@@ -513,7 +502,7 @@ function applyBoardSnapshot(board) {
   if (saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
-  if (actorChanged || saveSwitchChanged) state.phaseUndo.clear();
+  if (actorChanged || saveSwitchChanged) automaticPhase.clear();
   if (actorChanged) {
     clearMarketTermsViews();
     pageDocContext?.clear();
@@ -1430,41 +1419,7 @@ function dueDateHtml(day, today) {
   return `Due <time datetime="${esc(day)}">${esc(dateWords(day))}</time>${daysLate ? ` · ${daysLate} day${daysLate === 1 ? '' : 's'} late` : ''}`;
 }
 
-async function undoAutomaticPhaseMove(button) {
-  if (!state.nextDealSaves || button.getAttribute('aria-disabled') === 'true') return;
-  const { undoPhase: deal, eventId: event_id, baseVersion } = button.dataset;
-  if (state.phaseUndo.get(deal)?.busy) return;
-  const feedback = { busy: true, eventId: null, code: null, message: '' };
-  state.phaseUndo.set(deal, feedback);
-  renderBoard();
-  const seen_change_id = Number(baseVersion);
-  const result = await performCommand({
-    operationKey: `phase-undo:${state.selfActor}:${deal}:${event_id}:${seen_change_id}`,
-    args: { deal, event_id, seen_change_id },
-    getState: () => commandState,
-    setState: next => { commandState = next; },
-    newKey: uuidv4,
-    call: request => state.client.undoAutomaticPhaseMove(request),
-  });
-  if (state.phaseUndo.get(deal) !== feedback) return;
-  if (result.status === 'ok' || result.code === 'version_conflict') {
-    const refreshed = await state.boardSync.requestRefresh('after-phase-undo');
-    if (state.phaseUndo.get(deal) !== feedback) return;
-    feedback.message = result.status === 'ok'
-      ? refreshed.applied ? '' : 'Move undone. Refresh Deals to see the current phase.'
-      : refreshed.applied ? 'This deal changed. The card was refreshed.' : 'This deal changed. Refresh Deals to see the current phase.';
-  } else {
-    feedback.eventId = event_id;
-    feedback.code = result.code;
-    feedback.message = result.hint || (result.status === 'unknown'
-      ? 'Undo could not be confirmed. Use Undo again to check what happened.'
-      : 'Undo could not be saved.');
-  }
-  feedback.busy = false;
-  if (!feedback.message) state.phaseUndo.delete(deal);
-  renderBoard();
-  if (feedback.message) announce(feedback.message);
-}
+
 
 function undoInvoiceClose() {
   const deal = state.panelDetail?.deal;
@@ -2247,7 +2202,7 @@ function wire() {
     // eslint-disable-next-line no-restricted-syntax -- Only an explicit retry-button click reconciles the retained field write; no automatic resend occurs.
     if (retry) { retryFieldWrite(retry.dataset.retryWrite); return; }
     const phaseUndo = event.target.closest('button[data-undo-phase]');
-    if (phaseUndo) { await undoAutomaticPhaseMove(phaseUndo); return; }
+    if (phaseUndo) { await automaticPhase.undo(phaseUndo); return; }
     const undo = event.target.closest('button[data-undo]');
     if (undo) { runUndo(undo.dataset.undo); return; }
     const openDeal = event.target.closest('button[data-open-deal]');

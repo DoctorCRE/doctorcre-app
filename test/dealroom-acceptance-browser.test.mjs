@@ -1046,13 +1046,16 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await page.clock.setFixedTime(new Date('2026-11-19T15:00:00Z'));
   await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `national-rows-${width}`, viewer: 'joe', reset: true } });
   const account = crypto.randomUUID();
-  const deal = { id: crypto.randomUUID(), name: 'Example Clinic Expansion', phase: 'research', owner: 'joe', seen: 1,
+  const receipt = { source: 'copied', automatic: true, event_id: crypto.randomUUID(),
+    phase: 'legal', prior_phase: 'research', evidence_date: '2026-10-19' };
+  const deal = { id: crypto.randomUUID(), name: 'Example Clinic Expansion', phase: 'legal', owner: 'joe', seen: 1, phase_change: receipt,
     account_client_id: account, market: 'Market unspecified in source', next_date: '2026-11-18', next_step: 'Review the floor plan',
     open_actions: [{ id: crypto.randomUUID(), owner: 'joe', description: 'Review the floor plan', due_on: '2026-11-18' }] };
-  const closing = { ...deal, id: crypto.randomUUID(), name: 'Example Dental Office', phase: 'closing',
+  const closing = { ...deal, id: crypto.randomUUID(), name: 'Example Dental Office', phase: 'closing', phase_change: null,
     market: 'Example City', next_date: '2026-11-23', next_step: 'Sign the lease',
     open_actions: [{ id: crypto.randomUUID(), owner: 'joe', description: 'Sign the lease', due_on: '2026-11-23' }] };
   const writes = [];
+  const undos = [];
   let savesOn = false;
   const env = {
     ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' || (savesOn && key === 'deals-saves-from-engine') ? 'on' : null },
@@ -1061,6 +1064,14 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
       if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe',
         deals: [deal, closing], accounts: [{ account_client_id: account, account_name: 'Example National Account', account_owner: 'joe' }] });
       if (path === `/api/engine/deals/${deal.id}`) return Response.json({ ...deal, deal_id: deal.id });
+      if (path === `/api/engine/deals/${deal.id}/phase/undo`) {
+        const { idempotency_key, ...change } = await request.json();
+        assert.match(idempotency_key, /^[a-f\d-]{36}$/i);
+        assert.deepEqual(change, { event_id: receipt.event_id, base_version: deal.seen });
+        undos.push(change);
+        Object.assign(deal, { phase: receipt.prior_phase, phase_change: null, seen: deal.seen + 1 });
+        return Response.json({ deal_id: deal.id, phase: deal.phase, phase_changed_at: '2026-11-19T15:01:00Z' });
+      }
       assert.equal(path, `/api/engine/deals/${deal.id}/changes`);
       const { fields } = await request.json();
       writes.push(fields);
@@ -1074,7 +1085,7 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   }));
   await page.route('**/mcp', async route => {
     const request = route.request();
-    if (!['deal-room-board', 'get-deal-room', 'patch-deal-field'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+    if (!['deal-room-board', 'get-deal-room', 'patch-deal-field', 'undo-automatic-phase-move'].includes(request.postDataJSON()?.params?.name)) return route.continue();
     const response = await handleDoctorcreRequest(new Request(request.url(), {
       method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
     }), env);
@@ -1088,12 +1099,18 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await openAccount();
   assert.equal(await row.getByRole('button').first().getAttribute('aria-label'), `Flag for attention on ${deal.name}`);
   assert.match(await page.locator('#stats').innerText(), /2 active work · 1 overdue dates · 1 at closing/);
+  assert.equal(await row.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
 
   savesOn = true;
   await page.goto(accountUrl);
   await openAccount();
   const first = row.getByRole('button').first();
   assert.equal(await first.innerText(), deal.name);
+  const moved = row.getByText('Moved automatically', { exact: true });
+  assert.equal(await moved.count(), 1);
+  assert.equal(await row.locator('time[datetime="2026-10-19"]').textContent(), 'Mon, Oct 19, 2026');
+  assert.equal(await page.getByRole('row').filter({ hasText: closing.name })
+    .getByRole('button', { name: 'Undo', exact: true }).count(), 0);
   const mark = row.getByRole('button', { name: `Mark needs attention on ${deal.name}`, exact: true });
   await mark.waitFor();
   assert.ok((await mark.innerText()).startsWith('Mark needs attention'));
@@ -1112,6 +1129,12 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await clear.click();
   await mark.waitFor();
   assert.deepEqual(writes, [{ needs_attention: true }, { needs_attention: false }]);
+  await row.getByRole('button', { name: 'Undo', exact: true }).press('Enter');
+  await moved.waitFor({ state: 'detached' });
+  assert.equal(await row.getByLabel(`Phase for ${deal.name}`).inputValue(), 'Research');
+  assert.equal(await row.count(), 1);
+  assert.equal(await first.evaluate(button => button === document.activeElement), true);
+  assert.equal(undos.length, 1);
 });
 
 test('National Accounts saves inline changes using the version on the deal board', async t => {

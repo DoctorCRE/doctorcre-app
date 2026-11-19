@@ -130,6 +130,9 @@ tr.parked { color: var(--fg-muted); }
 .deal-link { padding: var(--space-1) 0; border: 0; background: transparent; color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); text-align: left; }
 .deal-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .account-deal-row .deal-link { min-height: var(--touch); text-decoration: underline; text-underline-offset: 3px; }
+.account-deal-row .auto-move { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: var(--space-2) 0 0; color: var(--status-info-ink); }
+.account-deal-row .auto-move button { min-height: var(--touch); padding-inline: var(--space-2); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: transparent; color: var(--fg); }
+.account-deal-row .auto-move button:hover { border-color: var(--hairline-strong); }
 .deal-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: 2px; color: var(--fg-muted); font-size: var(--font-size-1); }
 .badge { display: inline-flex; align-items: center; padding: 0 var(--space-2); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-round); color: var(--fg-muted); font-size: var(--font-size-1); }
 .badge.account { color: var(--fg); }

@@ -1,5 +1,8 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { createCurrentRead } from './current-read.mjs';
+import { performCommand } from './command-feedback.mjs';
+import { formatCalendarDate } from './visual-system.js';
+import { uuidv4 } from './uuid.js';
 
 import { businessDay } from './business-date.js';
 import { COLUMNS, columnBySlug, columnByValue, noteText, PHASE_DATE_KIND } from './pipeline-model.js';
@@ -37,6 +40,66 @@ export function calendarDay(value) {
   const stamp = Date.parse(day + 'T00:00:00Z');
   return Number.isFinite(stamp) && new Date(stamp).toISOString().slice(0,10) === day ? day : null;
 }
+export function createAutomaticPhaseUndo({ state, render, report, refreshedMessage }) {
+  const feedbackByDeal = new Map();
+  let commandState = {};
+
+  function receiptHtml(deal, legacy = '') {
+    const event = deal.phase_change;
+    const day = calendarDay(event?.evidence_date);
+    const entry = feedbackByDeal.get(deal.id);
+    const feedback = entry?.eventId && entry.eventId !== event?.event_id ? null : entry;
+    const move = event?.source === 'copied' && event.automatic === true && event.event_id && day;
+    const returnsToEndedDeals = move && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
+      || feedback?.code === 'undo_returns_to_ended_deals');
+    const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
+    const undo = move && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
+      ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(event.event_id)}" data-base-version="${deal.seen}"${feedback?.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
+    const mark = move
+      ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${day}">${esc(formatCalendarDate(day) || day)}</time>${undo}</div>`
+      : legacy;
+    return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
+  }
+
+  async function undo(button) {
+    if (!state.nextDealSaves || button.getAttribute('aria-disabled') === 'true') return;
+    const { undoPhase: deal, eventId: event_id, baseVersion } = button.dataset;
+    if (feedbackByDeal.get(deal)?.busy) return;
+    const feedback = { busy: true, eventId: null, code: null, message: '' };
+    feedbackByDeal.set(deal, feedback);
+    render();
+    const seen_change_id = Number(baseVersion);
+    const result = await performCommand({
+      operationKey: `phase-undo:${state.selfActor}:${deal}:${event_id}:${seen_change_id}`,
+      args: { deal, event_id, seen_change_id },
+      getState: () => commandState,
+      setState: next => { commandState = next; },
+      newKey: uuidv4,
+      call: request => state.client.undoAutomaticPhaseMove(request),
+    });
+    if (feedbackByDeal.get(deal) !== feedback) return;
+    if (result.status === 'ok' || result.code === 'version_conflict') {
+      const refreshed = await state.boardSync.requestRefresh('after-phase-undo');
+      if (feedbackByDeal.get(deal) !== feedback) return;
+      feedback.message = result.status === 'ok'
+        ? refreshed.applied ? '' : 'Move undone. Refresh Deals to see the current phase.'
+        : refreshed.applied ? `This deal changed. ${refreshedMessage}` : 'This deal changed. Refresh Deals to see the current phase.';
+    } else {
+      feedback.eventId = event_id;
+      feedback.code = result.code;
+      feedback.message = result.hint || (result.status === 'unknown'
+        ? 'Undo could not be confirmed. Use Undo again to check what happened.'
+        : 'Undo could not be saved.');
+    }
+    feedback.busy = false;
+    if (!feedback.message) feedbackByDeal.delete(deal);
+    render();
+    if (feedback.message) report(feedback.message);
+  }
+
+  return { receiptHtml, undo, clear: () => feedbackByDeal.clear() };
+}
+
 const today = now => businessDay(new Date(now));
 export function dateCaption(day) {
   return day ? new Date(day+'T12:00:00Z').toLocaleDateString([], {month:'short',day:'numeric',year:'numeric',timeZone:'UTC'}) : '—';
