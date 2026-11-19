@@ -78,7 +78,7 @@ export function renderDealSummary(deal, { today = '', viewer = '', board = false
   return lines.join('') + renderLastDealStep(deal.last_step);
 }
 
-export function renderLastDealStep(last) {
+function renderLastDealStep(last) {
   const lastText = noteText(last?.summary);
   const lastDate = shortDate(last?.occurred_at, '');
   if (lastText && lastDate) {
