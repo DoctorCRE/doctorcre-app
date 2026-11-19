@@ -117,7 +117,7 @@
 .kanban-column .deal-summary-facts { white-space: pre-wrap; }
 .deal-board-next-step { margin: 0; overflow-wrap: anywhere; }
 .kanban-column .deal-items { padding-inline-start: 1em; }
-.deal-attention-label { display: block; color: var(--status-warn-ink); }
+.deal-attention-label { display: block; flex-basis: 100%; color: var(--status-warn-ink); }
 .kanban-card[data-attention="true"] { border-top: 2px solid var(--status-warn); }
 .attention-flag { display: inline-flex; align-items: center; min-width: var(--touch); min-height: var(--touch); padding: 0 var(--space-1); border: 0; background: transparent; color: var(--status-warn-ink); font: inherit; font-size: var(--font-size-1); font-weight: var(--font-weight-strong); white-space: nowrap; text-decoration: underline; text-decoration-color: var(--hairline); text-underline-offset: 4px; cursor: pointer; }
 .attention-flag:hover { text-decoration-color: currentColor; }

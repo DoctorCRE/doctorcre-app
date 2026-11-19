@@ -199,6 +199,9 @@ for (const width of [1440, 390]) {
 
 for (const width of [1440, 390]) {
   test(`switched Local Deals keeps phase counts, saves attention and retries history at ${width}px`, async t => {
+    const fixture = await (await createQaServer({ buildRoot: join(outDir, 'site') })).start();
+    t.after(() => fixture.close());
+    const { origin } = fixture;
     const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'Europe/Paris' });
     t.after(() => page.close());
     page.setDefaultTimeout(5000);

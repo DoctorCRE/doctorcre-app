@@ -393,7 +393,8 @@ export function createBoardSync({
       if (error) {
         counters.board_failed += 1;
         boardHealth = HEALTH.FAILED;
-        boardError = { message: describe(error), code: error.code };
+        const engineUnavailable = error.status === 503 && /"error"\s*:\s*"engine_unavailable"/.test(error.body ?? '');
+        boardError = { message: describe(error), code: engineUnavailable ? 'engine_unavailable' : null };
         publish();
         return { ok: false, applied: false, reason: 'read_failed', error, ticket };
       }

@@ -494,6 +494,7 @@ function renderChips() {
 }
 
 function renderStatus(status) {
+  // A failed first read leaves the history view hidden until it is rendered.
   if (status.board_error_code === 'engine_unavailable' && !status.snapshots && ['closed', 'lost'].includes(state.view)) renderBoard();
   renderBoardMessage(status);
   state.boardStatus = status.state;

@@ -120,10 +120,7 @@ export function createLiveClient(opts = {}) {
     if (outcome.kind === 'authorization' || outcome.reason === 'http') {
       const error = new Error(`live ${verb} -> HTTP ${outcome.status}`);
       error.status = outcome.status;
-      if (outcome.kind !== 'authorization') {
-        error.body = outcome.body;
-        if (verb === 'deal-room-board') error.code = outcome.payload?.error;
-      }
+      if (outcome.kind !== 'authorization') error.body = outcome.body;
       throw error;
     }
     if (outcome.kind === 'unconfirmed') {
