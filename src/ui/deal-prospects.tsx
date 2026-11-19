@@ -199,15 +199,9 @@ function parseDetail(value: Record<string, unknown>) {
 }
 
 function parseDrop(value: unknown) {
-  if (
-    !record(value) ||
-    typeof value.at !== "string" ||
-    !Number.isFinite(Date.parse(value.at)) ||
-    !textOrNull(value.by) ||
-    typeof value.reason !== "string"
-  )
-    return invalid();
-  return { at: value.at, by: value.by, reason: value.reason };
+  if (!record(value) || typeof value.at !== "string" || typeof value.reason !== "string") return invalid();
+  if (!Number.isFinite(Date.parse(value.at))) return invalid();
+  return { at: value.at, reason: value.reason };
 }
 
 type Detail = ReturnType<typeof parseDetail>;
@@ -217,35 +211,26 @@ function refreshNotes(current: Detail, incoming: Detail): Detail {
   return { ...current, notes: incoming.notes, latest_note: incoming.latest_note, dropped: incoming.dropped };
 }
 
-function DropReason({ drop }: { drop: NonNullable<Detail["dropped"]> }) {
+function dropCaption(drop: NonNullable<Detail["dropped"]>) {
   const date = new Date(drop.at);
   const formatter = sameYear(centralDay.format(date), centralDay.format(new Date()))
     ? dropDate.current
     : dropDate.other;
-  return (
-    <p>
-      Dropped {formatter.format(date)}: {drop.reason}
-    </p>
-  );
+  return `Dropped ${formatter.format(date)}: ${drop.reason}`;
 }
 
 function ProspectNotes({ notes, authorLabel }: { notes: Detail["notes"]; authorLabel: AuthorLabel }) {
-  return (
-    <>
-      <h3>Notes</h3>
-      {notes.length ? (
-        <ul>
-          {notes.map((note) => (
-            <li key={note.id}>
-              {noteBy(note, authorLabel)}
-              <p className="note-original">{note.summary}</p>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p>No notes yet</p>
-      )}
-    </>
+  return notes.length ? (
+    <ul>
+      {notes.map((note) => (
+        <li key={note.id}>
+          {noteBy(note, authorLabel)}
+          <p className="note-original">{note.summary}</p>
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <p>No notes yet</p>
   );
 }
 
@@ -283,7 +268,8 @@ function DroppedProspectPage({
       {!path || unavailable ? <p role="alert">Could not load this prospect.</p> : !row && <p>Loading prospect…</p>}
       {row && (
         <section className="card glass monday-review-item">
-          {row.dropped && <DropReason drop={row.dropped} />}
+          {row.dropped && <p>{dropCaption(row.dropped)}</p>}
+          <h2>Notes</h2>
           <ProspectNotes notes={row.notes} authorLabel={authorLabel} />
         </section>
       )}
@@ -353,7 +339,7 @@ function ProspectDetail({
         {unavailable ? <p role="alert">Could not load this prospect.</p> : !row && <p>Loading prospect…</p>}
         {row && (
           <>
-            {row.dropped && <DropReason drop={row.dropped} />}
+            {row.dropped && <p>{dropCaption(row.dropped)}</p>}
             {canSave && <ProspectNote id={id} client={client} saved={saved} />}
             <p>
               How found ·{" "}
@@ -400,6 +386,7 @@ function ProspectDetail({
                 }}
               />
             )}
+            <h3>Notes</h3>
             <ProspectNotes notes={row.notes} authorLabel={authorLabel} />
           </>
         )}

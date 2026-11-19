@@ -2103,6 +2103,7 @@ for (const width of [1440, 390]) {
     await droppedItem.getByRole('link').click();
     const archive = page.getByRole('main', { name: droppedRow.name });
     await archive.getByText('Dropped Mon, Nov 9: Plans changed', { exact: true }).waitFor();
+    await archive.getByRole('heading', { name: 'Notes', level: 2 }).waitFor();
     await archive.getByText(prospectNote.summary).waitFor();
     assert.equal(await archive.getByRole('button').count(), 0);
     assert.equal(await archive.locator('form').count(), 0);
@@ -2271,6 +2272,13 @@ for (const width of [1440, 390]) {
       await page.locator('#detailUpdateStatus').getByText('Update added', { exact: true }).waitFor();
       assert.deepEqual(stepBody().seen_current_step, { next_step_id: next_actions[2].id, change_id: 9 });
     }
+    review = review.filter(item => item.deal_id);
+    await other.reload();
+    await other.getByText('Example deal note', { exact: true }).waitFor();
+    const priorWeekReads = weeks.length;
+    const dealRefresh = other.waitForResponse(response => response.request().postDataJSON()?.params?.name === 'get-deal-room');
+    await Promise.all([dealRefresh, other.clock.runFor(5000)]);
+    assert.equal(weeks.length, priorWeekReads);
   });
 }
 

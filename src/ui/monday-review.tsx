@@ -11,7 +11,7 @@ type ReviewItem = {
   name: string;
   owner: string | null;
   phase: string | null;
-  status: string | null;
+  status: keyof typeof statusLabels | null;
   attention: boolean;
   step: string | null;
   due: string | null;
@@ -51,12 +51,12 @@ const version = (value: unknown) =>
 const stamp = (value: Record<string, unknown>) => ({ by: text(value.by), at: text(value.at) });
 const itemKey = (item: ReviewItem) => `${item.kind}-${item.id}`;
 
-const statusLabels = new Map([
-  ["closed", "Closed"],
-  ["lost", "Lost"],
-  ["dropped", "Dropped"],
-  ["parked", "Parked"],
-]);
+const statusLabels = {
+  closed: "Closed",
+  lost: "Lost",
+  dropped: "Dropped",
+  parked: "Parked",
+};
 
 function parseReview(result: unknown): ReviewItem[] {
   if (!record(result) || !Array.isArray(result.items)) throw new Error("Invalid review");
@@ -368,7 +368,7 @@ function Item({
   if (item.status === "dropped") params.set("view", "dropped-prospect");
   if (mode) params.set("mode", mode);
   const phase = deal ? data.phaseLabel(item.phase ?? "") : "Prospect";
-  const status = statusLabels.get(item.status ?? "");
+  const status = item.status && statusLabels[item.status];
   const owner = item.owner ? data.authorLabel(item.owner) : deal ? "Unassigned" : "Unclaimed";
   const due = item.due ? data.dateLabel(item.due) : null;
   const key = itemKey(item);
@@ -472,8 +472,9 @@ function Review({ data }: { data: ReviewData }) {
   useEffect(() => {
     void reload(true);
   }, [reload]);
+  const hasProspects = Array.isArray(rows) && rows.some((row) => row.kind === "prospect");
   useEffect(() => {
-    if (!revision) return;
+    if (!hasProspects || !revision) return;
     return refreshWhileVisible(
       async (signal) => {
         const request = sequence.current;
@@ -500,7 +501,7 @@ function Review({ data }: { data: ReviewData }) {
       },
       { immediate: false },
     );
-  }, [data, revision]);
+  }, [data, hasProspects, revision]);
   useEffect(() => {
     if (!Array.isArray(rows) || restored.current) return;
     restored.current = true;
