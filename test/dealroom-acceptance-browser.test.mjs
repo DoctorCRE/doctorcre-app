@@ -500,6 +500,117 @@ test('Deals shows late steps and can undo a close reported by the engine', async
   assert.deepEqual(oldReads, []);
 });
 
+test('keyboard Undo returns an automatically moved card to the previous phase', async t => {
+  const page = await browser.newPage({ timezoneId: 'America/Los_Angeles' });
+  t.after(() => page.close());
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'automatic-phase-undo', viewer: 'joe', reset: true } });
+  const row = (name, prior_phase = 'research', automatic = true) => ({
+    id: crypto.randomUUID(), name, owner: 'joe', phase: 'legal', seen: 23,
+    phase_change: { source: 'copied', automatic, event_id: crypto.randomUUID(), phase: 'legal', prior_phase,
+      evidence_date: '2026-10-19', recorded_at: '2026-10-20T00:00:00Z' },
+  });
+  const success = row('Example Restored Deal');
+  const closed = row('Example Formerly Closed Deal', 'closed');
+  const lost = row('Example Formerly Lost Deal', 'dead');
+  const invoiced = row('Example Formerly Invoiced Deal', 'invoiced');
+  const refused = row('Example Refused Undo Deal');
+  const stale = row('Example Changed Deal');
+  const manual = row('Example Manual Deal', 'research', false);
+  const parked = { ...row('Example Parked Deal'), operating_state: 'parked', parking_reason: 'client_paused' };
+  const deals = [success, closed, lost, invoiced, refused, stale, manual, parked];
+  const board = () => ({ schema_version: 'local-deals-board.v2', actor: 'joe', deals });
+  const writes = [], oldReads = [];
+  let switches = new Set();
+  const env = {
+    ENGINE_ROUTING: { get: async key => switches.has(key) ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      if (request.method === 'GET') {
+        if (path === '/api/engine/deals') return Response.json(board());
+        const deal = deals.find(item => path === `/api/engine/deals/${item.id}`);
+        assert.ok(deal);
+        return Response.json({ ...deal, deal_id: deal.id });
+      }
+      const deal = deals.find(item => path === `/api/engine/deals/${item.id}/phase/undo`);
+      assert.ok(deal);
+      const body = await request.json();
+      writes.push(body.idempotency_key);
+      assert.match(body.idempotency_key, /^[a-f\d-]{36}$/i);
+      assert.deepEqual(body, { idempotency_key: body.idempotency_key, event_id: deal.phase_change.event_id, base_version: deal.seen });
+      if (deal === refused) return Response.json({
+        error: 'version_conflict', current_version: deal.seen,
+        hint: 'Undo would return this deal to Closed deals or Lost deals.',
+      }, { status: 409 });
+      deal.seen++;
+      deal.phase = deal === stale ? 'negotiation' : 'research';
+      deal.phase_change = null;
+      return deal === stale
+        ? Response.json({ error: 'version_conflict', current_version: deal.seen }, { status: 409 })
+        : Response.json({ deal_id: deal.id, phase: deal.phase, phase_changed_at: '2026-11-18T18:00:00Z' });
+    } },
+    CARR: { fetch: async request => {
+      const { id, params } = await request.json();
+      oldReads.push(params.name);
+      return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(board()) }] } });
+    } },
+  };
+  await page.route('**/mcp', async route => {
+    const request = route.request(), body = request.postDataJSON();
+    if (!['deal-room-board', 'get-deal-room', 'undo-automatic-phase-move'].includes(body?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
+    }), env);
+    return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+  });
+  const card = deal => page.locator('.kanban-card').filter({ has: page.getByRole('button', { name: deal.name, exact: true }) });
+  const undo = deal => card(deal).getByRole('button', { name: 'Undo', exact: true });
+  for (const keys of [[], ['deals-from-engine'], ['deals-from-engine', 'deals-saves-from-engine']]) {
+    switches = new Set(keys);
+    await page.goto(`${origin}/deals?mode=live`);
+    await card(success).waitFor();
+    if (keys.length < 2) assert.equal(await undo(success).count(), 0);
+  }
+  assert.ok(oldReads.length);
+  oldReads.length = 0;
+  assert.equal(await card(manual).getByText('Moved automatically', { exact: true }).count(), 0);
+  assert.equal(await undo(manual).count(), 0);
+  await card(success).getByText('Moved automatically', { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(await card(success).locator('time[datetime="2026-10-19"]').textContent(), 'Mon, Oct 19, 2026');
+  await undo(success).press('Enter');
+  const restored = page.locator('[data-column="research"]').getByRole('button', { name: success.name, exact: true });
+  await restored.waitFor();
+  assert.equal(await card(success).count(), 1);
+  assert.equal(await card(success).evaluate(node => node === document.activeElement), true);
+  assert.equal(await undo(success).count(), 0);
+
+  const refusal = deal => card(deal).getByText('Undo would return this deal to Closed deals or Lost deals.', { exact: true });
+  for (const deal of [closed, lost, invoiced]) {
+    assert.equal(await refusal(deal).isVisible(), true, deal.name);
+    assert.equal(await undo(deal).count(), 0, deal.name);
+    assert.equal(await card(deal).locator('xpath=ancestor::*[@data-column]').getAttribute('data-column'), 'legal');
+  }
+  await undo(refused).click();
+  await refusal(refused).waitFor();
+  assert.equal(await undo(refused).count(), 0);
+  assert.equal(await card(refused).locator('xpath=ancestor::*[@data-column]').getAttribute('data-column'), 'legal');
+  await undo(stale).press('Space');
+  const reloaded = page.locator('[data-column="negotiation"]').getByRole('button', { name: stale.name, exact: true });
+  await reloaded.waitFor();
+  await card(stale).getByText('This deal changed. The card was refreshed.', { exact: true }).waitFor();
+  assert.equal(await undo(stale).count(), 0);
+  await page.screenshot({ path: join(evidence, 'automatic-phase-undo.png') });
+  await page.getByRole('button', { name: 'Parked', exact: true }).click();
+  const parkedCard = page.locator('.parked-card').filter({ hasText: parked.name });
+  await parkedCard.getByRole('button', { name: 'Undo', exact: true }).click();
+  await parkedCard.getByText('Moved automatically', { exact: true }).waitFor({ state: 'detached' });
+  assert.equal(await parkedCard.count(), 1);
+  assert.equal(writes.length, 4);
+  assert.equal(new Set(writes).size, 4);
+  await restored.click();
+  await page.getByRole('heading', { name: success.name, exact: true }).waitFor();
+  assert.deepEqual(oldReads, []);
+});
+
 test('National Accounts saves inline changes using the version on the deal board', async t => {
   const page = await browser.newPage();
   t.after(() => page.close());
