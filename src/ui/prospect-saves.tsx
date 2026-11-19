@@ -1,7 +1,7 @@
 import { type FormEvent, useRef, useState } from "react";
 
 type Reply =
-  | { ok: true; data: Record<string, unknown> }
+  | { ok: true; data: Record<string, unknown>; sent: Record<string, unknown> }
   | { ok: false; problem: Record<string, unknown>; pending: boolean };
 export type ProspectClient = {
   prospectRequest: (path: string, init?: RequestInit) => Promise<Response>;
@@ -15,7 +15,7 @@ export function useProspectSave(
   url: string,
   operation: string,
   receipt: string,
-  saved: (data: Record<string, unknown>) => void,
+  saved: (data: Record<string, unknown>, sent: Record<string, unknown>) => void,
 ) {
   const busy = useRef(false);
   const [state, setState] = useState<SaveState>({ kind: "ready" });
@@ -27,7 +27,7 @@ export function useProspectSave(
       const result = await client.saveProspect(url, operation, receipt, args);
       if (result.ok) {
         setState({ kind: "ready" });
-        saved(result.data);
+        saved(result.data, result.sent);
       } else setState({ kind: "refused", problem: result.problem, pending: result.pending });
     } finally {
       busy.current = false;
@@ -41,6 +41,20 @@ export function useProspectSave(
   };
 }
 
+const refusalMessages: Readonly<Record<string, string>> = {
+  actor_not_provisioned: "Your account is not set up to save prospects. Ask the app administrator.",
+  database_refused_the_statement: "The change was refused. Reload the prospect, then try again.",
+  not_found: "This prospect could not be found. Reload Deals to check.",
+  not_a_prospect: "This person or company is no longer in Prospects. Reload Deals to check.",
+  already_client: "This person or company is already a client. Open Add deal to continue.",
+  open_step_exists: "You already have a follow-up. Reload the prospect to see it.",
+  key_reuse: "An earlier request used this save. Reload the prospect before trying again.",
+  session_changed: "Your sign-in changed. Reopen Deals before saving.",
+  authentication_required: "Sign in again to save prospects.",
+  authorization_refused: "This account cannot save prospects. Check which account is signed in.",
+};
+const editableFields: readonly string[] = ["summary", "what", "due_on", "name", "kind", "how_found", "note", "reason"];
+
 export function ProspectSaveFeedback({
   save,
   reload,
@@ -53,7 +67,9 @@ export function ProspectSaveFeedback({
   if (pending)
     return (
       <p role="alert">
-        The save could not be confirmed.{" "}
+        {problem.error === "unresolved_command"
+          ? "Check the earlier save before sending this draft."
+          : "The save could not be confirmed."}{" "}
         <button type="button" className="btn" onClick={() => void save.send()}>
           Check outcome
         </button>
@@ -77,11 +93,17 @@ export function ProspectSaveFeedback({
         )}
       </p>
     );
+  const code = typeof problem.error === "string" ? problem.error : "";
+  const fields = problem.fields;
+  if (Array.isArray(fields) && fields.length && fields.every((field) => editableFields.includes(field))) {
+    if (code === "missing_required") return <p role="alert">Fill in the missing information and try again.</p>;
+    if (code === "invalid_field_value") return <p role="alert">Check what you entered and try again.</p>;
+  }
   return (
     <p role="alert">
-      {problem.error === "not_a_prospect" || problem.error === "not_found"
-        ? "This prospect is no longer available here. Reload Deals to check."
-        : "This couldn't be saved. Check what you entered and try again."}
+      {Object.hasOwn(refusalMessages, code)
+        ? refusalMessages[code]
+        : "This couldn't be saved. Reload the prospect and try again."}
     </p>
   );
 }
@@ -89,8 +111,13 @@ export function ProspectSaveFeedback({
 type Props = { id: string; client: ProspectClient; saved: () => void };
 export function ProspectNote({ id, client, saved }: Props) {
   const form = useRef<HTMLFormElement>(null);
-  const note = useProspectSave(client, `${prospectsPath}/note`, `${id}:note`, "activity_id", () => {
-    form.current?.reset();
+  const input = useRef<HTMLInputElement>(null);
+  const [message, setMessage] = useState("");
+  const note = useProspectSave(client, `${prospectsPath}/note`, `${id}:note`, "activity_id", (_data, sent) => {
+    if (input.current?.value.trim() === sent.summary) {
+      form.current?.reset();
+      setMessage("");
+    } else if (input.current?.value.trim()) setMessage("Earlier note confirmed. Press Enter to save your draft.");
     saved();
   });
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -103,10 +130,18 @@ export function ProspectNote({ id, client, saved }: Props) {
       <form className="field" ref={form} onSubmit={submit}>
         <label>
           Add note
-          <input name="summary" required disabled={note.blocked} placeholder="Write a note and press Enter" />
+          <input
+            ref={input}
+            name="summary"
+            required
+            disabled={note.blocked}
+            onChange={() => setMessage("")}
+            placeholder="Write a note and press Enter"
+          />
         </label>
       </form>
       <ProspectSaveFeedback save={note} />
+      {message && <p role="status">{message}</p>}
     </>
   );
 }
@@ -123,12 +158,22 @@ export function ProspectFollowUp({
   reload: () => void;
 }) {
   const form = useRef<HTMLFormElement>(null);
+  const whatInput = useRef<HTMLInputElement>(null);
+  const dateInput = useRef<HTMLInputElement>(null);
   const base = useRef<{ step: StepVersion | undefined }>(null);
-  const save = useProspectSave(client, `${prospectsPath}/follow-up`, `${id}:follow-up`, "next_step_id", () => {
-    form.current?.reset();
-    base.current = null;
-    saved();
-  });
+  const save = useProspectSave(
+    client,
+    `${prospectsPath}/follow-up`,
+    `${id}:follow-up`,
+    "next_step_id",
+    (_data, sent) => {
+      if (whatInput.current?.value.trim() === sent.what && dateInput.current?.value === sent.due_on) {
+        form.current?.reset();
+        base.current = null;
+      }
+      saved();
+    },
+  );
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -155,15 +200,15 @@ export function ProspectFollowUp({
         onSubmit={submit}
       >
         <label>
-          Follow-up
-          <input name="what" required disabled={save.blocked} />
+          Your follow-up
+          <input ref={whatInput} name="what" required disabled={save.blocked} />
         </label>
         <label>
           Follow-up date
-          <input name="due_on" type="date" required disabled={save.blocked} />
+          <input ref={dateInput} name="due_on" type="date" required disabled={save.blocked} />
         </label>
         <button type="submit" className="btn" disabled={save.blocked}>
-          Set follow-up
+          Set your follow-up
         </button>
       </form>
       <ProspectSaveFeedback
