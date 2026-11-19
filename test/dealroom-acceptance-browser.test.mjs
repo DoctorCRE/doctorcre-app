@@ -867,6 +867,7 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   let savesOn = false;
   const personId = '00000000-0000-4000-8000-000000000041';
   const leaseId = '00000000-0000-4000-8000-000000000042';
+  const otherLeaseId = '00000000-0000-4000-8000-000000000043';
   const leaseReads = [];
   let leasesAvailable = true;
   const refusals = [
@@ -889,6 +890,8 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
         if (query === 'Example Unavailable') return Response.json({}, { status: 503 });
         const parties = ['person', 'company'].map(kind => ({
           id: kind === 'person' ? personId : clientId, display_name: 'Example Practice', kind,
+          city: kind === 'person' ? null : 'Austin', deal_count: kind === 'person' ? 1 : 3,
+          is_national_account: kind === 'company',
         })).filter(party => party.display_name.startsWith(query));
         return Response.json({ parties });
       }
@@ -896,7 +899,9 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
         leaseReads.push(id);
         if (!leasesAvailable) return Response.json({}, { status: 503 });
         return Response.json(id === clientId ? [
-          { lease_id: leaseId, address: '10 Example Road', expiration_on: '2031-06-01' },
+          { lease_id: leaseId, address: '10 Example Road', expiration_on: '2031-06-01',
+            renewed_by: { deal_id: personId, name: 'Example Earlier Renewal' } },
+          { lease_id: otherLeaseId, address: '20 Example Road', expiration_on: null, renewed_by: null },
         ] : []);
       }
       if (url.pathname === '/api/engine/prospects') return Response.json({ count: 0, prospects: [] });
@@ -905,7 +910,9 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
         const rows = [...deals.values()];
         return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe',
           deals: rows.filter(row => !row.outcome), closed_deals: rows.filter(row => row.outcome === 'won'),
-          lost_deals: rows.filter(row => row.outcome === 'lost') });
+          lost_deals: rows.filter(row => row.outcome === 'lost'),
+          accounts: [{ account_client_id: clientId, account_name: 'Example National Account', account_owner: 'joe',
+            base_version: 0, open_deals: 0, overdue_deals: 0, parked_deals: 0 }] });
       }
       const body = await request.json();
       writes.push(body);
@@ -965,8 +972,8 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   const kind = dialog.getByLabel('Deal kind');
   const reason = dialog.getByLabel('Deal reason');
   const lease = dialog.getByLabel('Lease to renew');
-  const company = dialog.getByRole('button', { name: 'Example Practice · Company' });
-  const person = dialog.getByRole('button', { name: 'Example Practice · Person' });
+  const company = dialog.getByRole('button', { name: 'Example Practice · Company · Austin · 3 deals' });
+  const person = dialog.getByRole('button', { name: 'Example Practice · Person · No city recorded · 1 deal' });
   assert.equal(await kind.inputValue(), '');
   assert.equal(await reason.inputValue(), '');
   await clientInput.fill('Example Unknown');
@@ -977,6 +984,8 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   await dialog.getByText('Search is unavailable. Try again.').waitFor();
   await clientInput.fill('Example Pra');
   await reason.selectOption('renewal');
+  await person.waitFor();
+  await dialog.screenshot({ path: join(evidence, `engine-client-matches-${width}.png`) });
   await person.click();
   await dialog.getByText('No leases found for this client.').waitFor();
   await clientInput.fill('Example');
@@ -985,7 +994,8 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   await dialog.getByText('Could not load leases.').waitFor();
   leasesAvailable = true;
   await dialog.getByRole('button', { name: 'Retry' }).click();
-  await lease.locator('option').filter({ hasText: '10 Example Road · Expires Sun, Jun 1, 2031' }).waitFor({ state: 'attached' });
+  await lease.locator('option').filter({ hasText: '10 Example Road · Expires Sun, Jun 1, 2031 · already renewed by Example Earlier Renewal' }).waitFor({ state: 'attached' });
+  assert.equal(await lease.locator(`option[value="${otherLeaseId}"]`).textContent(), '20 Example Road · Expiration not recorded');
   assert.deepEqual(leaseReads, [personId, clientId, clientId]);
   assert.equal(await lease.evaluate(control => control.matches(':invalid')), true);
   await create.click();
@@ -999,6 +1009,12 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   assert.equal(await lease.count(), 0);
   await reason.selectOption('renewal');
   await lease.selectOption(leaseId);
+  if (width === 390) {
+    await dialog.getByText('Already renewed by Example Earlier Renewal', { exact: true }).waitFor();
+    await lease.selectOption(otherLeaseId);
+    assert.equal(await dialog.getByText('Already renewed by Example Earlier Renewal', { exact: true }).count(), 0);
+    await lease.selectOption(leaseId);
+  }
   await kind.selectOption('lease');
   await dialog.getByLabel('Deal name').fill('Example Renewal Deal');
   const [formBox, createBox] = await Promise.all([dialog.boundingBox(), create.boundingBox()]);
@@ -1077,6 +1093,11 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   assert.ok(writes.filter(write => write.name).every(write => write.client_id === clientId));
   assert.deepEqual(writes.filter(write => write.name).map(write => [write.kind, write.reason, write.renews_lease_id]),
     [[undefined, undefined, undefined], [undefined, 'start_up', undefined]]);
+  await page.getByRole('button', { name: 'Add deal', exact: true }).click();
+  await clientInput.fill('Example Pra');
+  await dialog.getByRole('link', { name: 'Open account', exact: true }).click();
+  await page.locator('#accountContextName').getByText('Example National Account', { exact: true }).waitFor();
+  assert.equal(writes.length, 7, 'opening an account does not save a deal');
 });
 
 test('switched-on Deals selects an existing market agent and decides critical dates', async t => {

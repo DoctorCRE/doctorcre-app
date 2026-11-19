@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type NameMatchFacts, nameMatchDetails } from "./name-match";
 import {
   type Partner,
   type ProspectClient,
@@ -14,7 +15,7 @@ const kinds = [
   { value: "company", label: "Company" },
 ] as const;
 type PartyKind = (typeof kinds)[number]["value"];
-type Match = { id: string; display_name: string; kind: PartyKind };
+type Match = NameMatchFacts & { id: string; display_name: string; kind: PartyKind };
 const isId = (value: unknown): value is string => typeof value === "string" && uuid.test(value);
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object";
 function isMatch(value: unknown): value is Match {
@@ -22,6 +23,9 @@ function isMatch(value: unknown): value is Match {
     object(value) &&
     isId(value.id) &&
     typeof value.display_name === "string" &&
+    (value.city === undefined || value.city === null || typeof value.city === "string") &&
+    (value.deal_count === undefined || typeof value.deal_count === "number") &&
+    (value.is_national_account === undefined || typeof value.is_national_account === "boolean") &&
     kinds.some((kind) => kind.value === value.kind)
   );
 }
@@ -36,6 +40,12 @@ async function searchParties(request: PartyRequest, query: string, signal: Abort
   if (!response.ok) throw new Error("Party search unavailable");
   const data: unknown = await response.json();
   return object(data) && Array.isArray(data.parties) ? data.parties.filter(isMatch) : [];
+}
+
+function nationalAccountHref(id: string) {
+  const params = new URLSearchParams({ view: "national", account: id });
+  if (new URLSearchParams(location.search).get("mode") === "live") params.set("mode", "live");
+  return `/deals?${params}`;
 }
 
 type PickedClient = { id: string; name: string };
@@ -105,16 +115,25 @@ export function DealClientPicker({ prospect, client, request, leaseDate, onPick 
       {matches && matches.length > 0 && (
         <ul className="prospect-client-matches" aria-label="Matching people and companies">
           {matches.map((match) => {
-            const sameName = matches.filter(
-              (other) =>
-                other.display_name.toLowerCase() === match.display_name.toLowerCase() && other.kind === match.kind,
-            );
+            const details = nameMatchDetails(match);
+            const label = [match.display_name, match.kind === "person" ? "Person" : "Company", details]
+              .filter(Boolean)
+              .join(" · ");
             return (
               <li key={match.id}>
-                <button type="button" className="btn" onClick={() => select(match.id, match.display_name)}>
-                  {match.display_name} · {match.kind === "person" ? "Person" : "Company"}
-                  {sameName.length > 1 && (prospect ? ` · ${match.id}` : ` · Match ${sameName.indexOf(match) + 1}`)}
+                <button
+                  id={`match-${match.id}`}
+                  type="button"
+                  className="btn"
+                  onClick={() => select(match.id, match.display_name)}
+                >
+                  {label}
                 </button>
+                {match.is_national_account && (
+                  <a className="btn" href={nationalAccountHref(match.id)} aria-describedby={`match-${match.id}`}>
+                    Open account
+                  </a>
+                )}
               </li>
             );
           })}
@@ -180,14 +199,22 @@ function DealTerms({
   );
 }
 
-type Lease = { lease_id: string; address: string; expiration_on: string | null };
+type Lease = {
+  lease_id: string;
+  address: string;
+  expiration_on: string | null;
+  renewed_by?: { deal_id: string; name: string } | null;
+};
 type LeaseChoices = { kind: "loading" | "unavailable" } | { kind: "ready"; leases: Lease[] };
 function isLease(value: unknown): value is Lease {
   return (
     object(value) &&
     isId(value.lease_id) &&
     typeof value.address === "string" &&
-    (value.expiration_on === null || typeof value.expiration_on === "string")
+    (value.expiration_on === null || typeof value.expiration_on === "string") &&
+    (value.renewed_by === undefined ||
+      value.renewed_by === null ||
+      (object(value.renewed_by) && isId(value.renewed_by.deal_id) && typeof value.renewed_by.name === "string"))
   );
 }
 
@@ -201,6 +228,9 @@ function RenewalLease({
   leaseDate: LeaseDate;
 }) {
   const [choices, setChoices] = useState<LeaseChoices>({ kind: "loading" });
+  const [leaseId, setLeaseId] = useState("");
+  const renewal =
+    choices.kind === "ready" ? choices.leases.find((lease) => lease.lease_id === leaseId)?.renewed_by : null;
   useEffect(() => {
     if (choices.kind !== "loading") return;
     const controller = new AbortController();
@@ -223,18 +253,26 @@ function RenewalLease({
   return (
     <div className="field">
       <label htmlFor="renewalLease">Lease to renew</label>
-      <select id="renewalLease" name="renews_lease_id" required defaultValue="">
+      <select
+        id="renewalLease"
+        name="renews_lease_id"
+        required
+        value={leaseId}
+        onChange={(event) => setLeaseId(event.currentTarget.value)}
+      >
         <option value="">Choose a lease</option>
         {choices.kind === "ready" &&
           choices.leases.map((lease) => {
-            const expires = leaseDate(lease.expiration_on);
+            const expires = lease.expiration_on ? leaseDate(lease.expiration_on) : null;
             return (
               <option key={lease.lease_id} value={lease.lease_id}>
                 {lease.address} · {expires ? `Expires ${expires}` : "Expiration not recorded"}
+                {lease.renewed_by ? ` · already renewed by ${lease.renewed_by.name}` : ""}
               </option>
             );
           })}
       </select>
+      {renewal && <small className="renewal-lease-note">Already renewed by {renewal.name}</small>}
       {choices.kind === "loading" && <small role="status">Finding leases…</small>}
       {choices.kind === "ready" && choices.leases.length === 0 && (
         <small role="status">No leases found for this client.</small>

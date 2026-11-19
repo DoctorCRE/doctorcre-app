@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { chromium } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
 import { handleDoctorcreRequest } from "../src/worker.js";
@@ -98,11 +98,12 @@ for (const width of [390, 1440]) test(`use a company on file as a national accou
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({viewport:{width,height:900}});
-  const [missing, existing, chosen, fresh] = [31, 32, 33, 34].map(n => `00000000-0000-4000-8000-0000000000${n}`);
+  const [missing, existing, chosen, fresh, promoted] = [31, 32, 33, 34, 35].map(n => `00000000-0000-4000-8000-0000000000${n}`);
   const candidates = [
-    {id:missing, name:'Demo Company'},
-    {id:existing, name:'DEMO COMPANY'},
-    {id:chosen, name:'demo company'},
+    {id:missing, name:'Demo Company',city:'Austin',deal_count:3,is_national_account:false},
+    {id:existing, name:'Demo Company',city:null,deal_count:1,is_national_account:true},
+    {id:chosen, name:'Demo Company',city:'Waco',deal_count:0,is_national_account:false},
+    {id:promoted, name:'Demo Company',city:'Denton',deal_count:2,is_national_account:false},
   ];
   const account = (id, name) => ({account_client_id:id, account_name:name, account_owner:'dell',
     base_version:0, open_deals:0, overdue_deals:0, parked_deals:0});
@@ -113,7 +114,7 @@ for (const width of [390, 1440]) test(`use a company on file as a national accou
     const args = await request.json();
     writes.push(args);
     if (args.company_id === missing) return Response.json({error:'not_found'}, {status:404});
-    if (args.company_id === existing) return Response.json({error:'already_national_account'}, {status:409});
+    if (args.company_id === promoted) return Response.json({error:'already_national_account'}, {status:409});
     if (args.company_id === chosen) {
       if (accounts.some(item => item.account_client_id === chosen))
         return Response.json({account_client_id:chosen,name:candidates[2].name,owner:args.owner,replayed:true});
@@ -143,27 +144,41 @@ for (const width of [390, 1440]) test(`use a company on file as a national accou
   };
   const pick = page.getByRole('button',{name:'Make this company a national account',exact:true});
   await start(candidates[0].name);
-  await pick.first().waitFor();
-  assert.equal(await pick.count(), candidates.length);
-  for (const {name,id} of candidates) {
-    await page.locator('#nationalCandidates').getByText(name,{exact:true}).waitFor();
-    assert.equal(await page.getByText(id,{exact:false}).count(),0);
-  }
+  const matches = page.locator('#nationalCandidates');
+  const row = details => matches.getByRole('listitem').filter({hasText:details});
+  const missingRow = row('Austin · 3 deals');
+  const existingRow = row('No city recorded · 1 deal');
+  const chosenRow = row('Waco · 0 deals');
+  const promotedRow = row('Denton · 2 deals');
+  await missingRow.waitFor({timeout:3000});
+  assert.equal(await pick.count(), 3);
+  for (const {id} of candidates) assert.equal(await matches.getByText(id,{exact:false}).count(),0);
+  assert.equal(await missingRow.getByRole('button').evaluate(button => button.classList.contains('primary')),true);
+  assert.equal(await page.getByRole('button',{name:'Create separate company',exact:true}).evaluate(button => button.classList.contains('secondary')),true);
+  await mkdir('.scratch/name-matches',{recursive:true});
+  await page.locator('#formDialog').screenshot({path:`.scratch/name-matches/national-${width}.png`});
   assert.equal(await page.locator('#formDialog').evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth),true);
-  await pick.nth(0).click();
+  await missingRow.getByRole('button').click();
   await page.getByText('That company is no longer available.',{exact:false}).waitFor();
-  await pick.nth(1).click();
+  assert.equal(await missingRow.getByRole('button').isDisabled(),true);
+  await promotedRow.getByRole('button',{name:'Make this company a national account'}).click();
   await page.getByText('This company is already a national account.',{exact:true}).waitFor();
-  await page.getByRole('button',{name:'Open account',exact:true}).click();
+  await promotedRow.getByRole('button',{name:'Open account'}).waitFor();
+  await existingRow.getByRole('button',{name:'Open account',exact:true}).click();
+  await page.locator('#accountContextName').getByText(candidates[1].name,{exact:true}).waitFor();
+  await page.goto(`${server.origin}/deals?view=national&account=${existing}&mode=live`);
   await page.locator('#accountContextName').getByText(candidates[1].name,{exact:true}).waitFor();
   await page.locator('#accountBack').click();
 
   await start(candidates[0].name);
-  await pick.nth(2).click();
+  await chosenRow.getByRole('button').click();
   await page.getByRole('button',{name:'Check creation outcome',exact:true}).waitFor();
+  await chosenRow.getByText('Checking creation outcome.',{exact:true}).waitFor();
+  assert.equal(await existingRow.getByRole('button').isDisabled(),true);
   await page.keyboard.press('Escape');
   await add();
   const retry = page.getByRole('button',{name:'Check creation outcome',exact:true});
+  await chosenRow.getByText('Checking creation outcome.',{exact:true}).waitFor();
   const confirmSeparate = page.getByRole('checkbox',{name:/separate company/});
   assert.equal(await confirmSeparate.isChecked(),false);
   assert.equal(await confirmSeparate.isDisabled(),true);
@@ -177,7 +192,7 @@ for (const width of [390, 1440]) test(`use a company on file as a national accou
   });
   assert.notEqual(writes[4].idempotency_key,writes[3].idempotency_key);
   assert.equal(writes[1].company_id,missing);
-  assert.equal(writes[2].company_id,existing);
+  assert.equal(writes[2].company_id,promoted);
 
   await start('Demo New Company');
   await page.locator(`[data-account="${fresh}"]`).getByText('Demo New Company',{exact:true}).waitFor();
