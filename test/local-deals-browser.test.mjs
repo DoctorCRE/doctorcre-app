@@ -1157,6 +1157,86 @@ test('the status band shows one clock and one refresh, and that refresh also upd
   assert.deepEqual(errors, []);
 });
 
+test('Park and Revive keep the reason, note, date and original phase on the new Deals screens', async t => {
+  for (const width of [1440, 390]) await t.test(String(width), async t => {
+    const { page, errors } = await open(t, { width, timezoneId: 'Asia/Tokyo' });
+    await page.clock.setFixedTime(new Date('2026-10-05T02:00:00Z'));
+    await page.evaluate(async () => {
+      const { state } = await import('/js/pipeline.js');
+      const getBoard = state.client.getBoard.bind(state.client);
+      const getDeal = state.client.getDeal.bind(state.client);
+      const engineFields = deal => {
+        if (deal.id === 'd14') return { ...deal, client_portal_url: 'https://example.com/synthetic-site' };
+        if (deal.id === 'd06') return { ...deal, parked_automatically: true, parked_by: null };
+        return deal;
+      };
+      state.client.getBoard = async (...args) => {
+        const board = await getBoard(...args);
+        return { ...board, board_from_engine: true, next_deal_saves: true, deals: board.deals.map(engineFields) };
+      };
+      state.client.getDeal = async (...args) => {
+        const detail = await getDeal(...args);
+        return { ...detail, next_deal_saves: true, email_follow_ups: [], deal: engineFields(detail.deal) };
+      };
+    });
+    await refresh(page);
+    const originalColumn = page.locator('[data-column="negotiation"]');
+    const openDeal = originalColumn.locator('[data-id="d14"] .card-open');
+    const dealName = await openDeal.textContent();
+    await openDeal.click();
+    const form = page.locator('#detailParkForm');
+    await page.getByText('Park', { exact: true }).click();
+    const reason = form.getByLabel('Park reason');
+    await reason.waitFor({ timeout: 3000 });
+    assert.deepEqual(await reason.locator('option:not([value=""])').allTextContents(),
+      ['Client paused', 'Prospect never active', 'Other']);
+    await form.getByRole('button', { name: 'Park deal' }).click();
+    assert.equal(await form.isVisible(), true);
+    await reason.selectOption({ label: 'Other' });
+    const note = 'Wait for the <revised> plans';
+    await form.getByLabel('Note (optional)').fill(note);
+    const artifacts = new URL('out/test-artifacts/park-revive/', root);
+    await mkdir(artifacts, { recursive: true });
+    await form.screenshot({ path: new URL(`${width}-form.png`, artifacts).pathname });
+    await form.getByRole('button', { name: 'Park deal' }).click();
+
+    await page.locator('#recordPanel').waitFor({ state: 'hidden' });
+    await page.locator('#parkedToggle').click();
+    const parked = page.locator('.parked-card[data-id="d14"]');
+    for (const text of ['Other', note, 'Sun, Oct 4, 2026']) {
+      await parked.getByText(text, { exact: true }).waitFor();
+    }
+    assert.equal(await originalColumn.locator('[data-id="d14"]').count(), 0);
+    assert.equal(await parked.getByRole('button', { name: /Client website/ }).isVisible(), true);
+    await parked.screenshot({ path: new URL(`${width}-card.png`, artifacts).pathname });
+    await parked.getByRole('button', { name: dealName, exact: true }).press('Enter');
+
+    const parking = page.locator('[data-detail-read="parking"]');
+    for (const text of ['Other', note, 'Sun, Oct 4, 2026']) {
+      await parking.getByText(text, { exact: true }).waitFor();
+    }
+    await parking.screenshot({ path: new URL(`${width}-page.png`, artifacts).pathname });
+    await parking.getByRole('button', { name: 'Revive' }).click();
+    await openDeal.waitFor();
+    assert.equal(await parked.count(), 0);
+
+    await openDeal.click();
+    await page.getByText('Park', { exact: true }).click();
+    await reason.selectOption({ label: 'Client paused' });
+    await form.getByRole('button', { name: 'Park deal' }).click();
+    await parked.getByText('Client paused', { exact: true }).waitFor();
+    await parked.getByRole('button', { name: 'Revive' }).click();
+    await openDeal.waitFor();
+    assert.equal(await parked.count(), 0);
+
+    const automatic = page.locator('.parked-card[data-id="d06"]');
+    await automatic.getByText('Parked automatically', { exact: true }).waitFor();
+    await automatic.locator('.card-open').press('Enter');
+    await parking.getByText('Parked automatically', { exact: true }).waitFor();
+    assert.deepEqual(errors, []);
+  });
+});
+
 test('parked import note uses plain words on the board', async t => {
   const { page } = await open(t);
   await page.evaluate(async () => {

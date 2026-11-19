@@ -131,10 +131,30 @@ function autoHtml(deal) {
   return move ? `<div class="auto-move"><span>${esc(move.text.slice(0, move.text.lastIndexOf(' ')))}</span> <time>${esc(move.text.slice(move.text.lastIndexOf(' ') + 1))}</time></div>` : '';
 }
 const dealTitle = (deal) => dealName(deal.name);
+const PARKING_REASONS = new Map([
+  ['client_paused', 'Client paused'],
+  ['prospect_never_active', 'Prospect never active'],
+  ['other', 'Other'],
+]);
 function parkingAttributionHtml(deal) {
   if (deal.parked_automatically === true) return '<p>Parked automatically</p>';
   const parker = Object.hasOwn(ACTOR_LABEL, deal.parked_by) ? actorName(deal.parked_by) : '';
   return parker ? `<p>Parked by ${esc(parker)}</p>` : '';
+}
+function parkingDetailsHtml(deal) {
+  const reason = PARKING_REASONS.get(deal.parking_reason);
+  const timestamp = deal.parked_at ? new Date(deal.parked_at) : null;
+  const day = Number.isFinite(timestamp?.getTime()) ? businessDay(timestamp) : null;
+  return (reason ? `<p>${reason}</p>` : '<p>Parked</p>')
+    + (deal.parking_note ? `<p class="note-original">${esc(deal.parking_note)}</p>` : '')
+    + (day ? `<p>Parked on <time datetime="${day}">${esc(dateWords(day))}</time></p>` : '')
+    + parkingAttributionHtml(deal);
+}
+function parkFormHtml(nextDealSaves) {
+  const fields = nextDealSaves
+    ? `<label>Park reason<select name="reason" required><option value="">Choose a reason</option>${Array.from(PARKING_REASONS, ([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label><label>Note (optional)<textarea name="note" maxlength="500"></textarea></label>`
+    : '<label>Park reason<input name="reason" maxlength="500" required></label>';
+  return `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm">${fields}<button class="btn park-control" type="submit">Park deal</button></form></details>`;
 }
 function dealTypeFacts(deal, fromEngine, fallback = '') {
   const unrecordedRenewal = fromEngine && deal.renewal_lease_unrecorded === true;
@@ -179,9 +199,15 @@ function rowHtml(deal) {
 }
 function parkedHtml(deal) {
   const note = deal.parking_note === 'unverified import — 2026-10-01 records audit; revive if active' ? 'Imported Oct 1, not yet confirmed. Revive if still active.' : deal.parking_note;
-  return workCard({ variant: 'tile', className: 'kanban-card parked-card', heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0"`,
-    title: esc(dealTitle(deal)), meta: esc(actorName(deal.owner)), status: deal.parking_reason !== 'other' ? deal.parking_reason?.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase()) : '',
-    body: `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${state.boardFromEngine ? parkingAttributionHtml(deal) : ''}${cardStepsHtml(deal, todayIso())}${renderDealVendors(deal.vendors)}${cardPhaseMoveHtml(deal)}`,
+  const next = state.nextDealSaves;
+  const title = esc(dealTitle(deal));
+  const summary = next ? parkingDetailsHtml({ ...deal, parking_note: note })
+    : `<p class="next-line">${esc(note || deal.parking_reason?.replaceAll('_',' ') || 'Parked')}</p>${state.boardFromEngine ? parkingAttributionHtml(deal) : ''}`;
+  return workCard({ variant: 'tile', className: 'kanban-card parked-card', heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="${next ? -1 : 0}"`,
+    title: next ? `<button class="card-open" type="button" data-open="${esc(deal.id)}">${title}</button>` : title,
+    meta: esc(actorName(deal.owner)),
+    status: !next && deal.parking_reason !== 'other' ? deal.parking_reason?.replaceAll('_', ' ').replace(/^./, c => c.toUpperCase()) : '',
+    body: `${summary}${cardStepsHtml(deal, todayIso())}${renderDealVendors(deal.vendors)}${next ? renderClientPortalLink(deal.client_portal_url, deal.id) : ''}${cardPhaseMoveHtml(deal)}`,
     actions: `<button class="btn btn-quiet" type="button" data-revive="${esc(deal.id)}">Revive</button>` });
 }
 
@@ -872,7 +898,7 @@ async function retryFieldWrite(cell) {
   const subject = `${fieldLabel(field)} on ${row?.name || 'this deal'}`;
   recordFieldReceipt(cell, `${row?.name || 'Deal'} · ${fieldLabel(field)}`, subject, result);
   if (result.status === 'ok' && !result.superseded) {
-    confirmLocalWrite(deal, fieldPatch(field, value));
+    applyConfirmedFieldWrite(deal, field, value);
     if (field === 'phase') await resumeMoveFollowUps(cell);
     await refreshPanel();
   }
@@ -1455,7 +1481,9 @@ function workspaceHtml(detail) {
   const parked = d.operating_state === 'parked';
   const parker = fromEngine && parked ? parkingAttributionHtml(d) : '';
   const parkingNote = concise(d.parking_note);
-  const parkingSummary = parkingNote ? `<p>${esc(parkingNote)}</p>${parker}` : parker || '<p>Parked</p>';
+  const nextParking = detail.next_deal_saves === true;
+  const parkingSummary = nextParking && parked ? parkingDetailsHtml(d)
+    : parkingNote ? `<p>${esc(parkingNote)}</p>${parker}` : parker || '<p>Parked</p>';
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !isClosedDeal(d);
   const canAddCriticalDate = detail.next_deal_saves === true && Number.isSafeInteger(d.seen);
   const closedValue = Number(d.closed_value);
@@ -1483,7 +1511,7 @@ function workspaceHtml(detail) {
     <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail.email_follow_ups, detail.next_deal_saves) : '<p role="status">Updating email follow-ups…</p>'}</section>
     ${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
-    <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm"><label>Park reason<input name="reason" maxlength="500" required></label><button class="btn park-control" type="submit">Park deal</button></form></details>`}</div></div>` : fromEngine ? `<div data-detail-read="parking">${parker}</div>` : ''}</div>
+    <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner"><option value="">Unassigned</option>${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div></div>` : fromEngine ? `<div data-detail-read="parking">${nextParking && parked ? parkingSummary : parker}</div>` : ''}</div>
     <div data-detail-read="prospect">${controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
     ${!fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     <h2>Critical dates</h2>
@@ -1623,7 +1651,8 @@ async function readPanel(id) {
         if (isEngineDealDetail(detail) && fresh.dataset.detailRead === 'client-portal'
             && current.querySelector('form') && fresh.querySelector('form')) continue;
         if (['board-controls', 'add-critical-date'].includes(fresh.dataset.detailRead) && current.dataset.available === fresh.dataset.available) continue;
-        if (fresh.dataset.detailRead === 'parking' && current.dataset.parked === 'false' && fresh.dataset.parked === 'false') continue;
+        if (fresh.dataset.detailRead === 'parking' && fresh.dataset.parked === 'false'
+            && current.dataset.parked === 'false' && current.dataset.nextParking === fresh.dataset.nextParking) continue;
         if (current.innerHTML !== fresh.innerHTML) {
           const expanded = new Set([...current.querySelectorAll('.deal-note details[open]')].map(n => n.closest('.deal-note').dataset.id));
           const focused = current.contains(document.activeElement) ? document.activeElement : null;
@@ -1925,19 +1954,20 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   setContextOpenVisible(false);
   if (id) document.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`)?.focus({preventScroll:true});
 }
-function fieldPatch(field, value) {
-  if (field !== 'operating_state') return {[field]:value};
-  return {
+function applyConfirmedFieldWrite(id, field, value) {
+  if (field !== 'operating_state') confirmLocalWrite(id, { [field]: value });
+  else if (state.nextDealSaves) state.boardSync.requestRefresh('after-write');
+  else confirmLocalWrite(id, {
     operating_state: value.state,
     parking_note: value.note || null,
     parking_reason: value.reason || null,
-  };
+  });
 }
 async function setOperatingState(id, value) {
   const result = await sendFieldWrite(id, 'operating_state', value);
   if (result.status === 'ok' && !result.superseded) {
     const accepted = result.request.value;
-    confirmLocalWrite(id, fieldPatch('operating_state', accepted));
+    applyConfirmedFieldWrite(id, 'operating_state', accepted);
     showToast(accepted.state === 'active' ? 'Deal revived' : 'Deal parked');
     if (state.panelDeal === id) closeWorkspace();
   } else if (result.conflict) showConflict(result.conflict);
@@ -2405,7 +2435,15 @@ function wire() {
         verb:decision === 'confirm' ? 'confirm-critical-date' : 'resolve-critical-date', args, summary:'Critical date',
       });
     }
-    if (e.target.id === 'detailParkForm') await setOperatingState(id,{state:'parked',reason:'other',note:String(form.get('reason'))});
+    if (e.target.id === 'detailParkForm') {
+      const reason = String(form.get('reason') || '');
+      if (form.has('note')) {
+        if (!PARKING_REASONS.has(reason)) return;
+        await setOperatingState(id, { state: 'parked', reason, note: String(form.get('note')).trim() || null });
+      } else {
+        await setOperatingState(id, { state: 'parked', reason: 'other', note: reason });
+      }
+    }
     if (e.target.id === 'detailInactiveForm') await markProspectInactive(e.target,id,String(form.get('reason')).trim());
     if (e.target.id === 'detailUpdateForm') await saveUpdate(id);
     if (e.target.id === 'detailClientPortalForm') await registerClientPortal(id, form);

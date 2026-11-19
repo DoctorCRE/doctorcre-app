@@ -1560,6 +1560,22 @@ const movedToEngine = [
     200,
   ],
   [
+    "patch-deal-field",
+    { field: "operating_state", value: { state: "parked", reason: "client_paused", note: null } },
+    changesPath,
+    { seen_change_id: 23, fields: { parking_reason: "client_paused", parking_note: null } },
+    { deal_id: dealId, change_id: 24 },
+    200,
+  ],
+  [
+    "patch-deal-field",
+    { field: "operating_state", value: { state: "active" } },
+    changesPath,
+    { seen_change_id: 23, fields: { parking_reason: null, parking_note: null } },
+    { deal_id: dealId, change_id: 24 },
+    200,
+  ],
+  [
     "add-deal-note",
     { text: "A sample update", happened_at: "2026-11-18T12:00:00Z" },
     "/activities",
