@@ -395,7 +395,8 @@ function nextDealSave(verb, args) {
       }
       return null;
     case 'set-next-step':
-      return post('/next-steps', { deal_id: deal, what: args.text, due_on: args.next_date ?? undefined, replaces: 'current' });
+      return post('/next-steps', { deal_id: deal, what: args.text, due_on: args.next_date ?? undefined,
+        replaces: 'current', seen_current_step: args.seen_current_step });
     case 'complete-deal-item':
       return isUuid(args.item_id) ? post(`/next-steps/${args.item_id}/end`, { resolution: 'done' }) : null;
     case 'record-deal-item':
@@ -498,7 +499,8 @@ async function cutoverSave(request, env, call) {
         ?? 'Check the deal details and try again.'
       : invalidClosingDate ? 'Choose a closing date between the day the deal reached its current phase and today.'
       : peopleOrDate ? dealPeopleAndDateHint(name, body) ?? 'Review the deal and try saving again.'
-      : body.error === 'version_conflict' ? 'This deal changed. Reload the deal before saving.'
+      : body.error === 'version_conflict' ? name === 'set-next-step'
+        ? 'The next step changed. Review it before saving again.' : 'This deal changed. Reload the deal before saving.'
       : body.error === 'invoice_already_paid' ? 'The invoice has been paid, so the close cannot be undone.'
       : body.error === 'step_ended' ? 'This step was already closed. Reload the deal to see its current steps.'
       : 'The change could not be saved. Review the deal and try again.';
@@ -726,7 +728,7 @@ async function handleRequest(request, env) {
       return json({ error: 'not_found' }, 404);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     const marketDealRead = pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
-    if ((weeklyReview && request.method === 'POST')
+    if ((weeklyReview && request.method === 'POST' && !await switchedOn(env, NEXT_DEAL_SAVES))
         || ((weeklyReview || marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
@@ -747,7 +749,11 @@ async function handleRequest(request, env) {
         url.pathname = prospectDestination;
         return await env.ENGINE.fetch(new Request(url, forwarded));
       }
-      return await env.ENGINE.fetch(forwarded);
+      const response = await env.ENGINE.fetch(forwarded);
+      if (!weeklyReview || request.method !== 'GET' || !response.ok) return response;
+      const review = new Response(response.body, response);
+      review.headers.set('x-doctorcre-deal-saves', await switchedOn(env, NEXT_DEAL_SAVES) ? 'on' : 'off');
+      return review;
     } catch {
       return json({ error: 'engine_unavailable' }, 503);
     }
