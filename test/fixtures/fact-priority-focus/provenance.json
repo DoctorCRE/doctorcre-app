@@ -30,8 +30,8 @@
   "procedure": "producer.txt contains exact producer bytes and executed recipe",
   "reused_from": "test/fixtures/fact-review-pending-status-view",
   "parser_revision": "2eee2ee9b0c75926dab64a3eb5ad70e8146364de",
-  "parser_sha256": "ab8b33af8dfdfaa7fe1537f3312ad7d09b284fe14e618e859b9b838137f6c9fc",
+  "parser_sha256": "ed279ab756708d1bdb2b095edda6c8f62b4521d24af13c95854c683be5f02145",
   "producer_file_sha256": "057ec5840a6b30f6ce6ad1a4e0579d3a4fef93f5f08928a82cd5245dd4b1b768",
   "priority_cases": "Recorded normal values are unchanged. Browser tests vary priority and add a competing observation through createLiveClient rawRpc, the exact production parser. Cases include high, null, omitted, blank and future values. These are parser-contract cases, not producer replays.",
-  "parser_revalidation": "App issue #959 adds people lookup and critical date saves to the live client. App issue #963 updates the Add deal refusal for a missing client. App issue #952 adds invoice Undo. App issue #976 preserves pending email follow-ups from the new deal page read. App issue #978 adds the deal email decision call. The fact-review parser and recorded producer bytes are unchanged."
+  "parser_revalidation": "App issue #959 adds people lookup and critical date saves to the live client. App issue #963 updates the Add deal refusal for a missing client. App issue #952 adds invoice Undo. App issue #976 preserves pending email follow-ups from the new deal page read. App issue #978 adds the deal email decision call. App issue #983 reads the market and location choices for new deals. The fact-review parser and recorded producer bytes are unchanged."
 }
