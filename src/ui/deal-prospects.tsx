@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { type ProspectClient, ProspectFollowUp, ProspectNote } from "./prospect-saves";
+import { AddProspect, ManageProspect } from "./prospect-management";
+import {
+  type Partner,
+  type ProspectClient,
+  ProspectFollowUp,
+  ProspectNote,
+  partners,
+  prospectsPath,
+  uuid,
+} from "./prospect-saves";
 
-const path = "/api/engine/prospects";
-const partners = { joe: "Joe", dell: "Dell" };
 const howFound: Readonly<Record<string, string>> = {
   referral: "Referral",
   vendor: "Vendor",
@@ -18,11 +25,13 @@ const howFound: Readonly<Record<string, string>> = {
   not_recorded: "Not recorded",
 };
 
-type Partner = keyof typeof partners;
 type RequestProspect = (path: string, init?: RequestInit) => Promise<Response>;
 type AuthorLabel = (by: string | null) => string;
+type ProspectActions = {
+  addDeal: (client: { id: string; name: string }) => void;
+  backToReview: (() => void) | null;
+};
 type Filters = { owner: string; attention: boolean; actor: Partner | null; canSave: boolean };
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const record = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 const partner = (value: unknown): value is Partner => value === "joe" || value === "dell";
@@ -75,7 +84,9 @@ function parseProspect(value: unknown) {
     !textOrNull(value.how_found) ||
     !(value.owner === null || partner(value.owner)) ||
     typeof value.needs_attention !== "boolean" ||
-    !Array.isArray(value.follow_ups)
+    !Array.isArray(value.follow_ups) ||
+    typeof value.change_id !== "number" ||
+    !Number.isSafeInteger(value.change_id)
   )
     return invalid();
   return {
@@ -84,6 +95,7 @@ function parseProspect(value: unknown) {
     how_found: value.how_found,
     owner: value.owner,
     needs_attention: value.needs_attention,
+    change_id: value.change_id,
     follow_ups: value.follow_ups.map(parseStep),
     latest_note: value.latest_note === null ? null : parseNote(value.latest_note),
   };
@@ -190,7 +202,12 @@ function ProspectDetail({
   const dialog = useRef<HTMLDialogElement>(null);
   const followUps = useRef<HTMLHeadingElement>(null);
   const [revision, update] = useState(0);
-  const { value: row, unavailable } = useProspectRead(client.prospectRequest, `${path}/${id}`, revision, parseDetail);
+  const { value: row, unavailable } = useProspectRead(
+    client.prospectRequest,
+    `${prospectsPath}/${id}`,
+    revision,
+    parseDetail,
+  );
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
@@ -243,6 +260,19 @@ function ProspectDetail({
                 reload={reload}
               />
             )}
+            {filters.canSave && filters.actor && (
+              <ManageProspect
+                row={row}
+                actor={filters.actor}
+                client={client}
+                saved={saved}
+                reload={reload}
+                drop={() => {
+                  dialog.current?.close();
+                  refreshLane();
+                }}
+              />
+            )}
             <h3>Notes</h3>
             {row.notes.length ? (
               <ul>
@@ -278,7 +308,7 @@ function ProspectLane({
   authorLabel,
   count,
   refresh,
-  backToReview,
+  actions: { addDeal, backToReview },
 }: {
   filters: Filters;
   revision: number;
@@ -286,13 +316,13 @@ function ProspectLane({
   authorLabel: AuthorLabel;
   count: (value: number | null) => void;
   refresh: () => void;
-  backToReview: (() => void) | null;
+  actions: ProspectActions;
 }) {
   const query = new URLSearchParams(location.search);
   const initial = query.get("prospect");
   const [opened, open] = useState(initial && uuid.test(initial) ? initial : null);
   const returnToReview = initial === opened ? backToReview : null;
-  const { value: rows, unavailable } = useProspectRead(client.prospectRequest, path, revision, parseLane);
+  const { value: rows, unavailable } = useProspectRead(client.prospectRequest, prospectsPath, revision, parseLane);
   const visible = rows?.filter(
     (row) =>
       (filters.owner === "all" || !row.owner || row.owner === filters.owner) &&
@@ -302,6 +332,7 @@ function ProspectLane({
   return (
     <>
       <h3 id="prospects-title">Prospects {visible && <small>{visible.length}</small>}</h3>
+      {filters.canSave && <AddProspect client={client} sources={howFound} refresh={refresh} addDeal={addDeal} />}
       {unavailable ? (
         <p role="alert">
           Could not load prospects.{" "}
@@ -363,7 +394,7 @@ export function mountProspects(
   client: ProspectClient,
   count: (value: number | null) => void,
   authorLabel: AuthorLabel,
-  backToReview: (() => void) | null = null,
+  actions: ProspectActions,
 ) {
   const root = createRoot(host);
   let revision = 0;
@@ -377,7 +408,7 @@ export function mountProspects(
         revision={revision}
         count={count}
         refresh={refresh}
-        backToReview={backToReview}
+        actions={actions}
       />,
     );
   }

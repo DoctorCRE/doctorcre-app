@@ -8,7 +8,7 @@ import { chromium, settles } from "./browser-harness.mjs";
 const party = "00000000-0000-4000-8000-000000000001";
 const note = { activity_id: party, by: "dell", at: "2026-11-18T15:40:00Z", summary: "First line\nSecond line" };
 
-test("Deals opens one prospect on desktop and phone and reloads its notes", async (t) => {
+test("partners see and manage prospects from Deals", async (t) => {
   const actor = "joe";
   const session = { actor: { slug: actor }, csrf_token: "synthetic-csrf" };
   const CARR = { fetch: async () => Response.json(session) };
@@ -43,6 +43,15 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
         latest_note: { ...note, by: "agent" },
         follow_ups: [{ ...step, owner: "dell", due_on: "2026-11-12" }],
       };
+      const known = { id: "00000000-0000-4000-8000-000000000002", display_name: "Known Example", kind: "person" };
+      const matchedClient = {
+        id: "00000000-0000-4000-8000-000000000004",
+        display_name: "Client Example",
+        kind: "company",
+      };
+      const dealId = "00000000-0000-4000-8000-000000000003";
+      const newName = "Example Pine Prospect";
+      let prospects = [prospect, birchProspect];
       const board = { schema_version: "local-deals-board.v2", actor, deals: [] };
       let enabled = false;
       let savesEnabled = false,
@@ -74,6 +83,34 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
               const body = await request.json();
               assert.equal(request.headers.get("x-carr-csrf"), session.csrf_token);
               assert.match(body.idempotency_key, /^[\da-f-]{36}$/);
+              if (path === "/api/engine/prospects") {
+                if (body.party_id === known.id)
+                  return Response.json(
+                    { error: "not_a_prospect", party_id: known.id, deal_ids: [dealId] },
+                    { status: 409 },
+                  );
+                if (body.party_id === matchedClient.id)
+                  return Response.json({ error: "already_client", party_id: matchedClient.id }, { status: 409 });
+                assert.partialDeepStrictEqual(body, {
+                  name: newName,
+                  kind: "company",
+                  how_found: "referral",
+                  note: "First conversation",
+                });
+                const party_id = "00000000-0000-4000-8000-000000000005";
+                prospects.push({ ...prospect, party_id, name: newName, needs_attention: false });
+                return Response.json({ party_id }, { status: 201 });
+              }
+              if (path.endsWith("/changes")) {
+                assert.equal(body.seen_change_id, prospect.change_id++);
+                Object.assign(prospect, body.fields);
+                return Response.json({ party_id: party, change_id: prospect.change_id });
+              }
+              if (path.endsWith("/drop")) {
+                assert.equal(body.reason, "No longer looking");
+                prospects = prospects.filter((row) => row.party_id !== party);
+                return Response.json({ party_id: party, stage: "archived" });
+              }
               if (path.endsWith("/activities")) {
                 assert.deepEqual(body.about, [{ party_id: party }]);
                 assert.equal(body.kind, "note");
@@ -99,7 +136,14 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
               Object.assign(step, { what: body.what, due_on: body.due_on });
               return Response.json({ next_step_id: party }, { status: 201 });
             }
-            if (path.endsWith("/prospects")) return Response.json({ count: 2, prospects: [prospect, birchProspect] });
+            if (path.endsWith("/parties/search")) {
+              const query = new URL(request.url).searchParams.get("query");
+              if (query === "Knownx") return Response.json({ error: "engine_unavailable" }, { status: 503 });
+              return Response.json({
+                parties: [known, matchedClient].filter((match) => match.display_name.startsWith(query ?? "")),
+              });
+            }
+            if (path.endsWith("/prospects")) return Response.json({ count: prospects.length, prospects });
             if (path.endsWith(birchProspect.party_id))
               return Response.json({
                 ...birchProspect,
@@ -161,7 +205,7 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
         await birch.waitFor();
         await settles(async () => assert.match((await headline.textContent()) ?? "", / · 2 prospects$/));
         assert.match((await lane.textContent()) ?? "", /Dell · Due Thu, Nov 12 \(6 days late\)/);
-        assert.match((await lane.textContent()) ?? "", /Doc \(assistant\) · Wed, Nov 18, 9:40 AM/);
+        assert.match((await lane.textContent()) ?? "", /Doc \(assistant\) · Wed, Nov 18(?:,| at) 9:40 AM/);
         await chips.getByRole("button", { name: "Joe", exact: true }).click();
         await birch.waitFor({ state: "detached" });
         await open.waitFor();
@@ -232,6 +276,72 @@ test("Deals opens one prospect on desktop and phone and reloads its notes", asyn
         await save.click();
         await dialog.getByText(/Send the details · Due Fri, Nov 20/).waitFor();
       }
+
+      const claim = dialog.getByRole("button", { name: "Claim", exact: true });
+      const reason = dialog.getByLabel("Reason", { exact: true });
+      const drop = dialog.getByRole("button", { name: "Drop prospect", exact: true });
+      const background = (button: HTMLElement) => getComputedStyle(button).backgroundColor;
+      assert.equal(await drop.evaluate(background, undefined, { timeout: 1500 }), await claim.evaluate(background));
+      assert.equal(await reason.isVisible(), false);
+      await claim.click();
+      await dialog.getByRole("button", { name: "Hand off to Dell" }).click();
+      await dialog.getByText(/^Claimed by Dell/).waitFor();
+      await dialog.getByRole("button", { name: "Unclaim" }).click();
+      await claim.waitFor();
+      await dialog.getByRole("button", { name: "Clear needs attention" }).click();
+      await dialog.getByRole("button", { name: "Mark needs attention" }).click();
+      await dialog.getByRole("button", { name: "Clear needs attention" }).waitFor();
+      await drop.click();
+      await reason.fill("No longer looking");
+      await dialog.getByRole("button", { name: "Confirm drop" }).click();
+      await open.waitFor({ state: "detached" });
+
+      const name = lane.getByRole("textbox", { name: "Prospect name" });
+      const noteInput = lane.getByRole("textbox", { name: "Optional first note" });
+      if (width === 1440) {
+        const known = lane.getByRole("button", { name: "Known Example · person" });
+        await name.fill("Known");
+        await known.waitFor();
+        const failedSearch = page.waitForResponse((response) => response.url().includes("query=Knownx"));
+        await name.fill("Knownx");
+        assert.equal((await failedSearch).status(), 503);
+        await known.waitFor({ state: "hidden" });
+        await name.fill("Known");
+        await known.click();
+        await noteInput.fill("First conversation");
+        await noteInput.press("Enter");
+        const deal = lane.getByRole("link", { name: "Open deal" });
+        await deal.waitFor();
+        assert.equal(await deal.getAttribute("href"), `/deals?deal=${dealId}`);
+        assert.equal(await name.inputValue(), "Known Example");
+        assert.equal(await noteInput.inputValue(), "First conversation");
+        await name.fill("Client");
+        await lane.getByRole("button", { name: "Client Example · company" }).click();
+        await noteInput.press("Enter");
+        await lane.getByRole("button", { name: "Add deal" }).click();
+        const addDeal = page.getByRole("dialog", { name: "Add deal" });
+        assert.equal(await addDeal.getByLabel("Client", { exact: true }).inputValue(), "Client Example");
+        assert.equal(await addDeal.getByLabel("Deal name").inputValue(), "Client Example");
+        await addDeal.getByRole("button", { name: "Cancel" }).click();
+      }
+      await name.fill(newName);
+      await noteInput.fill("First conversation");
+      const person = lane.getByRole("button", { name: "Person", exact: true });
+      const company = lane.getByRole("button", { name: "Company", exact: true });
+      const add = lane.getByRole("button", { name: "Add prospect", exact: true });
+      assert.equal((await name.boundingBox())?.y === (await add.boundingBox())?.y, width === 1440);
+      await person.click();
+      assert.equal(await person.getAttribute("aria-pressed"), "true");
+      await company.click();
+      assert.equal(await person.getAttribute("aria-pressed"), "false");
+      const howFound = lane.getByLabel("How found");
+      await howFound.selectOption("referral");
+      await noteInput.press("Enter");
+      await lane.getByRole("button", { name: newName }).waitFor();
+      const saved = lane.getByText("Prospect saved", { exact: true });
+      await saved.waitFor();
+      await name.focus();
+      await saved.waitFor({ state: "hidden" });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     } finally {
       await page.close();
