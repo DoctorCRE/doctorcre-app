@@ -373,6 +373,14 @@ function renderChrome() {
   $('#boardSection').hidden = isAccountHome;
 }
 
+function openNationalAccount(id) {
+  state.workspace = 'national_account';
+  state.accountId = id;
+  state.query = '';
+  $('#search').value = '';
+  render();
+}
+
 function accountPriority(deals) {
   const ordered = [...deals].sort((a, b) => (a.next_date || '9999-12-31').localeCompare(b.next_date || '9999-12-31')
     || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
@@ -1063,7 +1071,7 @@ function openForm({ context='Deal Room', title, submit='Save', form, national, o
     button.disabled = true;
     $('#formError').hidden = true;
     try {
-      if (await onSubmit(new FormData(event.currentTarget)) !== false) {
+      if (await onSubmit(new FormData(event.currentTarget, event.submitter)) !== false) {
         if (draftKey) state.formDrafts.delete(draftKey);
         dialog.close();
       }
@@ -1193,7 +1201,7 @@ function nationalResearchEvidence(data) {
   return {sources, field_evidence, discrepancies:String(data.get('research_discrepancies') || '').split('\n').map(line => line.trim()).filter(Boolean)};
 }
 
-function nationalCreationForm({operationKey, context, title, submit, form, request, send, receiptId, success, accountId, separate}) {
+function nationalCreationForm({operationKey, context, title, submit, form, request, send, receiptId, success, accountId, separate, chooseCompany}) {
   const actor = state.selfActor;
   const key = `${actor}:${operationKey}`;
   const held = state.nationalCreations[key];
@@ -1208,7 +1216,8 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
       $('#dialogSubmit').textContent = submit;
       $('#formError').hidden = true;
     };
-    const held = Boolean(state.nationalCreations[key]?.request.force_new);
+    const pending = state.nationalCreations[key];
+    const held = Boolean(pending);
     if (formView) {
       formView.candidates(confirmation ? {...confirmation, held, onEdit} : null);
       return;
@@ -1216,10 +1225,15 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
     $('#nationalCandidates')?.remove();
     if (!confirmation) return;
     $('#dialogBody').insertAdjacentHTML('beforeend', `<div id="nationalCandidates">
-      <p>${esc(confirmation.hint)}</p><ul>${confirmation.candidates.map(({ name }) => `<li>${esc(name)}</li>`).join('')}</ul>
-      <div class="field"><label><input type="checkbox" name="confirm_separate" required${held ? ' checked disabled' : ''}>
+      <p>${esc(confirmation.hint)}</p>
+      <ul class="national-company-choices">${confirmation.candidates.map(({id, name}, index) => `<li>
+        <span id="nationalCompanyName${index}">${esc(name)}</span>
+        ${chooseCompany ? `<button class="secondary" type="submit" name="company_id" value="${esc(id)}" aria-describedby="nationalCompanyName${index}" formnovalidate${held ? ' disabled' : ''}>
+          Make this company a national account</button>` : ''}
+      </li>`).join('')}</ul>
+      <div class="field"><label><input type="checkbox" name="confirm_separate" required${pending?.request.force_new ? ' checked' : ''}${held ? ' disabled' : ''}>
         This is a separate company.</label></div>
-      <button type="button" id="nationalEditDetails"${held ? ' disabled' : ''}>Edit account details</button>
+      <button type="button" class="text-button" id="nationalEditDetails"${held ? ' disabled' : ''}>Edit account details</button>
     </div>`);
     $('#nationalEditDetails').onclick = onEdit;
   };
@@ -1229,23 +1243,28 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
       if (state.selfActor !== actor || accountId && account()?.account_client_id !== accountId)
         throw new Error('The account or signed-in partner changed. Reopen this form in its original account and session.');
       const pending = state.nationalCreations[key];
-      if (!pending && confirmation && data.get('confirm_separate') !== 'on')
+      const company = chooseCompany && confirmation?.candidates.find(({id}) => id === data.get('company_id'));
+      if (!pending && confirmation && !company && data.get('confirm_separate') !== 'on')
         throw new Error(`Confirm this is a ${separate} before creating it.`);
-      const args = pending?.request || (confirmation ? {...confirmation.request,force_new:true} : request(data));
+      const args = pending?.request || (confirmation
+        ? {...confirmation.request, ...(company ? {company_id:company.id} : {force_new:true})}
+        : request(data));
       const started = beginCommand(state.nationalCreations, {operationKey:key,args,newKey:uuidv4});
       if (!started.started) throw new Error('Creation is still being sent. Wait for the server to answer.');
       state.nationalCreations = started.state;
       $('#nationalCreationFields').disabled = true;
-      if ($('#nationalEditDetails')) $('#nationalEditDetails').disabled = true;
+      $('#openExistingNationalAccount')?.remove();
+      for (const button of $$('#nationalCandidates button')) button.disabled = true;
       try {
         const result = await send(started.request);
         if (separate && result?.needs_confirm === true && result.ok !== false && !result.error && !result.conflict && !started.request.force_new &&
-            Array.isArray(result.candidates) && result.candidates.length && result.candidates.every(candidate => typeof candidate.id === 'string' && typeof candidate.name === 'string')) {
+            !started.request.company_id && Array.isArray(result.candidates) && result.candidates.length && result.candidates.every(candidate => typeof candidate.id === 'string' && typeof candidate.name === 'string')) {
           state.nationalCreations = settleCommand(state.nationalCreations,key,{status:'conflict'});
           confirmation = {request:started.request,candidates:result.candidates,hint:result.hint};
           state.nationalConfirmations[key] = confirmation;
           renderCandidates();
           $('#dialogSubmit').textContent = `Create ${separate}`;
+          $('#nationalCandidates [name="company_id"]')?.focus();
           return false;
         }
         if (result?.ok !== true || result.needs_confirm || result.error || result.conflict ||
@@ -1260,7 +1279,7 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
         const unknown = outcome.status === 'unknown' && outcome.reason !== 'offline';
         state.nationalCreations = settleCommand(state.nationalCreations,key,unknown ? outcome : {status:'refused'});
         $('#nationalCreationFields').disabled = unknown || Boolean(confirmation);
-        if ($('#nationalEditDetails')) $('#nationalEditDetails').disabled = unknown;
+        for (const button of $$('#nationalCandidates button')) button.disabled = unknown;
         const confirm = $('[name="confirm_separate"]');
         if (confirm) {
           confirm.disabled = unknown;
@@ -1268,6 +1287,26 @@ function nationalCreationForm({operationKey, context, title, submit, form, reque
         }
         $('#dialogSubmit').textContent = unknown ? 'Check creation outcome' : confirmation ? `Create ${separate}` : submit;
         if (unknown) throw new Error(commandMessage(outcome,'Creation'));
+        if (started.request.company_id && error.payload?.error === 'already_national_account') {
+          const id = started.request.company_id;
+          const hasAccount = () => state.accounts.some(item => item.account_client_id === id);
+          const choices = $('#nationalCandidates');
+          if (!hasAccount()) await loadHome().catch(() => {});
+          if (hasAccount() && choices?.isConnected) {
+            const open = document.createElement('button');
+            open.type = 'button';
+            open.id = 'openExistingNationalAccount';
+            open.className = 'secondary';
+            open.textContent = 'Open account';
+            open.onclick = () => {
+              delete state.nationalConfirmations[key];
+              $('#formDialog').close();
+              openNationalAccount(id);
+              $('#accountBack').focus();
+            };
+            choices.append(open);
+          }
+        }
         if (error.payload?.error === 'research_evidence_required') throw new Error('Research evidence is required: the sub-client name did not match an existing client under this account. Choose New sub-client and provide reviewed sources.');
         throw error;
       }
@@ -1397,7 +1436,7 @@ function addAccountForm() {
   const form = engine ? `<div class="field"><label for="accountName">Company name</label><input id="accountName" name="name" required></div>
     ${accountOwnerField('accountOwner',state.selfActor)}` : {kind:'account', owners};
   nationalCreationForm({ operationKey:'account', context:'National accounts', title:'Add national account', submit:'Create account', form,
-    separate:engine ? 'separate company' : 'separate brand',
+    separate:engine ? 'separate company' : 'separate brand', chooseCompany:engine,
     request:data => ({
       name:String(data.get('name') || '').trim(), owner:String(data.get('owner')),
       ...(engine ? {next_deal_save:true} : {vertical:String(data.get('vertical') || '').trim(),research_evidence:nationalResearchEvidence(data)}),
@@ -1620,7 +1659,7 @@ function wireEvents() {
       return;
     }
     const accountButton = event.target.closest('[data-account]');
-    if (accountButton) { state.workspace = 'national_account'; state.accountId = accountButton.dataset.account; render(); return; }
+    if (accountButton) { openNationalAccount(accountButton.dataset.account); return; }
     const retryWrite = event.target.closest('[data-retry-write]');
     // eslint-disable-next-line no-restricted-syntax -- Only an explicit retry-button click reconciles the retained cell-write request with its original idempotency key.
     if (retryWrite) { await retryCellWrite(retryWrite.dataset.retryWrite, retryWrite); return; }

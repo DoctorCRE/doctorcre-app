@@ -332,8 +332,8 @@ function nextDealSave(verb, args) {
       client_id, new_location, market_agent_id });
   }
   if (verb === 'create-national-account') {
-    const { name, owner, force_new } = args;
-    return post('/national-accounts', { name, owner, force_new });
+    const { name, owner, company_id, force_new } = args;
+    return post('/national-accounts', { name, owner, company_id, force_new });
   }
   if (verb === 'set-national-account-owner') {
     const { account_client_id, owner, base_version } = args;
@@ -476,10 +476,10 @@ async function cutoverSave(request, env, call) {
         && body.hint === 'Undo would return this deal to Closed deals or Lost deals.') {
       return saveRefusal(call, 'undo_returns_to_ended_deals', body.hint);
     }
-    if (name === 'create-national-account' && body.error === 'account_name_exists' && !args.force_new) {
+    if (name === 'create-national-account' && body.error === 'account_name_exists' && !args.force_new && !args.company_id) {
       return mcpReply(call, response, JSON.stringify({
         needs_confirm: true, candidates: body.candidates,
-        hint: 'A company with this name already exists. Confirm only if this is a separate company.',
+        hint: 'This name is already on file. Choose a company below or confirm that you want to add a separate company.',
       }), false);
     }
     if (name === 'undo-invoice-close' && body.rule === 'invoice_email_undo_current') body.error = 'version_conflict';
@@ -489,7 +489,10 @@ async function cutoverSave(request, env, call) {
       && Array.isArray(body.fields) && body.fields.length === 1 && body.fields[0] === 'phase';
     const hint = accountSave
       ? body.error === 'version_conflict' ? 'This account changed. Reload Deals before saving the owner.'
-        : body.error === 'not_found' ? 'This account is no longer available.'
+        : body.error === 'already_national_account' ? 'This company is already a national account.'
+        : body.error === 'not_found' ? args.company_id
+          ? 'That company is no longer available. Choose another company or edit the account details.'
+          : 'This account is no longer available.'
         : name === 'set-national-account-owner' ? 'Choose Joe or Dell as the owner.'
         : 'Check the company name and choose Joe or Dell as the owner.'
       : badMarketAgent ? 'Choose an existing person as the market agent.'
@@ -507,7 +510,8 @@ async function cutoverSave(request, env, call) {
     return mcpReply(call, response, JSON.stringify({ ...body, hint }), true);
   }
   const saved = accountSave ? isUuid(body.account_client_id) && body.owner === args.owner
-      && (name === 'create-national-account' || body.account_client_id === args.account_client_id)
+      && (name === 'create-national-account' ? !args.company_id || body.account_client_id === args.company_id
+        : body.account_client_id === args.account_client_id)
     : creating ? isUuid(body.deal_id) && Number.isSafeInteger(body.change_id) && body.change_id >= 0
     : phaseUndo ? body.deal_id === args.deal && isString(body.phase) && isString(body.phase_changed_at)
     : name === 'undo-invoice-close' ? body.invoice_id === args.invoice_id && body.status === 'undone'

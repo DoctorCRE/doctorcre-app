@@ -78,6 +78,111 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`na
   assert.deepEqual(errors,[]);
 });
 
+async function routeAccountRequests(page, env) {
+  await page.route('**/auth/session', route => route.fulfill({json:{actor:{slug:'joe'},csrf_token:'synthetic-session'}}));
+  await page.route('**/api/**', route => route.fulfill({json:{}}));
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    if (!['deal-room-board','create-national-account','set-national-account-owner'].includes(request.postDataJSON().params.name))
+      return route.fulfill({json:{result:{content:[{type:'text',text:'{}'}]}}});
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method:'POST', headers:await request.allHeaders(), body:request.postData(),
+    }), env);
+    return route.fulfill({status:response.status,contentType:'application/json',body:await response.text()});
+  });
+}
+
+for (const width of [390, 1440]) test(`use a company on file as a national account at ${width}px`, async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({viewport:{width,height:900}});
+  const [missing, existing, chosen, fresh] = [31, 32, 33, 34].map(n => `00000000-0000-4000-8000-0000000000${n}`);
+  const candidates = [
+    {id:missing, name:'Demo Company'},
+    {id:existing, name:'DEMO COMPANY'},
+    {id:chosen, name:'demo company'},
+  ];
+  const account = (id, name) => ({account_client_id:id, account_name:name, account_owner:'dell',
+    base_version:0, open_deals:0, overdue_deals:0, parked_deals:0});
+  const accounts = [account(existing, candidates[1].name)], writes = [];
+  const env = {ENGINE_ROUTING:{get:async () => 'on'}, ENGINE:{fetch:async request => {
+    if (new URL(request.url).pathname === '/api/engine/deals')
+      return Response.json({schema_version:'local-deals-board.v2',actor:'joe',deals:[],accounts});
+    const args = await request.json();
+    writes.push(args);
+    if (args.company_id === missing) return Response.json({error:'not_found'}, {status:404});
+    if (args.company_id === existing) return Response.json({error:'already_national_account'}, {status:409});
+    if (args.company_id === chosen) {
+      if (accounts.some(item => item.account_client_id === chosen))
+        return Response.json({account_client_id:chosen,name:candidates[2].name,owner:args.owner,replayed:true});
+      accounts.push(account(chosen, candidates[2].name));
+      return new Response(null,{status:503});
+    }
+    if (args.name === candidates[0].name)
+      return Response.json({error:'account_name_exists',candidates}, {status:409});
+    accounts.push(account(fresh, args.name));
+    return Response.json({account_client_id:fresh,name:args.name,owner:args.owner}, {status:201});
+  }}};
+  await routeAccountRequests(page, env);
+  await page.goto(`${server.origin}/deals?view=national&mode=live`);
+  const add = async () => {
+    if (!await page.locator('#stickyAddButton').isVisible())
+      await page.getByRole('button',{name:'Workspace sidebar',exact:true}).click();
+    await page.getByRole('button',{name:'Add national account',exact:true}).click();
+  };
+  const submit = page.getByRole('button',{name:'Create account',exact:true});
+  const companyName = page.getByLabel('Company name',{exact:true});
+  const owner = page.getByLabel('Account owner',{exact:true});
+  const start = async name => {
+    await add();
+    await companyName.fill(name);
+    await owner.selectOption('dell');
+    await submit.click();
+  };
+  const pick = page.getByRole('button',{name:'Make this company a national account',exact:true});
+  await start(candidates[0].name);
+  await pick.first().waitFor();
+  assert.equal(await pick.count(), candidates.length);
+  for (const {name,id} of candidates) {
+    await page.locator('#nationalCandidates').getByText(name,{exact:true}).waitFor();
+    assert.equal(await page.getByText(id,{exact:false}).count(),0);
+  }
+  assert.equal(await page.locator('#formDialog').evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth),true);
+  await pick.nth(0).click();
+  await page.getByText('That company is no longer available.',{exact:false}).waitFor();
+  await pick.nth(1).click();
+  await page.getByText('This company is already a national account.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Open account',exact:true}).click();
+  await page.locator('#accountContextName').getByText(candidates[1].name,{exact:true}).waitFor();
+  await page.locator('#accountBack').click();
+
+  await start(candidates[0].name);
+  await pick.nth(2).click();
+  await page.getByRole('button',{name:'Check creation outcome',exact:true}).waitFor();
+  await page.keyboard.press('Escape');
+  await add();
+  const retry = page.getByRole('button',{name:'Check creation outcome',exact:true});
+  const confirmSeparate = page.getByRole('checkbox',{name:/separate company/});
+  assert.equal(await confirmSeparate.isChecked(),false);
+  assert.equal(await confirmSeparate.isDisabled(),true);
+  await retry.click();
+  const created = page.locator(`[data-account="${chosen}"]`);
+  await created.getByText(candidates[2].name,{exact:true}).waitFor();
+  assert.equal(await created.count(),1);
+  assert.deepEqual(writes[5], writes[4]);
+  assert.deepEqual(writes[4], {
+    name:candidates[0].name,owner:'dell',company_id:chosen,idempotency_key:writes[4].idempotency_key,
+  });
+  assert.notEqual(writes[4].idempotency_key,writes[3].idempotency_key);
+  assert.equal(writes[1].company_id,missing);
+  assert.equal(writes[2].company_id,existing);
+
+  await start('Demo New Company');
+  await page.locator(`[data-account="${fresh}"]`).getByText('Demo New Company',{exact:true}).waitFor();
+});
+
 test('engine-backed national accounts confirm separate companies and save owner changes', async t => {
   const server = await fixtureServer();
   t.after(() => server.close());
@@ -106,17 +211,7 @@ test('engine-backed national accounts confirm separate companies and save owner 
     }
     return Response.json({account_client_id:accountId,owner:account.account_owner});
   }}};
-  await page.route('**/auth/session', route => route.fulfill({json:{actor:{slug:'joe'},csrf_token:'synthetic-session'}}));
-  await page.route('**/api/**', route => route.fulfill({json:{}}));
-  await page.route('**/mcp', async route => {
-    const request = route.request();
-    if (!['deal-room-board','create-national-account','set-national-account-owner'].includes(request.postDataJSON().params.name))
-      return route.fulfill({json:{result:{content:[{type:'text',text:'{}'}]}}});
-    const response = await handleDoctorcreRequest(new Request(request.url(), {
-      method:'POST', headers:await request.allHeaders(), body:request.postData(),
-    }), env);
-    return route.fulfill({status:response.status,contentType:'application/json',body:await response.text()});
-  });
+  await routeAccountRequests(page, env);
 
   await page.goto(`${server.origin}/deals?view=national&mode=live`);
   await page.getByText(/No national accounts yet/).waitFor();
@@ -124,8 +219,9 @@ test('engine-backed national accounts confirm separate companies and save owner 
   await page.getByLabel('Company name',{exact:true}).fill(account.account_name);
   await page.getByLabel('Account owner',{exact:true}).selectOption('joe');
   await page.getByRole('button',{name:'Create account',exact:true}).click();
-  await page.getByText('A company with this name already exists.',{exact:false}).waitFor();
+  await page.getByText('This name is already on file.',{exact:false}).waitFor();
   assert.equal(await page.getByText('demo-company',{exact:false}).count(),0);
+  await page.getByRole('button',{name:'Create separate company',exact:true}).click();
   assert.equal(writes.length,1);
   await page.getByRole('checkbox',{name:/separate company/}).check();
   await page.getByRole('button',{name:'Create separate company',exact:true}).click();
