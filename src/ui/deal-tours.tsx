@@ -89,22 +89,35 @@ export function mountDealTours(
     else url.searchParams.delete("tour");
     navigate(url, false);
   }
-  let departureApproved = false;
+  let departureApproved = false,
+    waitingForReadback = false;
+  function checkDeparture() {
+    const detail: { readback?: Promise<unknown> } = {};
+    const frame = active() && !departureApproved ? element.querySelector("iframe") : null;
+    if (!frame?.contentWindow) return { blocked: false, readback: undefined };
+    const leaving = element.ownerDocument.createEvent("CustomEvent");
+    leaving.initCustomEvent("beforeunload", false, true, detail);
+    const blocked = !frame.contentWindow.dispatchEvent(leaving);
+    return { blocked, readback: detail.readback };
+  }
   function hasUnsavedChanges() {
-    if (!active() || departureApproved) return false;
-    const frame = element.querySelector("iframe");
-    if (frame?.contentWindow) {
-      const leaving = element.ownerDocument.createEvent("Event");
-      leaving.initEvent("beforeunload", false, true);
-      return !frame.contentWindow.dispatchEvent(leaving);
-    }
-    return false;
+    return checkDeparture().blocked;
   }
   let departure: { promise: Promise<boolean>; finish(leave: boolean): void } | null = null;
-  function confirmLeave(): Promise<boolean> {
-    if (!active()) return Promise.resolve(true);
+  async function confirmLeave(): Promise<boolean> {
+    if (!active()) return true;
+    let check = checkDeparture();
+    if (!departure && check.readback) {
+      waitingForReadback = true;
+      render();
+      await check.readback.catch(() => {});
+      waitingForReadback = false;
+      if (!active()) return false;
+      render();
+      check = checkDeparture();
+    }
     if (departure) return departure.promise;
-    if (!hasUnsavedChanges()) return Promise.resolve(true);
+    if (!check.blocked) return true;
     const dialog = element.ownerDocument.createElement("dialog");
     dialog.setAttribute("aria-label", "Leave this tour?");
     dialog.className = "dialog deal-tour-departure";
@@ -196,6 +209,14 @@ export function mountDealTours(
               <button type="button" className="btn btn-quiet" data-back-tours onClick={back}>
                 Back to deal tours
               </button>
+              <div
+                role="status"
+                className={waitingForReadback ? "toast show" : undefined}
+                data-transient
+                style={{ pointerEvents: "none" }}
+              >
+                {waitingForReadback && "Finishing save…"}
+              </div>
               <iframe
                 title="Tour shortlist, route and packet"
                 src={`/tours/route-editor.html?embedded=1&deal=${encodeURIComponent(dealId)}&generation=${detailGeneration}${selection.kind === "ready" ? `&tour=${encodeURIComponent(selection.tour.id)}` : ""}`}
