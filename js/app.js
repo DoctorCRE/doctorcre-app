@@ -6,7 +6,8 @@ import { mountDealRoomAgenda } from './ui-agenda.generated.js';
 import { dealStepVersion, partnerDealStep } from './local-deals-model.js';
 import { businessDay } from './business-date.js';
 import { formatCalendarDate } from './visual-system.js';
-import { automaticPhaseReceipt, dealItemRows, dealLastCaption, dealNextCaption } from './deal-items.js';
+import { automaticPhaseReceipt, dealItemRows, dealLastCaption, dealNextCaption, renderEndedDealList } from './deal-items.js';
+import { dealTypeLabel } from './live-client.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
@@ -35,7 +36,7 @@ import { mountVisibilityPoll } from './visibility-poll.mjs';
 import { createRetainedCommands } from './retained-commands.mjs';
 
 const state = {
-  client: null, selfActor: null, deals: new Map(), accounts: [],
+  client: null, selfActor: null, deals: new Map(), accounts: [], closedDeals: null, accountView: 'open',
   // Every displayed value comes from a board snapshot this coordinator applied;
   // the changes feed drives receipts, presence and capture, and asks for a new
   // snapshot, but never writes a value. See board-sync.mjs.
@@ -250,6 +251,7 @@ function applyBoardSnapshot(home) {
     }
   }
   state.accounts = home.accounts || [];
+  state.closedDeals = Array.isArray(home.closed_deals) ? home.closed_deals : null;
   for (const deal of state.deals.values()) if (!deal.last_review_at) state.changed.add(deal.id);
   $('#selfAvatar').textContent = state.selfActor === 'dell' ? 'D' : state.selfActor === 'joe' ? 'J' : '?';
   document.dispatchEvent(new CustomEvent('doctorcre:partner', { detail: state.selfActor }));
@@ -315,7 +317,7 @@ function userIsEditing() {
 
 function renderPreservingFocus(paint = render) {
   const active = document.activeElement;
-  const root = active?.closest('#accountGrid, #stats, #emptyState');
+  const root = active?.closest('#accountGrid, #stats, #emptyState, #closedDealsList');
   const attribute = ['data-account', 'data-open-deal', 'data-clear-search'].find(key => active?.hasAttribute(key));
   const selector = root && attribute ? `#${root.id} [${attribute}="${CSS.escape(active.getAttribute(attribute))}"]` : null;
   paint();
@@ -381,15 +383,50 @@ function renderChrome() {
   $('#agentHeading').textContent = agentHeading;
   $('#stickyAgentHeading').textContent = agentHeading;
   $('#accountGrid').hidden = !isAccountHome;
+  const showAccountViews = state.boardFromEngine && selected && !state.query;
+  $('#accountDealViews').hidden = !showAccountViews;
+  const closed = Boolean(showAccountViews && state.accountView === 'closed');
+  $$('#accountDealViews button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.accountView === state.accountView)));
+  $('#closedDealsView').hidden = !closed;
+  $('#openDealPageViews').hidden = closed;
+  $('#openDealToolbar').hidden = closed;
   $('#boardSection').hidden = isAccountHome;
+  $('#boardSection').classList.toggle('show-closed-deals', closed);
 }
 
-function openNationalAccount(id) {
+function openNationalAccount(id, view = 'open') {
   state.workspace = 'national_account';
   state.accountId = id;
+  state.accountView = view;
+  $('#closedSearch').value = '';
   state.query = '';
   $('#search').value = '';
   render();
+}
+
+function linkedNationalAccount(params) {
+  const id = params.get('account');
+  return state.workspace === 'national_account' && state.boardFromEngine
+    && state.accounts.some(item => item.account_client_id === id) ? id : null;
+}
+
+function setAccountDealView(view) {
+  state.accountView = view;
+  const url = new URL(location.href);
+  if (view === 'closed') {
+    url.searchParams.set('view', 'national');
+    url.searchParams.set('account', state.accountId);
+    url.searchParams.set('account_view', 'closed');
+  } else if (url.searchParams.has('account_view')) {
+    url.searchParams.delete('account');
+    url.searchParams.delete('account_view');
+  }
+  history.replaceState(history.state, '', url);
+}
+
+function renderNationalClosedDeals() {
+  const rows = (state.closedDeals || []).filter(deal => deal.account_client_id === state.accountId);
+  renderEndedDealList($('#closedDealsView'), { rows, dealTypeLabel, unavailable: state.closedDeals === null });
 }
 
 function accountPriority(deals) {
@@ -468,6 +505,7 @@ function renderBoardOnly() {
   // Before the board's own visibility is considered: an unconfirmed change
   // belongs to the page, not to whichever workspace or filter is showing.
   renderPendingWrites();
+  if (!$('#closedDealsView').hidden) { renderNationalClosedDeals(); return; }
   if ($('#boardSection').hidden) return;
   const deals = workspaceDeals();
   const accountDetail = state.workspace === 'national_account' && Boolean(state.accountId) && !state.query;
@@ -1657,10 +1695,10 @@ function showConflict(conflict) {
     } });
 }
 
-async function openDeal(dealId, { close = false } = {}) {
+async function openDeal(dealId, { close = false, fromClosed = false } = {}) {
   const params = new URLSearchParams({ deal: dealId });
-  if (close) {
-    params.set('close', '1');
+  if (close) params.set('close', '1');
+  if (close || fromClosed) {
     const mode = new URLSearchParams(location.search).get('mode');
     if (mode) params.set('mode', mode);
   }
@@ -1727,7 +1765,7 @@ function wireEvents() {
     const workspace = event.target.closest('[data-workspace]');
     if (workspace) {
       state.workspace = workspace.dataset.workspace;
-      state.accountId = null; state.filter = 'active'; state.deepLinkMine = false; state.query = ''; $('#search').value = '';
+      state.accountId = null; state.accountView = 'open'; state.filter = 'active'; state.deepLinkMine = false; state.query = ''; $('#search').value = '';
       history.pushState({ dealView: state.workspace }, '', state.workspace === 'team' ? '/deals' : '/deals?view=national');
       render(); return;
     }
@@ -1741,6 +1779,8 @@ function wireEvents() {
     }
     const accountButton = event.target.closest('[data-account]');
     if (accountButton) { openNationalAccount(accountButton.dataset.account); return; }
+    const accountView = event.target.closest('[data-account-view]');
+    if (accountView) { setAccountDealView(accountView.dataset.accountView); render(); return; }
     const retryWrite = event.target.closest('[data-retry-write]');
     // eslint-disable-next-line no-restricted-syntax -- Only an explicit retry-button click reconciles the retained cell-write request with its original idempotency key.
     if (retryWrite) { await retryCellWrite(retryWrite.dataset.retryWrite, retryWrite); return; }
@@ -1754,7 +1794,8 @@ function wireEvents() {
       return;
     }
     const phaseUndo = event.target.closest('[data-undo-phase]'); if (phaseUndo) { await automaticPhase.undo(phaseUndo); return; }
-    const open = event.target.closest('[data-open-deal]'); if (open) { await openDeal(open.dataset.openDeal); return; }
+    const open = event.target.closest('[data-open-deal]');
+    if (open) { await openDeal(open.dataset.openDeal, { fromClosed: Boolean(open.closest('#closedDealsView')) }); return; }
     const attention = event.target.closest('[data-attention]'); if (attention) { const deal=state.deals.get(attention.dataset.attention); await patchField(deal.id,'attention',!deal.attention); return; }
     const step = event.target.closest('[data-next-step],[data-agenda-step]');
     if (step) {
@@ -1792,8 +1833,10 @@ function wireEvents() {
   });
 
   $('#search').addEventListener('input', (event) => { state.query=event.target.value.trim(); render(); });
+  $('#closedSearch').addEventListener('input', renderNationalClosedDeals);
   $('#accountBack').onclick = () => {
     const accountId = state.accountId;
+    setAccountDealView('open');
     state.accountId = null;
     state.query = ''; $('#search').value = '';
     render();
@@ -1833,7 +1876,10 @@ async function boot() {
   if (params.get('workspace') === 'team') state.workspace = 'team';
   if (params.get('view') === 'national') state.workspace = 'national_account';
   window.addEventListener('popstate', () => {
-    state.workspace = new URLSearchParams(location.search).get('view') === 'national' ? 'national_account' : 'team';
+    const current = new URLSearchParams(location.search);
+    state.workspace = current.get('view') === 'national' ? 'national_account' : 'team';
+    const id = linkedNationalAccount(current);
+    if (id) { openNationalAccount(id, current.get('account_view') === 'closed' ? 'closed' : 'open'); return; }
     state.accountId = null;
     render();
   });
@@ -1858,11 +1904,8 @@ async function boot() {
   installCallMode();
   wireEvents();
   await loadHome();
-  const linkedAccount = params.get('account');
-  if (state.workspace === 'national_account' && state.nextDealSaves
-      && state.accounts.some(item => item.account_client_id === linkedAccount)) {
-    openNationalAccount(linkedAccount);
-  }
+  const linkedAccount = linkedNationalAccount(params);
+  if (linkedAccount) openNationalAccount(linkedAccount, params.get('account_view') === 'closed' ? 'closed' : 'open');
   const linkedDeal = params.get('deal');
   // A tick that arrives while the last poll is still open is dropped by the
   // coordinator rather than run alongside it, so a slow answer cannot land
