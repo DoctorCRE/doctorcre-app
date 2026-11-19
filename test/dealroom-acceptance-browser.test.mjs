@@ -913,16 +913,46 @@ test('the switched-on Timeline shows one ordered history including a newly saved
   const deal = crypto.randomUUID();
   const row = { id: deal, deal_id: deal, name: 'Example Timeline Deal', phase: 'legal', seen: 1, owner: 'joe' };
   const thread = [{ id: 'copied-note', kind: 'note', text: 'Tour plans confirmed', actor: 'dell', created_at: '2026-11-17T20:00:00Z' }];
+  const beforeDocument = '2026-11-16T13:00:00Z';
+  const stepChanges = [
+    ['Send the floor plan', 'done', 'Done'],
+    ['Ask for the rent quote', 'cancelled', 'Cancelled'],
+    ['Book an evening tour', 'expired', 'Expired'],
+  ];
+  const dates = [
+    ['due-diligence', 'due_diligence', 'open', 'Due diligence · Confirmed'],
+    ['lease-end', 'lease_end', 'cleared', 'Lease expiration · Done'],
+    ['option', 'option_notice', 'dropped', 'Option notice · Dropped'],
+    ['phase-effective', 'phase_effective_date', 'passed', 'Phase effective date · Passed'],
+  ];
+  const dealChanges = [
+    ['operating_state', 'Parked · Client paused · Back in spring', 'Parked · Client paused · Back in spring'],
+    ['operating_state', 'Active', 'Active again'],
+    ['attention', false, 'Needs attention cleared'],
+    ['won_value', 125000, 'Closed value · $125,000'],
+    ['won_value', 125050.5, 'Closed value · $125,050.50'],
+  ];
   const events = [
     { id: 'copied-event', activity_id: 'copied-note', verb: 'add-deal-note', field: 'note', new_value: { note: thread[0].text }, actor: 'dell', recorded_at: '2026-11-17T20:00:01Z' },
     { id: 'move', verb: 'move-phase', field: 'phase', new_value: 'legal', actor: 'agent', recorded_at: '2026-11-18T01:00:00Z' },
     { id: 'attention', verb: 'update-deal', field: 'attention', new_value: true, actor: 'joe', recorded_at: '2026-11-17T14:00:00Z' },
+    ...dealChanges.map(([field, new_value], i) => ({
+      id: `change-${i}`, verb: 'update-deal', field, new_value, actor: 'joe', recorded_at: beforeDocument,
+    })),
   ];
   const detail = { ...row, thread, events, email_follow_ups: [],
     phase_started_on: { legal: '2026-11-17' },
     documents: [{ id: 'file', name: 'Example plan.pdf', actor: 'mail_capture', prepared_at: '2026-11-16T14:00:00Z' }],
-    next_actions: [{ id: 'step', owner: 'dell', actor: 'joe', description: 'Check the floor plan', updated_at: '2026-11-17T18:00:00Z' }],
-    critical_dates: [{ id: 'date', kind: 'due_diligence', label: 'Due diligence', due_on: '2026-11-19', actor: 'dell', updated_at: '2026-11-17T19:00:00Z' }],
+    next_actions: [
+      { id: 'step', owner: 'dell', actor: 'joe', description: 'Check the floor plan', status: 'open', updated_at: '2026-11-17T18:00:00Z' },
+      ...stepChanges.map(([description, status]) => ({
+        id: status, owner: 'dell', actor: 'joe', description, status, due_on: '2026-11-19', updated_at: beforeDocument,
+      })),
+    ],
+    critical_dates: dates.map(([id, kind, status]) => ({
+      id, kind, status, due_on: '2026-11-19', actor: 'dell',
+      updated_at: status === 'open' ? '2026-11-17T19:00:00Z' : beforeDocument,
+    })),
   };
   let switchesOn = false;
   const carr = [], engine = [];
@@ -975,14 +1005,23 @@ test('the switched-on Timeline shows one ordered history including a newly saved
   await openTimeline();
   const rows = timeline.getByRole('listitem');
   const contents = await rows.allTextContents();
-  assert.equal(contents.length, 6);
+  assert.equal(contents.length, 6 + stepChanges.length + (dates.length - 1) + dealChanges.length);
   assert.match(contents[0], /Automatically.*Nov 17.*7:00 PM.*Legal/);
   assert.match(contents[1], /Dell.*Nov 17.*2:00 PM.*Tour plans confirmed/);
   assert.match(contents[2], /Dell.*Nov 17.*1:00 PM.*Due diligence.*Due Nov 19/);
-  assert.match(contents[3], /Joe.*Check the floor plan/);
-  assert.match(contents[4], /Joe.*Attention flag.*Flagged/);
+  assert.match(contents[3], /Joe.*Check the floor plan$/);
   assert.match(contents[5], /Automatically.*Nov 16.*Example plan\.pdf/);
-  assert.doesNotMatch(contents.join(' '), /2026-11-|move-phase|add deal note/);
+  const descriptions = await rows.locator('p').allTextContents();
+  for (const [description, , state] of stepChanges) {
+    assert.ok(descriptions.includes(`${description} · ${state} · Due Nov 19, 2026`), `Next step should say ${state}`);
+  }
+  for (const [, , , caption] of dates) {
+    assert.ok(descriptions.includes(`${caption} · Due Nov 19, 2026`), `Critical date should say ${caption}`);
+  }
+  for (const description of ['Needs attention', ...dealChanges.map(([, , label]) => label)]) {
+    assert.equal(descriptions.filter(text => text === description).length, 1, description);
+  }
+  assert.doesNotMatch(contents.join(' '), /2026-11-|move-phase|add deal note|Active work ·|Attention flag/);
 
   await page.getByRole('tab', { name: 'Overview' }).click();
   await page.getByLabel('Update', { exact: true }).fill('Tour plans confirmed');

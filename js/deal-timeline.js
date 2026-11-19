@@ -25,7 +25,7 @@ const DATE_KINDS = [
 export const CRITICAL_DATE_OPTIONS = DATE_KINDS.flatMap(({ saveKind, label }) => saveKind ? [[saveKind, label]] : []);
 const dateKind = kind => kind && DATE_KINDS.find(d => d.kind === kind || d.saveKind === kind || d.aliases?.includes(kind));
 
-function criticalDateLabel(kind, definition) {
+function criticalDateLabel(kind, definition = dateKind(kind)) {
   const words = kind?.replace(/[_-]+/g, ' ') || '';
   return definition?.label || words.charAt(0).toUpperCase() + words.slice(1);
 }
@@ -120,16 +120,25 @@ export function renderCriticalDates(detail, now = Date.now(), dateDecisions = fa
 
 const timelineActor = actor => Object.hasOwn(ACTOR_LABEL, actor) ? ACTOR_LABEL[actor] : actor ? 'Automatically' : '';
 const activityLabels = { call: 'Call', email: 'Email', meeting: 'Meeting' };
-const dateKindLabels = { loi_expiry: 'LOI expiry', lease_end: 'Lease expiration' };
+const STEP_STATES = new Map([['done', 'Done'], ['cancelled', 'Cancelled'], ['expired', 'Expired']]);
+const closedMoney = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', trailingZeroDisplay: 'stripIfInteger' });
 
 function changeText({ field, new_value }) {
   if (field === 'phase') {
     const phase = new_value === 'dead' ? 'Lost' : columnBySlug(new_value)?.label || readableValue(field, new_value);
     return `Moved to ${phase}`;
   }
+  if (field === 'operating_state') {
+    const state = typeof new_value === 'string' ? new_value : readableValue(field, new_value);
+    return /^(active|active work)$/i.test(state) ? 'Active again' : state;
+  }
+  if (field === 'attention' && typeof new_value === 'boolean') {
+    return new_value ? 'Needs attention' : 'Needs attention cleared';
+  }
   const label = field === 'won_value' ? 'Closed value' : fieldLabel(field);
-  const value = typeof new_value === 'string' && new_value.length === 10 && calendarDay(new_value)
-    ? dateCaption(new_value) : readableValue(field, new_value, { actorLabel: timelineActor });
+  let value = readableValue(field, new_value, { actorLabel: timelineActor });
+  if (field === 'won_value' && Number.isFinite(new_value)) value = closedMoney.format(new_value);
+  if (typeof new_value === 'string' && new_value.length === 10 && calendarDay(new_value)) value = dateCaption(new_value);
   return label ? `${label} · ${value}` : 'Deal changed';
 }
 
@@ -148,14 +157,18 @@ export function engineTimelineEntries(detail) {
     })),
     ...(detail.next_actions || []).map(step => ({
       type: step.title ? 'Deal item' : 'Next step', when: step.updated_at || step.due_on, actor: step.actor,
-      text: [step.title || step.description, step.updated_at && calendarDay(step.due_on) && `Due ${dateCaption(step.due_on)}`].filter(Boolean).join(' · '),
+      text: [
+        step.title || step.description,
+        STEP_STATES.get(step.status),
+        step.updated_at && calendarDay(step.due_on) && `Due ${dateCaption(step.due_on)}`,
+      ].filter(Boolean).join(' · '),
     })),
     ...(detail.critical_dates || []).map(date => {
-      const label = dateKindLabels[date.kind] || readableValue('kind', date.kind);
+      const label = criticalDateLabel(date.kind) || 'Date';
       const due = calendarDay(date.due_on) && `Due ${dateCaption(date.due_on)}`;
       return {
         type: 'Critical date', when: date.updated_at, actor: date.actor,
-        text: [...new Set([label, due, date.note].filter(Boolean))].join(' · '),
+        text: [...new Set([label, DATE_STATES.get(date.status), due, date.note].filter(Boolean))].join(' · '),
       };
     }),
     ...(detail.history || []).filter(event => !noteIds.has(event.activity_id)).map(event => ({
