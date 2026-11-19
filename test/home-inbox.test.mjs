@@ -258,3 +258,20 @@ test('engine card Drop selects the reason-bearing door and confirms no Undo rece
     assert.equal(calls[1][1].reason, 'Work moved.');
   }
 });
+
+test('engine Home v5 reads open and completed work without settlement fields', () => {
+  const { auto_settled, explicit_unsettle, ...open } = item('next_action:open', {
+    waiting_version: 0, waiting_on: null,
+  });
+  const done = { ...open, item_id: 'next_action:done', source_state: 'done', section: 'done', completed_at: '2026-11-19T18:00:00Z' };
+  const read = parseSnapshot({
+    ok: true, schema_version: 'home-inbox.v5', engine_marks: true, truncated: false, limit: 1000,
+    working_collapsed: true, items: [open, done],
+  });
+  assert.deepEqual(read.items.map(row => row.section), ['inbox', 'done']);
+  assert.equal('auto_settle_enabled' in read, false);
+  for (const row of read.items) {
+    assert.equal('explicit_unsettle' in row, false);
+    assert.equal('auto_settled' in row, false);
+  }
+});

@@ -30,7 +30,7 @@ export function lateDays(due: string | null, now = new Date()) {
 
 export function completionGroups(items: readonly InboxItem[], now: Date) {
   const completed = items
-    .filter((item) => item.section === "done" || item.auto_settled)
+    .filter((item) => item.section === "done" || (!item.engine_marks && item.auto_settled))
     .sort(
       (a, b) =>
         (b.completed_at ? Date.parse(b.completed_at) : 0) - (a.completed_at ? Date.parse(a.completed_at) : 0) ||

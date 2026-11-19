@@ -35,7 +35,7 @@ type BaseItem = Readonly<{
   unseen: boolean;
   disposition: "inbox" | "snoozed" | "settled";
   snoozed_until: string | null;
-  explicit_unsettle: boolean;
+  explicit_unsettle?: boolean;
   section: "inbox" | "working" | "held" | "done" | "snoozed" | "settled";
   base_version: string;
 }>;
@@ -47,7 +47,7 @@ export type InboxItem = BaseItem &
     home_proposal_drop?: true;
     waiting_on?: Waiting | null;
     completed_at: string | null;
-    auto_settled: boolean;
+    auto_settled?: boolean;
     context_label: string | null;
     due_on: string | null;
     open_url: string | null;
@@ -74,12 +74,16 @@ export type Snapshot = Readonly<{
   truncated: boolean;
   limit: 1000;
   items: InboxItem[];
-  engine_marks?: true;
   working_collapsed: true;
 }> &
   (
-    | Readonly<{ schema_version: "home-inbox.v2"; auto_settle_enabled: false }>
-    | Readonly<{ schema_version: "home-inbox.v3" | "home-inbox.v4" | "home-inbox.v5"; auto_settle_enabled: true }>
+    | Readonly<{ schema_version: "home-inbox.v5"; engine_marks: true }>
+    | Readonly<{ schema_version: "home-inbox.v2"; engine_marks?: never; auto_settle_enabled: false }>
+    | Readonly<{
+        schema_version: "home-inbox.v3" | "home-inbox.v4" | "home-inbox.v5";
+        engine_marks?: never;
+        auto_settle_enabled: true;
+      }>
   );
 export type Action = "snooze" | "settle" | "unsettle" | "unsnooze" | "done" | "undo_done";
 type CommandArgs = Readonly<{
@@ -195,7 +199,7 @@ function parseWaiting(value: unknown, version: number): Waiting | null {
   // The checks above validate every Waiting field, including its identity discriminant.
   return value as Waiting;
 }
-function parseBaseItem(value: unknown): BaseItem {
+function parseBaseItem(value: unknown, engine = false): BaseItem {
   if (
     !object(value) ||
     !["item_id", "source_type", "source_id", "source_version", "title", "section", "base_version"].every((key) =>
@@ -214,7 +218,7 @@ function parseBaseItem(value: unknown): BaseItem {
     !(value.hold_until === null || timestamp(value.hold_until)) ||
     !(value.snoozed_until === null || timestamp(value.snoozed_until)) ||
     typeof value.unseen !== "boolean" ||
-    typeof value.explicit_unsettle !== "boolean"
+    (!engine && typeof value.explicit_unsettle !== "boolean")
   )
     throw Error("Inbox returned an unreadable item. Refresh to try again.");
   // The checks above validate all base fields and their allowed string values.
@@ -228,7 +232,7 @@ const day = (value: unknown) =>
   Number.isFinite(Date.parse(value)) &&
   new Date(value).toISOString().slice(0, 10) === value;
 export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = false): InboxItem {
-  const legacy = parseBaseItem(value);
+  const legacy = parseBaseItem(value, engineMarks);
   if (
     !object(value) ||
     !(value.context_label === null || text(value.context_label)) ||
@@ -276,11 +280,12 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   )
     throw Error("Inbox returned unreadable completion identity. Refresh to try again.");
   if (
+    !engineMarks &&
     v3 &&
     (typeof value.auto_settled !== "boolean" ||
       (value.auto_settled &&
-        (((!engineMarks || legacy.section !== "done") &&
-          (legacy.section !== "settled" || legacy.disposition !== "settled")) ||
+        (legacy.section !== "settled" ||
+          legacy.disposition !== "settled" ||
           legacy.source_state !== "done" ||
           legacy.explicit_unsettle ||
           !["next_action", "capture_post_call_action", "email_proposal", "fact_review", "tour_feedback"].includes(
@@ -301,10 +306,11 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   )
     throw Error("Inbox returned unreadable completion time. Refresh to try again.");
   const reference = v3 ? parseReference(value.review_reference) : null;
+  const { explicit_unsettle, auto_settled, ...fields } = value;
   // Version-specific checks above validate the item before normalized optional fields are added.
   return {
-    ...value,
-    ...(engineMarks && { engine_marks: true }),
+    ...fields,
+    ...(engineMarks ? { engine_marks: true } : { explicit_unsettle, auto_settled: v3 ? auto_settled : false }),
     ...(value.review_reference === undefined
       ? {}
       : {
@@ -314,7 +320,6 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
               : null,
         }),
     completed_at: v4 ? value.completed_at : null,
-    auto_settled: v3 ? value.auto_settled : false,
   } as InboxItem;
 }
 const inboxVersions = [
@@ -325,6 +330,7 @@ const inboxVersions = [
 ] as const;
 export function parseSnapshot(value: unknown): Snapshot {
   const contract = object(value) ? inboxVersions.find((entry) => entry.schema === value.schema_version) : undefined;
+  const engine = object(value) && value.engine_marks === true;
   if (
     !contract ||
     !object(value) ||
@@ -334,12 +340,11 @@ export function parseSnapshot(value: unknown): Snapshot {
     typeof value.truncated !== "boolean" ||
     value.limit !== 1000 ||
     value.working_collapsed !== true ||
-    value.auto_settle_enabled !== contract.settlement
+    (engine ? contract.schema !== "home-inbox.v5" : value.auto_settle_enabled !== contract.settlement)
   )
     throw Error("Inbox unavailable. The server could not provide the complete inbox.");
   const items = value.items.map((item) => {
-    const parsed = parseItem(item, contract.settlement, contract.completion, value.engine_marks === true);
-    const engine = value.engine_marks === true;
+    const parsed = parseItem(item, contract.settlement, contract.completion, engine);
     const card = engine
       ? {
           ...parsed,
@@ -381,9 +386,9 @@ export function parseSnapshot(value: unknown): Snapshot {
     truncated: value.truncated,
     limit: 1000,
     items,
-    ...(value.engine_marks === true && { engine_marks: true as const }),
     working_collapsed: true,
   } as const;
+  if (engine) return { ...shared, schema_version: "home-inbox.v5", engine_marks: true };
   return contract.settlement
     ? { ...shared, schema_version: contract.schema, auto_settle_enabled: true }
     : { ...shared, schema_version: "home-inbox.v2", auto_settle_enabled: false };

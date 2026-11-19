@@ -514,7 +514,7 @@ function Inbox({ client }: { client: InboxClient }) {
             {draftCardStatus(item) ||
               (item.disposition === "snoozed" && item.snoozed_until
                 ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
-                : item.auto_settled || item.section === "done"
+                : item.section === "done" || (!item.engine_marks && item.auto_settled)
                   ? completionLabel(item)
                   : item.disposition === "settled"
                     ? "Hidden from inbox by you"
@@ -707,7 +707,7 @@ function Inbox({ client }: { client: InboxClient }) {
                 : "Up to date"}
         <span>Partner inbox</span>
       </div>
-      {query.data && !query.data.auto_settle_enabled && (
+      {query.data && !query.data.engine_marks && !query.data.auto_settle_enabled && (
         <p role="status">
           Automatic settlement unavailable. Showing the earlier inbox; completed items may still need review.
         </p>
