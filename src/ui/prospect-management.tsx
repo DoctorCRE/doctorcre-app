@@ -26,6 +26,97 @@ function isMatch(value: unknown): value is Match {
   );
 }
 
+async function searchParties(request: ProspectClient["prospectRequest"], query: string, signal: AbortSignal) {
+  const response = await request(`${prospectsPath}/search?query=${encodeURIComponent(query)}`, { signal });
+  if (!response.ok) throw new Error("Party search unavailable");
+  const data: unknown = await response.json();
+  return object(data) && Array.isArray(data.parties) ? data.parties.filter(isMatch) : [];
+}
+
+export function DealClientPicker({
+  prospect,
+  request,
+}: {
+  prospect: { party_id: string; name: string };
+  request: ProspectClient["prospectRequest"];
+}) {
+  const [name, setName] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [matches, setMatches] = useState<Match[]>();
+  const [unavailable, setUnavailable] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const query = name.trim();
+    if (!query || clientId) return;
+    const controller = new AbortController();
+    void searchParties(request, query, controller.signal).then(
+      (found) => {
+        if (!controller.signal.aborted) setMatches(found);
+      },
+      () => {
+        if (!controller.signal.aborted) setUnavailable(true);
+      },
+    );
+    return () => controller.abort();
+  }, [name, clientId, request]);
+
+  function select(id: string, name: string) {
+    setClientId(id);
+    setName(name);
+    setMatches(undefined);
+    setUnavailable(false);
+    input.current?.focus();
+  }
+
+  return (
+    <div className="field">
+      <label htmlFor="prospectDealClient">Client</label>
+      <input
+        ref={input}
+        id="prospectDealClient"
+        name="client"
+        aria-describedby="prospectDealClientHint"
+        maxLength={100}
+        required
+        value={name}
+        onChange={(event) => {
+          setName(event.currentTarget.value);
+          setClientId("");
+          setMatches(undefined);
+          setUnavailable(false);
+        }}
+      />
+      <input type="hidden" name="client_id" value={clientId} />
+      <small id="prospectDealClientHint">Search for a person or company, or use the prospect.</small>
+      <button type="button" className="btn" onClick={() => select(prospect.party_id, prospect.name)}>
+        Use {prospect.name} as client
+      </button>
+      {matches && matches.length > 0 && (
+        <ul className="prospect-client-matches" aria-label="Matching people and companies">
+          {matches.map((match) => {
+            const duplicate = matches.some(
+              (other) =>
+                other.id !== match.id &&
+                other.display_name.toLowerCase() === match.display_name.toLowerCase() &&
+                other.kind === match.kind,
+            );
+            return (
+              <li key={match.id}>
+                <button type="button" className="btn" onClick={() => select(match.id, match.display_name)}>
+                  {match.display_name} · {match.kind === "person" ? "Person" : "Company"}
+                  {duplicate && ` · ${match.id}`}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {matches?.length === 0 && <small role="status">No matching people or companies.</small>}
+      {unavailable && <small role="status">Search is unavailable. Try again.</small>}
+    </div>
+  );
+}
+
 type AddProps = {
   client: ProspectClient;
   sources: Record<string, string>;
@@ -54,12 +145,9 @@ export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
     const query = name.trim();
     if (picked || !query) return;
     const controller = new AbortController();
-    void client
-      .prospectRequest(`${prospectsPath}/search?query=${encodeURIComponent(query)}`, { signal: controller.signal })
-      .then(async (response) => {
-        const data: unknown = response.ok ? await response.json() : null;
-        if (!controller.signal.aborted)
-          setMatches(object(data) && Array.isArray(data.parties) ? data.parties.filter(isMatch) : []);
+    void searchParties(client.prospectRequest, query, controller.signal)
+      .then((found) => {
+        if (!controller.signal.aborted) setMatches(found);
       })
       .catch(() => {
         if (!controller.signal.aborted) setMatches([]);
@@ -200,8 +288,9 @@ type ManageProps = {
   saved: () => void;
   reload: () => void;
   drop: () => void;
+  turnIntoDeal: () => void;
 };
-export function ManageProspect({ row, actor, client, saved, reload, drop }: ManageProps) {
+export function ManageProspect({ row, actor, client, saved, reload, drop, turnIntoDeal }: ManageProps) {
   const [dropping, setDropping] = useState(false);
   const id = row.party_id;
   const changes = useProspectSave(client, `${prospectsPath}/${id}/changes`, `${id}:changes`, "party_id", saved);
@@ -230,6 +319,7 @@ export function ManageProspect({ row, actor, client, saved, reload, drop }: Mana
         {action(claim, () => change({ owner: row.owner === actor ? other : actor }))}
         {row.owner && action("Unclaim", () => change({ owner: null }))}
         {action(attention, () => change({ needs_attention: !row.needs_attention }))}
+        {action("Turn into deal", turnIntoDeal)}
         {action("Drop prospect", () => setDropping(!dropping), dropping)}
       </div>
       <ProspectSaveFeedback save={changes} reload={reload} />

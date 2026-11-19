@@ -322,8 +322,9 @@ function nextDealSave(verb, args) {
   if (!isUuid(idempotency_key)) return null;
   const post = (path, body) => ({ path: '/api/engine' + path, body: { idempotency_key, ...body } });
   if (verb === 'new-deal') {
-    const { name, client_id, owner, phase, kind, reason, market_id, renews_lease_id } = args;
-    return isUuid(client_id) ? post('/deals', { name, client_id, owner, phase, kind, reason, market_id, renews_lease_id }) : null;
+    const { name, client_id, prospect_id, owner, phase, kind, reason, market_id, renews_lease_id } = args;
+    if (!isUuid(client_id) || (prospect_id !== undefined && !isUuid(prospect_id))) return null;
+    return post('/deals', { name, client_id, prospect_id, owner, phase, kind, reason, market_id, renews_lease_id });
   }
   if (verb === 'create-national-market-deal') {
     const { account_client_id, market_id, name, owner, phase, reason, client_id, new_location, market_agent_id } = args;
@@ -419,6 +420,8 @@ const DEAL_CREATE_REFUSALS = new Map([
   ['deal_market_id_fkey', 'Choose an existing market.'],
   ['deal_renewal_names_lease', 'Renewals need an existing lease. The Add deal form cannot link a lease yet.'],
   ['deal_name_exists', 'A deal with this name already exists.'],
+  ['not_a_prospect', 'This person or company is no longer a prospect.'],
+  ['lead_or_client_how_found', 'Record how you found this person or company before using them as a client.'],
   ['location_not_in_account', 'This location is no longer in the account. Reopen Add market deal to choose a location.'],
   ['location_name_exists', 'Choose the existing location with that name.'],
 ]);
@@ -456,7 +459,8 @@ async function cutoverSave(request, env, call) {
     : Number.isSafeInteger(args.seen_change_id) && args.seen_change_id >= 0;
   const phaseUndo = name === 'undo-automatic-phase-move';
   if (phaseUndo && (!on || !fromNext)) return saveRefusal(call, 'version_conflict', 'Reload Deals before using Undo.');
-  if (!on && !fromNext) return null;
+  const conversion = name === 'new-deal' && args.prospect_id !== undefined;
+  if (!on && !fromNext && !conversion) return null;
   if (creating && (!on || !fromNext)) return saveRefusal(call, 'reload_deals', 'Reload Deals before adding a deal.');
   if (accountSave && (!on || !fromNext || !await switchedOn(env, DEALS)))
     return saveRefusal(call, 'reload_deals', 'Reload Deals before saving the account.');

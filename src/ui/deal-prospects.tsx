@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { AddProspect, ManageProspect } from "./prospect-management";
+import { AddProspect, DealClientPicker, ManageProspect } from "./prospect-management";
 import {
   type Partner,
   type ProspectClient,
@@ -29,6 +30,10 @@ type RequestProspect = (path: string, init?: RequestInit) => Promise<Response>;
 type AuthorLabel = (by: string | null) => string;
 type ProspectActions = {
   addDeal: (client: { id: string; name: string }) => void;
+  turnIntoDeal: (
+    prospect: Pick<ReturnType<typeof parseProspect>, "party_id" | "name" | "latest_note" | "owner">,
+    completed: () => void,
+  ) => void;
   backToReview: (() => void) | null;
 };
 type Filters = { owner: string; attention: boolean; actor: Partner | null; canSave: boolean };
@@ -188,6 +193,7 @@ function ProspectDetail({
   authorLabel,
   close,
   closeLabel,
+  turnIntoDeal,
   focusFollowUp,
 }: {
   id: string;
@@ -197,6 +203,7 @@ function ProspectDetail({
   authorLabel: AuthorLabel;
   close: () => void;
   closeLabel: string;
+  turnIntoDeal: (prospect: Parameters<ProspectActions["turnIntoDeal"]>[0]) => void;
   focusFollowUp: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -267,6 +274,7 @@ function ProspectDetail({
                 client={client}
                 saved={saved}
                 reload={reload}
+                turnIntoDeal={() => turnIntoDeal(row)}
                 drop={() => {
                   dialog.current?.close();
                   refreshLane();
@@ -308,7 +316,7 @@ function ProspectLane({
   authorLabel,
   count,
   refresh,
-  actions: { addDeal, backToReview },
+  actions: { addDeal, turnIntoDeal, backToReview },
 }: {
   filters: Filters;
   revision: number;
@@ -381,12 +389,19 @@ function ProspectLane({
           refreshLane={refresh}
           authorLabel={authorLabel}
           focusFollowUp={initial === opened && query.get("focus") === "follow-up"}
+          turnIntoDeal={(row) => turnIntoDeal(row, () => open(null))}
           close={returnToReview ?? (() => open(null))}
           closeLabel={returnToReview ? "Back to Monday review" : "Back to Deals"}
         />
       )}
     </>
   );
+}
+
+export function mountProspectClientPicker(host: HTMLElement, props: Parameters<typeof DealClientPicker>[0]) {
+  const root = createRoot(host);
+  flushSync(() => root.render(<DealClientPicker {...props} />));
+  return () => root.unmount();
 }
 
 export function mountProspects(
