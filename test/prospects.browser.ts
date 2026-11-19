@@ -8,7 +8,7 @@ import { chromium } from "./browser-harness.mjs";
 const party = "00000000-0000-4000-8000-000000000001";
 const note = { activity_id: party, by: "dell", at: "2026-11-18T15:40:00Z", summary: "First line\nSecond line" };
 
-test("Deals opens one prospect on desktop and phone and reloads its notes", async (t) => {
+test("partners see and manage prospects from Deals", async (t) => {
   const actor = "joe";
   const session = { actor: { slug: actor }, csrf_token: "synthetic-csrf" };
   const CARR = { fetch: async () => Response.json(session) };

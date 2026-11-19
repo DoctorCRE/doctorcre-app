@@ -60,6 +60,7 @@ export function AddProspect({
       });
     return () => controller.abort();
   }, [name, picked, client]);
+  const choosingKind = !picked && Boolean(name.trim());
   const problem = save.state.kind === "refused" ? save.state.problem : null;
   const missingFound =
     problem?.error === "missing_required" && Array.isArray(problem.fields) && problem.fields.includes("how_found");
@@ -79,7 +80,7 @@ export function AddProspect({
   }
 
   return (
-    <form className="prospect-add" onSubmit={submit}>
+    <form className="prospect-add field" onSubmit={submit}>
       <div className="prospect-add-line">
         <input
           aria-label="Prospect name"
@@ -89,6 +90,7 @@ export function AddProspect({
           disabled={save.blocked}
           onChange={(event) => {
             setName(event.currentTarget.value);
+            if (picked) setFound("");
             pick(undefined);
             setMatches([]);
             setMessage("");
@@ -125,7 +127,7 @@ export function AddProspect({
           ))}
         </ul>
       )}
-      {!picked && (
+      {choosingKind && (
         <select
           aria-label="Person or company"
           required
@@ -133,12 +135,12 @@ export function AddProspect({
           value={kind}
           onChange={(event) => setKind(event.currentTarget.value)}
         >
-          <option value="">Person or company</option>
+          <option value="">Person / company</option>
           <option value="person">Person</option>
           <option value="company">Company</option>
         </select>
       )}
-      {(!picked || found || missingFound) && (
+      {(choosingKind || found || missingFound) && (
         <select
           aria-label="How found"
           value={found}
@@ -243,7 +245,7 @@ export function ManageProspect({
       <ProspectSaveFeedback save={changes} reload={reload} />
       <details>
         <summary>Drop prospect</summary>
-        <form onSubmit={dropProspect}>
+        <form className="field" onSubmit={dropProspect}>
           <label>
             Reason
             <input name="reason" required disabled={blocked} />
