@@ -362,7 +362,7 @@ function renderClosedDeals() {
     rows = (lost ? lostDeals : closedDeals)([...records.values()], state.filter, $('closedSearch').value);
   }
   renderEndedDealList($('closedDealsView'), {
-    rows, dealTypeLabel, lost, fromEngine: state.boardFromEngine, unavailable: archived === null, unavailableMessage: '',
+    rows, dealTypeLabel, lost, fromEngine: state.boardFromEngine, canUndo: state.nextDealSaves, feedback: automaticPhase.feedback, unavailable: archived === null, unavailableMessage: '',
   });
   renderHistoryStatus(state.boardSync.status());
 }
@@ -2321,7 +2321,7 @@ function wire() {
     const retry = event.target.closest('button[data-retry-write]');
     // eslint-disable-next-line no-restricted-syntax -- Only an explicit retry-button click reconciles the retained field write; no automatic resend occurs.
     if (retry) { retryFieldWrite(retry.dataset.retryWrite); return; }
-    const phaseUndo = event.target.closest('button[data-undo-phase]');
+    const phaseUndo = event.target.closest('button[data-undo-phase], #closedDealsView button[data-undo-invoice]');
     if (phaseUndo) {
       const onDealPage = $('panelBody').contains(phaseUndo);
       const result = await automaticPhase.undo(phaseUndo);

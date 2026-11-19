@@ -103,3 +103,19 @@ test('automatic receipts show their source to partners', () => {
   assert.match(renderPhaseReceipt(deal, automaticPhaseReceipt(deal, null, {showEngineMoves:true}), ''), new RegExp(label));
  }
 });
+
+test('automatic receipts keep their captions and offer Undo only when allowed', async () => {
+  const { automaticPhaseReceipt, renderPhaseReceipt, renderInvoiceClose, renderEndedDealList } = await import('../js/deal-items.js');
+  const { JSDOM } = await import('jsdom');
+  const deal = { id: 'demo', name: 'Example', seen: 4, phase_change: { source: 'copied', automatic: true, event_id: 'event', prior_phase: 'legal', phase: 'closed', evidence_date: '2026-11-17', undoable: false } };
+  const html = renderPhaseReceipt(deal, automaticPhaseReceipt(deal, null, { showEngineMoves: true }), '');
+  assert.match(html, /Closed automatically/);
+  assert.doesNotMatch(html, /data-undo-phase/);
+  const view = new JSDOM('<input id="closedSearch"><div id="closedCount"></div><div id="closedDealsList"></div>').window.document;
+  const render = row => { renderEndedDealList(view, { rows: [row], dealTypeLabel: () => '', canUndo: true }); return view.querySelector('#closedDealsList').innerHTML; };
+  assert.doesNotMatch(render(deal), /data-undo-phase/);
+  assert.match(render({ ...deal, phase_change: { ...deal.phase_change, undoable: true } }), /data-undo-phase/);
+  const invoice = { ...deal, phase_change: { ...deal.phase_change, source: 'invoice', undoable: true } };
+  assert.match(render(invoice), /data-undo-invoice/);
+  assert.doesNotMatch(renderInvoiceClose({ ...invoice, phase_change: { ...invoice.phase_change, undoable: false } }, true), /data-undo-invoice/);
+});

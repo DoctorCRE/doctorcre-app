@@ -511,6 +511,7 @@ async function cutoverSave(request, env, call) {
         ?? 'Check the deal details and try again.'
       : invalidClosingDate ? 'Choose a closing date between the day the deal reached its current phase and today.'
       : peopleOrDate ? dealPeopleAndDateHint(name, body) ?? 'Review the deal and try saving again.'
+      : ['undo-invoice-close', 'undo-automatic-phase-move'].includes(name) && typeof body.hint === 'string' && body.hint.trim() ? body.hint
       : body.error === 'version_conflict' && name === 'complete-deal-item' ? 'This item changed while it was open. Reload it before marking it done.'
       : body.error === 'version_conflict' ? name === 'set-next-step'
         ? 'The next step changed. Review it before saving again.' : 'This deal changed. Reload the deal before saving.'
