@@ -8,9 +8,10 @@ export type ProspectClient = {
   saveProspect: (path: string, operation: string, receipt: string, args?: object) => Promise<Reply>;
 };
 type SaveState = { kind: "ready" | "saving" } | { kind: "refused"; problem: Record<string, unknown>; pending: boolean };
-export const prospectsPath = "/api/engine/prospects";
+const prospects = "/api/engine/prospects";
+export { prospects as prospectsPath, useProspectSave, ProspectSaveFeedback };
 
-export function useProspectSave(
+function useProspectSave(
   client: ProspectClient,
   url: string,
   operation: string,
@@ -55,13 +56,7 @@ const refusalMessages: Readonly<Record<string, string>> = {
 };
 const editableFields: readonly string[] = ["summary", "what", "due_on", "name", "kind", "how_found", "note", "reason"];
 
-export function ProspectSaveFeedback({
-  save,
-  reload,
-}: {
-  save: ReturnType<typeof useProspectSave>;
-  reload?: () => void;
-}) {
+function ProspectSaveFeedback({ save, reload }: { save: ReturnType<typeof useProspectSave>; reload?: () => void }) {
   if (save.state.kind !== "refused") return null;
   const { problem, pending } = save.state;
   if (pending)
@@ -113,7 +108,7 @@ export function ProspectNote({ id, client, saved }: Props) {
   const form = useRef<HTMLFormElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
-  const note = useProspectSave(client, `${prospectsPath}/note`, `${id}:note`, "activity_id", (_data, sent) => {
+  const note = useProspectSave(client, `${prospects}/note`, `${id}:note`, "activity_id", (_data, sent) => {
     if (input.current?.value.trim() === sent.summary) {
       form.current?.reset();
       setMessage("");
@@ -161,19 +156,13 @@ export function ProspectFollowUp({
   const whatInput = useRef<HTMLInputElement>(null);
   const dateInput = useRef<HTMLInputElement>(null);
   const base = useRef<{ step: StepVersion | undefined }>(null);
-  const save = useProspectSave(
-    client,
-    `${prospectsPath}/follow-up`,
-    `${id}:follow-up`,
-    "next_step_id",
-    (_data, sent) => {
-      if (whatInput.current?.value.trim() === sent.what && dateInput.current?.value === sent.due_on) {
-        form.current?.reset();
-        base.current = null;
-      }
-      saved();
-    },
-  );
+  const save = useProspectSave(client, `${prospects}/follow-up`, `${id}:follow-up`, "next_step_id", (_data, sent) => {
+    if (whatInput.current?.value.trim() === sent.what && dateInput.current?.value === sent.due_on) {
+      form.current?.reset();
+      base.current = null;
+    }
+    saved();
+  });
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
