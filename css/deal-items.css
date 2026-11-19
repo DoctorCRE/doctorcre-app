@@ -41,3 +41,18 @@ button.deal-summary-text { min-height: 44px; padding: 0; border: 0; background: 
   .has-app-layout .table-frame.has-deal-summaries td:nth-child(3) { padding-block: 0; }
   .kanban-card .deal-summary-line { margin-top: var(--space-1); }
 }
+
+/* The title opens the deal because Enter on the card body lifts it for a move. */
+.card-open { min-width: var(--touch); min-height: var(--touch); padding: 0; border: 0; background: none; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.card-open:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.auto-move { display: grid; align-content: end; gap: var(--space-1); font-size: var(--font-size-1); color: var(--status-info-ink); }
+.auto-move span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+.closed-deals-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,300px),1fr)); gap: var(--space-3); }
+.closed-deal { border: var(--hairline-width) solid var(--hairline); background: var(--surface-1); padding: var(--space-4); min-width: 0; overflow-wrap: anywhere; }
+.closed-deal h3 { margin: 0 0 var(--space-3); }
+.closed-deal dl:not(.deal-vendors) { display: grid; gap: var(--space-2); margin: 0; }
+.closed-deal dl:not(.deal-vendors) > div { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: var(--space-2); }
+.closed-deal dt { color: var(--fg-muted); }
+.closed-deal dd { margin: 0; }
