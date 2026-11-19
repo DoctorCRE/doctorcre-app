@@ -512,10 +512,12 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
   const success = row('Example Restored Deal');
   const closed = row('Example Formerly Closed Deal', 'closed');
   const lost = row('Example Formerly Lost Deal', 'dead');
+  const invoiced = row('Example Formerly Invoiced Deal', 'invoiced');
+  const refused = row('Example Refused Undo Deal');
   const stale = row('Example Changed Deal');
   const manual = row('Example Manual Deal', 'research', false);
   const parked = { ...row('Example Parked Deal'), operating_state: 'parked', parking_reason: 'client_paused' };
-  const deals = [success, closed, lost, stale, manual, parked];
+  const deals = [success, closed, lost, invoiced, refused, stale, manual, parked];
   const board = () => ({ schema_version: 'local-deals-board.v2', actor: 'joe', deals });
   const writes = [], oldReads = [];
   let switches = new Set();
@@ -535,7 +537,7 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
       writes.push(body.idempotency_key);
       assert.match(body.idempotency_key, /^[a-f\d-]{36}$/i);
       assert.deepEqual(body, { idempotency_key: body.idempotency_key, event_id: deal.phase_change.event_id, base_version: deal.seen });
-      if (deal === closed || deal === lost) return Response.json({
+      if (deal === refused) return Response.json({
         error: 'version_conflict', current_version: deal.seen,
         hint: 'Undo would return this deal to Closed deals or Lost deals.',
       }, { status: 409 });
@@ -573,7 +575,7 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
   assert.equal(await card(manual).getByText('Moved automatically', { exact: true }).count(), 0);
   assert.equal(await undo(manual).count(), 0);
   await card(success).getByText('Moved automatically', { exact: true }).waitFor({ timeout: 5000 });
-  assert.equal(await card(success).locator('time[datetime="2026-10-19"]').textContent(), 'Mon, Oct 19');
+  assert.equal(await card(success).locator('time[datetime="2026-10-19"]').textContent(), 'Mon, Oct 19, 2026');
   await undo(success).press('Enter');
   const restored = page.locator('[data-column="research"]').getByRole('button', { name: success.name, exact: true });
   await restored.waitFor();
@@ -581,11 +583,16 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
   assert.equal(await card(success).evaluate(node => node === document.activeElement), true);
   assert.equal(await undo(success).count(), 0);
 
-  for (const deal of [closed, lost]) {
-    await undo(deal).click();
-    await card(deal).getByText('Undo would return this deal to Closed deals or Lost deals.', { exact: true }).waitFor();
+  const refusal = deal => card(deal).getByText('Undo would return this deal to Closed deals or Lost deals.', { exact: true });
+  for (const deal of [closed, lost, invoiced]) {
+    assert.equal(await refusal(deal).isVisible(), true, deal.name);
+    assert.equal(await undo(deal).count(), 0, deal.name);
     assert.equal(await card(deal).locator('xpath=ancestor::*[@data-column]').getAttribute('data-column'), 'legal');
   }
+  await undo(refused).click();
+  await refusal(refused).waitFor();
+  assert.equal(await undo(refused).count(), 0);
+  assert.equal(await card(refused).locator('xpath=ancestor::*[@data-column]').getAttribute('data-column'), 'legal');
   await undo(stale).press('Space');
   const reloaded = page.locator('[data-column="negotiation"]').getByRole('button', { name: stale.name, exact: true });
   await reloaded.waitFor();
@@ -597,8 +604,8 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
   await parkedCard.getByRole('button', { name: 'Undo', exact: true }).click();
   await parkedCard.getByText('Moved automatically', { exact: true }).waitFor({ state: 'detached' });
   assert.equal(await parkedCard.count(), 1);
-  assert.equal(writes.length, 5);
-  assert.equal(new Set(writes).size, 5);
+  assert.equal(writes.length, 4);
+  assert.equal(new Set(writes).size, 4);
   await restored.click();
   await page.getByRole('heading', { name: success.name, exact: true }).waitFor();
   assert.deepEqual(oldReads, []);

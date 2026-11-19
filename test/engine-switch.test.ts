@@ -1373,17 +1373,15 @@ test("invoice Undo sends the reviewed receipt to the signed-in engine", async ()
 });
 
 test("automatic phase Undo never leaves the app when either Deals switch is off", async () => {
-  const undo = call("undo-automatic-phase-move", {
-    deal: dealId,
-    event_id: invoiceId,
-    seen_change_id: 0,
-    idempotency_key: operationId,
-  });
+  const args = { deal: dealId, event_id: invoiceId, idempotency_key: operationId };
   for (const switches of [new Map(), dealsReadOn, new Map([["deals-saves-from-engine", "on"]])]) {
     const f = fixture(switches);
-    const { result } = await (await f.send(undo, saveHeaders)).json();
-    assert.equal(result.isError, true);
-    assert.equal(f.engine.length + f.carr.length, 0);
+    for (const undoArgs of [args, { ...args, seen_change_id: 0 }]) {
+      const response = await f.send(call("undo-automatic-phase-move", undoArgs), saveHeaders);
+      assert.equal(f.engine.length + f.carr.length, 0);
+      const { result } = await response.json();
+      assert.equal(result.isError, true);
+    }
     const read = await f.send(call());
     if (switches.has("deals-from-engine")) {
       assert.equal((await read.json()).result.content[0].text, payload);

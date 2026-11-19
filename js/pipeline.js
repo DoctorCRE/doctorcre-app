@@ -100,19 +100,20 @@ function say(text) {
 
 const dateWords = (value) => (value ? formatCalendarDate(value) || value : 'no date recorded');
 
-
-const phaseMoveDate = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 function cardPhaseMoveHtml(deal, legacy = '') {
   if (!state.nextDealSaves || state.view !== 'board') return legacy;
   const event = deal.phase_change;
   const day = calendarDay(event?.evidence_date);
-  const feedback = state.phaseUndo.get(deal.id);
-  const message = feedback?.eventId && feedback.eventId !== event?.event_id ? '' : feedback?.message;
+  const entry = state.phaseUndo.get(deal.id);
+  const feedback = entry?.eventId && entry.eventId !== event?.event_id ? null : entry;
   const move = event?.source === 'copied' && event.automatic === true && event.event_id && day;
-  const undo = move && Number.isSafeInteger(deal.seen) && deal.seen >= 0
+  const returnsToEndedDeals = move && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
+    || feedback?.code === 'undo_returns_to_ended_deals');
+  const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
+  const undo = move && !returnsToEndedDeals && Number.isSafeInteger(deal.seen) && deal.seen >= 0
     ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(event.event_id)}" data-base-version="${deal.seen}"${feedback?.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
   const mark = move
-    ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${day}">${phaseMoveDate.format(new Date(day))}</time>${undo}</div>`
+    ? `<div class="auto-move"><span>Moved automatically</span> <time datetime="${day}">${esc(dateWords(day))}</time>${undo}</div>`
     : legacy;
   return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
 }
@@ -1193,7 +1194,7 @@ async function undoAutomaticPhaseMove(button) {
   if (!state.nextDealSaves || button.getAttribute('aria-disabled') === 'true') return;
   const { undoPhase: deal, eventId: event_id, baseVersion } = button.dataset;
   if (state.phaseUndo.get(deal)?.busy) return;
-  const feedback = { busy: true, eventId: null, message: '' };
+  const feedback = { busy: true, eventId: null, code: null, message: '' };
   state.phaseUndo.set(deal, feedback);
   renderBoard();
   const seen_change_id = Number(baseVersion);
@@ -1214,6 +1215,7 @@ async function undoAutomaticPhaseMove(button) {
       : refreshed.applied ? 'This deal changed. The card was refreshed.' : 'This deal changed. Refresh Deals to see the current phase.';
   } else {
     feedback.eventId = event_id;
+    feedback.code = result.code;
     feedback.message = result.hint || (result.status === 'unknown'
       ? 'Undo could not be confirmed. Use Undo again to check what happened.'
       : 'Undo could not be saved.');
