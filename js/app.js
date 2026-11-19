@@ -436,7 +436,7 @@ function setAccountDealView(view) {
 
 function renderNationalClosedDeals() {
   const rows = (state.closedDeals || []).filter(deal => deal.account_client_id === state.accountId);
-  renderEndedDealList($('#closedDealsView'), { rows, dealTypeLabel, unavailable: state.closedDeals === null });
+  renderEndedDealList($('#closedDealsView'), { rows, dealTypeLabel, canUndo: state.nextDealSaves, feedback: automaticPhase.feedback, unavailable: state.closedDeals === null });
 }
 
 function accountPriority(deals) {
@@ -611,7 +611,7 @@ function boardRow(deal, nationalAccountRows) {
       parking: parked ? parkingReasonLabel(deal.parking_reason) : null,
       presence: presence[0] ? `${actorName(presence[0].actor)} is editing` : null,
     }).filter(([, value]) => value),
-    phaseMove: nationalAccountRows ? automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id)) : null,
+    phaseMove: nationalAccountRows ? automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id), { showEngineMoves: state.boardFromEngine, canUndo: state.nextDealSaves }) : null,
     title: presence.length ? `${actorName(presence.at(-1).actor)} is editing ${presence.at(-1).field}` : '',
     due: dateLabel(deal.next_date, engineToday()), dueClass: days !== null && days < 0 ? 'over' : days !== null && days <= 3 ? 'soon' : '',
     retries: unresolvedFieldWrites(state.fieldWrites, deal.id).map(entry => ({ cell: entry.cell, label: fieldLabel(entry.field) })),
@@ -1811,7 +1811,7 @@ function wireEvents() {
       else { if ($('#dealDialog').open) $('#dealDialog').close(); parkDealForm(dealId); }
       return;
     }
-    const phaseUndo = event.target.closest('[data-undo-phase]'); if (phaseUndo) { await automaticPhase.undo(phaseUndo); return; }
+    const phaseUndo = event.target.closest('[data-undo-phase], #closedDealsView [data-undo-invoice]'); if (phaseUndo) { await automaticPhase.undo(phaseUndo); return; }
     const open = event.target.closest('[data-open-deal]');
     if (open) { await openDeal(open.dataset.openDeal, { fromClosed: Boolean(open.closest('#closedDealsView')) }); return; }
     const attention = event.target.closest('[data-attention]'); if (attention) { const deal=state.deals.get(attention.dataset.attention); await patchField(deal.id,'attention',!deal.attention); return; }

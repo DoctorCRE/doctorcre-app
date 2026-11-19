@@ -1,4 +1,5 @@
 type Request = { deal: string; event_id: string; seen_change_id: number };
+type InvoiceRequest = { deal: string; invoice_id: string; seen_change_id: number; idempotency_key: string };
 type RetainedRequest = Request & { idempotency_key: string };
 type Feedback = { busy: boolean; eventId: string | null; code?: string; message: string };
 type Commands = Record<string, unknown>;
@@ -7,7 +8,10 @@ type Options = {
   state: {
     nextDealSaves?: boolean;
     selfActor: string | null;
-    client: { undoAutomaticPhaseMove: (request: RetainedRequest) => Promise<unknown> } | null;
+    client: {
+      undoAutomaticPhaseMove: (request: RetainedRequest) => Promise<unknown>;
+      undoInvoiceClose: (request: InvoiceRequest) => Promise<unknown>;
+    } | null;
     boardSync: { requestRefresh: (reason: string) => Promise<{ applied: boolean }> } | null;
   };
   performCommand: (command: {
@@ -38,7 +42,8 @@ export function createAutomaticPhaseUndo({
   async function undo(button: HTMLButtonElement) {
     const { client, boardSync, nextDealSaves, selfActor } = state;
     if (!client || !boardSync || !nextDealSaves || button.getAttribute("aria-disabled") === "true") return;
-    const { undoPhase: deal, eventId, baseVersion } = button.dataset;
+    const { undoPhase, undoInvoice, eventId, baseVersion } = button.dataset;
+    const deal = undoPhase || undoInvoice;
     const version = Number(baseVersion);
     if (!deal || !eventId || !Number.isSafeInteger(version) || version < 0 || feedbackByDeal.get(deal)?.busy) return;
     const feedback: Feedback = { busy: true, eventId: null, message: "" };
@@ -52,7 +57,15 @@ export function createAutomaticPhaseUndo({
         commands = next;
       },
       newKey,
-      call: (request) => client.undoAutomaticPhaseMove(request),
+      call: (request) =>
+        undoInvoice
+          ? client.undoInvoiceClose({
+              deal: request.deal,
+              invoice_id: request.event_id,
+              seen_change_id: request.seen_change_id,
+              idempotency_key: request.idempotency_key,
+            })
+          : client.undoAutomaticPhaseMove(request),
     });
     if (feedbackByDeal.get(deal) !== feedback) return;
     if (result.status === "ok" || result.code === "version_conflict") {
@@ -63,9 +76,10 @@ export function createAutomaticPhaseUndo({
           ? refreshed.applied
             ? ""
             : "Move undone. Refresh Deals to see the current phase."
-          : refreshed.applied
-            ? `This deal changed. ${refreshedMessage}`
-            : "This deal changed. Refresh Deals to see the current phase.";
+          : result.hint ||
+            (refreshed.applied
+              ? `This deal changed. ${refreshedMessage}`
+              : "This deal changed. Refresh Deals to see the current phase.");
     } else {
       feedback.eventId = eventId;
       if (result.code) feedback.code = result.code;

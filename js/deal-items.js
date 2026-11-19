@@ -154,12 +154,12 @@ export function renderDealFacts(facts) {
 export function renderInvoiceClose(deal, canUndo = false) {
   const day = calendarDay(invoiceClose(deal)?.evidence_date);
   if (!day) return '';
-  return `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${day}">${formatCalendarDate(day)}</time>${canUndo ? ' <button class="btn" type="button" data-undo-invoice>Undo invoice close</button>' : ''}</div>`;
+  return `<div class="auto-move"><span>Closed automatically: Invoice received</span> <time datetime="${day}">${formatCalendarDate(day)}</time>${canUndo && deal.phase_change?.undoable !== false ? ` <button class="btn" type="button" data-undo-invoice="${esc(deal.id)}" data-event-id="${esc(deal.phase_change.event_id)}" data-base-version="${deal.seen}">Undo invoice close</button>` : ''}</div>`;
 }
 
 export function renderEndedDealList(view, {
   rows, dealTypeLabel, lost = false, fromEngine = true, unavailable = false,
-  unavailableMessage = 'Closed history is unavailable. Refresh to try again.',
+  unavailableMessage = 'Closed history is unavailable. Refresh to try again.', canUndo = false, feedback = () => null,
 }) {
   const search = view.querySelector('#closedSearch').value.trim().toLowerCase();
   const cards = rows.map(deal => {
@@ -183,8 +183,8 @@ export function renderEndedDealList(view, {
     : `${cards.length} ${label} deal${cards.length === 1 ? '' : 's'}`;
   const empty = unavailable ? '' : `<p>No ${label} deals${search || !fromEngine ? ' match this search' : ''}.</p>`;
   view.querySelector('#closedDealsList').innerHTML = cards.map(({deal, title, facts}) => {
-    const receipt = !fromEngine ? autoHtml(deal) : lost ? '' : renderInvoiceClose(deal)
-      || renderPhaseReceipt(deal, automaticPhaseReceipt(deal, null, { showEngineMoves: true, canUndo: false }), '');
+    const receipt = !fromEngine ? autoHtml(deal) : lost ? '' : renderInvoiceClose(deal, canUndo)
+      || renderPhaseReceipt(deal, automaticPhaseReceipt(deal, feedback(deal.id), { showEngineMoves: true, canUndo }), '');
     return `<article class="closed-deal" data-id="${esc(deal.id)}">
       <h3><button type="button" class="card-open" data-open-deal="${esc(deal.id)}">${esc(title)}</button></h3>
       <dl>${renderDealFacts(facts)}</dl>${renderDealVendors(deal.vendors)}${receipt}</article>`;
@@ -196,7 +196,7 @@ export function automaticPhaseReceipt(deal, entry, { showEngineMoves = false, ca
   const day = calendarDay(event?.evidence_date);
   const datedMove = event?.automatic === true && event.event_id && day;
   const feedback = canUndo && (!entry?.eventId || entry.eventId === event?.event_id) ? entry : null;
-  const undoableMove = canUndo && isPhaseMoveReceipt(event) && datedMove;
+  const undoableMove = canUndo && event?.undoable !== false && isPhaseMoveReceipt(event) && datedMove;
   const returnsToEndedDeals = undoableMove && (['closed', 'invoiced', 'dead'].includes(event.prior_phase)
     || feedback?.code === 'undo_returns_to_ended_deals');
   const message = returnsToEndedDeals ? 'Undo would return this deal to Closed deals or Lost deals.' : feedback?.message;
