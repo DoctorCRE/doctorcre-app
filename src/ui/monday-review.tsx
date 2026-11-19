@@ -30,7 +30,7 @@ type ReviewEdits = {
   prospect: ProspectClient;
   mark: (row: ReviewItem, confirm: boolean) => ReturnType<ProspectClient["saveProspect"]>;
   step: (id: string) => Promise<DealStep | null>;
-  deal: (row: ReviewItem, edit: DealEdit) => Promise<{ status: string; hint?: string } | null>;
+  deal: (row: ReviewItem, edit: DealEdit) => Promise<{ status: string; hint?: string; message?: string } | null>;
 };
 type ReviewData = {
   read: () => Promise<{ review: unknown; canEdit: boolean }>;
@@ -192,7 +192,7 @@ function DealEditor({
           ? "Note added."
           : "Next step saved."
         : result?.status === "conflict"
-          ? "The next step changed. Review it before saving again."
+          ? (result.hint ?? result.message ?? "The deal changed. Review it before saving again.")
           : (result?.hint ?? "Could not confirm the save. Try again with the same text."),
     );
     setBusy(false);
