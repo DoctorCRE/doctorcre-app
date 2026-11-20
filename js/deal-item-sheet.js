@@ -53,7 +53,7 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
         if (!Number.isSafeInteger(version) || version < 0) throw new Error('Invalid item version');
         baseVersion = version;
       }
-      paint(item, message, isClosedDeal(detail.deal) ? '' : today());
+      paint(item, message, detail.deal && isClosedDeal(detail.deal) ? '' : today());
     } catch {
       if (same(selection) && ticket === sequence) {
         body.innerHTML = '<p role="status">Item unavailable.</p><button type="button" class="btn" data-retry-item>Retry</button>';

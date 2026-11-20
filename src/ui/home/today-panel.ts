@@ -21,6 +21,7 @@ type Reminder = Record<string, unknown> & {
   title: string;
   owner: string;
   due_on: string;
+  deal_ended?: true;
 };
 type Partner = { slug: string; name: string };
 function partner(value: unknown): value is Partner {
@@ -210,7 +211,8 @@ export async function mountHomeTodayPanel(
       (value.kind === "step" || value.kind === "call_follow_up") &&
       text(value.title) &&
       text(value.owner) &&
-      dates.isCalendarDay(value.due_on);
+      dates.isCalendarDay(value.due_on) &&
+      (!("deal_ended" in value) || value.deal_ended === true);
     if (
       !object(section) ||
       !["ready", "empty"].includes(String(section.state)) ||

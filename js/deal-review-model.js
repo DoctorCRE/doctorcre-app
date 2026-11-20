@@ -22,7 +22,8 @@ export function localDeals(rows, owner = 'all') {
     && !isClosedDeal(d) && (owner === 'all' || d.owner === owner));
 }
 export function isClosedDeal(deal) {
-  return String(deal.phase).toLowerCase() === 'closed' || Boolean(deal.outcome || deal.closed_on || deal.invoiced_on);
+  return ['closed', 'invoiced', 'dead'].includes(String(deal.phase).toLowerCase())
+    || Boolean(deal.outcome || deal.closed_on || deal.invoiced_on);
 }
 /** The oldest due day before `today` among the deal's open actions, or null. */
 export function overdueSince(deal, today) {
