@@ -53,7 +53,7 @@ test('focus intersects every local filter, preserves exact evidence, counts and 
             if (date && date < '2026-01-01') for (const row of expected) row.cells[6] = row.cells[6].replace(' · superseded', '');
             assert.deepEqual(await identities(), expected);
             const deals = new Set(indices.map(i => data.rows[i].entity_ref)).size;
-            await page.getByText(`${indices.length} matching loaded ${indices.length === 1 ? 'term' : 'terms'} across ${deals} ${deals === 1 ? 'deal' : 'deals'}.`, { exact: true }).waitFor();
+            await page.getByText(`${indices.length} matching ${indices.length === 1 ? 'term' : 'terms'} across ${deals} ${deals === 1 ? 'deal' : 'deals'}.`, { exact: true }).waitFor();
             assert.equal(await page.locator('details').textContent(), coverage);
           }
           for (const name of ['Term', 'Recorded stage', 'Expense basis']) await page.getByLabel(name, { exact: true }).selectOption('');

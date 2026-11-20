@@ -47,7 +47,7 @@ export async function observeNaturalTerms(page, origin) {
     const check = async rows => {
       assert.deepEqual(await identities(), rows.map(row => tuple(row, data.rows, asOf)), 'exact displayed values, units, sources, quarantine warnings and links');
       const deals = new Set(rows.map(row => row.entity_ref)).size;
-      assert.equal(await root.locator('[data-market-results] > p > strong').filter({ hasText: 'matching loaded' }).textContent(), `${rows.length} matching loaded ${rows.length === 1 ? 'term' : 'terms'} across ${deals} ${deals === 1 ? 'deal' : 'deals'}.`);
+      assert.equal(await root.locator('[data-market-results] > p > strong').filter({ hasText: 'matching' }).textContent(), `${rows.length} matching ${rows.length === 1 ? 'term' : 'terms'} across ${deals} ${deals === 1 ? 'deal' : 'deals'}.`);
     };
     const c = data.coverage;
     const coverage = `${c.eligible_receipts == null ? '' : `${c.eligible_receipts} of `}${c.canonical_receipts} receipts${c.eligible_receipts == null ? '' : ' eligible'}; ${c.unsupported_receipts} unsupported${c.superseded_without_context == null ? '' : `, ${c.superseded_without_context} superseded without context`}, ${c.unclassified_receipts} unclassified. From ${c.recorded_documents} recorded documents. Archive coverage is unknown.`;

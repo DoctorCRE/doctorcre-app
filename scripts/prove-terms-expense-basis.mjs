@@ -85,8 +85,8 @@ export async function observeNaturalBasis(page, origin) {
   assert.equal(baseline.length, subset.length, 'loaded subset count');
   const checkCount = async rows => {
     const deals = new Set(rows.map(row => row.entity_ref)).size;
-    const expected = `${rows.length} matching loaded ${rows.length === 1 ? 'term' : 'terms'} across ${deals} ${deals === 1 ? 'deal' : 'deals'}.`;
-    assert.equal(await root.locator('[data-market-results] > p > strong').filter({ hasText: 'matching loaded' }).textContent(), expected, 'exact matching loaded count');
+    const expected = `${rows.length} matching ${rows.length === 1 ? 'term' : 'terms'} across ${deals} ${deals === 1 ? 'deal' : 'deals'}.`;
+    assert.equal(await root.locator('[data-market-results] > p > strong').filter({ hasText: 'matching' }).textContent(), expected, 'exact matching count');
   };
   await checkCount(subset);
   let requests = 0;
@@ -99,7 +99,7 @@ export async function observeNaturalBasis(page, origin) {
     assert.equal((await identities()).length, selected.length);
     await checkCount(selected);
     await basis.selectOption('');
-    assert.deepEqual(await identities(), baseline, 'clear restores all matching loaded rows');
+    assert.deepEqual(await identities(), baseline, 'clear restores all matching rows');
     await checkCount(subset);
     assert.equal(requests, 0, 'local selection issues no business read');
     return { natural_rows: data.rows.length, selected_rows: selected.length, basis: chosen, local_reads: requests };
