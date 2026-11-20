@@ -323,8 +323,14 @@ test("Dot 13: clearing Search invalidates its pending query", async () => {
 
 test("Dot 14: Updates follows the event cursor to current activity", async () => {
   const view={sequence:1};const cursors=[];
-  const h=handlers("js/notifications.js","async function takeActivity(","async function load(",{view,render:noop,client:{getChanges:async cursor=>{cursors.push(cursor);return cursor === "201" ? {cursor:"201",events:[]} : cursor ? {cursor:"201",events:[{seq:201,verb:"new"}]} : {cursor:"200",events:Array.from({length:200},(_,i)=>({seq:i+1,verb:"old"}))};}}},["takeActivity"]);
+  const h=handlers("js/notifications.js","async function takeActivity(","async function load(",{view,render:noop,document:{documentElement:{hasAttribute:()=>false}},client:{getChanges:async cursor=>{cursors.push(cursor);return cursor === "201" ? {cursor:"201",events:[]} : cursor ? {cursor:"201",events:[{seq:201,verb:"new"}]} : {cursor:"200",events:Array.from({length:200},(_,i)=>({seq:i+1,verb:"old"}))};}}},["takeActivity"]);
   await h.takeActivity();assert.equal(view.activity.payload.events.at(-1).seq,201);assert.equal(cursors.length,3);
+});
+
+test("Dot 14: Updates retires the deal feed when saves use the engine", async () => {
+  const view={sequence:1};let calls=0;
+  const h=handlers("js/notifications.js","async function takeActivity(","async function load(",{view,renderActivity:noop,document:{documentElement:{hasAttribute:name=>name === "data-deals-saves-from-engine"}},client:{getChanges:async()=>{calls++;}}},["takeActivity"]);
+  await h.takeActivity();assert.equal(view.activity.state,"retired");assert.equal(calls,0);
 });
 
 test("Dot 15: an old call status cannot replace the new session review pack", async () => {
@@ -567,7 +573,7 @@ for (const response of [new Response("",{status:400}),new Response(JSON.stringif
 
 for(const badAt of [0,1,2]) test(`PR111 #14: malformed activity page ${badAt+1} stays unknown`,async()=>{
   const view={sequence:1};let n=0;
-  const h=handlers("js/notifications.js","async function takeActivity(","async function load(",{view,render:noop,client:{getChanges:async()=>{const i=n++;return i===badAt ? {} : {cursor:`cursor-${i}`,events:[{seq:i+1}]};}}},["takeActivity"]);
+  const h=handlers("js/notifications.js","async function takeActivity(","async function load(",{view,render:noop,document:{documentElement:{hasAttribute:()=>false}},client:{getChanges:async()=>{const i=n++;return i===badAt ? {} : {cursor:`cursor-${i}`,events:[{seq:i+1}]};}}},["takeActivity"]);
   await h.takeActivity();assert.equal(view.activity.state,"unknown");assert.equal(view.activity.observed_at,undefined);
 });
 for(const badAt of [0,1,2]) test(`PR111 #14: malformed room page ${badAt+1} never announces recovery`,async()=>{

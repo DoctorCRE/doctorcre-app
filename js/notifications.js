@@ -267,6 +267,7 @@ async function takePreference() {
 async function takeActivity() {
   const sequence = view.sequence;
   try {
+    const dealsSavesFromEngine = document.documentElement.hasAttribute("data-deals-saves-from-engine");
     let cursor = view.activity?.payload?.cursor || null;
     let events = view.activity?.payload?.events || [];
     const seen = new Set();
@@ -275,8 +276,7 @@ async function takeActivity() {
     // eslint-disable-next-line no-restricted-syntax -- Feed pagination consumes takePage before each read; a max of 100 pages per refresh.
     do {
       takePage();
-      payload = document.documentElement.hasAttribute('data-deals-saves-from-engine')
-        ? null : await client.getChanges(cursor);
+      payload = dealsSavesFromEngine ? null : await client.getChanges(cursor);
       if (view.sequence !== sequence) return;
       if (payload === null) {
         view.activity = { state: "retired" };
