@@ -1,10 +1,5 @@
-import { NAVIGATION_GROUPS, navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./routes.js";
+import { NAVIGATION_GROUPS, navigationFor, navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./routes.js";
 export { navigationItems };
-
-export function navigationFor(root) {
-  if (!root.documentElement.hasAttribute('data-deals-saves-from-engine')) return navigationItems;
-  return navigationItems.map(item => item.href === '/leases' ? { ...item, label: 'Closing anniversaries' } : item);
-}
 
 export function activeDestination(pathname) {
   if (pathname.startsWith('/control-room/progress/board/')) return '/control-room/progress';

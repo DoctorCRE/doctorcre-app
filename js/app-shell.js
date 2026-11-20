@@ -6,7 +6,7 @@ import { TOUCH_LAYOUT } from "./touch-layout.js";
 import { mountPrefs } from "./shell.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
-import { mountNavigation, appOriginForReport, navigationFor } from "./navigation.js";
+import { mountNavigation, appOriginForReport } from "./navigation.js";
 
 export function mountAppShell(root = document, pathname = globalThis.location?.pathname || "/") {
   const location = globalThis.location;
@@ -45,7 +45,7 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
       opening = true;
       const opener = root.activeElement instanceof HTMLElement && root.activeElement !== root.body ? root.activeElement : toggle;
       try {
-        const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { routeEntries }, { createClient }] = await Promise.all([
+        const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationFor, routeEntries }, { createClient }] = await Promise.all([
           import('./ui-quick-switcher.generated.js'), import('./routes.js'), import('./client.js'),
         ]);
         if (retired) return;
