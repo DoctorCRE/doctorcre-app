@@ -21,6 +21,7 @@ type Reminder = Record<string, unknown> & {
   title: string;
   owner: string;
   due_on: string;
+  deal_ended?: true;
 };
 type Partner = { slug: string; name: string };
 function partner(value: unknown): value is Partner {
@@ -29,7 +30,11 @@ function partner(value: unknown): value is Partner {
 
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 
-export async function mountHomeTodayPanel(rail: HTMLElement, readDeals: (signal: AbortSignal) => Promise<unknown[]>) {
+export async function mountHomeTodayPanel(
+  rail: HTMLElement,
+  readDeals: (signal: AbortSignal) => Promise<unknown[]>,
+  { hideEndedDealReminders = false } = {},
+) {
   const [transport, dates, week, receipts, reviews]: [
     {
       readWithDeadline<T>(read: (signal: AbortSignal) => Promise<T>, options: { signal: AbortSignal }): Promise<T>;
@@ -125,6 +130,7 @@ export async function mountHomeTodayPanel(rail: HTMLElement, readDeals: (signal:
       items
         .filter((item) => scope === "all" || item.owner === scope)
         .filter((item) => !text(item.home_item_id) || !inboxCards.has(item.home_item_id))
+        .filter((item) => !hideEndedDealReminders || item.deal_ended !== true)
         .map((item) => {
           const destination = text(item.home_item_id)
             ? `/?card=${encodeURIComponent(item.home_item_id)}`
@@ -215,7 +221,8 @@ export async function mountHomeTodayPanel(rail: HTMLElement, readDeals: (signal:
       (value.kind === "step" || value.kind === "call_follow_up") &&
       text(value.title) &&
       text(value.owner) &&
-      dates.isCalendarDay(value.due_on);
+      dates.isCalendarDay(value.due_on) &&
+      (!("deal_ended" in value) || value.deal_ended === true);
     if (
       !object(section) ||
       !["ready", "empty"].includes(String(section.state)) ||

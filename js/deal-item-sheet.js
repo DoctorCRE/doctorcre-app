@@ -1,4 +1,5 @@
 import { renderDealItemDetail } from './deal-items.js';
+import { isClosedDeal } from './deal-review-model.js';
 
 export function mountDealItemSheet({ document, read, send, refresh, pending = () => null, today = () => '' }) {
   const dialog = document.createElement('dialog');
@@ -32,9 +33,9 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
     body.querySelector('[data-item-status]').textContent = message;
     return button;
   }
-  function paint(item, message = '') {
+  function paint(item, message, day) {
     dialog.querySelector('h2').textContent = item.title;
-    body.innerHTML = renderDealItemDetail(item,{today:today()});
+    body.innerHTML = renderDealItemDetail(item,{today:day});
     body.querySelector('textarea').value = drafts.get(selected.item) || '';
     body.querySelector('[data-item-status]').textContent = message;
     syncPending();
@@ -52,7 +53,7 @@ export function mountDealItemSheet({ document, read, send, refresh, pending = ()
         if (!Number.isSafeInteger(version) || version < 0) throw new Error('Invalid item version');
         baseVersion = version;
       }
-      paint(item, message);
+      paint(item, message, detail.deal && isClosedDeal(detail.deal) ? '' : today());
     } catch {
       if (same(selection) && ticket === sequence) {
         body.innerHTML = '<p role="status">Item unavailable.</p><button type="button" class="btn" data-retry-item>Retry</button>';

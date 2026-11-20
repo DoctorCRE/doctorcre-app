@@ -190,7 +190,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       const deals = scopedDeals(await client.getBoard({ workspace: 'all', signal }), 'team');
       if (!deals) throw new Error('Could not load meeting deals');
       return deals;
-    })).catch(() => {
+    }, { hideEndedDealReminders: pathname === '/deals' })).catch(() => {
       layout.querySelector('#appScheduleSlot').textContent = "Couldn't load meetings.";
       layout.querySelector('#appTodayNext').textContent = "Couldn't load dated reminders.";
       return null;
