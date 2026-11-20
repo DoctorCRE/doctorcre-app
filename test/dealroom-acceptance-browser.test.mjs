@@ -3013,6 +3013,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   const own = { id: crypto.randomUUID(), description: 'Send the sample plan', owner: 'joe', due_on: '2026-11-24', status: 'open', change_id: 10 };
   const other = { id: crypto.randomUUID(), description: 'Check the sample lease', owner: 'dell', due_on: '2026-11-25', status: 'open', change_id: 11 };
   const writes = [];
+  let ownReceipt;
   const env = {
     ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
     ENGINE: { fetch: async request => {
@@ -3021,22 +3022,32 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
       if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, email_follow_ups: [], next_actions: [own, other] });
       const step = [own, other].find(step => path === `/api/engine/next-steps/${step.id}/end`);
       assert.ok(step, `Unexpected engine path ${path}`);
+      assert.equal(request.method, 'POST');
+      assert.equal(request.headers.get('origin'), fixtureOrigin);
+      assert.ok(request.headers.get('x-carr-csrf'));
       const body = await request.json();
       assert.equal(body.resolution, 'done');
       assert.match(body.idempotency_key, /^[\da-f-]{36}$/i);
       writes.push({ id: step.id, ...body });
+      if (step === own && ownReceipt) return Response.json(ownReceipt);
       if (body.base_version !== step.change_id)
         return Response.json({ error: 'version_conflict', current_version: step.change_id }, { status: 409 });
       const change_id = step.change_id + 1;
       Object.assign(step, { status: 'done', actor: 'joe', updated_at: '2026-11-20T17:00:00Z', change_id: null });
-      return Response.json({ next_step_id: step.id, status: 'done', change_id });
+      const receipt = { next_step_id: step.id, status: 'done', change_id };
+      if (step === own) {
+        ownReceipt = receipt;
+        return Response.json({ ...receipt, change_id: body.base_version });
+      }
+      return Response.json(receipt);
     } },
   };
   const seeded = await page.request.post(`${fixtureOrigin}/api/test/seed`, { data: { namespace: 'deal-step-done', viewer: 'joe' } });
   assert.equal(seeded.status(), 200);
-  await page.route('**/mcp', async route => {
+  await page.route(/\/(mcp|api\/engine\/next-steps\/[^/]+\/end)$/, async route => {
     const request = route.request();
-    if (!['deal-room-board', 'get-deal-room', 'complete-deal-step'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+    if (new URL(request.url()).pathname === '/mcp' &&
+      !['deal-room-board', 'get-deal-room'].includes(request.postDataJSON()?.params?.name)) return route.continue();
     const response = await handleDoctorcreRequest(new Request(request.url(), {
       method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
     }), env);
@@ -3082,13 +3093,16 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   const ended = snapshot.getByRole('region', { name: 'Open before this deal ended' });
   await capture(ended, 'ended');
   await ended.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByText('Could not confirm this step is done. Choose Done again to check.', { exact: true }).waitFor();
+  await ended.getByRole('button', { name: 'Done', exact: true }).click();
   await ended.waitFor({ state: 'hidden' });
   await snapshot.getByText('No next step set.', { exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Timeline' }).click();
   await timeline.getByText(own.description + ' · Done', { exact: false }).waitFor();
   await capture(timeline, 'timeline');
-  assert.deepEqual(writes.map(({ id, base_version }) => [id, base_version]), [[other.id, 11], [other.id, 15], [own.id, 10]]);
+  assert.deepEqual(writes.map(({ id, base_version }) => [id, base_version]), [[other.id, 11], [other.id, 15], [own.id, 10], [own.id, 10]]);
   assert.notEqual(writes[0].idempotency_key, writes[1].idempotency_key);
+  assert.deepEqual(writes[3], writes[2]);
 });
 
 for (const width of [1440, 390]) test(`a changed checklist item stays open until reviewed again at ${width}px`, async t => {

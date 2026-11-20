@@ -1590,7 +1590,7 @@ async function completeDealStep(button) {
   const pending = pendingCommand(commandState, operationKey);
   const result = await performCommand({
     operationKey,
-    args: pending?.request ?? { deal: detail.deal.id, next_step_id: step.id, seen_change_id: detail.deal.seen, base_version: version.change_id },
+    args: pending?.request ?? { next_step_id: step.id, base_version: version.change_id },
     getState: () => commandState,
     setState: next => { commandState = next; },
     newKey: uuidv4,
