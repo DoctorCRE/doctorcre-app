@@ -151,7 +151,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   const legacyTodayReads = [];
   const meetingReviews = ['aaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbb'].map((key, index) => ({
     key, title: ['Example site tour', 'Example financing call'][index],
-    state: 'needs_review', start: '2026-11-19T13:00:00Z', end: '2026-11-19T14:00:00Z',
+    state: 'needs_review', prompt: 'Confirm whether this meeting happened.', start: '2026-11-19T13:00:00Z', end: '2026-11-19T14:00:00Z',
   }));
   const meetingWrites = [];
   const receipts = new Map();
@@ -193,19 +193,22 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
       ok: true, schema_version: 'home-today.v1', viewer: 'joe', owner: 'all', today: '2026-11-19',
       partners: [{ slug: 'joe', name: 'Joe Example' }, { slug: 'dell', name: 'Dell Example' }],
       meetings: todayFailure === 'meetings'
-        ? { state: 'unavailable', reason: 'No calendar snapshot has been synced from Outlook yet.', items: [] }
-        : { state: 'partial', observed_at: '2026-11-19T15:00:00Z', follow_up_reviews: [...meetingReviews, meetingReviews[0]], items: [{
+        ? { state: 'unavailable', reason: "Today's meetings could not be loaded.", observed_at: null, items: [], follow_up_reviews: [] }
+        : { state: 'partial', reason: null, observed_at: '2026-11-19T15:00:00Z',
+          follow_up_reviews: todayFailure === 'reminders' ? [] : [...meetingReviews, meetingReviews[0]], items: [{
         title: 'Example walkthrough', start: '2026-11-19T16:00:00Z', end: '2026-11-19T17:00:00Z',
         context_label: 'Example Dental', attendees: [{ name: 'Demo Attendee', email: null }],
         open_url: '/deals?deal=demo', possible_deals: [{ name: 'Example Dental', open_url: '/deals?deal=demo' }],
       }] },
-      reminders: {
-        state: 'ready',
-        late: [{ id, home_item_id: step.item_id, owner: 'joe', title: step.title,
-          context_label: 'Example Dental', due_on: step.due_on, late_label: '3 days late', open_url: null }],
-        upcoming: [{ id: 'date', home_item_id: null, owner: 'dell', title: 'Send the sample invoice',
-          context_label: 'Example Office', due_on: '2026-11-20', late_label: null, open_url: '/deals?deal=example' }],
-      },
+      reminders: todayFailure === 'reminders'
+        ? { state: 'unavailable', reason: "Today's reminders could not be loaded.", late: [], upcoming: [] }
+        : {
+          state: 'ready', reason: null,
+          late: [{ id, kind: 'step', home_item_id: step.item_id, owner: 'joe', title: step.title,
+            context_label: 'Example Dental', due_on: step.due_on, days_late: 3, late_label: '3 days late', open_url: null }],
+          upcoming: [{ id: 'follow-up', kind: 'call_follow_up', home_item_id: null, owner: 'dell', title: 'Send the sample invoice',
+            context_label: 'Example Office', due_on: '2026-11-19', days_late: null, late_label: null, open_url: '/calls?session=example' }],
+        },
     } });
   });
   let capabilities = false, stepOpen = true, feedbackOpen = true;
@@ -262,6 +265,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   await today.getByText('Example walkthrough', { exact: true }).waitFor();
   assert.equal(await page.getByText('Example walkthrough', { exact: true }).count(), 1);
   assert.equal(await today.getByText('Deal pulse', { exact: true }).count(), 0);
+  await today.getByRole('heading', { name: 'Due today', exact: true }).waitFor();
   if (width === 1440) await page.evaluate(() => window.scrollTo(0, 0));
   const question = title => today.locator('[data-review]').filter({ hasText: title });
   const log = question('Example site tour');
@@ -305,8 +309,13 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   await page.locator('#appConnection[data-state="healthy"]').waitFor({ state: 'attached' });
   todayFailure = 'meetings';
   await page.locator('#appSyncRefresh').evaluate(button => button.click());
-  await today.getByText("Outlook hasn't synced your calendar yet.").waitFor();
+  await today.getByRole('region', { name: 'Meetings', exact: true }).getByText("Today's meetings could not be loaded.", { exact: true }).waitFor();
   await reminder.waitFor();
+  todayFailure = 'reminders';
+  await today.getByRole('button', { name: 'Retry Today' }).click();
+  await today.getByRole('region', { name: 'Dated reminders', exact: true }).getByText("Today's reminders could not be loaded.", { exact: true }).waitFor();
+  assert.equal(await reminder.count(), 0);
+  await today.getByText('Example walkthrough', { exact: true }).waitFor();
   todayFailure = 'both';
   await today.getByRole('button', { name: 'Retry Today' }).click();
   await today.getByText("Couldn't load meetings.").waitFor();
@@ -341,7 +350,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
 });
 
-async function meetingAnswerFixture(t) {
+async function meetingAnswerFixture(t, { remindersUnavailable = false } = {}) {
   const server = await fixtureServer({ root: join(outDir, 'site') }); t.after(() => server.close());
   const browser = await chromium.launch(); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -349,7 +358,7 @@ async function meetingAnswerFixture(t) {
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
   const deal = { id: '00000000-0000-4000-8000-000000000001', name: 'Example Dental', owner: 'joe' };
   const reviews = ['aaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbb'].map((key, index) => ({
-    key, title: `Example meeting ${index + 1}`, state: 'needs_review',
+    key, title: `Example meeting ${index + 1}`, state: 'needs_review', prompt: 'Confirm whether this meeting happened.',
     start: '2026-11-19T13:00:00Z', end: '2026-11-19T14:00:00Z',
   }));
   const data = { board: { deals: [deal] }, loseLog: false };
@@ -362,8 +371,10 @@ async function meetingAnswerFixture(t) {
   });
   await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
     ok: true, schema_version: 'home-today.v1', viewer: 'joe', today: '2026-11-19',
-    meetings: { state: 'empty', items: [], follow_up_reviews: reviews },
-    reminders: { state: 'empty', late: [], upcoming: [] },
+    meetings: { state: 'empty', reason: null, observed_at: '2026-11-19T15:00:00Z', notes: [], items: [], follow_up_reviews: reviews },
+    reminders: remindersUnavailable
+      ? { state: 'unavailable', reason: "Today's reminders could not be loaded.", late: [], upcoming: [] }
+      : { state: 'empty', reason: null, late: [], upcoming: [] },
   } }));
   await page.route('**/mcp', route => {
     const { name } = route.request().postDataJSON().params;
@@ -403,9 +414,10 @@ async function meetingAnswerFixture(t) {
 }
 
 test('stale meeting answers show the stored decision after the agenda rolls over', async t => {
-  const { page, today, log, dismiss, receipts } = await meetingAnswerFixture(t);
+  const { page, today, log, dismiss, receipts } = await meetingAnswerFixture(t, { remindersUnavailable: true });
   await log(0);
   await today.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
+  await today.getByText("Today's reminders could not be loaded.", { exact: true }).waitFor();
   await dismiss(1);
   await today.getByText('Meeting dismissed.', { exact: true }).waitFor();
   await page.reload();
