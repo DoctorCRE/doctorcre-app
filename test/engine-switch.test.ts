@@ -427,6 +427,25 @@ test("engine failure followed by CARR failure returns server error without signi
   assert.deepEqual(await response.json(), { error: "carr_unavailable" });
 });
 const leadsOn = new Map([["leads-from-engine", "on"]]);
+
+for (const [failure, answer] of [
+  ["timeout", () => new Promise<Response>(() => {})],
+  ["5xx", async () => new Response("down", { status: 502 })],
+] as const) {
+  test(`Lead board engine ${failure} falls back only before cutover`, async () => {
+    const body = call("lead-board", { workspace: "leads" });
+    const after = fixture(new Map([...leadsOn, ["deals-saves-from-engine", "on"]]), answer);
+    const before = fixture(new Map([...leadsOn, ["deals-saves-from-engine", "off"]]), answer);
+    const [afterResponse, beforeResponse] = await Promise.all([after.send(body), before.send(body)]);
+    assert.equal(afterResponse.status, 503);
+    assert.deepEqual(await afterResponse.json(), { error: "engine_unavailable" });
+    assert.deepEqual(after.carr, []);
+    assert.equal(await beforeResponse.text(), "old");
+    assert.deepEqual(before.carr, [JSON.stringify(body)]);
+    assert.equal(before.engine.length, 1);
+    assert.equal(after.engine.length, 1);
+  });
+}
 const cursor = { occurred_at: "2026-01-02T03:04:05.123+00:00", id: "00000000-0000-4000-8000-000000000002" };
 for (const [name, args, path] of [
   ["lead-board", { workspace: "leads" }, "/api/engine/leads?workspace=leads"],

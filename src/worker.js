@@ -236,6 +236,8 @@ async function engineResponse(request, env) {
   if (!asked) return null;
   const { read, call, args, record } = asked;
   if (!await switchedOn(env, read.key)) return null;
+  let cutover;
+  const cutoverOn = () => cutover ??= switchedOn(env, NEXT_DEAL_SAVES);
   const origin = request.headers.get('origin');
   if (origin && origin !== url.origin) return json({ error: 'origin_mismatch' }, 403);
   const headers = new Headers();
@@ -288,12 +290,12 @@ async function engineResponse(request, env) {
           const board = JSON.parse(text);
           if (board?.schema_version === 'local-deals-board.v2') {
             text = JSON.stringify({ ...board, board_from_engine: true,
-              ...(await switchedOn(env, NEXT_DEAL_SAVES) ? { engine_prospects: true, next_deal_saves: true } : {}) });
+              ...(await cutoverOn() ? { engine_prospects: true, next_deal_saves: true } : {}) });
           }
         }
         if (call.params.name === 'get-deal-room' && response.ok) {
           const detail = JSON.parse(text);
-          if (isEngineDealDetail(detail) && await switchedOn(env, NEXT_DEAL_SAVES)) {
+          if (isEngineDealDetail(detail) && await cutoverOn()) {
             text = JSON.stringify({ ...detail, next_deal_saves: true });
           }
         }
@@ -314,7 +316,7 @@ async function engineResponse(request, env) {
     if (response) return response;
   } catch { /* The switch below decides whether this read can fall back. */ }
   finally { clearTimeout(timer); reader?.releaseLock(); }
-  return read.engineOnly || (read.key === DEALS && await switchedOn(env, NEXT_DEAL_SAVES))
+  return read.engineOnly || await cutoverOn()
     ? json({ error: 'engine_unavailable' }, 503) : null;
 }
 
