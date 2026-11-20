@@ -75,6 +75,10 @@ tests with Playwright's page and context fixtures. Known staging failures stay
 as individual `test.fixme` cases tagged `@fixme`; list them with
 `npx playwright test --project=chromium --list --grep @fixme`.
 
+The Home section browser tests open step links on Prospects and Relationships
+at phone and desktop widths. Each link brings the selected step into view
+and shows its recorded origin in the same words as the deal page.
+
 `npm run release:prepare` runs checks, tests, build and source-bound artifact
 verification with a credential-free child environment. Run it before either
 publication command. The CARR pipeline invokes this entrypoint separately from

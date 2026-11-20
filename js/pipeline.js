@@ -42,7 +42,7 @@ import {
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
 import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
-import { sourceTime } from './email-source-line.js';
+import { sourceTime, stepOriginLabel } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
   dealTimeline, engineTimelineEntries, renderImportedDealHistory, criticalDateLabel, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
@@ -622,7 +622,7 @@ function syncProspects(enabled) {
     prospects = mountProspects(lane, prospectClient(), count => {
       state.prospectCount = count;
       renderBoardMessage();
-    }, authorLabel, {
+    }, authorLabel, stepOriginLabel, {
       addDeal: openAddDeal,
       turnIntoDeal: (prospect, completed) => openAddDeal(null, { prospect, completed }),
       backToReview: incomingScope.has('prospect') && dealsPageOrigin('review') ? () => returnToDealsPage(dealsPageOrigin('review')) : null,
@@ -1559,13 +1559,8 @@ function stepFocusAttrs(step) {
 }
 
 function stepOrigin(step) {
-  const at = sourceTime(step?.set_at, undefined, '');
-  if (!at) return '';
-  const origins = { call: 'From a call', email: 'From an email', meeting: 'From a meeting',
-    cadence: 'From the automatic follow-up schedule' };
-  const set = step.set_by ? `Set by ${step.set_by} · ${at}` : `Set ${at}`;
-  const from = Object.hasOwn(origins, step.set_from) ? origins[step.set_from] : '';
-  return `<small> · ${esc(from ? `${set} · ${from}` : set)}</small>`;
+  const origin = stepOriginLabel(step, { showDateOnly: true });
+  return origin ? `<small> · ${esc(origin)}</small>` : '';
 }
 
 function workspaceHtml(detail) {

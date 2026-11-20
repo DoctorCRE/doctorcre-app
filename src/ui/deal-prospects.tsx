@@ -29,6 +29,7 @@ const howFound: Readonly<Record<string, string>> = {
 
 type RequestProspect = (path: string, init?: RequestInit) => Promise<Response>;
 type AuthorLabel = (by: string | null) => string;
+type StepOriginLabel = (step: ReturnType<typeof parseStep>) => string;
 type ProspectActions = {
   addDeal: (client: { id: string; name: string }) => void;
   turnIntoDeal: (
@@ -79,6 +80,9 @@ function parseStep(value: unknown) {
     what: value.what,
     due_on: value.due_on,
     change_id: value.change_id,
+    set_by: typeof value.set_by === "string" ? value.set_by : null,
+    set_at: typeof value.set_at === "string" ? value.set_at : null,
+    set_from: typeof value.set_from === "string" ? value.set_from : null,
   };
 }
 
@@ -292,23 +296,28 @@ function ProspectDetail({
   filters,
   refreshLane,
   authorLabel,
+  stepOriginLabel,
   close,
   closeLabel,
   turnIntoDeal,
   focusFollowUp,
+  stepId,
 }: {
   id: string;
   client: ProspectClient;
   filters: Filters;
   refreshLane: () => void;
   authorLabel: AuthorLabel;
+  stepOriginLabel: StepOriginLabel;
   close: () => void;
   closeLabel: string;
   turnIntoDeal: (prospect: Parameters<ProspectActions["turnIntoDeal"]>[0]) => void;
   focusFollowUp: boolean;
+  stepId: string | null;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const followUps = useRef<HTMLHeadingElement>(null);
+  const linkedStep = useRef<HTMLLIElement>(null);
   const [revision, update] = useState(0);
   const { value: row, unavailable } = useProspectRead(
     client.prospectRequest,
@@ -323,7 +332,10 @@ function ProspectDetail({
     dialog.current?.showModal();
   }, []);
   useEffect(() => {
-    if (focusFollowUp && loaded) followUps.current?.focus();
+    if (focusFollowUp && loaded) {
+      const target = linkedStep.current ?? followUps.current;
+      target?.focus();
+    }
   }, [focusFollowUp, loaded]);
   const reload = () => update((value) => value + 1);
   const saved = () => {
@@ -354,11 +366,20 @@ function ProspectDetail({
             </h3>
             {row.follow_ups.length ? (
               <ul>
-                {row.follow_ups.map((item) => (
-                  <li key={item.next_step_id}>
-                    {label(item.owner)} · {item.what} · {due(item.due_on)}
-                  </li>
-                ))}
+                {row.follow_ups.map((item) => {
+                  const origin = stepOriginLabel(item);
+                  const linked = item.next_step_id === stepId;
+                  return (
+                    <li
+                      key={item.next_step_id}
+                      ref={linked ? linkedStep : undefined}
+                      tabIndex={linked ? -1 : undefined}
+                    >
+                      {label(item.owner)} · {item.what} · {due(item.due_on)}
+                      {origin && <small> · {origin}</small>}
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
               <p>No follow-up set</p>
@@ -409,6 +430,7 @@ function ProspectLane({
   revision,
   client,
   authorLabel,
+  stepOriginLabel,
   count,
   refresh,
   actions: { addDeal, turnIntoDeal, backToReview },
@@ -418,6 +440,7 @@ function ProspectLane({
   revision: number;
   client: ProspectClient;
   authorLabel: AuthorLabel;
+  stepOriginLabel: StepOriginLabel;
   count: (value: number | null) => void;
   refresh: () => void;
   actions: ProspectActions;
@@ -484,7 +507,9 @@ function ProspectLane({
           filters={filters}
           refreshLane={refresh}
           authorLabel={authorLabel}
+          stepOriginLabel={stepOriginLabel}
           focusFollowUp={initial === opened && query.get("focus") === "follow-up"}
+          stepId={initial === opened ? query.get("step") : null}
           turnIntoDeal={(row) => turnIntoDeal(row, () => open(null))}
           close={returnToReview ?? (() => open(null))}
           closeLabel={returnToReview ? "Back to Monday review" : "Back to Deals"}
@@ -505,6 +530,7 @@ export function mountProspects(
   client: ProspectClient,
   count: (value: number | null) => void,
   authorLabel: AuthorLabel,
+  stepOriginLabel: StepOriginLabel,
   actions: ProspectActions,
 ) {
   const root = createRoot(host);
@@ -518,6 +544,7 @@ export function mountProspects(
         variant={variant}
         client={client}
         authorLabel={authorLabel}
+        stepOriginLabel={stepOriginLabel}
         revision={revision}
         count={count}
         refresh={refresh}

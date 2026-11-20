@@ -643,6 +643,84 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await page.waitForURL(url => url.pathname === '/deals' && url.searchParams.get('step') === state.items[0].action_id);
 });
 
+
+for (const width of [390, 1440]) test(`Home opens the exact prospect and Relationships steps with their origin at ${width}px`, async t => {
+  const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
+  page.setDefaultTimeout(5000);
+  const prospect = '00000000-0000-4000-8000-000000000031';
+  const person = '00000000-0000-4000-8000-000000000032';
+  const prospectStep = '00000000-0000-4000-8000-000000000033';
+  const relationshipStep = '00000000-0000-4000-8000-000000000034';
+  const otherStep = '00000000-0000-4000-8000-000000000035';
+  const tasks = [
+    [prospectStep, 'Ask about the site', `/deals?prospect=${prospect}&focus=follow-up&step=${prospectStep}&mode=live`],
+    [relationshipStep, 'Send the floor plan', `/relationships?node=party:${person}&step=${relationshipStep}&mode=live`],
+  ];
+  const at = NOW.toISOString();
+  const inbox = {
+    ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, engine_marks: true,
+    working_collapsed: true, home_mark_drop: true,
+    items: tasks.map(([id, title, open_url]) => ({
+      item_id: `next_action:${id}`, source_id: id, source_type: 'next_action', source_version: '3',
+      source_state: 'needs_attention', activity_at: at, completed_at: null, due_on: '2026-11-03',
+      hold_until: null, unseen: false, disposition: 'inbox', snoozed_until: null, section: 'inbox',
+      base_version: '3:0:inbox', waiting_version: 0, waiting_on: null, context_label: 'Example contact', title, open_url, kind_label: 'Task',
+      merged_source_ids: [id], action_id: id, action_version: 3, deal_id: null,
+    })),
+  };
+  const origin = { set_by: 'Example Partner', set_at: at };
+  const prospectRow = { party_id: prospect, name: 'Example Practice', how_found: 'referral',
+    owner: 'joe', needs_attention: false, latest_note: null, change_id: 1, notes: [],
+    follow_ups: [
+      { next_step_id: otherStep, owner: 'dell', what: 'Older step with no recorded origin',
+        due_on: '2026-11-01', change_id: 2, set_at: at, set_by: null, set_from: null },
+      { next_step_id: prospectStep, owner: 'joe', what: tasks[0][1],
+        due_on: '2026-11-03', change_id: 3, ...origin, set_from: 'email' },
+    ],
+  };
+  await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
+  await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  await page.route('**/mcp', route => {
+    const { id, params } = route.request().postDataJSON();
+    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [], board_from_engine: true, engine_prospects: true, next_deal_saves: true };
+    const value = params.name === 'read-home-inbox-v5' ? inbox : params.name === 'deal-room-board' ? board : { items: [] };
+    return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(value) }] } } });
+  });
+  await page.route('**/api/engine/prospects**', route => route.fulfill({ json:
+    new URL(route.request().url()).pathname.endsWith(prospect) ? prospectRow : { prospects: [prospectRow], count: 1 },
+  }));
+  await page.route('**/api/v1/business/relationships?*', route => {
+    const step = new URL(route.request().url()).searchParams.get('step');
+    return route.fulfill({ json: { schema: 'carr-relationship-network.v1',
+      observed_at: at, valid_until: new Date(NOW.getTime() + 120_000).toISOString(),
+      nodes: [{ id: `party:${person}`, kind: 'contact', name: 'Example Contact', verticals: [] }],
+      referrals: [], edges: [], suggestions: [],
+      ...(step === relationshipStep && { focused_step: { id: step, party_id: person, what: tasks[1][1], status: 'open', ...origin, set_from: 'meeting' } }),
+    } });
+  });
+
+  for (const [, title] of tasks) {
+    const isProspect = title === tasks[0][1];
+    await open('/?mode=live');
+    if (!isProspect) {
+      const today = page.getByRole('region', { name: 'Today', exact: true });
+      await today.getByRole('button', { name: 'See all 2' }).click();
+    }
+    await page.getByRole('link', { name: title, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: isProspect ? 'Example Practice' : 'Example Contact' });
+    const step = dialog.locator(':focus');
+    await step.getByText(/Set by Example Partner · Nov 3.*10:00 AM CST · From an? (email|meeting)/).waitFor();
+    assert.match(await step.innerText(), new RegExp(title));
+    assert.match(await step.innerText(), isProspect ? /From an email/ : /From a meeting/);
+    const box = await step.boundingBox();
+    assert.ok(box && box.y >= 0 && box.y + box.height <= 900);
+    if (isProspect) {
+      const unknown = dialog.getByRole('listitem').filter({ hasText: 'Older step with no recorded origin' });
+      assert.doesNotMatch(await unknown.innerText(), /Set |From /);
+    }
+  }
+});
+
 for (const width of [390, 1024, 1280, 1440]) for (const theme of ['light', 'dark']) test(`sectioned Home and shared panels ${width} ${theme}`, async t => {
   const run = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 }, timezoneId: 'America/Chicago' } });
   const { page } = run;
