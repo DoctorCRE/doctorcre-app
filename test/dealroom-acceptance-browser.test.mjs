@@ -68,8 +68,8 @@ for (const width of [1440, 390]) {
     const items = [{ id: crypto.randomUUID(), title: 'Review fixture checklist', status: 'open', due_on: '2026-10-19', bullets: [] }];
     const won = deal('Example Closed Renewal', { ...renewal, client_name: 'Example Closed Renewal', type: 'renewal',
       phase: 'closed', outcome: 'won', next_actions: nextActions, items });
-    const undated = deal('Example Undated Deal', { phase: 'closed', kind: 'build_to_suit', type: 'build_to_suit',
-      client_name: 'Example Clinic', owner: 'dell', outcome: null, closed_on: null, invoiced_on: null });
+    const undated = deal('Example Undated Deal', { phase: 'invoiced', kind: 'build_to_suit', type: 'build_to_suit',
+      client_name: 'Example Clinic', owner: 'dell', outcome: null, closed_on: null, invoiced_on: null, next_actions: nextActions });
     const reasonOnly = deal('Example Former Office', { phase: 'closed', outcome: 'won', closed_on: '2026-10-15',
       kind: null, type: 'relocation', reason: 'relocation', client_name: 'Example Studio' });
     const lost = deal('Example Lost Renewal', { ...renewal, kind: 'sale_leaseback', type: 'sale_leaseback', ...parked, phase: 'pending', outcome: 'lost', lost_reason: 'Plans changed', next_actions: nextActions });
@@ -212,6 +212,10 @@ for (const width of [1440, 390]) {
         await search.clear();
         await openDetail(undated);
         await caption(fact(detailFacts, 'Deal kind'), 'Build-to-suit').waitFor();
+        const undatedSteps = detail.getByRole('region', { name: 'Open before this deal ended' });
+        assert.equal(await undatedSteps.count(), 1, 'An invoiced deal stays ended even when its dates and outcome are missing');
+        assert.match(await undatedSteps.innerText(), /Due Wed, Oct 21, 2026/);
+        assert.doesNotMatch(await undatedSteps.innerText(), /days? late/);
         await back();
         await caption(fact(card(reasonOnly), 'Deal kind'), 'Not recorded').waitFor();
         await caption(fact(card(reasonOnly), 'Deal reason'), 'Relocation').waitFor({ timeout: 5000 });
@@ -2374,8 +2378,8 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   const stepNote = (id, text, created_at) => ({ id, kind: 'note', actor: 'joe',
     text: `Recorded next step\n\n${text}`, created_at });
   thread.push(
-    stepNote('paired-step-note', copiedStepText, '2025-01-03T10:00:00.000002Z'),
-    stepNote('separate-step-note', copiedStepText, '2025-01-03T10:00:00.000004Z'),
+    stepNote('first-step-note', copiedStepText, '2025-01-03T10:00:00.000002Z'),
+    stepNote('second-step-note', copiedStepText, '2025-01-03T10:00:00.000004Z'),
   );
   const beforeDocument = '2026-11-16T13:00:00Z';
   const stepChanges = [
@@ -2502,8 +2506,9 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   assert.equal(await oldHistory.getByText(copiedStepText, { exact: false }).count(), 1);
   const recordedSteps = timeline.getByText('Recorded next step', { exact: false });
   assert.deepEqual(await recordedSteps.locator('..').locator('time').evaluateAll(times =>
-    times.map(time => time.dateTime)), ['2025-01-03T10:00:00.000004Z']);
-  assert.equal(contents.length, 7 + stepChanges.length + (dates.length - 1) + dealChanges.length);
+    times.map(time => time.dateTime)), ['2025-01-03T10:00:00.000004Z', '2025-01-03T10:00:00.000002Z'],
+    'Both notes remain visible when the event supplies no activity ID');
+  assert.equal(contents.length, 8 + stepChanges.length + (dates.length - 1) + dealChanges.length);
   assert.match(contents[0], /Automatically.*Nov 17.*7:00 PM.*Legal/);
   assert.match(contents[1], /Dell.*Nov 17.*2:00 PM.*Tour plans confirmed/);
   assert.match(contents[2], /Dell.*Nov 17.*1:00 PM.*Due diligence.*Due Nov 19/);
@@ -2536,7 +2541,7 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   assert.doesNotMatch(carr.join(' '), /add-deal-note/);
   const filter = timeline.getByLabel('Filter by kind');
   await filter.selectOption('Note');
-  assert.equal(await rows.count(), 3);
+  assert.equal(await rows.count(), 4);
   await filter.selectOption('');
   assert.deepEqual(await oldHistory.getByRole('listitem').allTextContents(), earlier);
   assert.equal(engine.filter(path => path === '/api/engine/activities').length, 1);

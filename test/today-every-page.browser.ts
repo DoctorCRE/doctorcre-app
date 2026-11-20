@@ -35,7 +35,11 @@ const pages = [
 
 const withHomeSwitch = (html: string) => html.replace("<html ", "<html data-home-today-from-engine ");
 
-async function open(t: TestContext, path: string, { enabled = true, width = 1440, recentChanges = false } = {}) {
+async function open(
+  t: TestContext,
+  path: string,
+  { enabled = true, width = 1440, recentChanges = false, malformedEndedReminder = false } = {},
+) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({
@@ -127,7 +131,7 @@ async function open(t: TestContext, path: string, { enabled = true, width = 1440
               due_on: "2026-11-15",
               days_late: 4,
               late_label: "4 days late",
-              deal_ended: true,
+              deal_ended: malformedEndedReminder ? "true" : true,
             },
           ],
           upcoming: [],
@@ -190,6 +194,13 @@ test("Today keeps an ended deal's reminder on Home and leaves it out on Deals", 
   await deals.today.getByText("Send sample floor plan", { exact: true }).waitFor();
   assert.equal(await deals.today.getByText("Check the former office", { exact: true }).count(), 0);
   assert.equal(await deals.today.getByText("4 days late", { exact: true }).count(), 0);
+});
+
+test("Today rejects a reminder with a malformed ended-deal marker", async (t) => {
+  const { today } = await open(t, "/deals?view=national", { malformedEndedReminder: true });
+  await today.getByText("Example site visit", { exact: true }).waitFor();
+  assert.equal(await today.getByText("Couldn't load dated reminders.", { exact: true }).count(), 1);
+  assert.equal(await today.getByText("Check the former office", { exact: true }).count(), 0);
 });
 
 test("Doc keeps Morning brief with the switch off and drops it with the switch on", async (t) => {
