@@ -1554,6 +1554,16 @@ function stepFocusAttrs(step) {
   return step?.id ? ` tabindex="-1" data-detail-focus="next-step-${esc(step.id)}"` : '';
 }
 
+function stepOrigin(step) {
+  const at = sourceTime(step?.set_at, undefined, '');
+  if (!at) return '';
+  const origins = { call: 'From a call', email: 'From an email', meeting: 'From a meeting',
+    cadence: 'From the automatic follow-up schedule' };
+  const set = step.set_by ? `Set by ${step.set_by} · ${at}` : `Set ${at}`;
+  const from = Object.hasOwn(origins, step.set_from) ? origins[step.set_from] : '';
+  return `<small> · ${esc(from ? `${set} · ${from}` : set)}</small>`;
+}
+
 function workspaceHtml(detail) {
   const fromEngine = isEngineDealDetail(detail);
   const ownStep = canEditOwnDealStep(detail);
@@ -1585,10 +1595,10 @@ function workspaceHtml(detail) {
       ${websiteLink}
       ${renderInvoiceClose(d, state.nextDealSaves)}
       ${fromEngine ? `<div data-phase-move>${detailPhaseMoveHtml(detail)}</div>` : ''}
-      ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span></p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
+      ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span>${stepOrigin(leadStep)}</p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
       ${otherActions.length ? `<p class="deal-items-label">Also open:</p><ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
         const day = calendarDay(action.due_on);
-        return `<li${stepFocusAttrs(fromEngine ? action : null)}>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}</li>`;
+        return `<li${stepFocusAttrs(fromEngine ? action : null)}>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}${stepOrigin(action)}</li>`;
       }).join('')}</ul>` : ''}
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false,itemOwners})}</div>
       ${renderSnapshotFacts(d, fromEngine)}

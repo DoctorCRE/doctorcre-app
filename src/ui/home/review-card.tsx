@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DropReason } from "./drop-reason.tsx";
 import { draftReference, proposalRefusal, type Suggestion } from "./engine-review.ts";
 import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
@@ -40,10 +40,21 @@ type Props = {
   client: InboxClient["review"];
   children: ReactNode;
   close(): void;
+  blockSwitching(value: boolean): void;
   busy(value: boolean): void;
   confirmed(item: InboxItem | null, receipt?: TaskReceipt, snapshot?: Snapshot): void;
 };
-export function ReviewCard({ item, focusedSuggestionId, readOnly, client, close, busy, confirmed, children }: Props) {
+export function ReviewCard({
+  item,
+  focusedSuggestionId,
+  readOnly,
+  client,
+  close,
+  blockSwitching,
+  busy,
+  confirmed,
+  children,
+}: Props) {
   const [state, setState] = useState<State>({ phase: "loading" });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -107,6 +118,12 @@ export function ReviewCard({ item, focusedSuggestionId, readOnly, client, close,
       controller.abort();
     };
   }, [client, reconcileFacts]);
+  const uncertain = state.phase === "uncertain";
+  useLayoutEffect(() => {
+    if (!uncertain) return;
+    blockSwitching(true);
+    return () => blockSwitching(false);
+  }, [uncertain, blockSwitching]);
   const waiting = state.phase === "submitting" || lock.current;
   const review = "review" in state ? state.review : null;
   const proposals = review && "proposals" in review ? (review.proposals ?? []) : [];

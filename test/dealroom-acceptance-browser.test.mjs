@@ -3092,6 +3092,7 @@ for (const width of [1440, 390]) {
     const nextActions = ['dell', 'joe'].map((owner, index) => ({
       id: crypto.randomUUID(), owner, status: 'open', due_on: '2026-11-10',
       description: ['Check the lease', 'Send the floor plan'][index],
+      set_by: 'Example Partner', set_at: '2026-11-03T16:00:00Z', set_from: 'meeting',
     }));
     nextActions.push({ id: crypto.randomUUID(), owner: 'joe', status: 'open', title: 'Confirm the site visit' });
     const fixtureOrigin = await dealFixtureOrigin(t);
@@ -3104,7 +3105,10 @@ for (const width of [1440, 390]) {
         const rect = element.getBoundingClientRect();
         return rect.top >= 0 && rect.bottom <= innerHeight;
       }), true);
-      if (!step.title) await page.screenshot({ path: join(evidence, `home-step-${step.owner}-${width}.png`) });
+      if (!step.title) {
+        assert.match(await focused.textContent(), /Set by Example Partner · Nov 3.*10:00 AM CST · From a meeting/);
+        await page.screenshot({ path: join(evidence, `home-step-${step.owner}-${width}.png`) });
+      }
     }
     await page.goto(`${fixtureOrigin}/deals?deal=${deal}&focus=next-step&mode=live`);
     await page.locator('#detailNextStepEditor[open]').getByRole('textbox', { name: /next step/i }).waitFor();

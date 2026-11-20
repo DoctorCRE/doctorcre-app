@@ -105,7 +105,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
           if (done) assert.equal(args.resolution, 'done');
           const change_id = ++item.action_version;
           Object.assign(item, { source_state: done ? 'done' : 'needs_attention', completed_at: done ? NOW.toISOString() : null,
-            section: done ? 'done' : 'inbox', disposition: done ? 'settled' : 'inbox', base_version: `${change_id}:0:${done ? 'settled' : 'inbox'}` });
+            ...(item === state.items[0] && { undo_completion: done }), section: done ? 'done' : 'inbox', disposition: done ? 'settled' : 'inbox', base_version: `${change_id}:0:${done ? 'settled' : 'inbox'}` });
           return Response.json({ next_step_id: id, status: done ? 'done' : 'open', ...(done && { change_id }) });
         }
         if (collection === 'proposals') {
@@ -216,10 +216,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     await held.getByText(/On hold until Nov 5, 2026/).waitFor();
     assert.doesNotMatch(await held.innerText(), /needs attention|Ready for your attention/i);
     assert.equal(await held.getByRole('button').count(), 0);
-    await held.getByRole('link', { name: /^Wait for sample terms/ }).click();
-    const details = held.getByRole('region', { name: /^Details for Wait for sample terms/ });
-    await details.getByRole('link', { name: 'Example Dental', exact: true }).waitFor();
-    await details.getByRole('button', { name: 'Close', exact: true }).click();
+    assert.equal(await held.getByRole('link', { name: /^Wait for sample terms/ }).getAttribute('href'), tasks[0].path);
   }
   assert.equal(await inbox.locator('[data-inbox-row]').count(), state.items.length);
   for (const copy of ['needs attention', 'Ready for your attention']) {
@@ -235,6 +232,10 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       ? ['Open', 'Mark done', 'Snooze', 'Drop']
       : ['Open', 'Mark done', 'Hide from inbox', 'Snooze']);
     assert.match(await card.locator('time').textContent(), /Nov 3/);
+    if (enabled && !task.call) {
+      assert.equal(await link.getAttribute('href'), task.path);
+      continue;
+    }
     await link.click();
     const details = card.getByRole('region', { name: `Details for ${title}` });
     assert.equal(await details.getByRole('link', { name: task.label, exact: true }).getAttribute('href'), task.path);
@@ -321,11 +322,15 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const completed = writes.at(-1);
   assert.match(completed[0], /\/next-steps\/.+\/end$/);
   assert.equal(completed[1].base_version, 2147483648);
-  await undo.click();
+  await page.reload();
+  const completedCard = inbox.getByRole('region', { name: 'Done today', exact: true }).locator('[data-inbox-row]')
+    .filter({ hasText: 'Read the revised sample lease' });
+  await completedCard.getByRole('button', { name: 'Undo', exact: true }).click();
   await revised.waitFor();
   assert.match(writes.at(-1)[0], /\/reopen$/);
   assert.equal(writes.at(-1)[1].base_version, 2147483649);
 
+  await today.getByRole('button', { name: 'See all 3', exact: true }).click();
   const prospect = today.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Check in about the sample site/ }) });
   await prospect.getByRole('button', { name: 'Mark done', exact: true }).click();
   await prospect.waitFor({ state: 'detached' });
@@ -350,9 +355,9 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     { ...notice, title: 'Call suggestions', item_id: `suggestion:${log}`, source_id: log, source_type: 'capture_session',
       deal_id: null, kind_label: 'Call', suggestions: [{ id: log }, { id: phase }] },
     { ...notice, title: 'Email suggestions', item_id: `suggestion:${leading}`, source_id: leading, source_type: 'email_proposal',
-      deal_id: null, kind_label: 'Suggestion', suggestions: [{ id: leading }, { id: next }] },
+      deal_id: null, kind_label: 'Suggestion', due_on: '2026-11-01', suggestions: [{ id: leading }, { id: next }] },
     { ...notice, title: 'Reply to the sample email', item_id: `reply_draft:${draft}`, source_id: draft, source_type: 'email_proposal',
-      deal_id: null, due_on: '2026-11-04', kind_label: 'Reply draft', source_version: '1', reply_draft_id: draft, reply_draft_status: 'pending',
+      deal_id: null, due_on: '2026-11-01', kind_label: 'Reply draft', source_version: '1', reply_draft_id: draft, reply_draft_status: 'pending',
       suggestions: [{ id: nested }, { id: dismissNested }, { id: remaining }] },
   );
   details.set(log, { ...evidence, proposal_id: log, kind: 'log_call', target_name: 'Example Dental', what: 'Log the sample call' });
@@ -424,6 +429,13 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     await undo.click();
     await row.waitFor();
   }
+  const writesBeforeReview = writes.length;
+  await suggestions.getByRole('button', { name: 'Review suggestions', exact: true }).click();
+  await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
+  await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
+  await reply.getByText('Please share the sample plan.', { exact: true }).waitFor();
+  assert.equal(await suggestions.getByRole('region', { name: /Details for Call suggestions/ }).count(), 0);
+  assert.equal(writes.length, writesBeforeReview);
   await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
@@ -453,10 +465,12 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const priorityButton = mail.getByRole('button', { name: 'Sample Sender · (No subject)', exact: true });
   await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
   await mail.getByText('Share the plan (No subject)', { exact: true }).waitFor();
+  await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
   await priorityButton.press('Enter');
   assert.equal(await mail.locator('li').count(), 1);
   const email = cardFor(/Email suggestions/);
   await email.getByText('Suggestion', { exact: true }).waitFor();
+  await email.getByText(/2 days late/).waitFor();
   assert.equal(await email.getByRole('button', { name: 'Mark done', exact: true }).count(), 0);
   const possibleDeal = email.getByRole('region', { name: 'Possible new deal', exact: true });
   await possibleDeal.getByRole('button', { name: 'Accept', exact: true }).waitFor();
@@ -482,7 +496,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   mailRows = [{ ...priority, conversation_id: 'sample-draft-conversation', item_id: `reply_draft:${draft}`,
     base_version: state.items.find(row => row.reply_draft_id === draft).base_version,
     kind: 'reply_draft', proposal_id: null, reply_draft_id: draft, subject: 'Sample draft message' }];
-  await reply.getByText(/Due Nov 4/).waitFor();
+  await reply.getByText(/2 days late/).waitFor();
   await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
   await mail.getByRole('button', { name: 'Sample Sender · Sample draft message', exact: true }).click();
   await reply.getByText('Please share the sample plan.', { exact: true }).waitFor();
@@ -574,6 +588,8 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await undoRestore('Wake', 'snooze', earlierUntil);
   await undoRestore('Wake', 'unsnooze', undefined, true);
   assert.equal(await lease.getByRole('button', { name: 'Hide from inbox', exact: true }).count(), 0);
+  await lease.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(url => url.pathname === '/deals' && url.searchParams.get('step') === state.items[0].action_id);
 });
 
 for (const width of [390, 1024, 1280, 1440]) for (const theme of ['light', 'dark']) test(`sectioned Home and shared panels ${width} ${theme}`, async t => {
