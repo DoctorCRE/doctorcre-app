@@ -174,6 +174,7 @@ for (const width of [1440, 390]) {
         await caption(fact(card(lostNoReason), 'Deal reason'), 'Not recorded').waitFor({ timeout: 5000 });
         await caption(fact(card(lostUnknown), 'Deal kind'), 'Not recorded').waitFor({ timeout: 5000 });
         await caption(card(lostUnknown), 'Lease not recorded').waitFor();
+        assert.equal(await fact(card(lostUnknown), 'Reason for loss').locator('dd').innerText(), 'Not recorded before this system');
         await caption(card(row), 'Reason for loss').waitFor();
         await caption(card(row), 'Plans changed').waitFor();
         await caption(card(withLease), 'Renewal').waitFor();
@@ -185,7 +186,7 @@ for (const width of [1440, 390]) {
         await search.clear();
         await openDetail(lostUnknown);
         await caption(fact(detailFacts, 'Deal kind'), 'Not recorded').waitFor();
-        await caption(fact(detailFacts, 'Reason for loss'), 'not recorded before this system').waitFor({ timeout: 5000 });
+        await caption(fact(detailFacts, 'Reason for loss'), 'Not recorded before this system').waitFor({ timeout: 5000 });
         await caption(fact(detailFacts, 'Close date'), 'Close date not recorded').waitFor();
         await back();
         await caption(fact(card(withLease), 'Deal kind'), 'Lease').waitFor();
@@ -853,7 +854,7 @@ for (const { code, hint, message } of [
 });
 
 for (const width of [1440, 390]) {
-  test(`Board and List show the deal owner's step in Central time at ${width}px`, async t => {
+  test(`Board and List show the deal owner's step and detail labels both next steps at ${width}px`, async t => {
     const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Los_Angeles' });
     t.after(() => page.close());
     await page.clock.setFixedTime(new Date('2026-11-19T06:30:00Z'));
@@ -960,7 +961,8 @@ for (const width of [1440, 390]) {
       assert.equal(await visibleStep.count(), 1);
     }
     assert.match(await snapshot.locator('.deal-current-action').innerText(), /^Next step.*Send the floor plan.*Dell.*1 day late/);
-    assert.match(await snapshot.getByRole('listitem').filter({ hasText: otherStep.description }).innerText(), /Call the architect.*Joe/);
+    assert.match(await snapshot.getByRole('listitem').filter({ hasText: otherStep.description }).innerText(), /^Next step: Call the architect · Joe · Due Sun, Nov 15, 2026 · 4 days late$/);
+    assert.equal(await snapshot.getByText('Also open:', { exact: true }).count(), 0);
     const task = snapshot.getByRole('listitem').filter({ hasText: item.title });
     assert.match(await task.innerText(), /Check the plans.*Joe.*Wed, Nov 18, 2026/s);
     assert.match(await snapshot.getByRole('listitem').filter({ hasText: 'Review the layout' }).innerText(),
@@ -1454,7 +1456,7 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
       const path = new URL(request.url).pathname;
       if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe',
         deals: [deal, closing], accounts: [{ account_client_id: account, account_name: 'Example National Account', account_owner: 'joe' }] });
-      if (path === `/api/engine/deals/${deal.id}`) return Response.json({ ...deal, deal_id: deal.id });
+      if (path === `/api/engine/deals/${deal.id}`) return Response.json({ ...deal, deal_id: deal.id, email_follow_ups: [] });
       if (path === `/api/engine/deals/${deal.id}/phase/undo`) {
         const { idempotency_key, ...change } = await request.json();
         assert.match(idempotency_key, /^[a-f\d-]{36}$/i);
@@ -1487,6 +1489,7 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   const openAccount = () => page.getByRole('button', { name: /Example National Account/ }).click();
   const row = page.getByRole('row').filter({ hasText: deal.name });
   await page.goto(accountUrl);
+  assert.ok(await page.getByRole('button', { name: 'Local Deals', exact: true }).isVisible());
   await openAccount();
   assert.equal(await row.getByRole('button').first().getAttribute('aria-label'), `Flag for attention on ${deal.name}`);
   assert.match(await page.locator('#stats').innerText(), /2 active work · 1 overdue dates · 1 at closing/);
@@ -1513,6 +1516,9 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   assert.match(await page.locator('#stats').innerText(), /2 open deals · 1 late · 1 closing/);
   await first.click();
   await page.getByRole('heading', { name: deal.name, exact: true }).waitFor({ timeout: 5000 });
+  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  const market = snapshot.getByText('Market', { exact: true }).locator('..').locator('dd');
+  assert.equal(await market.innerText(), 'No market recorded');
   assert.deepEqual(writes, []);
 
   await page.goto(accountUrl);

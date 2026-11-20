@@ -539,11 +539,15 @@ export async function loadDealContext(client, detail) {
   return {client: record ? {status:'ok',record} : {status,reason:id ? 'fetch_failed' : undefined}, vendors, vendorsStatus,
     parties:attachedParties(detail?.participants || []),criticalDates:detail?.critical_dates || []};
 }
+function contextPhone(phone) {
+  return phone?.replace(/^\+1(\d{3})(\d{3})(\d{4})(?=\s+x\d+$|$)/i, '($1) $2-$3');
+}
+
 export function contextDrawerSections(context, options = {}) {
   const sections = [];
   const record = context?.client?.record;
   if (record) sections.push({title:'Client',links:record.id ? [{label:'Open client record',href:`/clients?record=${encodeURIComponent(record.id)}`}] : [],lines:[record.name,
-    [record.title,record.phone,record.cell,record.email].filter(Boolean).join(' · '),
+    [record.title,contextPhone(record.phone),contextPhone(record.cell),record.email].filter(Boolean).join(' · '),
     [record.city,record.state].filter(Boolean).join(', ')].filter(Boolean)});
   if (context?.client?.status === 'unavailable') sections.push({title:'Client',state:'unavailable',lines:['Client details unavailable. Retry to load this section.']});
   if (context?.vendorsStatus === 'unavailable') sections.push({title:'Vendors',state:'unavailable',lines:['Vendor details unavailable. Retry to load this section.']});

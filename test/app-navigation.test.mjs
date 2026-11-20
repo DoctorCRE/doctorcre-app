@@ -69,7 +69,7 @@ test("Deals has one global Deals link and local views are labelled as views", ()
   const html = readFileSync(new URL("index.html", root), "utf8");
   assert.match(html, /<body>\s*<script src="\/js\/theme-boot\.js"><\/script>/, "theme lives on <html>; the body carries no theme class");
   assert.doesNotMatch(html, /<nav class="workspaces"/);
-  assert.match(html, /data-workspace="team"[^>]*>All Deals<\/button>/);
+  assert.match(html, /data-workspace="team"[^>]*>Local Deals<\/button>/);
   assert.match(html, /data-workspace="national_account"[^>]*>National Accounts<\/button>/);
   assert.match(html, /href="\/deals\?view=board">Board<\/a>/);
 });

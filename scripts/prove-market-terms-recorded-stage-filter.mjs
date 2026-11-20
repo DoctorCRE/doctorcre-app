@@ -33,12 +33,12 @@ export async function exerciseStage(page, origin) {
   await stage.press('c');
   await stage.press('Enter');
   await stage.selectOption('counter');
-  await root.getByText('1 matching loaded term across 1 deal.', { exact: true }).waitFor();
+  await root.getByText('1 matching term across 1 deal.', { exact: true }).waitFor();
   assert.equal(await stage.evaluate(node => node === document.activeElement), true);
   assert.match(await root.locator('tbody').textContent(), /Quarantined: not supporting evidence/);
   assert.equal(await root.locator('.superseded').count(), 0, 'hidden executed successor cannot supersede a counter');
   await stage.selectOption('executed');
-  await root.getByText('3 matching loaded terms across 2 deals.', { exact: true }).waitFor();
+  await root.getByText('3 matching terms across 2 deals.', { exact: true }).waitFor();
   assert.equal(await root.locator('.superseded').count(), 1);
   assert.deepEqual(await identities(), rent.filter(text => !text.includes('counter')));
   await stage.selectOption('');
@@ -47,10 +47,10 @@ export async function exerciseStage(page, origin) {
   await stage.selectOption('counter');
   await root.getByText('No comparable terms match these filters.', { exact: true }).waitFor();
   await stage.selectOption('executed');
-  await root.getByText('1 matching loaded term across 1 deal.', { exact: true }).waitFor();
+  await root.getByText('1 matching term across 1 deal.', { exact: true }).waitFor();
   await term.selectOption('');
   await stage.selectOption('reviewed future');
-  await root.getByText('1 matching loaded term across 1 deal.', { exact: true }).waitFor();
+  await root.getByText('1 matching term across 1 deal.', { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.stageCalls.length), 1, 'local filters never read');
   await root.locator('summary').click();
   const coverage = await root.locator('details').textContent();
@@ -60,13 +60,13 @@ export async function exerciseStage(page, origin) {
   await stage.waitFor();
   assert.equal(await stage.inputValue(), 'counter');
   await page.evaluate(() => { window.stageResponse = window.stageRecords.executed.response; window.stagePanel.refresh(); });
-  await root.getByText('The previously selected recorded stage is no longer in the loaded results. Showing all recorded stages.', { exact: true }).waitFor();
+  await root.getByText('The previously selected recorded stage is no longer in these results. Showing all recorded stages.', { exact: true }).waitFor();
   assert.equal(await stage.inputValue(), '');
-  assert.match(await root.textContent(), /previously selected recorded stage is no longer in the loaded results/i);
+  assert.match(await root.textContent(), /previously selected recorded stage is no longer in these results/i);
   await page.evaluate(() => { window.stageResponse = window.stageRecords.empty.response; window.stagePanel.refresh(); });
-  await root.getByText('0 matching loaded terms across 0 deals.', { exact: true }).waitFor();
+  await root.getByText('0 matching terms across 0 deals.', { exact: true }).waitFor();
   assert.deepEqual(await stage.locator('option').allTextContents(), ['All recorded stages']);
-  assert.match(await root.textContent(), /0 matching loaded terms across 0 deals/);
+  assert.match(await root.textContent(), /0 matching terms across 0 deals/);
   await page.evaluate(() => window.stagePanel.dispose());
   assert.equal(await root.textContent(), '');
   return { all_rows: all.length, restored_rent_rows: rent.length, reads: 4, local_changes_without_reads: true };
@@ -102,7 +102,7 @@ export async function observeNaturalStage(page) {
   const selected = subset.filter(row => row.term_kind === chosen);
   assert.deepEqual(await identities(), baseline.filter(identity => identity[2] === chosen), 'natural selected row identities');
   const deals = new Set(selected.map(row => row.entity_ref)).size;
-  assert.match(await root.textContent(), new RegExp(`${selected.length} matching loaded terms? across ${deals} deals?`));
+  assert.match(await root.textContent(), new RegExp(`${selected.length} matching terms? across ${deals} deals?`));
   await stage.selectOption('');
   assert.deepEqual(await identities(), baseline, 'clear stage restores current fact-key subset');
   return { natural_rows: data.rows.length, selected_rows: selected.length, distinct_deals: deals,
