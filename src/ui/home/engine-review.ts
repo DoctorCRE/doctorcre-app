@@ -12,6 +12,7 @@ const kinds = new Map([
   ["possible_new_deal", "Possible new deal"],
   ["lead_stage_move", "Lead progress"],
   ["new_lead", "New lead"],
+  ["email_lead", "Possible lead"],
 ]);
 const mayApproveFailedDraft = (failure: string | null) => failure === "aborted_before_dispatch";
 function draftStatus(status: unknown, failure: string | null) {
@@ -135,6 +136,9 @@ export type Suggestion = {
   label: string;
   target: string | null;
   evidence: string;
+  evidenceQuote: string | null;
+  emailLead: boolean;
+  senderAddress: string | null;
   source: ReturnType<typeof source>;
   what: string | null;
   dueOn: string | null;
@@ -159,6 +163,9 @@ export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: Abort
         label,
         target: string(value.target_name),
         evidence: value.evidence,
+        evidenceQuote: string(value.evidence_quote),
+        emailLead: value.kind === "email_lead",
+        senderAddress: object(value.source_activity) ? string(value.source_activity.sender) : null,
         source: source(value.source_activity),
         what: string(value.what) || change?.replaceAll("_", " ") || null,
         dueOn: string(value.due_on),

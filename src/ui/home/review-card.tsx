@@ -324,12 +324,14 @@ export function ReviewCard({ item, focusedSuggestionId, readOnly, client, close,
                     </>
                   )}
                 </p>
+                {proposal.emailLead && proposal.senderAddress && <p>{proposal.senderAddress}</p>}
                 {proposal.source.subject && <p>{proposal.source.subject}</p>}
                 {proposal.source.excerpt && <blockquote>{proposal.source.excerpt}</blockquote>}
               </>
             )}
-            <p>Words that prompted this suggestion</p>
+            <p>{proposal.emailLead ? "Summary" : "Words that prompted this suggestion"}</p>
             <blockquote>{proposal.evidence}</blockquote>
+            {proposal.emailLead && proposal.evidenceQuote && <blockquote>{proposal.evidenceQuote}</blockquote>}
             {proposal.editable ? (
               <>
                 <label>
