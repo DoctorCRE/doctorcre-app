@@ -54,47 +54,6 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
   return { env, send, engine, carr, kv };
 }
 
-test("page HTML marks the live feed retired only when Deals reads use the engine", async (t) => {
-  const html = '<!doctype html>\n<html lang="en"><body>Demo</body></html>\n';
-  const setAttribute = t.mock.fn();
-  const transform = t.mock.fn((asset: Response) => asset);
-  class Rewriter {
-    on(selector: string, handler: { element: (node: { setAttribute: typeof setAttribute }) => void }) {
-      assert.equal(selector, "html");
-      handler.element({ setAttribute });
-      return this;
-    }
-    transform = transform;
-  }
-  const original = Object.getOwnPropertyDescriptor(globalThis, "HTMLRewriter");
-  Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: Rewriter });
-  t.after(() => {
-    if (original) Object.defineProperty(globalThis, "HTMLRewriter", original);
-    else Reflect.deleteProperty(globalThis, "HTMLRewriter");
-  });
-
-  for (const path of ["/deals", "/deals?view=national", "/search"]) {
-    for (const enabled of [false, true]) {
-      setAttribute.mock.resetCalls();
-      transform.mock.resetCalls();
-      const { env, kv } = fixture(new Map([["deals-from-engine", enabled ? "on" : "off"]]));
-      const ASSETS = { fetch: async () => new Response(html, { headers: { "content-type": "text/html" } }) };
-      const assetEnv = { ...env, ASSETS };
-      const response = await worker.fetch(new Request(origin + path), assetEnv);
-      assert.equal(response.status, 200);
-      assert.deepEqual(kv, [["deals-from-engine", { cacheTtl: 30 }]]);
-      assert.equal(transform.mock.callCount(), enabled ? 1 : 0);
-      assert.deepEqual(
-        setAttribute.mock.calls.map((call) => call.arguments),
-        enabled ? [["data-deals-from-engine", ""]] : [],
-      );
-      if (!enabled) {
-        assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new TextEncoder().encode(html));
-      } else await response.body?.cancel();
-    }
-  }
-});
-
 test("retiring the feed stops forwarding its cursor without changing the legacy response", async () => {
   const switches = new Map([["deals-from-engine", "off"]]);
   const { env, carr } = fixture(switches);
@@ -2164,6 +2123,55 @@ test("old settle operations cannot reach the engine Home marks door", async () =
   }
   assert.deepEqual(f.engine, []);
   assert.deepEqual(f.carr, []);
+});
+
+test("workspace HTML selects Home and Deals engine behavior independently", async (t) => {
+  const html = "<!doctype html><html><body>Example workspace</body></html>";
+  const setAttribute = t.mock.fn();
+  const transform = t.mock.fn((asset: Response) => asset);
+  class Rewriter {
+    on(selector: string, handler: { element: (node: { setAttribute: typeof setAttribute }) => void }) {
+      assert.equal(selector, "html");
+      handler.element({ setAttribute });
+      return this;
+    }
+    transform = transform;
+  }
+  const original = Object.getOwnPropertyDescriptor(globalThis, "HTMLRewriter");
+  Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: Rewriter });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "HTMLRewriter", original);
+    else Reflect.deleteProperty(globalThis, "HTMLRewriter");
+  });
+
+  for (const path of ["/invoices", "/deals?view=national", "/tours/day.html"]) {
+    for (const home of [false, true]) {
+      for (const deals of [false, true]) {
+        setAttribute.mock.resetCalls();
+        transform.mock.resetCalls();
+        const { env } = fixture(
+          new Map([
+            ["home-from-engine", home ? "on" : "off"],
+            ["deals-from-engine", deals ? "on" : "off"],
+          ]),
+        );
+        const ASSETS = { fetch: async () => new Response(html, { headers: { "content-type": "text/html" } }) };
+        const assetEnv = { ...env, ASSETS };
+        const response = await worker.fetch(new Request(origin + path), assetEnv);
+        assert.equal(response.status, 200);
+        const attributes = setAttribute.mock.calls.map(({ arguments: args }) => args[0]).sort();
+        const expected = [
+          ...(deals ? ["data-deals-from-engine"] : []),
+          ...(home ? ["data-home-today-from-engine"] : []),
+        ];
+        assert.deepEqual(attributes, expected, path);
+        if (!home && !deals) {
+          assert.equal(transform.mock.callCount(), 0);
+          assert.equal(await response.text(), html);
+        }
+      }
+    }
+  }
 });
 
 test("Home Today reads only the engine when the Home switch is on", async () => {

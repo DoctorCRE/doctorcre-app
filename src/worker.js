@@ -105,7 +105,16 @@ async function assetResponse(request, env, path) {
     : path.endsWith(".html") || path.endsWith(".js") || path.endsWith(".css")
     ? "no-cache" : "public, max-age=300");
   if (path === "/public-shell/sw.js") headers.set("service-worker-allowed", "/");
-  return secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
+  const asset = secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
+  if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html')) return asset;
+  const [homeToday, dealsFromEngine] = await Promise.all([switchedOn(env, HOME), switchedOn(env, DEALS)]);
+  if (!homeToday && !dealsFromEngine) return asset;
+  return new HTMLRewriter().on('html', {
+    element(node) {
+      if (homeToday) node.setAttribute('data-home-today-from-engine', '');
+      if (dealsFromEngine) node.setAttribute('data-deals-from-engine', '');
+    },
+  }).transform(asset);
 }
 
 async function carrResponse(request, env, documentRequest = false) {
@@ -804,20 +813,7 @@ async function handleRequest(request, env) {
       url.searchParams.delete('view');
       return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
     }
-    let asset = await assetResponse(request, env, `/${routeAsset}`);
-    if (request.method === 'GET' && asset.ok && await switchedOn(env, DEALS)) {
-      asset = new HTMLRewriter().on('html', {
-        element(node) { node.setAttribute('data-deals-from-engine', ''); },
-      }).transform(asset);
-    }
-    if (pathname === '/' && routeAsset === 'workspace.html' && request.method === 'GET' && asset.ok && await switchedOn(env, HOME)) {
-      asset = new HTMLRewriter().on('#homeRoot', {
-        element(node) { node.setAttribute('data-home-today-from-engine', ''); },
-      }).transform(asset);
-    }
-    if (routeAsset === 'review-workflows.html' && request.method === 'GET' && asset.ok && await switchedOn(env, HOME)) {
-      asset = new HTMLRewriter().on('#homeMeetingReviews', { element(node) { node.remove(); } }).transform(asset);
-    }
+    const asset = await assetResponse(request, env, `/${routeAsset}`);
     return copySessionCookies(gate, asset);
   }
 

@@ -184,7 +184,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
     const url = new URL(route.request().url());
     if (!route.request().isNavigationRequest() || url.pathname !== '/') return route.fallback();
     const response = await route.fetch();
-    const body = (await response.text()).replace('id="homeRoot"', 'id="homeRoot" data-home-today-from-engine');
+    const body = (await response.text()).replace('<html ', '<html data-home-today-from-engine ');
     return route.fulfill({ response, body });
   });
   await page.route('**/api/engine/home/today', route => {
@@ -366,7 +366,7 @@ async function meetingAnswerFixture(t, { remindersUnavailable = false } = {}) {
   await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
   await page.route('**/?mode=live', async route => {
     const response = await route.fetch();
-    const body = (await response.text()).replace('id="homeRoot"', 'id="homeRoot" data-home-today-from-engine');
+    const body = (await response.text()).replace('<html ', '<html data-home-today-from-engine ');
     return route.fulfill({ response, body });
   });
   await page.route('**/api/engine/home/today', route => route.fulfill({ json: {

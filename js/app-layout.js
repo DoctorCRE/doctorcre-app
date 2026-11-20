@@ -47,13 +47,13 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const homeOrInbox = pathname === '/' || pathname === '/review-workflows' || pathname === '/inbox' || pathname === '/inbox.html' || pathname.startsWith('/inbox/card/');
   const progressPage = pathname === '/control-room/progress' || pathname.startsWith('/control-room/progress/board/');
   const title = pathname === '/' ? 'Home' : progressPage ? 'Progress' : pathname.startsWith('/control-room') ? 'Control Room' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .room-wordmark, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
-  const engineToday = pathname === '/' && root.getElementById('homeRoot')?.hasAttribute('data-home-today-from-engine');
+  const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine');
   const { layout, status } = createAppLayout(root, title, engineToday);
   if (vendorDirectory) layout.querySelector('.app-layout-working').remove();
+  else if (homeOrInbox || engineToday) layout.querySelector('.app-layout-working').hidden = true;
   host.after(layout, status);
   const skip = root.querySelector('.skip');
   if (skip) host.querySelector('header')?.prepend(skip);
-  if (homeOrInbox) layout.querySelector('.app-layout-working').hidden = true;
   const main = layout.querySelector('#appMainSlot');
   main.append(layout.querySelector('.app-layout-page-tools'));
   const pageTools = main.firstElementChild;
@@ -63,7 +63,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   for (const node of [...root.querySelectorAll('[data-layout-slot]')]) {
     const slot = node.dataset.layoutSlot;
     const target = slot === 'tabs' ? layout.querySelector('#appTabsSlot') : slot === 'sidebar' ? layout.querySelector('#appSidebarSlot') : slot === 'moves' ? layout.querySelector('#appTodayMoves') : status.querySelector('#appStatusSlot');
-    if (slot === 'moves') target.replaceChildren();
+    if (slot === 'moves') {
+      if (!target) continue;
+      target.replaceChildren();
+    }
     target.append(node);
   }
   for (const node of [...root.body.children]) {
@@ -78,16 +81,23 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   // A page that brings its own freshness and refresh owns the band's one clock and one refresh.
   const pageRefresh = status.querySelector('#appStatusSlot [data-layout-refresh]');
   status.toggleAttribute('data-page-freshness', Boolean(pageRefresh));
-  const pageOwnsMoves = Boolean(layout.querySelector('#appTodayMoves [data-layout-slot="moves"]'));
+  const pageMoves = layout.querySelector('[data-layout-slot="moves"]');
+  const pageOwnsMoves = Boolean(pageMoves);
   const canReadMoves = () => !pageOwnsMoves && !root.documentElement.hasAttribute('data-deals-from-engine');
   const phone = win.matchMedia(pathname === "/leads" ? "(max-width:1023px)" : TOUCH_LAYOUT);
   const itineraryPage = Boolean(root.getElementById('accepted-itinerary'));
   const dealBoard = pathname === '/deals' && root.body.classList.contains('dealroom-page');
-  let sidebar = !boardPage && !itineraryPage && !vendorDirectory, today = true, drawer = null;
+  let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory, today = true, drawer = null;
   let drawerOpener = null;
   const background = new Map();
-  try { const saved = win.localStorage.getItem(`doctorcre:sidebar:${pageKey}`); if (saved !== null) sidebar = saved === 'open'; const savedToday = win.localStorage.getItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today'); if (savedToday !== null) today = savedToday !== 'closed'; } catch {}
+  try {
+    const saved = win.localStorage.getItem(`doctorcre:sidebar:${pageKey}`);
+    if (!engineToday && saved !== null) sidebar = saved === 'open';
+    const savedToday = win.localStorage.getItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today');
+    if (savedToday !== null) today = savedToday !== 'closed';
+  } catch {}
   const sidebarToggle = layout.querySelector('#appSidebarToggle'), todayToggle = layout.querySelector('#appTodayToggle');
+  sidebarToggle.hidden = engineToday;
   const paint = () => {
     layout.dataset.sidebar = sidebar ? 'open' : 'closed'; layout.dataset.today = today ? 'open' : 'closed'; layout.dataset.drawer = drawer || '';
     const leftOpen = phone.matches ? drawer === 'sidebar' : sidebar;
@@ -148,7 +158,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   });
   phone.addEventListener('change', () => { drawer = null; paint(); });
   paint();
-  root.addEventListener('doctorcre:open-today', () => openRegion('today'));
+  root.addEventListener('doctorcre:open-today', () => {
+    if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
+    else openRegion('today');
+  });
   // Page tab controllers retain selection and lazy reads. Give groups without
   // their own roving focus the same left/right keyboard affordance.
   const tabs = layout.querySelector('#appTabsSlot');
