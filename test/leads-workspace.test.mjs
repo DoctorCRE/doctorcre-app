@@ -78,7 +78,7 @@ test('failed territory reveal keeps the market filters and lead list usable',asy
   assert.ok(s.d.querySelectorAll('#leadBoard .lead-card').length>0);
   s.d.querySelector('#mapLeadMembers button').click();await tick();
   assert.equal(s.d.getElementById('leadDetail').open,true);
-  assert.match(s.d.querySelector('.lead-location').textContent,/Location not checked/);
+  assert.match(s.d.querySelector('#mapLeadMembers button').textContent,/Location not checked/);
  }finally{s.close()}
 });
 test('territory completion after workspace disposal releases the renderer',async()=>{
@@ -95,16 +95,16 @@ test('a remounted workspace reveals territory without starting the disposed work
   assert.equal(oldCalls,0);assert.equal(newCalls,1);
  }finally{remounted?.dispose();s.close()}
 });
-test('board renders six bounded columns, no duplicate ranking, quiet IDs/scores and timestamps; filter-only archive',async()=>{
+test('board renders six bounded columns, no duplicate ranking, names and owners; filter-only archive',async()=>{
  const s=await setup();try{assert.equal(s.d.querySelectorAll('[data-stage]').length,6);assert.equal(s.d.querySelectorAll('.hot-row').length,0);assert.equal(s.d.querySelectorAll('.lead-card').length,10);
- assert.match(s.d.getElementById('searchUpdated').textContent,/Oct 1/);assert.match(s.d.querySelector('.lead-card .lead-market').textContent,/Pensacola, FL/);assert.equal(s.d.querySelector('.lead-card .party-id'),null);assert.match(s.d.querySelector('.stage-column[data-stage="opportunity"]').textContent,/Opportunity/);assert.match(s.d.querySelector('.auto-move').textContent,/Moved by Doc: reply received 10\/1/);
+ assert.match(s.d.getElementById('searchUpdated').textContent,/Oct 1/);assert.equal(s.d.querySelector('.lead-card .work-card-meta').textContent,'Unclaimed');assert.equal(s.d.querySelector('.lead-card .party-id'),null);assert.match(s.d.querySelector('.stage-column[data-stage="opportunity"]').textContent,/Opportunity/);assert.equal(s.d.querySelector('.lead-card .auto-move'),null);
  const select=s.d.getElementById('stageFilter');select.value='archived';select.dispatchEvent(new s.w.Event('change'));assert.equal(s.d.querySelectorAll('[data-stage]').length,0);assert.equal(s.d.querySelectorAll('.lead-card').length,1);
  }finally{s.close()}
 });
 test('all New leads claimed stay on the board without Claim actions or a duplicate ranking',async()=>{
  const s=await setup({getWorkspace:async()=>{const b=workspace();for(const l of b.leads)if(l.stage==='new')l.owner='joe';return b}});
  try{assert.equal(s.d.querySelectorAll('.stage-column[data-stage="new"] .lead-card').length,5);
- assert.equal(s.d.querySelectorAll('[data-claim], .hot-row').length,0);
+ assert.equal(s.d.querySelectorAll('[data-stage="new"] [data-claim], .hot-row').length,0);
  }finally{s.close()}
 });
 test('empty stage columns say so in words',async()=>{
@@ -168,12 +168,12 @@ for(const finish of ['dragend','drop'])test(`map readiness preserves the native 
   ready();await tick();
   assert.equal(card.isConnected,true,'map readiness must not replace the browser drag source');
   assert.equal(card.classList.contains('dragging'),true);
-  assert.equal(card.querySelector('.lead-location').textContent,'Location not checked');
+  assert.equal(card.querySelector('.lead-open').textContent,'Dr. Example 1');
   const target=finish==='drop'?s.d.querySelector('[data-stage="engaged"]'):card;
   target.dispatchEvent(new s.w.Event(finish,{bubbles:true,cancelable:true}));
   if(finish==='drop')card.dispatchEvent(new s.w.Event('dragend',{bubbles:true}));
   assert.equal(s.d.querySelector('.dragging'),null);
-  assert.equal(s.d.querySelector('.lead-location').textContent,'Market area only');
+  assert.equal(s.d.querySelector('#mapLeadMembers button small').textContent,'Pensacola, FL · Market area only');
   assert.equal(s.writes.length,0);
  }finally{s.close()}
 });
@@ -189,7 +189,7 @@ for(const finish of ['pointerup','pointercancel','lostpointercapture'])test(`map
   assert.equal(s.d.getElementById('leadBoard').dataset.touchDragging,'true');
   pointer(finish);
   assert.equal(s.d.getElementById('leadBoard').dataset.touchDragging,undefined);
-  assert.equal(s.d.querySelector('.lead-location').textContent,'Market area only');
+  assert.equal(s.d.querySelector('#mapLeadMembers button small').textContent,'Pensacola, FL · Market area only');
   assert.equal(s.writes.length,0);
  }finally{s.close()}
 });
@@ -200,7 +200,7 @@ test('missing evidence asks one question; changed record refreshes the unsigned 
  }finally{s.close()}
 });
 test('Undo collects a human quote; Link removes card and Claim preserves New stage',async()=>{
- const s=await setup();try{s.d.querySelector('[data-undo]').click();await tick();assert.equal(s.writes.length,0);assert.equal(s.d.getElementById('stageDialog').open,true);
+ const s=await setup();try{await s.app.readDetail(id(10));s.d.querySelector('[data-undo]').click();await tick();assert.equal(s.writes.length,0);assert.equal(s.d.getElementById('stageDialog').open,true);
  assert.match(s.d.getElementById('stageQuestions').textContent,/Why undo/);
  const submit=()=>s.d.getElementById('stageForm').dispatchEvent(new s.w.Event('submit',{cancelable:true}));
  submit();await tick();assert.equal(s.writes.length,0);
@@ -208,7 +208,7 @@ test('Undo collects a human quote; Link removes card and Claim preserves New sta
  s.d.querySelector('#stageQuestions textarea').value='Synthetic reply was attributed to the wrong lead';
  await s.app.refresh();assert.equal(s.d.querySelector('#stageQuestions textarea').value,'Synthetic reply was attributed to the wrong lead');
  submit();await tick();assert.equal(s.writes[0].stage,'outreach_active');assert.equal(s.writes[0].l.base_version,1);assert.deepEqual(s.writes[0].review,{reason:'Undo automatic stage move',evidence_ids:[],undo_event_id:id(500),human_quote:'Synthetic reply was attributed to the wrong lead'});
- s.d.querySelector('[data-expand-stage="new"]').click();s.d.querySelector('[data-link]').click();await tick();assert.equal(s.d.querySelector(`#leadBoard [data-lead-id="${id(19)}"]`),null);
+ await s.app.readDetail(id(19));s.d.querySelector('[data-link]').click();await tick();assert.equal(s.d.querySelector(`#leadBoard [data-lead-id="${id(19)}"]`),null);
  s.d.querySelector('[data-claim]').click();await tick();assert.equal(s.board.leads[0].stage,'new');assert.equal(s.board.leads[0].owner,'example-partner');assert.equal(s.d.querySelector(`#leadBoard [data-claim="${id(1)}"]`),null);
  }finally{s.close()}
 });
@@ -230,8 +230,8 @@ for (const connected of [false, null, true]) test(`Engaged submits only connecte
 });
 test('Undo cancellation and a replaced automatic event never send a correction',async()=>{
  const s=await setup();try{
-  s.d.querySelector('[data-undo]').click();await tick();s.d.getElementById('stageDialog').close();assert.equal(s.writes.length,0);
-  s.d.querySelector('[data-undo]').click();await tick();s.d.querySelector('#stageQuestions textarea').value='Synthetic correction';
+  await s.app.readDetail(id(10));s.d.querySelector('[data-undo]').click();await tick();s.d.getElementById('stageDialog').close();assert.equal(s.writes.length,0);
+  await s.app.readDetail(id(10));s.d.querySelector('[data-undo]').click();await tick();s.d.querySelector('#stageQuestions textarea').value='Synthetic correction';
   s.board.leads.find(row=>row.id===id(10)).last_stage_move.event_id=id(501);await s.app.refresh();
   assert.equal(s.d.getElementById('stageDialog').open,false);assert.equal(s.app.state.proposal,null);
   s.d.getElementById('stageForm').dispatchEvent(new s.w.Event('submit',{cancelable:true}));await tick();assert.equal(s.writes.length,0);
@@ -240,7 +240,7 @@ test('Undo cancellation and a replaced automatic event never send a correction',
 test('Undo preserves its historical stage, event and quote through resume and an uncertain write',async()=>{
  const calls=[];const s=await setup({recordStage:async(...args)=>{calls.push(args);throw Object.assign(new Error('uncertain'),{code:'unknown_outcome'})}});try{
   s.board.leads.find(row=>row.id===id(10)).last_stage_move.from='closed_lost';await s.app.refresh();
-  s.d.querySelector('[data-undo]').click();await tick();s.d.querySelector('#stageQuestions textarea').value='Synthetic correction after reviewing the reply';
+  await s.app.readDetail(id(10));s.d.querySelector('[data-undo]').click();await tick();s.d.querySelector('#stageQuestions textarea').value='Synthetic correction after reviewing the reply';
   s.w.dispatchEvent(new s.w.PageTransitionEvent('pagehide',{persisted:true}));s.w.dispatchEvent(new s.w.PageTransitionEvent('pageshow',{persisted:true}));await tick();
   assert.equal(s.d.getElementById('stageDialog').open,true);assert.equal(s.d.querySelector('#stageQuestions textarea').value,'Synthetic correction after reviewing the reply');assert.equal(calls.length,0);
   s.d.getElementById('stageForm').dispatchEvent(new s.w.Event('submit',{cancelable:true}));await tick();
@@ -272,6 +272,7 @@ for(const source of ['board','fresh detail'])test(`Undo restores distinct produc
  const s=await setup();try{
   const row=s.board.leads.find(row=>row.id===id(10));row.last_stage_move.from='nurture_drip';row.last_stage_move.to='closed_lost';
   row.stage=source==='board'?'closed_lost':'engaged';row.last_stage_move.to=row.stage;await s.app.refresh();
+  await s.app.readDetail(row.id);
   s.client.getLeadDetail=async()=>({detail:detail({...row,stage:'closed_lost',last_stage_move:{...row.last_stage_move,to:'closed_lost'}})});
   s.d.querySelector(`[data-undo="${row.id}"]`).click();await tick();
   assert.equal(s.d.getElementById('stageDialog').open,true);assert.equal(s.d.getElementById('saveStage').disabled,false);
@@ -283,7 +284,7 @@ for(const source of ['board','fresh detail'])test(`Undo restores distinct produc
 });
 test('Undo draft survives a failed detail poll and requires fresh verification before confirmation',async()=>{
  const s=await setup();try{
-  s.d.querySelector('[data-undo]').click();await tick();s.d.querySelector('#stageQuestions textarea').value='Synthetic correction retained after read failure';
+  await s.app.readDetail(id(10));s.d.querySelector('[data-undo]').click();await tick();s.d.querySelector('#stageQuestions textarea').value='Synthetic correction retained after read failure';
   const read=s.client.getLeadDetail;s.client.getLeadDetail=async()=>{throw new Error('Synthetic network failure')};await s.app.refresh();
   assert.equal(s.d.getElementById('saveStage').disabled,true);assert.equal(s.app.state.proposal,null);
   s.d.getElementById('stageForm').dispatchEvent(new s.w.Event('submit',{cancelable:true}));assert.equal(s.writes.length,0);
@@ -295,7 +296,7 @@ test('Undo draft survives a failed detail poll and requires fresh verification b
 });
 test('Undo draft survives visibility resume while its detail poll is pending',async()=>{
  const s=await setup();let release;try{
-  s.d.querySelector('[data-undo]').click();await tick();s.d.querySelector('#stageQuestions textarea').value='Synthetic correction retained during pending poll';
+  await s.app.readDetail(id(10));s.d.querySelector('[data-undo]').click();await tick();s.d.querySelector('#stageQuestions textarea').value='Synthetic correction retained during pending poll';
   const read=s.client.getLeadDetail;s.client.getLeadDetail=()=>new Promise(resolve=>{release=resolve});const polling=s.app.refresh();await tick();
   assert.equal(s.app.state.proposal,null);assert.equal(s.d.getElementById('saveStage').disabled,true);
   Object.defineProperty(s.d,'visibilityState',{value:'hidden',configurable:true});s.d.dispatchEvent(new s.w.Event('visibilitychange'));
@@ -307,7 +308,7 @@ test('Undo draft survives visibility resume while its detail poll is pending',as
 });
 test('Undo polling preserves edits made while fresh detail is pending',async()=>{
  const s=await setup();let release;try{
-  s.d.querySelector('[data-undo]').click();await tick();const input=s.d.querySelector('#stageQuestions textarea');input.value='Synthetic initial draft';
+  await s.app.readDetail(id(10));s.d.querySelector('[data-undo]').click();await tick();const input=s.d.querySelector('#stageQuestions textarea');input.value='Synthetic initial draft';
   s.client.getLeadDetail=()=>new Promise(resolve=>{release=resolve});const polling=s.app.refresh();await tick();
   input.value='Synthetic revised draft during verification';release({detail:detail(s.board.leads.find(row=>row.id===id(10)))});await polling;
   assert.equal(s.d.querySelector('#stageQuestions textarea'),input);assert.equal(input.value,'Synthetic revised draft during verification');
@@ -954,7 +955,8 @@ test('Chicago timestamps retain the business day and date-only move evidence nev
  const s=await setup({getWorkspace:async()=>{const b=workspace();b.last_search_at='2026-10-24T01:00:00Z';b.leads[0].last_stage_move={automatic:true,from:'new',to:b.leads[0].stage,event_id:'demo-move',evidence_date:'2026-10-24',reason:'demo evidence'};return b;}});
  try{
   assert.match(s.d.getElementById('searchUpdated').textContent,/Oct 23, 8:00 PM/);
-  assert.match(s.d.querySelector('.auto-move').textContent,/10\/24/);
+  s.client.getLeadDetail=async row=>({detail:detail(row)});
+  await s.app.readDetail(id(1));assert.match(s.d.querySelector('.auto-move').textContent,/10\/24/);
   s.client.getLeadDetail=async()=>({detail:{...detail(s.board.leads[0]),correspondence:[{id:'demo-evening',kind:'email_in',occurred_at:'2026-01-24T01:00:00Z',summary:'Demo winter correspondence'}]}});
   await s.app.readDetail(id(1));assert.match(s.d.querySelector('.correspondence time').textContent,/Jan 23, 7:00 PM/);
  }finally{s.close();}
@@ -962,7 +964,7 @@ test('Chicago timestamps retain the business day and date-only move evidence nev
 
 test('midnight occurrence timestamps convert to Chicago while midnight DATE evidence retains its date',async()=>{
  const s=await setup({getWorkspace:async()=>{const b=workspace();b.leads[0].last_stage_move={automatic:true,from:'new',to:b.leads[0].stage,event_id:'demo-midnight',occurred_at:'2026-10-24T00:00:00Z',reason:'demo midnight event'};b.leads[1].last_stage_move={automatic:true,from:'qualified',to:b.leads[1].stage,event_id:'demo-date',evidence_date:'2026-10-24T00:00:00.000Z',reason:'demo DATE evidence'};return b;}});
- try{const moves=[...s.d.querySelectorAll('.auto-move')].map(node=>node.textContent);assert.ok(moves.some(text=>/demo midnight event 10\/23/.test(text)));assert.ok(moves.some(text=>/demo DATE evidence 10\/24/.test(text)));}finally{s.close();}
+ try{s.client.getLeadDetail=async row=>({detail:detail(row)});await s.app.readDetail(id(1));assert.match(s.d.querySelector('.auto-move').textContent,/demo midnight event 10\/23/);s.d.getElementById('leadDetail').close();await s.app.readDetail(id(2));assert.match(s.d.querySelector('.auto-move').textContent,/demo DATE evidence 10\/24/);}finally{s.close();}
 });
 
 test('captured correspondence names its limited coverage even when no entries are captured',async()=>{
@@ -1061,5 +1063,29 @@ for (const [code, message] of [
  try {
   s.d.querySelector('[data-claim]').click(); await tick();
   assert.equal(s.d.getElementById('leadBoardError').textContent.trim(), message);
+ } finally { s.close(); }
+});
+
+test('Link recovery stays in the drawer and retries the same request', async () => {
+ const calls = [];
+ const s = await setup();
+ try {
+  s.client.linkClient = async (...args) => {
+   calls.push(args);
+   if (calls.length === 1) throw Object.assign(new Error('Lost reply'), { code: 'unknown_outcome' });
+   s.board.leads.find(row => row.id === args[0].id).client_id = args[1];
+   return { ok: true };
+  };
+  await s.app.readDetail(id(19));
+  s.d.querySelector('#leadDetail [data-link]').click();
+  await tick();
+  assert.equal(s.d.getElementById('leadDetail').open, true);
+  const recovery = s.d.querySelector('#leadDetail button[id="checkDetailPending"]');
+  assert.ok(recovery && !recovery.closest('[hidden]'));
+  recovery.click();
+  await tick();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1], calls[0]);
+  assert.equal(s.d.getElementById('leadDetail').open, false);
  } finally { s.close(); }
 });

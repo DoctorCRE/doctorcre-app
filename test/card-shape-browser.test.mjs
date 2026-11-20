@@ -47,11 +47,11 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`sh
       assert.deepEqual(overflowing, [], 'board cards wrap their contents within the tile');
       assert.equal(await page.locator('.kanban-card:not(.parked-card) .work-card-status').count(), 0, 'column stage is not a chip');
     }
-    if (surface === 'leads') {
-      assert.equal(await card.locator('.work-card-body .lead-timing').count(), 1, 'ordinary leads show compact timing');
-      assert.ok((await card.locator('.lead-timing').boundingBox()).height <= 90, 'ordinary lead timing stays compact');
+    if (surface.startsWith('leads')) {
+      assert.match(await card.locator('.work-card-title').innerText(), /^Dr\. Example \d+$/);
+      assert.equal(await card.locator('.work-card-meta').innerText(), 'Unclaimed');
+      assert.equal(await card.locator('.work-card-body').count(), 0, 'lead timing and contact details belong in the drawer');
     }
-    if (surface === 'leads') assert.match(await card.locator('.lead-reachability').textContent(), /^Research · Unknown reachability$/, 'legacy leads explain their unknown reachability');
     if (surface === 'brief') {
       assert.equal(await card.locator('.work-card-body, .work-card-status').count(), 0, 'brief dates belong in meta');
       assert.match(await card.locator('.work-card-meta').textContent(), /Due|No due date/);

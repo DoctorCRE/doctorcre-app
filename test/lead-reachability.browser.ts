@@ -144,7 +144,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         await page.locator("#reachabilityFilter").scrollIntoViewIfNeeded();
         await page.screenshot({ path: `/tmp/WR591.S12.J8-shots/${width}-${theme}.png` });
         await page.locator("#showTerritory").click();
-        await page.locator(".lead-location").getByText("Market area only", { exact: true }).waitFor();
+        await page.locator(".market-marker").first().waitFor();
         const canvas = await page.locator("#territoryMap canvas").elementHandle();
         assert.ok(canvas);
         const camera = await page.evaluate(() => {
@@ -176,7 +176,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         await page.locator("#reachabilityFilter").selectOption("research");
         await page.locator(".lead-card").waitFor();
         assert.equal(await page.locator(".lead-card").getAttribute("data-selected"), "false");
-        assert.match((await page.locator(".lead-reachability").textContent()) || "", /Unknown/);
+        assert.equal(await page.locator(".lead-card .work-card-body").count(), 0);
         await membership();
         assert.equal(await canvas.evaluate((node) => node.isConnected), true);
         assert.deepEqual(
@@ -244,7 +244,7 @@ test("proof CLI passes synthetic fixture, rejects a near miss, and refuses missi
   assert.equal(await run(base), 78);
 });
 
-test("natural production proof observer checks real fixture UI and refuses a changed reason", async () => {
+test("natural production proof observer checks real fixture UI and refuses a changed count", async () => {
   const { execFile } = await import("node:child_process");
   const recording = JSON.parse(
     await readFile(new URL("./fixtures/lead-reachability/producer.json", import.meta.url), "utf8"),
@@ -270,20 +270,13 @@ test("natural production proof observer checks real fixture UI and refuses a cha
   for (const change of [false, true]) {
     const assets = new Map(original);
     if (change) {
-      let changed = false;
-      for (const [path, asset] of assets)
-        if (path.endsWith(".js")) {
-          const source = asset.body.toString();
-          const modified = source.replace(
-            "Successful contact and current verified route",
-            "Successful contact and current verified route changed",
-          );
-          if (source !== modified) {
-            assets.set(path, { ...asset, body: Buffer.from(modified) });
-            changed = true;
-          }
-        }
-      assert.equal(changed, true);
+      const path = "/js/leads-workspace-app.js";
+      const asset = assets.get(path);
+      assert.ok(asset);
+      const source = asset.body.toString();
+      const modified = source.replace(" matching ", " displayed ");
+      assert.notEqual(modified, source);
+      assets.set(path, { ...asset, body: Buffer.from(modified) });
     }
     const server = await startWorkerFixture({
       assets,

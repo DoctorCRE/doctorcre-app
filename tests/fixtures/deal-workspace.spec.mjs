@@ -7,7 +7,7 @@ test.beforeAll(async () => { server = await startFixtureServer(); });
 test.afterAll(async () => { await server?.stop(); });
 
 for (const width of [390, 1440]) {
-  test(`the deal shows the board's next step and date once at ${width}px`, async ({ page }) => {
+  test(`the deal page shows its next step and date once at ${width}px`, async ({ page }) => {
     const next = 'Confirm the demo showing';
     const keyDate = '2026-11-20';
     const seed = JSON.parse(await readFile(new URL('../../data/board-seed.json', import.meta.url), 'utf8'));
@@ -25,8 +25,8 @@ for (const width of [390, 1440]) {
     await page.clock.install({ time: new Date('2026-11-18T17:00:00Z') });
     await page.goto(`${server.url}/deals`);
     const card = page.locator('.kanban-column [data-id="d14"]');
-    await expect(card.getByText(next, { exact: true }).first()).toBeVisible();
-    await expect(card.locator(`time[datetime="${keyDate}"]`)).toBeVisible();
+    await expect(card.getByText(next, { exact: true })).toHaveCount(0);
+    await expect(card.locator(`time[datetime="${keyDate}"]`)).toHaveCount(0);
     await card.locator('.card-open').click();
 
     const room = page.getByRole('main', { name: 'Deal Workspace' });
@@ -77,18 +77,11 @@ test('a filed call item is the next step when its saved action has moved to the 
     };
     await state.boardSync.refreshBoard({ reason: 'fixture-filed-call' });
   }, { savedStep, item });
-  const summary = card.locator('.deal-summary-line').first();
-  await expect(summary.locator('.deal-summary-text')).toHaveText(item.title);
-  const date = await summary.locator('time').getAttribute('datetime');
-  expect(date).toBe(item.due_on);
-  await expect(card.getByText(item.title, { exact: true })).toHaveCount(1);
-  await card.getByRole('button', { name: item.title, exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText(savedStep);
-  await page.keyboard.press('Escape');
+  await expect(card.getByText(item.title, { exact: true })).toHaveCount(0);
   await card.locator('.card-open').click();
   const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
   await expect(snapshot).toContainText(`Overdue action: ${item.title} · Due`);
-  await expect(snapshot.locator(`time[datetime="${date}"]`)).toHaveCount(1);
+  await expect(snapshot.locator(`time[datetime="${item.due_on}"]`)).toHaveCount(1);
   await snapshot.getByRole('button', { name: item.title, exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText(savedStep);
   await page.keyboard.press('Escape');
@@ -111,7 +104,7 @@ test('the other partner’s open step is listed once with its owner and date', a
   await page.clock.install({ time: new Date('2026-11-18T17:00:00Z') });
   await page.goto(`${server.url}/deals`);
   const card = page.locator('.kanban-column [data-id="d14"]');
-  await expect(card.locator('.deal-summary-text').first()).toHaveText('Confirm demo lease terms');
+  await expect(card.getByText('Confirm demo lease terms', { exact: true })).toHaveCount(0);
   await card.locator('.card-open').click();
   const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
   await expect(snapshot.getByText('Confirm demo lease terms', { exact: true })).toHaveCount(1);

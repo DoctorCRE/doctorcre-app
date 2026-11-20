@@ -3,7 +3,7 @@ export function validateLeadDetail<T>(detail: T, id: string, parseTiming?: (valu
 export type QuietProposal = {
   subject_type: string;
   subject_id: string;
-  ref: string;
+  ref: string | null;
   name: string;
   basis: "created_at" | "last_contact";
   anchor_on: string;

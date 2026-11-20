@@ -156,7 +156,7 @@ test('W4 desktop/phone render, owner filters, equal cards, wide detail and reduc
     const sizes = await page.locator('.kanban-column .kanban-card').evaluateAll(es => es.map(e => ({ height: e.getBoundingClientRect().height, transform: getComputedStyle(e).transform, transition: getComputedStyle(e).transitionDuration })));
     // Cards size to their content (S8): no fixed tall box with half of it empty.
     assert.ok(sizes.every(e => e.transform === 'none' && e.transition === '0s'), JSON.stringify(sizes));
-    assert.equal(await page.locator('.kanban-card .deal-summary-text').evaluateAll(lines => lines.every(line => line.clientHeight <= parseFloat(getComputedStyle(line).lineHeight) * 2 + 1)), true);
+    assert.equal(await page.locator('.kanban-column .kanban-card').evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth)), true);
     await page.screenshot({ path: new URL(`out/test-artifacts/w4/${width === 1440 ? 'desktop' : 'phone-' + width}.png`, root).pathname, fullPage: true });
     assert.equal(await page.locator('.kanban-column [data-id="d14"] .owner').textContent(), 'Joe');
     await page.locator('[data-filter="dell"]').click();
@@ -192,7 +192,7 @@ test('board refresh keeps a pressed card until its drag or tap completes', async
     const {state}=await import('/js/pipeline.js');const get=state.client.getBoard;
     state.client.getBoard=async (...args)=>{
       const result=await get(...args);
-      return {...result,deals:result.deals.map(d=>d.id==='d14'?{...d,items:d.items.map((item,i)=>i===0?{...item,title:'Fresh item during press'}:item)}:d)};
+      return {...result,deals:result.deals.map(d=>d.id==='d14'?{...d,name:'Fresh deal name during press'}:d)};
     };
   });
   await freshAction();
@@ -213,7 +213,7 @@ test('board refresh keeps a pressed card until its drag or tap completes', async
       await page.waitForFunction(()=>!document.querySelector('#recordPanel').hidden);
       await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
     }
-    await waitForAsync(page,()=>/Fresh item during press/.test(document.querySelector('.kanban-column [data-id="d14"]').textContent));
+    await waitForAsync(page,()=>/Fresh deal name during press/.test(document.querySelector('.kanban-column [data-id="d14"]').textContent));
   }
   assert.deepEqual(errors,[]);
 });
@@ -233,18 +233,18 @@ test('board refresh preserves a native drag until its drop is reviewed', async t
     const {state}=await import('/js/pipeline.js');const get=state.client.getBoard;
     state.client.getBoard=async (...args)=>{
       const result=await get(...args);
-      return {...result,deals:result.deals.map(d=>d.id==='d14'?{...d,items:d.items.map((item,i)=>i===0?{...item,title:'Fresh item during drag'}:item)}:d)};
+      return {...result,deals:result.deals.map(d=>d.id==='d14'?{...d,name:'Fresh deal name during drag'}:d)};
     };
   });
   await refresh(page);
   assert.equal(await page.evaluate(()=>window.draggedCard.isConnected),true);
-  assert.equal(await page.evaluate(async()=> (await import('/js/pipeline.js')).state.deals.get('d14').items[0].title),'Fresh item during drag');
-  assert.doesNotMatch(await card.textContent(),/Fresh item during drag/);
+  assert.equal(await page.evaluate(async()=> (await import('/js/pipeline.js')).state.deals.get('d14').name),'Fresh deal name during drag');
+  assert.doesNotMatch(await card.textContent(),/Fresh deal name during drag/);
   const target=await page.locator('[data-column="legal"] > h3').boundingBox();
   await page.mouse.move(target.x+10,target.y+10,{steps:5});await page.mouse.up();
   await page.waitForFunction(()=>document.querySelector('#completionDialog').open);
   assert.equal(await page.evaluate(async()=> (await import('/js/pipeline.js')).state.deals.get('d14').phase),'Negotiation');
-  assert.match(await card.textContent(),/Fresh item during drag/);
+  assert.match(await card.textContent(),/Fresh deal name during drag/);
   assert.deepEqual(errors,[]);
 });
 
@@ -263,7 +263,8 @@ test('W4 drag and keyboard phase writes, manual phase, park, revive and undo rec
   await page.locator('.park-options summary').click(); await page.locator('#detailParkForm input').fill('Demo unverified import'); await page.locator('#detailParkForm button').click();
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').operating_state === 'parked');
   assert.equal(await page.locator('.kanban-column [data-id="d14"]').count(), 0);
-  await page.locator('#parkedToggle').click(); await page.locator('.parked-lane [data-id="d14"] [data-revive]').click();
+  await page.locator('#parkedToggle').click(); await page.locator('.parked-lane [data-id="d14"] .card-open').click();
+  await page.locator('#recordPanel [data-revive]').click();
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').operating_state === 'active');
   const revived = await page.evaluate(async () => (await (await import('/js/pipeline.js')).state.client.getChanges(null)).events.filter(e => e.field === 'operating_state').at(-1));
   assert.equal(revived.actor, 'joe'); assert.equal(revived.new_value.state, 'active');
@@ -333,7 +334,8 @@ test('W4 lost park response retries the original field exactly once; next-step e
   const changes = await page.evaluate(async () => (await (await import('/js/pipeline.js')).state.client.getChanges(null)).events);
   assert.equal(changes.filter(e => e.field === 'operating_state' && e.subject_id === 'd14').length, 1);
   assert.equal(changes.filter(e => e.field === 'phase' && e.subject_id === 'd14').length, 1);
-  await page.locator('#parkedToggle').click(); await page.locator('.parked-lane [data-id="d14"] [data-revive]').click();
+  await page.locator('#parkedToggle').click(); await page.locator('.parked-lane [data-id="d14"] .card-open').click();
+  await page.locator('#recordPanel [data-revive]').click();
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').operating_state === 'active');
   await page.locator('[data-id="d14"] .card-open').click();
   for (const text of ['Demo first next step', 'Demo second next step']) {
@@ -382,17 +384,16 @@ test('W4 a long automatic reason keeps its date visible without persistent card 
   });
   await refresh(page);
   const card = page.locator('[data-id="d14"]');
-  const date = card.locator('.auto-move time');
-  assert.equal(await date.textContent(), 'Sat, Oct 3, 2026');
-  const outer = await card.boundingBox(), stamp = await date.boundingBox();
-  assert.ok(stamp.y >= outer.y && stamp.y + stamp.height <= outer.y + outer.height);
+  assert.equal(await card.locator('.auto-move').count(), 0);
   assert.equal(await card.locator('[data-undo]').count(), 0);
   // V2 hover is a hairline step on the border, not a lift (no hover transforms).
   const restingBorder = await card.evaluate(e => getComputedStyle(e).borderRightColor);
   await card.hover();
   await page.waitForFunction(resting => getComputedStyle(document.querySelector('[data-id="d14"]')).borderRightColor !== resting, restingBorder);
   // Attention reads in words, never a bare colour dot (S8).
-  assert.equal(await page.locator('[data-id="d14"] .attention-flag').textContent(), '245 days overdue');
+  assert.equal(await card.getByText('Needs attention', { exact: true }).count(), 1);
+  await card.locator('.card-open').click();
+  assert.equal(await page.locator('#recordPanel .auto-move time').textContent(), 'Sat, Oct 3, 2026');
 });
 
 
@@ -891,7 +892,7 @@ for (const width of [390, 1440]) test(`missing action items stay visible across 
     await page.evaluate(value => { window.demoNextStep = value; window.demoItems = []; }, value);
     await refresh(page);
     const card = page.locator('.kanban-column [data-id="d14"]');
-    assert.equal(await card.getByText('No next step set', { exact: true }).isVisible(), true);
+    assert.equal(await card.getByText('No next step set', { exact: true }).count(), 0);
     await page.locator('#listView').click();
     const row = page.locator('.deal-row[data-id="d14"]');
     assert.equal(await row.getByText('Next step missing', { exact: true }).isVisible(), true);
@@ -916,7 +917,7 @@ for (const width of [390, 1440]) test(`missing action items stay visible across 
   }
   await page.evaluate(() => { window.demoNextStep = { text: 'Confirm the demo appointment' }; window.demoItems = [{ id: 'demo-gap-item', title: window.demoNextStep.text, status: 'open', due_on: null, bullets: [] }]; });
   await refresh(page);
-  assert.equal(await page.locator('.kanban-column [data-id="d14"]').getByText('Confirm the demo appointment', { exact: true }).isVisible(), true);
+  assert.equal(await page.locator('.kanban-column [data-id="d14"]').getByText('Confirm the demo appointment', { exact: true }).count(), 0);
   await page.locator('#listView').click();
   const row = page.locator('.deal-row[data-id="d14"]');
   assert.equal(await row.getByText('Confirm the demo appointment', { exact: true }).isVisible(), true);
@@ -1224,11 +1225,9 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     await page.locator('#recordPanel').waitFor({ state: 'hidden' });
     await page.locator('#parkedToggle').click();
     const parked = page.locator('.parked-card[data-id="d14"]');
-    for (const text of ['Other', note, 'Sun, Oct 4, 2026']) {
-      await parked.getByText(text, { exact: true }).waitFor();
-    }
+    await parked.getByText('Other', { exact: true }).waitFor();
+    assert.equal((await parked.innerText()).replace(/\s+/g, ' '), `${dealName} Joe Other`);
     assert.equal(await originalColumn.locator('[data-id="d14"]').count(), 0);
-    assert.equal(await parked.getByRole('button', { name: /Client website/ }).isVisible(), true);
     await parked.screenshot({ path: new URL(`${width}-card.png`, artifacts).pathname });
     await parked.getByRole('button', { name: dealName, exact: true }).press('Enter');
 
@@ -1246,12 +1245,14 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     await reason.selectOption({ label: 'Client paused' });
     await form.getByRole('button', { name: 'Park deal' }).click();
     await parked.getByText('Client paused', { exact: true }).waitFor();
-    await parked.getByRole('button', { name: 'Revive' }).click();
+    await parked.locator('.card-open').click();
+    await parking.getByRole('button', { name: 'Revive' }).click();
     await openDeal.waitFor();
     assert.equal(await parked.count(), 0);
 
     const automatic = page.locator('.parked-card[data-id="d06"]');
-    await automatic.getByText('Parked automatically', { exact: true }).waitFor();
+    await automatic.waitFor();
+    assert.equal(await automatic.getByText('Parked automatically', { exact: true }).count(), 0);
     await automatic.screenshot({ path: new URL(`${width}-import-card.png`, artifacts).pathname });
     await automatic.locator('.card-open').press('Enter');
     await parking.getByText('Parked automatically', { exact: true }).waitFor();
@@ -1260,7 +1261,7 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
       cardNote: await automatic.getByText(importNote, { exact: true }).count(),
       pageNote: await parking.getByText(importNote, { exact: true }).count(),
       parkedInHeader: await parkedStatus.count(),
-    }, { cardNote: 1, pageNote: 1, parkedInHeader: 1 });
+    }, { cardNote: 0, pageNote: 1, parkedInHeader: 1 });
     assert.equal(await parkedStatus.textContent(), 'Due Diligence · Parked');
     const criticalDate = header.getByText('Next critical date', { exact: true }).locator('..');
     assert.equal(await criticalDate.getByText('Wed, Oct 21, 2026', { exact: true }).isVisible(), true);
@@ -1270,20 +1271,28 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
   });
 });
 
-test('parked import note uses plain words on the board', async t => {
+test('parked import note uses plain words on the deal page', async t => {
   const { page } = await open(t);
   await page.evaluate(async () => {
     const { state } = await import('/js/pipeline.js');
+    const read = state.client.getDeal.bind(state.client);
     const board = state.client.getBoard.bind(state.client);
+    const parking = { operating_state: 'parked', parking_note: 'unverified import — 2026-10-01 records audit; revive if active' };
     state.client.getBoard = async (...args) => {
       const result = await board(...args);
-      Object.assign(result.deals.find(deal => deal.id === 'd14'), { operating_state: 'parked', parking_note: 'unverified import — 2026-10-01 records audit; revive if active' });
+      Object.assign(result.deals.find(deal => deal.id === 'd14'), parking);
+      return result;
+    };
+    state.client.getDeal = async id => {
+      const result = await read(id);
+      if (id === 'd14') Object.assign(result.deal, parking);
       return result;
     };
   });
   await refresh(page);
   await page.locator('.parked-lane summary').click();
-  assert.equal(await page.locator('.parked-card[data-id="d14"]').getByText('Imported Oct 1, not yet confirmed. Revive if still active.').isVisible(), true);
+  await page.locator('.parked-card[data-id="d14"] .card-open').click();
+  await page.locator('#recordPanel').getByText('Imported Oct 1, not yet confirmed. Revive if still active.', { exact: true }).waitFor();
 });
 
 test('deal email threads show latest message dates and escape subjects', async t => {

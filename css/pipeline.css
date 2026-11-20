@@ -67,11 +67,10 @@
 .shell { width: 100%; max-width: none; padding-inline: clamp(var(--space-3), 1.5vw, var(--space-6)); }
 .board-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-4); }
 .pipeline-layout { display: block; }
-/* Columns are a tonal step below the cards, so a card is not a box inside a box. */
-.kanban { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: var(--space-2) var(--space-1); }
+.kanban { --phase-columns: minmax(144px, 1.12fr) repeat(6, minmax(116px, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: var(--phase-columns); gap: var(--space-2); }
 .kanban:has(.kanban-column) { max-height: 65dvh; }
 @media (min-width: 761px) {
-  .kanban:has(#prospectsLane):not(:has(.deal-list)) { grid-template-columns: repeat(8, minmax(120px, 1fr)); }
+  .kanban:has(#prospectsLane):not(:has(.deal-list)) { grid-template-columns: minmax(120px, 1fr) var(--phase-columns); }
 }
 .kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); }
 #prospectsLane .work-card { overflow-wrap: anywhere; }
@@ -95,32 +94,28 @@
 .prospect-management { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .prospect-dialog form label { display: grid; gap: var(--space-2); }
 .prospect-dialog li p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.kanban-column { min-width: 0; padding: var(--space-2) var(--space-1); background: var(--ground); overflow-wrap: anywhere; }
-.kanban-column > h3 { position: sticky; top: 0; z-index: 2; margin: 0; min-height: var(--space-7); font-size: var(--font-size-1); background: var(--ground); }
-.kanban-column > h3 button { display: flex; align-items: center; gap: var(--space-1); width: 100%; min-height: var(--touch); padding: var(--space-1) 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
-.kanban-column > h3 button small { margin-left: auto; }
+.kanban-column { min-width: 0; padding: 0; background: var(--ground); overflow-wrap: anywhere; }
+.kanban-column > h3 { position: sticky; top: 0; z-index: 2; margin: 0; min-height: var(--touch); gap: var(--space-2); justify-content: flex-start; align-items: center; border-bottom: var(--hairline-width) solid var(--hairline); font-size: var(--font-size-1); white-space: nowrap; background: var(--ground); }
+.kanban-column > h3 button { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: var(--touch); padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.kanban-column > h3 button:hover > span { text-decoration: underline; text-underline-offset: 3px; }
 .stage-preview { display: grid; gap: var(--space-2); margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); overflow-wrap: anywhere; }
 .work-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; font-variant-numeric: tabular-nums; }
 .kanban-lane-label { display: none; }
 .next-line { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; white-space: normal; overflow: hidden; overflow-wrap: anywhere; margin: 0; font-size: var(--font-size-1); color: var(--fg-muted); }
 .auto-move button { justify-self: start; padding: 0 var(--space-2); min-height: var(--touch); }
-/* Attention is a status, not the brand colour: a warn rule on top and the words. */
-.kanban-card.work-card--tile .work-card-meta,
-#prospectsLane .work-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
-.kanban-column .deal-summary-line { display: flex; flex-wrap: wrap; }
-.kanban-column .deal-summary-facts { white-space: pre-wrap; }
-.deal-board-next-step { margin: 0; overflow-wrap: anywhere; }
-.kanban-column .deal-items { padding-inline-start: 1em; }
+.kanban-card.work-card--tile .work-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); grid-column: 1 / -1; }
+.kanban-card.work-card--tile .card-open { width: 100%; overflow-wrap: anywhere; }
+.deal-list-next-step { margin: 0; overflow-wrap: anywhere; }
 .deal-attention-label { display: block; flex-basis: 100%; color: var(--status-warn-ink); }
-.kanban-card[data-attention="true"] { border-top: 2px solid var(--status-warn); }
+.deal-board-badge, #prospectsLane .work-card--tile .work-card-status { padding: 2px var(--space-1); border-radius: var(--radius-1); background: color-mix(in srgb, var(--status-warn) 12%, var(--surface-2)); color: var(--status-warn-ink); }
+.parked-card .deal-board-badge { background: color-mix(in srgb, var(--status-hold) 12%, var(--surface-2)); color: var(--status-hold-ink); }
 .attention-flag { display: inline-flex; align-items: center; min-width: var(--touch); min-height: var(--touch); padding: 0 var(--space-1); border: 0; background: transparent; color: var(--status-warn-ink); font: inherit; font-size: var(--font-size-1); font-weight: var(--font-weight-strong); white-space: nowrap; text-decoration: underline; text-decoration-color: var(--hairline); text-underline-offset: 4px; cursor: pointer; }
 .attention-flag:hover { text-decoration-color: currentColor; }
 .stages-hidden { display: none; }
-:root[data-color-assist="on"] .kanban-card:not(.deal-row)[data-attention="true"] { border-top-style: double; border-top-width: 4px; }
-.parked-lane { grid-column: 1/-1; margin-top: var(--space-2); padding: var(--space-3); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); }
-.parked-lane > summary { cursor: pointer; color: var(--fg-muted); min-height: var(--touch); }
+.parked-lane { grid-column: 1/-1; margin-top: var(--space-2); border-top: var(--hairline-width) solid var(--hairline); }
+.parked-lane > summary { cursor: pointer; color: var(--fg-muted); min-height: var(--touch); line-height: var(--touch); }
 .parked-cards { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: var(--space-3); margin-top: var(--space-3); }
-.parked-card { height: auto; grid-template-rows: none; align-content: start; }
+.parked-card { align-content: start; }
 .deal-list { display: grid; grid-column: 1/-1; gap: 0; border-block: var(--hairline-width) solid var(--hairline); }
 .deal-list-parked > h3 { margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--font-size-2); }
 .deal-row[data-attention="true"] { border-top: var(--hairline-width) solid var(--hairline); }
@@ -296,12 +291,6 @@ button.client-portal-link:disabled { cursor: wait; }
 @media (min-width: 651px) {
   .deal-list-head { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(90px, .7fr) minmax(0, 2fr) minmax(70px, .5fr); gap: var(--space-3); padding: var(--space-1) var(--space-3); color: var(--fg-muted); font-size: var(--font-size-1); }
   .work-card--row .deal-row-next { align-self: center; }
-}
-.kanban-card .attention-flag { align-self: flex-start; align-items: flex-start; margin-block: 0 -20px; }
-@media (width > 760px) {
-  .kanban-column .kanban-card .work-card-title { font-size: .9375rem; }
-  .kanban-column .deal-vendor-details p { grid-template-columns: minmax(0, 1fr); }
-  .kanban-column .attention-flag { white-space: normal; text-align: start; }
 }
 .work-card--row .deal-row-next .attention-flag { padding-inline: 0; }
 
