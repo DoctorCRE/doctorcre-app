@@ -1,8 +1,12 @@
 import { newestFirst } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
 import { meetingEvidence, unavailableEvidence } from './correspondence-model.js';
+export const emailSubject = value => {
+  const subject = value?.trim();
+  return !subject || /^(?:\(no subject\)|no subject)$/i.test(subject) ? '(No subject)' : subject;
+};
+export const emailPlaceholderText = value => value.replace(/\(no subject\)/gi, '(No subject)');
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-const emailSubject = value => !value?.trim() || value.trim().toLowerCase() === '(no subject)' ? '(No subject)' : value;
 const GROUPS = [
   { key: 'threads', title: 'Email threads', none: 'No email threads', kind: 'thread', label: 'Email' },
   { key: 'meetings', title: 'Meetings', none: 'No meetings', kind: 'meeting', label: 'Meeting' },
@@ -26,10 +30,12 @@ export async function loadEvidence(detail = {}) {
   return { threads: { state: 'ready', count: items.length, items }, meetings };
 }
 
-export function renderCorrespondence(entries) {
+export function renderCorrespondence(entries, waitingEmails = 0) {
   const heading = '<h3>Emails and meetings</h3>';
   if (!Array.isArray(entries)) return `${heading}<p>Emails and meetings unavailable.</p><button class="btn" type="button" data-refresh-detail>Retry emails and meetings</button>`;
-  if (!entries.length) return `${heading}<p>No emails or meetings filed to this deal yet.</p>`;
+  if (!entries.length) return waitingEmails
+    ? `${heading}<p>No emails or meetings filed yet. ${waitingEmails} email${waitingEmails === 1 ? ' is' : 's are'} waiting to be filed on Overview.</p>`
+    : `${heading}<p>No emails or meetings filed to this deal yet.</p>`;
   return `<section class="correspondence-evidence" aria-label="Emails and meetings">${heading}
     <ol class="evidence-timeline" role="list">${entries.map(entry => {
       const meeting = entry.kind === 'meeting';

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { emailPlaceholderText, emailSubject } from "./email-subject.ts";
 import { hasEngineReview, matchesProposal } from "./engine-review.ts";
 import { type InboxItem, object } from "./inbox.tsx";
 import { takeEarlyMailPriorities } from "./mail-priorities-client";
@@ -67,7 +68,7 @@ async function readPriorities(signal: AbortSignal) {
       base_version: row.base_version,
       proposal,
       sender: typeof row.sender === "string" ? row.sender : "Sender unavailable",
-      subject: typeof row.subject === "string" ? row.subject : "Subject unavailable",
+      subject: typeof row.subject === "string" ? row.subject : null,
       suggestion: typeof row.suggestion === "string" ? row.suggestion : "",
       dueOn: typeof row.due_on === "string" && Number.isFinite(Date.parse(row.due_on)) ? row.due_on : null,
       happenedAt: row.source_activity.happened_at,
@@ -131,9 +132,9 @@ export function EngineMailPriorities({
                           review(card, event.currentTarget, row.proposal ?? undefined);
                         }}
                       >
-                        {row.sender} · {row.subject}
+                        {row.sender} · {emailSubject(row.subject)}
                       </button>
-                      <p>{row.suggestion}</p>
+                      <p>{emailPlaceholderText(row.suggestion)}</p>
                       <time dateTime={row.happenedAt}>{received.format(new Date(row.happenedAt))} Central</time>
                       {row.dueOn && (
                         <p>

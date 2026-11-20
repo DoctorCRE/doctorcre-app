@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { loadEvidence, renderEvidence, renderCorrespondence } from '../js/correspondence.js';
+import { emailSubject as reactSubject, emailPlaceholderText as reactText } from '../src/ui/home/email-subject.ts';
+import { emailSubject as classicSubject, emailPlaceholderText as classicText, loadEvidence, renderEvidence, renderCorrespondence } from '../js/correspondence.js';
 
 test('latest email threads keep email classification and message times in newest-first order', async () => {
   const view = await loadEvidence({ email_threads: [
@@ -62,8 +63,19 @@ test('an unreadable read shows unavailable with Refresh deal, which re-reads the
 
 test('filed correspondence uses clear empty and missing subject wording', () => {
   assert.match(renderCorrespondence([]), /No emails or meetings filed to this deal yet\./);
+  assert.match(renderCorrespondence([], 2), /No emails or meetings filed yet\. 2 emails are waiting to be filed on Overview\./);
+  assert.match(renderCorrespondence([], 1), /1 email is waiting to be filed on Overview\./);
+  assert.doesNotMatch(renderCorrespondence([{kind: 'meeting'}], 1), /waiting to be filed/);
   const doc = new JSDOM(renderCorrespondence([{kind: 'email', subject: '', sender: 'Demo sender', happened_at: '2026-12-01T12:00:00Z'}])).window.document;
   assert.equal(doc.querySelector('li b').textContent, '(No subject)');
   const supplied = new JSDOM(renderCorrespondence([{kind: 'email', subject: '(no subject)'}])).window.document;
   assert.equal(supplied.querySelector('li b').textContent, '(No subject)');
+});
+
+test('email subject formatters agree on missing subjects and preserve real subjects', () => {
+  for (const format of [classicSubject, reactSubject]) {
+    for (const value of [null, undefined, '', '  ', 'no subject', '(no subject)', '(NO SUBJECT)']) assert.equal(format(value), '(No subject)');
+    assert.equal(format('  Example subject  '), 'Example subject');
+  }
+  for (const format of [classicText, reactText]) assert.equal(format('Reply (no subject)'), 'Reply (No subject)');
 });

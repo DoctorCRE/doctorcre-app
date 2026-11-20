@@ -352,7 +352,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       { proposal_id: first, kind: 'next_step', what: 'Send the plan (no subject)', owner: 'dell', due_on: '2026-11-02', email: filedEmail },
       { proposal_id: crypto.randomUUID(), kind: 'file_to_deal', email: filedEmail },
       { proposal_id: second, kind: 'file_to_deal', evidence: 'The letter is attached.',
-        email: { subject: 'Letter attached', sender: 'sender@example.test' } },
+        email: { subject: 'Letter attached', sender: 'sender@example.test', summary: 'Follow up (no subject)' } },
       ...refusals.map(({ kind, id, subject }) => ({
         proposal_id: id, kind, what: 'Review the example', to_phase: 'legal', email: { subject, sender: 'sender@example.test' },
       })),
@@ -457,12 +457,13 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     const followups = page.getByRole('region', { name: 'Email follow-ups' });
     await followups.getByText(readsOn ? '(No subject)' : 'No email follow-ups.', { exact: true }).waitFor({ timeout: 5000 });
     if (readsOn) {
-      const planCard = followups.getByRole('article').filter({ hasText: '(No subject)' });
+      const planCard = followups.getByRole('article').filter({ has: page.getByRole('heading', { name: '(No subject)', exact: true }) });
       const letterCard = followups.getByRole('article').filter({ hasText: 'Letter attached' });
       assert.equal(await planCard.count(), 1);
       assert.match(await planCard.innerText(), /Example Sender.*Nov 1/);
       assert.doesNotMatch(await planCard.innerText(), /File email to this deal/);
       assert.match(await letterCard.innerText(), /File email to this deal/);
+      assert.match(await letterCard.innerText(), /Follow up \(No subject\)/);
       assert.match(await followups.innerText(), /Send the plan \(No subject\).*Dell.*16 days late/);
       assert.doesNotMatch(await planCard.innerText(), /\(no subject\)/);
       assert.doesNotMatch(await followups.innerText(), /2026-11-01T|file_to_deal/);
@@ -2851,11 +2852,12 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   ];
   let readsOn = false;
   let entries = correspondence;
+  let waiting = [];
   const env = {
     ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' && readsOn ? 'on' : null },
     ENGINE: { fetch: async request => {
       assert.equal(new URL(request.url).pathname, `/api/engine/deals/${deal.deal_id}`);
-      return Response.json({ ...deal, thread, email_threads, email_follow_ups: [], correspondence: entries, activities });
+      return Response.json({ ...deal, thread, email_threads, email_follow_ups: waiting, correspondence: entries, activities });
     } },
     CARR: { fetch: async request => {
       const { id } = await request.json();
@@ -2908,6 +2910,11 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
   await panel.getByText('No emails or meetings filed to this deal yet.', { exact: true }).waitFor();
   assert.equal(await rows.count(), 0);
+  waiting = [{ proposal_id: crypto.randomUUID(), kind: 'file_to_deal', email: { subject: '' } }];
+  await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
+  await panel.getByText('No emails or meetings filed yet. 1 email is waiting to be filed on Overview.', { exact: true }).waitFor();
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await panel.screenshot({ path: join(evidence, `deal-correspondence-waiting-${width}.png`) });
 });
 
 for (const width of [1440, 390]) test(`a changed checklist item stays open until reviewed again at ${width}px`, async t => {
