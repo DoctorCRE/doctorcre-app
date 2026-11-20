@@ -7,7 +7,7 @@ import { BulkControls } from "./bulk-controls";
 import { DropReason } from "./drop-reason.tsx";
 import { EngineMailPriorities, useEngineMailPriorities } from "./engine-mail-priorities.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
-import { draftCardStatus, hasEngineReview, openStepRefusal } from "./engine-review.ts";
+import { draftCardStatus, draftReference, hasEngineReview, openStepRefusal } from "./engine-review.ts";
 import {
   type Action,
   type Command,
@@ -24,7 +24,7 @@ import {
   taskCommand,
 } from "./inbox";
 import { MailPriorities } from "./mail-priorities";
-import { ReviewCard } from "./review-card";
+import { type DraftEdits, ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { completionLabel, HomeSections, HomeWelcome, lateDays } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
@@ -52,7 +52,9 @@ const snoozeDate = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
   timeStyle: "short",
 });
+const cardTitle = ":is(h3 a, h3[tabindex])";
 const visibleRow = (node: HTMLElement) => !node.closest("details:not([open])") && node.getClientRects().length > 0;
+const isEngineStep = (item: InboxItem) => item.engine_marks && item.source_type === "next_action";
 const canSnooze = (item: InboxItem) => !item.engine_marks || (item.section === "inbox" && markTarget(item.item_id));
 export function inboxRefusal(code: unknown): string {
   switch (code) {
@@ -105,11 +107,27 @@ function Inbox({ client }: { client: InboxClient }) {
     if (home && !query.isPending && host) markHomeReady(host);
   }, [home, query.isPending]);
   const [reviewing, setReviewing] = useState<(InboxItem & { focusedSuggestionId?: string }) | null>(null);
+  const [draftEdits, setDraftEdits] = useState(() => new Map<string, DraftEdits>());
+  const reviewingDraftId = reviewing
+    ? (draftReference(reviewing)?.id ??
+      (reviewing.review_reference?.kind === "reply_draft" ? reviewing.source_id : null))
+    : null;
+  function updateDraftEdits(id: string, edits: DraftEdits | null) {
+    setDraftEdits((current) => {
+      if (!edits && !current.has(id)) return current;
+      const next = new Map(current);
+      if (edits) next.set(id, edits);
+      else next.delete(id);
+      return next;
+    });
+  }
   const reviewOpener = useRef<HTMLElement | null>(null);
+  const [reviewUncertain, setReviewUncertain] = useState(false);
+  const openedLink = useRef<string | null>(null);
   useLayoutEffect(() => {
     if (!reviewing && reviewOpener.current) {
       if (reviewOpener.current.isConnected) reviewOpener.current.focus();
-      else root.current?.querySelector<HTMLElement>("[data-inbox-row] h3 a")?.focus();
+      else root.current?.querySelector<HTMLElement>(`[data-inbox-row] ${cardTitle}`)?.focus();
     }
   }, [reviewing]);
   const [search, setSearch] = useState("");
@@ -197,7 +215,7 @@ function Inbox({ client }: { client: InboxClient }) {
   }
   useLayoutEffect(() => {
     if (!focusTargets) return;
-    const links = Array.from(root.current?.querySelectorAll<HTMLElement>("[data-inbox-row] h3 a") || []).filter(
+    const links = Array.from(root.current?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) || []).filter(
       visibleRow,
     );
     const target =
@@ -242,6 +260,8 @@ function Inbox({ client }: { client: InboxClient }) {
       const results = await client.run(operation.request);
       if (!mounted.current) return;
       const successes = results.filter((result) => result.ok);
+      if (successes.length && operation.request.action === "drop" && operation.request.target.kind === "draft")
+        updateDraftEdits(operation.request.target.id, null);
       const saved = successes.flatMap((result) => (result.item ? [result.item] : []));
       const changed = results.flatMap((result) => (!result.ok && result.current_item ? [result.current_item] : []));
       const updates = [...saved, ...changed];
@@ -275,7 +295,9 @@ function Inbox({ client }: { client: InboxClient }) {
               return [{ mark: undo, items: [{ ...(item ?? previous), base_version: undo.base_version }] }];
             if (!item || operation.request.action === "drop") return [];
             if (operation.request.action === "complete")
-              return result.receipt ? [{ action: "reopen" as const, items: [item], receipt: result.receipt }] : [];
+              return result.receipt && !item.undo_completion
+                ? [{ action: "reopen", items: [item], receipt: result.receipt }]
+                : [];
             return previous
               ? [
                   {
@@ -416,7 +438,21 @@ function Inbox({ client }: { client: InboxClient }) {
     reviewOpener.current = opener;
     setReviewing(proposal ? { ...item, focusedSuggestionId: proposal } : item);
   }
-  const openingLocked = busy || !!pending || !!reviewing || !!dropping;
+  const openingLocked = busy || !!pending || reviewUncertain || !!dropping || !!snooze;
+  useLayoutEffect(() => {
+    const item = placed.current;
+    if (!home || !item?.engine_marks || openingLocked || openedLink.current === route.key) return;
+    const opener = root.current?.querySelector<HTMLElement>(`[data-current="true"] ${cardTitle}`);
+    if (!opener) return;
+    openedLink.current = route.key;
+    if (isEngineStep(item)) {
+      opener.focus();
+      opener.scrollIntoView({ block: "center" });
+    } else {
+      reviewOpener.current = opener;
+      setReviewing(item);
+    }
+  }, [home, openingLocked, placed.current, route.key]);
   function row(item: InboxItem) {
     const primary =
       item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
@@ -432,6 +468,15 @@ function Inbox({ client }: { client: InboxClient }) {
       item.source_state === "needs_attention" &&
       (!item.engine_marks || item.section === "inbox");
     const droppable = dropTarget(item) !== null;
+    const reopenable = item.engine_marks && item.section === "done" && item.undo_completion && item.action_id;
+    const reviewLabel =
+      item.engine_marks && item.section === "inbox" && hasEngineReview(item)
+        ? item.kind_label === "Reply draft"
+          ? "Review reply"
+          : item.kind_label === "Call" || item.kind_label === "Suggestion"
+            ? "Review suggestions"
+            : null
+        : null;
     const open = reviewing?.item_id === item.item_id;
     const reviewClient =
       reviewing &&
@@ -451,11 +496,15 @@ function Inbox({ client }: { client: InboxClient }) {
         : null;
     const callContact = typeof activity?.contact === "string" ? activity.contact.trim() : "";
     const deal = item.deal_id ? `/deals?deal=${encodeURIComponent(item.deal_id)}` : null;
-    const source = recordRoutes.source(item) ?? deal;
+    const recordedSource = recordRoutes.source(item);
+    const stepUrl = isEngineStep(item) ? recordedSource : null;
+    const canOpen = !isEngineStep(item) || stepUrl !== null;
+    const source = recordedSource ?? deal;
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
-    const daysLate = item.engine_marks && item.section === "inbox" && item.action_id ? lateDays(item.due_on) : 0;
+    const daysLate = item.engine_marks && item.section === "inbox" ? lateDays(item.due_on) : 0;
+    const dueCaption = daysLate ? `${daysLate} day${daysLate === 1 ? "" : "s"} late` : due && <>Due {due}</>;
     const detail =
       item.disposition === "snoozed" && item.snoozed_until
         ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
@@ -528,20 +577,28 @@ function Inbox({ client }: { client: InboxClient }) {
               <span className={`inbox-badge inbox-${item.source_state}`}>{item.source_state.replaceAll("_", " ")}</span>
             )}
           </p>
-          <h3 className={open || item_id === item.item_id ? "inbox-title-expanded" : undefined}>
-            <Link
-              aria-current={item_id === item.item_id ? "true" : undefined}
-              aria-expanded={open}
-              aria-disabled={openingLocked}
-              to={recordRoutes.card(item.item_id)}
-              onClick={(event) => {
-                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                event.preventDefault();
-                if (!openingLocked) openCard(item, event.currentTarget);
-              }}
-            >
-              {item.title}
-            </Link>
+          <h3
+            className={open || item_id === item.item_id ? "inbox-title-expanded" : undefined}
+            tabIndex={canOpen ? undefined : -1}
+          >
+            {canOpen ? (
+              <Link
+                aria-current={item_id === item.item_id ? "true" : undefined}
+                aria-expanded={stepUrl ? undefined : open}
+                aria-disabled={openingLocked}
+                to={stepUrl ?? recordRoutes.card(item.item_id)}
+                reloadDocument={Boolean(stepUrl)}
+                onClick={(event) => {
+                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  if (openingLocked || !stepUrl) event.preventDefault();
+                  if (!openingLocked && !stepUrl) openCard(item, event.currentTarget);
+                }}
+              >
+                {item.title}
+              </Link>
+            ) : (
+              item.title
+            )}
           </h3>
           {(item.context_label || due) && (
             <p className="inbox-context">
@@ -550,7 +607,7 @@ function Inbox({ client }: { client: InboxClient }) {
                 <>
                   {" "}
                   {item.context_label && "· "}
-                  {daysLate ? `${daysLate} day${daysLate === 1 ? "" : "s"} late` : <>Due {due}</>}
+                  {dueCaption}
                 </>
               )}
             </p>
@@ -572,7 +629,7 @@ function Inbox({ client }: { client: InboxClient }) {
               {hold && (detail ? ` · ${hold}` : hold)}
             </p>
           )}
-          {item_id === item.item_id && !open && linkedRecord}
+          {item_id === item.item_id && !open && !stepUrl && linkedRecord}
           {item_id === item.item_id && !open && item.source_type === "notification" && (
             <HomeWatchDetail open_url={item.open_url} />
           )}
@@ -580,15 +637,39 @@ function Inbox({ client }: { client: InboxClient }) {
         </div>
         {(!waitingCard || wakeable) && (
           <div className="inbox-actions">
-            {!waitingCard && (
+            {!waitingCard && canOpen && (
               <button
                 type="button"
-                className={completable || tourDone ? undefined : "inbox-primary"}
+                className={completable || tourDone || reviewLabel || reopenable ? undefined : "inbox-primary"}
+                aria-expanded={stepUrl ? undefined : open}
+                disabled={openingLocked}
+                onClick={(event) => {
+                  if (stepUrl) location.assign(stepUrl);
+                  else openCard(item, event.currentTarget);
+                }}
+              >
+                Open
+              </button>
+            )}
+            {reviewLabel && (
+              <button
+                type="button"
+                className="inbox-primary"
                 aria-expanded={open}
                 disabled={openingLocked}
                 onClick={(event) => openCard(item, event.currentTarget)}
               >
-                Open
+                {reviewLabel}
+              </button>
+            )}
+            {reopenable && (
+              <button
+                type="button"
+                className="inbox-primary"
+                disabled={busy || !!pending || !!reviewing}
+                onClick={() => act("reopen", [item], undefined, true)}
+              >
+                Undo
               </button>
             )}
             {(completable || tourDone) && (
@@ -640,6 +721,11 @@ function Inbox({ client }: { client: InboxClient }) {
             focusedSuggestionId={reviewing.focusedSuggestionId}
             readOnly={waitingCard}
             client={reviewClient}
+            draftEdits={reviewingDraftId ? draftEdits.get(reviewingDraftId) : undefined}
+            updateDraftEdits={(edits) => {
+              if (reviewingDraftId) updateDraftEdits(reviewingDraftId, edits);
+            }}
+            blockSwitching={setReviewUncertain}
             close={() => setReviewing(null)}
             busy={(value) => {
               inFlight.current = value;
@@ -669,7 +755,7 @@ function Inbox({ client }: { client: InboxClient }) {
               }
             }}
           >
-            {due && <p>Due {due}</p>}
+            {!item.engine_marks && due && <p>Due {due}</p>}
             {linkedRecord}
             {activity && !reviewClient && (
               <>
@@ -705,12 +791,12 @@ function Inbox({ client }: { client: InboxClient }) {
         if (
           !["ArrowDown", "ArrowUp"].includes(event.key) ||
           !(event.target instanceof HTMLElement) ||
-          !event.target.matches("[data-inbox-row] h3 a")
+          !event.target.matches(`[data-inbox-row] ${cardTitle}`)
         )
           return;
-        const links = Array.from(root.current?.querySelectorAll<HTMLElement>("[data-inbox-row] h3 a") || []).filter(
-          visibleRow,
-        );
+        const links = Array.from(
+          root.current?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) || [],
+        ).filter(visibleRow);
         const index = links.indexOf(event.target);
         const next = links[index + (event.key === "ArrowDown" ? 1 : -1)];
         if (next) {

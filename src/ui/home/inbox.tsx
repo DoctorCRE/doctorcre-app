@@ -43,6 +43,7 @@ export type InboxItem = BaseItem &
   Readonly<{
     waiting_version?: number;
     engine_marks?: true;
+    undo_completion?: true;
     home_mark_drop?: true;
     home_proposal_drop?: true;
     waiting_on?: Waiting | null;
@@ -153,8 +154,10 @@ export function taskCommand(action: "complete" | "reopen", item: InboxItem, rece
     (action === "complete" && item.source_state !== "needs_attention")
   )
     throw Error("This card cannot be marked done.");
+  const savedCompletion = item.engine_marks && item.source_state === "done" && item.undo_completion;
   if (
     action === "reopen" &&
+    !savedCompletion &&
     (!receipt ||
       receipt.action_id !== item.action_id ||
       receipt.status !== "done" ||
@@ -170,7 +173,7 @@ export function taskCommand(action: "complete" | "reopen", item: InboxItem, rece
       idempotency_key: crypto.randomUUID(),
       items: [{ item_id: item.item_id, base_version: item.base_version }],
       action_id: item.action_id,
-      base_version: action === "reopen" && receipt ? receipt.version : item.action_version,
+      base_version: action === "reopen" && receipt && !savedCompletion ? receipt.version : item.action_version,
       ...(action === "reopen" && receipt && "completion_event_id" in receipt
         ? { completion_event_id: receipt.completion_event_id }
         : {}),
@@ -315,12 +318,17 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   )
     throw Error("Inbox returned unreadable completion time. Refresh to try again.");
   const reference = v3 ? parseReference(value.review_reference) : null;
-  const { explicit_unsettle, auto_settled, ...fields } = value;
+  const { explicit_unsettle, auto_settled, undo_completion, ...fields } = value;
   // Version-specific checks above validate the item before normalized optional fields are added.
   return {
     ...fields,
     title: task ? legacy.title.replace(/\*\*([^*]+)\*\*/g, "$1") : legacy.title,
     ...(engineMarks ? { engine_marks: true } : { explicit_unsettle, auto_settled: v3 ? auto_settled : false }),
+    ...(engineMarks &&
+      task &&
+      legacy.section === "done" &&
+      Number.isSafeInteger(value.action_version) &&
+      undo_completion === true && { undo_completion }),
     ...(value.review_reference === undefined
       ? {}
       : {

@@ -1558,6 +1558,16 @@ function stepFocusAttrs(step) {
   return step?.id ? ` tabindex="-1" data-detail-focus="next-step-${esc(step.id)}"` : '';
 }
 
+function stepOrigin(step) {
+  const at = sourceTime(step?.set_at, undefined, '');
+  if (!at) return '';
+  const origins = { call: 'From a call', email: 'From an email', meeting: 'From a meeting',
+    cadence: 'From the automatic follow-up schedule' };
+  const set = step.set_by ? `Set by ${step.set_by} · ${at}` : `Set ${at}`;
+  const from = Object.hasOwn(origins, step.set_from) ? origins[step.set_from] : '';
+  return `<small> · ${esc(from ? `${set} · ${from}` : set)}</small>`;
+}
+
 function workspaceHtml(detail) {
   const fromEngine = isEngineDealDetail(detail);
   const ownStep = canEditOwnDealStep(detail);
@@ -1572,10 +1582,10 @@ function workspaceHtml(detail) {
   const stepToday = ended ? undefined : today;
   const stepLabel = fromEngine ? 'Next step' : stepToday && dueOn && dueOn < stepToday ? 'Overdue action' : 'Next action';
   const stepSummary = `
-    ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? stepToday : undefined)}</span></p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
+    ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? stepToday : undefined)}</span>${stepOrigin(leadStep)}</p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
     ${otherActions.length ? `${fromEngine || ended ? '' : '<p class="deal-items-label">Also open:</p>'}<ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
       const day = calendarDay(action.due_on);
-      return `<li${stepFocusAttrs(fromEngine ? action : null)}>${fromEngine ? 'Next step: ' : ''}${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, stepToday)}</li>`;
+      return `<li${stepFocusAttrs(fromEngine ? action : null)}>${fromEngine ? 'Next step: ' : ''}${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, stepToday)}${stepOrigin(action)}</li>`;
     }).join('')}</ul>` : ''}`;
   const itemOwners = fromEngine ? new Map(detail.next_actions?.map(step => [step.id, step.owner])) : undefined;
   const prospect = state.deals.get(d.id);

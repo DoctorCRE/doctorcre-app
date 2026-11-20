@@ -305,6 +305,20 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   assert.equal(await reminder.count(), 0);
   await owners.selectOption('all');
 
+  stepOpen = false;
+  if (width === 390) await today.getByRole('button', { name: 'Close Today' }).click();
+  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
+  if (width === 390) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
+  await reminder.waitFor();
+  stepOpen = true;
+  await reminder.click();
+  const linkedCard = page.locator('[data-current="true"][data-inbox-row]');
+  const heading = linkedCard.getByRole('heading', { name: step.title, exact: true });
+  await heading.waitFor();
+  assert.equal(await heading.evaluate(node => node === document.activeElement), true);
+  assert.equal(await linkedCard.getByRole('button', { name: 'Open', exact: true }).count(), 0);
+  assert.equal(new URL(page.url()).searchParams.get('card'), step.item_id);
+
   if (!(await today.isVisible())) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
   await today.getByText('Example walkthrough', { exact: true }).waitFor();
   await page.locator('#appConnection[data-state="healthy"]').waitFor({ state: 'attached' });
