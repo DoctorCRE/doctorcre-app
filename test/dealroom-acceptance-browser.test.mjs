@@ -144,8 +144,8 @@ for (const width of [1440, 390]) {
     switches.add('deals-from-engine');
     await page.goto(boardUrl);
     await openParked();
-    await caption(card(automatic), 'Parked automatically').waitFor({ timeout: 5000 });
-    await caption(card(partner), 'Parked by Dell').waitFor({ timeout: 5000 });
+    await caption(card(automatic), 'Client paused').waitFor();
+    await caption(card(partner), 'Client paused').waitFor();
     await capture(page.locator('.parked-lane'), 'parked');
     await openDetail(automatic);
     await caption(detail, 'Parked automatically').waitFor({ timeout: 5000 });
@@ -309,7 +309,7 @@ for (const width of [1440, 390]) {
     assert.equal(await card(flagged).getByText('Needs attention', { exact: true }).isVisible(), true);
 
     await page.goto(url);
-    await card(late).getByText(date, { exact: false }).waitFor();
+    await card(late).getByRole('img', { name: 'Needs attention: Step 1 day late', exact: true }).waitFor();
     const phases = ['Prospective Client', 'Research', 'Site Selection', 'Negotiating', 'Legal', 'Due Diligence', 'Closing'];
     for (const name of phases) {
       assert.equal(await page.getByRole('region', { name: `${name}, ${name === 'Research' ? 2 : 0} cards`, exact: true }).isVisible(), true);
@@ -854,7 +854,7 @@ for (const { code, hint, message } of [
 });
 
 for (const width of [1440, 390]) {
-  test(`Board and List show the deal owner's step and detail labels both next steps at ${width}px`, async t => {
+  test(`Board signals only the owner's late step and detail labels both next steps at ${width}px`, async t => {
     const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Los_Angeles' });
     t.after(() => page.close());
     await page.clock.setFixedTime(new Date('2026-11-19T06:30:00Z'));
@@ -873,13 +873,14 @@ for (const width of [1440, 390]) {
         { id: 'example-checklist-item', title: 'Check the plans', status: 'open', due_on: otherStep.due_on, bullets: [] },
       ] };
     const singleStep = { ...deal, id: '00000000-0000-4000-8000-000000000082', name: 'Example One-Step Deal',
-      open_actions: [{ ...otherStep, due_on: '2026-11-19' }] };
+      open_actions: [otherStep] };
+    const flagged = { ...checklistOnly, id: crypto.randomUUID(), name: 'Example Flagged Deal', attention: true };
     const parkedDeal = { ...checklistOnly, id: crypto.randomUUID(), name: 'Example A Parked Deal',
       operating_state: 'parked', parking_reason: 'client_paused', parked_automatically: true };
     const account = crypto.randomUUID();
     const national = { ...deal, id: crypto.randomUUID(), name: 'Example Location Deal', items: [item],
       account_client_id: account, workspace_kind: 'national_account' };
-    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [parkedDeal, deal, checklistOnly, singleStep, national],
+    const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [parkedDeal, deal, checklistOnly, singleStep, flagged, national],
       accounts: [{ account_client_id: account, account_name: 'Example Account', account_owner: 'dell' }] };
     const writes = [], moves = [];
     const steps = new Map([deal, national].map(row => [row.id, structuredClone(row.open_actions)]));
@@ -925,17 +926,24 @@ for (const width of [1440, 390]) {
       const card = page.locator(`article[data-id="${deal.id}"]`);
       await card.waitFor({ timeout: 5000 });
       const visibleText = await card.innerText();
-      assert.match(visibleText, /Send the floor plan.*Due Wed, Nov 18.*1 day late/);
-      assert.doesNotMatch(visibleText, /Call the architect|\d+ days late|overdue|Still needed|Last:/);
-      assert.equal(await card.getByText('Moved automatically', { exact: true }).isVisible(), true);
-      assert.equal(await card.locator('.auto-move time').innerText(), 'Mon, Nov 16, 2026');
-      assert.equal(await card.getByRole('button', { name: 'Undo', exact: true }).count(), view === 'Board' ? 1 : 0);
       const empty = page.locator(`article[data-id="${checklistOnly.id}"]`);
-      assert.match(await empty.innerText(), /No next step set/);
-      assert.doesNotMatch(await empty.innerText(), /days? late|overdue|Still needed|Last:/);
       const onlyStep = page.locator(`article[data-id="${singleStep.id}"]`);
-      assert.match(await onlyStep.innerText(), /Call the architect.*Due Thu, Nov 19/);
-      assert.doesNotMatch(await onlyStep.innerText(), /days? late|overdue/);
+      if (view === 'Board') {
+        assert.equal(visibleText.replace(/\s+/g, ' '), `${deal.name} Dell Needs attention`);
+        assert.equal(await card.getByRole('img', { name: 'Needs attention: Step 1 day late', exact: true }).count(), 1);
+        assert.equal((await empty.innerText()).replace(/\s+/g, ' '), `${checklistOnly.name} Dell`);
+        assert.equal((await onlyStep.innerText()).replace(/\s+/g, ' '), `${singleStep.name} Dell`);
+        const flaggedCard = page.locator(`article[data-id="${flagged.id}"]`);
+        assert.equal((await flaggedCard.innerText()).replace(/\s+/g, ' '), `${flagged.name} Dell Needs attention`);
+        assert.equal(await flaggedCard.getByRole('img', { name: 'Needs attention: Flagged by a partner', exact: true }).count(), 1);
+      } else {
+        assert.match(visibleText, /Send the floor plan.*Due Wed, Nov 18.*1 day late/);
+        assert.doesNotMatch(visibleText, /Call the architect|\d+ days late|overdue|Still needed|Last:/);
+        assert.equal(await card.locator('.auto-move time').innerText(), 'Mon, Nov 16, 2026');
+        assert.equal(await card.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
+        assert.match(await empty.innerText(), /No next step set/);
+        assert.match(await onlyStep.innerText(), /Call the architect.*Due Sun, Nov 15/);
+      }
       assert.ok(await card.evaluate(el => el.scrollWidth <= el.clientWidth));
       await card.screenshot({ path: join(evidence, `owner-next-step-${width}-${view.toLowerCase()}.png`) });
       const parked = page.locator(`#kanban [data-id="${parkedDeal.id}"]`);
@@ -961,6 +969,7 @@ for (const width of [1440, 390]) {
       assert.equal(await visibleStep.count(), 1);
     }
     assert.match(await snapshot.locator('.deal-current-action').innerText(), /^Next step.*Send the floor plan.*Dell.*1 day late/);
+    assert.equal(await snapshot.getByRole('button', { name: 'Undo', exact: true }).isVisible(), true);
     assert.match(await snapshot.getByRole('listitem').filter({ hasText: otherStep.description }).innerText(), /^Next step: Call the architect · Joe · Due Sun, Nov 15, 2026 · 4 days late$/);
     assert.equal(await snapshot.getByText('Also open:', { exact: true }).count(), 0);
     const task = snapshot.getByRole('listitem').filter({ hasText: item.title });
@@ -1181,16 +1190,16 @@ for (const width of [1440, 390]) test(`a fresh automatic call move shows its evi
   const card = page.locator(`.kanban-card[data-id="${deal.id}"]`);
   const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
   await page.goto(`${origin}/deals?mode=live`);
-  await hasCall(card);
-  assert.equal(await undo(card).count(), 0);
+  await card.waitFor();
+  assert.equal(await caption(card).count(), 0);
   await card.getByRole('button', { name: deal.name, exact: true }).click();
   await hasCall(snapshot);
   assert.equal(await undo(snapshot).count(), 0);
 
   savesOn = true;
   await page.goto(`${origin}/deals?mode=live`);
-  await undo(card).waitFor({ timeout: 5000 });
-  await hasCall(card);
+  await card.waitFor();
+  assert.equal(await caption(card).count(), 0);
   assert.equal(await caption(page.locator(`.kanban-card[data-id="${partner.id}"]`)).count(), 0);
   await card.screenshot({ path: join(evidence, `call-move-board-${width}.png`) });
   await page.getByRole('button', { name: 'List', exact: true }).click();
@@ -1213,7 +1222,7 @@ for (const width of [1440, 390]) test(`a fresh automatic call move shows its evi
   assert.equal(await caption(card).count(), 0);
 });
 
-test('keyboard Undo returns an automatically moved card to the previous phase', async t => {
+test('keyboard Undo on the deal page returns the deal to the previous phase', async t => {
   const page = await browser.newPage({ timezoneId: 'America/Los_Angeles' });
   t.after(() => page.close());
   await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'automatic-phase-undo', viewer: 'joe', reset: true } });
@@ -1245,7 +1254,7 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
         if (path === '/api/engine/deals') return Response.json(board());
         const deal = deals.find(item => path === `/api/engine/deals/${item.id}`);
         assert.ok(deal);
-        return Response.json({ ...deal, deal_id: deal.id });
+        return Response.json({ ...deal, deal_id: deal.id, email_follow_ups: [] });
       }
       const deal = deals.find(item => path === `/api/engine/deals/${item.id}/phase/undo`);
       assert.ok(deal);
@@ -1279,47 +1288,56 @@ test('keyboard Undo returns an automatically moved card to the previous phase', 
     return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
   });
   const card = deal => page.locator('.kanban-card').filter({ has: page.getByRole('button', { name: deal.name, exact: true }) });
-  const undo = deal => card(deal).getByRole('button', { name: 'Undo', exact: true });
+  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  const undo = snapshot.getByRole('button', { name: 'Undo', exact: true });
+  const open = deal => card(deal).getByRole('button', { name: deal.name, exact: true }).click();
+  const back = () => page.getByRole('button', { name: 'Back to deals' }).click();
   for (const keys of [[], ['deals-from-engine'], ['deals-from-engine', 'deals-saves-from-engine']]) {
     switches = new Set(keys);
     await page.goto(`${origin}/deals?mode=live`);
     await card(success).waitFor();
-    if (keys.length < 2) assert.equal(await undo(success).count(), 0);
+    assert.equal(await card(success).getByRole('button', { name: 'Undo', exact: true }).count(), 0);
   }
   assert.ok(oldReads.length);
   oldReads.length = 0;
-  assert.equal(await card(manual).getByText('Moved automatically', { exact: true }).count(), 0);
-  assert.equal(await undo(manual).count(), 0);
-  await card(success).getByText('Moved automatically', { exact: true }).waitFor({ timeout: 5000 });
-  assert.equal(await card(success).locator('time[datetime="2026-10-19"]').textContent(), 'Mon, Oct 19, 2026');
-  await undo(success).press('Enter');
+  await open(manual);
+  await snapshot.waitFor();
+  assert.equal(await snapshot.getByText('Moved automatically', { exact: true }).count(), 0);
+  assert.equal(await undo.count(), 0);
+  await back();
+  await open(success);
+  await snapshot.getByText('Moved automatically', { exact: true }).waitFor();
+  assert.equal(await snapshot.locator('time[datetime="2026-10-19"]').textContent(), 'Mon, Oct 19, 2026');
+  await undo.press('Enter');
+  await page.waitForFunction(() => document.querySelector('#detailPhase')?.value === 'research');
   const restored = page.locator('[data-column="research"]').getByRole('button', { name: success.name, exact: true });
+  await back();
   await restored.waitFor();
   assert.equal(await card(success).count(), 1);
-  assert.equal(await card(success).evaluate(node => node === document.activeElement), true);
-  assert.equal(await undo(success).count(), 0);
+  assert.equal(await restored.evaluate(node => node === document.activeElement || node.closest('article') === document.activeElement), true);
 
-  const refusal = deal => card(deal).getByText('Undo would return this deal to Closed deals or Lost deals.', { exact: true });
-  for (const deal of [closed, lost, invoiced]) {
-    assert.equal(await refusal(deal).isVisible(), true, deal.name);
-    assert.equal(await undo(deal).count(), 0, deal.name);
-    assert.equal(await card(deal).locator('xpath=ancestor::*[@data-column]').getAttribute('data-column'), 'legal');
+  const refusal = snapshot.getByText('Undo would return this deal to Closed deals or Lost deals.', { exact: true });
+  for (const deal of [closed, lost, invoiced, refused]) {
+    await open(deal);
+    if (deal === refused) await undo.click();
+    await refusal.waitFor();
+    assert.equal(await undo.count(), 0, deal.name);
+    assert.equal(await page.locator('#detailPhase').inputValue(), 'legal');
+    await back();
   }
-  await undo(refused).click();
-  await refusal(refused).waitFor();
-  assert.equal(await undo(refused).count(), 0);
-  assert.equal(await card(refused).locator('xpath=ancestor::*[@data-column]').getAttribute('data-column'), 'legal');
-  await undo(stale).press('Space');
-  const reloaded = page.locator('[data-column="negotiation"]').getByRole('button', { name: stale.name, exact: true });
-  await reloaded.waitFor();
-  await card(stale).getByText('This deal changed. The card was refreshed.', { exact: true }).waitFor();
-  assert.equal(await undo(stale).count(), 0);
+  await open(stale);
+  await undo.press('Space');
+  await snapshot.getByText('This deal changed. The deal page was refreshed.', { exact: true }).waitFor();
+  assert.equal(await undo.count(), 0);
   await page.screenshot({ path: join(evidence, 'automatic-phase-undo.png') });
+  await back();
+  await page.locator('[data-column="negotiation"]').getByRole('button', { name: stale.name, exact: true }).waitFor();
   await page.getByRole('button', { name: 'Parked', exact: true }).click();
-  const parkedCard = page.locator('.parked-card').filter({ hasText: parked.name });
-  await parkedCard.getByRole('button', { name: 'Undo', exact: true }).click();
-  await parkedCard.getByText('Moved automatically', { exact: true }).waitFor({ state: 'detached' });
-  assert.equal(await parkedCard.count(), 1);
+  await open(parked);
+  await undo.click();
+  await snapshot.getByText('Moved automatically', { exact: true }).waitFor({ state: 'detached' });
+  await back();
+  assert.equal(await card(parked).count(), 1);
   assert.equal(writes.length, 4);
   assert.equal(new Set(writes).size, 4);
   await restored.click();
@@ -2257,8 +2275,8 @@ async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = f
     } },
     CARR: { fetch: async request => {
       const { id, params } = await request.json();
-      assert.equal(params.name, 'deal-room-board');
-      return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(board) }] } });
+      const data = params.name === 'get-deal-room' ? row : board;
+      return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data) }] } });
     } },
   };
   await page.request.post(`${fixtureOrigin}/api/test/seed`, { data: { namespace: 'engine-client-website', viewer: 'joe', reset: true } });
@@ -2290,41 +2308,20 @@ for (const [width, readsOn, savesOn] of [
   [1440, true, false], [390, true, false], [1440, false, false], [390, false, false],
   [1440, true, true], [390, true, true],
 ]) {
-  test(`board card client website with Deals reads ${readsOn ? 'on' : 'off'} and saves ${savesOn ? 'on' : 'off'} at ${width}px`, async t => {
-    const { page, deal, row, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn, width });
-    const prospects = Promise.withResolvers();
-    if (readsOn) await page.clock.install();
-    if (savesOn) {
-      await page.route('**/ui-deal-prospects.generated.js', async route => {
-        await prospects.promise;
-        await route.continue();
-      });
-      await page.route('**/api/engine/prospects', route => route.fulfill({ json: { prospects: [] } }));
-    }
+  test(`the deal page opens the client website with Deals reads ${readsOn ? 'on' : 'off'} and saves ${savesOn ? 'on' : 'off'} at ${width}px`, async t => {
+    const { page, deal, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn, width });
     await page.context().route(url => url.href === website || url.href === `${website}/?grant=${grant}`, route =>
       route.fulfill({ body: '<h1>Example client website</h1>', contentType: 'text/html' }));
     await page.goto(`${origin}/deals?mode=live`);
-    const card = page.locator('.kanban-card').filter({ hasText: 'Example Website Deal' });
-    await card.getByRole('button', { name: 'Example Website Deal', exact: true }).waitFor();
-    assert.equal(await page.locator('#kanban').getByText('Client website', { exact: false }).count(), 1);
+    const card = page.locator('.kanban-card').getByRole('button', { name: 'Example Website Deal', exact: true });
+    await card.waitFor();
+    assert.equal(await page.locator('#kanban').getByText('Client website', { exact: false }).count(), 0);
     assert.equal(enginePaths.includes('/api/engine/deals'), readsOn);
     const grants = () => enginePaths.filter(path => path.endsWith('/client-website/open'));
     assert.deepEqual(grants(), []);
-    const open = card.getByRole(readsOn ? 'button' : 'link', { name: /Client website/ });
-    assert.equal(await open.count(), 1);
+    await card.click();
+    const open = page.getByRole('region', { name: 'Deal snapshot' }).getByRole(readsOn ? 'button' : 'link', { name: /Client website/ });
     await open.focus();
-    if (savesOn) {
-      prospects.resolve();
-      await page.getByText('No prospects in this view', { exact: true }).waitFor();
-      assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Prospects loading moved website focus');
-    }
-    if (readsOn && !savesOn) {
-      await card.screenshot({ path: join(evidence, `client-website-card-${width}.png`) });
-      row.open_actions = [{ id: 'example-step', description: 'Confirm the example floor plan' }];
-      await page.clock.fastForward(61_000);
-      await card.getByText('Confirm the example floor plan', { exact: true }).waitFor();
-      assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Board refresh moved website focus');
-    }
     const popupOpened = page.waitForEvent('popup');
     await page.keyboard.press('Enter');
     const popup = await popupOpened;
@@ -2332,7 +2329,7 @@ for (const [width, readsOn, savesOn] of [
     assert.equal(popup.url(), readsOn ? `${website}/?grant=${grant}` : website);
     assert.equal(await popup.evaluate(() => window.opener), null);
     assert.deepEqual(grants(), readsOn ? [`/api/engine/deals/${deal}/client-website/open`] : []);
-    assert.equal(new URL(page.url()).searchParams.has('deal'), false);
+    assert.equal(new URL(page.url()).searchParams.get('deal'), deal);
   });
 }
 

@@ -985,7 +985,6 @@
     "src/ui/workspace-zoom.tsx": "2fe929080c90a916411fef82b8e9d8d119686048b37c08da16539b0e9d6231df",
     "tests/journeys/w01-shell.e2e.ts": "c029f8b6370cceb6100b321879e1c7482e786aadfe629f470ea28d5a6951fcbc",
     "tests/journeys/w02-home-attention.e2e.ts": "52afa1852baaca3f78fd392a452d01cce910061552c1a9a7bdc1f1daef6cc50c",
-    "tests/journeys/w04-local-deals.e2e.ts": "ae58ff3eaeae2f5e43002911ffbf36a27e14e47cdbec1b18f8e948739d6e2067",
     "tests/journeys/w05-vendors.e2e.ts": "92ff69e13bbc078cb7446b32a6b4de12ef57728e4cac28df337c3ed95be407e7",
     "tests/journeys/w06-tours-drafts.e2e.ts": "68caeafbab7279edbb63a40dee53fe83e2279bf82e693e5dd8ef538669076034",
     "tests/journeys/w09-deal-timeline.e2e.ts": "43764e070e9be42483aa9942bacff187c4fdb8ddc5e66d85ea6d242292cd14f1",
