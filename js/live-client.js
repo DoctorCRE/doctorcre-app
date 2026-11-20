@@ -51,7 +51,12 @@ export function createLiveClient(opts = {}) {
   let selfActor = opts.selfActor || null;
   const fetchImpl = opts.fetchImpl || ((path, init) => sessionFetch(`${baseUrl}${path}`, init));
   const online = opts.online || (() => globalThis.navigator?.onLine !== false);
-  const changeFeedEnabled = !globalThis.document?.documentElement?.hasAttribute('data-deals-from-engine');
+  const page = globalThis.document?.documentElement;
+  let changeFeedRetired = false;
+  const disableChangeFeed = () => {
+    changeFeedRetired = true;
+    page?.setAttribute('data-deals-from-engine', '');
+  };
   const requestMcp = createMcpRequests({ fetchImpl, typedContent: false });
   const dealCreations = new Map();
   const fetchReadImpl = (path, init) => fetchRead(path, init, { fetchImpl, timeoutMs: opts.readTimeoutMs || 10_000 });
@@ -247,7 +252,7 @@ export function createLiveClient(opts = {}) {
 
   const client = {
     mode: /** @type {const} */ ('live'),
-    changeFeedEnabled,
+    get changeFeedEnabled() { return !changeFeedRetired && !page?.hasAttribute('data-deals-from-engine'); },
     get selfActor() { return selfActor; },
     async readAssuranceHealth(args) { const { assuranceHealthRequest } = await import('./assurance-health-model.js'); return rpc('read-assurance-health', assuranceHealthRequest(args)); },
     async linkParties(args) { return write('link-parties', args); },
@@ -301,6 +306,7 @@ export function createLiveClient(opts = {}) {
         workspace: options.workspace || 'all',
         ...(options.account_client_id ? { account_client_id: options.account_client_id } : {}),
       }, options.signal);
+      if (board.board_from_engine === true) disableChangeFeed();
       selfActor = board.actor || selfActor;
       return { ...board, deals: Array.isArray(board.deals) ? board.deals.map(dealToUi) : board.deals,
         lost_deals: Array.isArray(board.lost_deals) ? board.lost_deals.map(dealToUi) : undefined,
@@ -469,7 +475,7 @@ export function createLiveClient(opts = {}) {
     },
 
     async getChanges(cursor, { signal, since } = {}) {
-      if (!changeFeedEnabled) return { events: [], presence: [], cursor: cursor ?? '' };
+      if (!client.changeFeedEnabled) return null;
       // Versioned pipeline keyset format. Starting at a clock cutoff avoids
       // replaying years of history; subsequent cursors remain server-issued.
       if (!cursor && since) {
@@ -480,11 +486,16 @@ export function createLiveClient(opts = {}) {
       const q = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
       const data = await readWithDeadline(async currentSignal => {
         const res = await fetchImpl(`/pipeline/changes${q}`, { credentials: 'same-origin', signal:currentSignal });
+        if (res.status === 204) {
+          disableChangeFeed();
+          return null;
+        }
         // Refusal is decided by the headers. Its diagnostic body must not
         // turn a known authorization failure into a statusless read failure.
         if (!res.ok) throw Object.assign(new Error(`live changes -> ${res.status}`), { status: res.status });
         return res.json();
       }, { signal, timeoutMs:opts.readTimeoutMs || 10_000 });
+      if (!client.changeFeedEnabled) return null;
       for (const e of data.events || []) {
         if (e.field === 'client_id') e.move_name = e.new_value?.client_name || e.new_value?.name;
         // The event log stores values wrapped as {field: value}; the app (and

@@ -266,11 +266,11 @@ function applyBoardSnapshot(home) {
 
 async function pollOnce(initial = false, { force = false } = {}) {
   if (state.accessDenied) return;
-  if (state.boardFromEngine || state.client.changeFeedEnabled === false) {
+  const outcome = await state.boardSync.pollChanges({ force });
+  if (outcome.reason === 'disabled' && (state.boardFromEngine || state.client.changeFeedEnabled === false)) {
     if (state.client.getPendingConfirms) await loadConfirms();
     return;
   }
-  const outcome = await state.boardSync.pollChanges({ force });
   // Skipped (a poll was already open) or superseded (the answer stopped being
   // current before it arrived). Neither is news and neither moves the cursor.
   if (!outcome.applied) {

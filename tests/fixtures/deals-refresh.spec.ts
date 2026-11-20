@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import worker from "../../src/worker.js";
 import { ownedServer } from "../../test/fixture-probe.ts";
 
 const empty = { state: "empty", items: [] };
@@ -11,14 +12,42 @@ test.afterAll(async () => {
   await server?.stop();
 });
 
-async function mockReads(page: Page, { engine = true } = {}) {
-  const requests = { feed: 0, confirms: 0, saves: 0, title: "Demo Practice Deal" };
+async function mockReads(page: Page, { engine = true, overnight = false } = {}) {
+  const requests = { engine, feed: 0, forwarded: 0, confirms: 0, saves: 0, title: "Demo Practice Deal" };
+  const env = {
+    GIT_SHA: "0".repeat(40),
+    APP_ENV: "staging",
+    ENGINE_ROUTING: { get: async (key: string) => (key === "deals-from-engine" && requests.engine ? "on" : "off") },
+    CARR: {
+      fetch: async (request: Request) => {
+        requests.forwarded++;
+        const cursor = new URL(request.url).searchParams.get("cursor");
+        const events =
+          overnight && cursor && cursor !== "synthetic"
+            ? [
+                {
+                  id: "demo-event",
+                  subject_type: "deal",
+                  subject_id: "d14",
+                  field: "next_step",
+                  verb: "set-next-step",
+                  actor: "dell",
+                  new_value: "Review the demo layout",
+                  recorded_at: "2026-11-20T14:00:00Z",
+                },
+              ]
+            : [];
+        return Response.json({ events, cursor: "synthetic" }, { status: requests.engine ? 503 : 200 });
+      },
+    },
+  };
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== server.url) return route.abort();
     if (url.pathname === "/pipeline/changes") {
       requests.feed++;
-      return route.fulfill({ status: engine ? 503 : 200, json: { events: [], cursor: "synthetic" } });
+      const response = await worker.fetch(new Request(url), env);
+      return route.fulfill({ status: response.status, body: await response.text() });
     }
     if (["/auth/session", "/api/system-work/session"].includes(url.pathname)) {
       return route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic-session" } });
@@ -33,7 +62,7 @@ async function mockReads(page: Page, { engine = true } = {}) {
       if (name === "deal-room-board") {
         result = {
           actor: "joe",
-          board_from_engine: engine,
+          board_from_engine: requests.engine,
           deals: [deal],
           accounts: [account],
         };
@@ -47,7 +76,10 @@ async function mockReads(page: Page, { engine = true } = {}) {
         requests.confirms++;
         result = { candidates: [{ id: "demo-confirm", kind: "new_deal", payload: { name: "Demo Capture" } }] };
       } else if (name === "morning-brief") {
-        result = { sponsor: "joe", sections: { today: empty, deals: empty, loops: empty, calendar: empty } };
+        result = {
+          sponsor: "joe",
+          sections: { today: empty, deals: { state: "ready", items: [deal] }, loops: empty, calendar: empty },
+        };
       } else if (name === "calendar-meeting-prep" || name === "today-triage") {
         result = empty;
       }
@@ -55,7 +87,7 @@ async function mockReads(page: Page, { engine = true } = {}) {
         json: { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }] } },
       });
     }
-    if (engine && route.request().resourceType() === "document") {
+    if (requests.engine && route.request().resourceType() === "document") {
       const response = await route.fetch();
       const body = (await response.text()).replace("<html", "<html data-deals-from-engine");
       return route.fulfill({ response, body });
@@ -78,8 +110,57 @@ for (const path of [local, national, "/search?mode=live", "/notifications?mode=l
     await expect(page.locator("#morningUpdated")).toHaveText(updated);
     await expect(page.locator("#appTodayReadStatus")).not.toHaveText("Loading Today…");
     expect(requests.feed).toBe(0);
+    await expect(page.locator("#appTodayMoves").locator("..")).toBeHidden();
+    await expect(page.locator("#receiptsOpen, #receiptsJump")).toBeHidden();
   });
 }
+
+const retiredActivity = "Recent deal activity isn't shown here yet.";
+test("Notifications explains why retired activity is missing", async ({ page }) => {
+  await mockReads(page);
+  await page.goto(server.url + "/notifications?mode=live");
+  await expect(page.getByText(retiredActivity, { exact: true })).toBeVisible();
+  await expect(page.getByText("No recent activity", { exact: true })).toHaveCount(0);
+  await expect(page.locator("#activityAsOf")).toBeEmpty();
+});
+
+test("an open Notifications tab stops reaching CARR after the switch flips", async ({ page }) => {
+  const requests = await mockReads(page, { engine: false });
+  await page.goto(server.url + "/notifications?mode=live");
+  await expect(page.getByText("No recent activity", { exact: true })).toBeVisible();
+  await expect(page.locator("#activityAsOf")).toHaveText(/^As of /);
+  await expect(page.locator("#morningUpdated")).toHaveText(updated);
+  requests.engine = true;
+  const forwarded = requests.forwarded;
+  const feed = requests.feed;
+  await page.locator("#retryRead").click();
+  await expect(page.getByText(retiredActivity, { exact: true })).toBeVisible();
+  expect(requests.feed).toBeGreaterThan(feed);
+  expect(requests.forwarded).toBe(forwarded);
+  const afterRetirement = requests.feed;
+  const refreshed = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/mcp" &&
+      response.request().postDataJSON()?.params?.name === "notification-feed",
+  );
+  await page.locator("#retryRead").click();
+  await refreshed;
+  expect(requests.feed).toBe(afterRetirement);
+});
+
+test("Morning brief removes overnight activity when the feed retires", async ({ page }) => {
+  const requests = await mockReads(page, { engine: false, overnight: true });
+  await page.clock.install({ time: new Date("2026-11-20T16:00:00Z") });
+  await page.goto(server.url + "/search?mode=live");
+  await page.getByRole("button", { name: "Open Doc", exact: true }).click();
+  await page.locator("#docMorning").click();
+  const overnight = page.locator("#morningContent h3").filter({ hasText: /^Overnight$/ });
+  await expect(overnight).toBeVisible();
+  requests.engine = true;
+  await page.locator("#morningRefresh").click();
+  await expect(overnight).toHaveCount(0);
+  await expect(page.locator("#morningCoverage")).not.toContainText("Overnight updates unavailable");
+});
 
 test("National Accounts loads pending captures even with the legacy feed down", async ({ page }) => {
   const requests = await mockReads(page);
