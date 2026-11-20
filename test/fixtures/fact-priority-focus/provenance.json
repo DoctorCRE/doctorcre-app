@@ -30,7 +30,7 @@
   "procedure": "producer.txt contains exact producer bytes and executed recipe",
   "reused_from": "test/fixtures/fact-review-pending-status-view",
   "parser_revision": "2eee2ee9b0c75926dab64a3eb5ad70e8146364de",
-  "parser_sha256": "61ca913f01f29badfb3dd65eb838675f3e29332667a5df900c932b51774d24a0",
+  "parser_sha256": "f8e5cfee91a1e0cf1d21c6373c77331f1ae60bc008b2c2ffefe31f12346ea111",
   "producer_file_sha256": "057ec5840a6b30f6ce6ad1a4e0579d3a4fef93f5f08928a82cd5245dd4b1b768",
   "priority_cases": "Recorded normal values are unchanged. Browser tests vary priority and add a competing observation through createLiveClient rawRpc, the exact production parser. Cases include high, null, omitted, blank and future values. These are parser-contract cases, not producer replays.",
   "parser_revalidation": "App issue #959 adds people lookup and critical date saves to the live client. App issue #963 updates the Add deal refusal for a missing client. App issue #952 adds invoice Undo. App issue #976 preserves pending email follow-ups from the new deal page read. App issue #978 adds the deal email decision call. App issue #993 adds prospect saves. App issue #981 adds the automatic phase Undo call. App issue #983 reads the market and location choices for new deals. App issue #1007 adds prospect conversion to Add deal. App issue #1020 reads individual correspondence for the deal page. App issue #1021 removes the Add deal fallback that looked up a client by exact name or reference. App issue #1027 shares kind and reason labels across engine deal views. The fact-review parser and recorded producer bytes are unchanged. App issue #1063 moves shared deal labels to client.js; the fact-review parser is unchanged."

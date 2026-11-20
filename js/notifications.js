@@ -194,6 +194,12 @@ function renderPreference() {
 
 function renderActivity() {
   const read = view.activity;
+  if (read.state === "retired") {
+    $("activityAsOf").textContent = "";
+    $("activityState").hidden = true;
+    $("activityList").innerHTML = "<li>Recent deal activity isn't shown here yet.</li>";
+    return;
+  }
   $("activityAsOf").textContent = asOf(read);
   const payload = read.state === "read" ? read.payload : null;
   const rows = activityRows(payload?.events);
@@ -271,6 +277,11 @@ async function takeActivity() {
       takePage();
       payload = await client.getChanges(cursor);
       if (view.sequence !== sequence) return;
+      if (payload === null) {
+        view.activity = { state: "retired" };
+        renderActivity();
+        return;
+      }
       if (!Array.isArray(payload?.events) || typeof payload.cursor !== "string" || payload.ok === false) throw new Error("Activity page unavailable.");
       const rows = payload.events;
       if (rows.some(row => !row || typeof row !== "object" || Array.isArray(row))) throw new Error("Activity event unavailable.");

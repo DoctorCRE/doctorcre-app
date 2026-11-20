@@ -47,6 +47,20 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
   return { env, send, engine, carr, kv };
 }
 
+test("retiring the feed stops forwarding its cursor without changing the legacy response", async () => {
+  const switches = new Map([["deals-from-engine", "off"]]);
+  const { env, carr } = fixture(switches);
+  const read = () => worker.fetch(new Request(`${origin}/pipeline/changes?cursor=synthetic`), env);
+  assert.equal(await (await read()).text(), "old");
+  assert.equal(carr.length, 1);
+  switches.set("deals-from-engine", "on");
+  const retired = await read();
+  assert.equal(retired.status, 204);
+  assert.equal(retired.headers.get("cache-control"), "no-store");
+  assert.equal(await retired.text(), "");
+  assert.equal(carr.length, 1);
+});
+
 test("document writes require both Deals switches and preserve bytes and session headers", async () => {
   const bytes = "%PDF-1.7 synthetic";
   const digest = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bytes))).toString("hex");

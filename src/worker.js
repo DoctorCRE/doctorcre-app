@@ -819,6 +819,9 @@ async function handleRequest(request, env) {
     }
   }
 
+  if (pathname === '/pipeline/changes' && await switchedOn(env, DEALS)) {
+    return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+  }
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     const engine = await engineSave(request, env) ?? await engineResponse(request, env);
     if (engine) return engine;
