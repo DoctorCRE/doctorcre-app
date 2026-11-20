@@ -2105,3 +2105,37 @@ test("old settle operations cannot reach the engine Home marks door", async () =
   assert.deepEqual(f.engine, []);
   assert.deepEqual(f.carr, []);
 });
+
+test("Home Today reads only the engine when the Home switch is on", async () => {
+  const path = "/api/engine/home/today?owner=dell";
+  const request = () => new Request(origin + path, { headers: { cookie: "session=synthetic" } });
+  const off = fixture(new Map([["frame-from-engine", "on"]]));
+  assert.equal((await worker.fetch(request(), off.env)).status, 404);
+  assert.deepEqual(off.engine, []);
+  assert.deepEqual(off.carr, []);
+
+  const on = fixture(new Map([["home-from-engine", "on"]]));
+  const response = await worker.fetch(request(), on.env);
+  assert.equal(await response.text(), payload);
+  assert.equal(on.engine[0]?.url, origin + path);
+  assert.equal(on.engine[0]?.headers.get("cookie"), "session=synthetic");
+  assert.deepEqual(on.carr, []);
+
+  const unavailable = fixture(new Map([["home-from-engine", "on"]]), async () => new Response(null, { status: 503 }));
+  assert.equal((await worker.fetch(request(), unavailable.env)).status, 503);
+  assert.deepEqual(unavailable.carr, []);
+});
+
+test("Home Today preserves the engine's partner and owner refusals", async () => {
+  const enabled = new Map([["home-from-engine", "on"]]);
+  for (const [query, status, error] of [
+    ["", 403, "AUTHORIZATION_REFUSED"],
+    ["?owner=example", 400, "unknown_owner"],
+  ] as const) {
+    const f = fixture(enabled, async () => Response.json({ error }, { status }));
+    const response = await worker.fetch(new Request(`${origin}/api/engine/home/today${query}`), f.env);
+    assert.equal(response.status, status);
+    assert.deepEqual(await response.json(), { error });
+    assert.deepEqual(f.carr, []);
+  }
+});

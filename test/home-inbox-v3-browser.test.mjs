@@ -142,6 +142,44 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   const feedback = { ...step, item_id: 'notification:00000000-0000-0000-0000-000000000002', source_type: 'notification',
     kind: 'tour_feedback', kind_label: 'Update', title: 'Example Dental commented on a tour', due_on: null, disposition: 'inbox',
     section: 'inbox', action_id: null, action_version: null, base_version: '1:0:inbox' };
+  await page.addInitScript(() => {
+    const url = new URL(location.href);
+    if (!url.searchParams.has('card')) return;
+    url.searchParams.set('mode', 'live');
+    history.replaceState(null, '', url);
+  });
+  const legacyTodayReads = [];
+  let todayFailure = null;
+  await page.route('**/?*', async route => {
+    const url = new URL(route.request().url());
+    if (!route.request().isNavigationRequest() || url.pathname !== '/') return route.fallback();
+    const response = await route.fetch();
+    const body = (await response.text()).replace('id="homeRoot"', 'id="homeRoot" data-home-today-from-engine');
+    return route.fulfill({ response, body });
+  });
+  await page.route('**/api/engine/home/today', route => {
+    if (todayFailure === 'both') return route.fulfill({ status: 503 });
+    return route.fulfill({ json: {
+      ok: true, schema_version: 'home-today.v1', viewer: 'joe', owner: 'all', today: '2026-11-19',
+      partners: [{ slug: 'joe', name: 'Joe Example' }, { slug: 'dell', name: 'Dell Example' }],
+      meetings: todayFailure === 'meetings'
+        ? { state: 'unavailable', reason: "Today's meetings could not be loaded.", observed_at: null, items: [], follow_up_reviews: [] }
+        : { state: 'partial', reason: null, observed_at: '2026-11-19T15:00:00Z', follow_up_reviews: [], items: [{
+        title: 'Example walkthrough', start: '2026-11-19T16:00:00Z', end: '2026-11-19T17:00:00Z',
+        context_label: 'Example Dental', attendees: [{ name: 'Demo Attendee', email: null }],
+        open_url: '/deals?deal=demo', possible_deals: [{ name: 'Example Dental', open_url: '/deals?deal=demo' }],
+      }] },
+      reminders: todayFailure === 'reminders'
+        ? { state: 'unavailable', reason: "Today's reminders could not be loaded.", late: [], upcoming: [] }
+        : {
+          state: 'ready', reason: null,
+          late: [{ id, kind: 'step', home_item_id: step.item_id, owner: 'joe', title: step.title,
+            context_label: 'Example Dental', due_on: step.due_on, days_late: 3, late_label: '3 days late', open_url: null }],
+          upcoming: [{ id: 'follow-up', kind: 'call_follow_up', home_item_id: null, owner: 'dell', title: 'Send the sample invoice',
+            context_label: 'Example Office', due_on: '2026-11-19', days_late: null, late_label: null, open_url: '/calls?session=example' }],
+        },
+    } });
+  });
   let capabilities = false, stepOpen = true, feedbackOpen = true;
   const writes = [];
   await page.route('**/mcp', route => {
@@ -151,10 +189,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
       home_mark_drop: capabilities, home_proposal_drop: capabilities, auto_settle_enabled: true, working_collapsed: true,
       truncated: false, limit: 1000, items: [...(stepOpen ? [step] : []), ...(feedbackOpen ? [feedback] : [])] };
     if (name === 'deal-room-board') payload = { actor: 'joe', deals: [] };
-    if (name === 'calendar-meeting-prep') payload = { state: 'ready', notes: [], items: [
-      { title: 'Example walkthrough', start: '2026-11-19T16:00:00Z', end: '2026-11-19T17:00:00Z' },
-      { title: 'Tomorrow walkthrough', start: '2026-11-20T16:00:00Z', end: '2026-11-20T17:00:00Z' },
-    ] };
+    if (['today-triage', 'calendar-meeting-prep'].includes(name)) legacyTodayReads.push(name);
     if (name === 'end-engine-home-step') {
       writes.push({ name, args });
       stepOpen = false;
@@ -190,6 +225,53 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   assert.deepEqual(writes.map(({ args }) => args.action), ['done', 'undo_done']);
   assert.equal(writes[1].args.base_version, '2:0:done');
 
+  assert.equal(await page.getByText('Your working week', { exact: true }).count(), 0);
+  assert.equal(await page.getByText('Upcoming meetings', { exact: true }).count(), 0);
+  assert.equal(await page.getByText('Your schedule', { exact: true }).count(), 0);
+  const today = page.getByRole('complementary', { name: 'Today', exact: true });
+  if (!(await today.isVisible())) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
+  await today.getByText('Example walkthrough', { exact: true }).waitFor();
+  assert.equal(await page.getByText('Example walkthrough', { exact: true }).count(), 1);
+  assert.equal(await today.getByText('Deal pulse', { exact: true }).count(), 0);
+  await today.getByRole('heading', { name: 'Due today', exact: true }).waitFor();
+  if (width === 1440) await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: `test-artifacts/inbox-v3/engine-today-${width}.png`, animations: 'disabled' });
+  await today.getByText('Example walkthrough', { exact: true }).click();
+  await today.getByText('Attendees: Demo Attendee', { exact: true }).waitFor();
+  assert.equal(await today.getByRole('link', { name: 'Open deal' }).getAttribute('href'), '/deals?deal=demo');
+  const reminder = today.getByRole('link', { name: /Send sample terms/ });
+  assert.equal(await reminder.getAttribute('href'), '/?card=' + encodeURIComponent(step.item_id));
+  assert.match(await reminder.textContent(), /3 days late/);
+  const owners = today.getByLabel('Reminders for');
+  await owners.selectOption('dell');
+  assert.equal(await reminder.count(), 0);
+  await today.getByRole('link', { name: /Send the sample invoice/ }).waitFor();
+  assert.equal(await today.getByText('Example walkthrough', { exact: true }).count(), 1);
+  assert.doesNotMatch(await today.textContent(), /2026-11-19|Checking…/);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await owners.selectOption('joe');
+  await reminder.click();
+  await page.locator('[data-current="true"][data-inbox-row]').getByText(step.title, { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get('card'), step.item_id);
+
+  if (!(await today.isVisible())) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
+  await today.getByText('Example walkthrough', { exact: true }).waitFor();
+  todayFailure = 'meetings';
+  await page.locator('#appSyncRefresh').evaluate(button => button.click());
+  await today.getByRole('region', { name: 'Meetings', exact: true }).getByText("Today's meetings could not be loaded.", { exact: true }).waitFor();
+  await reminder.waitFor();
+  todayFailure = 'reminders';
+  await today.getByRole('button', { name: 'Retry Today' }).click();
+  await today.getByRole('region', { name: 'Dated reminders', exact: true }).getByText("Today's reminders could not be loaded.", { exact: true }).waitFor();
+  assert.equal(await reminder.count(), 0);
+  await today.getByText('Example walkthrough', { exact: true }).waitFor();
+  todayFailure = 'both';
+  await today.getByRole('button', { name: 'Retry Today' }).click();
+  await today.getByText("Couldn't load meetings.").waitFor();
+  await today.getByText("Couldn't load dated reminders.").waitFor();
+  assert.deepEqual(legacyTodayReads, []);
+  if (width === 390) await today.getByRole('button', { name: 'Close Today' }).click();
+
   await lateStep.getByRole('button', { name: 'Drop', exact: true }).click();
   const reason = page.getByRole('dialog', { name: 'Drop with a reason' });
   assert.equal(await reason.getByRole('button', { name: 'Drop', exact: true }).isDisabled(), true);
@@ -205,14 +287,4 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   assert.equal(writes[2].args.resolution, 'cancelled');
   assert.equal(writes[2].args.reason, 'Work moved to a different site.');
   assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
-  assert.equal(await page.getByText('Your working week', { exact: true }).count(), 0);
-  assert.equal(await page.getByText('Upcoming meetings', { exact: true }).count(), 0);
-  assert.equal(await page.getByText('Your schedule', { exact: true }).count(), 0);
-  const today = page.getByRole('complementary', { name: 'Today', exact: true });
-  if (!(await today.isVisible())) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
-  await today.getByText('Example walkthrough', { exact: true }).waitFor();
-  assert.equal(await page.getByText('Example walkthrough', { exact: true }).count(), 1);
-  assert.equal(await page.getByText('Tomorrow walkthrough', { exact: true }).count(), 0);
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.screenshot({ path: `test-artifacts/inbox-v3/engine-today-${width}.png`, animations: 'disabled' });
 });

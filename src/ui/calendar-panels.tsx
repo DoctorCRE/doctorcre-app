@@ -55,16 +55,11 @@ function meetingRange(item: Meeting) {
 }
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 
-export async function mountCalendarPanels(
-  left: HTMLElement,
-  right: HTMLElement,
-  weekHost?: HTMLElement,
-  todayOnly = false,
-) {
+export async function mountCalendarPanels(left: HTMLElement, right: HTMLElement, weekHost?: HTMLElement) {
   const week = weekHost ? await mountWorkingWeek(weekHost) : null;
   const { monthGrid, localToday } = await sibling("./calendar-model.js");
   const { meetingDate } = await sibling("./home-week.js");
-  const calendar = todayOnly ? null : createRoot(left),
+  const calendar = createRoot(left),
     schedule = createRoot(right);
   const rail = left.closest<HTMLElement>(".app-layout-sidebar");
   function fitMeetings() {
@@ -190,7 +185,7 @@ export async function mountCalendarPanels(
         </details>
       );
     flushSync(() => {
-      calendar?.render(
+      calendar.render(
         <section className="calendar-panel" aria-label="Your calendar">
           <h3>Your calendar</h3>
           <p>{grid.title}</p>
@@ -229,15 +224,15 @@ export async function mountCalendarPanels(
       );
       const todays = items.filter((item) => meetingDay(item) === today);
       schedule.render(
-        <section className="calendar-panel" aria-label={todayOnly ? "Meetings" : "Your schedule"}>
-          <h3>{todayOnly ? "Meetings" : "Your schedule"}</h3>
+        <section className="calendar-panel" aria-label="Your schedule">
+          <h3>Your schedule</h3>
           {status && <p role="status">{status}</p>}
           {coverage()}
-          {rows(todayOnly ? todays : todays.slice(0, 3))}
+          {rows(todays.slice(0, 3))}
           {valid && !todays.length && (
             <p>{partial ? "No meetings returned for today." : "No meetings scheduled today."}</p>
           )}
-          <a href="/calendar">{todayOnly ? "Open Calendar ↗" : "View your schedule ↗"}</a>
+          <a href="/calendar">View your schedule ↗</a>
         </section>,
       );
     });
@@ -252,7 +247,7 @@ export async function mountCalendarPanels(
       if (retired) return;
       retired = true;
       week?.retire();
-      calendar?.unmount();
+      calendar.unmount();
       schedule.unmount();
       resize.disconnect();
     },
