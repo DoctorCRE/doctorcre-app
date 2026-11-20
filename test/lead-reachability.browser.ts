@@ -144,7 +144,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         await page.locator("#reachabilityFilter").scrollIntoViewIfNeeded();
         await page.screenshot({ path: `/tmp/WR591.S12.J8-shots/${width}-${theme}.png` });
         await page.locator("#showTerritory").click();
-        await page.locator(".lead-location").getByText("Market area only", { exact: true }).waitFor();
+        await page.locator(".market-marker").first().waitFor();
         const canvas = await page.locator("#territoryMap canvas").elementHandle();
         assert.ok(canvas);
         const camera = await page.evaluate(() => {
@@ -176,7 +176,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         await page.locator("#reachabilityFilter").selectOption("research");
         await page.locator(".lead-card").waitFor();
         assert.equal(await page.locator(".lead-card").getAttribute("data-selected"), "false");
-        assert.match((await page.locator(".lead-reachability").textContent()) || "", /Unknown/);
+        assert.equal(await page.locator(".lead-card .work-card-body").count(), 0);
         await membership();
         assert.equal(await canvas.evaluate((node) => node.isConnected), true);
         assert.deepEqual(

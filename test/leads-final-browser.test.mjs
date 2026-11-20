@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium, settles } from './browser-harness.mjs';
 import { routeLeads } from './leads-browser-fixture.mjs';
-import { lead, workspace, detail, id } from './leads-workspace-fixture.mjs';
+import { lead, workspace, detail, emptyQuietFollowUps, id } from './leads-workspace-fixture.mjs';
 
 async function capture(page, name, measurements) {
   if (!process.env.LEADS_FINAL_DIR) return;
@@ -12,7 +12,7 @@ async function capture(page, name, measurements) {
   await writeFile(`${process.env.LEADS_FINAL_DIR}/${name}.json`, JSON.stringify(measurements, null, 2));
 }
 
-test('An unclaimed New lead can be claimed on the first screen of a 45-lead board', async t => {
+test('Claim is offered on unclaimed leads across active stages', async t => {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
@@ -20,8 +20,13 @@ test('An unclaimed New lead can be claimed on the first screen of a 45-lead boar
   board.leads = Array.from({ length: 45 }, (_, n) => lead(n + 1, {
     stage: n < 43 ? 'new' : 'qualified', owner: n === 1 ? 'example-partner' : null,
   }));
+  board.leads.push(lead(46, { stage: 'archived' }));
+  const getQuiet = () => ({ ...emptyQuietFollowUps(), proposals: [{
+    subject_type: 'lead', subject_id: id(2), ref: 'L-2', name: 'Dr. Example 2',
+    basis: 'last_contact', anchor_on: '2026-08-01', due_on: '2026-09-15', days_overdue: 16, owner: 'example-partner',
+  }] });
   const writes = [];
-  await routeLeads(page, { getBoard: () => board, onWrite: value => writes.push(value) });
+  await routeLeads(page, { getBoard: () => board, getQuiet, onWrite: value => writes.push(value) });
   await page.goto('http://localhost/leads');
   await page.locator('.lead-card').first().waitFor();
   const claim = page.locator('#leadBoard').getByRole('button', { name: 'Claim', exact: true }).first();
@@ -29,7 +34,24 @@ test('An unclaimed New lead can be claimed on the first screen of a 45-lead boar
   const bounds = await claim.boundingBox();
   assert.ok(bounds.y >= 0 && bounds.y + bounds.height <= 900, `Claim is on the first screen: ${JSON.stringify(bounds)}`);
   assert.equal(await page.locator('.lead-card').nth(1).getByRole('button', { name: 'Claim', exact: true }).count(), 0, 'owned leads cannot be claimed');
-  assert.equal(await page.locator('[data-stage="qualified"] [data-claim]').count(), 0, 'Claim follows existing New-lead eligibility');
+  assert.equal(await page.locator('[data-stage="qualified"] [data-claim]').count(), 2);
+  const owned = page.locator('.lead-card').nth(1);
+  await owned.getByText('Follow-up late').waitFor();
+  assert.deepEqual(await owned.locator(':scope > *').allTextContents(), [
+    'Dr. Example 2', 'Example-partner', 'Follow-up late',
+  ]);
+  assert.deepEqual(await page.locator('.lead-card').first().locator(':scope > *').allTextContents(), [
+    'Dr. Example 1', 'Unclaimed', 'Claim',
+  ]);
+  await page.locator('#ownerFilter').selectOption('unclaimed');
+  assert.equal(await page.locator('#leadCount').innerText(), '44 leads');
+  assert.equal(await page.locator('.lead-card').nth(1).locator('.work-card-meta').innerText(), 'Unclaimed');
+  await page.locator('#stageFilter').selectOption('qualified');
+  assert.equal(await page.locator('#leadCount').innerText(), '2 leads');
+  await page.locator('#stageFilter').selectOption('archived');
+  assert.equal(await page.locator('#leadCount').innerText(), '1 lead');
+  assert.equal(await page.locator('#leadBoard [data-claim]').count(), 0);
+  await page.locator('#stageFilter').selectOption('');
   await claim.focus();
   await page.keyboard.press('Space');
   await settles(async () => assert.equal(await page.locator('#moveAnnouncement').innerText(), 'Lead claimed'));
@@ -57,8 +79,6 @@ for (const width of [390, 768, 1280, 1440]) for (const theme of ['dark', 'light'
     await capture(page, `${width}-${theme}-board`, {
       claim,
       card: await page.locator('.lead-card').first().boundingBox(),
-      timing: await page.locator('.lead-timing').first().boundingBox(),
-      reachability: await page.locator('.lead-reachability').first().boundingBox(),
     });
     assert.ok(claim.y >= 0 && claim.y + claim.height < 900, `Claim is visible without scrolling ${JSON.stringify(claim)}`);
     assert.equal(await page.locator('#leadBoard [data-claim]').first().evaluate(button => {
