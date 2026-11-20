@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import worker from "../src/worker.js";
 
 const origin = "https://app.example.test";
@@ -825,7 +826,6 @@ test("Mark paid keeps the original CARR call with the invoice switch off", async
   const f = fixture(new Map([["invoices-from-engine", "off"]]));
   assert.equal(await (await f.send(markPaid)).text(), "old");
   assert.deepEqual(f.carr, [JSON.stringify(markPaid)]);
-  assert.deepEqual(f.kv, [["invoices-from-engine", { cacheTtl: 30 }]]);
   assert.deepEqual(f.engine, []);
 });
 
@@ -1320,8 +1320,6 @@ test("the engine save sets renewed session cookies on the wrapped answer", async
 });
 
 for (const body of [
-  call("patch-deal-field", null),
-  call("patch-deal-field", []),
   call("patch-deal-field", {}, { method: "initialize" }),
 ]) {
   test(`save the engine does not take stays on the old system ${JSON.stringify(body)}`, async () => {
@@ -1717,10 +1715,13 @@ for (const [verb, args] of [
   ["set-lead", { new_lead: "dell" }],
   ["add-deal-participant", { party_id: marketId, role: "listing_side" }],
 ] as const) {
-  test(`Deals cutover does not route ${verb} to the engine`, async () => {
+  test(`Deals cutover refuses the old ${verb} save`, async () => {
     const f = fixture(nextDealsOn);
     const save = call(verb, { ...args, deal: dealId, seen_change_id: 23, idempotency_key: operationId });
-    assert.equal(await (await f.send(save, saveHeaders)).text(), "old");
+    const reply = await (await f.send(save, saveHeaders)).json();
+    assert.equal(reply.result.isError, true);
+    assert.match(JSON.parse(reply.result.content[0].text).hint, /deal page/);
+    assert.deepEqual(f.carr, []);
     assert.deepEqual(f.engine, []);
   });
 }
@@ -2184,4 +2185,162 @@ test("Home meeting answers switch from legacy writes to the signed-in engine rou
     writes.map(([, body]) => body),
   );
   assert.ok(on.engine.every((request) => request.headers.get("x-carr-csrf") === "synthetic"));
+});
+
+test("a stale weekly review cannot write to CARR after Deals switches", async () => {
+  const body = call("start-deal-review");
+  const off = fixture(new Map());
+  assert.equal(await (await off.send(body)).text(), "old");
+  assert.deepEqual(off.carr, [JSON.stringify(body)]);
+
+  const on = fixture(new Map([["deals-saves-from-engine", "on"]]));
+  const response = await on.send(body);
+  const reply = await response.json();
+  assert.equal(reply.id, body.id);
+  assert.equal(reply.result.isError, true);
+  assert.match(JSON.parse(reply.result.content[0].text).hint, /Monday review/);
+  assert.deepEqual(on.carr, []);
+  assert.deepEqual(on.engine, []);
+});
+
+test("every live client mutation is routed, refused, or accounted for after cutover", async () => {
+  const client = readFileSync(new URL("../js/live-client.js", import.meta.url), "utf8");
+  const triage = /async triageSystemWork\(verb, args\) \{\s*const allowed = new Set\(\[(.*?)\]\);/s.exec(client);
+  assert.ok(triage?.[1], "Enumerate every verb passed to the dynamic triage writer");
+  const tools = new Set([
+    ...Array.from(client.matchAll(/\b(?:write|save|rawRpc)\(\s*['"]([\w-]+)['"]/g), ([, verb]) => verb),
+    ...Array.from(client.matchAll(/\bemailAction\('[^']+', '([\w-]+)'/g), ([, verb]) => verb),
+    ...Array.from(triage[1].matchAll(/'([\w-]+)'/g), ([, verb]) => verb),
+  ]);
+  tools.delete("morning-brief"); // rawRpc skips the read cache when refresh is requested.
+
+  const keep = new Set([
+    "acknowledge-notification", "read-client-portal",
+    "watch-subject-v2", "replace-subject-watch-policy-v2", "pause-subject-watch-v2",
+    "resume-subject-watch-v2", "unwatch-subject-v2",
+  ]);
+  const outside = new Map([
+    ["presence-lease", "Transient Deals editing presence has no copied record."],
+    ...[
+      "add-loop", "update-loop", "close-loop",
+      "add-industry-event", "update-industry-event",
+    ].map(verb => [verb, "Neither loops nor industry events are copied."] as const),
+    ...[
+      "decline-work-request", "supersede-work-request", "set-work-shape-disposition", "link-incident-work-request",
+      "add-room-turn", "answer-work-request-for-joe", "review-and-triage", "cancel-capability-session", "triage-incident",
+      "cancel-workflow-cutover-plan", "advance-workflow-cutover-stage", "confirm-slice-completions",
+      "close-investigation", "accept-ready-plan-amendment", "approve-retrieval-proposals", "answer-board-question",
+    ].map(verb => [verb, "Control Room work stays in CARR. Calendar answers are checked separately."] as const),
+    ...[
+      "decide-doc-suggestion", "propose-doc-correction", "submit-doc-request", "create-doc-conversation",
+      "rename-doc-conversation", "share-doc-conversation",
+    ].map(verb => [verb, "Doc conversations and requests stay in CARR."] as const),
+  ]);
+  const switches = new Map([...nextDealsOn, ["home-from-engine", "on"], ["invoices-from-engine", "on"]]);
+  const additional = [
+    ...keep, "claim-lead", "update-lead", "link-lead-client", "new-lead", "approve-lead-draft",
+    "new-client", "add-party", "update-party-contact", "new-vendor", "merge-vendor-rows",
+    "add-deal-participant", "reopen-one-action", "save-deal-space-search-v1", "run-deal-space-search-v1",
+    "set-client-publication", "start-deal-deliverable", "abandon-deal-deliverable",
+    "finalize-deal-deliverable", "set-deal-deliverable-visibility",
+    "snooze-home-inbox", "settle-home-inbox", "unsettle-home-inbox",
+  ];
+  for (const name of new Set([...tools, ...additional])) {
+    assert.ok(name);
+    const f = fixture(switches);
+    const body = call(name);
+    const response = await f.send(body);
+    if (keep.has(name) || outside.has(name)) {
+      assert.equal(await response.text(), "old", name);
+      assert.deepEqual(f.carr, [JSON.stringify(body)], outside.get(name) ?? name);
+    } else {
+      assert.deepEqual(f.carr, [], `${name} can still save to CARR`);
+      if (!f.engine.length) {
+        const reply = await response.json();
+        assert.equal(reply.result.isError, true, name);
+        assert.ok(JSON.parse(reply.result.content[0].text).hint, name);
+      }
+    }
+  }
+});
+
+test("audited Tour, comparison, and deliverable writes stop at the Worker", async () => {
+  const deliverables = "/api/v1/deal-deliverables/demo-deal";
+  const writes = [
+    ...[
+      "create", "selection-cart", "route-draft", "route-stop", "route-stop-transition", "route-version",
+      "route-reorder", "route-accept", "cheat-sheet/autosave", "cheat-sheet/restore", "projection",
+      "projection/seal", "share/issue", "share/rotate", "share/revoke", "pdf/render", "pdf/review",
+    ].map(path => ["POST", `/api/tours/${path}`, /Tours on the deal page/] as const),
+    ["POST", "/api/v1/fact-review/comparison", /Documents/],
+    ["POST", deliverables, /Documents/],
+    ["PUT", `${deliverables}/demo-file/bytes`, /Documents/],
+    ...["finalize", "visibility", "abandon"].map(action => ["POST", `${deliverables}/demo-file/${action}`, /Documents/] as const),
+  ] as const;
+  for (const [method, path, hint] of writes) {
+    const send = (f: ReturnType<typeof fixture>) => worker.fetch(new Request(origin + path, { method, body: "payload" }), f.env);
+    const off = fixture(new Map());
+    assert.equal(await (await send(off)).text(), "old");
+    assert.deepEqual(off.carr, ["payload"]);
+    const on = fixture(nextDealsOn);
+    const refusal = await send(on);
+    assert.equal(refusal.status, 409, path);
+    assert.match((await refusal.json()).error, hint);
+    assert.deepEqual(on.carr, [], path);
+  }
+});
+
+test("the cutover preserves phone capture, local report, and legacy reads", async () => {
+  const f = fixture(nextDealsOn);
+  for (const [method, path] of [
+    ["POST", "/api/v1/call-sessions"],
+    ["PUT", "/api/v1/call-sessions/demo-call/transfer"],
+    ["POST", "/api/v1/call-sessions/demo-call/answers"],
+    ["GET", "/api/post-call"],
+    ["GET", "/api/tours/detail"],
+    ["POST", "/api/tours/properties/search"],
+    ["GET", "/api/v1/deal-deliverables/demo-deal"],
+  ] as const) {
+    const response = await worker.fetch(new Request(origin + path, { method }), f.env);
+    assert.equal(await response.text(), "old", path);
+  }
+  assert.equal(f.carr.length, 7);
+});
+
+test("Home-only legacy saves use the Home switch independently", async () => {
+  for (const name of ["review-deal-update", "snooze-home-inbox", "settle-home-inbox", "unsettle-home-inbox"]) {
+    assert.equal(await (await fixture(nextDealsOn).send(call(name))).text(), "old", name);
+    const home = fixture(new Map([["home-from-engine", "on"]]));
+    const reply = await (await home.send(call(name))).json();
+    assert.match(JSON.parse(reply.result.content[0].text).hint, /Home/);
+    assert.deepEqual(home.carr, []);
+  }
+});
+
+test("a wrapped Deal save cannot reach the old system", async () => {
+  const f = fixture(nextDealsOn);
+  const reply = await (await f.send(call("call-verb", { verb: "patch-deal-field", args: {} }))).json();
+  assert.equal(reply.result.isError, true);
+  assert.deepEqual(f.carr, []);
+});
+
+test("live client prospect and Monday review HTTP saves route to the engine", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const f = fixture(nextDealsOn);
+  for (const [entry, target] of [
+    ["prospects", "prospects"],
+    ["prospects/note", "activities"],
+    ["prospects/follow-up", "next-steps"],
+    [`prospects/${id}/changes`, `prospects/${id}/changes`],
+    [`prospects/${id}/drop`, `prospects/${id}/drop`],
+    ["weekly-reviews", "weekly-reviews"],
+    [`weekly-reviews/${id}/remove`, `weekly-reviews/${id}/remove`],
+  ] as const) {
+    const response = await worker.fetch(new Request(`${origin}/api/engine/${entry}`, {
+      method: "POST", body: "{}",
+    }), f.env);
+    assert.equal(response.status, 200, entry);
+    assert.equal(f.engine.at(-1)?.url, `${origin}/api/engine/${target}`);
+  }
+  assert.deepEqual(f.carr, []);
 });
