@@ -10,8 +10,9 @@ type Command = {
   verb: string;
   args: Subject & { idempotency_key: string; subscription_id?: string; base_version?: number; policy?: Policy };
 };
-type Phase = "loading" | "ready" | "saving" | "unknown" | "unavailable" | "retired";
+type Phase = "loading" | "ready" | "saving" | "unknown" | "unavailable" | "missing" | "retired";
 export function WatchControl({ subject, client }: { subject: Subject; client: WatchClient }) {
+  const frozen = document.documentElement.hasAttribute("data-deals-saves-from-engine");
   const opened = useRef(false);
   const [watch, setWatch] = useState<Watch | null | undefined>();
   const [phase, setPhase] = useState<Phase>("loading");
@@ -40,7 +41,13 @@ export function WatchControl({ subject, client }: { subject: Subject; client: Wa
       setPhase("loading");
       const outcome = await client("read-subject-watch-v2", subject, life.controller.signal);
       if (life.retired || sequence !== life.sequence) return;
-      if (outcome.kind === "denied") {
+      if (outcome.kind === "missing" && frozen) {
+        setWatch(undefined);
+        setPhase("missing");
+        setMessage(`You can’t watch this ${subject.subject_type} yet.`);
+        return;
+      }
+      if (outcome.kind === "denied" || outcome.kind === "missing") {
         retire();
         return;
       }
@@ -75,7 +82,7 @@ export function WatchControl({ subject, client }: { subject: Subject; client: Wa
           : "",
       );
     },
-    [client, subject, retire],
+    [client, subject, retire, frozen],
   );
   useEffect(() => {
     window.addEventListener("doctorcre-session-invalidated", retire);
@@ -141,7 +148,7 @@ export function WatchControl({ subject, client }: { subject: Subject; client: Wa
     setMessage("Saving watch.");
     const outcome = await client(command.verb, command.args, life.controller.signal);
     if (life.retired) return;
-    if (outcome.kind === "denied") {
+    if (outcome.kind === "denied" || outcome.kind === "missing") {
       retire();
       return;
     }
@@ -185,6 +192,7 @@ export function WatchControl({ subject, client }: { subject: Subject; client: Wa
       </summary>
       <section aria-label={`${subject.subject_type === "deal" ? "Deal" : "Lease"} watch`} className="watch-panel">
         {confirmed && <h3>{confirmed}</h3>}
+        {frozen && confirmed && <p>This watch only follows changes in the old system.</p>}
         {watch && phase !== "retired" && (
           <section aria-label="Confirmed watch policy">
             <p className="watch-detail">
@@ -212,7 +220,7 @@ export function WatchControl({ subject, client }: { subject: Subject; client: Wa
           </section>
         )}
         <p role="status">{message || (phase === "loading" ? "Reading current watch state…" : "")}</p>
-        {phase !== "retired" && (
+        {phase !== "retired" && phase !== "missing" && (
           <>
             <PolicyEditor
               policy={policy}

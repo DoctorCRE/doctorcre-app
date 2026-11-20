@@ -187,7 +187,12 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await page.route('**/mcp', routeWorker);
   await page.route('**/api/v1/intelligence/mail-needs-partner?*', routeWorker);
 
-  await open('/?mode=live');
+  if (enabled) await page.route(/\/\?mode=live$/, async route => {
+    const response = await route.fetch();
+    const html = (await response.text()).replace('<html ', '<html data-home-today-from-engine ');
+    await route.fulfill({ response, body: html });
+  });
+  await open(enabled ? '/?mode=live#homeEmailFollowups' : '/?mode=live');
   const reader = enabled ? 'new inbox' : 'current inbox';
   const inbox = page.getByRole('region', { name: 'Inbox cards', exact: true });
   const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
@@ -199,6 +204,11 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const first = inbox.getByRole('link', { name: new RegExp(`^${tasks[0].title}`) });
   await first.waitFor();
   assert.equal(await first.textContent(), `${tasks[0].title} (${reader})`);
+  if (enabled) {
+    assert.equal(new URL(page.url()).pathname, '/');
+    assert.equal(new URL(page.url()).hash, '');
+    assert.equal(await inbox.getByRole('navigation', { name: 'Review workflows' }).count(), 0);
+  }
   await inbox.getByRole('region', { name: 'Today', exact: true }).getByRole('button', { name: 'See all 3', exact: true }).click();
   if (enabled) {
     await waiting.getByRole('button', { name: 'See all 1', exact: true }).click();

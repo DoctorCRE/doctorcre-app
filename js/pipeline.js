@@ -1859,7 +1859,8 @@ function paintPanel(detail) {
       marketLoading = true;
       root.textContent = 'Loading comparable terms…';
       try {
-        const { mountMarketTerms } = await import('./ui-market.generated.js');
+        const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
+          ? await import('./ui-market-cutover.generated.js') : await import('./ui-market.generated.js');
         if (marketDisposed) return;
         const element = document.createElement('div');
         const mounted = mountMarketTerms(element, { client: state.client, entityRef: detail.deal.id, submarket: detail.deal.submarket, useType: detail.deal.use_type, dealName: ref => { const match = state.deals.get(ref); return match ? dealTitle(match) : null; } });

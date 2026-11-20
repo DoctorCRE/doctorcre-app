@@ -30,6 +30,10 @@ export async function bootInbox(host: HTMLElement) {
   ]);
   const migrate = () => {
     if (location.pathname !== "/" || !legacy.has(location.hash.slice(1))) return false;
+    if (document.documentElement.hasAttribute("data-home-today-from-engine")) {
+      history.replaceState(history.state, "", location.pathname + location.search);
+      return false;
+    }
     location.replace(`/review-workflows${location.search}${location.hash}`);
     return true;
   };

@@ -105,7 +105,22 @@ async function assetResponse(request, env, path) {
     : path.endsWith(".html") || path.endsWith(".js") || path.endsWith(".css")
     ? "no-cache" : "public, max-age=300");
   if (path === "/public-shell/sw.js") headers.set("service-worker-allowed", "/");
-  return secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
+  const asset = secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
+  if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html')) return asset;
+  const [homeFromEngine, dealSavesFromEngine] = await Promise.all([
+    path === '/workspace.html' && switchedOn(env, HOME),
+    switchedOn(env, NEXT_DEAL_SAVES),
+  ]);
+  if (!homeFromEngine && !dealSavesFromEngine) return asset;
+  const date = dealSavesFromEngine && ['/pipeline.html', '/lease-anniversaries.html'].includes(path)
+    ? await env.ENGINE_ROUTING.get('deal-cutover-date', { cacheTtl: 30 }).catch(() => null)
+    : null;
+  return new HTMLRewriter().on('html', {
+    element(node) {
+      if (homeFromEngine) node.setAttribute('data-home-today-from-engine', '');
+      if (dealSavesFromEngine) node.setAttribute('data-deals-saves-from-engine', /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '');
+    },
+  }).transform(asset);
 }
 
 async function carrResponse(request, env, documentRequest = false) {
@@ -732,16 +747,20 @@ async function handleRequest(request, env) {
       url.searchParams.delete('view');
       return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
     }
-    let asset = await assetResponse(request, env, `/${routeAsset}`);
-    if (pathname === '/' && routeAsset === 'workspace.html' && request.method === 'GET' && asset.ok && await switchedOn(env, HOME)) {
-      asset = new HTMLRewriter().on('#homeRoot', {
-        element(node) { node.setAttribute('data-home-today-from-engine', ''); },
-      }).transform(asset);
+    if (routeAsset === 'review-workflows.html' && await switchedOn(env, HOME))
+      return copySessionCookies(gate, await assetResponse(request, env, '/review-workflows-moved.html'));
+    if (['lease-radar.html', 'client-portal.html'].includes(routeAsset) && await switchedOn(env, NEXT_DEAL_SAVES)) {
+      const deal = url.searchParams.get('deal');
+      if (routeAsset === 'client-portal.html' && deal) {
+        const query = new URLSearchParams({ deal, tab: 'client-view' });
+        return copySessionCookies(gate, new Response(null, { status: 302, headers: {
+          location: `/deals?${query}`, 'cache-control': 'no-store',
+        } }));
+      }
+      const page = routeAsset === 'lease-radar.html' ? '/lease-anniversaries.html' : '/client-website-moved.html';
+      return copySessionCookies(gate, await assetResponse(request, env, page));
     }
-    if (routeAsset === 'review-workflows.html' && request.method === 'GET' && asset.ok && await switchedOn(env, HOME)) {
-      asset = new HTMLRewriter().on('#homeMeetingReviews', { element(node) { node.remove(); } }).transform(asset);
-    }
-    return copySessionCookies(gate, asset);
+    return copySessionCookies(gate, await assetResponse(request, env, `/${routeAsset}`));
   }
 
   const staticAsset = assetPath(pathname);

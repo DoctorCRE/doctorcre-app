@@ -828,7 +828,7 @@ function renderRecordPanel() {
   if (dom.panelBody) {
     dom.panelBody.innerHTML = `<p class="record-tone"><span class="tone tone-${escapeHtml(tone.tone)}">${escapeHtml(tone.label)}</span><span>${escapeHtml(owner.text)}</span></p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : ''}<div class="detail-columns">${sections}</div>${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
-    if (dataset === 'vendors') {
+    if (dataset === 'vendors' && !document.documentElement.hasAttribute('data-deals-saves-from-engine')) {
       if (!vendorClientNeedsHost) {
         vendorClientNeedsHost = document.createElement('div');
         vendorClientNeedsId = payload.record.id;

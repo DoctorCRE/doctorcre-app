@@ -1,3 +1,4 @@
+import './ui-client-anniversaries-entry.generated.js';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { createLeaseRadarClient } from './lease-radar-client.js';
 import { leaseRadarFixture } from './lease-radar-fixture.js';
@@ -7,12 +8,6 @@ const boot=resolveDealroomBoot(location);
 const client=boot.mode==='live' ? createLeaseRadarClient() : {readLeaseRadar:async()=>leaseRadarFixture()};
 const radar=mountLeaseRadar({document,window,client});
 window.addEventListener('pagehide',event=>{if(!event.persisted)radar.dispose();});
-
-import { mountClientAnniversaries } from './ui-client-anniversaries.generated.js';
-import { createClientAnniversariesClient } from './ui-client-anniversaries.generated.js';
-const anniversaries = createClientAnniversariesClient();
-const anniversaryHost = document.getElementById('clientAnniversaries');
-if (anniversaryHost) mountClientAnniversaries(anniversaryHost, {load:signal=>anniversaries.read({signal})});
 
 const leaseDialog = document.getElementById('leaseDetail');
 let leaseWatch = null, dealWatch = null, watchHost = null, watchLease = null, watchDeal = null;

@@ -1,6 +1,11 @@
 import { NAVIGATION_GROUPS, navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./routes.js";
 export { navigationItems };
 
+export function navigationFor(root) {
+  if (!root.documentElement.hasAttribute('data-deals-saves-from-engine')) return navigationItems;
+  return navigationItems.map(item => item.href === '/leases' ? { ...item, label: 'Closing anniversaries' } : item);
+}
+
 export function activeDestination(pathname) {
   if (pathname.startsWith('/control-room/progress/board/')) return '/control-room/progress';
   return sectionForRoute[routeKey(actionLinkRoute(pathname))] || pathname;
@@ -25,12 +30,12 @@ function link({ label, href }, current, base) {
   return `<a data-app-nav-item aria-label="${label}" title="${label}" href="${base}${href}"${active ? ' aria-current="page"' : ""}>${!groupIcon(label) ? label : `<span aria-hidden="true">${groupIcon(label)}</span><span class="app-shell-nav-label">${label === "Local Deals" ? '<span class="app-shell-nav-prefix">Local </span>Deals' : label}</span>`}${badge}</a>`;
 }
 
-export function appShellMarkup(pathname, base = "", search = "") {
+export function appShellMarkup(pathname, base = "", search = "", items = navigationItems) {
   const current = pathname === "/ideas-events" ? `/ideas-events?tab=${new URLSearchParams(search).get("tab") === "events" ? "events" : "ideas"}` : activeDestination(pathname);
-  const primary = navigationItems.filter(item => !item.group).map((item) => link(item, current, base)).join("");
+  const primary = items.filter(item => !item.group).map((item) => link(item, current, base)).join("");
   const more = NAVIGATION_GROUPS.map((group) =>
-    `<div class="app-shell-more-section"><span class="app-shell-more-group">${group}</span>${navigationItems.filter((item) => item.group === group).map((item) => link(item, current, base)).join("")}</div>`).join("");
-  const moreActive = navigationItems.filter(item => item.group).some((item) => item.href === current);
+    `<div class="app-shell-more-section"><span class="app-shell-more-group">${group}</span>${items.filter((item) => item.group === group).map((item) => link(item, current, base)).join("")}</div>`).join("");
+  const moreActive = items.filter(item => item.group).some((item) => item.href === current);
   return `<header class="app-shell-header" aria-label="Workspace rail">
     <a class="app-shell-brand" href="${base}/" aria-label="DoctorCRE Home">
       <svg viewBox="0 0 42 42" role="img" aria-label="Work flows from leads through deals to delivery">
@@ -79,7 +84,7 @@ export function mountNavigation(root = document, pathname = root.defaultView?.lo
     else root.defaultView.addEventListener("load", activate, { once: true });
   }
   const base = appOriginForReport(location?.origin || "");
-  host.innerHTML = appShellMarkup(pathname, base, location?.search || "");
+  host.innerHTML = appShellMarkup(pathname, base, location?.search || "", navigationFor(root));
   if (report || base) {
     host.querySelector(".app-shell-controls").remove();
     host.querySelector(".app-shell-call-availability").remove();

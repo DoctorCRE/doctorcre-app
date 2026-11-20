@@ -80,6 +80,7 @@ export function markHomeReady(host: HTMLElement) {
 function Inbox({ client }: { client: InboxClient }) {
   const route = useLocation();
   const home = route.pathname === "/";
+  const engineHome = document.documentElement.hasAttribute("data-home-today-from-engine");
   const { item_id: inboxItemId } = useParams();
   const item_id = home ? new URLSearchParams(route.search).get("card") || undefined : inboxItemId;
   const cache = useQueryClient();
@@ -681,7 +682,7 @@ function Inbox({ client }: { client: InboxClient }) {
       {home && (
         <>
           <HomeWelcome />
-          {query.data?.engine_marks ? (
+          {engineHome || query.data?.engine_marks ? (
             <EngineMailPriorities items={items} locked={openingLocked} review={openCard} />
           ) : (
             <MailPriorities items={items} locked={openingLocked} review={openCard} />

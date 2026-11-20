@@ -1,3 +1,4 @@
-import { startEarlyMailPriorities, readMailPriorities } from './mail-priorities-client';
+import { readMailPriorities, startEarlyMailPriorities } from "./mail-priorities-client";
 
-if (location.pathname === '/') startEarlyMailPriorities(signal => readMailPriorities(signal, 'low'));
+if (location.pathname === "/" && !document.documentElement.hasAttribute("data-home-today-from-engine"))
+  startEarlyMailPriorities((signal) => readMailPriorities(signal, "low"));
