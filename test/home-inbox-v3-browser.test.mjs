@@ -302,6 +302,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
 
   if (!(await today.isVisible())) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
   await today.getByText('Example walkthrough', { exact: true }).waitFor();
+  await page.locator('#appConnection[data-state="healthy"]').waitFor({ state: 'attached' });
   todayFailure = 'meetings';
   await page.locator('#appSyncRefresh').evaluate(button => button.click());
   await today.getByText("Outlook hasn't synced your calendar yet.").waitFor();
@@ -338,4 +339,111 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   assert.equal(writes[2].args.resolution, 'cancelled');
   assert.equal(writes[2].args.reason, 'Work moved to a different site.');
   assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
+});
+
+async function meetingAnswerFixture(t) {
+  const server = await fixtureServer({ root: join(outDir, 'site') }); t.after(() => server.close());
+  const browser = await chromium.launch(); t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  page.setDefaultTimeout(5000);
+  await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
+  const deal = { id: '00000000-0000-4000-8000-000000000001', name: 'Example Dental', owner: 'joe' };
+  const reviews = ['aaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbb'].map((key, index) => ({
+    key, title: `Example meeting ${index + 1}`, state: 'needs_review',
+    start: '2026-11-19T13:00:00Z', end: '2026-11-19T14:00:00Z',
+  }));
+  const data = { board: { deals: [deal] }, loseLog: false };
+  const receipts = new Map(), attempts = [];
+  await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  await page.route('**/?mode=live', async route => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace('id="homeRoot"', 'id="homeRoot" data-home-today-from-engine');
+    return route.fulfill({ response, body });
+  });
+  await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
+    ok: true, schema_version: 'home-today.v1', viewer: 'joe', today: '2026-11-19',
+    meetings: { state: 'empty', items: [], follow_up_reviews: reviews },
+    reminders: { state: 'empty', late: [], upcoming: [] },
+  } }));
+  await page.route('**/mcp', route => {
+    const { name } = route.request().postDataJSON().params;
+    const body = name === 'deal-room-board' ? data.board : { items: [] };
+    return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(body) }] } } });
+  });
+  // The rolled-over agenda has neither review even while the stale Today view has both.
+  await page.route('**/api/engine/calendar/agenda', route => route.fulfill({ json: { confirmed: [], dismissed: [] } }));
+  async function save(route, action, key) {
+    const args = route.request().postDataJSON();
+    attempts.push({ action, key, args });
+    const prior = receipts.get(args.idempotency_key);
+    const status = action === 'log' ? 201 : 200;
+    if (prior) return prior.action === action && JSON.stringify(prior.args) === JSON.stringify(args)
+      ? route.fulfill({ status, json: { ...prior.receipt, replayed: true } })
+      : route.fulfill({ status: 409, json: { error: 'key_reuse' } });
+    const receipt = action === 'log'
+      ? { activity_id: deal.id, existing: false, about: args.about }
+      : { key, dismissed_at: '2026-11-19T15:00:00Z' };
+    receipts.set(args.idempotency_key, { action, args, receipt });
+    if (action === 'log' && data.loseLog) return route.abort();
+    return route.fulfill({ status, json: receipt });
+  }
+  await page.route('**/api/engine/activities', route => save(route, 'log', route.request().postDataJSON().calendar_review_key));
+  await page.route('**/api/engine/calendar/reviews/*/dismissal', route =>
+    save(route, 'dismiss', new URL(route.request().url()).pathname.split('/').at(-2)));
+  await page.goto(`${server.origin}/?mode=live`);
+  const today = page.getByRole('complementary', { name: 'Today', exact: true });
+  const question = index => today.locator(`[data-review="${reviews[index].key}"]`);
+  const log = async index => {
+    await question(index).getByLabel('Deal').selectOption(deal.id);
+    await question(index).getByRole('button', { name: 'It happened' }).click();
+  };
+  const dismiss = index => question(index).getByRole('button', { name: 'Dismiss', exact: true }).click();
+  return { page, data, reviews, receipts, attempts, today, question, log, dismiss,
+    refresh: () => page.locator('#appSyncRefresh').evaluate(button => button.click()) };
+}
+
+test('stale meeting answers show the stored decision after the agenda rolls over', async t => {
+  const { page, today, log, dismiss, receipts } = await meetingAnswerFixture(t);
+  await log(0);
+  await today.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
+  await dismiss(1);
+  await today.getByText('Meeting dismissed.', { exact: true }).waitFor();
+  await page.reload();
+  await dismiss(0);
+  await today.getByText('Meeting already logged.', { exact: true }).waitFor();
+  await log(1);
+  await today.getByText('Meeting already dismissed.', { exact: true }).waitFor();
+  assert.deepEqual([...receipts.values()].map(row => row.action), ['log', 'dismiss']);
+});
+
+test('an unconfirmed meeting log replays the original request after the title and deal list change', async t => {
+  const { data, reviews, attempts, question, today, log, refresh } = await meetingAnswerFixture(t);
+  data.loseLog = true;
+  await log(0);
+  const check = question(0).getByRole('button', { name: 'Check meeting log' });
+  await check.waitFor();
+  reviews[0].title = 'Rescheduled example meeting';
+  data.board = { deals: [] };
+  await refresh();
+  await question(0).getByText(reviews[0].title, { exact: true }).waitFor();
+  assert.equal(await question(0).getByLabel('Deal').count(), 0);
+  await check.click();
+  await today.getByText('Meeting already logged.', { exact: true }).waitFor();
+  assert.equal(attempts.length, 2);
+  assert.deepEqual(attempts[1], attempts[0]);
+});
+
+test('malformed meeting deal results report a load failure and leave Retry Today available', async t => {
+  const { data, question, today, refresh } = await meetingAnswerFixture(t);
+  await question(0).getByLabel('Deal').waitFor();
+  data.board = { deals: null };
+  await refresh();
+  await question(0).getByText('Couldn’t load deals. Retry Today to choose a deal.', { exact: true }).waitFor();
+  assert.equal(await question(0).getByText('No open deals', { exact: false }).count(), 0);
+  const retry = today.getByRole('button', { name: 'Retry Today', exact: true });
+  assert.equal(await retry.isVisible(), true);
+  data.board = { deals: [] };
+  await retry.click();
+  await question(0).getByText('No open deals to log this meeting on.', { exact: true }).waitFor();
+  assert.equal(await retry.isVisible(), false);
 });

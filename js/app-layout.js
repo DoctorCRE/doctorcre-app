@@ -172,7 +172,9 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const homeToday = engineToday
     ? import('./ui-home-today.generated.js').then(module => module.mountHomeTodayPanel(layout.querySelector('#appToday'), async signal => {
       client ??= await createClient(boot.mode, { ...boot.options, docContext: false });
-      return scopedDeals(await client.getBoard({ workspace: 'all', signal }), 'team') || [];
+      const deals = scopedDeals(await client.getBoard({ workspace: 'all', signal }), 'team');
+      if (!deals) throw new Error('Could not load meeting deals');
+      return deals;
     })).catch(() => {
       layout.querySelector('#appScheduleSlot').textContent = "Couldn't load meetings.";
       layout.querySelector('#appTodayNext').textContent = "Couldn't load dated reminders.";

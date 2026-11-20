@@ -32,28 +32,34 @@ async function engineReviewKey(actor, key) {
   return hex.replace(/^(.{8})(.{4})(.{4})(.{4})/, '$1-$2-$3-$4-');
 }
 
-async function saveEngineReview({ args, key, action, deal }) {
-  const dismiss = action === 'dismiss';
-  const response = await sessionFetch(dismiss
-    ? `/api/engine/calendar/reviews/${key}/dismissal`
-    : '/api/engine/activities', {
+const receiptConflict = Symbol('receipt conflict');
+const unknownAnswer = () => Object.assign(new Error('Meeting answer could not be verified'), { code: 'unknown_outcome' });
+const isDismissal = (receipt, key) => receipt?.key === key && instant(receipt.dismissed_at) !== null;
+
+async function postReviewAnswer(path, args) {
+  const response = await sessionFetch(path, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify(args), signal: AbortSignal.timeout(10_000),
   });
   const receipt = await response.json();
-  if (response.status === 409 && receipt?.error === 'key_reuse') {
-    const agenda = await sessionFetch('/api/engine/calendar/agenda', { signal: AbortSignal.timeout(10_000) });
-    if (!agenda.ok) throw Object.assign(new Error('Meeting answer could not be verified'), { status: agenda.status });
-    const stored = await agenda.json();
-    const confirmed = Array.isArray(stored?.confirmed) && stored.confirmed.includes(key);
-    const dismissed = Array.isArray(stored?.dismissed) && stored.dismissed.includes(key);
-    const notice = confirmed ? 'Meeting already logged.' : dismissed ? 'Meeting already dismissed.' : 'Meeting already answered.';
-    return { ok: true, notice };
-  }
+  if (response.status === 409 && receipt?.error === 'key_reuse') return receiptConflict;
   if (!response.ok) throw Object.assign(new Error('Meeting answer refused'), { status: response.status, payload: receipt });
-  if (dismiss ? receipt?.key !== key || instant(receipt.dismissed_at) === null
-    : !uuid(receipt?.activity_id) || typeof receipt.existing !== 'boolean')
-    throw Object.assign(new Error('Meeting answer could not be verified'), { code: 'unknown_outcome' });
+  return receipt;
+}
+
+async function saveEngineReview({ args, key, action, deal }) {
+  const dismiss = action === 'dismiss';
+  const dismissalPath = `/api/engine/calendar/reviews/${key}/dismissal`;
+  const receipt = await postReviewAnswer(dismiss ? dismissalPath : '/api/engine/activities', args);
+  if (receipt === receiptConflict) {
+    // The shared receipt is committed, and a dismissal can be reconstructed from its key.
+    const stored = dismiss ? receipt : await postReviewAnswer(dismissalPath, { idempotency_key: args.idempotency_key });
+    if (stored === receiptConflict) return { ok: true, notice: 'Meeting already logged.' };
+    if (stored?.replayed === true && isDismissal(stored, key)) return { ok: true, notice: 'Meeting already dismissed.' };
+    throw unknownAnswer();
+  }
+  if (dismiss ? !isDismissal(receipt, key) : !uuid(receipt?.activity_id) || typeof receipt.existing !== 'boolean')
+    throw unknownAnswer();
   const notice = dismiss ? (receipt.replayed ? 'Meeting already dismissed.' : 'Meeting dismissed.')
     : receipt.existing || receipt.replayed ? 'Meeting already logged.' : `Meeting logged on ${deal.name}.`;
   return { ok: true, notice };
@@ -82,7 +88,7 @@ export function mountHomeMeetingReviews({ document, client, host, engine = false
       const decision = decisions.get(review.key);
       const busy = decision?.state === 'submitting', uncertain = decision?.state === 'uncertain';
       const dismissing = decision?.action === 'dismiss' && (busy || uncertain);
-      const chosen = decision?.dealId || choices.get(review.key) || '';
+      const chosen = decision?.deal?.id || choices.get(review.key) || '';
       const select = options.length
         ? `<label>Deal <select data-review-deal="${E(review.key)}" data-home-key="review:${E(review.key)}:deal"${busy || uncertain ? ' disabled' : ''}><option value="">Choose a deal</option>${options.map(deal => `<option value="${E(deal.id)}"${deal.id === chosen ? ' selected' : ''}>${E(deal.name)}</option>`).join('')}</select></label>`
         : view.deals === null ? '<span>Couldn’t load deals. Retry Today to choose a deal.</span>'
@@ -98,27 +104,32 @@ export function mountHomeMeetingReviews({ document, client, host, engine = false
   };
   const answer = async (review, action = 'log') => {
     const prior = decisions.get(review.key);
-    const dealId = prior?.dealId || choices.get(review.key);
-    const deal = deals().find(row => row.id === dealId);
-    if ((action === 'log' && !deal) || prior?.state === 'submitting') return;
+    const operation = `meeting-review:${review.key}`;
+    const uncertain = prior?.state === 'uncertain';
+    const retained = uncertain ? commands?.pending(operation) : null;
+    const deal = uncertain ? prior.deal : deals().find(row => row.id === choices.get(review.key));
+    if (prior?.state === 'submitting' || (uncertain && (!retained || prior.action !== action)) || (action === 'log' && !deal)) return;
     const ticket = generation, binding = actor;
-    decisions.set(review.key, { state: 'submitting', dealId, action }); notice = ''; render();
+    decisions.set(review.key, { state: 'submitting', deal, action }); notice = ''; render();
     try {
       if (!commands) {
         const { createRetainedCommands } = await import('./retained-commands.mjs');
         commands ||= createRetainedCommands({ scope: () => actor });
       }
-      const happenedAt = new Date(review.start).toISOString();
-      const summary = `Meeting: ${review.title}`;
-      const request = engine
-        ? { idempotency_key: await engineReviewKey(binding, review.key), ...(action === 'log' && {
-          kind: 'meeting', calendar_review_key: review.key, happened_at: happenedAt, about: [{ deal_id: deal.id }], summary,
-        }) }
-        : action === 'dismiss'
-        ? { board_id: 'calendar-agenda', question_id: review.key, base_version: 1, answer_text: 'Dismiss' }
-        : { ref: deal.id, kind: 'meeting', summary, occurred_at: happenedAt, calendar_event_key: review.key };
+      let request = retained;
+      if (!request) {
+        const happenedAt = new Date(review.start).toISOString();
+        const summary = `Meeting: ${review.title}`;
+        request = engine
+          ? { idempotency_key: await engineReviewKey(binding, review.key), ...(action === 'log' && {
+            kind: 'meeting', calendar_review_key: review.key, happened_at: happenedAt, about: [{ deal_id: deal.id }], summary,
+          }) }
+          : action === 'dismiss'
+            ? { board_id: 'calendar-agenda', question_id: review.key, base_version: 1, answer_text: 'Dismiss' }
+            : { ref: deal.id, kind: 'meeting', summary, occurred_at: happenedAt, calendar_event_key: review.key };
+      }
       if (disposed || ticket !== generation || actor !== binding) return;
-      const receipt = await commands.send(`meeting-review:${review.key}`, request, async args => {
+      const receipt = await commands.send(operation, request, async args => {
         if (engine) return saveEngineReview({ args, key: review.key, action, deal });
         const receipt = action === 'dismiss' ? await client.answerBoardQuestion(args) : await client.logActivity(args);
         if (receipt?.ok !== true || (action === 'dismiss'
@@ -126,13 +137,13 @@ export function mountHomeMeetingReviews({ document, client, host, engine = false
           : !text(receipt.activity_id)))
           throw Object.assign(new Error('Meeting answer could not be verified'), { code: 'unknown_outcome' });
         return receipt;
-      });
+      }, action);
       if (disposed || ticket !== generation || actor !== binding) return;
       decisions.delete(review.key); handled.add(review.key);
       notice = engine ? receipt.notice : action === 'dismiss' ? '' : `Meeting logged on ${deal.name}.`;
     } catch (error) {
       if (disposed || ticket !== generation || actor !== binding) return;
-      if (error.pendingRequest) decisions.set(review.key, { state: 'uncertain', dealId, action, error: action === 'dismiss' ? 'Dismissal not confirmed yet. Check dismissal before choosing again.' : 'Not confirmed yet. Check the meeting log before choosing again.' });
+      if (error.pendingRequest) decisions.set(review.key, { state: 'uncertain', deal, action, error: action === 'dismiss' ? 'Dismissal not confirmed yet. Check dismissal before choosing again.' : 'Not confirmed yet. Check the meeting log before choosing again.' });
       else decisions.set(review.key, { state: 'failed', action, error: action === 'dismiss' ? 'The meeting was not dismissed. Try again.' : 'The meeting was not logged. Try again or choose another deal.' });
     }
     render();
