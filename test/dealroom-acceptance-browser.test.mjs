@@ -2904,7 +2904,7 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   await tab.click();
   entries = [];
   await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
-  await panel.getByText('No emails or meetings yet.', { exact: true }).waitFor();
+  await panel.getByText('No emails or meetings filed to this deal yet.', { exact: true }).waitFor();
   assert.equal(await rows.count(), 0);
 });
 
