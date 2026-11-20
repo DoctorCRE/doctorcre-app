@@ -27,6 +27,7 @@ import { MailPriorities } from "./mail-priorities";
 import { ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { completionLabel, HomeSections, HomeWelcome, lateDays } from "./sections";
+import { sourceExcerptText } from "./source-excerpt.ts";
 
 type SnoozePreview = Readonly<{
   items: readonly InboxItem[];
@@ -653,8 +654,8 @@ function Inbox({ client }: { client: InboxClient }) {
                     {snoozeDate.format(new Date(activity.happened_at))} Central
                   </time>
                 )}
-                {typeof activity.summary === "string" && <p>{activity.summary}</p>}
-                {typeof activity.quote === "string" && <blockquote>{activity.quote}</blockquote>}
+                {typeof activity.summary === "string" && <p>{sourceExcerptText(activity.summary)}</p>}
+                {typeof activity.quote === "string" && <blockquote>{sourceExcerptText(activity.quote)}</blockquote>}
               </>
             )}
             {deal && sourcePage !== "deal" && (

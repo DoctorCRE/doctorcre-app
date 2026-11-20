@@ -3,6 +3,7 @@ import { DropReason } from "./drop-reason.tsx";
 import { draftReference, proposalRefusal, type Suggestion } from "./engine-review.ts";
 import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
 import { type Operation, reviewError } from "./review";
+import { sourceExcerptText } from "./source-excerpt.ts";
 
 type State =
   | { phase: "loading" }
@@ -26,7 +27,6 @@ const availableDecisions = (
     (d) =>
       d === "reject" || (review.observations.length > 0 && (d !== "correct" || op.args.fact_key !== "rent_schedule")),
   );
-const emailExcerpt = (text: string) => text.replace(/\uFEFF|&#0*65279;|&#x0*feff;/gi, "");
 const emailDate = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Chicago",
   weekday: "short",
@@ -327,7 +327,7 @@ export function ReviewCard({ item, focusedSuggestionId, readOnly, client, close,
                 </p>
                 {proposal.emailLead && proposal.senderAddress && <p>{proposal.senderAddress}</p>}
                 {proposal.source.subject && <p>{proposal.source.subject}</p>}
-                {proposal.source.excerpt && <blockquote>{emailExcerpt(proposal.source.excerpt)}</blockquote>}
+                {proposal.source.excerpt && <blockquote>{sourceExcerptText(proposal.source.excerpt)}</blockquote>}
               </>
             )}
             <p>{proposal.emailLead ? "Summary" : "Words that prompted this suggestion"}</p>
@@ -416,7 +416,7 @@ export function ReviewCard({ item, focusedSuggestionId, readOnly, client, close,
               </p>
             )}
             {review.email.subject && <p>{review.email.subject}</p>}
-            <blockquote>{emailExcerpt(review.email.excerpt)}</blockquote>
+            <blockquote>{sourceExcerptText(review.email.excerpt)}</blockquote>
           </section>
         ) : (
           <p>The original email is unavailable.</p>
