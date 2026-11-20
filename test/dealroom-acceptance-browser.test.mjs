@@ -1097,9 +1097,11 @@ test('Deals shows late steps and can undo a close reported by the engine', async
   const undo = page.getByRole('button', { name: 'Undo invoice close' });
   const openClosedDeal = async () => {
     await page.goto(`${origin}/deals?mode=live`);
-    if (switchesOn) await page.locator('#appTodayMoves').getByText('Open a deal to see its recent changes.', { exact: true }).waitFor({ timeout: 5000 });
     await page.getByRole('button', { name: 'Closed deals', exact: true }).click();
-    if (switchesOn) await page.locator('#closedDealsList .auto-move').getByText('Tue, Nov 17, 2026', { exact: true }).waitFor({ timeout: 3000 });
+    if (switchesOn) {
+      await page.locator('#closedDealsList .auto-move').getByText('Tue, Nov 17, 2026', { exact: true }).waitFor({ timeout: 3000 });
+      assert.equal(await page.locator('#appTodayMoves').isVisible(), false);
+    }
     await page.getByRole('button', { name, exact: true }).click();
     await page.getByRole('heading', { name, exact: true }).waitFor();
     await otherSteps.getByText(/Call the architect.*2 days late/).waitFor({ timeout: 5000 });
