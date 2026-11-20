@@ -2352,7 +2352,7 @@ test("every live client mutation is routed, refused, or accounted for after cuto
     }
   }
   await verify(new Set([...liveClientWrites(client), ...additional]));
-  const templateWrite = 'function probe() { write(`synthetic-${"unclassified-save"}`, {}); }';
+  const templateWrite = `function probe() { write(\`synthetic-\${"unclassified-save"}\`, {}); }`;
   await assert.rejects(
     verify(liveClientWrites(client + "\n" + templateWrite)),
     /synthetic-unclassified-save can still save/,
