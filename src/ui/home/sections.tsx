@@ -190,11 +190,13 @@ export function HomeSections({
         </p>
         {search.trim() && !matching.length && <p role="status">No loaded cards match your search.</p>}
       </search>
-      <nav className="home-shortcuts" aria-label="Review workflows">
-        <a href="/review-workflows#homeCallTasks">Call follow-ups ↗</a>
-        <a href="/review-workflows#homeEmailFollowups">Email and filings ↗</a>
-        <a href="/deals">Next steps ↗</a>
-      </nav>
+      {!engine && !document.documentElement.hasAttribute("data-home-today-from-engine") && (
+        <nav className="home-shortcuts" aria-label="Review workflows">
+          <a href="/review-workflows#homeCallTasks">Call follow-ups ↗</a>
+          <a href="/review-workflows#homeEmailFollowups">Email and filings ↗</a>
+          <a href="/deals">Next steps ↗</a>
+        </nav>
+      )}
       {overdueItems.length > 0 && (
         <Slice
           title={engine ? "Late" : "Overdue"}

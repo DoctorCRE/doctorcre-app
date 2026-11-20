@@ -45,12 +45,12 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
       opening = true;
       const opener = root.activeElement instanceof HTMLElement && root.activeElement !== root.body ? root.activeElement : toggle;
       try {
-        const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationItems, routeEntries }, { createClient }] = await Promise.all([
+        const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationFor, routeEntries }, { createClient }] = await Promise.all([
           import('./ui-quick-switcher.generated.js'), import('./routes.js'), import('./client.js'),
         ]);
         if (retired) return;
         const boot = resolveDealroomBoot(location);
-        const pages = [...navigationItems];
+        const pages = [...navigationFor(root)];
         for (const [href] of routeEntries) {
           if (href.includes(':') || pages.some(page => page.href === href)) continue;
           pages.push({ href, label: href.slice(1).split(/[/-]/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') || 'Home' });

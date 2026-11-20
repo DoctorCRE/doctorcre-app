@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { carrContractIdentity } from "./carr-contract.mjs";
 
@@ -353,4 +354,48 @@ test('phone capture ships behind the existing partner gate with narrowly scoped 
   assert.match(response.headers.get('content-security-policy'), /media-src 'self' blob:/);
   const home = await handleDoctorcreRequest(request('/css/app-shell.css'), env);
   assert.match(home.headers.get('permissions-policy'), /microphone=\(\)/);
+});
+
+test('switched linked routes serve guidance through their existing auth gates', async () => {
+  for (const [path, key, oldAsset, newAsset, links] of [
+    ['/review-workflows?email=example#homeEmailFollowups', 'home-from-engine', 'review-workflows', 'review-workflows-moved', ['/', '/deals', '/calendar']],
+    ['/leases?lease=example', 'deals-saves-from-engine', 'lease-radar', 'lease-anniversaries', ['/deals']],
+    ['/client-portal?slug=example', 'deals-saves-from-engine', 'client-portal', 'client-website-moved', ['/deals']],
+  ]) {
+    for (const on of [false, true]) {
+      const env = {
+        ...environment({ carr: { fetch: async () => new Response(null) } }),
+        ENGINE_ROUTING: { get: async name => on && name === key ? 'on' : null },
+      };
+      const response = await handleDoctorcreRequest(request(path, { method: 'HEAD' }), env);
+      assert.equal(response.status, 200, path);
+      assert.equal(await response.text(), `asset:/${on ? newAsset : oldAsset}.html`, path);
+    }
+    const html = await readFile(new URL(`../${newAsset}.html`, import.meta.url), 'utf8');
+    const main = html.match(/<main\b[\s\S]*?<\/main>/)?.[0];
+    assert.ok(main);
+    assert.deepEqual([...main.matchAll(/<a href="([^"]+)"/g)].map(match => match[1]), links);
+  }
+});
+
+test('the switched client portal takes a signed-in partner with a deal link to Client view', async () => {
+  const path = '/client-portal?deal=example&slug=old-website';
+  for (const status of [200, 302]) {
+    const env = {
+      ...environment({ carr: { fetch: async () => new Response(null, {
+        status, headers: status === 302 ? { location: '/auth/login?return_to=%2Fbusiness' } : {},
+      }) } }),
+      ENGINE_ROUTING: { get: async name => name === 'deals-saves-from-engine' ? 'on' : null },
+    };
+    const response = await handleDoctorcreRequest(request(path), env);
+    assert.equal(response.status, 302);
+    const target = new URL(response.headers.get('location'), request(path).url);
+    if (status === 200) {
+      assert.equal(target.pathname + target.search, '/deals?deal=example&tab=client-view');
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+    } else {
+      assert.equal(target.pathname, '/auth/login');
+      assert.equal(target.searchParams.get('return_to'), path);
+    }
+  }
 });

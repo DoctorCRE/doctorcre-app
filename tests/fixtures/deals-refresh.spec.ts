@@ -88,9 +88,11 @@ async function mockReads(page: Page, { engine = true, savesFromEngine = false, o
         json: { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }] } },
       });
     }
-    if (requests.engine && route.request().resourceType() === "document") {
+    if ((requests.engine || savesFromEngine) && route.request().resourceType() === "document") {
       const response = await route.fetch();
-      const body = (await response.text()).replace("<html", "<html data-deals-from-engine");
+      const reads = requests.engine ? " data-deals-from-engine" : "";
+      const saves = savesFromEngine ? " data-deals-saves-from-engine" : "";
+      const body = (await response.text()).replace("<html", `<html${reads}${saves}`);
       return route.fulfill({ response, body });
     }
     return route.continue();
@@ -139,6 +141,13 @@ test("Notifications explains why retired activity is missing", async ({ page }) 
   await page.goto(server.url + "/notifications?mode=live");
   await expect(page.getByText(retiredActivity, { exact: true })).toBeVisible();
   await expect(page.getByText("No recent activity", { exact: true })).toHaveCount(0);
+  await expect(page.locator("#activityAsOf")).toBeEmpty();
+});
+
+test("Updates omits old activity when Deals saves switch on by themselves", async ({ page }) => {
+  await mockReads(page, { engine: false, savesFromEngine: true });
+  await page.goto(server.url + "/updates?mode=live");
+  await expect(page.getByText(retiredActivity, { exact: true })).toBeVisible();
   await expect(page.locator("#activityAsOf")).toBeEmpty();
 });
 

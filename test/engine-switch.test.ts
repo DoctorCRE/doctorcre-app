@@ -2144,7 +2144,7 @@ test("old settle operations cannot reach the engine Home marks door", async () =
   assert.deepEqual(f.carr, []);
 });
 
-test("workspace HTML selects Home and Deals engine behavior independently", async (t) => {
+test("workspace HTML selects all three engine switches independently", async (t) => {
   const html = "<!doctype html><html><body>Example workspace</body></html>";
   const setAttribute = t.mock.fn();
   const transform = t.mock.fn((asset: Response) => asset);
@@ -2163,29 +2163,80 @@ test("workspace HTML selects Home and Deals engine behavior independently", asyn
     else Reflect.deleteProperty(globalThis, "HTMLRewriter");
   });
 
-  for (const path of ["/invoices", "/deals?view=national", "/tours/day.html"]) {
+  for (const path of [
+    "/",
+    "/inbox",
+    "/invoices",
+    "/deals",
+    "/deals?view=national",
+    "/tours/day.html",
+    "/review-workflows",
+    "/leases",
+    "/client-portal",
+  ]) {
     for (const home of [false, true]) {
-      for (const deals of [false, true]) {
+      for (const [deals, saves] of [
+        [false, false],
+        [false, true],
+        [true, false],
+        [true, true],
+      ]) {
         setAttribute.mock.resetCalls();
         transform.mock.resetCalls();
-        const { env } = fixture(
-          new Map([
-            ["home-from-engine", home ? "on" : "off"],
-            ["deals-from-engine", deals ? "on" : "off"],
-          ]),
-        );
-        const ASSETS = { fetch: async () => new Response(html, { headers: { "content-type": "text/html" } }) };
+        const switches = new Map([
+          ["home-from-engine", home ? "on" : "off"],
+          ["deals-from-engine", deals ? "on" : "off"],
+          ["deals-saves-from-engine", saves ? "on" : "off"],
+          ["deal-cutover-date", "2025-06-12"],
+        ]);
+        const { env, kv } = fixture(switches);
+        const get = env.ENGINE_ROUTING.get;
+        env.ENGINE_ROUTING.get = async (...args) => {
+          const value = await get(...args);
+          const [key] = args;
+          if (typeof key === "string" && (value === "on" || value === "off"))
+            switches.set(key, value === "on" ? "off" : "on");
+          return value;
+        };
+        const ASSETS = {
+          fetch: t.mock.fn(
+            async (_request: Request) => new Response(html, { headers: { "content-type": "text/html" } }),
+          ),
+        };
         const assetEnv = { ...env, ASSETS };
         const response = await worker.fetch(new Request(origin + path), assetEnv);
         assert.equal(response.status, 200);
+        for (const key of ["home-from-engine", "deals-from-engine", "deals-saves-from-engine"])
+          assert.equal(
+            kv.filter((args) => Array.isArray(args) && args[0] === key).length,
+            1,
+            `${path} reads ${key} once`,
+          );
+        const chosen = ASSETS.fetch.mock.calls[0]?.arguments[0];
+        if (path === "/review-workflows")
+          assert.equal(
+            new URL(chosen?.url ?? "").pathname,
+            home ? "/review-workflows-moved.html" : "/review-workflows.html",
+          );
+        if (path === "/leases")
+          assert.equal(new URL(chosen?.url ?? "").pathname, saves ? "/lease-anniversaries.html" : "/lease-radar.html");
+        if (path === "/client-portal")
+          assert.equal(
+            new URL(chosen?.url ?? "").pathname,
+            saves ? "/client-website-moved.html" : "/client-portal.html",
+          );
         const attributes = setAttribute.mock.calls.map(({ arguments: args }) => args[0]).sort();
         const expected = [
           ...(deals ? ["data-deals-from-engine"] : []),
+          ...(saves ? ["data-deals-saves-from-engine"] : []),
           ...(home ? ["data-home-today-from-engine"] : []),
         ];
         assert.deepEqual(attributes, expected, path);
-        if (!home && !deals) {
-          assert.equal(transform.mock.callCount(), 0);
+        const date = setAttribute.mock.calls.find(({ arguments: args }) => args[0] === "data-deals-saves-from-engine");
+        if (saves)
+          assert.equal(date?.arguments[1], ["/", "/inbox", "/deals", "/leases"].includes(path) ? "2025-06-12" : "");
+        assert.equal(transform.mock.callCount(), Number(home || deals || saves));
+        if (!home && !deals && !saves) {
           assert.equal(await response.text(), html);
         }
       }

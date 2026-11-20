@@ -28,14 +28,14 @@ test('pinned registered producer and parser replay every recording through app p
     assert.equal(ui.parseClientAnniversaries(fixture.output).state,fixture.output.state);
   }
 });
-async function open(t,{width=1440,theme='light'}={}) {
+async function open(t,{width=1440,theme='light',cutover=null}={}) {
   const browser=await chromium.launch();t.after(()=>browser.close());
   const page=await browser.newPage({viewport:{width,height:900},colorScheme:theme});
   await page.route('http://localhost/**',async route=>{
     let path;
     try {path=resolve(root,'.'+decodeURIComponent(new URL(route.request().url()).pathname));}catch{return route.fulfill({status:400,body:''});}
     if(!path.startsWith(root+sep))return route.fulfill({status:403,body:''});
-    if(path===root+'/island')return route.fulfill({contentType:'text/html',body:`<html data-theme="${theme}"><head><link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/css/workspace.css"></head><body><div id="host"></div></body></html>`});
+    if(path===root+'/island')return route.fulfill({contentType:'text/html',body:`<html data-theme="${theme}"${cutover === null ? '' : ` data-deals-saves-from-engine="${cutover}"`}><head><link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/css/workspace.css"></head><body><div id="host"></div></body></html>`});
     try{return route.fulfill({body:await readFile(path),contentType:path.endsWith('.css')?'text/css':'text/javascript'});}catch{return route.fulfill({status:404,body:''});}
   });
   await page.goto('http://localhost/island');
@@ -175,3 +175,14 @@ for(const [value,text] of [[fixtures.empty.output,'No closing anniversaries in t
   await page.getByText(text,{exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>window.reads),1);
 });
+
+for (const [date, width, label] of [['2025-06-12', 1440, 'Jun 12, 2025'], ['', 390, 'the switch']]) {
+  test(`Closing anniversaries shows cutoff coverage inside its panel at ${width}px`, async t => {
+    const page = await open(t, { width, cutover: date });
+    const panel = page.getByRole('region', { name: 'Closing anniversaries', exact: true });
+    await panel.getByText(`Covers deals closed before ${label}.`, { exact: true }).waitFor({ timeout: 2500 });
+    await complete(page, fixtures.ready.output);
+    await panel.locator('ol li').first().waitFor();
+    assert.doesNotMatch(await panel.innerText(), /first slice|scanned|skipped invalid/i);
+  });
+}

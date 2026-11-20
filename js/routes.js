@@ -203,6 +203,11 @@ export const sectionForRoute = {
   "/system-work.html": "/work-requests"
 };
 
+export function navigationFor(root) {
+  if (!root.documentElement.hasAttribute('data-deals-saves-from-engine')) return navigationItems;
+  return navigationItems.map(item => item.href === '/leases' ? { ...item, label: 'Closing anniversaries' } : item);
+}
+
 export function docRequestTarget(pathname) {
   const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
   const match = new RegExp(`^/doc/conversations/(${uuid})/turns/(${uuid})$`, 'i').exec(pathname);

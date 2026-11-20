@@ -6,6 +6,7 @@ type Outcome =
   | { kind: "confirmed"; watch: Watch | null }
   | { kind: "conflict" }
   | { kind: "denied" }
+  | { kind: "missing" }
   | { kind: "unknown" };
 const object = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 export function createWatchClient(transport?: Transport) {
@@ -23,8 +24,8 @@ export function createWatchClient(transport?: Transport) {
       if (result.kind !== "payload") return { kind: "unknown" };
       if (object(result.payload) && typeof result.payload.error === "string") {
         if (result.payload.error === "watch_stale_version") return { kind: "conflict" };
-        if (/human|auth|permission|forbidden|watch_target_not_found/.test(result.payload.error))
-          return { kind: "denied" };
+        if (result.payload.error === "watch_target_not_found") return { kind: "missing" };
+        if (/human|auth|permission|forbidden/.test(result.payload.error)) return { kind: "denied" };
         return { kind: "unknown" };
       }
       if (result.isError) return { kind: "unknown" };

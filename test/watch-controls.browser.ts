@@ -158,7 +158,12 @@ test("built Deal Room and lease detail mount controls for the exact record", asy
     }
   }
 });
-async function mountedWatch(t: TestContext, kind: "deal" | "lease", subjectId = originalWatch.subject_id) {
+async function mountedWatch(
+  t: TestContext,
+  kind: "deal" | "lease",
+  subjectId = originalWatch.subject_id,
+  cutoff: string | null = null,
+) {
   const subject = { subject_type: kind, subject_id: subjectId };
   const sample = {
     ...originalWatch,
@@ -170,7 +175,7 @@ async function mountedWatch(t: TestContext, kind: "deal" | "lease", subjectId = 
   const page = await browser.newPage({ viewport: { width: kind === "deal" ? 390 : 1440, height: 900 } });
   await componentDocument(page, "http://localhost:43210", {
     headers: { "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" },
-    html: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="host"></div>',
+    html: `<!doctype html><html${cutoff === null ? "" : ` data-deals-saves-from-engine="${cutoff}"`}><meta name="viewport" content="width=device-width,initial-scale=1"><div id="host"></div></html>`,
     dispose: (page) =>
       page.evaluate(() => {
         const control: unknown = Reflect.get(window, "control");
@@ -221,6 +226,7 @@ async function mountedWatch(t: TestContext, kind: "deal" | "lease", subjectId = 
         json: { jsonrpc: "2.0", result: { content: [{ type: "text", text: JSON.stringify(payload) }] } },
       });
     if (name === "read-subject-watch-v2") {
+      if (mode === "missing") return finish({ error: "watch_target_not_found" });
       if (mode === "held-read") {
         const snapshot = response(queuedReads.shift() ?? current);
         release = () => finish(snapshot);
@@ -739,3 +745,19 @@ test("month-bearing late read is discarded after session invalidation", async (t
   assert.equal(await f.page.getByRole("button").count(), 0);
   assert.equal(await f.page.getByLabel("Confirmed watch policy").count(), 0);
 });
+
+for (const copied of [true, false])
+  test(`switched deal watch explains ${copied ? "old-system changes" : "an unavailable new deal"}`, async (t) => {
+    const fixture = await mountedWatch(t, "deal", originalWatch.subject_id, copied ? "2025-06-12" : "");
+    if (!copied) fixture.setMode("missing");
+    await fixture.page.locator("summary").click();
+    const panel = fixture.page.getByRole("region", { name: "Deal watch", exact: true });
+    await panel
+      .getByText(
+        `Watches see changes made before ${copied ? "Jun 12, 2025" : "the switch"} only. New deals can't be watched yet.`,
+        { exact: true },
+      )
+      .waitFor();
+    const startWatch = panel.getByRole("button", { name: "Start watch" });
+    await startWatch.waitFor({ state: copied ? "visible" : "detached" });
+  });

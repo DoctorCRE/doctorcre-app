@@ -228,3 +228,27 @@ test('compatible optional fields remain absent or nullable without rejecting a v
   assert.doesNotMatch(root.textContent, /undefined|Could not load/);
   panel.dispose(); dom.window.close();
 });
+
+const frozenBundle = await uiBundle(path => readFile(new URL('../' + path, import.meta.url), 'utf8'), 'src/ui/market-terms-cutover.ts');
+const { mountMarketTerms: mountFrozenMarketTerms } = await import('data:text/javascript;base64,' + frozenBundle.toString('base64'));
+
+test('Compare terms labels coverage and excludes dates after the switch', async () => {
+  for (const date of ['2025-06-12', '']) {
+    const dom = new JSDOM(`<html data-deals-saves-from-engine="${date}"><div></div></html>`);
+    setup(dom);
+    const root = document.querySelector('div');
+    const calls = [];
+    const response = {ok:true,schema_version:'market-terms.v1',rows:[],coverage:{recorded_documents:0,canonical_receipts:0,unsupported_receipts:0,unclassified_receipts:0,comparable_deals:0}};
+    const panel = mountFrozenMarketTerms(root, {entityRef:'d1',client:{readMarketTerms:async args => { calls.push(args); return response; }}});
+    assert.match(root.textContent, date ? /Recorded through Jun 12, 2025\./ : /Recorded through the switch\./);
+    const field = root.querySelector('[name=as_of]');
+    assert.equal(field.disabled, !date);
+    if (date) {
+      field.value = '2025-07-01';
+      assert.equal(field.validity.rangeOverflow, true);
+      root.querySelector('form').dispatchEvent(new dom.window.Event('submit', {bubbles:true,cancelable:true}));
+      assert.equal(calls.length, 1);
+    }
+    panel.dispose();
+  }
+});
