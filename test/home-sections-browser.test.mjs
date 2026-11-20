@@ -528,7 +528,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   Object.assign(draftRecord, { version: 3, body: 'Saved again from another tab.' });
   Object.assign(draftCard, { source_version: '3', title: 'Reply to the sample email (updated)' });
   await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
-  await reply.getByRole('link', { name: 'Reply to the sample email (updated)', exact: true }).waitFor();
+  await reply.getByRole('link', { name: `Reply to the sample email (updated) (${reader})`, exact: true }).waitFor();
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
   const message = reply.getByRole('textbox', { name: 'Message', exact: true });
   assert.equal(await message.inputValue(), 'Saved again from another tab.');
