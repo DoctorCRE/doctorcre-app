@@ -9,8 +9,11 @@ test('W5 validates the complete partnership payload and rejects malformed eviden
   const record=directoryFixture(`http://demo.example/api/v1/business/vendors/${list.rows[0].id}`);
   assert.equal(validRecordPayload(record,'vendors'),true);
   const stats=list.rows[0].relationship;
-  for(const patch of [{win_rate:2},{deals_worked:-1},{computed_tier:'Trusted'},{coverage_verified_at:null},{recent_entries:{}},{introductions:[{}]},{override:{tier:'Trial',reason:'',recorded_by:'joe',recorded_at:'2026-10-01'}}]) assert.equal(relationshipValid({...stats,...patch}),false,JSON.stringify(patch));
+  for(const patch of [{win_rate:2},{deals_worked:-1},{computed_tier:'Trusted'},{recent_entries:{}},{introductions:[{}]},{override:{tier:'Trial',reason:'',recorded_by:'joe',recorded_at:'2026-10-01'}}]) assert.equal(relationshipValid({...stats,...patch}),false,JSON.stringify(patch));
   assert.equal(relationshipValid({...stats,coverage_verified_at:null,deals_worked:null,deals_referred:null,win_rate:null,computed_tier:'Unrated'}),true);
+  assert.equal(relationshipValid({...stats,coverage_verified_at:null,override:null}),true);
+  assert.equal(validListPayload({...list,rows:list.rows.map(row=>({...row,relationship:{...row.relationship,coverage_verified_at:null,override:null}}))},'vendors'),true);
+  assert.equal(validRecordPayload({...record,record:{...record.record,relationship:{...record.record.relationship,coverage_verified_at:null,override:null}}},'vendors'),true);
   assert.equal(validRecordPayload({...record,record:{...record.record,loan_programs:42}},'vendors'),false);
 });
 
