@@ -62,7 +62,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`lo
   const search = page.getByRole('searchbox');
   for (const term of ['Demo practice with a long owning deal name', 'Task']) {
     await search.fill(term);
-    await page.getByText('6 matching loaded cards of 6 loaded', { exact: true }).waitFor();
+    await page.getByText('6 results', { exact: true }).waitFor();
   }
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
@@ -75,7 +75,7 @@ test('selection, refresh additions/removals, disclosure, current pin and session
   assert.equal(await page.getByRole('checkbox', { checked: true }).count(), 0);
   update({ ...fixture.snapshot, truncated: true, items: fixture.snapshot.items.filter(item => item.item_id !== 'demo-call') });
   await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
-  await page.getByText('No loaded cards match your search.', { exact: true }).waitFor();
+  await page.getByText('No cards match your search.', { exact: true }).waitFor();
   assert.equal(await search.inputValue(), 'pipeline');
   await page.getByText('Showing the first 1,000 cards. More work is available.', { exact: true }).waitFor();
   update(fixture.snapshot);
@@ -145,7 +145,7 @@ test('literal field matching preserves canonical slices and excludes source payl
   await search.fill('Demo practice with a long owning deal name');
   assert.deepEqual(await placements(), before);
   await search.fill('next_action');
-  await page.getByText('No loaded cards match your search.', { exact: true }).waitFor();
+  await page.getByText('No cards match your search.', { exact: true }).waitFor();
   await search.fill('.*');
   assert.equal(await page.locator('[data-inbox-row]').count(), 0);
 });

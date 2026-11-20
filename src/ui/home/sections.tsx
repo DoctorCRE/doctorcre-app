@@ -55,7 +55,7 @@ function Slice({
   display = "preview",
 }: {
   title: string;
-  detail: string;
+  detail?: string;
   items: readonly InboxItem[];
   current: string | undefined;
   row: (item: InboxItem) => ReactNode;
@@ -72,7 +72,7 @@ function Slice({
           <h2 tabIndex={-1}>
             {title} <span>{items.length}</span>
           </h2>
-          <p>{detail}</p>
+          {detail && <p>{detail}</p>}
         </div>
         {(items.length > 1 || (display === "collapsed-working" && items.length > 0)) && (
           <button type="button" aria-expanded={expanded} onClick={() => expand(!expanded)}>
@@ -172,9 +172,9 @@ export function HomeSections({
 
   return (
     <div className="home-sections">
-      <search aria-label="Loaded Home cards">
+      <search aria-label="Inbox">
         <label>
-          Search loaded cards{" "}
+          Search inbox{" "}
           <input
             type="search"
             value={search}
@@ -186,9 +186,11 @@ export function HomeSections({
           Clear
         </button>
         <p role="status">
-          {matching.length} matching loaded cards of {loaded.length} loaded
+          {search.trim() &&
+            (matching.length
+              ? `${matching.length} ${matching.length === 1 ? "result" : "results"}`
+              : "No cards match your search.")}
         </p>
-        {search.trim() && !matching.length && <p role="status">No loaded cards match your search.</p>}
       </search>
       {!engine && !document.documentElement.hasAttribute("data-home-today-from-engine") && (
         <nav className="home-shortcuts" aria-label="Review workflows">
@@ -230,7 +232,6 @@ export function HomeSections({
       />
       <Slice
         title="Done today"
-        detail="Completed today in Chicago, with a recorded completion time."
         items={completed.today.map((done) => items.find((item) => item.item_id === done.item_id) ?? done)}
         current={current}
         row={renderRow}

@@ -46,7 +46,8 @@ async function open(t, { path = '/inbox', width = 1280, theme = 'light', saved =
     return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
   });
   await page.goto(`${server.origin}${path}?mode=live`);
-  await page.locator(path === '/vendors' ? '#appTodayNeeds [data-layout-deal]' : '#appWorkingList [data-layout-deal]').first().waitFor({ state: 'attached' });
+  const reminders = path === '/' || path === '/vendors' ? '#appTodayNeeds' : '#appWorkingList';
+  await page.locator(`${reminders} [data-layout-deal]`).first().waitFor({ state: 'attached' });
   return { page, calls, releaseInbox };
 }
 
@@ -113,7 +114,7 @@ test('Inbox read error keeps the same Calendar day treatment', async t => {
 for (const path of ['/', '/deals', '/calendar', '/vendors']) test(`${path} retains its sidebar treatment`, async t => {
   const { page } = await open(t, { path });
   if (path === '/') {
-    assert.equal(await page.locator('.app-layout-working').isVisible(), false);
+    assert.equal(await page.locator('.app-layout-working').count(), 0);
     assert.equal(await page.locator('#appScheduleSlot a').count(), 1);
   } else {
     assert.equal(await page.locator('.app-layout-working').count(), path === '/vendors' ? 0 : 1);
