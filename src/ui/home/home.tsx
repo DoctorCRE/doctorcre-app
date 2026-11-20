@@ -427,6 +427,20 @@ function Inbox({ client }: { client: InboxClient }) {
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
     const daysLate = item.engine_marks && item.section === "inbox" && item.action_id ? lateDays(item.due_on) : 0;
+    const detail =
+      draftCardStatus(item) ||
+      (item.disposition === "snoozed" && item.snoozed_until
+        ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
+        : item.section === "done" || (!item.engine_marks && item.auto_settled)
+          ? completionLabel(item)
+          : item.disposition === "settled"
+            ? "Hidden from inbox by you"
+            : item.source_state === "working"
+              ? "Dr. CRE is working. You can come back to this."
+              : item.source_state === "done"
+                ? completionLabel(item)
+                : !item.engine_marks && "Ready for your attention");
+    const hold = item.hold_until && `On hold until ${cardDate.format(new Date(item.hold_until))}`;
     const linkedRecord = source && (
       <a className="inbox-source" href={source}>
         {sourcePage === "call" ? "Call summary" : (namedRecord && item.context_label) || `Open ${sourcePage}`}
@@ -481,7 +495,9 @@ function Inbox({ client }: { client: InboxClient }) {
         <div className="inbox-copy">
           <p className="inbox-meta">
             <span>{item.kind_label}</span>
-            <span className={`inbox-badge inbox-${item.source_state}`}>{item.source_state.replaceAll("_", " ")}</span>
+            {!item.engine_marks && (
+              <span className={`inbox-badge inbox-${item.source_state}`}>{item.source_state.replaceAll("_", " ")}</span>
+            )}
           </p>
           <h3 className={open || item_id === item.item_id ? "inbox-title-expanded" : undefined}>
             <Link
@@ -510,21 +526,12 @@ function Inbox({ client }: { client: InboxClient }) {
               )}
             </p>
           )}
-          <p className="inbox-detail">
-            {draftCardStatus(item) ||
-              (item.disposition === "snoozed" && item.snoozed_until
-                ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
-                : item.section === "done" || (!item.engine_marks && item.auto_settled)
-                  ? completionLabel(item)
-                  : item.disposition === "settled"
-                    ? "Hidden from inbox by you"
-                    : item.source_state === "working"
-                      ? "Dr. CRE is working. You can come back to this."
-                      : item.source_state === "done"
-                        ? completionLabel(item)
-                        : "Ready for your attention")}
-            {item.hold_until ? ` · On hold until ${cardDate.format(new Date(item.hold_until))}` : ""}
-          </p>
+          {(detail || hold) && (
+            <p className="inbox-detail">
+              {detail}
+              {hold && (detail ? ` · ${hold}` : hold)}
+            </p>
+          )}
           {item_id === item.item_id && !open && linkedRecord}
           {item_id === item.item_id && !open && item.source_type === "notification" && (
             <HomeWatchDetail open_url={item.open_url} />

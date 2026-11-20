@@ -51,7 +51,15 @@ export type InboxItem = BaseItem &
     context_label: string | null;
     due_on: string | null;
     open_url: string | null;
-    kind_label: "Task" | "Call follow-up" | "Call" | "Reply draft" | "Update" | "Fact review" | "Tour feedback";
+    kind_label:
+      | "Task"
+      | "Call follow-up"
+      | "Call"
+      | "Reply draft"
+      | "Update"
+      | "Fact review"
+      | "Tour feedback"
+      | "Suggestion";
     merged_source_ids: string[];
     review_reference?: ReviewReference | null;
   }> &
@@ -247,6 +255,7 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
         "Reply draft",
         "Update",
         ...(v3 ? ["Fact review", "Tour feedback"] : []),
+        ...(engineMarks ? ["Suggestion"] : []),
       ].includes(value.kind_label)
     ) ||
     !Array.isArray(value.merged_source_ids) ||
