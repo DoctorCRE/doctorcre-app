@@ -190,6 +190,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await open('/?mode=live');
   const reader = enabled ? 'new inbox' : 'current inbox';
   const inbox = page.getByRole('region', { name: 'Inbox cards', exact: true });
+  const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
   const confirmDrop = async (reason) => {
     const dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
     await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill(reason);
@@ -200,18 +201,21 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(await first.textContent(), `${tasks[0].title} (${reader})`);
   await inbox.getByRole('region', { name: 'Today', exact: true }).getByRole('button', { name: 'See all 3', exact: true }).click();
   if (enabled) {
-    const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
     await waiting.getByRole('button', { name: 'See all 1', exact: true }).click();
     const held = waiting.locator('[data-inbox-row]');
     await held.getByText(/On hold until Nov 5, 2026/).waitFor();
     assert.doesNotMatch(await held.innerText(), /needs attention|Ready for your attention/i);
-    assert.deepEqual(await held.getByRole('button').allTextContents(), ['Open']);
+    assert.equal(await held.getByRole('button').count(), 0);
+    await held.getByRole('link', { name: /^Wait for sample terms/ }).click();
+    const details = held.getByRole('region', { name: /^Details for Wait for sample terms/ });
+    await details.getByRole('link', { name: 'Example Dental', exact: true }).waitFor();
+    await details.getByRole('button', { name: 'Close', exact: true }).click();
   }
   assert.equal(await inbox.locator('[data-inbox-row]').count(), state.items.length);
   for (const copy of ['needs attention', 'Ready for your attention']) {
     assert.equal(await inbox.getByText(copy, { exact: true }).count(), enabled ? 0 : tasks.length);
   }
-  if (enabled) await inbox.getByRole('region', { name: 'In motion and waiting', exact: true }).getByRole('button', { name: 'Show less', exact: true }).click();
+  if (enabled) await waiting.getByRole('button', { name: 'Show less', exact: true }).click();
   for (const task of tasks) {
     const title = `${task.title} (${reader})`;
     const link = inbox.getByRole('link', { name: title, exact: true });
@@ -243,6 +247,14 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   if (enabled) assert.deepEqual(applied, { item_id: id, base_version: original, action: 'snooze', until: applied.until, idempotency_key: applied.idempotency_key });
   else assert.deepEqual(applied.items, [{ item_id: id, base_version: original }]);
   assert.equal(door, enabled ? '/api/engine/home/marks' : 'snooze-home-inbox');
+  if (enabled) {
+    await waiting.getByRole('button', { name: 'See all 2', exact: true }).click();
+    const snoozed = waiting.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /^Read the sample lease/ }) });
+    await snoozed.getByText(/^Snoozed until .* Central$/).waitFor();
+    assert.deepEqual(await snoozed.getByRole('button').allTextContents(), ['Wake']);
+    assert.equal(await snoozed.getByRole('checkbox').isDisabled(), true);
+    await waiting.getByRole('button', { name: 'Show less', exact: true }).click();
+  }
   const snoozedVersion = state.items[0].base_version;
   await undo.click();
   await card.waitFor();
@@ -370,6 +382,14 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     await row.waitFor({ state: 'detached' });
     assert.equal(writes.at(-1)[1].item_id, id);
     assert.equal(writes.at(-1)[1].base_version, base_version);
+    if (id === log) {
+      await waiting.getByRole('button', { name: 'See all 2', exact: true }).click();
+      await row.getByRole('link', { name: /^Call suggestions/ }).click();
+      await row.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
+      assert.equal(await row.getByRole('button', { name: /^(Accept|Drop)$/ }).count(), 0);
+      await row.getByRole('button', { name: 'Close review' }).click();
+      await waiting.getByRole('button', { name: 'Show less', exact: true }).click();
+    }
     await undo.click();
     await row.waitFor();
   }
@@ -499,7 +519,6 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const lease = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
   await lease.getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
-  const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
   await waiting.getByRole('button', { name: /^See all/ }).click();
   const earlierUntil = writes.at(-1)[1].until;
   async function undoRestore(label, action, until, advanceClock = false) {

@@ -36,13 +36,14 @@ const emailDate = new Intl.DateTimeFormat("en-US", {
 type Props = {
   item: InboxItem;
   focusedSuggestionId: string | undefined;
+  readOnly: boolean;
   client: InboxClient["review"];
   children: ReactNode;
   close(): void;
   busy(value: boolean): void;
   confirmed(item: InboxItem | null, receipt?: TaskReceipt, snapshot?: Snapshot): void;
 };
-export function ReviewCard({ item, focusedSuggestionId, client, close, busy, confirmed, children }: Props) {
+export function ReviewCard({ item, focusedSuggestionId, readOnly, client, close, busy, confirmed, children }: Props) {
   const [state, setState] = useState<State>({ phase: "loading" });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -110,9 +111,11 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
   const review = "review" in state ? state.review : null;
   const proposals = review && "proposals" in review ? (review.proposals ?? []) : [];
   const proposalLed = item.item_id.startsWith("suggestion:");
-  const canSaveDraft = review?.operations.some((op) => op.verb === "edit-email-draft");
-  const canDeclineDraft = review?.operations.some((op) => op.verb === "dismiss-email-proposal");
-  const editable = state.phase === "ready" || state.phase === "editing" || state.phase === "proposal-refused";
+  const operations = readOnly ? [] : review?.operations;
+  const canSaveDraft = operations?.some((op) => op.verb === "edit-email-draft");
+  const canDeclineDraft = operations?.some((op) => op.verb === "dismiss-email-proposal");
+  const editable =
+    !readOnly && (state.phase === "ready" || state.phase === "editing" || state.phase === "proposal-refused");
   async function reload() {
     if (!client || lock.current) return;
     lock.current = true;
@@ -289,6 +292,7 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
     );
   }
   function suggestionDecisions(proposal: Suggestion): readonly ("accept" | "dismiss")[] {
+    if (readOnly) return [];
     return !item.engine_marks || proposal.completion || item.home_proposal_drop ? ["accept", "dismiss"] : ["accept"];
   }
   const suggestionFields = (
@@ -338,7 +342,7 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
             ) : (
               proposal.what && <p>{proposal.what}</p>
             )}
-            {!proposal.canAccept && (
+            {!readOnly && !proposal.canAccept && (
               <p>This step changed after the suggestion. Mark it done from the step, or choose Not yet.</p>
             )}
             <div className="inbox-actions">
@@ -637,7 +641,7 @@ export function ReviewCard({ item, focusedSuggestionId, client, close, busy, con
             )}
           </fieldset>
           <div className="inbox-actions">
-            {review.operations.map((op) => (
+            {operations?.map((op) => (
               <button
                 type="button"
                 key={op.verb}
