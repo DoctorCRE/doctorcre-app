@@ -2551,7 +2551,19 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   await filter.selectOption('');
   assert.deepEqual(await oldHistory.getByRole('listitem').allTextContents(), earlier);
   assert.equal(engine.filter(path => path === '/api/engine/activities').length, 1);
+  imported_deal_history[0].activity_id = 'first-step-note';
+  await page.reload();
+  await openTimeline();
+  assert.deepEqual(await recordedSteps.locator('..').locator('time').evaluateAll(times =>
+    times.map(time => time.dateTime)), ['2025-01-03T10:00:00.000004Z'],
+    'Only the note identified by the event leaves Timeline');
+  const matchedEvent = oldHistory.getByRole('listitem').filter({ hasText: copiedStepText });
+  assert.equal(await matchedEvent.count(), 1);
+  assert.match(await matchedEvent.innerText(), /Changed the next step.*Jan 8, 2025/s);
   await oldHistory.screenshot({ path: join(evidence, `imported-deal-history-${width}.png`) });
+  await page.getByRole('tab', { name: 'Correspondence & notes' }).click();
+  const dealNotes = page.getByRole('region', { name: 'Deal notes' });
+  assert.equal(await dealNotes.getByText(copiedStepText, { exact: false }).count(), 2);
 });
 
 for (const width of [1440, 390]) {

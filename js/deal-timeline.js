@@ -147,12 +147,19 @@ function changeText({ field, new_value }) {
   return label ? `${label} · ${value}` : 'Deal changed';
 }
 
+function importedHistoryEntries(history) {
+  return Array.isArray(history) ? history.filter(entry => entry?.imported === true) : [];
+}
+
 export function engineTimelineEntries(detail) {
   const notes = detail.thread || [];
   const noteIds = new Set(notes.map(note => note.id));
+  const notesWithImportedEvents = new Set(importedHistoryEntries(detail.imported_deal_history)
+    .flatMap(event => event.activity_id ? [event.activity_id] : []));
   /** @type {{ type: string, when: string, actor: string, text: string }[]} */
   const entries = [
-    ...notes.map(note => ({ type: 'Note', when: note.created_at, actor: note.actor, text: noteText(note.text) })),
+    ...notes.filter(note => !notesWithImportedEvents.has(note.id))
+      .map(note => ({ type: 'Note', when: note.created_at, actor: note.actor, text: noteText(note.text) })),
     ...(detail.activities || []).map(activity => ({
       type: activityLabels[activity.kind] || 'Activity', when: activity.occurred_at,
       actor: activity.actor, text: noteText(activity.summary),
@@ -312,8 +319,7 @@ function importedFacts({ verb, old_value, new_value }) {
 }
 
 export function renderImportedDealHistory(history) {
-  if (!Array.isArray(history)) return '';
-  const rows = history.filter(entry => entry?.imported === true).reverse().map(event => {
+  const rows = importedHistoryEntries(history).reverse().map(event => {
     const key = event.field == null ? event.verb : `${event.verb}:${event.field}`;
     const action = OLD_HISTORY_ACTION.get(key);
     const facts = action ? importedFacts(event) : '';
