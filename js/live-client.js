@@ -558,6 +558,22 @@ export function createLiveClient(opts = {}) {
     async recordDealItem(args) { return write('record-deal-item', { ...args, source_ref: args.source_ref || `app:deal-item:${args.idempotency_key}` }); },
     async instructDealItem(args) { return write('instruct-deal-item', args); },
     async completeOneAction(args) { return write('complete-one-action', args, opts.writeTimeoutMs || 10_000); },
+    async completeDealStep({ next_step_id, base_version, idempotency_key }) {
+      if (!online()) throw Object.assign(new Error('Offline. Reconnect before saving.'), { payload: { error: 'offline' } });
+      return readWithDeadline(async signal => {
+        const response = await fetchImpl(`/api/engine/next-steps/${encodeURIComponent(next_step_id)}/end`, {
+          method: 'POST', credentials: 'same-origin', signal,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ resolution: 'done', base_version, idempotency_key }),
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok) throw Object.assign(new Error('Step completion refused'), { status: response.status, payload: body });
+        if (body?.error || body?.next_step_id !== next_step_id || body.status !== 'done'
+            || !Number.isSafeInteger(body.change_id) || body.change_id <= base_version)
+          throw new Error('Step completion receipt unavailable');
+        return { ...body, ok: true };
+      }, { timeoutMs: opts.writeTimeoutMs || 10_000 });
+    },
     async completeDealItem(args) { return write('complete-deal-item', args); },
     // The portal password goes to CARR once, here; CARR keeps only a verifier and answers with the link.
     async registerClientPortal(args) {
