@@ -819,12 +819,12 @@ test('unreadable linked client exposes a recoverable context error',async t=>{
   assert.deepEqual(errors,[]);
 });
 
-test('context becoming unreadable stays open with an error and retry recovers',async t=>{
+test('context retry restores the client and displays readable phone numbers',async t=>{
   const {page,errors}=await open(t);
   await page.evaluate(async()=>{
     const {state}=await import('/js/pipeline.js');const read=state.client.getDeal.bind(state.client);
     state.client.getDeal=async id=>{const detail=await read(id);return {...detail,deal:{...detail.deal,client_id:'demo-context-client',account_client_id:null},critical_dates:[],participants:[]};};
-    state.client.getPartyRecord=async()=>{if(window.contextUnavailable)throw Error('Synthetic unreadable client');return {record:{id:'demo-context-client',name:'Demo Context Client'}};};
+    state.client.getPartyRecord=async()=>{if(window.contextUnavailable)throw Error('Synthetic unreadable client');return {record:{id:'demo-context-client',name:'Demo Context Client',phone:'+12025550123 x42',cell:'+12025550124'}};};
     state.client.getRelationshipNetwork=async()=>({nodes:[],edges:[]});
   });
   await page.locator('.kanban-column [data-id="d14"] .card-open').click();
@@ -837,6 +837,7 @@ test('context becoming unreadable stays open with an error and retry recovers',a
   await page.evaluate(()=>{window.contextUnavailable=false;});
   await page.locator('[data-context-retry]').click();
   await page.waitForFunction(()=>document.querySelector('#contextDrawerBody').textContent.includes('Demo Context Client'));
+  assert.ok(await page.locator('#contextDrawerBody').getByText('(202) 555-0123 x42 · (202) 555-0124', { exact: true }).isVisible());
   assert.equal(await page.locator('#panelContextOpenWrap').isVisible(),true);
   assert.deepEqual(errors,[]);
 });

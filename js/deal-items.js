@@ -139,6 +139,10 @@ export function autoHtml(deal) {
   const day = calendarDay(move.day);
   return day ? `<div class="auto-move"><span>${esc(move.label)}</span> <time datetime="${day}">${formatCalendarDate(day)}</time></div>` : '';
 }
+export function lossReasonLabel(reason) {
+  return reason === 'not recorded before this system' ? 'Not recorded before this system' : reason || 'Not recorded';
+}
+
 export function dealTypeFacts(deal, dealTypeLabel) {
   return [
     { label: fieldLabel('kind'), value: dealTypeLabel(deal.kind) || 'Not recorded' },
@@ -172,7 +176,7 @@ export function renderEndedDealList(view, {
       { label: 'Close date', value: closeDate },
     ];
     if (lost && deal.lost_reason) {
-      facts.push({ label: fromEngine ? 'Reason for loss' : 'Reason', value: deal.lost_reason });
+      facts.push({ label: fromEngine ? 'Reason for loss' : 'Reason', value: lossReasonLabel(deal.lost_reason) });
     }
     facts.push({ label: 'Owner', value: ACTOR_LABEL[deal.owner] || deal.owner || 'Unassigned' });
     return { deal, title: dealName(deal.name), facts };

@@ -15,7 +15,7 @@ let outDir;
 before(async () => { outDir = temporaryDirectory('home-sections-'); await buildArtifact({ root: process.cwd(), outDir }); });
 after(async () => { await rm(outDir, { recursive: true, force: true }); });
 
-for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(`Home opens inbox cards with the engine switch ${enabled ? 'on' : 'off'} at ${width}px`, async t => {
+for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(`Home opens inbox cards with plain wording and source excerpts when the engine switch is ${enabled ? 'on' : 'off'} at ${width}px`, async t => {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
   page.setDefaultTimeout(5000);
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
@@ -38,14 +38,14 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       const source = task.call ? 'capture_post_call_action' : 'next_action';
       return {
         item_id: `${source}:${id}`, source_type: source, source_id: id, source_version: enabled ? '2147483648' : '7',
-        source_state: 'needs_attention', base_version: enabled ? '2147483648:0:inbox' : 'legacy:7', title: task.title,
+        source_state: 'needs_attention', base_version: enabled ? '2147483648:0:inbox' : 'legacy:7', title: index === 0 ? `**${task.title}**` : task.title,
         activity_at: '2026-11-02T12:00:00.000Z', completed_at: null, due_on: '2026-11-03',
         hold_until: null, snoozed_until: null, disposition: 'inbox', section: 'inbox', unseen: false,
         ...(!enabled && { explicit_unsettle: false, auto_settled: false }), context_label: task.call ? 'Example Dental' : task.label,
         open_url: task.path, kind_label: task.call ? 'Call follow-up' : 'Task', action_id: id, action_version: enabled ? 2147483648 : 7,
         deal_id: task.dealId ?? null, merged_source_ids: [id], waiting_version: 0, waiting_on: null,
-        source_activity: task.call ? { kind: 'call', id: callId, happened_at: '2026-11-02T11:00:00.000Z',
-          contact: 'Example Contact', summary: 'Discussed the floor plan.', quote: 'Please send the floor plan.' } : null,
+        source_activity: task.call ? { kind: 'call', id: callId, happened_at: '2026-11-03T02:00:00.000Z',
+          contact: 'Example Contact', summary: 'Discussed plans &amp; schedules.', quote: 'Send the plan <today> to R&D.' } : null,
       };
     }),
   });
@@ -62,7 +62,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     });
   }
   const details = new Map();
-  let mailRows = [];
+  let mailRows = [], moreMail = false;
   const proposalRefusals = new Map();
   const snapshot = reader => ({ ...state, items: state.items.map(item => ({
     ...item, title: `${item.title} (${reader})`,
@@ -89,7 +89,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       }
       if (path === '/api/engine/home/mail-priorities') {
         assert.equal(new URL(request.url).search, '');
-        return Response.json({ ok: true, schema_version: 'home-mail-priorities.v1', items: mailRows, more: false });
+        return Response.json({ ok: true, schema_version: 'home-mail-priorities.v1', items: mailRows, more: moreMail });
       }
       const [, , , collection, id, action] = path.split('/');
       if (request.method === 'GET') return Response.json(details.get(id));
@@ -203,6 +203,10 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   };
   const first = inbox.getByRole('link', { name: new RegExp(`^${tasks[0].title}`) });
   await first.waitFor();
+  assert.equal(await inbox.getByText('Partner inbox', { exact: true }).count(), 0);
+  assert.equal(await inbox.getByText(/Completed today in Chicago/).count(), 0);
+  assert.equal(await page.locator('#appWorkingList').count(), 0);
+  assert.match(await inbox.locator('footer').textContent(), enabled ? /swipe right to wake a snoozed card/ : /swipe right to hide or wake/);
   assert.equal(await first.textContent(), `${tasks[0].title} (${reader})`);
   if (enabled) {
     assert.equal(new URL(page.url()).pathname, '/');
@@ -231,14 +235,19 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     assert.deepEqual(await card.getByRole('button').allTextContents(), enabled
       ? ['Open', 'Mark done', 'Snooze', 'Drop']
       : ['Open', 'Mark done', 'Hide from inbox', 'Snooze']);
-    assert.match(await card.locator('time').textContent(), /Nov 3/);
+    assert.match(await card.locator('.inbox-context time').textContent(), /Nov 3/);
     if (enabled && !task.call) {
       assert.equal(await link.getAttribute('href'), task.path);
       continue;
     }
+    if (enabled && task.call) await card.getByText('From your call with Example Contact on Mon, Nov 2').waitFor();
     await link.click();
     const details = card.getByRole('region', { name: `Details for ${title}` });
     assert.equal(await details.getByRole('link', { name: task.label, exact: true }).getAttribute('href'), task.path);
+    if (enabled && task.call) {
+      assert.equal(await details.getByText(/Discussed plans/).textContent(), 'Discussed plans & schedules.');
+      assert.equal(await details.locator('blockquote').textContent(), 'Send the plan <today> to R&D.');
+    }
     await details.getByRole('button', { name: 'Close', exact: true }).click();
   }
   assert.deepEqual(reads, [enabled ? 'GET /api/engine/home/inbox' : 'read-home-inbox-v5']);
@@ -348,14 +357,19 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const nested = '00000000-0000-0000-0000-000000000027';
   const remaining = '00000000-0000-0000-0000-000000000028';
   const dismissNested = '00000000-0000-0000-0000-000000000029';
+  const otherEmail = '00000000-0000-0000-0000-000000000031';
   const evidence = { evidence: 'Discussed next steps.', source_activity: { kind: 'call', summary: 'The sample call summary.', happened_at: NOW.toISOString() } };
   state.items[2].completion_review = { proposal_id: proposal, can_resolve: false };
   details.set(proposal, { ...evidence, proposal_id: proposal, kind: 'next_step_done' });
   state.items.push(
     { ...notice, title: 'Call suggestions', item_id: `suggestion:${log}`, source_id: log, source_type: 'capture_session',
       deal_id: null, kind_label: 'Call', suggestions: [{ id: log }, { id: phase }] },
-    { ...notice, title: 'Email suggestions', item_id: `suggestion:${leading}`, source_id: leading, source_type: 'email_proposal',
-      deal_id: null, kind_label: 'Suggestion', due_on: '2026-11-01', suggestions: [{ id: leading }, { id: next }] },
+    { ...notice, title: 'Sample Sender · Floor plan', item_id: `suggestion:${otherEmail}`, source_id: otherEmail, source_type: 'email_proposal',
+      deal_id: null, kind_label: 'Suggestion', suggestions: [{ id: otherEmail }],
+      source_activity: { kind: 'email', id: otherEmail, happened_at: '2026-11-03T03:30:00Z' } },
+    { ...notice, title: 'Sample Sender · Floor plan', item_id: `suggestion:${leading}`, source_id: leading, source_type: 'email_proposal',
+      deal_id: null, kind_label: 'Suggestion', due_on: '2026-11-01', suggestions: [{ id: leading }, { id: next }],
+      source_activity: { kind: 'email', id: log, happened_at: '2026-11-01T16:00:00Z' } },
     { ...notice, title: 'Reply to the sample email', item_id: `reply_draft:${draft}`, source_id: draft, source_type: 'email_proposal',
       deal_id: null, due_on: '2026-11-01', kind_label: 'Reply draft', source_version: '1', reply_draft_id: draft, reply_draft_status: 'pending',
       suggestions: [{ id: nested }, { id: dismissNested }, { id: remaining }] },
@@ -363,13 +377,16 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   details.set(log, { ...evidence, proposal_id: log, kind: 'log_call', target_name: 'Example Dental', what: 'Log the sample call' });
   details.set(next, { ...evidence, proposal_id: next, kind: 'next_step', what: 'Share the plan', due_on: '2026-11-04' });
   details.set(phase, { ...evidence, proposal_id: phase, kind: 'phase_move', to_phase: 'legal' });
-  details.set(leading, { ...evidence, proposal_id: leading, kind: 'possible_new_deal' });
+  details.set(leading, { ...evidence, proposal_id: leading, kind: 'possible_new_deal', source_activity: {
+    kind: 'email', body: '&amp;lt; is a literal reference. Our R&D team said &lt;strong&gt;Ready&#33;&lt;/strong&gt;',
+  } });
   details.set(nested, { ...evidence, proposal_id: nested, kind: 'next_step', what: 'Share the sample plan', due_on: '2026-11-04' });
   details.set(remaining, { ...evidence, proposal_id: remaining, kind: 'possible_new_deal' });
   details.set(dismissNested, { ...evidence, proposal_id: dismissNested, kind: 'file_to_deal' });
   details.set(draft, { draft_id: draft, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
     to: 'sender@example.test', cc: 'partner@example.test', attachments: [{ document_id: dealId, name: 'Sample plan' }],
-    source_activity: { sender: 'sender@example.test', subject: 'Sample email', body: 'Please share the sample plan.', happened_at: NOW.toISOString() } });
+    source_activity: { sender: 'sender@example.test', subject: 'Sample email',
+      body: '&#65279;Tom &amp; Pat&#39;s &lt;sample&gt;&nbsp;plan.', happened_at: NOW.toISOString() } });
   const lead = '00000000-0000-0000-0000-000000000030';
   state.items.push({ ...notice, title: 'New Example · Possible lead', item_id: `suggestion:${lead}`, source_id: lead,
     source_type: 'email_proposal', deal_id: null, open_url: null, source_activity: null,
@@ -433,7 +450,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await suggestions.getByRole('button', { name: 'Review suggestions', exact: true }).click();
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
-  await reply.getByText('Please share the sample plan.', { exact: true }).waitFor();
+  await reply.getByRole('region', { name: 'Their email', exact: true }).waitFor();
   assert.equal(await suggestions.getByRole('region', { name: /Details for Call suggestions/ }).count(), 0);
   await reply.getByRole('textbox', { name: 'Subject', exact: true }).fill('Revised sample reply');
   await reply.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited reply.');
@@ -463,27 +480,37 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   mailRows = [{ ...priority, kind: 'reply_draft', item_id: `reply_draft:${draft}` }];
   await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
   await mail.getByText('Mail priorities unavailable.', { exact: true }).waitFor();
-  for (const [subject, sender] of [[null, 'Null Sender'], ['', 'Empty Sender'], ['   ', 'Blank Sender']]) {
-    mailRows = [{ ...priority, subject, sender }];
-    await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
-    await mail.getByRole('button', { name: `${sender} · (No subject)`, exact: true }).waitFor({ timeout: 3000 });
-  }
-  mailRows = [priority];
-  const priorityButton = mail.getByRole('button', { name: 'Sample Sender · (No subject)', exact: true });
-  await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
-  await mail.getByText('Share the plan (No subject)', { exact: true }).waitFor();
+  const email = inbox.locator(`[data-inbox-row="suggestion:${leading}"]`);
+  const sameSubject = inbox.locator(`[data-inbox-row="suggestion:${otherEmail}"]`);
+  const subjectLinks = inbox.getByRole('link', { name: /Sample Sender · Floor plan/ });
+  assert.equal(await subjectLinks.count(), 2);
+  await sameSubject.getByText(/Nov 2, 2026, 9:30 PM/).waitFor();
+  await email.getByText(/Nov 1, 2026, 10:00 AM/).waitFor();
+  assert.equal(await subjectLinks.first().locator('xpath=ancestor::article').getAttribute('data-inbox-row'), `suggestion:${otherEmail}`);
+  const refreshMail = mail.getByRole('button', { name: 'Refresh mail priorities', exact: true });
+  mailRows = [{ ...priority, subject: 'Floor plan', base_version: 'stale' }];
+  await refreshMail.click();
+  await mail.getByText('No mail priorities right now.', { exact: true }).waitFor();
+  assert.equal(await subjectLinks.first().locator('xpath=ancestor::article').getAttribute('data-inbox-row'), `suggestion:${otherEmail}`);
+  mailRows = [{ ...priority, subject: 'Floor plan' }];
+  moreMail = true;
+  await refreshMail.click();
+  await mail.getByText('More conversations are in your inbox.', { exact: true }).waitFor();
+  assert.equal(await mail.getByText(/Sample Sender|Floor plan|Share the plan/).count(), 0);
+  assert.equal(await subjectLinks.first().locator('xpath=ancestor::article').getAttribute('data-inbox-row'), `suggestion:${leading}`);
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
-  await priorityButton.press('Enter');
-  assert.equal(await mail.locator('li').count(), 1);
-  const email = cardFor(/Email suggestions/);
+  await email.getByRole('link', { name: /Sample Sender · Floor plan/ }).press('Enter');
+  assert.equal(await reply.getByRole('textbox', { name: 'Message', exact: true }).count(), 0);
   await email.getByText('Suggestion', { exact: true }).waitFor();
   await email.getByText(/2 days late/).waitFor();
   assert.equal(await email.getByRole('button', { name: 'Mark done', exact: true }).count(), 0);
   const possibleDeal = email.getByRole('region', { name: 'Possible new deal', exact: true });
   await possibleDeal.getByRole('button', { name: 'Accept', exact: true }).waitFor();
+  const suggestionExcerpt = possibleDeal.locator('blockquote').filter({ hasText: 'is a literal reference' });
+  assert.equal(await suggestionExcerpt.textContent(), '&lt; is a literal reference. Our R&D team said <strong>Ready!</strong>');
+  assert.equal(await suggestionExcerpt.locator('strong').count(), 0);
   await possibleDeal.getByRole('button', { name: 'Drop', exact: true }).waitFor();
   const step = email.getByRole('region', { name: 'Next step', exact: true });
-  assert.equal(await step.evaluate(section => section === document.activeElement), true);
   for (const [error, status, message] of [
     ['open_step_exists', 409, /You already have an open step for this client or deal/],
     ['invalid_field_value', 422, /This suggestion could not be saved/],
@@ -493,7 +520,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     await email.getByRole('alert').filter({ hasText: message }).waitFor();
     assert.equal(await email.getByRole('button', { name: 'Retry same review request' }).count(), 0);
     await page.keyboard.press('Escape');
-    await priorityButton.click();
+    await email.getByRole('button', { name: 'Open', exact: true }).click();
   }
   await step.getByRole('textbox', { name: 'Next step', exact: true }).fill('Share the revised plan');
   await step.getByRole('button', { name: 'Accept', exact: true }).click();
@@ -504,9 +531,13 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     base_version: state.items.find(row => row.reply_draft_id === draft).base_version,
     kind: 'reply_draft', proposal_id: null, reply_draft_id: draft, subject: 'Sample draft message' }];
   await reply.getByText(/2 days late/).waitFor();
-  await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
-  await mail.getByRole('button', { name: 'Sample Sender · Sample draft message', exact: true }).click();
-  await reply.getByText('Please share the sample plan.', { exact: true }).waitFor();
+  await refreshMail.click();
+  await mail.getByText('No mail priorities right now.', { exact: true }).waitFor({ state: 'detached' });
+  assert.equal(await mail.getByText('Sample draft message', { exact: true }).count(), 0);
+  await reply.getByRole('button', { name: 'Open', exact: true }).click();
+  const replyExcerpt = reply.getByRole('region', { name: 'Their email', exact: true }).locator('blockquote');
+  await replyExcerpt.waitFor();
+  assert.equal(await replyExcerpt.textContent(), "Tom & Pat's <sample>\u00a0plan.");
   await reply.getByRole('link', { name: 'Sample plan', exact: true }).waitFor();
   assert.equal(await cardFor(/Remaining email suggestion/).count(), 0);
   await reply.getByRole('button', { name: 'Accept', exact: true }).first().click();

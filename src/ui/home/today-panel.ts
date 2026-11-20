@@ -111,6 +111,7 @@ export async function mountHomeTodayPanel(rail: HTMLElement, readDeals: (signal:
   type DatedReminders = { today: string; partners: Partner[]; late: Reminder[]; upcoming: Reminder[] };
   let data: DatedReminders | null = null;
   let revision = 0;
+  let inboxCards = new Set<string>();
   const rendered = new Map<Element, string>();
   const paint = (node: Element, html: string) => {
     if (rendered.get(node) === html) return;
@@ -123,6 +124,7 @@ export async function mountHomeTodayPanel(rail: HTMLElement, readDeals: (signal:
     const rows = (items: Reminder[], today: string) =>
       items
         .filter((item) => scope === "all" || item.owner === scope)
+        .filter((item) => !text(item.home_item_id) || !inboxCards.has(item.home_item_id))
         .map((item) => {
           const destination = text(item.home_item_id)
             ? `/?card=${encodeURIComponent(item.home_item_id)}`
@@ -146,6 +148,15 @@ export async function mountHomeTodayPanel(rail: HTMLElement, readDeals: (signal:
     );
   };
   select.onchange = () => renderReminders("");
+  const watchInbox = (event: Event) => {
+    if (event instanceof CustomEvent && Array.isArray(event.detail)) {
+      inboxCards = new Set(event.detail.filter(text));
+      if (data) renderReminders("");
+    }
+  };
+  const doc = rail.ownerDocument;
+  doc.addEventListener("doctorcre:home-cards", watchInbox);
+  doc.dispatchEvent(new Event("doctorcre:request-home-cards"));
 
   const clear = (state: "loading" | "offline" | "unavailable" = "unavailable") => {
     revision++;
@@ -220,7 +231,10 @@ export async function mountHomeTodayPanel(rail: HTMLElement, readDeals: (signal:
 
   return {
     clear,
-    dispose: meetingReviews.dispose,
+    dispose() {
+      doc.removeEventListener("doctorcre:home-cards", watchInbox);
+      meetingReviews.dispose();
+    },
     async refresh(signal: AbortSignal) {
       const current = ++revision;
       let answer: unknown;

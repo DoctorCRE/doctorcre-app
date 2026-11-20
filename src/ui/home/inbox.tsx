@@ -322,6 +322,7 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   // Version-specific checks above validate the item before normalized optional fields are added.
   return {
     ...fields,
+    title: task ? legacy.title.replace(/\*\*([^*]+)\*\*/g, "$1") : legacy.title,
     ...(engineMarks ? { engine_marks: true } : { explicit_unsettle, auto_settled: v3 ? auto_settled : false }),
     ...(engineMarks &&
       task &&
