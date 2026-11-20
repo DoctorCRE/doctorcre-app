@@ -7,5 +7,5 @@ test('QA-021 one matching lead uses singular count', { tags: ['regression'], req
   await expect(browser.locator('#leadBoard')).toHaveAttribute('aria-busy', 'false');
   await screen.getByLabel('Board stage', { exact: true }).selectOption({ value: 'qualified' });
   await expect(browser.locator('#leadBoard .lead-card')).toHaveCount(1);
-  await expect(browser.locator('#filterSummary')).toHaveText('1 matching lead');
+  await expect(browser.locator('#leadCount')).toHaveText('1 lead');
 });
