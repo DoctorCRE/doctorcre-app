@@ -27,7 +27,9 @@ Existing coverage: `tests/fixtures/staging-leads.spec.mjs` runs the staging asse
 
 ## Gotchas
 
-The plain static preview does not supply the Leads workspace API. Use the existing routed fixture tests for populated local coverage. Claim and stage changes write records; the automated fixtures isolate those writes. Avoid those actions during manual read-only inspection.
+The plain static preview does not supply the Leads workspace API. Use the existing routed fixture tests for populated local coverage. Claim, stage moves, and client links write records. The automated fixtures isolate those writes.
+
+With `leads-from-engine` and `deals-saves-from-engine` on, Claim, stage moves, and confirmed client links go to the engine using the board UUID. An archive sends the partner's reason. `test/engine-switch.test.ts` checks the three routes, the old route before cutover, and the response to stale or unconfirmed saves.
 
 Reasons to reach out loads the pinned `practice-origination.v1` read independently of the board. Each existing work card shows registration or publication evidence with a public CMS source. Exact client matches open `/clients?record=...`; ambiguous matches say Needs review and offer only the source. Coverage distinguishes covered, blocked updates and not yet covered sources. More reasons pages with the server cursor. Home loads reasons when its secondary panels enter view, shows at most three research reasons and links to this section. `test/practice-origination.test.mjs` covers the client reads, synthetic routes, coverage, rendered copy, failure recovery and session retirement. `test/contact-reasons-browser.test.mjs` drives both entry points at 390px and 1440px in light and dark, with synthetic captures under `out/test-artifacts/contact-reasons/`. These checks do not prove signed-in staging or live source imports.
 

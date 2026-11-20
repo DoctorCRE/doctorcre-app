@@ -81,6 +81,10 @@ test('Leads workspace transports exact reviewed stage, undo, claim and link inte
  await client.getWorkspace();await client.getLeadDetail(lead);
  const review={reason:'Undo automatic stage move',evidence_ids:[],undo_event_id:'synthetic-event'};await client.recordStage(lead,'new',review,'same-key','example-partner');await client.claimLead(lead,'claim-key','example-partner');await client.linkClient(lead,'30000000-0000-0000-0000-000000000002','link-key','example-partner');
  assert.deepEqual(calls.map(c=>c.body.params.name),['lead-board','lead-board','update-lead','claim-lead','link-lead-client']);assert.deepEqual(calls[2].body.params.arguments.stage_review,review);assert.equal(calls[2].body.params.arguments.idempotency_key,'same-key');assert.equal(calls[4].body.params.arguments.confirmed,true);assert.ok(calls.slice(2).every(c=>c.body.params.arguments.expected_actor==='example-partner'));assert.ok(calls.every(c=>c.path==='/mcp'));
+ for (const {body} of calls.slice(2)) {
+   assert.equal(body.params.arguments.lead_id, lead.id);
+   assert.equal(body.params.arguments.lead, lead.registry_ref);
+ }
 });
 test('Leads read and mutation deadlines stop indefinite loading and classify mutation as unknown',async()=>{
  const c=createLeadBoardClient({timeoutMs:15,fetchImpl:()=>new Promise(()=>{})});
@@ -181,6 +185,6 @@ test('stage clock leaves the exact reviewed write and retry request frozen', asy
  const row=workspace().leads[0],review={reason:'Human confirmed contact',evidence_ids:[],human_quote:'Human confirmed contact'};
  await assert.rejects(c.recordStage(row,'engaged',review,'frozen-key','example-partner'),{code:'unknown_outcome'});
  await c.recordStage(row,'engaged',review,'frozen-key','example-partner');
- assert.deepEqual(calls[0],{lead:row.registry_ref,base_version:row.base_version,expected_actor:'example-partner',fields:{stage:'engaged'},stage_review:review,idempotency_key:'frozen-key'});
+ assert.deepEqual(calls[0],{lead:row.registry_ref,lead_id:row.id,base_version:row.base_version,expected_actor:'example-partner',fields:{stage:'engaged'},stage_review:review,idempotency_key:'frozen-key'});
  assert.deepEqual(calls[1],calls[0]);
 });
