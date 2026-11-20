@@ -368,15 +368,16 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await suggestions.waitFor({ state: 'detached' });
   assert.equal(writes.at(-1)[1].decision, 'dismiss');
   const priority = { item_id: `suggestion:${leading}`, base_version: notice.base_version, conversation_id: 'sample-conversation',
-    kind: 'next_step', proposal_id: next, reply_draft_id: null, sender: 'Sample Sender', subject: 'Sample message', suggestion: 'Share the plan',
+    kind: 'next_step', proposal_id: next, reply_draft_id: null, sender: 'Sample Sender', subject: 'No subject', suggestion: 'Share the plan (no subject)',
     due_on: '2026-11-04', source_activity: { kind: 'email', id: log, happened_at: NOW.toISOString() } };
   const mail = page.getByRole('region', { name: 'Mail priorities', exact: true });
   mailRows = [{ ...priority, kind: 'reply_draft', item_id: `reply_draft:${draft}` }];
   await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
   await mail.getByText('Mail priorities unavailable.', { exact: true }).waitFor();
   mailRows = [priority];
-  const priorityButton = mail.getByRole('button', { name: 'Sample Sender · Sample message', exact: true });
+  const priorityButton = mail.getByRole('button', { name: 'Sample Sender · (No subject)', exact: true });
   await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
+  await mail.getByText('Share the plan (No subject)', { exact: true }).waitFor();
   await priorityButton.press('Enter');
   assert.equal(await mail.locator('li').count(), 1);
   const email = cardFor(/Email suggestions/);

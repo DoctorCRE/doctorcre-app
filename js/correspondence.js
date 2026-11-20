@@ -1,8 +1,12 @@
 import { newestFirst } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
 import { meetingEvidence, unavailableEvidence } from './correspondence-model.js';
+export const emailSubject = value => {
+  const subject = value?.trim();
+  return !subject || /^(?:\(no subject\)|no subject)$/i.test(subject) ? '(No subject)' : subject;
+};
+export const emailPlaceholderText = value => value.replace(/\(no subject\)/gi, '(No subject)');
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-const emailSubject = value => !value?.trim() || value.trim().toLowerCase() === '(no subject)' ? '(No subject)' : value;
 const GROUPS = [
   { key: 'threads', title: 'Email threads', none: 'No email threads', kind: 'thread', label: 'Email' },
   { key: 'meetings', title: 'Meetings', none: 'No meetings', kind: 'meeting', label: 'Meeting' },

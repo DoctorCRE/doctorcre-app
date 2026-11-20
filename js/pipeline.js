@@ -19,7 +19,7 @@ import { fetchRead } from './current-read.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient, dealTypeLabel } from './live-client.js';
-import { loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
+import { emailSubject, emailPlaceholderText, loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
 import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
@@ -1501,11 +1501,10 @@ function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_sa
   return `<h2>Email follow-ups</h2>${followups.map(row => {
     const email = row.email || {};
     const sender = [email.sender_name || email.sender || 'Unknown sender', email.happened_at && sourceTime(email.happened_at)].filter(Boolean).join(' · ');
-    const subject = email.subject?.trim();
-    const title = subject && subject.toLowerCase() !== '(no subject)' ? subject : '(No subject)';
+    const title = emailSubject(email.subject);
     const change = row.kind === 'file_to_deal' ? 'File email to this deal'
       : row.kind === 'phase_move' ? `Move to ${columnBySlug(row.to_phase)?.label || 'the next phase'}`
-      : row.what?.replace(/\(no subject\)/gi, '(No subject)') || 'Review email';
+      : row.what && emailPlaceholderText(row.what) || 'Review email';
     const owner = row.kind === 'next_step' ? ACTOR_LABEL[row.owner] : '';
     const id = esc(row.proposal_id);
     const actions = next_deal_saves ? `<form data-email-decision="${id}">
@@ -1518,7 +1517,7 @@ function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_sa
     </form>` : '';
     return workCard({className:'email-proposal', title:esc(title), actions,
       meta:`<p>${esc(sender)}</p>`,
-      body:`<p>${esc(change)}${owner ? ` · ${esc(owner)}` : ''}${row.due_on ? ` · ${dueDateHtml(row.due_on, today)}` : ''}</p>${email.summary ? `<p>${esc(email.summary)}</p>` : ''}
+      body:`<p>${esc(change)}${owner ? ` · ${esc(owner)}` : ''}${row.due_on ? ` · ${dueDateHtml(row.due_on, today)}` : ''}</p>${email.summary ? `<p>${esc(emailPlaceholderText(email.summary))}</p>` : ''}
         ${row.evidence ? `<details><summary>Read email excerpt</summary><q>${esc(row.evidence)}</q></details>` : ''}`});
   }).join('') || '<p>No email follow-ups.</p>'}`;
 }

@@ -76,6 +76,10 @@ async function readPriorities(signal: AbortSignal) {
   return { items, more: value.more };
 }
 
+const emailSubject = (value: string) =>
+  /^(?:\(no subject\)|no subject)$/i.test(value.trim()) ? "(No subject)" : value;
+const emailPlaceholderText = (value: string) => value.replace(/\(no subject\)/gi, "(No subject)");
+
 export function EngineMailPriorities({
   items,
   locked,
@@ -131,9 +135,9 @@ export function EngineMailPriorities({
                           review(card, event.currentTarget, row.proposal ?? undefined);
                         }}
                       >
-                        {row.sender} · {row.subject}
+                        {row.sender} · {emailSubject(row.subject)}
                       </button>
-                      <p>{row.suggestion}</p>
+                      <p>{emailPlaceholderText(row.suggestion)}</p>
                       <time dateTime={row.happenedAt}>{received.format(new Date(row.happenedAt))} Central</time>
                       {row.dueOn && (
                         <p>
