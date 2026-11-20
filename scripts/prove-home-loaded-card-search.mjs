@@ -9,21 +9,23 @@ import { fileURLToPath } from 'node:url';
 import { CHROMIUM_SAFETY_ARGS } from './chromium-safety-args.mjs';
 
 export async function observeSearch(page, snapshot, calls) {
-  const search = page.getByRole('searchbox', { name: 'Search loaded cards' });
+  const search = page.getByRole('searchbox', { name: 'Search inbox' });
   await search.waitFor();
   const inboxCalls = () => calls.filter(name => /home-inbox|one-action|home-waiting|home-review/.test(name)).length;
   const before = inboxCalls();
   await search.fill('  PIPELINE  ');
-  await page.getByText(`1 matching loaded cards of ${snapshot.items.length} loaded`, { exact: true }).waitFor();
+  await page.getByText('1 result', { exact: true }).waitFor();
   const ids = await page.locator('[data-inbox-row]').evaluateAll(rows => rows.map(row => row.dataset.inboxRow));
   assert.deepEqual(ids, snapshot.items.filter(item => [item.title, item.context_label, item.kind_label].some(value => value?.toLowerCase().includes('pipeline'))).map(item => item.item_id));
   await search.fill('[does not exist]');
-  await page.getByText('No loaded cards match your search.', { exact: true }).waitFor();
+  await page.getByText('No cards match your search.', { exact: true }).waitFor();
   assert.equal(await page.locator('[data-inbox-row]').count(), 0);
   await page.getByRole('search').getByRole('button', { name: 'Clear', exact: true }).click();
-  await page.getByText(`${snapshot.items.length} matching loaded cards of ${snapshot.items.length} loaded`, { exact: true }).waitFor();
+  await page.getByText('No cards match your search.', { exact: true }).waitFor({ state: 'detached' });
+  assert.equal(await search.inputValue(), '');
+  assert.ok(await page.locator('[data-inbox-row]').count());
   assert.equal(inboxCalls(), before, 'typing and clearing perform no inbox RPC or mutation');
-  return ['trimmed-case-insensitive-title-subset', 'literal-empty-state', 'clear-restores-loaded-count', 'search-makes-no-RPC'];
+  return ['trimmed-case-insensitive-title-subset', 'literal-empty-state', 'clear-restores-cards', 'search-makes-no-RPC'];
 }
 
 export async function prove({ origin, timeoutMs = 30000, engine = chromium, observe = observeSearch }) {

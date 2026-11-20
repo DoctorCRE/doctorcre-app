@@ -49,7 +49,8 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const title = pathname === '/' ? 'Home' : progressPage ? 'Progress' : pathname.startsWith('/control-room') ? 'Control Room' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .room-wordmark, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
   const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine');
   const { layout, status } = createAppLayout(root, title, engineToday);
-  if (vendorDirectory) layout.querySelector('.app-layout-working').remove();
+  const hasWorkingList = !vendorDirectory && pathname !== '/';
+  if (!hasWorkingList) layout.querySelector('.app-layout-working').remove();
   else if (homeOrInbox || engineToday) layout.querySelector('.app-layout-working').hidden = true;
   host.after(layout, status);
   const skip = root.querySelector('.skip');
@@ -189,7 +190,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       const deals = scopedDeals(await client.getBoard({ workspace: 'all', signal }), 'team');
       if (!deals) throw new Error('Could not load meeting deals');
       return deals;
-    })).catch(() => {
+    }, { hideEndedDealReminders: pathname === '/deals' })).catch(() => {
       layout.querySelector('#appScheduleSlot').textContent = "Couldn't load meetings.";
       layout.querySelector('#appTodayNext').textContent = "Couldn't load dated reminders.";
       return null;
@@ -289,7 +290,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const unavailableRead = () => {
     todayItems = null; todayNeeds = null;
     resetFeed();
-    if (!vendorDirectory) render('#appWorkingList', unavailable);
+    if (hasWorkingList) render('#appWorkingList', unavailable);
     failedRead();
   };
   const loadingRead = () => {
@@ -297,7 +298,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     todayItems = null; todayNeeds = null; failedReads = [];
     todayReadState = 'loading';
     resetFeed();
-    if (!vendorDirectory) render('#appWorkingList', '<span class="app-layout-empty">Loading…</span>');
+    if (hasWorkingList) render('#appWorkingList', '<span class="app-layout-empty">Loading…</span>');
     void calendarPanels.then(panel => panel?.clear('loading'));
     renderToday(); renderReadStatus();
   };
@@ -366,7 +367,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       const reminded = homeOrInbox ? active.filter(deal => todayItems?.some(item => item.subject_type === 'deal' && item.subject_id === deal.id)) : active;
       if (triageValid || !todayNeeds) todayNeeds = overdueActionRows(reminded, todayItems, businessDay());
       else todayNeeds = todayNeeds.filter(deal => active.some(current => current.id === (deal.subject_id || deal.id)));
-      if (!vendorDirectory) render('#appWorkingList', overdueRows(active.filter(d => needsAttention(d))).slice(0,8).join('') || empty);
+      if (hasWorkingList) render('#appWorkingList', overdueRows(active.filter(d => needsAttention(d))).slice(0,8).join('') || empty);
       renderToday();
       if (canReadMoves()) {
         try {
@@ -398,7 +399,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       }
     } else {
       if (triageValid) todayItems = triage.value.items;
-      if (!vendorDirectory && !todayNeeds) render('#appWorkingList', unavailable);
+      if (hasWorkingList && !todayNeeds) render('#appWorkingList', unavailable);
       if (canReadMoves()) {
         failedReads.push('Deal pulse');
         if (!feed.caught_up) render('#appTodayMoves', unavailable);

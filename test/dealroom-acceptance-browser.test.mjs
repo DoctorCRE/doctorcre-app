@@ -54,19 +54,27 @@ for (const width of [1440, 390]) {
   test(`parking, renewal and ended deal captions at ${width}px`, async t => {
     const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Los_Angeles' });
     t.after(() => page.close());
+    await page.clock.setFixedTime(new Date('2026-11-20T18:00:00Z'));
     const deal = (name, fields) => ({ id: crypto.randomUUID(), name, owner: 'joe', phase: 'research', seen: 1, ...fields });
     const parked = { operating_state: 'parked', parking_reason: 'client_paused' };
     const automatic = deal('Example Automatic Parking', { ...parked, parked_automatically: true, parked_by: null });
     const partner = deal('Example Partner Parking', { ...parked, parking_note: 'Waiting for the tenant', parked_automatically: false, parked_by: 'dell' });
     const renewal = { kind: null, reason: 'renewal', renewal_lease_unrecorded: true, client_name: 'Example Practice', closed_on: '2026-11-02' };
-    const won = deal('Example Closed Renewal', { ...renewal, client_name: 'Example Closed Renewal', type: 'renewal', phase: 'closed', outcome: 'won' });
-    const undated = deal('Example Undated Deal', { phase: 'closed', kind: 'build_to_suit', type: 'build_to_suit',
-      client_name: 'Example Clinic', owner: 'dell', outcome: null, closed_on: null, invoiced_on: null });
+    const nextActions = [
+      { id: crypto.randomUUID(), owner: 'joe', description: 'Send the sample plan', status: 'open', due_on: '2026-10-21' },
+      { id: crypto.randomUUID(), owner: 'dell', description: 'Check the sample lease', status: 'open', due_on: '2026-10-20' },
+      { id: crypto.randomUUID(), owner: 'joe', description: 'Find the sample map', status: 'done', due_on: '2026-10-19' },
+    ];
+    const items = [{ id: crypto.randomUUID(), title: 'Review fixture checklist', status: 'open', due_on: '2026-10-19', bullets: [] }];
+    const won = deal('Example Closed Renewal', { ...renewal, client_name: 'Example Closed Renewal', type: 'renewal',
+      phase: 'closed', outcome: 'won', next_actions: nextActions, items });
+    const undated = deal('Example Undated Deal', { phase: 'invoiced', kind: 'build_to_suit', type: 'build_to_suit',
+      client_name: 'Example Clinic', owner: 'dell', outcome: null, closed_on: null, invoiced_on: null, next_actions: nextActions });
     const reasonOnly = deal('Example Former Office', { phase: 'closed', outcome: 'won', closed_on: '2026-10-15',
       kind: null, type: 'relocation', reason: 'relocation', client_name: 'Example Studio' });
-    const lost = deal('Example Lost Renewal', { ...renewal, kind: 'sale_leaseback', type: 'sale_leaseback', phase: 'dead', outcome: 'lost', lost_reason: 'Plans changed' });
+    const lost = deal('Example Lost Renewal', { ...renewal, kind: 'sale_leaseback', type: 'sale_leaseback', ...parked, phase: 'pending', outcome: 'lost', lost_reason: 'Plans changed', next_actions: nextActions });
     const lostNoReason = deal('Example Lost Without Deal Reason', { phase: 'dead', outcome: 'lost' });
-    const lostUnknown = deal('Example Lost Renewal With Unknown Type', { ...renewal, type: 'renewal', phase: 'dead', outcome: 'lost',
+    const lostUnknown = deal('Example Lost Renewal With Unknown Type', { ...renewal, type: 'renewal', ...parked, phase: 'closed', outcome: 'lost',
       closed_on: null, lost_reason: 'not recorded before this system' });
     const withLease = deal('Example Renewal With Lease', { kind: 'lease', reason: 'renewal', type: 'lease', phase: 'dead', outcome: 'lost' });
     const rows = [automatic, partner, won, undated, reasonOnly, lost, lostNoReason, lostUnknown, withLease];
@@ -188,6 +196,7 @@ for (const width of [1440, 390]) {
         await caption(fact(detailFacts, 'Deal kind'), 'Not recorded').waitFor();
         await caption(fact(detailFacts, 'Reason for loss'), 'Not recorded before this system').waitFor({ timeout: 5000 });
         await caption(fact(detailFacts, 'Close date'), 'Close date not recorded').waitFor();
+        assert.equal(await fact(detail.locator('#workspaceFacts'), 'Phase').locator('dd').textContent(), 'Lost');
         await back();
         await caption(fact(card(withLease), 'Deal kind'), 'Lease').waitFor();
         await openDetail(withLease);
@@ -204,6 +213,10 @@ for (const width of [1440, 390]) {
         await search.clear();
         await openDetail(undated);
         await caption(fact(detailFacts, 'Deal kind'), 'Build-to-suit').waitFor();
+        const undatedSteps = detail.getByRole('region', { name: 'Open before this deal ended' });
+        assert.equal(await undatedSteps.count(), 1, 'An invoiced deal stays ended even when its dates and outcome are missing');
+        assert.match(await undatedSteps.innerText(), /Due Wed, Oct 21, 2026/);
+        assert.doesNotMatch(await undatedSteps.innerText(), /days? late/);
         await back();
         await caption(fact(card(reasonOnly), 'Deal kind'), 'Not recorded').waitFor();
         await caption(fact(card(reasonOnly), 'Deal reason'), 'Relocation').waitFor({ timeout: 5000 });
@@ -225,6 +238,22 @@ for (const width of [1440, 390]) {
       if (row === lost) {
         await caption(fact(facts, 'Reason for loss'), 'Plans changed').waitFor({ timeout: 5000 });
         await caption(fact(facts, 'Close date'), 'Mon, Nov 2, 2026').waitFor();
+      }
+      const phase = fact(detail.locator('#workspaceFacts'), 'Phase').locator('dd');
+      assert.equal(await phase.textContent(), row === lost ? 'Lost' : 'Closed');
+      const steps = detail.getByRole('region', { name: 'Open before this deal ended' });
+      await steps.getByText('Send the sample plan', { exact: true }).waitFor({ timeout: 5000 });
+      assert.match(await steps.innerText(), /Next step: Send the sample plan · Joe · Due Wed, Oct 21, 2026/);
+      assert.match(await steps.innerText(), /Next step: Check the sample lease · Dell · Due Tue, Oct 20, 2026/);
+      assert.doesNotMatch(await steps.innerText(), /days? late|Find the sample map/);
+      await detail.getByText('Change next step', { exact: true }).click();
+      assert.equal(await detail.getByText('Current next date is overdue.').isVisible(), false);
+      if (row === won) {
+        await detail.getByRole('button', { name: items[0].title, exact: true }).click();
+        const item = page.getByRole('dialog', { name: items[0].title });
+        await item.getByText('Due Oct 19', { exact: true }).waitFor();
+        await item.getByRole('button', { name: 'Close item' }).click();
+        await capture(steps, 'ended-steps');
       }
       await capture(facts, `${row.outcome}-detail`);
       await back();
@@ -1047,7 +1076,7 @@ for (const width of [1440, 390]) {
   });
 }
 
-test('Deals shows late steps and can undo a close reported by the engine', async t => {
+test('Undoing an invoice close restores late steps to the deal page', async t => {
   const page = await browser.newPage({ timezoneId: 'America/Chicago' });
   t.after(() => page.close());
   await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'engine-invoice-undo', viewer: 'joe', reset: true } });
@@ -1115,8 +1144,9 @@ test('Deals shows late steps and can undo a close reported by the engine', async
     }
     await page.getByRole('button', { name, exact: true }).click();
     await page.getByRole('heading', { name, exact: true }).waitFor();
-    await otherSteps.getByText(/Call the architect.*2 days late/).waitFor({ timeout: 5000 });
-    assert.match(await page.locator('.deal-current-action').textContent(), /^Overdue action: Check floor plan · Due .+2026$/);
+    const endedSteps = page.getByRole('region', { name: 'Open before this deal ended' });
+    await endedSteps.getByText(/Call the architect.*Due Mon, Nov 16, 2026/).waitFor({ timeout: 5000 });
+    assert.doesNotMatch(await endedSteps.innerText(), /days? late|Overdue/);
   };
   await openClosedDeal();
   assert.equal(await undo.count(), 0);
@@ -1132,6 +1162,8 @@ test('Deals shows late steps and can undo a close reported by the engine', async
   await undo.click();
   await page.locator('#detailPhase').waitFor();
   assert.equal(await page.locator('#detailPhase').inputValue(), 'legal');
+  await otherSteps.getByText(/Call the architect again.*2 days late/).waitFor();
+  assert.equal(await page.getByRole('region', { name: 'Open before this deal ended' }).count(), 0);
   assert.equal(await undo.count(), 0);
   await page.getByRole('button', { name: 'Back to deals' }).click();
   await page.getByRole('button', { name: 'Board', exact: true }).click();
@@ -1490,10 +1522,6 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
       return Response.json({ deal_id: deal.id, change_id: ++deal.seen });
     } },
   };
-  // Loopback uses fixture mode by default. Keep the same synthetic Worker backing the detail.
-  await page.route(`**/deals?deal=${deal.id}`, route => route.fulfill({
-    status: 302, headers: { location: `/deals?deal=${deal.id}&mode=live` },
-  }));
   await page.route('**/mcp', async route => {
     const request = route.request();
     if (!['deal-room-board', 'get-deal-room', 'patch-deal-field', 'undo-automatic-phase-move'].includes(request.postDataJSON()?.params?.name)) return route.continue();
@@ -1539,8 +1567,13 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   assert.equal(await market.innerText(), 'No market recorded');
   assert.deepEqual(writes, []);
 
-  await page.goto(accountUrl);
-  await openAccount();
+  await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
+  await row.waitFor({ timeout: 5000 });
+  const accountLocation = new URL(page.url());
+  assert.equal(accountLocation.searchParams.get('view'), 'national');
+  assert.equal(accountLocation.searchParams.get('account'), account);
+  await page.reload();
+  await row.waitFor({ timeout: 5000 });
   await page.locator('#boardSection').screenshot({ path: join(evidence, `national-account-${width}.png`) });
   const attentionFilter = page.getByRole('button', { name: 'Needs attention', exact: true });
   await attentionFilter.click();
@@ -1563,6 +1596,10 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   assert.equal(await first.evaluate(button => button === document.activeElement), true);
   assert.equal(undos.length, 1);
   assert.equal(undoModuleReads, 1);
+  await page.getByRole('button', { name: /All national accounts/ }).click();
+  assert.equal(new URL(page.url()).searchParams.has('account'), false);
+  await page.reload();
+  await page.getByRole('button', { name: /Example National Account/ }).waitFor();
 });
 
 for (const width of [1440, 390]) test(`National Accounts saves inline changes and requires a closing outcome at ${width}px`, async t => {
@@ -2041,7 +2078,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
   await page.getByLabel('Assigned local agent').waitFor();
   savesOn = true;
   await page.reload();
-  await page.getByRole('button', { name: /Example National Account/ }).click();
+  await page.locator('#accountContextName').getByText('Example National Account', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Previous Agent' }).click();
   assert.equal(await page.locator('#dialogTitle').textContent(), 'Market agent — Example Market Deal');
   assert.equal(await page.getByText('Current agent: Previous Agent', { exact: true }).isVisible(), true);
@@ -2340,6 +2377,13 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   const deal = crypto.randomUUID();
   const row = { id: deal, deal_id: deal, name: 'Example Timeline Deal', phase: 'legal', seen: 1, owner: 'joe' };
   const thread = [{ id: 'copied-note', kind: 'note', text: 'Tour plans confirmed', actor: 'dell', created_at: '2026-11-17T20:00:00Z' }];
+  const copiedStepText = 'Confirm the sample drawings';
+  const stepNote = (id, text, created_at) => ({ id, kind: 'note', actor: 'joe',
+    text: `Recorded next step\n\n${text}`, created_at });
+  thread.push(
+    stepNote('first-step-note', copiedStepText, '2025-01-03T10:00:00.000002Z'),
+    stepNote('second-step-note', copiedStepText, '2025-01-03T10:00:00.000004Z'),
+  );
   const beforeDocument = '2026-11-16T13:00:00Z';
   const stepChanges = [
     ['Send the floor plan', 'done', 'Done'],
@@ -2380,6 +2424,9 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
     occurred_at: '2025-01-03T10:00:00Z', recorded_at: `2025-01-0${i === 0 ? 5 : 6}T00:00:00Z`,
     ...entry,
   }));
+  imported_deal_history.unshift({ id: 'copied-step-event', imported: true, actor: 'joe', verb: 'set-next-step',
+    field: 'next_step', new_value: { next_step: copiedStepText, next_date: '2025-01-08' },
+    occurred_at: '2025-01-03T10:00:00.000001Z', recorded_at: '2025-01-03T10:00:00.000003Z' });
   const detail = { ...row, thread, events, imported_deal_history, email_follow_ups: [],
     phase_started_on: { legal: '2026-11-17' },
     documents: [{ id: 'file', name: 'Example plan.pdf', actor: 'mail_capture', prepared_at: '2026-11-16T14:00:00Z' }],
@@ -2449,7 +2496,7 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   await openTimeline();
   assert.equal(await oldHistory.count(), 1);
   const earlier = await oldHistory.getByRole('listitem').allTextContents();
-  assert.equal(earlier.length, 4);
+  assert.equal(earlier.length, 5);
   assert.match(earlier[0], /Deal kind: Lease.*Deal reason: Renewal/s);
   assert.match(earlier[1], /Joe.*Jan 5, 2025.*6:00 PM CST.*Prepared a document.*Example lease <draft>.*Fields filled.*0.*Fields still needed.*2/s);
   assert.match(earlier[2], /Automatically.*Jan 5, 2025.*6:00 PM CST.*Checked the address.*Result: Nothing found.*Feb 3, 2025/s);
@@ -2459,7 +2506,12 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   assert.equal(await oldHistory.evaluate(el => el.scrollWidth <= el.clientWidth), true);
   const rows = timeline.locator('li[data-event-type]:not([hidden])');
   const contents = await rows.allTextContents();
-  assert.equal(contents.length, 6 + stepChanges.length + (dates.length - 1) + dealChanges.length);
+  assert.equal(await oldHistory.getByText(copiedStepText, { exact: false }).count(), 1);
+  const recordedSteps = timeline.getByText('Recorded next step', { exact: false });
+  assert.deepEqual(await recordedSteps.locator('..').locator('time').evaluateAll(times =>
+    times.map(time => time.dateTime)), ['2025-01-03T10:00:00.000004Z', '2025-01-03T10:00:00.000002Z'],
+    'Both notes remain visible when the event supplies no activity ID');
+  assert.equal(contents.length, 8 + stepChanges.length + (dates.length - 1) + dealChanges.length);
   assert.match(contents[0], /Automatically.*Nov 17.*7:00 PM.*Legal/);
   assert.match(contents[1], /Dell.*Nov 17.*2:00 PM.*Tour plans confirmed/);
   assert.match(contents[2], /Dell.*Nov 17.*1:00 PM.*Due diligence.*Due Nov 19/);
@@ -2492,7 +2544,7 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   assert.doesNotMatch(carr.join(' '), /add-deal-note/);
   const filter = timeline.getByLabel('Filter by kind');
   await filter.selectOption('Note');
-  assert.equal(await rows.count(), 2);
+  assert.equal(await rows.count(), 4);
   await filter.selectOption('');
   assert.deepEqual(await oldHistory.getByRole('listitem').allTextContents(), earlier);
   assert.equal(engine.filter(path => path === '/api/engine/activities').length, 1);
@@ -2844,6 +2896,14 @@ for (const width of [1440, 390]) {
     const dealRefresh = other.waitForResponse(response => response.request().postDataJSON()?.params?.name === 'get-deal-room');
     await Promise.all([dealRefresh, other.clock.runFor(5000)]);
     assert.equal(weeks.length, priorWeekReads);
+
+    review[0].state = 'closed';
+    next_actions[2].due_on = '2026-11-10';
+    await page.goto(`${origin}/deals?view=review&mode=live&item=deal-${deal}`);
+    await page.getByText(/Research · Dell · Closed/).waitFor();
+    await page.getByText('Change next step', { exact: true }).click();
+    await step.waitFor();
+    assert.equal(await page.getByText('Current next date is overdue.').count(), 0);
   });
 }
 
