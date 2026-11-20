@@ -171,7 +171,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const boot = resolveDealroomBoot(globalThis.location);
   const homeToday = engineToday
     ? import('./ui-home-today.generated.js').then(module => module.mountHomeTodayPanel(layout.querySelector('#appToday'), async signal => {
-      client ||= await createClient(boot.mode, { ...boot.options, docContext: false });
+      client ??= await createClient(boot.mode, { ...boot.options, docContext: false });
       return scopedDeals(await client.getBoard({ workspace: 'all', signal }), 'team') || [];
     })).catch(() => {
       layout.querySelector('#appScheduleSlot').textContent = "Couldn't load meetings.";
