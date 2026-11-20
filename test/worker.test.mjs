@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { carrContractIdentity } from "./carr-contract.mjs";
 
@@ -356,10 +357,10 @@ test('phone capture ships behind the existing partner gate with narrowly scoped 
 });
 
 test('switched linked routes serve guidance through their existing auth gates', async () => {
-  for (const [path, key, oldAsset, newAsset] of [
-    ['/review-workflows?email=example#homeEmailFollowups', 'home-from-engine', 'review-workflows', 'review-workflows-moved'],
-    ['/leases?lease=example', 'deals-saves-from-engine', 'lease-radar', 'lease-anniversaries'],
-    ['/client-portal?slug=example', 'deals-saves-from-engine', 'client-portal', 'client-website-moved'],
+  for (const [path, key, oldAsset, newAsset, links] of [
+    ['/review-workflows?email=example#homeEmailFollowups', 'home-from-engine', 'review-workflows', 'review-workflows-moved', ['/', '/deals', '/calendar']],
+    ['/leases?lease=example', 'deals-saves-from-engine', 'lease-radar', 'lease-anniversaries', ['/deals']],
+    ['/client-portal?slug=example', 'deals-saves-from-engine', 'client-portal', 'client-website-moved', ['/deals']],
   ]) {
     for (const on of [false, true]) {
       const env = {
@@ -370,6 +371,10 @@ test('switched linked routes serve guidance through their existing auth gates', 
       assert.equal(response.status, 200, path);
       assert.equal(await response.text(), `asset:/${on ? newAsset : oldAsset}.html`, path);
     }
+    const html = await readFile(new URL(`../${newAsset}.html`, import.meta.url), 'utf8');
+    const main = html.match(/<main\b[\s\S]*?<\/main>/)?.[0];
+    assert.ok(main);
+    assert.deepEqual([...main.matchAll(/<a href="([^"]+)"/g)].map(match => match[1]), links);
   }
 });
 
