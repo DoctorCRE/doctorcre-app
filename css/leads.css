@@ -103,7 +103,7 @@
 .stage-empty { padding: var(--space-3) var(--space-1); color: var(--fg-quiet); font-size: var(--font-size-1); }
 .filtered-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--space-3); }
 .dragging { opacity: .45; }
-#stageError, #leadBoardError { margin-bottom: var(--space-3); padding: var(--space-3); border: var(--hairline-width) solid var(--status-danger); border-left-width: 3px; border-radius: var(--radius-2); background: var(--surface-1); color: var(--status-danger-ink); }
+#stageError, #leadBoardError, #leadDetailRecovery { margin-bottom: var(--space-3); padding: var(--space-3); border: var(--hairline-width) solid var(--status-danger); border-left-width: 3px; border-radius: var(--radius-2); background: var(--surface-1); color: var(--status-danger-ink); }
 [data-color-assist="on"] :is(#stageError, #leadBoardError) { border-left-style: double; border-left-width: 5px; }
 
 /* --- dialogs ------------------------------------------------------------------ */

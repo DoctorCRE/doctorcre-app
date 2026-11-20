@@ -28,6 +28,9 @@ const summary = value => String(value || "").split(/\n\s*\n/)[0].slice(0, 230);
 const score = lead => lead.score == null ? "—" : esc(Math.round(Number(lead.score)));
 const ownerName = owner => owner ? owner.charAt(0).toUpperCase() + owner.slice(1) : "Unclaimed";
 const claimButton = lead => !lead.owner && normalizedStage(lead) !== "archived" ? `<button data-claim="${esc(lead.id)}">Claim</button>` : "";
+const quietLeadIndex = proposals => new Map(proposals.filter(row => row.subject_type === "lead").flatMap(row =>
+  row.ref ? [[row.subject_id, row], [row.ref, row]] : [[row.subject_id, row]]
+));
 const skeletonCard = '<div class="lead-skeleton" aria-hidden="true"><span class="skeleton-line"></span><span class="skeleton-line"></span><span class="skeleton-line"></span></div>';
 const options = (rows, selected, all) => `<option value="">${all}</option>${rows.map(([key, text]) => `<option value="${esc(key)}"${key === selected ? " selected" : ""}>${esc(text)}</option>`).join("")}`;
 
@@ -64,7 +67,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       actions: claimButton(lead) });
   }
   function focusIdentity(node) {
-    const container = node?.closest?.("#leadBoard, #marketCounts, #mapLeadMembers, #territoryMap");
+    const container = node?.closest?.("#leadBoard, #detailBody, #marketCounts, #mapLeadMembers, #territoryMap");
     if (container) {
       for (const attr of ["data-claim", "data-undo", "data-link", "data-open", "data-lead-id", "data-market", "data-expand-stage", "data-map-lead", "data-map-marker"]) {
         if (node.hasAttribute(attr)) return { container: container.id, attr, value: node.getAttribute(attr), client: node.dataset.clientId };
@@ -76,7 +79,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     if (!identity) return;
     const node = identity.id ? $(identity.id) : [...$(identity.container).querySelectorAll(`[${identity.attr}]`)]
       .find(node => node.getAttribute(identity.attr) === identity.value && node.dataset.clientId === identity.client);
-    (node || $("refreshBoard")).focus({ preventScroll: true });
+    (node || $(identity.container === "detailBody" ? "closeDetail" : "refreshBoard")).focus({ preventScroll: true });
   }
   const emptyStagesNote = count => count ? `<p class="stages-hidden"><span>${state.showEmptyStages ? `Showing ${count} stage${count === 1 ? "" : "s"} with no leads` : `${count} stage${count === 1 ? "" : "s"} hidden`}</span> <button type="button" data-toggle-empty-stages aria-pressed="${state.showEmptyStages}"><span aria-hidden="true">${state.showEmptyStages ? "− " : "+ "}</span>${state.showEmptyStages ? "Hide empty stages" : "Show empty stages"}</button></p>` : "";
   function render() {
@@ -161,10 +164,13 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   function paintWriteControls() {
     const disabled = !state.identityReady || state.writing || Boolean(state.pending);
     for (const control of doc.querySelectorAll("[data-claim], [data-link], [data-undo], #detailStage")) control.disabled = disabled;
+    $("checkDetailPending").disabled = state.writing;
   }
   function paintCommandFeedback() {
     paintWriteControls();
     const box = $("leadBoardError");
+    const pending = state.pending;
+    $("leadDetailRecovery").hidden = !($("leadDetail").open && pending && pending.kind !== "stage" && pending.lead.id === state.detailId);
     const command = state.pending ? 'Confirmation pending <button id="checkPending">Check outcome</button>' : esc(state.commandFeedback);
     const engagements = engagement.values(state.actor).map(pending => `${esc(leadTitle(state.board?.leads.find(lead => lead.prospect_client_id === pending.request.client_id) || { name: "Prospect" }))}: Confirmation pending <button data-check-engagement="${esc(pending.request.client_id)}"${pending.sending ? " disabled" : ""}>Check outcome</button>`);
     box.hidden = !state.pending && !engagements.length && !state.commandFeedback && !state.connectionFeedback;
@@ -235,8 +241,10 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     section.hidden = false;
     section.setAttribute("aria-busy", "false");
     quiet?.update({ kind: "ready", snapshot: payload });
-    const rows = payload.proposals.filter(row => row.subject_type === "lead");
-    state.quietLeads = new Map(rows.flatMap(row => [[row.subject_id, row], [row.ref, row]]));
+    setQuietLeads(payload.proposals);
+  }
+  function setQuietLeads(proposals) {
+    state.quietLeads = quietLeadIndex(proposals);
     if (state.board && $("leadBoard").getAttribute("aria-busy") === "false" && !state.drag && !touch) render();
   }
   function startQuietRead(boardEpoch) {
@@ -255,6 +263,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       section.setAttribute("aria-busy", "false");
       const unreachable = error?.code === "network_error" || error?.code === "read_timeout";
       quiet?.update({ kind: "refused", message: unreachable ? "The follow-up list could not reach the server." : "The follow-up list was refused." });
+      setQuietLeads([]);
     });
   }
   function openRequestedLead() {
@@ -352,6 +361,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const active = doc.activeElement;
     const focusedEntry = active?.matches("summary") ? active.closest("#detailBody details")?.dataset.entryKey : null;
     const focusedId = $("detailBody").contains(active) ? active.id : null;
+    const focusedAction = focusIdentity(active);
     const expanded = new Set(intent?.expanded ?? [...$("detailBody").querySelectorAll("details[open]")].map(node => node.dataset.entryKey));
     const scroll = intent?.scroll ?? $("leadDetail").scrollTop;
     $("detailTitle").textContent = leadTitle(detail);
@@ -388,7 +398,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     for (const node of $("detailBody").querySelectorAll("details")) node.open = expanded.has(node.dataset.entryKey);
     const focused = focusedId ? $(focusedId) : [...$("detailBody").querySelectorAll("details")]
       .find(node => node.dataset.entryKey === focusedEntry)?.querySelector("summary");
-    focused?.focus({ preventScroll: true });
+    if (focusedAction?.container === "detailBody") restoreFocus(focusedAction);
+    else focused?.focus({ preventScroll: true });
     $("leadDetail").scrollTop = scroll;
     paintCommandFeedback();
   }
@@ -642,6 +653,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     event.preventDefault();
     readDetail(link.dataset.quietLead);
   });
+  $("checkDetailPending").addEventListener("click", executePending);
   $("closeDetail").addEventListener("click", () => $("leadDetail").close());
   $("closeStage").addEventListener("click", () => $("stageDialog").close());
   for (const id of ["leadDetail", "stageDialog"]) onDialogClosed($(id), () => {

@@ -18,11 +18,11 @@ test('Claim is offered on unclaimed leads across active stages', async t => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
   const board = workspace();
   board.leads = Array.from({ length: 45 }, (_, n) => lead(n + 1, {
-    stage: n < 43 ? 'new' : 'qualified', owner: n === 1 ? 'example-partner' : null,
+    stage: n < 43 ? 'new' : 'qualified', owner: n === 1 ? 'example-partner' : null, registry_ref: n === 1 || n === 2 ? null : `L-${n + 1}`,
   }));
   board.leads.push(lead(46, { stage: 'archived' }));
   const getQuiet = () => ({ ...emptyQuietFollowUps(), proposals: [{
-    subject_type: 'lead', subject_id: id(2), ref: 'L-2', name: 'Dr. Example 2',
+    subject_type: 'lead', subject_id: id(2), ref: null, name: 'Dr. Example 2',
     basis: 'last_contact', anchor_on: '2026-08-01', due_on: '2026-09-15', days_overdue: 16, owner: 'example-partner',
   }] });
   const writes = [];
@@ -40,6 +40,7 @@ test('Claim is offered on unclaimed leads across active stages', async t => {
   assert.deepEqual(await owned.locator(':scope > *').allTextContents(), [
     'Dr. Example 2', 'Example-partner', 'Follow-up late',
   ]);
+  assert.equal(await page.locator('.lead-card .work-card-status').count(), 1);
   assert.deepEqual(await page.locator('.lead-card').first().locator(':scope > *').allTextContents(), [
     'Dr. Example 1', 'Unclaimed', 'Claim',
   ]);
