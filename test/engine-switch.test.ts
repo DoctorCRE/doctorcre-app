@@ -47,6 +47,47 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
   return { env, send, engine, carr, kv };
 }
 
+test("page HTML marks the live feed retired only when Deals reads use the engine", async (t) => {
+  const html = '<!doctype html>\n<html lang="en"><body>Demo</body></html>\n';
+  const setAttribute = t.mock.fn();
+  const transform = t.mock.fn((asset: Response) => asset);
+  class Rewriter {
+    on(selector: string, handler: { element: (node: { setAttribute: typeof setAttribute }) => void }) {
+      assert.equal(selector, "html");
+      handler.element({ setAttribute });
+      return this;
+    }
+    transform = transform;
+  }
+  const original = Object.getOwnPropertyDescriptor(globalThis, "HTMLRewriter");
+  Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: Rewriter });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "HTMLRewriter", original);
+    else Reflect.deleteProperty(globalThis, "HTMLRewriter");
+  });
+
+  for (const path of ["/deals", "/deals?view=national", "/search"]) {
+    for (const enabled of [false, true]) {
+      setAttribute.mock.resetCalls();
+      transform.mock.resetCalls();
+      const { env, kv } = fixture(new Map([["deals-from-engine", enabled ? "on" : "off"]]));
+      const ASSETS = { fetch: async () => new Response(html, { headers: { "content-type": "text/html" } }) };
+      const assetEnv = { ...env, ASSETS };
+      const response = await worker.fetch(new Request(origin + path), assetEnv);
+      assert.equal(response.status, 200);
+      assert.deepEqual(kv, [["deals-from-engine", { cacheTtl: 30 }]]);
+      assert.equal(transform.mock.callCount(), enabled ? 1 : 0);
+      assert.deepEqual(
+        setAttribute.mock.calls.map((call) => call.arguments),
+        enabled ? [["data-deals-from-engine", ""]] : [],
+      );
+      if (!enabled) {
+        assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new TextEncoder().encode(html));
+      } else await response.body?.cancel();
+    }
+  }
+});
+
 test("document writes require both Deals switches and preserve bytes and session headers", async () => {
   const bytes = "%PDF-1.7 synthetic";
   const digest = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bytes))).toString("hex");

@@ -51,6 +51,7 @@ export function createLiveClient(opts = {}) {
   let selfActor = opts.selfActor || null;
   const fetchImpl = opts.fetchImpl || ((path, init) => sessionFetch(`${baseUrl}${path}`, init));
   const online = opts.online || (() => globalThis.navigator?.onLine !== false);
+  const changeFeedEnabled = !globalThis.document?.documentElement?.hasAttribute('data-deals-from-engine');
   const requestMcp = createMcpRequests({ fetchImpl, typedContent: false });
   const dealCreations = new Map();
   const fetchReadImpl = (path, init) => fetchRead(path, init, { fetchImpl, timeoutMs: opts.readTimeoutMs || 10_000 });
@@ -246,6 +247,7 @@ export function createLiveClient(opts = {}) {
 
   const client = {
     mode: /** @type {const} */ ('live'),
+    changeFeedEnabled,
     get selfActor() { return selfActor; },
     async readAssuranceHealth(args) { const { assuranceHealthRequest } = await import('./assurance-health-model.js'); return rpc('read-assurance-health', assuranceHealthRequest(args)); },
     async linkParties(args) { return write('link-parties', args); },
@@ -467,6 +469,7 @@ export function createLiveClient(opts = {}) {
     },
 
     async getChanges(cursor, { signal, since } = {}) {
+      if (!changeFeedEnabled) return { events: [], presence: [], cursor: cursor ?? '' };
       // Versioned pipeline keyset format. Starting at a clock cutoff avoids
       // replaying years of history; subsequent cursors remain server-issued.
       if (!cursor && since) {

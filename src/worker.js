@@ -733,6 +733,11 @@ async function handleRequest(request, env) {
       return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
     }
     let asset = await assetResponse(request, env, `/${routeAsset}`);
+    if (request.method === 'GET' && asset.ok && await switchedOn(env, DEALS)) {
+      asset = new HTMLRewriter().on('html', {
+        element(node) { node.setAttribute('data-deals-from-engine', ''); },
+      }).transform(asset);
+    }
     if (pathname === '/' && routeAsset === 'workspace.html' && request.method === 'GET' && asset.ok && await switchedOn(env, HOME)) {
       asset = new HTMLRewriter().on('#homeRoot', {
         element(node) { node.setAttribute('data-home-today-from-engine', ''); },
