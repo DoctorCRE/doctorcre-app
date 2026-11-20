@@ -402,3 +402,20 @@ button.client-portal-link:disabled { cursor: wait; }
 .monday-review-controls input[type="checkbox"] { width: 1rem; height: 1rem; min-width: 1rem; min-height: 1rem; }
 .monday-review-page .app-layout-page-tools { display: none; }
 .monday-review-item form, .monday-review-item details { margin-block-start: var(--space-2); }
+
+.deal-open-steps { margin-block: var(--space-4); }
+.deal-open-steps h2 { margin: 0 0 var(--space-1); font-size: var(--font-size-2); }
+.deal-open-steps ul { list-style: none; margin: 0; padding: 0; }
+.deal-open-steps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding-block: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.deal-open-steps li + li { border-top: var(--hairline-width) solid var(--hairline); }
+.deal-open-steps :is(p, small) { margin: 0; color: var(--fg-muted); }
+.deal-open-steps button { color: var(--accent-ink); }
+.deal-open-steps button[aria-disabled="true"] { color: var(--fg-muted); cursor: wait; }
+#detailStepStatus:empty { margin: 0; }

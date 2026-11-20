@@ -27,7 +27,7 @@ export function mountQuietLeads(host: HTMLElement, reason: (row: Proposal) => st
       (row) =>
         (page.owner === "all" || ownerKey(row) === page.owner) &&
         (page.history === "all" || row.basis === page.history) &&
-        (row.name.toLowerCase().includes(query) || row.ref.toLowerCase().includes(query)),
+        (row.name.toLowerCase().includes(query) || row.ref?.toLowerCase().includes(query)),
     );
     flushSync(() =>
       root.render(
@@ -145,7 +145,10 @@ export function mountQuietLeads(host: HTMLElement, reason: (row: Proposal) => st
                   <ol start={page.offset + 1}>
                     {matches.slice(page.offset, page.offset + 10).map((row) => (
                       <li key={`${row.subject_id}-${row.ref}`}>
-                        <a href={`/leads?lead=${encodeURIComponent(row.ref)}`} data-quiet-lead={row.subject_id}>
+                        <a
+                          href={`/leads?lead=${encodeURIComponent(row.ref ?? row.subject_id)}`}
+                          data-quiet-lead={row.subject_id}
+                        >
                           <span>{row.name}</span>
                           <p>{reason(row)}</p>
                         </a>

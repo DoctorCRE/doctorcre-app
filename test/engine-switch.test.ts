@@ -1961,6 +1961,58 @@ test("Home identifies a successful engine snapshot for the app's save routing", 
   assert.equal(JSON.parse(reply.result.content[0].text).engine_marks, true);
 });
 
+test("the Deals step end HTTP route requires both switches and a versioned request", async () => {
+  const id = "00000000-0000-0000-0000-000000000001";
+  const path = `/api/engine/next-steps/${id}/end`;
+  const command = { resolution: "done", base_version: 0, idempotency_key: id };
+  const headers = {
+    origin,
+    cookie: "session=synthetic",
+    "x-carr-csrf": "synthetic",
+    "sec-fetch-site": "same-origin",
+    "content-type": "application/json",
+  };
+  const request = (body: Partial<typeof command>) =>
+    new Request(origin + path, { method: "POST", headers, body: JSON.stringify(body) });
+  for (const [reads, saves] of [
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ]) {
+    const f = fixture(
+      new Map([
+        ["deals-from-engine", reads ? "on" : "off"],
+        ["deals-saves-from-engine", saves ? "on" : "off"],
+        ["home-from-engine", reads && saves ? "off" : "on"],
+      ]),
+    );
+    const response = await worker.fetch(request(command), f.env);
+    assert.equal(response.status, reads && saves ? 200 : 409);
+    assert.deepEqual(f.carr, []);
+    if (reads && saves) {
+      assert.equal(f.engine.length, 1);
+      assert.equal(f.engine[0]?.url, origin + path);
+      assert.equal(f.engine[0]?.method, "POST");
+      assert.equal(f.engine[0]?.headers.get("cookie"), headers.cookie);
+      assert.equal(f.engine[0]?.headers.get("origin"), headers.origin);
+      assert.equal(f.engine[0]?.headers.get("x-carr-csrf"), headers["x-carr-csrf"]);
+      assert.equal(f.engine[0]?.headers.get("sec-fetch-site"), headers["sec-fetch-site"]);
+      assert.deepEqual(await f.engine[0]?.json(), command);
+      for (const invalid of [
+        { resolution: "done", idempotency_key: id },
+        { resolution: "done", base_version: 0 },
+      ]) {
+        assert.equal((await worker.fetch(request(invalid), f.env)).status, 400);
+      }
+      assert.equal(f.engine.length, 1);
+    } else {
+      assert.deepEqual(await response.json(), { error: "reload_deals" });
+      assert.deepEqual(f.engine, []);
+    }
+  }
+});
+
 test("the Home switch routes guarded step and review actions through signed-in engine doors", async () => {
   const id = "00000000-0000-0000-0000-000000000001";
   const f = fixture(new Map([["home-from-engine", "on"]]), async () => Response.json({ success: true }));

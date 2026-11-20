@@ -36,7 +36,7 @@ for (const width of [390, 800, 1280]) for (const theme of ['dark', 'light']) {
     }
 
     await page.locator('#stageFilter').selectOption('qualified');
-    assert.equal(await page.locator('#leadCount').innerText(), '14 total');
+    assert.equal(await page.locator('#leadCount').innerText(), '1 lead');
     assert.equal(await page.locator('#filterSummary').innerText(), '1 matching lead');
     assert.equal(await page.locator('#hotLeads').count(), 0);
     if (process.env.UI_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.UI_SCREENSHOT_DIR}/qualified-${width}-${theme}.png`, fullPage: true });
@@ -57,7 +57,7 @@ for (const width of [390, 800, 1280]) for (const theme of ['dark', 'light']) {
     assert.equal(detailLayout.panelsAreFlat, true, 'detail groups use spacing and dividers instead of nested cards');
     const detailText = await page.locator('#detailBody').innerText();
     assert.doesNotMatch(detailText, /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i, 'human details do not expose raw record UUIDs');
-    const sizes = await page.locator('.lead-location, #mapLeadMembers small, .history small').evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize)));
+    const sizes = await page.locator('#mapLeadMembers small, .history small').evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize)));
     assert.ok(sizes.every(size => size >= 13), JSON.stringify(sizes));
     await page.locator('#closeDetail').click();
     await page.locator('#leadSearch').fill('no-synthetic-result');

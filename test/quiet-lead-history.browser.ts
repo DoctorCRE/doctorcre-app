@@ -109,7 +109,7 @@ for (const width of [390, 1440])
     await search.fill("L-SYNTH-2");
     await check(
       leads.filter(
-        (row) => row.basis === "last_contact" && row.owner === "joe" && row.ref.toLowerCase().includes("l-synth-2"),
+        (row) => row.basis === "last_contact" && row.owner === "joe" && row.ref?.toLowerCase().includes("l-synth-2"),
       ),
     );
     await search.fill("no such lead");

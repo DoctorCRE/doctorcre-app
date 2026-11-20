@@ -69,7 +69,7 @@ test(`shared market location membership is order independent at ${width}px (reve
   await routeLeads(page, { getBoard: () => board });
   await page.goto('http://localhost/leads');
   await page.getByRole('button', { name: 'Show territory', exact: true }).click();
-  await page.locator('.lead-location').filter({ hasText: 'Market area only' }).waitFor();
+  await page.locator('.market-marker').first().waitFor();
   const located = await page.locator('.market-marker').evaluateAll(nodes => nodes.flatMap(node => JSON.parse(node.dataset.leadIds)));
   const unlocated = await page.locator('#mapLeadMembers [data-lead-id]').evaluateAll(nodes =>
     nodes.filter(node => node.textContent.includes('No location')).map(node => node.dataset.leadId));
@@ -120,7 +120,7 @@ for (const width of [1440, 390]) test(`map members and board select the same lea
   await page.locator(`.lead-card[data-lead-id="${id(2)}"]`).click();
   await page.locator('#detailStage').waitFor();
   assert.equal(await page.locator('#mapLeadMembers [aria-pressed="true"]').getAttribute('data-lead-id'), id(2));
-  assert.match(await page.locator(`.lead-card[data-lead-id="${id(2)}"]`).innerText(), /No location/);
+  assert.match(await page.locator('#mapLeadMembers [aria-pressed="true"]').innerText(), /No location/);
   assert.equal(await page.locator('.market-marker[aria-pressed="true"]').count(), 0);
 });
 
