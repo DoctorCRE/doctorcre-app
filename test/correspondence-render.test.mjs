@@ -62,6 +62,9 @@ test('an unreadable read shows unavailable with Refresh deal, which re-reads the
 
 test('filed correspondence uses clear empty and missing subject wording', () => {
   assert.match(renderCorrespondence([]), /No emails or meetings filed to this deal yet\./);
+  assert.match(renderCorrespondence([], 2), /No emails or meetings filed yet\. 2 emails are waiting to be filed on Overview\./);
+  assert.match(renderCorrespondence([], 1), /1 email is waiting to be filed on Overview\./);
+  assert.doesNotMatch(renderCorrespondence([{kind: 'meeting'}], 1), /waiting to be filed/);
   const doc = new JSDOM(renderCorrespondence([{kind: 'email', subject: '', sender: 'Demo sender', happened_at: '2026-12-01T12:00:00Z'}])).window.document;
   assert.equal(doc.querySelector('li b').textContent, '(No subject)');
   const supplied = new JSDOM(renderCorrespondence([{kind: 'email', subject: '(no subject)'}])).window.document;

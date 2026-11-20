@@ -1613,7 +1613,7 @@ function workspaceHtml(detail) {
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2>
-      ${fromEngine ? `<div data-detail-read="correspondence">${renderCorrespondence(detail.correspondence)}</div>` : '<details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>'}
+      ${fromEngine ? `<div data-detail-read="correspondence">${renderCorrespondence(detail.correspondence, detail.email_follow_ups.filter(row => row.kind === 'file_to_deal').length)}</div>` : '<details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>'}
       <div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
 function criticalDateFormHtml() {

@@ -2851,11 +2851,12 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   ];
   let readsOn = false;
   let entries = correspondence;
+  let waiting = [];
   const env = {
     ENGINE_ROUTING: { get: async key => key === 'deals-from-engine' && readsOn ? 'on' : null },
     ENGINE: { fetch: async request => {
       assert.equal(new URL(request.url).pathname, `/api/engine/deals/${deal.deal_id}`);
-      return Response.json({ ...deal, thread, email_threads, email_follow_ups: [], correspondence: entries, activities });
+      return Response.json({ ...deal, thread, email_threads, email_follow_ups: waiting, correspondence: entries, activities });
     } },
     CARR: { fetch: async request => {
       const { id } = await request.json();
@@ -2908,6 +2909,11 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
   await panel.getByText('No emails or meetings filed to this deal yet.', { exact: true }).waitFor();
   assert.equal(await rows.count(), 0);
+  waiting = [{ proposal_id: crypto.randomUUID(), kind: 'file_to_deal', email: { subject: '' } }];
+  await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
+  await panel.getByText('No emails or meetings filed yet. 1 email is waiting to be filed on Overview.', { exact: true }).waitFor();
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await panel.screenshot({ path: join(evidence, `deal-correspondence-waiting-${width}.png`) });
 });
 
 for (const width of [1440, 390]) test(`a changed checklist item stays open until reviewed again at ${width}px`, async t => {
