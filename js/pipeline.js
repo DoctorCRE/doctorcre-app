@@ -1242,7 +1242,8 @@ function syncUpdateForm() {
   form.elements.date.value = updateDraft.date;
   const canSaveStepOnly = updateDraft.reviewed.currentStep !== undefined;
   const changed = updateStepChanged(updateDraft);
-  const overdue = Boolean(updateDraft.reviewed.next_date && updateDraft.reviewed.next_date < (canSaveStepOnly ? businessDay() : todayIso()));
+  const overdue = !isClosedDeal(state.panelDetail.deal)
+    && Boolean(updateDraft.reviewed.next_date && updateDraft.reviewed.next_date < (canSaveStepOnly ? businessDay() : todayIso()));
   $('detailUpdateDateHint').hidden = !overdue;
   if (overdue) form.elements.date.setAttribute('aria-describedby', 'detailUpdateDateHint');
   else form.elements.date.removeAttribute('aria-describedby');
@@ -1400,10 +1401,11 @@ function renderWorkspaceFacts(detail) {
   const d = detail.deal;
   const fromEngine = isEngineDealDetail(detail);
   const client = d.client_name || d.client_ref;
-  const parked = fromEngine && d.operating_state === 'parked';
+  const parked = fromEngine && !isClosedDeal(d) && d.operating_state === 'parked';
+  const phase = fromEngine && d.outcome === 'lost' ? 'Lost' : columnByValue(d.phase)?.label || d.phase || 'Not recorded';
   $('workspaceFacts').innerHTML = `<dl class="workspace-facts">
     ${client && (fromEngine || client !== dealTitle(d)) ? `<div class="workspace-client${fromEngine ? ' workspace-client-labeled' : ''}"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}
-    <div><dt>Phase</dt><dd>${esc(columnByValue(d.phase)?.label || d.phase || 'Not recorded')}${parked ? ' · Parked' : ''}</dd></div>
+    <div><dt>Phase</dt><dd>${esc(phase)}${parked ? ' · Parked' : ''}</dd></div>
     <div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div>
     ${fromEngine ? renderNextCriticalDate(d.next_critical_date) : ''}
   </dl>`;
@@ -1576,18 +1578,26 @@ function workspaceHtml(detail) {
     ? { text: leadStep?.description.trim(), dueOn: calendarDay(leadStep?.due_on), otherActions: remainingSteps }
     : dealNextStep(d, detail.next_actions || [], items);
   const today = fromEngine ? businessDay() : todayIso();
-  const stepLabel = fromEngine ? 'Next step' : dueOn && dueOn < today ? 'Overdue action' : 'Next action';
+  const ended = isClosedDeal(d);
+  const stepToday = ended ? undefined : today;
+  const stepLabel = fromEngine ? 'Next step' : stepToday && dueOn && dueOn < stepToday ? 'Overdue action' : 'Next action';
+  const stepSummary = `
+    ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? stepToday : undefined)}</span>${stepOrigin(leadStep)}</p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
+    ${otherActions.length ? `${fromEngine || ended ? '' : '<p class="deal-items-label">Also open:</p>'}<ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
+      const day = calendarDay(action.due_on);
+      return `<li${stepFocusAttrs(fromEngine ? action : null)}>${fromEngine ? 'Next step: ' : ''}${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, stepToday)}${stepOrigin(action)}</li>`;
+    }).join('')}</ul>` : ''}`;
   const itemOwners = fromEngine ? new Map(detail.next_actions?.map(step => [step.id, step.owner])) : undefined;
   const prospect = state.deals.get(d.id);
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
-  const parked = d.operating_state === 'parked';
+  const parked = !ended && d.operating_state === 'parked';
   const parker = fromEngine && parked ? parkingAttributionHtml(d) : '';
   const parkingNote = concise(d.parking_note);
   const nextParking = detail.next_deal_saves === true;
   const engineSaves = nextParking || dealsSaveToEngine();
   const parkingSummary = nextParking && parked ? parkingDetailsHtml(d)
     : parkingNote ? `<p>${esc(parkingNote)}</p>${parker}` : parker || '<p>Parked</p>';
-  const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !isClosedDeal(d);
+  const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !ended;
   const canAddCriticalDate = detail.next_deal_saves === true && Number.isSafeInteger(d.seen);
   const websiteLink = fromEngine ? renderClientPortalLink(d.client_portal_url, d.id) || '<p>No client website linked.</p>' : '';
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && d.client_id : controlsAvailable)
@@ -1597,16 +1607,12 @@ function workspaceHtml(detail) {
       ${websiteLink}
       ${renderInvoiceClose(d, state.nextDealSaves)}
       ${fromEngine ? `<div data-phase-move>${detailPhaseMoveHtml(detail)}</div>` : ''}
-      ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? today : undefined)}</span>${stepOrigin(leadStep)}</p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
-      ${otherActions.length ? `${fromEngine ? '' : '<p class="deal-items-label">Also open:</p>'}<ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
-        const day = calendarDay(action.due_on);
-        return `<li${stepFocusAttrs(fromEngine ? action : null)}>${fromEngine ? 'Next step: ' : ''}${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, today)}${stepOrigin(action)}</li>`;
-      }).join('')}</ul>` : ''}
-      <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today,buttons:true,empty:false,itemOwners})}</div>
+      ${ended && (nextStep || otherActions.length) ? `<section aria-labelledby="ended-deal-steps"><h3 id="ended-deal-steps">Open before this deal ended</h3>${stepSummary}</section>` : stepSummary}
+      <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today:stepToday,buttons:true,empty:false,itemOwners})}</div>
       ${renderSnapshotFacts(d, fromEngine)}
       ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
     </section>
-    ${detail.next_deal_saves ? `<div data-detail-read="attention">${Number.isSafeInteger(d.seen) && !isClosedDeal(d)
+    ${detail.next_deal_saves ? `<div data-detail-read="attention">${Number.isSafeInteger(d.seen) && !ended
       ? `<button class="btn" type="button" data-deal-attention data-detail-focus="attention">${d.attention === true ? 'Clear needs attention' : 'Mark needs attention'}</button>` : ''}</div>` : ''}
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     ${engineSaves ? '' : '<section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>'}
@@ -2065,7 +2071,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   marketTermsPanel = null;
   if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
   if (!fromHistory && incomingScope.has('deal')) {
-    const origin = dealsPageOrigin('review') || nationalDealOrigin();
+    const origin = dealsPageOrigin('review') || dealsPageOrigin('national');
     if (origin) { returnToDealsPage(origin); return; }
   }
   selectDocRecord('deal', null);
@@ -2661,11 +2667,6 @@ function dealsPageOrigin(view) {
   const referrer = new URL(document.referrer);
   return referrer.origin === location.origin && referrer.pathname === '/deals'
     && referrer.searchParams.get('view') === view ? referrer : null;
-}
-
-function nationalDealOrigin() {
-  const origin = dealsPageOrigin('national');
-  return incomingScope.get('close') === '1' || origin?.searchParams.get('account_view') === 'closed' ? origin : null;
 }
 
 function returnToDealsPage(origin) {

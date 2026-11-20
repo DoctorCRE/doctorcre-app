@@ -35,7 +35,11 @@ const pages = [
 
 const withHomeSwitch = (html: string) => html.replace("<html ", "<html data-home-today-from-engine ");
 
-async function open(t: TestContext, path: string, { enabled = true, width = 1440, recentChanges = false } = {}) {
+async function open(
+  t: TestContext,
+  path: string,
+  { enabled = true, width = 1440, recentChanges = false, malformedEndedReminder = false } = {},
+) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({
@@ -120,6 +124,15 @@ async function open(t: TestContext, path: string, { enabled = true, width = 1440
               late_label: "3 days late",
               home_item_id: "example-reminder",
             },
+            {
+              kind: "step",
+              owner: "joe",
+              title: "Check the former office",
+              due_on: "2026-11-15",
+              days_late: 4,
+              late_label: "4 days late",
+              deal_ended: malformedEndedReminder ? "true" : true,
+            },
           ],
           upcoming: [],
         },
@@ -173,6 +186,22 @@ for (const path of pages)
     assert.deepEqual(readToday, ["GET"]);
     assert.deepEqual(legacy, []);
   });
+
+test("Today keeps an ended deal's reminder on Home and leaves it out on Deals", async (t) => {
+  const home = await open(t, "/");
+  const deals = await open(t, "/deals?view=national");
+  await home.today.getByText("Check the former office", { exact: true }).waitFor();
+  await deals.today.getByText("Send sample floor plan", { exact: true }).waitFor();
+  assert.equal(await deals.today.getByText("Check the former office", { exact: true }).count(), 0);
+  assert.equal(await deals.today.getByText("4 days late", { exact: true }).count(), 0);
+});
+
+test("Today rejects a reminder with a malformed ended-deal marker", async (t) => {
+  const { today } = await open(t, "/deals?view=national", { malformedEndedReminder: true });
+  await today.getByText("Example site visit", { exact: true }).waitFor();
+  assert.equal(await today.getByText("Couldn't load dated reminders.", { exact: true }).count(), 1);
+  assert.equal(await today.getByText("Check the former office", { exact: true }).count(), 0);
+});
 
 test("Doc keeps Morning brief with the switch off and drops it with the switch on", async (t) => {
   const off = await open(t, "/invoices", { enabled: false });

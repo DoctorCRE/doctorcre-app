@@ -140,8 +140,10 @@ for (const reverse of [false, true]) {
       cardAction: 'Sooner flagged action', accountAction: 'Sooner flagged action',
     });
     await action.click();
-    await page.waitForURL('**/deals?deal=d03');
-    await page.locator('#detailUpdateForm').waitFor();
+    await page.waitForURL(url => url.pathname === '/deals'
+      && url.searchParams.get('deal') === 'd03' && url.searchParams.get('mode') === 'fixture');
+    await page.locator('#recordPanel').getByRole('heading', { name: 'Demo Same Name', exact: true }).waitFor();
+    await page.locator('#workspace-overview').getByText('Sooner flagged action', { exact: true }).waitFor();
   });
 }
 
