@@ -196,6 +196,7 @@ function party(value: unknown): Party {
 }
 function pathFrom(value: unknown, id: string, now: number): Path {
   const snapshot = object(value);
+  if (snapshot.can_request_introductions === false) throw Error("Introduction requests unavailable");
   if (Date.parse(text(snapshot.valid_until)) <= now) throw Error("Source expired");
   const suggestion = rows(snapshot.suggestions)
     .map(object)
@@ -305,6 +306,7 @@ export function createIntroductionRequest({
     try {
       const snapshot = object(validate(await client.getRelationshipNetwork()));
       if (token !== generation) return;
+      if (snapshot.can_request_introductions === false) throw Error("Introduction requests unavailable");
       if (Date.parse(text(snapshot.valid_until)) <= now()) throw Error("Source expired");
       const committed = recover && rows(snapshot.edges).map(edge).some(matches);
       if (!committed) {
