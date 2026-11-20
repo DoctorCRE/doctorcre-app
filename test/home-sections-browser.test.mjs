@@ -15,8 +15,8 @@ let outDir;
 before(async () => { outDir = temporaryDirectory('home-sections-'); await buildArtifact({ root: process.cwd(), outDir }); });
 after(async () => { await rm(outDir, { recursive: true, force: true }); });
 
-for (const enabled of [false, true]) test(`Home opens inbox cards with the engine switch ${enabled ? 'on' : 'off'}`, async t => {
-  const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW });
+for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(`Home opens inbox cards with the engine switch ${enabled ? 'on' : 'off'} at ${width}px`, async t => {
+  const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
   page.setDefaultTimeout(5000);
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
   await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
@@ -54,6 +54,13 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
     ...state.items[0], item_id: `notification:${partyId}`, source_type: 'notification', source_id: partyId,
     action_id: null, action_version: null, due_on: null, kind_label: 'Update', title: 'The sample deal moved ahead',
   });
+  if (enabled) {
+    const id = '00000000-0000-0000-0000-000000000013';
+    state.items.push({
+      ...state.items[0], item_id: `next_action:${id}`, source_id: id, action_id: id, merged_source_ids: [id],
+      title: 'Wait for sample terms', section: 'held', hold_until: '2026-11-05T06:00:00Z', due_on: null,
+    });
+  }
   const details = new Map();
   let mailRows = [];
   const proposalRefusals = new Map();
@@ -131,7 +138,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
           const [first] = item.suggestions;
           const { reply_draft_id, reply_draft_status, ...remaining } = item;
           state.items.splice(state.items.indexOf(item), 1, { ...remaining, item_id: `suggestion:${first.id}`, source_id: first.id,
-            kind_label: 'Task', title: 'Remaining email suggestion', source_version: '43',
+            kind_label: 'Suggestion', title: 'Remaining email suggestion', source_version: '43',
             ...(draft.status === 'approved' && { fallback_reply_draft: { id, version: String(draft.version), status: 'approved', failure_reason: null } }) });
           mailRows = mailRows.filter(row => row.reply_draft_id !== id);
           return Response.json(receipt);
@@ -183,6 +190,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await open('/?mode=live');
   const reader = enabled ? 'new inbox' : 'current inbox';
   const inbox = page.getByRole('region', { name: 'Inbox cards', exact: true });
+  const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
   const confirmDrop = async (reason) => {
     const dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
     await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill(reason);
@@ -192,7 +200,22 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await first.waitFor();
   assert.equal(await first.textContent(), `${tasks[0].title} (${reader})`);
   await inbox.getByRole('region', { name: 'Today', exact: true }).getByRole('button', { name: 'See all 3', exact: true }).click();
+  if (enabled) {
+    await waiting.getByRole('button', { name: 'See all 1', exact: true }).click();
+    const held = waiting.locator('[data-inbox-row]');
+    await held.getByText(/On hold until Nov 5, 2026/).waitFor();
+    assert.doesNotMatch(await held.innerText(), /needs attention|Ready for your attention/i);
+    assert.equal(await held.getByRole('button').count(), 0);
+    await held.getByRole('link', { name: /^Wait for sample terms/ }).click();
+    const details = held.getByRole('region', { name: /^Details for Wait for sample terms/ });
+    await details.getByRole('link', { name: 'Example Dental', exact: true }).waitFor();
+    await details.getByRole('button', { name: 'Close', exact: true }).click();
+  }
   assert.equal(await inbox.locator('[data-inbox-row]').count(), state.items.length);
+  for (const copy of ['needs attention', 'Ready for your attention']) {
+    assert.equal(await inbox.getByText(copy, { exact: true }).count(), enabled ? 0 : tasks.length);
+  }
+  if (enabled) await waiting.getByRole('button', { name: 'Show less', exact: true }).click();
   for (const task of tasks) {
     const title = `${task.title} (${reader})`;
     const link = inbox.getByRole('link', { name: title, exact: true });
@@ -224,6 +247,14 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   if (enabled) assert.deepEqual(applied, { item_id: id, base_version: original, action: 'snooze', until: applied.until, idempotency_key: applied.idempotency_key });
   else assert.deepEqual(applied.items, [{ item_id: id, base_version: original }]);
   assert.equal(door, enabled ? '/api/engine/home/marks' : 'snooze-home-inbox');
+  if (enabled) {
+    await waiting.getByRole('button', { name: 'See all 2', exact: true }).click();
+    const snoozed = waiting.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /^Read the sample lease/ }) });
+    await snoozed.getByText(/^Snoozed until .* Central$/).waitFor();
+    assert.deepEqual(await snoozed.getByRole('button').allTextContents(), ['Wake']);
+    assert.equal(await snoozed.getByRole('checkbox').isDisabled(), true);
+    await waiting.getByRole('button', { name: 'Show less', exact: true }).click();
+  }
   const snoozedVersion = state.items[0].base_version;
   await undo.click();
   await card.waitFor();
@@ -309,7 +340,7 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
     { ...notice, title: 'Call suggestions', item_id: `suggestion:${log}`, source_id: log, source_type: 'capture_session',
       deal_id: null, kind_label: 'Call', suggestions: [{ id: log }, { id: phase }] },
     { ...notice, title: 'Email suggestions', item_id: `suggestion:${leading}`, source_id: leading, source_type: 'email_proposal',
-      deal_id: null, kind_label: 'Task', suggestions: [{ id: leading }, { id: next }] },
+      deal_id: null, kind_label: 'Suggestion', suggestions: [{ id: leading }, { id: next }] },
     { ...notice, title: 'Reply to the sample email', item_id: `reply_draft:${draft}`, source_id: draft, source_type: 'email_proposal',
       deal_id: null, due_on: '2026-11-04', kind_label: 'Reply draft', source_version: '1', reply_draft_id: draft, reply_draft_status: 'pending',
       suggestions: [{ id: nested }, { id: dismissNested }, { id: remaining }] },
@@ -351,6 +382,14 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
     await row.waitFor({ state: 'detached' });
     assert.equal(writes.at(-1)[1].item_id, id);
     assert.equal(writes.at(-1)[1].base_version, base_version);
+    if (id === log) {
+      await waiting.getByRole('button', { name: 'See all 2', exact: true }).click();
+      await row.getByRole('link', { name: /^Call suggestions/ }).click();
+      await row.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
+      assert.equal(await row.getByRole('button', { name: /^(Accept|Drop)$/ }).count(), 0);
+      await row.getByRole('button', { name: 'Close review' }).click();
+      await waiting.getByRole('button', { name: 'Show less', exact: true }).click();
+    }
     await undo.click();
     await row.waitFor();
   }
@@ -386,7 +425,11 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   await priorityButton.press('Enter');
   assert.equal(await mail.locator('li').count(), 1);
   const email = cardFor(/Email suggestions/);
-  await email.getByRole('heading', { name: 'Possible new deal', exact: true }).waitFor();
+  await email.getByText('Suggestion', { exact: true }).waitFor();
+  assert.equal(await email.getByRole('button', { name: 'Mark done', exact: true }).count(), 0);
+  const possibleDeal = email.getByRole('region', { name: 'Possible new deal', exact: true });
+  await possibleDeal.getByRole('button', { name: 'Accept', exact: true }).waitFor();
+  await possibleDeal.getByRole('button', { name: 'Drop', exact: true }).waitFor();
   const step = email.getByRole('region', { name: 'Next step', exact: true });
   assert.equal(await step.evaluate(section => section === document.activeElement), true);
   for (const [error, status, message] of [
@@ -482,7 +525,6 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   const lease = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
   await lease.getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
-  const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
   await waiting.getByRole('button', { name: /^See all/ }).click();
   const earlierUntil = writes.at(-1)[1].until;
   async function undoRestore(label, action, until, advanceClock = false) {

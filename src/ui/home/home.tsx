@@ -46,6 +46,7 @@ const snoozeDate = new Intl.DateTimeFormat("en-US", {
   timeStyle: "short",
 });
 const visibleRow = (node: HTMLElement) => !node.closest("details:not([open])") && node.getClientRects().length > 0;
+const canSnooze = (item: InboxItem) => !item.engine_marks || (item.section === "inbox" && markTarget(item.item_id));
 export function inboxRefusal(code: unknown): string {
   switch (code) {
     case "version_conflict":
@@ -387,7 +388,7 @@ function Inbox({ client }: { client: InboxClient }) {
   const visibleShelves = (["working", "held", "done", "snoozed", "settled"] as const).filter(
     (shelf) => shelf !== "settled" || !query.data?.engine_marks,
   );
-  const picked = items.filter((item) => selected.has(item.item_id));
+  const picked = items.filter((item) => selected.has(item.item_id) && canSnooze(item));
   function openCard(item: InboxItem, opener: HTMLElement, proposal?: string) {
     reviewOpener.current = opener;
     setReviewing(proposal ? { ...item, focusedSuggestionId: proposal } : item);
@@ -397,15 +398,12 @@ function Inbox({ client }: { client: InboxClient }) {
     const primary =
       item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
     const markAction = item.engine_marks ? "unsnooze" : item.disposition === "inbox" ? "settle" : "unsettle";
-    const markable =
-      !item.engine_marks || ((item.section === "inbox" || item.section === "snoozed") && markTarget(item.item_id));
-    const wakeable = markable && (item.engine_marks ? item.section === "snoozed" : item.source_state !== "working");
-    const tourDone =
-      item.engine_marks &&
-      item.home_mark_drop &&
-      item.kind_label === "Tour feedback" &&
-      item.section === "inbox" &&
-      markable;
+    const snoozable = canSnooze(item);
+    const waitingCard = item.engine_marks === true && ["working", "held", "snoozed"].includes(item.section);
+    const wakeable = item.engine_marks
+      ? item.section === "snoozed" && markTarget(item.item_id)
+      : item.source_state !== "working";
+    const tourDone = item.engine_marks && item.home_mark_drop && item.kind_label === "Tour feedback" && snoozable;
     const completable =
       item.action_id !== null &&
       item.source_state === "needs_attention" &&
@@ -427,6 +425,20 @@ function Inbox({ client }: { client: InboxClient }) {
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
     const daysLate = item.engine_marks && item.section === "inbox" && item.action_id ? lateDays(item.due_on) : 0;
+    const detail =
+      item.disposition === "snoozed" && item.snoozed_until
+        ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
+        : draftCardStatus(item) ||
+          (item.section === "done" || (!item.engine_marks && item.auto_settled)
+            ? completionLabel(item)
+            : item.disposition === "settled"
+              ? "Hidden from inbox by you"
+              : item.source_state === "working"
+                ? "Dr. CRE is working. You can come back to this."
+                : item.source_state === "done"
+                  ? completionLabel(item)
+                  : !item.engine_marks && "Ready for your attention");
+    const hold = item.hold_until && `On hold until ${cardDate.format(new Date(item.hold_until))}`;
     const linkedRecord = source && (
       <a className="inbox-source" href={source}>
         {sourcePage === "call" ? "Call summary" : (namedRecord && item.context_label) || `Open ${sourcePage}`}
@@ -456,7 +468,7 @@ function Inbox({ client }: { client: InboxClient }) {
           )
             return;
           if (touch.clientX > start.x && wakeable) act(markAction, [item]);
-          else if (touch.clientX < start.x && markable) {
+          else if (touch.clientX < start.x && snoozable) {
             snoozeOpener.current = event.currentTarget.querySelector("h3 a");
             openSnooze([item]);
           }
@@ -467,7 +479,7 @@ function Inbox({ client }: { client: InboxClient }) {
             type="checkbox"
             aria-label={`Select ${item.title}`}
             checked={selected.has(item.item_id)}
-            disabled={busy || !!reviewing || !markable || item.source_state === "working"}
+            disabled={busy || !!reviewing || !snoozable || item.source_state === "working"}
             onChange={(event) =>
               select((previous) => {
                 const next = new Set(previous);
@@ -481,7 +493,9 @@ function Inbox({ client }: { client: InboxClient }) {
         <div className="inbox-copy">
           <p className="inbox-meta">
             <span>{item.kind_label}</span>
-            <span className={`inbox-badge inbox-${item.source_state}`}>{item.source_state.replaceAll("_", " ")}</span>
+            {!item.engine_marks && (
+              <span className={`inbox-badge inbox-${item.source_state}`}>{item.source_state.replaceAll("_", " ")}</span>
+            )}
           </p>
           <h3 className={open || item_id === item.item_id ? "inbox-title-expanded" : undefined}>
             <Link
@@ -510,83 +524,79 @@ function Inbox({ client }: { client: InboxClient }) {
               )}
             </p>
           )}
-          <p className="inbox-detail">
-            {draftCardStatus(item) ||
-              (item.disposition === "snoozed" && item.snoozed_until
-                ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
-                : item.section === "done" || (!item.engine_marks && item.auto_settled)
-                  ? completionLabel(item)
-                  : item.disposition === "settled"
-                    ? "Hidden from inbox by you"
-                    : item.source_state === "working"
-                      ? "Dr. CRE is working. You can come back to this."
-                      : item.source_state === "done"
-                        ? completionLabel(item)
-                        : "Ready for your attention")}
-            {item.hold_until ? ` · On hold until ${cardDate.format(new Date(item.hold_until))}` : ""}
-          </p>
+          {(detail || hold) && (
+            <p className="inbox-detail">
+              {detail}
+              {hold && (detail ? ` · ${hold}` : hold)}
+            </p>
+          )}
           {item_id === item.item_id && !open && linkedRecord}
           {item_id === item.item_id && !open && item.source_type === "notification" && (
             <HomeWatchDetail open_url={item.open_url} />
           )}
           {item_id === item.item_id && item.open_url && !source && <p role="status">This link can't be opened here.</p>}
         </div>
-        <div className="inbox-actions">
-          <button
-            type="button"
-            className={completable || tourDone ? undefined : "inbox-primary"}
-            aria-expanded={open}
-            disabled={openingLocked}
-            onClick={(event) => openCard(item, event.currentTarget)}
-          >
-            Open
-          </button>
-          {(completable || tourDone) && (
-            <button
-              type="button"
-              className="inbox-primary"
-              disabled={busy || !!reviewing}
-              onClick={() => act(tourDone ? "done" : "complete", [item])}
-            >
-              {tourDone ? "Done" : "Mark done"}
-            </button>
-          )}
-          {!item.engine_marks && item.source_type === "email_proposal" && item.source_state === "failed" && (
-            <p className="inbox-detail inbox-guidance">
-              This reply didn't send. Send it from your email, then press Hide from inbox.
-            </p>
-          )}
-          {wakeable && (
-            <button type="button" disabled={busy || !!reviewing} onClick={() => act(markAction, [item])}>
-              {primary}
-            </button>
-          )}
-          {markable && (
-            <button
-              type="button"
-              disabled={busy || !!reviewing}
-              onClick={(event) => {
-                snoozeOpener.current = event.currentTarget;
-                openSnooze([item]);
-              }}
-            >
-              Snooze
-            </button>
-          )}
-          {droppable && (
-            <button
-              type="button"
-              disabled={busy || !!pending || !!reviewing || !online}
-              onClick={(event) => setDropping({ item, opener: event.currentTarget })}
-            >
-              Drop
-            </button>
-          )}
-        </div>
+        {(!waitingCard || wakeable) && (
+          <div className="inbox-actions">
+            {!waitingCard && (
+              <button
+                type="button"
+                className={completable || tourDone ? undefined : "inbox-primary"}
+                aria-expanded={open}
+                disabled={openingLocked}
+                onClick={(event) => openCard(item, event.currentTarget)}
+              >
+                Open
+              </button>
+            )}
+            {(completable || tourDone) && (
+              <button
+                type="button"
+                className="inbox-primary"
+                disabled={busy || !!reviewing}
+                onClick={() => act(tourDone ? "done" : "complete", [item])}
+              >
+                {tourDone ? "Done" : "Mark done"}
+              </button>
+            )}
+            {!item.engine_marks && item.source_type === "email_proposal" && item.source_state === "failed" && (
+              <p className="inbox-detail inbox-guidance">
+                This reply didn't send. Send it from your email, then press Hide from inbox.
+              </p>
+            )}
+            {wakeable && (
+              <button type="button" disabled={busy || !!reviewing} onClick={() => act(markAction, [item])}>
+                {primary}
+              </button>
+            )}
+            {snoozable && (
+              <button
+                type="button"
+                disabled={busy || !!reviewing}
+                onClick={(event) => {
+                  snoozeOpener.current = event.currentTarget;
+                  openSnooze([item]);
+                }}
+              >
+                Snooze
+              </button>
+            )}
+            {droppable && (
+              <button
+                type="button"
+                disabled={busy || !!pending || !!reviewing || !online}
+                onClick={(event) => setDropping({ item, opener: event.currentTarget })}
+              >
+                Drop
+              </button>
+            )}
+          </div>
+        )}
         {open && (
           <ReviewCard
             item={reviewing}
             focusedSuggestionId={reviewing.focusedSuggestionId}
+            readOnly={waitingCard}
             client={reviewClient}
             close={() => setReviewing(null)}
             busy={(value) => {
