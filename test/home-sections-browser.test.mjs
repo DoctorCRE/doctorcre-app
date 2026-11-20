@@ -374,6 +374,11 @@ for (const enabled of [false, true]) test(`Home opens inbox cards with the engin
   mailRows = [{ ...priority, kind: 'reply_draft', item_id: `reply_draft:${draft}` }];
   await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
   await mail.getByText('Mail priorities unavailable.', { exact: true }).waitFor();
+  for (const [subject, sender] of [[null, 'Null Sender'], ['', 'Empty Sender'], ['   ', 'Blank Sender']]) {
+    mailRows = [{ ...priority, subject, sender }];
+    await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();
+    await mail.getByRole('button', { name: `${sender} · (No subject)`, exact: true }).waitFor({ timeout: 3000 });
+  }
   mailRows = [priority];
   const priorityButton = mail.getByRole('button', { name: 'Sample Sender · (No subject)', exact: true });
   await mail.getByRole('button', { name: 'Refresh mail priorities', exact: true }).click();

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { emailPlaceholderText, emailSubject } from "./email-subject.ts";
 import { hasEngineReview, matchesProposal } from "./engine-review.ts";
 import { type InboxItem, object } from "./inbox.tsx";
 import { takeEarlyMailPriorities } from "./mail-priorities-client";
@@ -67,7 +68,7 @@ async function readPriorities(signal: AbortSignal) {
       base_version: row.base_version,
       proposal,
       sender: typeof row.sender === "string" ? row.sender : "Sender unavailable",
-      subject: typeof row.subject === "string" ? row.subject : "Subject unavailable",
+      subject: typeof row.subject === "string" ? row.subject : null,
       suggestion: typeof row.suggestion === "string" ? row.suggestion : "",
       dueOn: typeof row.due_on === "string" && Number.isFinite(Date.parse(row.due_on)) ? row.due_on : null,
       happenedAt: row.source_activity.happened_at,
@@ -75,10 +76,6 @@ async function readPriorities(signal: AbortSignal) {
   });
   return { items, more: value.more };
 }
-
-const emailSubject = (value: string) =>
-  /^(?:\(no subject\)|no subject)$/i.test(value.trim()) ? "(No subject)" : value;
-const emailPlaceholderText = (value: string) => value.replace(/\(no subject\)/gi, "(No subject)");
 
 export function EngineMailPriorities({
   items,
