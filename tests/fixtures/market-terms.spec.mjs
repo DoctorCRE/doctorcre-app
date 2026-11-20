@@ -110,6 +110,7 @@ for (const width of [390,1280]) for (const theme of ['light','dark']) {
     expect(await page.evaluate(() => 'as_of' in window.marketRequests.at(-1))).toBe(false);
     await date.fill('2023-01-01'); await compare.click();
     await expect(results).toContainText('No comparable terms');
+    await expect(results).toContainText('0 matching terms across 0 deals.');
     await expect(results).toContainText('Terms as of 2023-01-01');
     await date.fill('2022-01-01'); await compare.click();
     await expect(results).toContainText('Could not load comparable terms');

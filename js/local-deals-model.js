@@ -16,6 +16,11 @@ export const PHASE_TRIGGERS = Object.freeze({
   negotiation: 'LOI submitted', legal: 'Draft lease prepared', due_diligence: 'Lease signed',
   closing: 'Due-diligence deadline passed', closed: 'Closed',
 });
+export function nationalMarketLabel(market) {
+  const recorded = market?.trim();
+  return !recorded || /^market unspecified(?: in source)?$/i.test(recorded) ? 'No market recorded' : market;
+}
+
 export function lostDeals(rows, owner = 'all', query = '') { return historyDeals(rows, owner, query, true); }
 export function closedDeals(rows, owner = 'all', query = '') { return historyDeals(rows, owner, query, false); }
 function historyDeals(rows, owner = 'all', query = '', lost = false) {
