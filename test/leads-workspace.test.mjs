@@ -76,9 +76,9 @@ test('failed territory reveal keeps the market filters and lead list usable',asy
   assert.match(s.d.getElementById('territoryMap').textContent,/Map unavailable/);
   const select=s.d.getElementById('marketFilter');select.value='Mobile, AL';select.dispatchEvent(new s.w.Event('change'));
   assert.ok(s.d.querySelectorAll('#leadBoard .lead-card').length>0);
-  s.d.querySelector('#mapLeadMembers button').click();await tick();
+  s.d.querySelector('#leadBoard .lead-open').click();await tick();
   assert.equal(s.d.getElementById('leadDetail').open,true);
-  assert.match(s.d.querySelector('#mapLeadMembers button').textContent,/Location not checked/);
+  assert.match(s.d.getElementById('detailTitle').textContent,/Dr. Example 10/);
  }finally{s.close()}
 });
 test('territory completion after workspace disposal releases the renderer',async()=>{
@@ -173,7 +173,7 @@ for(const finish of ['dragend','drop'])test(`map readiness preserves the native 
   target.dispatchEvent(new s.w.Event(finish,{bubbles:true,cancelable:true}));
   if(finish==='drop')card.dispatchEvent(new s.w.Event('dragend',{bubbles:true}));
   assert.equal(s.d.querySelector('.dragging'),null);
-  assert.equal(s.d.querySelector('#mapLeadMembers button small').textContent,'Pensacola, FL · Market area only');
+  assert.ok(s.d.querySelector('#marketCounts [data-market="Pensacola, FL"]'));
   assert.equal(s.writes.length,0);
  }finally{s.close()}
 });
@@ -189,7 +189,7 @@ for(const finish of ['pointerup','pointercancel','lostpointercapture'])test(`map
   assert.equal(s.d.getElementById('leadBoard').dataset.touchDragging,'true');
   pointer(finish);
   assert.equal(s.d.getElementById('leadBoard').dataset.touchDragging,undefined);
-  assert.equal(s.d.querySelector('#mapLeadMembers button small').textContent,'Pensacola, FL · Market area only');
+  assert.ok(s.d.querySelector('#marketCounts [data-market="Pensacola, FL"]'));
   assert.equal(s.writes.length,0);
  }finally{s.close()}
 });
@@ -547,7 +547,7 @@ test('blocking 12: account transitions clear private queries, filters and closed
  await s.app.readDetail(id(1));s.d.getElementById('leadDetail').close();await s.app.openReview(id(1),'qualified');s.d.getElementById('stageDialog').close();
  const search=s.d.getElementById('leadSearch');search.value='Distinctive synthetic private query';search.dispatchEvent(new s.w.Event('input'));
  const specialty=s.d.getElementById('specialtyFilter');specialty.value='Dental';specialty.dispatchEvent(new s.w.Event('change'));
- s.setActor('new-example-actor');await s.app.refresh();assert.equal(specialty.value,'');assert.equal(search.value,'');assert.deepEqual(s.app.state.filters,{reachability:'',search:'',owner:'',stage:'',market:'',specialty:''});
+ s.setActor('new-example-actor');await s.app.refresh();assert.equal(specialty.value,'');assert.equal(search.value,'');assert.deepEqual(s.app.state.filters,{quiet:false,reachability:'',search:'',owner:'',stage:'',market:'',specialty:''});
  assert.equal(s.d.getElementById('detailTitle').textContent,'');assert.equal(s.d.getElementById('stageTitle').textContent,'');assert.equal(s.app.state.trigger,null);
  }finally{s.close()}
 });

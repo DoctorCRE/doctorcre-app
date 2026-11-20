@@ -190,3 +190,37 @@ test('Leads detail reaches the 101st captured correspondence and stage change', 
   await capture(page, 'f7-history-complete', { correspondence: 101, stage_history: 101 });
   assert.deepEqual(writes, []);
 });
+
+test('Quiet leads, Owner and Market narrow the same board and count', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 390, height: 900 } });
+  const board = { ...workspace(), leads: [lead(1), lead(2, { owner: 'dell', stage: 'engaged', city: 'Mobile', state: 'AL' }), lead(3)] };
+  const quiet = (n, days) => ({
+    subject_type: 'lead', subject_id: id(n), ref: `L-${n}`, name: `Dr. Example ${n}`,
+    basis: 'created_at', anchor_on: '2026-08-01', due_on: '2026-09-15', days_overdue: days,
+  });
+  await routeLeads(page, {
+    getBoard: () => board,
+    getQuiet: () => ({ ...emptyQuietFollowUps(), proposals: [
+      quiet(1, 16), { ...quiet(2, 0), subject_id: id(202) }, { ...quiet(3, 16), subject_type: 'vendor' },
+    ] }),
+  });
+  await page.goto('http://localhost/leads');
+  await page.locator('.lead-card').first().waitFor();
+  assert.equal(await page.getByLabel('Contact evidence').isVisible(), false);
+  assert.equal(await page.locator('#leadCount').innerText(), '3 leads');
+  const filter = page.getByRole('button', { name: 'Quiet leads', exact: true });
+  assert.equal(await filter.count(), 1);
+  await filter.click();
+  assert.equal(await page.locator('#leadCount').innerText(), '2 leads');
+  assert.equal(await page.locator('.lead-card .work-card-status').count(), 1);
+  await page.locator('#ownerFilter').selectOption('unclaimed');
+  assert.equal(await page.locator('#leadCount').innerText(), '1 lead');
+  await page.locator('#marketFilter').selectOption('Mobile, AL');
+  assert.equal(await page.locator('#leadCount').innerText(), '0 leads');
+  await page.getByRole('button', { name: 'Reset filters', exact: true }).click();
+  assert.equal(await filter.getAttribute('aria-pressed'), 'false');
+  assert.equal(await page.locator('#leadCount').innerText(), '3 leads');
+  assert.equal(await page.locator('#mapLeadMembers, #quietFollowUps').count(), 0);
+});

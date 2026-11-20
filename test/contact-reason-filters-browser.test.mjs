@@ -63,8 +63,8 @@ for (const width of [1280,390]) for (const theme of ['light','dark']) test(`load
   assert.equal(await reasons.locator('.work-card').count(),0);
   assert.match(await reasons.innerText(),/No matches among loaded reasons/);
   assert.doesNotMatch(await reasons.innerText(),/No new reasons/);
-  assert.match(await reasons.innerText(),/Registry and publication dates do not confirm/);
-  assert.match(await reasons.getByRole('list',{name:'Source coverage'}).innerText(),/Florida formations · Not yet covered/);
+  assert.doesNotMatch(await reasons.innerText(),/Registry and publication dates do not confirm/);
+  assert.doesNotMatch(await reasons.getByRole('list',{name:'Source coverage'}).innerText(),/Florida formations · Not yet covered/);
   assert.equal(await reasons.getByRole('button',{name:'More reasons',exact:true}).isEnabled(),true);
   await mkdir('.github/pr-evidence/WR39.S1.J5',{recursive:true});
   await reasons.screenshot({path:`.github/pr-evidence/WR39.S1.J5/zero-${width}-${theme}.png`});
