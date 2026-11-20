@@ -2050,7 +2050,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
   await page.getByLabel('Assigned local agent').waitFor();
   savesOn = true;
   await page.reload();
-  await page.getByRole('button', { name: /Example National Account/ }).click();
+  await page.locator('#accountContextName').getByText('Example National Account', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Previous Agent' }).click();
   assert.equal(await page.locator('#dialogTitle').textContent(), 'Market agent — Example Market Deal');
   assert.equal(await page.getByText('Current agent: Previous Agent', { exact: true }).isVisible(), true);
