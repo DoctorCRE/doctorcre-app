@@ -40,6 +40,12 @@ type Undo = { items: readonly InboxItem[] } & (
 );
 const queryKey = ["home-inbox"];
 const cardDate = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", dateStyle: "medium" });
+const callDate = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Chicago",
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+});
 const snoozeDate = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Chicago",
   dateStyle: "medium",
@@ -414,9 +420,15 @@ function Inbox({ client }: { client: InboxClient }) {
         ? client.review
         : undefined;
     const activity =
-      item.engine_marks && !reviewClient && "source_activity" in item && object(item.source_activity)
-        ? item.source_activity
+      item.engine_marks && "source_activity" in item && object(item.source_activity) ? item.source_activity : null;
+    const callAt =
+      item.source_type === "capture_post_call_action" &&
+      activity?.kind === "call" &&
+      typeof activity.happened_at === "string" &&
+      Number.isFinite(Date.parse(activity.happened_at))
+        ? activity.happened_at
         : null;
+    const callContact = typeof activity?.contact === "string" ? activity.contact.trim() : "";
     const deal = item.deal_id ? `/deals?deal=${encodeURIComponent(item.deal_id)}` : null;
     const source = recordRoutes.source(item) ?? deal;
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
@@ -520,6 +532,12 @@ function Inbox({ client }: { client: InboxClient }) {
                   {daysLate ? `${daysLate} day${daysLate === 1 ? "" : "s"} late` : <>Due {due}</>}
                 </>
               )}
+            </p>
+          )}
+          {callAt && (
+            <p className="inbox-detail">
+              From your call{callContact && ` with ${callContact}`} on{" "}
+              <time dateTime={callAt}>{callDate.format(new Date(callAt))}</time>
             </p>
           )}
           {(detail || hold) && (
@@ -627,7 +645,7 @@ function Inbox({ client }: { client: InboxClient }) {
           >
             {due && <p>Due {due}</p>}
             {linkedRecord}
-            {activity && (
+            {activity && !reviewClient && (
               <>
                 {typeof activity.contact === "string" && <p>Call with {activity.contact}</p>}
                 {typeof activity.happened_at === "string" && Number.isFinite(Date.parse(activity.happened_at)) && (
@@ -713,7 +731,6 @@ function Inbox({ client }: { client: InboxClient }) {
               : query.isStale
                 ? "Snapshot may be stale · Refresh before acting."
                 : "Up to date"}
-        <span>Partner inbox</span>
       </div>
       {query.data && !query.data.engine_marks && !query.data.auto_settle_enabled && (
         <p role="status">
@@ -963,7 +980,8 @@ function Inbox({ client }: { client: InboxClient }) {
         </dialog>
       )}
       <footer className="inbox-footer">
-        Use ↑ ↓ to move between cards. On your phone, swipe right to hide or wake, left to snooze.
+        Use ↑ ↓ to move between cards. On your phone, swipe right to{" "}
+        {(query.data?.engine_marks ?? engineHome) ? "wake a snoozed card" : "hide or wake"}, left to snooze.
       </footer>
     </section>
   );

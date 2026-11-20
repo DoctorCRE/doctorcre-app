@@ -15,7 +15,7 @@ let outDir;
 before(async () => { outDir = temporaryDirectory('home-sections-'); await buildArtifact({ root: process.cwd(), outDir }); });
 after(async () => { await rm(outDir, { recursive: true, force: true }); });
 
-for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(`Home opens inbox cards with the engine switch ${enabled ? 'on' : 'off'} at ${width}px`, async t => {
+for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(`Home shows plain card wording and opens cards with the engine switch ${enabled ? 'on' : 'off'} at ${width}px`, async t => {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
   page.setDefaultTimeout(5000);
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
@@ -38,13 +38,13 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       const source = task.call ? 'capture_post_call_action' : 'next_action';
       return {
         item_id: `${source}:${id}`, source_type: source, source_id: id, source_version: enabled ? '2147483648' : '7',
-        source_state: 'needs_attention', base_version: enabled ? '2147483648:0:inbox' : 'legacy:7', title: task.title,
+        source_state: 'needs_attention', base_version: enabled ? '2147483648:0:inbox' : 'legacy:7', title: index === 0 ? `**${task.title}**` : task.title,
         activity_at: '2026-11-02T12:00:00.000Z', completed_at: null, due_on: '2026-11-03',
         hold_until: null, snoozed_until: null, disposition: 'inbox', section: 'inbox', unseen: false,
         ...(!enabled && { explicit_unsettle: false, auto_settled: false }), context_label: task.call ? 'Example Dental' : task.label,
         open_url: task.path, kind_label: task.call ? 'Call follow-up' : 'Task', action_id: id, action_version: enabled ? 2147483648 : 7,
         deal_id: task.dealId ?? null, merged_source_ids: [id], waiting_version: 0, waiting_on: null,
-        source_activity: task.call ? { kind: 'call', id: callId, happened_at: '2026-11-02T11:00:00.000Z',
+        source_activity: task.call ? { kind: 'call', id: callId, happened_at: '2026-11-03T02:00:00.000Z',
           contact: 'Example Contact', summary: 'Discussed the floor plan.', quote: 'Please send the floor plan.' } : null,
       };
     }),
@@ -203,6 +203,10 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   };
   const first = inbox.getByRole('link', { name: new RegExp(`^${tasks[0].title}`) });
   await first.waitFor();
+  assert.equal(await inbox.getByText('Partner inbox', { exact: true }).count(), 0);
+  assert.equal(await inbox.getByText(/Completed today in Chicago/).count(), 0);
+  assert.equal(await page.locator('#appWorkingList').count(), 0);
+  assert.match(await inbox.locator('footer').textContent(), enabled ? /swipe right to wake a snoozed card/ : /swipe right to hide or wake/);
   assert.equal(await first.textContent(), `${tasks[0].title} (${reader})`);
   if (enabled) {
     assert.equal(new URL(page.url()).pathname, '/');
@@ -234,7 +238,8 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     assert.deepEqual(await card.getByRole('button').allTextContents(), enabled
       ? ['Open', 'Mark done', 'Snooze', 'Drop']
       : ['Open', 'Mark done', 'Hide from inbox', 'Snooze']);
-    assert.match(await card.locator('time').textContent(), /Nov 3/);
+    assert.match(await card.locator('.inbox-context time').textContent(), /Nov 3/);
+    if (enabled && task.call) await card.getByText('From your call with Example Contact on Mon, Nov 2').waitFor();
     await link.click();
     const details = card.getByRole('region', { name: `Details for ${title}` });
     assert.equal(await details.getByRole('link', { name: task.label, exact: true }).getAttribute('href'), task.path);
@@ -364,7 +369,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   details.set(dismissNested, { ...evidence, proposal_id: dismissNested, kind: 'file_to_deal' });
   details.set(draft, { draft_id: draft, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
     to: 'sender@example.test', cc: 'partner@example.test', attachments: [{ document_id: dealId, name: 'Sample plan' }],
-    source_activity: { sender: 'sender@example.test', subject: 'Sample email', body: 'Please share the sample plan.', happened_at: NOW.toISOString() } });
+    source_activity: { sender: 'sender@example.test', subject: 'Sample email', body: '&#65279;Please share the sample plan.', happened_at: NOW.toISOString() } });
   const lead = '00000000-0000-0000-0000-000000000030';
   state.items.push({ ...notice, title: 'New Example · Possible lead', item_id: `suggestion:${lead}`, source_id: lead,
     source_type: 'email_proposal', deal_id: null, open_url: null, source_activity: null,
