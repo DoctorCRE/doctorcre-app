@@ -54,6 +54,74 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
   return { env, send, engine, carr, kv };
 }
 
+test("Leads saves use the board UUID and preserve the legacy request before cutover", async () => {
+  const leadId = "00000000-0000-4000-8000-000000000010";
+  const clientId = "00000000-0000-4000-8000-000000000011";
+  const key = "00000000-0000-4000-8000-000000000012";
+  const base = { base_version: 42, expected_actor: "example-partner", idempotency_key: key };
+  const lead = { lead: "L-1", lead_id: leadId };
+  const headers = { origin, cookie: "session=synthetic", "x-carr-csrf": "synthetic" };
+  const switches = new Map([
+    ["leads-from-engine", "on"],
+    ["deals-saves-from-engine", "on"],
+  ]);
+  const actions = [
+    ["claim-lead", {}, { action: "claim" }],
+    [
+      "update-lead",
+      { fields: { stage: "archived" }, stage_review: { reason: "Example ended", evidence_ids: [] } },
+      { action: "stage", stage: "archived", reason: "Example ended" },
+    ],
+    [
+      "link-lead-client",
+      { client_id: clientId, confirmed: true },
+      { action: "link", client_id: clientId, confirmed: true },
+    ],
+  ] as const;
+  for (const [name, args, command] of actions) {
+    const callBody = call(name, { ...base, ...lead, ...args });
+    const enabled = fixture(switches, async () => Response.json({ ok: true, lead_id: leadId }));
+    const reply = await (await enabled.send(callBody, headers)).json();
+    assert.equal(JSON.parse(reply.result.content[0].text).ok, true);
+    const request = enabled.engine[0];
+    assert.ok(request);
+    assert.equal(request.url, `${origin}/api/engine/leads/${leadId}/changes`);
+    assert.equal(request.headers.get("x-carr-csrf"), "synthetic");
+    assert.deepEqual(await request.json(), { ...base, ...command });
+    assert.deepEqual(enabled.carr, []);
+
+    const beforeCutover = fixture(new Map([["leads-from-engine", "on"]]));
+    assert.equal(await (await beforeCutover.send(callBody)).text(), "old");
+    assert.deepEqual(beforeCutover.engine, []);
+    assert.deepEqual(
+      beforeCutover.carr.map((body) => JSON.parse(body)),
+      [call(name, { ...base, lead: "L-1", ...args })],
+    );
+  }
+
+  const claim = call("claim-lead", { ...base, ...lead });
+  const conflict = fixture(switches, async () => Response.json({ error: "version_conflict" }, { status: 409 }));
+  const reply = await (await conflict.send(claim)).json();
+  assert.equal(reply.result.isError, true);
+  assert.equal(JSON.parse(reply.result.content[0].text).error, "version_conflict");
+  assert.deepEqual(conflict.carr, []);
+
+  const unavailable = fixture(switches, async () => new Response(null, { status: 503 }));
+  assert.equal((await unavailable.send(claim)).status, 503);
+  assert.deepEqual(unavailable.carr, []);
+  const undo = call("update-lead", {
+    ...base,
+    ...lead,
+    fields: { stage: "new" },
+    stage_review: { undo_event_id: key, reason: "Example undo", evidence_ids: [] },
+  });
+  const frozen = fixture(switches);
+  const refused = await (await frozen.send(undo)).json();
+  assert.equal(JSON.parse(refused.result.content[0].text).error, "old_save_closed");
+  assert.deepEqual(frozen.engine, []);
+  assert.deepEqual(frozen.carr, []);
+});
+
 test("retiring the feed stops forwarding its cursor without changing the legacy response", async () => {
   const switches = new Map([["deals-from-engine", "off"]]);
   const { env, carr } = fixture(switches);

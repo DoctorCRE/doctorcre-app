@@ -566,6 +566,33 @@ const ENGINE_SAVES = new Map([
   ['patch-deal-field', { key: DEAL_SAVES, path: '/api/engine/patch-deal-field' }],
   ['update-deal', { key: DEAL_SAVES, path: '/api/engine/update-deal' }],
 ]);
+const LEAD_ACTIONS = new Map([
+  ['claim-lead', 'claim'],
+  ['update-lead', 'stage'],
+  ['link-lead-client', 'link'],
+]);
+
+async function routeLeadSave(request, env, call, action) {
+  const { lead_id, ...legacy } = call.params.arguments;
+  if (!await switchedOn(env, NEXT_DEAL_SAVES)) {
+    if (lead_id === undefined) return null;
+    const params = { ...call.params, arguments: legacy };
+    return carrResponse(new Request(request, { body: JSON.stringify({ ...call, params }) }), env);
+  }
+  if (!isUuid(lead_id) || !await switchedOn(env, LEADS)) return null;
+
+  const { base_version, expected_actor, idempotency_key, fields, stage_review, client_id, confirmed } = legacy;
+  const body = { action, base_version, expected_actor, idempotency_key };
+  if (action === 'stage') {
+    if (!isObject(fields) || Object.keys(fields).length !== 1 || !isString(fields.stage) ||
+        stage_review?.undo_event_id !== undefined) return null;
+    body.stage = fields.stage;
+    if (body.stage === 'archived') body.reason = stage_review?.reason;
+  }
+  if (action === 'link') Object.assign(body, { client_id, confirmed });
+  return engineAnswer(request, env, call, { path: `/api/engine/leads/${lead_id}/changes` },
+    { allowHandoff: false, body, uncertainServerError: true });
+}
 
 // Engine refusals that wrote nothing and leave the answer to the old system: a
 // save it cannot make, or a key the old system's receipt holds.
@@ -586,6 +613,8 @@ const DEAL_EMAIL_REFUSALS = new Map([
 // refuses and never writes.
 async function engineSave(request, env, call) {
   if (call?.method !== 'tools/call' || !isObject(call.params?.arguments)) return null;
+  const leadAction = LEAD_ACTIONS.get(call.params.name);
+  if (leadAction) return routeLeadSave(request, env, call, leadAction);
   if (call.params.name === 'decide-engine-deal-email') {
     if (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))
       return saveRefusal(call, 'deal_email_routing_changed', 'Reload the deal before reviewing this email.');
@@ -735,9 +764,9 @@ async function sendEngineSave(request, env, path, body) {
 }
 
 // Only the legacy-schema saves share a receipt with CARR.
-async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments, rawClientError = false } = {}) {
+async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments, rawClientError = false, uncertainServerError = false } = {}) {
   const response = await sendEngineSave(request, env, save.path, body);
-  if (!response) return unavailable(false);
+  if (!response || (uncertainServerError && response.status >= 500)) return unavailable(false);
   let text;
   try {
     if ((rawClientError && response.status >= 400 && response.status < 500) || [401, 403, 429].includes(response.status)) return response;

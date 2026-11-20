@@ -78,15 +78,15 @@ export function createLeadBoardClient(options = {}) {
     getQuietFollowUps: async () => validateQuietFollowUps(await rpc("quiet-follow-ups", {})),
     setProspectEngagementStatus: createEngagementWriter(args => rpc("set-prospect-engagement-status", args, true)),
     claimLead(lead, key, actor) {
-      return rpc("claim-lead", { lead: lead.registry_ref || lead.id, base_version: lead.base_version,
+      return rpc("claim-lead", { lead: lead.registry_ref || lead.id, lead_id: lead.id, base_version: lead.base_version,
         expected_actor: actor, idempotency_key: key }, true);
     },
     recordStage(lead, stage, review, key, actor) {
-      return rpc("update-lead", { lead: lead.registry_ref || lead.id, base_version: lead.base_version,
+      return rpc("update-lead", { lead: lead.registry_ref || lead.id, lead_id: lead.id, base_version: lead.base_version,
         expected_actor: actor, fields: { stage }, stage_review: review, idempotency_key: key }, true);
     },
     linkClient(lead, clientId, key, actor) {
-      return rpc("link-lead-client", { lead: lead.registry_ref || lead.id, base_version: lead.base_version,
+      return rpc("link-lead-client", { lead: lead.registry_ref || lead.id, lead_id: lead.id, base_version: lead.base_version,
         expected_actor: actor, client_id: clientId, confirmed: true, idempotency_key: key }, true);
     },
   }, options.docContext === false ? null : undefined);
