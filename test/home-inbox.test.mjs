@@ -201,3 +201,77 @@ test('v5 watch notification routes to its exact client record', async () => {
   for (const open_url of ['/deals?deal=demo', '/calls?session=demo', '/doc-chats?conversation=demo']) assert.equal(recordRoutes.source({ ...parsed.items[0], open_url }), open_url);
   for (const open_url of ['/updates', '/updates?notification=demo', '/notifications?watch=demo']) assert.equal(recordRoutes.source({ ...parsed.items[0], open_url }), null);
 });
+
+test('engine Home returns previously hidden work and wakes a snooze through unsnooze', async () => {
+  const target = item('next_action:example', { disposition: 'settled', section: 'settled', waiting_version: 0, waiting_on: null });
+  const engineSnapshot = { ...snapshot([target]), schema_version: 'home-inbox.v5', engine_marks: true };
+  const parsed = parseSnapshot(engineSnapshot).items[0];
+  assert.equal(parsed.section, 'inbox');
+  assert.equal(parsed.disposition, 'inbox');
+  assert.equal(parsed.base_version, target.base_version);
+  const calls = [];
+  const client = createInboxClient(async (name, args) => {
+    if (name === 'read-home-inbox-v5') return engineSnapshot;
+    calls.push(args.action);
+    return { ok: true, item_id: target.item_id, base_version: target.base_version, previous: { disposition: 'snoozed', snoozed_until: '2099-01-01T00:00:00Z' } };
+  });
+  const { command } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
+  await client.run(command('unsnooze', [parsed]));
+  assert.deepEqual(calls, ['unsnooze']);
+});
+
+test('engine card Drop selects the reason-bearing door and confirms no Undo receipt', async () => {
+  const { dropCommand, dropTarget } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
+  const id = '00000000-0000-0000-0000-000000000001';
+  const base = item(`next_action:${id}`, { action_id: id, engine_marks: true });
+  const draft = { ...base, item_id: `reply_draft:${id}`, source_type: 'email_proposal', source_version: '3', reply_draft_id: id, reply_draft_status: 'pending' };
+  const suggestion = { ...base, item_id: `suggestion:${id}`, source_type: 'email_proposal', suggestions: [{ id }], home_proposal_drop: true };
+  const update = { ...base, item_id: `notification:${id}`, source_type: 'notification', kind_label: 'Update', home_mark_drop: true };
+  assert.equal(dropTarget({ ...suggestion, home_proposal_drop: undefined }), null);
+  assert.equal(dropTarget({ ...update, home_mark_drop: undefined }), null);
+  assert.equal(dropTarget({ ...base, engine_marks: undefined }), null);
+  assert.equal(dropTarget({ ...update, source_type: 'fact_review', kind_label: 'Fact review' }), null);
+  assert.throws(() => dropCommand(base, '   '));
+
+  for (const [card, verb, receipt] of [
+    [base, 'end-engine-home-step', { next_step_id: id, status: 'cancelled' }],
+    [draft, 'dismiss-engine-home-draft', { draft_id: id, status: 'dismissed' }],
+    [suggestion, 'decide-engine-home-proposal', { proposal_id: id, status: 'dismissed' }],
+    [update, 'save-engine-home-mark', { ok: true, item_id: update.item_id }],
+  ]) {
+    const calls = [];
+    const client = createInboxClient(async (name, args) => {
+      if (name === 'read-home-inbox-v5')
+        return { ...snapshot([]), schema_version: 'home-inbox.v5', engine_marks: true };
+      calls.push([name, args]);
+      if (calls.length === 1) throw Error('Response lost');
+      return receipt;
+    });
+    const command = dropCommand(card, '  Work moved.  ');
+    await assert.rejects(client.run(command), /Response lost/);
+    const [result] = await client.run(command);
+    assert.equal(result.ok, true);
+    assert.equal(result.item, null);
+    assert.equal(result.undo, undefined);
+    assert.deepEqual(calls[0], calls[1]);
+    assert.equal(calls[1][0], verb);
+    assert.equal(calls[1][1].reason, 'Work moved.');
+  }
+});
+
+test('engine Home v5 reads open and completed work without settlement fields', () => {
+  const { auto_settled, explicit_unsettle, ...open } = item('next_action:open', {
+    waiting_version: 0, waiting_on: null,
+  });
+  const done = { ...open, item_id: 'next_action:done', source_state: 'done', section: 'done', completed_at: '2026-11-19T18:00:00Z' };
+  const read = parseSnapshot({
+    ok: true, schema_version: 'home-inbox.v5', engine_marks: true, truncated: false, limit: 1000,
+    working_collapsed: true, items: [open, done],
+  });
+  assert.deepEqual(read.items.map(row => row.section), ['inbox', 'done']);
+  assert.equal('auto_settle_enabled' in read, false);
+  for (const row of read.items) {
+    assert.equal('explicit_unsettle' in row, false);
+    assert.equal('auto_settled' in row, false);
+  }
+});

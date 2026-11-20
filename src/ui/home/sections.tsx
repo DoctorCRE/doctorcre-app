@@ -24,9 +24,13 @@ const welcomeFormat = new Intl.DateTimeFormat("en-US", {
 });
 const day = (date: Date) => dayFormat.format(date);
 
+export function lateDays(due: string | null, now = new Date()) {
+  return due ? Math.max(0, (Date.parse(day(now)) - Date.parse(due)) / 86_400_000) : 0;
+}
+
 export function completionGroups(items: readonly InboxItem[], now: Date) {
   const completed = items
-    .filter((item) => item.section === "done" || item.auto_settled)
+    .filter((item) => item.section === "done" || (!item.engine_marks && item.auto_settled))
     .sort(
       (a, b) =>
         (b.completed_at ? Date.parse(b.completed_at) : 0) - (a.completed_at ? Date.parse(a.completed_at) : 0) ||
@@ -98,8 +102,9 @@ function matchesLoadedCard(item: InboxItem, query: string) {
 }
 
 export function HomeSections({
-  items: loaded,
+  items: cards,
   pinned,
+  engine = false,
   current,
   search,
   locked,
@@ -107,6 +112,7 @@ export function HomeSections({
   row,
 }: {
   items: readonly InboxItem[];
+  engine?: boolean;
   pinned?: InboxItem | null;
   current: string | undefined;
   search: string;
@@ -127,6 +133,10 @@ export function HomeSections({
     timer = setTimeout(tick, 60_000 - (Date.now() % 60_000));
     return () => clearTimeout(timer);
   }, []);
+  const today = day(now);
+  const loaded = cards.filter(
+    (item) => !engine || item.section !== "inbox" || !item.action_id || !item.due_on || item.due_on <= today,
+  );
   const matching = loaded.filter((item) => matchesLoadedCard(item, search));
   const items = loaded.filter((item) => matchesLoadedCard(item, search) || item.item_id === current);
   const renderRow = (item: InboxItem) => (
@@ -135,7 +145,6 @@ export function HomeSections({
       {row(item)}
     </div>
   );
-  const today = day(now);
   const completed = completionGroups(items.map(placement), now);
   const overdue = (item: InboxItem) => {
     const placed = placement(item);
@@ -149,7 +158,7 @@ export function HomeSections({
   };
   const overdueItems = items.filter(overdue);
   const lateActions = loaded
-    .filter(overdue)
+    .filter((item) => (engine ? item.source_state === "needs_attention" && item.action_id !== null : overdue(item)))
     .map((item) => item.action_id)
     .join(" ");
   useEffect(() => {
@@ -188,7 +197,7 @@ export function HomeSections({
       </nav>
       {overdueItems.length > 0 && (
         <Slice
-          title="Overdue"
+          title={engine ? "Late" : "Overdue"}
           detail="Your tasks dated before today."
           items={overdueItems}
           current={current}
@@ -231,13 +240,15 @@ export function HomeSections({
         current={current}
         row={renderRow}
       />
-      <Slice
-        title="Hidden from inbox"
-        detail="Set aside by you. These tasks may still be open."
-        items={items.filter((item) => placement(item).section === "settled" && !placement(item).auto_settled)}
-        current={current}
-        row={renderRow}
-      />
+      {!engine && (
+        <Slice
+          title="Hidden from inbox"
+          detail="Set aside by you. These tasks may still be open."
+          items={items.filter((item) => placement(item).section === "settled" && !placement(item).auto_settled)}
+          current={current}
+          row={renderRow}
+        />
+      )}
     </div>
   );
 }

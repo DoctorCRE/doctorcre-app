@@ -120,3 +120,99 @@ for (const [transition, before, after] of [
     await page.getByRole('region', { name: 'Hidden from inbox', exact: true }).getByText('Hidden from inbox by you', { exact: true }).waitFor();
   }
 });
+
+for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide, and drops work with a reason at ${width}`, async t => {
+  const server = await fixtureServer({ root: join(outDir, 'site') }); t.after(() => server.close());
+  const browser = await chromium.launch(); t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Chicago' });
+  page.setDefaultTimeout(7000);
+  await page.clock.setFixedTime(new Date('2026-11-19T18:00:00Z'));
+  await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
+  await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  await page.route('**/api/v1/intelligence/mail-needs-partner?*', route => route.fulfill({
+    json: { ok: true, schema_version: 'home-mail-priorities.v1', items: [], more: false },
+  }));
+  const id = '00000000-0000-0000-0000-000000000001';
+  const step = { item_id: `next_action:${id}`, source_type: 'next_action', source_id: id, source_version: '7',
+    source_state: 'needs_attention', title: 'Send sample terms', activity_at: '2026-11-03T12:00:00Z', hold_until: null,
+    due_on: '2026-11-16', unseen: false, disposition: 'settled', snoozed_until: null, explicit_unsettle: false,
+    section: 'settled', base_version: '7:1:settled', context_label: 'Example Dental', open_url: null, kind_label: 'Task',
+    merged_source_ids: [id], action_id: id, action_version: 7, deal_id: null, auto_settled: false,
+    completed_at: null, waiting_version: 0, waiting_on: null };
+  const feedback = { ...step, item_id: 'notification:00000000-0000-0000-0000-000000000002', source_type: 'notification',
+    kind: 'tour_feedback', kind_label: 'Update', title: 'Example Dental commented on a tour', due_on: null, disposition: 'inbox',
+    section: 'inbox', action_id: null, action_version: null, base_version: '1:0:inbox' };
+  let capabilities = false, stepOpen = true, feedbackOpen = true;
+  const writes = [];
+  await page.route('**/mcp', route => {
+    const { name, arguments: args } = route.request().postDataJSON().params;
+    let payload = { items: [] };
+    if (name === 'read-home-inbox-v5') payload = { ok: true, schema_version: 'home-inbox.v5', engine_marks: true,
+      home_mark_drop: capabilities, home_proposal_drop: capabilities, auto_settle_enabled: true, working_collapsed: true,
+      truncated: false, limit: 1000, items: [...(stepOpen ? [step] : []), ...(feedbackOpen ? [feedback] : [])] };
+    if (name === 'deal-room-board') payload = { actor: 'joe', deals: [] };
+    if (name === 'calendar-meeting-prep') payload = { state: 'ready', notes: [], items: [
+      { title: 'Example walkthrough', start: '2026-11-19T16:00:00Z', end: '2026-11-19T17:00:00Z' },
+      { title: 'Tomorrow walkthrough', start: '2026-11-20T16:00:00Z', end: '2026-11-20T17:00:00Z' },
+    ] };
+    if (name === 'end-engine-home-step') {
+      writes.push({ name, args });
+      stepOpen = false;
+      payload = { next_step_id: id, status: 'cancelled', change_id: 8 };
+    }
+    if (name === 'save-engine-home-mark') {
+      writes.push({ name, args });
+      feedbackOpen = args.action === 'undo_done';
+      feedback.base_version = feedbackOpen ? '2:0:inbox' : '2:0:done';
+      payload = { ok: true, item_id: feedback.item_id, base_version: feedback.base_version, previous: { disposition: null, snoozed_until: null } };
+    }
+    return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
+  });
+  await page.goto(`${server.origin}/?mode=live`);
+  const late = page.getByRole('region', { name: 'Late', exact: true });
+  const lateStep = late.locator('[data-inbox-row]');
+  await lateStep.getByText('3 days late', { exact: false }).waitFor();
+  assert.equal(await page.getByRole('region', { name: 'Hidden from inbox', exact: true }).count(), 0);
+  assert.equal(await lateStep.getByRole('button', { name: 'Hide from inbox', exact: true }).count(), 0);
+  await lateStep.getByRole('checkbox').check();
+  assert.equal(await page.getByRole('button', { name: 'Settle selected', exact: true }).count(), 0);
+  await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+  const tour = page.locator('[data-inbox-row]').filter({ hasText: feedback.title });
+  assert.equal(await tour.getByRole('button', { name: 'Drop', exact: true }).count(), 0);
+  assert.equal(await tour.getByRole('button', { name: 'Done', exact: true }).count(), 0);
+  capabilities = true;
+  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
+  await tour.getByRole('button', { name: 'Drop', exact: true }).waitFor();
+  await tour.getByRole('button', { name: 'Done', exact: true }).click();
+  await tour.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await tour.waitFor();
+  assert.deepEqual(writes.map(({ args }) => args.action), ['done', 'undo_done']);
+  assert.equal(writes[1].args.base_version, '2:0:done');
+
+  await lateStep.getByRole('button', { name: 'Drop', exact: true }).click();
+  const reason = page.getByRole('dialog', { name: 'Drop with a reason' });
+  assert.equal(await reason.getByRole('button', { name: 'Drop', exact: true }).isDisabled(), true);
+  await page.keyboard.press('Escape');
+  await reason.waitFor({ state: 'detached' });
+  assert.equal(await lateStep.getByRole('button', { name: 'Drop', exact: true }).evaluate(button => button === document.activeElement), true);
+  assert.equal(writes.length, 2);
+  await lateStep.getByRole('button', { name: 'Drop', exact: true }).click();
+  await reason.getByLabel('Reason for dropping').fill('  Work moved to a different site.  ');
+  await page.screenshot({ path: `test-artifacts/inbox-v3/engine-drop-${width}.png` });
+  await reason.getByRole('button', { name: 'Drop', exact: true }).click();
+  await lateStep.waitFor({ state: 'detached' });
+  assert.equal(writes[2].args.resolution, 'cancelled');
+  assert.equal(writes[2].args.reason, 'Work moved to a different site.');
+  assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
+  assert.equal(await page.getByText('Your working week', { exact: true }).count(), 0);
+  assert.equal(await page.getByText('Upcoming meetings', { exact: true }).count(), 0);
+  assert.equal(await page.getByText('Your schedule', { exact: true }).count(), 0);
+  const today = page.getByRole('complementary', { name: 'Today', exact: true });
+  if (!(await today.isVisible())) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
+  await today.getByText('Example walkthrough', { exact: true }).waitFor();
+  assert.equal(await page.getByText('Example walkthrough', { exact: true }).count(), 1);
+  assert.equal(await page.getByText('Tomorrow walkthrough', { exact: true }).count(), 0);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.screenshot({ path: `test-artifacts/inbox-v3/engine-today-${width}.png`, animations: 'disabled' });
+});

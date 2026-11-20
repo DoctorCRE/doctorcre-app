@@ -72,7 +72,9 @@ export async function prove({ origin, timeoutMs = 30000 }) {
   } finally {
     stopped = true;
     clearTimeout(timer);
-    await context?.close();
+    await context?.close().catch(error => {
+      if (error?.name !== 'TargetClosedError') throw error;
+    });
     await browser?.close();
   }
 }

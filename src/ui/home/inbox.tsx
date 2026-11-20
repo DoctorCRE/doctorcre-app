@@ -1,6 +1,13 @@
 import { type BatchRequest, type BatchResult, parseBatch } from "./batch.ts";
-import { type MarkUndo, markArgs, markTarget } from "./engine-marks.ts";
-import { hasEngineReview, loadEngineReview, type Suggestion, saveEngineReview } from "./engine-review.ts";
+import { cardKey, type MarkUndo, markArgs, markTarget } from "./engine-marks.ts";
+import {
+  draftReference,
+  hasEngineReview,
+  loadEngineReview,
+  proposalIds,
+  type Suggestion,
+  saveEngineReview,
+} from "./engine-review.ts";
 import {
   type ReviewRequest as LegacyReviewRequest,
   parseReference,
@@ -28,7 +35,7 @@ type BaseItem = Readonly<{
   unseen: boolean;
   disposition: "inbox" | "snoozed" | "settled";
   snoozed_until: string | null;
-  explicit_unsettle: boolean;
+  explicit_unsettle?: boolean;
   section: "inbox" | "working" | "held" | "done" | "snoozed" | "settled";
   base_version: string;
 }>;
@@ -36,9 +43,11 @@ export type InboxItem = BaseItem &
   Readonly<{
     waiting_version?: number;
     engine_marks?: true;
+    home_mark_drop?: true;
+    home_proposal_drop?: true;
     waiting_on?: Waiting | null;
     completed_at: string | null;
-    auto_settled: boolean;
+    auto_settled?: boolean;
     context_label: string | null;
     due_on: string | null;
     open_url: string | null;
@@ -65,21 +74,25 @@ export type Snapshot = Readonly<{
   truncated: boolean;
   limit: 1000;
   items: InboxItem[];
-  engine_marks?: true;
   working_collapsed: true;
 }> &
   (
-    | Readonly<{ schema_version: "home-inbox.v2"; auto_settle_enabled: false }>
-    | Readonly<{ schema_version: "home-inbox.v3" | "home-inbox.v4" | "home-inbox.v5"; auto_settle_enabled: true }>
+    | Readonly<{ schema_version: "home-inbox.v5"; engine_marks: true }>
+    | Readonly<{ schema_version: "home-inbox.v2"; engine_marks?: never; auto_settle_enabled: false }>
+    | Readonly<{
+        schema_version: "home-inbox.v3" | "home-inbox.v4" | "home-inbox.v5";
+        engine_marks?: never;
+        auto_settle_enabled: true;
+      }>
   );
-export type Action = "snooze" | "settle" | "unsettle";
+export type Action = "snooze" | "settle" | "unsettle" | "unsnooze" | "done" | "undo_done";
 type CommandArgs = Readonly<{
   idempotency_key: string;
   items: ReadonlyArray<Pick<InboxItem, "item_id" | "base_version">>;
 }>;
 type DispositionCommand = { engine_marks?: true } & (
   | Readonly<{ action: "snooze"; args: CommandArgs & Readonly<{ until: string }> }>
-  | Readonly<{ action: "settle" | "unsettle"; args: CommandArgs }>
+  | Readonly<{ action: Exclude<Action, "snooze">; args: CommandArgs }>
 );
 
 export type TaskReceipt = LegacyReceipt | { engine: true; action_id: string; version: number; status: "done" };
@@ -89,7 +102,42 @@ type TaskCommand = Readonly<{
   engine_marks?: true;
   args: CommandArgs & { action_id: string; base_version: number; completion_event_id?: string };
 }>;
-export type Command = DispositionCommand | TaskCommand;
+type DropTarget =
+  | { kind: "step"; id: string; version: number }
+  | { kind: "draft"; id: string; version: number }
+  | { kind: "suggestions"; ids: string[] }
+  | { kind: "mark" };
+
+export function dropTarget(item: InboxItem): DropTarget | null {
+  if (!item.engine_marks || item.section !== "inbox" || !["needs_attention", "failed"].includes(item.source_state))
+    return null;
+  const draft = draftReference(item);
+  if (draft?.status === "pending" && /^\d+$/.test(draft.version) && Number.isSafeInteger(Number(draft.version)))
+    return { kind: "draft", id: draft.id, version: Number(draft.version) };
+  const ids = proposalIds(item);
+  if (ids.length && item.home_proposal_drop) return { kind: "suggestions", ids };
+  if (item.source_type === "next_action") return { kind: "step", id: item.action_id, version: item.action_version };
+  if (ids.length) return null;
+  return item.home_mark_drop &&
+    ["Call follow-up", "Update", "Tour feedback"].includes(item.kind_label) &&
+    markTarget(item.item_id)
+    ? { kind: "mark" }
+    : null;
+}
+type DropCommand = { action: "drop"; args: CommandArgs; target: DropTarget; reason: string };
+export type Command = DispositionCommand | TaskCommand | DropCommand;
+
+export function dropCommand(item: InboxItem, reason: string): DropCommand {
+  const target = dropTarget(item);
+  reason = reason.trim();
+  if (!target || !reason || reason.length > 500) throw Error("Enter a reason to drop this card.");
+  return {
+    action: "drop",
+    args: { idempotency_key: crypto.randomUUID(), items: [{ item_id: item.item_id, base_version: item.base_version }] },
+    target,
+    reason,
+  };
+}
 export function taskCommand(action: "complete" | "reopen", item: InboxItem, receipt?: TaskReceipt): TaskCommand {
   if (
     !item.action_id ||
@@ -123,7 +171,7 @@ export function taskCommand(action: "complete" | "reopen", item: InboxItem, rece
 }
 
 export type ItemResult = { snapshot?: Snapshot } & (
-  | { item_id: string; ok: true; item: InboxItem; receipt?: TaskReceipt; undo?: MarkUndo }
+  | { item_id: string; ok: true; item: InboxItem | null; receipt?: TaskReceipt; undo?: MarkUndo }
   | { item_id: string; ok: false; error: string; current_version?: string; current_item?: InboxItem }
 );
 export function object(value: unknown): value is Record<string, unknown> {
@@ -151,7 +199,7 @@ function parseWaiting(value: unknown, version: number): Waiting | null {
   // The checks above validate every Waiting field, including its identity discriminant.
   return value as Waiting;
 }
-function parseBaseItem(value: unknown): BaseItem {
+function parseBaseItem(value: unknown, engine = false): BaseItem {
   if (
     !object(value) ||
     !["item_id", "source_type", "source_id", "source_version", "title", "section", "base_version"].every((key) =>
@@ -170,7 +218,7 @@ function parseBaseItem(value: unknown): BaseItem {
     !(value.hold_until === null || timestamp(value.hold_until)) ||
     !(value.snoozed_until === null || timestamp(value.snoozed_until)) ||
     typeof value.unseen !== "boolean" ||
-    typeof value.explicit_unsettle !== "boolean"
+    (!engine && typeof value.explicit_unsettle !== "boolean")
   )
     throw Error("Inbox returned an unreadable item. Refresh to try again.");
   // The checks above validate all base fields and their allowed string values.
@@ -184,7 +232,7 @@ const day = (value: unknown) =>
   Number.isFinite(Date.parse(value)) &&
   new Date(value).toISOString().slice(0, 10) === value;
 export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = false): InboxItem {
-  const legacy = parseBaseItem(value);
+  const legacy = parseBaseItem(value, engineMarks);
   if (
     !object(value) ||
     !(value.context_label === null || text(value.context_label)) ||
@@ -232,6 +280,7 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   )
     throw Error("Inbox returned unreadable completion identity. Refresh to try again.");
   if (
+    !engineMarks &&
     v3 &&
     (typeof value.auto_settled !== "boolean" ||
       (value.auto_settled &&
@@ -257,10 +306,11 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   )
     throw Error("Inbox returned unreadable completion time. Refresh to try again.");
   const reference = v3 ? parseReference(value.review_reference) : null;
+  const { explicit_unsettle, auto_settled, ...fields } = value;
   // Version-specific checks above validate the item before normalized optional fields are added.
   return {
-    ...value,
-    ...(engineMarks && { engine_marks: true }),
+    ...fields,
+    ...(engineMarks ? { engine_marks: true } : { explicit_unsettle, auto_settled: v3 ? auto_settled : false }),
     ...(value.review_reference === undefined
       ? {}
       : {
@@ -270,7 +320,6 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
               : null,
         }),
     completed_at: v4 ? value.completed_at : null,
-    auto_settled: v3 ? value.auto_settled : false,
   } as InboxItem;
 }
 const inboxVersions = [
@@ -281,6 +330,7 @@ const inboxVersions = [
 ] as const;
 export function parseSnapshot(value: unknown): Snapshot {
   const contract = object(value) ? inboxVersions.find((entry) => entry.schema === value.schema_version) : undefined;
+  const engine = object(value) && value.engine_marks === true;
   if (
     !contract ||
     !object(value) ||
@@ -290,13 +340,30 @@ export function parseSnapshot(value: unknown): Snapshot {
     typeof value.truncated !== "boolean" ||
     value.limit !== 1000 ||
     value.working_collapsed !== true ||
-    value.auto_settle_enabled !== contract.settlement
+    (engine ? contract.schema !== "home-inbox.v5" : value.auto_settle_enabled !== contract.settlement)
   )
     throw Error("Inbox unavailable. The server could not provide the complete inbox.");
   const items = value.items.map((item) => {
-    const parsed = parseItem(item, contract.settlement, contract.completion, value.engine_marks === true);
+    const parsed = parseItem(item, contract.settlement, contract.completion, engine);
+    const card = engine
+      ? {
+          ...parsed,
+          ...(object(item) && item.kind === "tour_feedback" && { kind_label: "Tour feedback" as const }),
+          ...(value.home_mark_drop === true && { home_mark_drop: true as const }),
+          ...(value.home_proposal_drop === true && { home_proposal_drop: true as const }),
+          ...(parsed.section === "settled" && {
+            disposition: "inbox" as const,
+            section:
+              parsed.source_state === "done"
+                ? ("done" as const)
+                : parsed.hold_until
+                  ? ("held" as const)
+                  : ("inbox" as const),
+          }),
+        }
+      : parsed;
     if (!contract.waiting) {
-      const { waiting_version, waiting_on, ...legacy } = parsed;
+      const { waiting_version, waiting_on, ...legacy } = card;
       return legacy;
     }
     if (
@@ -307,7 +374,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     )
       throw Error("Waiting version unavailable.");
     return {
-      ...parsed,
+      ...card,
       waiting_version: item.waiting_version,
       waiting_on: parseWaiting(item.waiting_on, item.waiting_version),
     };
@@ -319,9 +386,9 @@ export function parseSnapshot(value: unknown): Snapshot {
     truncated: value.truncated,
     limit: 1000,
     items,
-    ...(value.engine_marks === true && { engine_marks: true as const }),
     working_collapsed: true,
   } as const;
+  if (engine) return { ...shared, schema_version: "home-inbox.v5", engine_marks: true };
   return contract.settlement
     ? { ...shared, schema_version: contract.schema, auto_settle_enabled: true }
     : { ...shared, schema_version: "home-inbox.v2", auto_settle_enabled: false };
@@ -354,6 +421,11 @@ export function command(action: Action, items: readonly InboxItem[], until?: str
     items: items.map(({ item_id, base_version }) => ({ item_id, base_version })),
   };
   const engine = items.some((item) => item.engine_marks) ? { engine_marks: true as const } : {};
+  if (
+    (engine.engine_marks && (action === "settle" || action === "unsettle")) ||
+    (!engine.engine_marks && (action === "unsnooze" || action === "done" || action === "undo_done"))
+  )
+    throw Error("This action is unavailable. Refresh the inbox.");
   if (action === "snooze") {
     if (!until) throw Error("Choose a future snooze time.");
     return { ...engine, action, args: { ...args, until } };
@@ -459,11 +531,75 @@ export function createInboxClient(
     )
       throw Error("Home change could not be confirmed. Retry the same request.");
     return {
+      ...(args.action === "done" && { completion: true as const }),
       item_id: args.item_id,
       base_version: value.base_version,
       disposition: previous.disposition,
       snoozed_until: previous.snoozed_until,
     };
+  }
+  async function saveDrop({ args, target, reason }: DropCommand) {
+    const item = args.items[0];
+    if (!item) throw Error("Card unavailable.");
+    const { idempotency_key } = args;
+    async function confirm(name: string, fields: object, idField: string, id: string, status?: string) {
+      const value = await rpc(name, { idempotency_key, reason, ...fields });
+      if (object(value) && typeof value.error === "string") throw Object.assign(Error(value.error), { payload: value });
+      if (!object(value) || value[idField] !== id || (status ? value.status !== status : value.ok !== true))
+        throw Error("Drop could not be confirmed. Retry the same request.");
+    }
+    switch (target.kind) {
+      case "step":
+        await confirm(
+          "end-engine-home-step",
+          { id: target.id, base_version: target.version, resolution: "cancelled" },
+          "next_step_id",
+          target.id,
+          "cancelled",
+        );
+        break;
+      case "draft":
+        await confirm(
+          "dismiss-engine-home-draft",
+          { id: target.id, version: target.version },
+          "draft_id",
+          target.id,
+          "dismissed",
+        );
+        break;
+      case "mark":
+        await confirm(
+          "save-engine-home-mark",
+          { item_id: item.item_id, base_version: item.base_version, action: "drop" },
+          "item_id",
+          item.item_id,
+        );
+        break;
+      case "suggestions": {
+        const receipts = await Promise.allSettled(
+          target.ids.map((id, index) =>
+            confirm(
+              "decide-engine-home-proposal",
+              { id, decision: "dismiss", idempotency_key: cardKey(idempotency_key, index) },
+              "proposal_id",
+              id,
+              "dismissed",
+            ),
+          ),
+        );
+        const failure = receipts.find((result) => result.status === "rejected");
+        if (failure) throw failure.reason;
+      }
+    }
+    const snapshot = await read();
+    return [
+      {
+        item_id: item.item_id,
+        ok: true as const,
+        item: snapshot.items.find((row) => row.item_id === item.item_id) ?? null,
+        snapshot,
+      },
+    ];
   }
   async function read(signal?: AbortSignal): Promise<Snapshot> {
     // eslint-disable-next-line no-restricted-syntax -- At most four version reads; only unknown_tool advances to the next version.
@@ -578,6 +714,7 @@ export function createInboxClient(
       if (navigator.onLine === false) throw Error("Offline. No change was sent. Reconnect and retry manually.");
       let receipt: Omit<BatchResult, "snapshot">;
       if (request.engine_marks) {
+        if (request.action !== "snooze") throw Error("Choose Snooze for selected cards.");
         const { args } = request;
         const change = { action: request.action, ...("until" in args && { until: args.until }) };
         const attempts =
@@ -616,6 +753,7 @@ export function createInboxClient(
     },
     async run(request) {
       if (navigator.onLine === false) throw Error("Offline. No change was sent. Reconnect and retry manually.");
+      if (request.action === "drop") return saveDrop(request);
       if (request.action === "complete" || request.action === "reopen") {
         const { items, ...args } = request.args;
         if (request.engine_marks) {
@@ -686,7 +824,10 @@ export function createInboxClient(
           const undo = marks[index];
           if (!undo) return { item_id, ok: false, error: "home_item_not_found", snapshot };
           const item = snapshot.items.find((item) => item.item_id === item_id);
-          if (!item) return { item_id, ok: false, error: "home_item_not_found", snapshot };
+          if (!item)
+            return request.action === "done"
+              ? { item_id, ok: true, item: null, undo, snapshot }
+              : { item_id, ok: false, error: "home_item_not_found", snapshot };
           return item.base_version === undo.base_version
             ? { item_id, ok: true, item, undo, snapshot }
             : { item_id, ok: false, error: "intervening_change", current_item: item, snapshot };

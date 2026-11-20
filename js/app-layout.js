@@ -163,7 +163,13 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const boot = resolveDealroomBoot(globalThis.location);
   const weekHost = pathname === '/' ? root.createElement('div') : null;
   if (weekHost) main.prepend(weekHost);
-  const calendarPanels = ready.then(() => import('./ui-calendar-panels.generated.js')).then(module => layout.isConnected ? module.mountCalendarPanels(layout.querySelector('#appCalendarSlot'), layout.querySelector('#appScheduleSlot'), weekHost) : null).catch(() => {
+  const engineHome = () => pathname === '/' && root.getElementById('homeRoot')?.hasAttribute('data-engine-home');
+  const lateHeading = () => engineHome() ? 'Late' : 'Overdue';
+  const calendarPanels = ready.then(() => import('./ui-calendar-panels.generated.js')).then(module => {
+    if (!layout.isConnected) return null;
+    const todayOnly = engineHome();
+    return module.mountCalendarPanels(layout.querySelector('#appCalendarSlot'), layout.querySelector('#appScheduleSlot'), todayOnly ? undefined : weekHost, todayOnly);
+  }).catch(() => {
     for (const id of ['#appCalendarSlot', '#appScheduleSlot']) layout.querySelector(id).textContent = 'Calendar unavailable. Reload to try again.';
     return null;
   });
@@ -174,20 +180,24 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const render = (target, html) => { const node = layout.querySelector(target); if (node.innerHTML !== html) { const id = node.contains(root.activeElement) ? root.activeElement.dataset.layoutDeal : null; node.innerHTML = html; if (id) [...node.querySelectorAll('button')].find(b => b.dataset.layoutDeal === id)?.focus(); } };
   const overdueRows = deals => {
     const today = businessDay();
-    return mostOverdueFirst(deals, today).map(d => row(d, d.next_step || '', overdueLabel(overdueSince(d, today), today)));
+    return mostOverdueFirst(deals, today).map(d => {
+      const age = overdueLabel(overdueSince(d, today), today);
+      return row(d, d.next_step || '', engineHome() ? age.replace('overdue', 'late') : age);
+    });
   };
   const unavailable = '<span class="app-layout-empty">Unavailable</span>';
   const empty = '<span class="app-layout-empty">—</span>';
   const pendingRead = section => failedReads.includes(section) ? unavailable : '<span class="app-layout-empty">Loading…</span>';
   const renderToday = () => {
     const today = businessDay();
-    const next = todayItems && filterBriefOwners(todayItems, owners.current()).filter(i => i.subject_type === 'deal' && i.due_on >= today).sort((a, b) => a.due_on.localeCompare(b.due_on));
+    const next = todayItems && filterBriefOwners(todayItems, owners.current()).filter(i => i.subject_type === 'deal' && i.due_on >= today && (!engineHome() || !listedOverdue.has(i.id))).sort((a, b) => a.due_on.localeCompare(b.due_on));
     render('#appTodayNext', next ? (nextExpanded ? next : next.slice(0,3)).map(i => row(i,`${i.what || 'Due'} · ${shortDay(i.due_on || '', localToday())}`)).join('') || '<span class="app-layout-empty">No dated reminders returned.</span>' : pendingRead('Dated reminders'));
     const showAll = layout.querySelector('#appTodayShowAll');
     showAll.hidden = !next || next.length <= 3 || nextExpanded;
     showAll.textContent = `Show all ${next?.length || 0}`;
     const needs = todayNeeds && filterBriefOwners(todayNeeds, owners.current()).filter(row => !listedOverdue.has(row.id) && !listedOverdue.has(row.subject_id));
-    render('#appTodayNeeds', needs ? overdueRows(needs).slice(0,6).join('') || empty : pendingRead('Overdue'));
+    layout.querySelector('#appTodayNeeds').previousElementSibling.textContent = lateHeading();
+    render('#appTodayNeeds', needs ? overdueRows(needs).slice(0,6).join('') || empty : pendingRead(lateHeading()));
   };
   const owners = mountBriefOwnerFilter(root, layout.querySelector('#appTodayOwners'), () => { nextExpanded = false; renderToday(); });
   // The page's main column names the late actions or deals it already lists, so each shows once.
@@ -232,9 +242,13 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     connection(!failedReads.length);
   };
   const failedRead = () => {
+    if (engineHome() && !pageOwnsMoves && !feed.caught_up && !failedReads.includes('Deal pulse')) {
+      failedReads.push('Deal pulse');
+      render('#appTodayMoves', unavailable);
+    }
     todayReadState = 'settled';
     void calendarPanels.then(panel => panel?.clear());
-    failedReads = ['Schedule', 'Overdue', 'Dated reminders'];
+    failedReads = ['Schedule', lateHeading(), 'Dated reminders'];
     if (!pageOwnsMoves) failedReads.push('Deal pulse');
     renderToday();
     if (!pageOwnsMoves && !feed.caught_up) render('#appTodayMoves', unavailable);
@@ -276,7 +290,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
         return client.todayTriage();
       }, { signal }),
       readWithDeadline(() => client.calendarMeetingPrep({ signal: preparationSignal }), { signal: preparationSignal }),
-      weekHost ? import('./home-dashboard-model.js').then(({ readHomeAgenda }) => readHomeAgenda(client, { signal })) : Promise.resolve(null),
+      weekHost && !engineHome() ? import('./home-dashboard-model.js').then(({ readHomeAgenda }) => readHomeAgenda(client, { signal })) : Promise.resolve(null),
     ]);
     if (signal?.aborted || win.navigator.onLine === false) return;
     const panels = await calendarPanels;
@@ -287,7 +301,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     connection(connected && triageValid && !failedReads.length);
     failedReads = [];
     if (interaction.current() && !scheduleValid) failedReads.push('Schedule');
-    if (!connected || !triageValid) failedReads.push('Overdue');
+    if (!connected || !triageValid) failedReads.push(lateHeading());
     if (!triageValid) failedReads.push('Dated reminders');
     if (connected) {
       const value = board.value;
@@ -341,6 +355,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
         if (!feed.caught_up) render('#appTodayMoves', unavailable);
       }
       renderToday();
+    }
+    if (engineHome() && !pageOwnsMoves && !feed.caught_up && !failedReads.includes('Deal pulse')) {
+      failedReads.push('Deal pulse');
+      render('#appTodayMoves', unavailable);
     }
     todayReadState = 'settled';
     renderReadStatus();
