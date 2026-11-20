@@ -1,7 +1,7 @@
 import test, { before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import axe from 'axe-core';
-import { rm } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { temporaryDirectory } from '../scripts/temp-directory.mjs';
@@ -641,6 +641,171 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(await lease.getByRole('button', { name: 'Hide from inbox', exact: true }).count(), 0);
   await lease.getByRole('button', { name: 'Open', exact: true }).click();
   await page.waitForURL(url => url.pathname === '/deals' && url.searchParams.get('step') === state.items[0].action_id);
+});
+
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`engine card copy and actions ${width} ${theme}`, async t => {
+  const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
+  page.setDefaultTimeout(5000);
+  await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true } })), theme);
+  await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+
+  await page.route(url => url.pathname === '/deals' && !url.searchParams.has('mode'), route => {
+    const url = new URL(route.request().url());
+    url.searchParams.set('mode', 'live');
+    return route.fulfill({ status: 302, headers: { location: url.href } });
+  });
+
+  const id = number => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
+  const deal = id(1), step = id(2), checklist = id(3), otherStep = id(4), reviewStep = id(5);
+  const dealUrl = `/deals?deal=${deal}`;
+  const stepUrl = id => `${dealUrl}&focus=next-step&step=${id}`;
+  const row = (number, source_type, title, why, primary_action, fields = {}) => ({
+    item_id: `${source_type}:${id(number)}`, source_type, source_id: id(number), source_version: '1',
+    source_state: 'needs_attention', base_version: '1:0:inbox', title, why, primary_action,
+    activity_at: NOW.toISOString(), completed_at: null, due_on: null, hold_until: null, snoozed_until: null,
+    disposition: 'inbox', section: 'inbox', unseen: false, context_label: 'Example Dental', open_url: dealUrl,
+    kind_label: 'Task', action_id: null, action_version: null, deal_id: deal, merged_source_ids: [id(number)],
+    waiting_version: 0, waiting_on: null, ...fields,
+  });
+  const completed = { source_state: 'done', section: 'done', completed_at: NOW.toISOString() };
+  const task = row(2, 'next_action', 'Follow-up due for Example Dental — send the lease', 'Pat requested the lease at the tour.', 'Mark done',
+    { action_id: step, action_version: 1, open_url: stepUrl(step), due_on: '2026-11-02' });
+  const followUp = row(19, 'capture_post_call_action', 'Call with Pat Example left a follow-up — call Pat back',
+    'Pat asked for a callback.', 'Mark done', { kind_label: 'Call follow-up', action_id: id(19), action_version: 1,
+      open_url: `/calls?session=${id(12)}`, source_activity: { kind: 'call', happened_at: NOW.toISOString(), contact: 'Pat Example' } });
+  const completion = row(5, 'notification', 'A call may confirm a step for Example Dental — check whether the plan was sent',
+    'The call mentions that the plan was sent.', 'Review completion',
+    { open_url: stepUrl(reviewStep), completion_review: { proposal_id: id(8), next_step_id: reviewStep, can_resolve: true } });
+  const activity = { kind: 'meeting', id: id(9), happened_at: '2026-11-03T02:00:00Z', summary: 'The practice asked for a floor plan.' };
+  const meeting = row(6, 'notification', 'Meeting about Example Dental left a decision — review suggestions', 'The practice asked for a floor plan.',
+    'Review suggestions', { item_id: `suggestion:${id(6)}`, kind_label: 'Suggestion', deal_id: null, suggestions: [{ id: id(10) }], source_activity: activity });
+  const call = row(11, 'capture_session', 'Call with Pat Example left a decision — review suggestions', 'Pat asked for a callback.',
+    'Review suggestions', { item_id: `suggestion:${id(11)}`, kind_label: 'Call', deal_id: null, open_url: `/calls?session=${id(12)}`,
+      suggestions: [{ id: id(13) }], source_activity: { ...activity, kind: 'call', id: id(12) } });
+  const reminder = row(3, 'notification', 'Checklist item due for Example Dental — review lease clauses', 'The lease checklist is due today.',
+    'Open checklist item', { kind_label: 'Update', checklist_item_ref: `deal-item:${checklist}` });
+  const requirement = row(18, 'notification', 'Checklist item due for Example Dental — read attorney comments',
+    'The attorney comments are ready.', 'Open checklist item', { kind_label: 'Update', checklist_item_ref: 'attorney_comments' });
+  const feedback = row(7, 'notification', 'Tour feedback on Cedar Suite — review feedback', 'The exam rooms are bright. Recorded Nov 3, 2026.',
+    'Review feedback', { kind: 'tour_feedback', kind_label: 'Tour feedback', open_url: `${dealUrl}&property=${id(14)}` });
+  const ownDone = row(15, 'next_action', 'Follow-up completed for Example Dental — send the brochure', 'Pat had asked for a brochure.', 'Open',
+    { ...completed, action_id: id(15), action_version: 1, undo_completion: true, open_url: `${dealUrl}&focus=next-step` });
+  const otherDone = row(4, 'next_action', 'Follow-up completed for Example Dental — send the brochure cover', 'The cover was requested separately.', 'Open',
+    { ...completed, action_id: otherStep, action_version: 1, undo_completion: false, open_url: `${dealUrl}&focus=next-step` });
+  const legacy = row(16, 'email_proposal', 'Pat Example · Sample lease', undefined, undefined,
+    { item_id: `suggestion:${id(16)}`, kind_label: 'Suggestion', deal_id: null, suggestions: [{ id: id(17) }] });
+  let items = [task, followUp, reminder, requirement, completion, meeting, call, feedback, legacy, ownDone, otherDone];
+  const writes = [];
+  await page.route('**/mcp', route => {
+    const { name, arguments: args } = route.request().postDataJSON().params;
+    let result = { ok: true, items: [], deals: [] };
+    if (name === 'read-home-inbox-v5') result = { ...result, schema_version: 'home-inbox.v5', engine_marks: true, home_mark_drop: true,
+      home_proposal_drop: true, truncated: false, limit: 1000, working_collapsed: true, items };
+    if (name === 'get-deal-room') result = { deal_id: args.deal, name: 'Example Dental',
+      items: [{ id: checklist, title: 'Review lease clauses', status: 'open', bullets: [] }],
+      checklist: { schema_version: 'deal-checklist.v1', template_state: 'current', due_items: [], phases: [
+        { label: 'Legal', items: [{ id: 'attorney_comments', label: 'Read attorney comments', status: 'due',
+          evidence_ref: 'Example attorney memo', source: { record_verb: 'add-deal-note' } }] },
+      ] } };
+    if (name === 'read-engine-home-proposal') result = { proposal_id: args.id,
+      kind: args.id === id(8) ? 'next_step_done' : 'next_step', what: 'Send the floor plan', evidence: 'Discussed the plan.', source_activity: { ...activity, kind: args.id === id(13) ? 'call' : 'meeting' } };
+    if (name === 'decide-engine-home-proposal') {
+      writes.push([name, args.id, args.decision]);
+      items = items.filter(item => item.completion_review?.proposal_id !== args.id && !item.suggestions?.some(entry => entry.id === args.id));
+      result = { proposal_id: args.id, status: 'accepted' };
+    }
+    if (name === 'end-engine-home-step') {
+      writes.push([name, args.id, args.resolution]);
+      items = items.map(item => item === task ? { ...item, ...completed, primary_action: 'Open', action_version: 2, undo_completion: true } : item);
+      result = { next_step_id: args.id, status: 'done', change_id: 2 };
+    }
+    if (name === 'reopen-engine-home-step') {
+      writes.push([name, args.id]);
+      items = items.map(item => item === ownDone ? { ...item, source_state: 'needs_attention', section: 'inbox', completed_at: null, primary_action: 'Mark done', undo_completion: false } : item);
+      result = { next_step_id: args.id, status: 'open' };
+    }
+    if (name === 'save-engine-home-mark') {
+      writes.push([name, args.item_id, args.action]);
+      items = items.filter(item => item.item_id !== args.item_id);
+      result = { ok: true, item_id: args.item_id, base_version: '1:1:inbox', previous: { disposition: null, snoozed_until: null } };
+    }
+    return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(result) }] } } });
+  });
+  await open('/?mode=live');
+  const card = item => page.locator(`[data-inbox-row="${item.item_id}"]`);
+  const section = name => page.getByRole('region', { name, exact: true });
+  const button = (item, name = item.primary_action) => card(item).getByRole('button', { name, exact: true });
+  await card(task).waitFor();
+  await section('Needs your attention').getByRole('button', { name: 'See all 8', exact: true }).click();
+  await section('Done today').getByRole('button', { name: 'See all 2', exact: true }).click();
+  if (process.env.HOME_CARD_SCREENSHOTS) {
+    await mkdir(process.env.HOME_CARD_SCREENSHOTS, { recursive: true });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: join(process.env.HOME_CARD_SCREENSHOTS, `home-${width}-${theme}.png`), fullPage: true });
+  }
+
+  for (const item of [task, followUp, reminder, requirement, completion, meeting, call, feedback, ownDone, otherDone]) {
+    const title = card(item).getByRole('heading', { name: item.title, exact: true });
+    assert.equal(await title.evaluate(heading => heading.nextElementSibling?.textContent), item.why);
+    const box = await button(item).boundingBox();
+    assert.ok(box?.width >= 44 && box?.height >= 44, `${item.primary_action} touch target`);
+  }
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  if (width === 390) {
+    await page.addScriptTag({ content: axe.source });
+    const violations = await section('Inbox cards').evaluate(async root =>
+      (await window.axe.run(root, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] } })).violations);
+    assert.deepEqual(violations, []);
+  }
+  for (const item of [task, followUp, reminder, requirement, completion, meeting, call, feedback]) {
+    assert.deepEqual(await card(item).getByRole('button').allTextContents(), [item.primary_action, 'Snooze', 'Drop']);
+  }
+  await card(task).getByText('1 day late', { exact: false }).waitFor();
+  assert.deepEqual(await card(ownDone).getByRole('button').allTextContents(), ['Open', 'Undo']);
+  assert.deepEqual(await card(otherDone).getByRole('button').allTextContents(), ['Open']);
+  assert.deepEqual(await card(legacy).getByRole('button').allTextContents(), ['Open', 'Review suggestions', 'Snooze', 'Drop']);
+
+  await button(ownDone, 'Undo').click();
+  await button(ownDone, 'Mark done').waitFor();
+  assert.deepEqual(writes.at(-1), ['reopen-engine-home-step', ownDone.action_id]);
+  await button(meeting).click();
+  await card(meeting).getByText(/From this meeting.*Nov 2/).waitFor();
+  await button(call).click();
+  await card(call).getByText(/From your call.*Nov 2/).waitFor();
+  assert.equal(await card(meeting).getByRole('region', { name: /Details for/ }).count(), 0);
+  await card(call).getByRole('button', { name: 'Accept', exact: true }).click();
+  await card(call).waitFor({ state: 'detached' });
+  assert.deepEqual(writes.at(-1), ['decide-engine-home-proposal', id(13), 'accept']);
+  await button(completion).click();
+  const detail = card(completion).getByRole('region', { name: /Details for/ });
+  await detail.getByText('Discussed the plan.', { exact: true }).waitFor();
+  assert.equal(await detail.getByRole('link', { name: 'Example Dental', exact: true }).getAttribute('href'), stepUrl(reviewStep));
+  await detail.getByRole('button', { name: 'Yes, it’s done', exact: true }).click();
+  await card(completion).waitFor({ state: 'detached' });
+  assert.deepEqual(writes.at(-1), ['decide-engine-home-proposal', id(8), 'accept']);
+  await button(feedback).click();
+  const feedbackReview = card(feedback).getByRole('region', { name: /Details for/ });
+  await feedbackReview.getByText(feedback.why, { exact: true }).waitFor();
+  assert.equal(await feedbackReview.getByRole('link', { name: 'Example Dental', exact: true }).getAttribute('href'), feedback.open_url);
+  await feedbackReview.getByRole('button', { name: 'Done', exact: true }).click();
+  await card(feedback).waitFor({ state: 'detached' });
+  assert.deepEqual(writes.at(-1), ['save-engine-home-mark', feedback.item_id, 'done']);
+  await button(task).click();
+  await button(task, 'Open').waitFor();
+  assert.deepEqual(writes.at(-1), ['end-engine-home-step', step, 'done']);
+  await button(reminder).click();
+  await page.getByRole('dialog', { name: 'Review lease clauses', exact: true }).waitFor();
+  await open('/?mode=live');
+  await section('Needs your attention').getByRole('button', { name: /^See all/ }).click();
+  await button(requirement).click();
+  await page.getByText('Example attorney memo', { exact: true }).waitFor();
+  await open('/?mode=live');
+  await section('Done today').getByRole('button', { name: 'See all 2', exact: true }).click();
+  await button(otherDone).click();
+  const doneDetail = card(otherDone).getByRole('region', { name: /Details for/ });
+  await doneDetail.getByText(otherDone.why, { exact: true }).waitFor();
+  await doneDetail.getByText(/^Done Nov 3, 2026/).waitFor();
+  assert.equal(await doneDetail.getByRole('link', { name: 'Example Dental', exact: true }).getAttribute('href'), dealUrl);
 });
 
 for (const width of [390, 1024, 1280, 1440]) for (const theme of ['light', 'dark']) test(`sectioned Home and shared panels ${width} ${theme}`, async t => {

@@ -1448,7 +1448,9 @@ function mountChecklist(detail) {
   disposeChecklist();
   const host = $('panelBody').querySelector('[data-detail-read="checklist"]');
   let retired = false, mounted, latest = detail;
-  const props = value => ({dealId: value.deal.id, checklist: value.checklist, showProgress: isEngineDealDetail(value)});
+  const params = new URL(location.href).searchParams;
+  const props = value => ({dealId: value.deal.id, checklist: value.checklist, showProgress: isEngineDealDetail(value),
+    focusedItem: params.get('deal') === value.deal.id ? params.get('checklist') : null});
   checklistPanel = {
     update(value) { latest = value; mounted?.update(props(value)); },
     dispose() { retired = true; mounted?.dispose(); },
@@ -2005,6 +2007,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
   const url = new URL(location.href);
   if (!fromHistory && url.searchParams.get('deal') !== dealId) {
+    url.searchParams.delete('checklist');
     url.searchParams.set('deal',dealId);
     writeWorkspaceHistory({...history.state, boardScroll:scrollY}, location.href);
     writeWorkspaceHistory({doctorcreDealWorkspace:true},url,true);
@@ -2070,7 +2073,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   const id = state.panelReturnTo;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
-  if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); writeWorkspaceHistory({},url); }
+  if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); url.searchParams.delete('checklist'); writeWorkspaceHistory({},url); }
   $('recordPanel').hidden = true; $('main').hidden = false;
   document.body.classList.remove('workspace-open');
   state.panelDeal = null; state.panelDetail = null;
