@@ -138,9 +138,10 @@ export function mountMorningBrief({ document:root, window:win, getClient, interv
       try {
         const takePage = createPageBudget();
         // eslint-disable-next-line no-restricted-syntax -- Brief change catch-up stops after 4 pages and calls takePage before each read.
-        for (let page=0; page<4; page++) {
+        for (let page=0; page<4 && client.changeFeedEnabled !== false; page++) {
           takePage();
           const changes = await readWithDeadline(() => client.getChanges(cursor,{signal,since}),{signal});
+          if (changes === null) break;
           if (!Array.isArray(changes?.events)) throw new Error('Invalid changes');
           if (!current()) return;
           const ids = new Set(events.map(event => event.id));
@@ -155,7 +156,7 @@ export function mountMorningBrief({ document:root, window:win, getClient, interv
       }
       if (!current()) return;
       publishCalendar(payload.sections.calendar);
-      facts = payload; viewOptions = { now:now(),since,events,caughtUp };
+      facts = payload; viewOptions = { now:now(),since,events,caughtUp,feedRetired:client.changeFeedEnabled === false };
       const next = morningBriefView(facts,{...viewOptions, owner:owners.current()});
       view = next; render();
       if (dialog.open && preferences.value.day !== localDay(now())) remember(); else cue();

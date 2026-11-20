@@ -202,11 +202,10 @@ function syncDetail(status) {
  */
 function setSync(status) {
   const el = $('#syncStatus');
-  const live = state.mode === 'live';
   const label = status.state === SYNC_STATES.OFFLINE ? 'Offline'
     : status.state === SYNC_STATES.ERROR ? 'Board view error'
     : status.state === SYNC_STATES.RECONNECTING ? 'Reconnecting'
-    : status.state === SYNC_STATES.READY ? 'Current'
+    : status.state === SYNC_STATES.READY ? (state.boardFromEngine ? updatedLabel(status.last_read_at) : 'Current')
     : 'Syncing…';
   el.classList.toggle('offline',
     [SYNC_STATES.OFFLINE, SYNC_STATES.RECONNECTING, SYNC_STATES.ERROR].includes(status.state));
@@ -219,8 +218,6 @@ function setSync(status) {
 }
 
 /**
- * Read the board authoritatively, then take one page of the changes feed.
- *
  * A failed read leaves the previous values on screen and says so in the badge —
  * except on the very first load, where there is nothing to leave: an empty
  * board would read as "no deals", which is a different claim from "the
@@ -270,6 +267,10 @@ function applyBoardSnapshot(home) {
 async function pollOnce(initial = false, { force = false } = {}) {
   if (state.accessDenied) return;
   const outcome = await state.boardSync.pollChanges({ force });
+  if (outcome.reason === 'disabled' && (state.boardFromEngine || state.client.changeFeedEnabled === false)) {
+    if (state.client.getPendingConfirms) await loadConfirms();
+    return;
+  }
   // Skipped (a poll was already open) or superseded (the answer stopped being
   // current before it arrived). Neither is news and neither moves the cursor.
   if (!outcome.applied) {
@@ -1916,7 +1917,7 @@ async function boot() {
   state.boardSync = createBoardSync({
     readBoard: () => state.client.getBoard({ workspace:'all' }),
     readChanges: (cursor) => state.client.getChanges(cursor),
-    usesChangeFeed: () => !state.nextDealSaves,
+    usesChangeFeed: () => !state.boardFromEngine && !state.nextDealSaves && state.client.changeFeedEnabled !== false,
     // Only a snapshot that is still current reaches this callback, and it
     // already carries any value a confirmed local write is holding.
     applyBoard: (board) => { applyBoardSnapshot(board); if (!userIsEditing()) renderPreservingFocus(); },

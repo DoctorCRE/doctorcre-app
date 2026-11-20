@@ -116,7 +116,8 @@
  * @property {(args:{client_id:string,base_version:number,status:'active'|'inactive',reason:string,expected_actor?:string,idempotency_key:string}) => Promise<Object>} setProspectEngagementStatus audited transition between Leads and the deal board
  * @property {(args:{submarket?:string,use_type?:string,as_of?:string}) => Promise<Object>} readMarketTerms confirmed firm history projection, pinned to carr-system a07acbe0b9be7bd7f3365a0c74a8460c99234a27
  * @property {(dealId:string) => Promise<DealDetail>} getDeal
- * @property {(cursor:string|null) => Promise<ChangesResponse>} getChanges
+ * @property {boolean} [changeFeedEnabled]
+ * @property {(cursor:string|null) => Promise<ChangesResponse|null>} getChanges Null when the feed is retired.
  * @property {(args:{deal:string, field:string, idempotency_key:string}) => Promise<{ok:true}>} presenceLease
  * @property {(args:{deal:string, field:string, value:*, base_event_id:string|null, idempotency_key:string}) => Promise<WriteResult>} patchDealField
  * @property {(args:{conflict_id:string, winner:'a'|'b', idempotency_key:string}) => Promise<WriteResult>} resolveConflict

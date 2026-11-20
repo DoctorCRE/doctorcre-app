@@ -513,16 +513,17 @@ function renderPendingWrites() {
 function renderReceipts() {
   const list = $('receiptsList');
   if (!list) return;
-  const views = !state.nextDealSaves && state.feed.caught_up
+  const engineDeals = state.boardFromEngine || state.nextDealSaves;
+  const views = !engineDeals && state.feed.caught_up
     ? receiptViews(state.receipts, { selfActor: state.selfActor, undo: state.undo, now: Date.now() })
     : [];
   const count = $('receiptsCount');
   if (count) count.textContent = String(views.length);
-  const signature = state.nextDealSaves ? 'engine-deals' : receiptsSignature(views);
+  const signature = engineDeals ? 'engine-deals' : receiptsSignature(views);
   if (signature === state.receiptSignature) return;
   state.receiptSignature = signature;
   list.innerHTML = views.length ? receiptListHtml(views.map(view => ({...view, can_undo:false})))
-    : `<li class="receipt"><p class="receipt-line">${state.nextDealSaves ? 'Open a deal to see its recent changes.' : 'Nothing has changed in this session yet.'}</p></li>`;
+    : `<li class="receipt"><p class="receipt-line">${engineDeals ? 'Open a deal to see its recent changes.' : 'Nothing has changed in this session yet.'}</p></li>`;
 }
 
 
@@ -538,10 +539,12 @@ function applyBoardSnapshot(board) {
   const saveSwitchChanged = Boolean(state.nextDealSaves) !== (board.next_deal_saves === true);
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
-  state.boardFromEngine = board.board_from_engine === true;
+  const boardFromEngine = board.board_from_engine === true;
+  const boardSourceChanged = state.boardFromEngine !== boardFromEngine;
+  state.boardFromEngine = boardFromEngine;
   $('mondayReviewLink').hidden = !state.nextDealSaves;
   syncProspects(board.engine_prospects === true);
-  if (saveSwitchChanged) renderReceipts();
+  if (boardSourceChanged || saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
   bindDraftActor(state.selfActor);
   if (actorChanged || saveSwitchChanged) automaticPhase.clear();
@@ -2739,7 +2742,7 @@ async function boot() {
   state.boardSync = createBoardSync({
     readBoard: () => state.client.getBoard({ workspace: 'team' }),
     readChanges: (cursor) => state.client.getChanges(cursor),
-    usesChangeFeed: () => !state.nextDealSaves,
+    usesChangeFeed: () => !state.boardFromEngine && !state.nextDealSaves && state.client.changeFeedEnabled !== false,
     applyBoard: (board) => { applyBoardSnapshot(board); },
     onStatus: renderStatus,
   });
@@ -2766,7 +2769,7 @@ async function boot() {
   });
   mountVisibilityPoll({ lifecycle: true, poll: refreshPanel });
   mountVisibilityPoll({ poll: () => { return pollOnce().catch(() => false); } });
-  mountVisibilityPoll({ poll: () => state.boardSync.requestRefresh('periodic') });
+  mountVisibilityPoll({ lifecycle: state.client.changeFeedEnabled === false, poll: () => state.boardSync.requestRefresh('periodic') });
 
 
 }
