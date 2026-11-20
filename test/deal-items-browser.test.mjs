@@ -29,8 +29,12 @@ for (const width of [390, 1280]) test(`a checklist item opens its own sheet and 
   const card = page.locator('.kanban-column [data-id="d14"]');
   await card.waitFor({ timeout: 15000 });
   assert.equal(await card.locator('h4').textContent(), "Dr. Demo's Sample Deal, multidisciplinary practice");
-  assert.equal(await card.locator('ol li').count(), 3);
-  const itemsFit = await card.locator('ol button').evaluateAll(buttons => buttons.every(button => {
+  assert.equal(await card.locator('ol li').count(), 0);
+  await card.locator('.card-open').click();
+  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  await snapshot.waitFor();
+  assert.equal(await snapshot.locator('ol li').count(), 3);
+  const itemsFit = await snapshot.locator('ol button').evaluateAll(buttons => buttons.every(button => {
     const { width, height } = button.getBoundingClientRect();
     return width >= 44 && height >= 44 && button.scrollWidth <= button.clientWidth;
   }));
@@ -38,9 +42,8 @@ for (const width of [390, 1280]) test(`a checklist item opens its own sheet and 
   assert.equal(await card.locator('.owner').textContent(), 'Joe');
   assert.equal(await card.locator('.next-line,.vendor-pills,.auto-move').count(), 0);
   await mkdir(new URL('out/test-artifacts/deal-items/', root), { recursive: true });
-  await card.scrollIntoViewIfNeeded();
-  await card.screenshot({ path: new URL(`out/test-artifacts/deal-items/${width}-card.png`, root).pathname });
-  const itemButton = card.getByRole('button', { name: 'Vendor Introductions', exact: true });
+  await snapshot.screenshot({ path: new URL(`out/test-artifacts/deal-items/${width}-snapshot.png`, root).pathname });
+  const itemButton = snapshot.getByRole('button', { name: 'Vendor Introductions', exact: true });
   if (width > 760) { await itemButton.focus(); await itemButton.press('Enter'); }
   else await itemButton.click();
   const sheet = page.getByRole('dialog', { name: 'Vendor Introductions', exact: true });
@@ -56,9 +59,8 @@ for (const width of [390, 1280]) test(`a checklist item opens its own sheet and 
   assert.equal(await sheet.getByLabel('Tell Dr. CRE').inputValue(), 'Arrange the introduction tomorrow.');
   await sheet.getByRole('button', { name: 'Mark done', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-item-status]')?.textContent === 'Item marked done');
-  await page.waitForFunction(() => document.querySelectorAll('.kanban-column [data-id="d14"] ol li').length === 2);
+  await page.waitForFunction(() => document.querySelectorAll('#recordPanel .deal-opening-snapshot ol li').length === 2);
   await sheet.getByRole('button', { name: 'Close item' }).click();
-  await page.waitForFunction(() => document.activeElement?.matches('.kanban-column [data-id="d14"] .card-open'), null);
-  assert.equal(await card.locator('.card-open').evaluate(n => n === document.activeElement), true);
+  assert.equal(await snapshot.isVisible(), true);
   assert.deepEqual(errors, []);
 });

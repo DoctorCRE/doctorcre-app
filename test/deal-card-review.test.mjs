@@ -234,13 +234,15 @@ test('phone deal title stays clear of Doc through the full timeline scroll',asyn
 });
 
 
-test('desktop checklist titles fit alongside the next step',async t=>{
+test('desktop checklist titles fit on the deal page',async t=>{
  const {page}=await open(t,1280,{theme:'light',showDetail:false});
  const card=page.locator('.kanban-column [data-id="d14"]');
- assert.deepEqual(await card.locator('ol button').allTextContents(),['Vendor Introductions','Prelim Market Study','ETL not completed']);
- assert.equal(await card.locator('.next-line').count(),0);
- assert.equal(await card.evaluate(n=>n.scrollWidth<=n.clientWidth),true);
- assert.match(await card.textContent(),/Next: Prior status that must not prefill/);
+ assert.equal(await card.locator('ol button').count(), 0);
+ await card.locator('.card-open').click();
+ const snapshot=page.getByRole('region',{name:'Deal snapshot'});
+ await snapshot.waitFor();
+ assert.deepEqual(await snapshot.locator('ol button').allTextContents(),['Vendor Introductions','Prelim Market Study','ETL not completed']);
+ assert.equal(await snapshot.evaluate(n=>n.scrollWidth<=n.clientWidth),true);
 });
 
 test('empty legacy next steps preserve existing structured items',async t=>{
@@ -451,8 +453,7 @@ test('phone hides empty collapsed stages and keeps populated collapsed stages', 
 
 for (const width of [390, 1440]) for (const theme of ['light','dark']) test(`deal board targets and evidence ${width} ${theme}`, async t => {
  const {page}=await open(t,width,{theme,showDetail:false,height:900});
- const controls=page.locator('.kanban-card :is(.card-open, .attention-flag, .deal-items button):visible');
- assert.ok(await page.locator('.kanban-card .attention-flag:visible').count());
+ const controls=page.locator('.kanban-card .card-open:visible');
  assert.ok(await controls.count());
  for(const control of await controls.all()) { const box=await control.boundingBox(); assert.ok(box.width>=44 && box.height>=44); }
  await mkdir('out/test-artifacts/WR572.S6.J1',{recursive:true});
@@ -469,16 +470,12 @@ test('deal list shows overdue age in its rows', async t => {
  assert.match(await row.textContent(), /\d+ days overdue/);
 });
 
-test('overdue flag is one tappable age with no bullet, and due dates read as Feb 1', async t => {
+test('only the list shows overdue age as a tappable flag', async t => {
  const {page}=await open(t,390,{showDetail:false});
- const flag=page.locator('.kanban-card .attention-flag').first();
- assert.match(await flag.innerText(), /^\d+ days? overdue$/);
- assert.equal(await flag.evaluate(n=>n.tagName), 'BUTTON');
- assert.equal(await flag.evaluate(n=>getComputedStyle(n).whiteSpace), 'nowrap');
- assert.equal(await page.locator('.kanban-card').filter({has:flag}).first().locator('.deal-summary-facts time[data-overdue="true"]').count(), 0);
- for(const due of await page.locator('.deal-item-due').all()) assert.match(await due.innerText(), /^[A-Z][a-z]{2} \d{1,2}$/);
+ assert.equal(await page.locator('.kanban-card .attention-flag').count(), 0);
  await page.getByRole('button',{name:'List',exact:true}).click();
  const rowFlag=page.locator('.deal-row .attention-flag').first();
+ assert.match(await rowFlag.innerText(), /^\d+ days? overdue$/);
  assert.equal(await rowFlag.evaluate(n=>n.tagName), 'BUTTON');
  const box=await rowFlag.boundingBox(); assert.ok(box.width>=44 && box.height>=44);
 });

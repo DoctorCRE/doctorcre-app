@@ -39,7 +39,14 @@ for (const width of [390, 1280]) for (const theme of ['dark', 'light']) test(`de
   const { page, errors } = await open(t, width, theme);
   const evidence = new URL('out/test-artifacts/deal-vendors/', root);
   await mkdir(evidence, { recursive: true });
-  const card = page.locator('.kanban-column [data-id="d14"]');
+  const boardCard = page.locator('.kanban-column [data-id="d14"]');
+  assert.equal(await boardCard.locator('.deal-vendor-group').count(), 0);
+  await boardCard.scrollIntoViewIfNeeded();
+  assert.equal(await boardCard.evaluate(n => n.scrollWidth <= n.clientWidth), true);
+  await page.screenshot({ path: new URL(`${width}-${theme}-board.png`, evidence).pathname, animations: 'disabled' });
+  await boardCard.locator('.card-open').click();
+  await page.locator('#detailUpdateForm').waitFor();
+  const card = page.locator('#recordPanel');
   assert.equal(await card.locator('.deal-vendor-group').count(), 2);
   assert.deepEqual(await card.locator('.deal-vendor-role').allTextContents(), ['Lender', 'Landlord rep']);
   assert.deepEqual(await card.locator('.deal-vendor-company').allTextContents(), ['Demo Bank & Trust', 'Demo Second Bank', 'Demo Property Group']);
@@ -53,30 +60,19 @@ for (const width of [390, 1280]) for (const theme of ['dark', 'light']) test(`de
   assert.equal(await contact.getByText('demo.long.assigned.representative@example.invalid', { exact: true }).isVisible(), true);
   assert.equal(await contact.getByText('+1 (555) 010-0101 <desk>', { exact: true }).isVisible(), true);
   assert.equal(await contact.locator('desk').count(), 0, 'contact channels remain escaped text');
-  assert.equal(await page.locator('#recordPanel').isVisible(), false, 'opening contact details does not open the deal');
+  assert.equal(await page.locator('#recordPanel').isVisible(), true, 'opening contact details keeps the deal page open');
   await disclosure.press('Space');
   assert.equal(await contact.evaluate(n => n.open), false);
   await disclosure.press('Enter');
   assert.equal(await contact.evaluate(n => n.open), true);
-  assert.equal(await page.locator('#recordPanel').isVisible(), false);
+  assert.equal(await page.locator('#recordPanel').isVisible(), true);
   const phoneOnly = card.locator('.deal-vendor-details').nth(1);
   await phoneOnly.locator('summary').click();
   assert.equal(await phoneOnly.getByText('+1 (555) 010-0103', { exact: true }).isVisible(), true);
   assert.doesNotMatch(await phoneOnly.textContent(), /Email/);
   const target = await disclosure.boundingBox();
   assert.ok(target.width >= 44 && target.height >= 44, JSON.stringify(target));
-  assert.equal(await page.locator('.kanban-column [data-id="d05"] .deal-vendors').count(), 0);
-  await card.scrollIntoViewIfNeeded();
-  assert.equal(await card.evaluate(n => n.scrollWidth <= n.clientWidth), true);
-  await page.screenshot({ path: new URL(`${width}-${theme}-board.png`, evidence).pathname, animations: 'disabled' });
-  await card.locator('.card-open').click();
-  await page.locator('#detailUpdateForm').waitFor();
-  assert.equal(await page.locator('#recordPanel .deal-vendor-group').count(), 2);
-  const detailContact = page.locator('#recordPanel .deal-vendor-details').first();
-  await detailContact.locator('summary').click();
-  assert.equal(await detailContact.getByText('demo.long.assigned.representative@example.invalid', { exact: true }).isVisible(), true);
-  assert.equal(await detailContact.getByText('+1 (555) 010-0101 <desk>', { exact: true }).isVisible(), true);
-  await detailContact.scrollIntoViewIfNeeded();
+  await contact.scrollIntoViewIfNeeded();
   assert.equal(await page.locator('#recordPanel').evaluate(n => n.scrollWidth <= n.clientWidth), true);
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
   await page.screenshot({ path: new URL(`${width}-${theme}-detail.png`, evidence).pathname, animations: 'disabled' });
@@ -140,16 +136,14 @@ for (const width of [390, 1280]) test(`list, parked and archived cards retain ve
 });
 
 
-test('parked Board cards still open by body click, Enter and Space around vendor disclosures', async t => {
+test('parked Board cards open by body click, Enter and Space', async t => {
   const { page } = await open(t);
   await page.getByRole('button', { name: 'Parked', exact: true }).click();
   const card = page.locator('.parked-lane [data-id="d06"]');
-  await card.locator('.deal-vendor-details summary').first().click();
-  assert.equal(await card.getByText('demo.long.assigned.representative@example.invalid', { exact: true }).isVisible(), true);
-  assert.equal(await page.locator('#recordPanel').isVisible(), false);
+  assert.equal(await card.locator('.deal-vendor-group').count(), 0);
   for (const action of ['click', 'Enter', 'Space']) {
-    if (action === 'click') await card.locator('h4').click();
-    else await card.press(action);
+    if (action === 'click') await card.locator('.owner').click();
+    else await card.locator('.card-open').press(action);
     await page.locator('#detailUpdateForm').waitFor();
     assert.equal(await page.locator('#recordPanel').isVisible(), true, action);
     await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
@@ -171,7 +165,8 @@ for(const width of [390,1280]) test(`six assignments keep Add update on the open
 
 test('role groups have twice the space used within each role',async t=>{
  const {page}=await open(t);
- const gap=await page.locator('.kanban-column [data-id="d14"] .deal-vendors').evaluate(n=>({roles:parseFloat(getComputedStyle(n).rowGap),assignments:parseFloat(getComputedStyle(n.querySelector('ul')).rowGap)}));
+ await page.locator('.kanban-column [data-id="d14"] .card-open').click();
+ const gap=await page.locator('#recordPanel .deal-vendors').evaluate(n=>({roles:parseFloat(getComputedStyle(n).rowGap),assignments:parseFloat(getComputedStyle(n.querySelector('ul')).rowGap)}));
  assert.ok(gap.roles>=16 && gap.roles>=2*gap.assignments,JSON.stringify(gap));
 });
 
@@ -184,11 +179,13 @@ for (const theme of ['dark', 'light']) test(`vendor contacts are distinct and ac
     { role: 'advisor', company: null, contact: { name: 'Demo Solo' } },
   ];
   const { page } = await open(t, 390, theme, vendors);
-  const card = page.locator('.kanban-column [data-id="d14"]');
+  await page.locator('.kanban-column [data-id="d14"] .card-open').click();
+  const card = page.locator('#recordPanel .deal-vendors');
+  await card.waitFor();
   assert.equal(await card.getByText('Demo Person', { exact: true }).count(), 2);
   assert.equal(await card.getByText('Demo Other', { exact: true }).count(), 1);
   assert.equal(await card.getByText('Demo Solo', { exact: true }).count(), 1);
-  assert.doesNotMatch(await card.locator('.deal-vendors').textContent(), /undefined|null/);
+  assert.doesNotMatch(await card.textContent(), /undefined|null/);
   await card.locator('.deal-vendor-details summary').click();
   for (const [name, href] of [['person@example.invalid', 'mailto:person@example.invalid'], ['+1 (555) 010-1234', 'tel:+15550101234']]) {
     const action = card.getByRole('link', { name, exact: true });
@@ -207,9 +204,11 @@ for (const theme of ['dark', 'light']) test(`merged vendor contact rows fit and 
     { party_id: 'demo-party-2', role: 'lender', company: { id: 'demo-company-2', name: 'Demo Firm' }, contact: { id: 'demo-contact-2', name: 'Demo Person', email: 'demo.long.assigned.representative@example.test', phone: '555-010-1234 x12' } },
   ];
   const { page } = await open(t, 390, theme, vendors);
-  const card = page.locator('.kanban-column [data-id="d14"]');
+  await page.locator('.kanban-column [data-id="d14"] .card-open').click();
+  const card = page.locator('#recordPanel .deal-vendors');
+  await card.waitFor();
   assert.equal(await card.locator('.deal-vendor-company').count(), 1);
-  await card.locator('summary').click();
+  await card.locator('.deal-vendor-details summary').click();
   const rows = card.locator('.deal-vendor-details p');
   assert.equal(await rows.count(), 2);
   for (const row of await rows.all()) {
