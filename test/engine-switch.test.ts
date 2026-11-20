@@ -2125,3 +2125,49 @@ test("Home Today reads only the engine when the Home switch is on", async () => 
   assert.equal((await worker.fetch(request(), unavailable.env)).status, 503);
   assert.deepEqual(unavailable.carr, []);
 });
+
+test("Home meeting answers switch from legacy writes to the signed-in engine routes", async () => {
+  const review = "0123456789abcdef";
+  const key = "00000000-0000-8000-8000-000000000001";
+  const activity = "/api/engine/activities";
+  const dismissal = `/api/engine/calendar/reviews/${review}/dismissal`;
+  const meeting = { kind: "meeting", calendar_review_key: review, idempotency_key: key };
+  const legacy = [
+    call("log-activity", { kind: "meeting", calendar_event_key: review }),
+    call("answer-board-question", { board_id: "calendar-agenda", question_id: review }),
+  ];
+  const writes = [
+    [activity, meeting],
+    [dismissal, { idempotency_key: key }],
+  ] as const;
+  const post = (path: string, body: object) =>
+    new Request(origin + path, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-carr-csrf": "synthetic" },
+      body: JSON.stringify(body),
+    });
+  const off = fixture(new Map());
+  for (const request of legacy) assert.equal(await (await off.send(request)).text(), "old");
+  for (const [path, body] of writes) assert.equal((await worker.fetch(post(path, body), off.env)).status, 404);
+  assert.equal(off.carr.length, legacy.length);
+  assert.deepEqual(off.engine, []);
+  assert.equal((await worker.fetch(post(activity, { kind: "note" }), off.env)).status, 200);
+
+  const on = fixture(new Map([["home-from-engine", "on"]]));
+  for (const request of legacy) {
+    const answer = await (await on.send(request)).json();
+    assert.equal(answer.result.isError, true);
+    assert.equal(JSON.parse(answer.result.content[0].text).error, "home_routing_changed");
+  }
+  for (const [path, body] of writes) assert.equal((await worker.fetch(post(path, body), on.env)).status, 200);
+  assert.deepEqual(on.carr, []);
+  assert.deepEqual(
+    on.engine.map((request) => new URL(request.url).pathname),
+    [activity, dismissal],
+  );
+  assert.deepEqual(
+    await Promise.all(on.engine.map((request) => request.json())),
+    writes.map(([, body]) => body),
+  );
+  assert.ok(on.engine.every((request) => request.headers.get("x-carr-csrf") === "synthetic"));
+});

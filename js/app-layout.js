@@ -19,7 +19,7 @@ const LEGACY_TODAY_CONTENT = `<p class="home-kicker app-look-ahead">A LITTLE LOO
 
 export function createAppLayout(root, title = '', engineToday = false) {
   const todayContent = engineToday
-    ? `<section class="calendar-panel" aria-label="Meetings"><h3>Meetings</h3><div id="appScheduleSlot" role="status">Loading meetings…</div></section>
+    ? `<section class="calendar-panel" aria-label="Meetings"><h3>Meetings</h3><div id="appScheduleSlot" role="status">Loading meetings…</div><div id="appMeetingReviews" hidden></div></section>
       <section aria-labelledby="appRemindersTitle"><h3 id="appRemindersTitle">Dated reminders</h3><div id="appTodayOwners" hidden></div><div id="appTodayLate" hidden><h4>Late</h4><div id="appTodayNeeds"></div></div><div id="appTodayNext" role="status">Loading dated reminders…</div></section>
       <button type="button" id="appTodayRetry" class="app-layout-item" hidden>Retry Today</button>`
     : LEGACY_TODAY_CONTENT;
@@ -170,7 +170,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   });
   const boot = resolveDealroomBoot(globalThis.location);
   const homeToday = engineToday
-    ? import('./ui-home-today.generated.js').then(module => module.mountHomeTodayPanel(layout.querySelector('#appToday'))).catch(() => {
+    ? import('./ui-home-today.generated.js').then(module => module.mountHomeTodayPanel(layout.querySelector('#appToday'), async signal => {
+      client ||= await createClient(boot.mode, { ...boot.options, docContext: false });
+      return scopedDeals(await client.getBoard({ workspace: 'all', signal }), 'team') || [];
+    })).catch(() => {
       layout.querySelector('#appScheduleSlot').textContent = "Couldn't load meetings.";
       layout.querySelector('#appTodayNext').textContent = "Couldn't load dated reminders.";
       return null;
@@ -410,6 +413,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     preparation.retire();
     void calendarPanels.then(panel => panel?.retire());
     lifetime.abort(); auto.dispose(); ageTick.dispose(); unavailableRead();
+    void homeToday?.then(panel => panel?.dispose());
   };
   win.addEventListener('doctorcre-session-invalidated', invalidateSession);
   win.addEventListener('pagehide', event => {

@@ -20,8 +20,8 @@ function partner(value: unknown): value is Partner {
 
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 
-export async function mountHomeTodayPanel(rail: HTMLElement) {
-  const [transport, dates, week, receipts]: [
+export async function mountHomeTodayPanel(rail: HTMLElement, readDeals: (signal: AbortSignal) => Promise<unknown[]>) {
+  const [transport, dates, week, receipts, reviews]: [
     {
       readWithDeadline<T>(read: (signal: AbortSignal) => Promise<T>, options: { signal: AbortSignal }): Promise<T>;
       sessionFetch(path: string, init: RequestInit): Promise<Response>;
@@ -29,6 +29,12 @@ export async function mountHomeTodayPanel(rail: HTMLElement) {
     { isCalendarDay(value: unknown): value is string; shortDay(value: string, today: string): string },
     { meetingTime(value: string, zone: string, includeDate?: boolean): string },
     { escapeText(value: string): string },
+    {
+      mountHomeMeetingReviews(options: { document: Document; host: HTMLElement; engine: true }): {
+        update(view: { actor?: string | null; calendar?: unknown; deals?: unknown[] | null }): void;
+        dispose(): void;
+      };
+    },
   ] = await Promise.all([
     Promise.all([sibling("./current-read.mjs"), sibling("./private-session.js")]).then(([read, session]) => ({
       readWithDeadline: read.readWithDeadline,
@@ -37,6 +43,7 @@ export async function mountHomeTodayPanel(rail: HTMLElement) {
     sibling("./calendar-model.js"),
     sibling("./home-week.js"),
     sibling("./change-receipts.mjs"),
+    sibling("./home-meeting-reviews.js"),
   ]);
   const { escapeText } = receipts;
   const central = (value: string, includeDate = false) => week.meetingTime(value, "America/Chicago", includeDate);
@@ -73,13 +80,20 @@ export async function mountHomeTodayPanel(rail: HTMLElement) {
   }
 
   const schedule = rail.querySelector("#appScheduleSlot");
+  const reviewHost = rail.querySelector<HTMLElement>("#appMeetingReviews");
   const late = rail.querySelector("#appTodayNeeds");
   const lateGroup = rail.querySelector<HTMLElement>("#appTodayLate");
   const upcoming = rail.querySelector("#appTodayNext");
   const owners = rail.querySelector<HTMLElement>("#appTodayOwners");
   const retry = rail.querySelector<HTMLButtonElement>("#appTodayRetry");
-  if (!schedule || !late || !lateGroup || !upcoming || !owners || !retry) throw Error("Missing Today panel");
+  if (!schedule || !reviewHost || !late || !lateGroup || !upcoming || !owners || !retry)
+    throw Error("Missing Today panel");
 
+  const meetingReviews = reviews.mountHomeMeetingReviews({
+    document: rail.ownerDocument,
+    host: reviewHost,
+    engine: true,
+  });
   const both = '<option value="all">Both partners</option>';
   owners.innerHTML = `<label>Reminders for <select>${both}</select></label>`;
   const select = owners.querySelector("select");
@@ -127,6 +141,7 @@ export async function mountHomeTodayPanel(rail: HTMLElement) {
   const clear = (state: "loading" | "offline" | "unavailable" = "unavailable") => {
     revision++;
     data = null;
+    meetingReviews.update({});
     owners.hidden = true;
     retry.hidden = state === "loading";
     paint(
@@ -201,6 +216,7 @@ export async function mountHomeTodayPanel(rail: HTMLElement) {
 
   return {
     clear,
+    dispose: meetingReviews.dispose,
     async refresh(signal: AbortSignal) {
       const current = ++revision;
       let answer: unknown;
@@ -237,6 +253,15 @@ export async function mountHomeTodayPanel(rail: HTMLElement) {
       owners.hidden = !partners.length;
       renderReminders("Couldn't load dated reminders.");
       retry.hidden = meetingsReady && data !== null;
+      const calendar = meetingsReady && object(answer.meetings) ? answer.meetings : null;
+      const actor = text(answer.viewer) ? answer.viewer : null;
+      let deals: unknown[] | null = [];
+      if (actor && Array.isArray(calendar?.follow_up_reviews) && calendar.follow_up_reviews.length) {
+        deals = await transport.readWithDeadline(readDeals, { signal }).catch(() => null);
+        if (signal.aborted || current !== revision) return false;
+        if (!deals) retry.hidden = false;
+      }
+      meetingReviews.update({ actor, calendar, deals });
       return retry.hidden;
     },
   };

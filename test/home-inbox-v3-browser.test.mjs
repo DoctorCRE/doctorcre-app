@@ -149,6 +149,36 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
     history.replaceState(null, '', url);
   });
   const legacyTodayReads = [];
+  const meetingReviews = ['aaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbb'].map((key, index) => ({
+    key, title: ['Example site tour', 'Example financing call'][index],
+    state: 'needs_review', start: '2026-11-19T13:00:00Z', end: '2026-11-19T14:00:00Z',
+  }));
+  const meetingWrites = [];
+  const receipts = new Map();
+  const deal = { id, name: 'Example Dental', owner: 'joe', phase: 'active' };
+  const answer = (route, action, key) => {
+    const args = route.request().postDataJSON();
+    const prior = receipts.get(args.idempotency_key);
+    const status = action === 'log' ? 201 : 200;
+    if (prior) return prior.action === action && JSON.stringify(prior.args) === JSON.stringify(args)
+      ? route.fulfill({ status, json: { ...prior.receipt, replayed: true } })
+      : route.fulfill({ status: 409, json: { error: 'key_reuse' } });
+    const receipt = action === 'log'
+      ? { activity_id: id, existing: false, about: args.about, unmatched: [] }
+      : { key, dismissed_at: '2026-11-19T15:00:00Z' };
+    meetingWrites.push({ action, key, args });
+    receipts.set(args.idempotency_key, { action, key, args, receipt });
+    return route.fulfill({ status, json: receipt });
+  };
+  await page.route('**/api/engine/activities', route => answer(route, 'log', route.request().postDataJSON().calendar_review_key));
+  await page.route('**/api/engine/calendar/reviews/*/dismissal', route => {
+    const key = new URL(route.request().url()).pathname.split('/').at(-2);
+    return answer(route, 'dismiss', key);
+  });
+  await page.route('**/api/engine/calendar/agenda', route => route.fulfill({ json: {
+    confirmed: [...receipts.values()].filter(row => row.action === 'log').map(row => row.key),
+    dismissed: [...receipts.values()].filter(row => row.action === 'dismiss').map(row => row.key),
+  } }));
   let todayFailure = null;
   await page.route('**/?*', async route => {
     const url = new URL(route.request().url());
@@ -164,7 +194,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
       partners: [{ slug: 'joe', name: 'Joe Example' }, { slug: 'dell', name: 'Dell Example' }],
       meetings: todayFailure === 'meetings'
         ? { state: 'unavailable', reason: 'No calendar snapshot has been synced from Outlook yet.', items: [] }
-        : { state: 'partial', observed_at: '2026-11-19T15:00:00Z', items: [{
+        : { state: 'partial', observed_at: '2026-11-19T15:00:00Z', follow_up_reviews: [...meetingReviews, meetingReviews[0]], items: [{
         title: 'Example walkthrough', start: '2026-11-19T16:00:00Z', end: '2026-11-19T17:00:00Z',
         context_label: 'Example Dental', attendees: [{ name: 'Demo Attendee', email: null }],
         open_url: '/deals?deal=demo', possible_deals: [{ name: 'Example Dental', open_url: '/deals?deal=demo' }],
@@ -186,7 +216,8 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
     if (name === 'read-home-inbox-v5') payload = { ok: true, schema_version: 'home-inbox.v5', engine_marks: true,
       home_mark_drop: capabilities, home_proposal_drop: capabilities, auto_settle_enabled: true, working_collapsed: true,
       truncated: false, limit: 1000, items: [...(stepOpen ? [step] : []), ...(feedbackOpen ? [feedback] : [])] };
-    if (name === 'deal-room-board') payload = { actor: 'joe', deals: [] };
+    if (name === 'deal-room-board') payload = { actor: 'joe', deals: [deal] };
+    if (['log-activity', 'answer-board-question'].includes(name)) meetingWrites.push({ name });
     if (['today-triage', 'calendar-meeting-prep'].includes(name)) legacyTodayReads.push(name);
     if (name === 'end-engine-home-step') {
       writes.push({ name, args });
@@ -232,7 +263,25 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   assert.equal(await page.getByText('Example walkthrough', { exact: true }).count(), 1);
   assert.equal(await today.getByText('Deal pulse', { exact: true }).count(), 0);
   if (width === 1440) await page.evaluate(() => window.scrollTo(0, 0));
+  const question = title => today.locator('[data-review]').filter({ hasText: title });
+  const log = question('Example site tour');
+  await log.waitFor({ timeout: 5000 });
+  assert.equal(await page.getByText('Example site tour', { exact: true }).count(), 1);
+  await log.getByLabel('Deal').selectOption(deal.id);
   await page.screenshot({ path: `test-artifacts/inbox-v3/engine-today-${width}.png`, animations: 'disabled' });
+  await log.getByRole('button', { name: 'It happened' }).click();
+  await today.getByText('Meeting logged on Example Dental.').waitFor();
+  await question('Example financing call').getByRole('button', { name: 'Dismiss' }).click();
+  await today.getByText('Meeting dismissed.', { exact: true }).waitFor();
+  assert.equal(await today.locator('[data-review]').count(), 0);
+  assert.deepEqual(meetingWrites.map(w => w.action), ['log', 'dismiss']);
+  assert.deepEqual(meetingWrites[0].args, {
+    kind: 'meeting', summary: 'Meeting: Example site tour', calendar_review_key: meetingReviews[0].key,
+    happened_at: '2026-11-19T13:00:00.000Z', about: [{ deal_id: deal.id }],
+    idempotency_key: meetingWrites[0].args.idempotency_key,
+  });
+  assert.match(meetingWrites[0].args.idempotency_key, /^[a-f0-9-]{36}$/);
+  assert.equal(meetingWrites[1].key, meetingReviews[1].key);
   await today.getByText('Example walkthrough', { exact: true }).click();
   await today.getByText('Attendees: Demo Attendee', { exact: true }).waitFor();
   assert.equal(await today.getByRole('link', { name: 'Open deal' }).getAttribute('href'), '/deals?deal=demo');
@@ -261,6 +310,16 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   await today.getByRole('button', { name: 'Retry Today' }).click();
   await today.getByText("Couldn't load meetings.").waitFor();
   await today.getByText("Couldn't load dated reminders.").waitFor();
+  // Simulate a new tab that loaded the questions before the answers committed.
+  todayFailure = null;
+  await page.reload();
+  if (!(await today.isVisible())) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
+  await log.getByRole('button', { name: 'Dismiss' }).click();
+  await today.getByText('Meeting already logged.', { exact: true }).waitFor();
+  await question('Example financing call').getByRole('button', { name: 'Dismiss' }).click();
+  await today.getByText('Meeting already dismissed.', { exact: true }).waitFor();
+  assert.equal(await today.locator('[data-review]').count(), 0);
+  assert.deepEqual(meetingWrites.map(w => w.action), ['log', 'dismiss']);
   assert.deepEqual(legacyTodayReads, []);
   if (width === 390) await today.getByRole('button', { name: 'Close Today' }).click();
 
