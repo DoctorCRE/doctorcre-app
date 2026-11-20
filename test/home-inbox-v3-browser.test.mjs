@@ -212,13 +212,14 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
     } });
   });
   let capabilities = false, stepOpen = true, feedbackOpen = true;
+  const attendeeSteps = [];
   const writes = [];
   await page.route('**/mcp', route => {
     const { name, arguments: args } = route.request().postDataJSON().params;
     let payload = { items: [] };
     if (name === 'read-home-inbox-v5') payload = { ok: true, schema_version: 'home-inbox.v5', engine_marks: true,
       home_mark_drop: capabilities, home_proposal_drop: capabilities, auto_settle_enabled: true, working_collapsed: true,
-      truncated: false, limit: 1000, items: [...(stepOpen ? [step] : []), ...(feedbackOpen ? [feedback] : [])] };
+      truncated: false, limit: 1000, items: [...(stepOpen ? [step] : []), ...(feedbackOpen ? [feedback] : []), ...attendeeSteps] };
     if (name === 'deal-room-board') payload = { actor: 'joe', deals: [deal] };
     if (['log-activity', 'answer-board-question'].includes(name)) meetingWrites.push({ name });
     if (['today-triage', 'calendar-meeting-prep'].includes(name)) legacyTodayReads.push(name);
@@ -265,7 +266,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   await today.getByText('Example walkthrough', { exact: true }).waitFor();
   assert.equal(await page.getByText('Example walkthrough', { exact: true }).count(), 1);
   assert.equal(await today.getByText('Deal pulse', { exact: true }).count(), 0);
-  await today.getByRole('heading', { name: 'Due today', exact: true }).waitFor();
+  await today.getByRole('link', { name: /Send the sample invoice/ }).waitFor();
   if (width === 1440) await page.evaluate(() => window.scrollTo(0, 0));
   const question = title => today.locator('[data-review]').filter({ hasText: title });
   const log = question('Example site tour');
@@ -290,8 +291,8 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   await today.getByText('Attendees: Demo Attendee', { exact: true }).waitFor();
   assert.equal(await today.getByRole('link', { name: 'Open deal' }).getAttribute('href'), '/deals?deal=demo');
   const reminder = today.getByRole('link', { name: /Send sample terms/ });
-  assert.equal(await reminder.getAttribute('href'), '/?card=' + encodeURIComponent(step.item_id));
-  assert.match(await reminder.textContent(), /3 days late/);
+  await reminder.waitFor({ state: 'detached' });
+  assert.equal(await page.getByText(step.title, { exact: true }).count(), 1);
   const owners = today.getByLabel('Reminders for');
   await owners.selectOption('dell');
   assert.equal(await reminder.count(), 0);
@@ -300,9 +301,9 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   assert.doesNotMatch(await today.textContent(), /2026-11-19|Checking…/);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await owners.selectOption('joe');
-  await reminder.click();
-  await page.locator('[data-current="true"][data-inbox-row]').getByText(step.title, { exact: true }).waitFor();
-  assert.equal(new URL(page.url()).searchParams.get('card'), step.item_id);
+  await today.getByText('No dated reminders.', { exact: true }).waitFor();
+  assert.equal(await reminder.count(), 0);
+  await owners.selectOption('all');
 
   if (!(await today.isVisible())) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
   await today.getByText('Example walkthrough', { exact: true }).waitFor();
@@ -310,7 +311,8 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   todayFailure = 'meetings';
   await page.locator('#appSyncRefresh').evaluate(button => button.click());
   await today.getByRole('region', { name: 'Meetings', exact: true }).getByText("Today's meetings could not be loaded.", { exact: true }).waitFor();
-  await reminder.waitFor();
+  await today.getByRole('link', { name: /Send the sample invoice/ }).waitFor();
+  assert.equal(await reminder.count(), 0);
   todayFailure = 'reminders';
   await today.getByRole('button', { name: 'Retry Today' }).click();
   await today.getByRole('region', { name: 'Dated reminders', exact: true }).getByText("Today's reminders could not be loaded.", { exact: true }).waitFor();
@@ -348,6 +350,21 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   assert.equal(writes[2].args.resolution, 'cancelled');
   assert.equal(writes[2].args.reason, 'Work moved to a different site.');
   assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
+
+  const names = ['Dana Example', 'Lee Example', 'Morgan Example', 'Taylor Example'];
+  attendeeSteps.push(...names.map((name, index) => {
+    const id = `00000000-0000-4000-8000-00000000001${index}`;
+    return { ...step, item_id: `next_action:${id}`, source_id: id, action_id: id, merged_source_ids: [id],
+      title: 'Review the site plan', context_label: name, section: 'inbox', disposition: 'inbox',
+      open_url: `/relationships?node=party:${id}` };
+  }));
+  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
+  await late.getByRole('button', { name: 'See all 4', exact: true }).click();
+  for (const name of names) {
+    const card = late.locator('[data-inbox-row]').filter({ hasText: name });
+    await card.getByRole('link', { name: 'Review the site plan', exact: true }).waitFor();
+    await card.getByText(new RegExp(`^${name} · 3 days late$`)).waitFor();
+  }
 });
 
 async function meetingAnswerFixture(t, { remindersUnavailable = false } = {}) {

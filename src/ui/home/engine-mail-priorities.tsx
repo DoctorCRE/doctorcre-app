@@ -1,16 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { emailPlaceholderText, emailSubject } from "./email-subject.ts";
+import { useEffect } from "react";
 import { hasEngineReview, matchesProposal } from "./engine-review.ts";
 import { type InboxItem, object } from "./inbox.tsx";
 import { takeEarlyMailPriorities } from "./mail-priorities-client";
 
-const received = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "America/Chicago",
-});
-const due = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" });
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 const invalid = () => Error("Mail priorities unavailable");
 
@@ -63,96 +56,51 @@ async function readPriorities(signal: AbortSignal) {
       row.proposal_id === null &&
       row.item_id === `reply_draft:${row.reply_draft_id}`;
     if (!proposal && !draft) throw invalid();
-    return {
-      item_id: row.item_id,
-      base_version: row.base_version,
-      proposal,
-      sender: typeof row.sender === "string" ? row.sender : "Sender unavailable",
-      subject: typeof row.subject === "string" ? row.subject : null,
-      suggestion: typeof row.suggestion === "string" ? row.suggestion : "",
-      dueOn: typeof row.due_on === "string" && Number.isFinite(Date.parse(row.due_on)) ? row.due_on : null,
-      happenedAt: row.source_activity.happened_at,
-    };
+    return { item_id: row.item_id, base_version: row.base_version, proposal };
   });
   return { items, more: value.more };
 }
 
-export function EngineMailPriorities({
-  items,
-  locked,
-  review,
-}: {
-  items: readonly InboxItem[];
-  locked: boolean;
-  review(item: InboxItem, opener: HTMLButtonElement, proposal?: string): void;
-}) {
-  const [expanded, setExpanded] = useState(true);
+export function useEngineMailPriorities(items: readonly InboxItem[], enabled: boolean) {
   useEffect(() => {
+    if (!enabled) return;
     const early = takeEarlyMailPriorities();
     early?.controller.abort();
     early?.detach();
-  }, []);
+  }, [enabled]);
   const query = useQuery({
     queryKey: ["home-mail-priorities", items.map((item) => [item.item_id, item.base_version])],
     queryFn: ({ signal }) => readPriorities(signal),
-    enabled: expanded,
+    enabled,
   });
-  const rows = query.data?.items.flatMap((row) => {
-    const card = items.find(
-      (item) =>
-        item.item_id === row.item_id &&
-        item.base_version === row.base_version &&
-        hasEngineReview(item) &&
-        (!row.proposal || matchesProposal(item, row.proposal)),
-    );
-    return card ? [{ row, card }] : [];
-  });
+  const ranks = new Map<string, number>();
+  if (enabled) {
+    query.data?.items.forEach((row, rank) => {
+      const card = items.find((item) => item.item_id === row.item_id && item.base_version === row.base_version);
+      if (card?.section === "inbox" && hasEngineReview(card) && (!row.proposal || matchesProposal(card, row.proposal)))
+        ranks.set(card.item_id, rank);
+    });
+  }
+  const rank = (item: InboxItem) => ranks.get(item.item_id) ?? 25;
+  return {
+    ordered: ranks.size ? [...items].sort((a, b) => rank(a) - rank(b)) : items,
+    count: ranks.size,
+    query,
+  };
+}
+
+export function EngineMailPriorities({ count, query }: ReturnType<typeof useEngineMailPriorities>) {
   return (
-    <section className="home-panel" aria-label="Mail priorities" aria-busy={expanded && query.isFetching}>
+    <section className="home-panel" aria-label="Mail priorities" aria-busy={query.isFetching}>
       <h2>Mail priorities</h2>
-      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-        {expanded ? "Collapse mail priorities" : "Expand mail priorities"}
-      </button>
-      {expanded && (
-        <>
-          {query.isPending && <p role="status">Loading mail priorities…</p>}
-          {query.isError && <p role="status">Mail priorities unavailable.</p>}
-          {query.data && (
-            <>
-              {!rows?.length && <p role="status">No mail priorities right now.</p>}
-              {query.data.more && <p>Showing the 25 most urgent.</p>}
-              <ol>
-                {rows?.map(({ row, card }) => {
-                  return (
-                    <li key={row.item_id}>
-                      <button
-                        type="button"
-                        disabled={locked}
-                        onClick={(event) => {
-                          review(card, event.currentTarget, row.proposal ?? undefined);
-                        }}
-                      >
-                        {row.sender} · {emailSubject(row.subject)}
-                      </button>
-                      <p>{emailPlaceholderText(row.suggestion)}</p>
-                      <time dateTime={row.happenedAt}>{received.format(new Date(row.happenedAt))} Central</time>
-                      {row.dueOn && (
-                        <p>
-                          Due <time dateTime={row.dueOn}>{due.format(new Date(row.dueOn))}</time>
-                        </p>
-                      )}
-                    </li>
-                  );
-                })}
-              </ol>
-            </>
-          )}
-          {!query.isPending && (
-            <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>
-              Refresh mail priorities
-            </button>
-          )}
-        </>
+      {query.isPending && <p role="status">Loading mail priorities…</p>}
+      {query.isError && <p role="status">Mail priorities unavailable.</p>}
+      {query.isSuccess && !count && <p role="status">No mail priorities right now.</p>}
+      {query.data?.more && <p>More conversations are in your inbox.</p>}
+      {!query.isPending && (
+        <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>
+          Refresh mail priorities
+        </button>
       )}
     </section>
   );
