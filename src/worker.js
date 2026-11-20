@@ -609,6 +609,10 @@ async function engineSave(request, env) {
     if ((Array.isArray(items) || undo_of) && await switchedOn(env, HOME))
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
   }
+  const args = call.params.arguments;
+  if (((call.params.name === 'log-activity' && args.kind === 'meeting' && 'calendar_event_key' in args) ||
+       (call.params.name === 'answer-board-question' && args.board_id === 'calendar-agenda')) && await switchedOn(env, HOME))
+    return saveRefusal(call, 'home_routing_changed', 'Refresh Home and answer the question in Today.');
   if (call.params.name === 'record-commission-receipt') {
     if (!await switchedOn(env, INVOICES)) return null;
     return engineAnswer(request, env, call, { path: '/api/engine/invoices/mark-paid' }, { allowHandoff: false });
@@ -734,6 +738,9 @@ async function handleRequest(request, env) {
         element(node) { node.setAttribute('data-home-today-from-engine', ''); },
       }).transform(asset);
     }
+    if (routeAsset === 'review-workflows.html' && request.method === 'GET' && asset.ok && await switchedOn(env, HOME)) {
+      asset = new HTMLRewriter().on('#homeMeetingReviews', { element(node) { node.remove(); } }).transform(asset);
+    }
     return copySessionCookies(gate, asset);
   }
 
@@ -757,6 +764,10 @@ async function handleRequest(request, env) {
       response.headers.set('allow', allowed.join(', '));
       return response;
     }
+    const meetingAnswer = request.method === 'POST' &&
+      (/^\/api\/engine\/calendar\/reviews\/[a-f0-9]{16}\/dismissal$/.test(pathname)
+      || (pathname === '/api/engine/activities' && (await request.clone().json().catch(() => null))?.calendar_review_key !== undefined));
+    if (meetingAnswer && !await switchedOn(env, HOME)) return json({ error: 'not_found' }, 404);
     if (documentWriteMethod && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);

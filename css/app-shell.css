@@ -182,6 +182,10 @@ body.has-app-layout { padding: 0 0 var(--layout-bottom) var(--layout-rail) !impo
 #appRemindersTitle ~ div h4 { font: var(--font-weight-strong) var(--font-size-1) var(--font-text); margin: var(--space-3) 0 var(--space-2); }
 #appRemindersTitle ~ div a.app-layout-item { text-decoration: none; }
 #appRemindersTitle ~ div a.app-layout-item strong { text-decoration: underline; }
+#appMeetingReviews .work-card-actions label { display: flex; align-items: center; gap: var(--space-2); width: 100%; }
+#appMeetingReviews :is(button, select) { min-height: var(--touch); max-width: 100%; padding: var(--space-2); font: inherit; color: var(--fg); background: var(--surface-2); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); }
+#appMeetingReviews select { flex: 1; min-width: 0; }
+#appMeetingReviews button:disabled { opacity: .5; }
 #appTodayOwners select { margin: 0 0 var(--space-2) var(--space-1); }
 .app-layout-item strong { font-weight: var(--font-weight-strong); }
 .app-layout-show-all, #appTodayRetry { min-width: var(--touch); min-height: var(--touch); }
