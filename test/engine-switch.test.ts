@@ -983,6 +983,17 @@ for (const args of [{}, { query: "" }, { query: 5 }, { query: null }, { query: "
 }
 
 const directoryOn = new Map([["clients-vendors-from-engine", "on"]]);
+test("recent activity routes ref to engine and omits it from the old tool", async () => {
+  const args = { query: "Example Clinic", limit: 10, ref: "C-901" };
+  const on = fixture(directoryOn);
+  await on.send(call("find-and-catch-up", args));
+  assert.ok(on.engine[0]);
+  assert.equal(new URL(on.engine[0].url).searchParams.get("ref"), "C-901");
+  const off = fixture(new Map());
+  await off.send(call("find-and-catch-up", args));
+  assert.deepEqual(off.carr, [JSON.stringify(call("find-and-catch-up", { query: "Example Clinic", limit: 10 }))]);
+});
+
 const recordId = "00000000-0000-4000-8000-0000000000aB";
 const getRead = (f: ReturnType<typeof fixture>, path: string, method = "GET") =>
   worker.fetch(new Request(`${origin}${path}`, { method, headers: { cookie: "session=synthetic" } }), f.env);
