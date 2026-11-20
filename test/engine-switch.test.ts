@@ -2252,6 +2252,7 @@ test("workspace HTML selects all three engine switches independently", async (t)
     "/review-workflows",
     "/leases",
     "/client-portal",
+    "/vendors",
   ]) {
     for (const home of [false, true]) {
       for (const [deals, saves] of [
@@ -2264,6 +2265,7 @@ test("workspace HTML selects all three engine switches independently", async (t)
         transform.mock.resetCalls();
         const switches = new Map([
           ["home-from-engine", home ? "on" : "off"],
+          ["clients-vendors-from-engine", path === "/vendors" ? "on" : "off"],
           ["deals-from-engine", deals ? "on" : "off"],
           ["deals-saves-from-engine", saves ? "on" : "off"],
           ["deal-cutover-date", "2025-06-12"],
@@ -2306,6 +2308,7 @@ test("workspace HTML selects all three engine switches independently", async (t)
           );
         const attributes = setAttribute.mock.calls.map(({ arguments: args }) => args[0]).sort();
         const expected = [
+          ...(path === "/vendors" ? ["data-clients-vendors-from-engine"] : []),
           ...(deals ? ["data-deals-from-engine"] : []),
           ...(saves ? ["data-deals-saves-from-engine"] : []),
           ...(home ? ["data-home-today-from-engine"] : []),
@@ -2314,8 +2317,8 @@ test("workspace HTML selects all three engine switches independently", async (t)
         const date = setAttribute.mock.calls.find(({ arguments: args }) => args[0] === "data-deals-saves-from-engine");
         if (saves)
           assert.equal(date?.arguments[1], ["/", "/inbox", "/deals", "/leases"].includes(path) ? "2025-06-12" : "");
-        assert.equal(transform.mock.callCount(), Number(home || deals || saves));
-        if (!home && !deals && !saves) {
+        assert.equal(transform.mock.callCount(), Number(home || deals || saves || path === "/vendors"));
+        if (!home && !deals && !saves && path !== "/vendors") {
           assert.equal(await response.text(), html);
         }
       }
