@@ -95,7 +95,7 @@ export function prepareDealDetail(detail) {
 
 export function ordinaryOpenSteps(actions = []) {
   return actions.filter(step => (step.status === undefined || step.status === 'open') &&
-    !step.title && step.description?.trim());
+    !step.title && typeof step.description === 'string' && step.description.trim());
 }
 
 export function partnerDealStep(detail, actor) {

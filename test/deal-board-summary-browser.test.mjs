@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
+import { inspectPhoneAccessibility } from '../scripts/phone-accessibility.ts';
 import { chromium } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
 
 for (const width of [320, 390, 1280, 1440]) for (const theme of ['light', 'dark']) for (const national of [false, true]) {
-  test(`${national ? 'National Accounts' : 'Local Deals'} keeps summary dates visible at ${width}px ${theme}`, async t => {
+  test(`${national ? 'National Accounts' : 'Local Deals'} renders board records at ${width}px ${theme}`, async t => {
     const server = await fixtureServer();
     t.after(() => server.close());
     const browser = await chromium.launch();
@@ -28,9 +29,32 @@ for (const width of [320, 390, 1280, 1440]) for (const theme of ['light', 'dark'
     const card = national ? page.locator('#rows tr[data-deal-id="d01"]') : page.locator('.kanban-card[data-id="d14"]');
     await card.waitFor();
     await card.scrollIntoViewIfNeeded();
+    if (!national) {
+      const name = 'Demo Surgical Practice';
+      assert.equal(await card.getByRole('button', { name, exact: true }).count(), 1);
+      assert.equal((await card.innerText()).replace(/\s+/g, ' '), `${name} Joe`);
+      assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+      const headings = await page.locator('.kanban-column > h3 button:visible').evaluateAll(headers => headers.map(header => {
+        const [name, count] = [...header.children].map(child => child.getBoundingClientRect());
+        return Math.abs(name.y + name.height / 2 - count.y - count.height / 2) < 1
+          && count.right <= header.getBoundingClientRect().right
+          && header.scrollWidth <= header.clientWidth;
+      }));
+      assert.ok(headings.length && headings.every(Boolean), 'each phase keeps its name and count together');
+      if (width === 390) {
+        const audit = await inspectPhoneAccessibility(page);
+        assert.deepEqual(audit.small.filter(target => target.selector.startsWith('#kanban')), []);
+      }
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      if ([390, 1440].includes(width)) {
+        const dir = 'test-artifacts/board-cards/after';
+        await mkdir(dir, { recursive: true });
+        await page.screenshot({ path: `${dir}/local-deals-${width}-${theme}.png` });
+      }
+      return;
+    }
     const facts = card.locator('.deal-summary-facts').first();
-    assert.match(await facts.innerText(), national ? /Fri Oct 30 · Dell/ : /Fri Oct 30/);
-    if (!national) assert.doesNotMatch(await facts.innerText(), /· D/);
+    assert.match(await facts.innerText(), /Fri Oct 30 · Dell/);
     const spaced = await card.locator('.deal-summary-facts').evaluateAll(nodes => nodes.filter(node => node.textContent.includes('·')).map(node => {
       const range = document.createRange();
       range.setStart(node.firstChild, 0);

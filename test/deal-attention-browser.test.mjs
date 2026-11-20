@@ -51,12 +51,12 @@ test('Home counts overdue agenda dates while board badges retain next-step atten
   await page.waitForFunction(() => document.querySelector('#appTodayNeeds .app-layout-item'));
   const rail = await page.locator('#appWorkingList .app-layout-item span').allTextContents();
   const todayRows = await page.locator('#appTodayNeeds .app-layout-item > span').allTextContents();
-  const badges = await page.locator('.kanban-column .attention-flag').count();
+  const badges = await page.locator('.kanban-column').getByRole('img', { name: /^Needs attention:/ }).count();
   await page.getByRole('button', { name: 'Joe', exact: true }).click();
-  const myBadges = await page.locator('.kanban-column .attention-flag').count();
-  assert.deepEqual({ home, badges, mine, myBadges }, { home: 3, badges: 2, mine: 1, myBadges: 1 });
+  const myBadges = await page.locator('.kanban-column').getByRole('img', { name: /^Needs attention:/ }).count();
+  assert.deepEqual({ home, badges, mine, myBadges }, { home: 3, badges: 3, mine: 1, myBadges: 2 });
   assert.match(homeCounts, /Overdue deals: 3/);
-  assert.deepEqual(await page.locator('.kanban-column .attention-flag').allTextContents(), ['1 day overdue']);
+  assert.equal(await page.getByRole('img', { name: 'Needs attention: Step 1 day late', exact: true }).count(), 1);
   assert.deepEqual(homeOverdue, ['30 days overdue', '2 days overdue', '1 day overdue']);
   const days = rows => rows.map(text => Number(/(\d+) days? overdue$/.exec(text)[1]));
   assert.ok(rail.length >= 2 && rail.every(text => /\d+ days? overdue$/.test(text)), JSON.stringify(rail));
