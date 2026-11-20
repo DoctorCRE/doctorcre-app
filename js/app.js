@@ -408,7 +408,7 @@ function renderChrome() {
 function openNationalAccount(id, view = 'open') {
   state.workspace = 'national_account';
   state.accountId = id;
-  state.accountView = view;
+  setAccountDealView(view);
   $('#closedSearch').value = '';
   state.query = '';
   $('#search').value = '';
@@ -417,21 +417,18 @@ function openNationalAccount(id, view = 'open') {
 
 function linkedNationalAccount(params) {
   const id = params.get('account');
-  return state.workspace === 'national_account' && state.boardFromEngine
+  return state.workspace === 'national_account'
     && state.accounts.some(item => item.account_client_id === id) ? id : null;
 }
 
 function setAccountDealView(view) {
   state.accountView = view;
   const url = new URL(location.href);
-  if (view === 'closed') {
-    url.searchParams.set('view', 'national');
-    url.searchParams.set('account', state.accountId);
-    url.searchParams.set('account_view', 'closed');
-  } else if (url.searchParams.has('account_view')) {
-    url.searchParams.delete('account');
-    url.searchParams.delete('account_view');
-  }
+  url.searchParams.set('view', 'national');
+  if (state.accountId) url.searchParams.set('account', state.accountId);
+  else url.searchParams.delete('account');
+  if (view === 'closed') url.searchParams.set('account_view', 'closed');
+  else url.searchParams.delete('account_view');
   history.replaceState(history.state, '', url);
 }
 
@@ -1710,20 +1707,11 @@ function showConflict(conflict) {
     } });
 }
 
-async function openDeal(dealId, { close = false, fromClosed = false } = {}) {
+async function openDeal(dealId, { close = false } = {}) {
   const params = new URLSearchParams({ deal: dealId });
-  if (close) {
-    params.set('close', '1');
-    if (state.accountId) {
-      const returnTo = new URL(location.href);
-      returnTo.searchParams.set('account', state.accountId);
-      history.replaceState(history.state, '', returnTo);
-    }
-  }
-  if (close || fromClosed) {
-    const mode = new URLSearchParams(location.search).get('mode');
-    if (mode) params.set('mode', mode);
-  }
+  if (close) params.set('close', '1');
+  const mode = new URLSearchParams(location.search).get('mode');
+  if (mode) params.set('mode', mode);
   location.assign(`/deals?${params}`);
 }
 
@@ -1817,7 +1805,7 @@ function wireEvents() {
     }
     const phaseUndo = event.target.closest('[data-undo-phase], #closedDealsView [data-undo-invoice]'); if (phaseUndo) { await automaticPhase.undo(phaseUndo); return; }
     const open = event.target.closest('[data-open-deal]');
-    if (open) { await openDeal(open.dataset.openDeal, { fromClosed: Boolean(open.closest('#closedDealsView')) }); return; }
+    if (open) { await openDeal(open.dataset.openDeal); return; }
     const attention = event.target.closest('[data-attention]'); if (attention) { const deal=state.deals.get(attention.dataset.attention); await patchField(deal.id,'attention',!deal.attention); return; }
     const step = event.target.closest('[data-next-step],[data-agenda-step]');
     if (step) {
@@ -1861,8 +1849,8 @@ function wireEvents() {
   $('#closedSearch').addEventListener('input', renderNationalClosedDeals);
   $('#accountBack').onclick = () => {
     const accountId = state.accountId;
-    setAccountDealView('open');
     state.accountId = null;
+    setAccountDealView('open');
     state.query = ''; $('#search').value = '';
     render();
     if (accountId) $(`[data-account="${CSS.escape(accountId)}"]`)?.focus({ preventScroll: true });

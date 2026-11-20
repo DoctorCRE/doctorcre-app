@@ -29,7 +29,11 @@ function partner(value: unknown): value is Partner {
 
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 
-export async function mountHomeTodayPanel(rail: HTMLElement, readDeals: (signal: AbortSignal) => Promise<unknown[]>) {
+export async function mountHomeTodayPanel(
+  rail: HTMLElement,
+  readDeals: (signal: AbortSignal) => Promise<unknown[]>,
+  { hideEndedDealReminders = false } = {},
+) {
   const [transport, dates, week, receipts, reviews]: [
     {
       readWithDeadline<T>(read: (signal: AbortSignal) => Promise<T>, options: { signal: AbortSignal }): Promise<T>;
@@ -122,7 +126,9 @@ export async function mountHomeTodayPanel(rail: HTMLElement, readDeals: (signal:
     const name = new Map(data?.partners.map((p) => [p.slug, p.name]));
     const rows = (items: Reminder[], today: string) =>
       items
-        .filter((item) => scope === "all" || item.owner === scope)
+        .filter(
+          (item) => (scope === "all" || item.owner === scope) && (!hideEndedDealReminders || item.deal_ended !== true),
+        )
         .map((item) => {
           const destination = text(item.home_item_id)
             ? `/?card=${encodeURIComponent(item.home_item_id)}`

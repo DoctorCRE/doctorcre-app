@@ -147,12 +147,37 @@ function changeText({ field, new_value }) {
   return label ? `${label} · ${value}` : 'Deal changed';
 }
 
+function copiedStepNotesWithEvents(notes, history = []) {
+  const prefix = 'Recorded next step\n\n';
+  const stepNotes = notes.filter(note => typeof note.text === 'string' && note.text.startsWith(prefix)
+    && Number.isFinite(Date.parse(note.created_at)));
+  const events = history.filter(event => event.imported === true && event.field === 'next_step'
+    && typeof event.new_value?.next_step === 'string'
+    && Number.isFinite(Date.parse(event.occurred_at)) && Number.isFinite(Date.parse(event.recorded_at)));
+  const matches = (note, event) => note.actor === event.actor
+    && noteText(note.text.slice(prefix.length)) === noteText(event.new_value.next_step)
+    && compareInstants(note.created_at, event.occurred_at) <= 0
+    && compareInstants(note.created_at, event.recorded_at) >= 0;
+
+  // The writer saved the note inside the event's transaction. Overlapping writes pair only at a mutual closest match.
+  return new Set(stepNotes.filter(note => {
+    const candidates = events.filter(event => matches(note, event));
+    const event = candidates.find(candidate => candidates.every(other => other === candidate
+      || compareInstants(candidate.recorded_at, other.recorded_at) > 0));
+    return event && stepNotes.every(other => other === note || !matches(other, event)
+      || compareInstants(note.created_at, other.created_at) < 0);
+  }).map(note => note.id));
+}
+
 export function engineTimelineEntries(detail) {
   const notes = detail.thread || [];
   const noteIds = new Set(notes.map(note => note.id));
+  const matchedSteps = copiedStepNotesWithEvents(notes, detail.imported_deal_history);
   /** @type {{ type: string, when: string, actor: string, text: string }[]} */
   const entries = [
-    ...notes.map(note => ({ type: 'Note', when: note.created_at, actor: note.actor, text: noteText(note.text) })),
+    ...notes.filter(note => !matchedSteps.has(note.id)).map(note => ({
+      type: 'Note', when: note.created_at, actor: note.actor, text: noteText(note.text),
+    })),
     ...(detail.activities || []).map(activity => ({
       type: activityLabels[activity.kind] || 'Activity', when: activity.occurred_at,
       actor: activity.actor, text: noteText(activity.summary),

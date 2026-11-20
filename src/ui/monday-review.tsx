@@ -206,7 +206,8 @@ function DealEditor({
     setBusy(false);
   }
 
-  const overdue = Boolean(step?.due_on && step.due_on < edits.today);
+  const pastDue = Boolean(step?.due_on && step.due_on < edits.today);
+  const overdue = pastDue && row.status !== "closed" && row.status !== "lost";
   return (
     <>
       {!note &&
@@ -239,7 +240,7 @@ function DealEditor({
                   type="date"
                   min={edits.today}
                   disabled={busy}
-                  defaultValue={overdue ? "" : (step?.due_on ?? "")}
+                  defaultValue={pastDue ? "" : (step?.due_on ?? "")}
                   aria-describedby={overdue ? hint : undefined}
                 />
               </label>
