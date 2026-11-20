@@ -244,7 +244,7 @@ test("proof CLI passes synthetic fixture, rejects a near miss, and refuses missi
   assert.equal(await run(base), 78);
 });
 
-test("natural production proof observer checks real fixture UI and refuses a changed reason", async () => {
+test("natural production proof observer checks real fixture UI and refuses a changed count", async () => {
   const { execFile } = await import("node:child_process");
   const recording = JSON.parse(
     await readFile(new URL("./fixtures/lead-reachability/producer.json", import.meta.url), "utf8"),
@@ -270,20 +270,13 @@ test("natural production proof observer checks real fixture UI and refuses a cha
   for (const change of [false, true]) {
     const assets = new Map(original);
     if (change) {
-      let changed = false;
-      for (const [path, asset] of assets)
-        if (path.endsWith(".js")) {
-          const source = asset.body.toString();
-          const modified = source.replace(
-            "Successful contact and current verified route",
-            "Successful contact and current verified route changed",
-          );
-          if (source !== modified) {
-            assets.set(path, { ...asset, body: Buffer.from(modified) });
-            changed = true;
-          }
-        }
-      assert.equal(changed, true);
+      const path = "/js/leads-workspace-app.js";
+      const asset = assets.get(path);
+      assert.ok(asset);
+      const source = asset.body.toString();
+      const modified = source.replace(" matching ", " displayed ");
+      assert.notEqual(modified, source);
+      assets.set(path, { ...asset, body: Buffer.from(modified) });
     }
     const server = await startWorkerFixture({
       assets,

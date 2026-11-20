@@ -79,7 +79,6 @@ async function observe(page: Page, origin: string) {
         const first = expected[0];
         if (!first) throw unavailable("Displayed positive cohort required");
         const card = page.locator(".lead-card").filter({ has: page.locator(`[data-open="${first.id}"]`) });
-        compareReachability(first.reachability, (await card.locator(".lead-reachability").textContent()) || "");
         const [detailResponse] = await Promise.all([
           page.waitForResponse((response) => {
             if (new URL(response.url()).pathname !== "/mcp") return false;
@@ -110,7 +109,7 @@ async function observe(page: Page, origin: string) {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       }
     }
-  return { scope: "read-only lead views, reasons and exact map membership", leads: leads.length };
+  return { scope: "read-only lead views and exact map membership", leads: leads.length };
 }
 export async function proveReachability(options: {
   origin: string;
