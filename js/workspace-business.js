@@ -512,7 +512,7 @@ async function saveTrust(event) {
   view.trustOperation = operation;
   const active = () => view.trustOperation === operation
     && view.sessionGeneration === generation && !view.signedOut;
-  view.pendingTrust = operation;
+  view.pendingTrust = { operation, awaitingReadback: false };
   view.trustStatus = { id: record.id, text: 'Saving…' };
   form.querySelector('button').disabled = true;
   document.querySelector('#trustStatus').textContent = 'Saving…';
@@ -565,8 +565,15 @@ async function saveTrust(event) {
       if (currentForm) { currentForm.elements.tier.value = tier; currentForm.elements.reason.value = reason; }
       return;
     }
+    if (error.payload?.error === 'old_save_closed') {
+      view.pendingTrust = null;
+      view.trustStatus = { id: record.id, text: error.payload.hint || 'Rating was not saved.' };
+      renderRecordPanel();
+      return;
+    }
     const refused = ['offline','AUTHORIZATION_REFUSED','trust_override_invalid','version_conflict','key_reuse','not_a_vendor','no_updatable_fields'].includes(error.payload?.error);
     if (refused || error.status === 403) { view.pendingTrust = null; renderRecordPanel(); }
+    else if (view.pendingTrust?.operation === operation) view.pendingTrust.awaitingReadback = true;
     // Reconcile the read before allowing any new write. Never replay a write
     // whose response was lost; it may have committed.
     if (view.recordId !== record.id) return;
@@ -993,7 +1000,7 @@ function settleList({ status, payload = null, code = null }, sequence) {
 
 async function loadRecord(id, { focusOnOpen = false } = {}) {
   if (view.signedOut || view.recordId !== id) return;
-  const pending = view.pendingTrust;
+  const pending = view.pendingTrust?.awaitingReadback ? view.pendingTrust.operation : null;
   const sequence = ++view.record.sequence;
   selectDocRecord(view.dataset, id);
   const docTicket = pageDocContext?.begin('businessRecord', [{ dataset:view.dataset, id }]);
@@ -1025,7 +1032,7 @@ async function loadRecord(id, { focusOnOpen = false } = {}) {
     if (!acceptsResponse(view.record.sequence, sequence) || view.recordId !== id) return;
     const payload = await response.json().catch(() => null);
     if (!validRecordPayload(payload, view.dataset, id, { people: view.dataset === 'vendors' })) return settle("error", "FRESHNESS_UNKNOWN");
-    if (pending && view.pendingTrust === pending && view.trustOperation === pending && pending.vendor === payload.record.ref) {
+    if (pending && view.pendingTrust?.operation === pending && view.trustOperation === pending && pending.vendor === payload.record.ref) {
       const expected = pending.fields.trust_override, saved = payload.record.relationship?.override;
       if (payload.record.record_version > pending.base_version && (expected ? saved?.tier === expected.tier && saved?.reason === expected.reason && saved?.recorded_by === payload.viewer : saved === null)) { view.pendingTrust = null; view.trustStatus = { id: payload.record.id, text: 'Rating confirmed' }; }
     }
