@@ -620,6 +620,7 @@ async function engineSave(request, env, call) {
 
 const DEAL_PAGE_HINT = 'Open the deal page to work from the current record.';
 const HOME_HINT = 'Open Home to review the current work.';
+const TOUR_HINT = 'Open Tours on the deal page to view existing tours.';
 const MONDAY_HINT = 'Open Monday review from Deals.';
 const PROSPECTS_HINT = 'Open Prospects on the Deals board.';
 const DOCUMENTS_HINT = 'Open Documents on the deal page.';
@@ -647,6 +648,7 @@ const FROZEN_TOOLS = new Map([
   ['set-lead', DEAL_PAGE_HINT],
   ['add-deal-participant', DEAL_PAGE_HINT],
   ['register-client-portal', 'Open Client website on the deal page.'],
+  ['append-tour-selection-cart-version', TOUR_HINT],
   ['save-deal-space-search-v1', DEAL_PAGE_HINT],
   ['run-deal-space-search-v1', DEAL_PAGE_HINT],
   ['record-human-fact', DOCUMENTS_HINT],
@@ -693,8 +695,8 @@ async function refuseFrozenSave(request, env, url, call) {
   }
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return null;
   const hint = pathname.startsWith('/api/tours/') && pathname !== '/api/tours/properties/search'
-    ? 'Open Tours on the deal page to view existing tours.'
-    : pathname === '/api/v1/fact-review/comparison' || pathname.startsWith('/api/v1/deal-deliverables/')
+    ? TOUR_HINT
+    : /^\/api\/v1\/fact-review\/(comparison|record|resolve)$/.test(pathname) || pathname.startsWith('/api/v1/deal-deliverables/')
     ? DOCUMENTS_HINT : null;
   return hint && await switchedOn(env, NEXT_DEAL_SAVES) ? json({ error: hint }, 409) : null;
 }
