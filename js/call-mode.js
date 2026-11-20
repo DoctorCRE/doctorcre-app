@@ -343,7 +343,7 @@ export function createCallMode(deps) {
     state.postCall.questionEdits.set(id, { text: field.value });
     field.closest('article').querySelector('[data-resolve-question]').disabled = !field.value.trim();
   }
-  root.addEventListener('input', questionInput);
+  if (!engineSaves) root.addEventListener('input', questionInput);
 
   async function resolveQuestion(button) {
     const id = button.dataset.resolveQuestion;
@@ -456,6 +456,14 @@ export function createCallMode(deps) {
     const post = state.postCall;
     panel.hidden = !post.session && post.status === 'idle';
     if (panel.hidden) return;
+    if (engineSaves) {
+      const summary = post.report?.report?.summary;
+      const finished = ['filed', 'review_ready', 'awaiting_context', 'failed'].includes(post.status);
+      $('#postCallStatus').textContent = post.error || (summary ? '' : finished
+        ? 'No call summary is available.' : 'Preparing the call summary…');
+      $('#postCallReport').innerHTML = summary ? `<p class="post-call-summary">${esc(reportText(summary))}</p>` : '';
+      return;
+    }
     const labels = {
       context_loading: 'Preparing the weekly deal context…',
       context_ready: 'Deal context ready. Recording continues locally.',
@@ -497,6 +505,7 @@ export function createCallMode(deps) {
   // --------------------------------------------------------- context index
 
   async function publishWeeklyCallContext(session) {
+    if (engineSaves) return false;
     if (!session) throw new Error('The recorder did not return a recording session.');
     const generation = state.callGeneration || 0;
     if (state.postCall.session && state.postCall.session !== session) return false;
@@ -562,18 +571,19 @@ export function createCallMode(deps) {
       // review_ready arrives before the companion has filed and applied the
       // call; keep reading until report.automatic says the apply finished.
       const readyAt = status === 'review_ready' ? (state.postCall.readyAt ?? now()) : null;
-      const applying = status === 'review_ready' && !automaticSettled(report);
+      const applying = !engineSaves && status === 'review_ready' && !automaticSettled(report);
       const applyTimedOut = applying && now() - readyAt >= APPLY_WAIT_MS;
       state.postCall = { ...state.postCall, status, report, readyAt, applyTimedOut,
         error: reason ? `Local processing stopped: ${reason}` : null };
-      if (['filed', 'failed'].includes(status) || (status === 'review_ready' && (!applying || applyTimedOut))) stopPolling();
+      if (['filed', 'failed'].includes(status) || (status === 'review_ready' && (!applying || applyTimedOut))
+        || (engineSaves && status === 'awaiting_context')) stopPolling();
       else if (!state.pollTimer) startPolling(session, {immediate:false});
-      if (['review_ready', 'filed'].includes(status) && !applying && reportCandidateIds().length) callOutcomes().then(view => view?.refresh()).catch(() => { if (state.postCall.session !== session || state.statusSequence !== sequence) return; const node = $('#postCallOutcomes'); if (node) { node.hidden = false; node.textContent = 'Call review unavailable. Refresh the report to try again.'; } outcomesLoading = null; });
+      if (!engineSaves && ['review_ready', 'filed'].includes(status) && !applying && reportCandidateIds().length) callOutcomes().then(view => view?.refresh()).catch(() => { if (state.postCall.session !== session || state.statusSequence !== sequence) return; const node = $('#postCallOutcomes'); if (node) { node.hidden = false; node.textContent = 'Call review unavailable. Refresh the report to try again.'; } outcomesLoading = null; });
       renderPostCall();
       // The stall this closes: a weekly recording whose companion never got
       // the context index. Supply it now, once per session unless a partner
       // presses Retry; the companion processes the transcript it already has.
-      if (status === 'awaiting_context' && state.postCall.weekly && !state.postCall.contextAttempted) {
+      if (!engineSaves && status === 'awaiting_context' && state.postCall.weekly && !state.postCall.contextAttempted) {
         await publishOrRecord(session);
       }
     } catch (error) {
@@ -704,7 +714,7 @@ export function createCallMode(deps) {
       render();
       if (session && (weekly || state.postCall.contextReady)) {
         if (callModeActive(snapshot)) {
-          if (changed && weekly) await publishOrRecord(session);
+          if (!engineSaves && changed && weekly) await publishOrRecord(session);
         } else if (changed || ['idle','context_ready','context_loading'].includes(state.postCall.status)
           || (state.postCall.status === 'failed' && state.postCall.errorAction === 'context')) {
           state.postCall = {...state.postCall,status:'waiting_for_transcript',session,weekly,error:null,
@@ -733,7 +743,7 @@ export function createCallMode(deps) {
     if (signal?.aborted) { close(); return false; }
     startTicker();
     const openingGeneration = state.callGeneration || 0;
-    if (session && /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(session) && state.callMode.session && session !== state.callMode.session) {
+    if (!engineSaves && session && /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(session) && state.callMode.session && session !== state.callMode.session) {
       try {
         const local = state.callMode.session;
         const payload = await deps.postCallClient.getStatus(local);
@@ -852,23 +862,25 @@ export function createCallMode(deps) {
         $('#callModeButton')?.focus();
       return true;
     }
-    const confirm = hit('[data-post-call-confirm]');
-    if (confirm) { await resolveCandidate(confirm.dataset.postCallConfirm, true, confirm); return true; }
-    const skip = hit('[data-post-call-skip]');
-    if (skip) { await resolveCandidate(skip.dataset.postCallSkip, false, skip); return true; }
-    const draft = hit('[data-create-outlook-draft]');
-    if (draft) { await createDraft(draft); return true; }
-    const question = hit('[data-resolve-question]');
-    if (question) { await resolveQuestion(question); return true; }
     if (hit('[data-refresh-post-call]')) { await refreshPostCall(); return true; }
-    const retry = hit('[data-retry-call-context]');
-    if (retry) {
-      retry.disabled = true;
-      try {
-        const session = state.postCall.session || state.callMode.session;
-        if (await publishOrRecord(session) && !callModeActive()) startPolling(session, { weekly: true });
-      } finally { retry.disabled = false; }
-      return true;
+    if (!engineSaves) {
+      const confirm = hit('[data-post-call-confirm]');
+      if (confirm) { await resolveCandidate(confirm.dataset.postCallConfirm, true, confirm); return true; }
+      const skip = hit('[data-post-call-skip]');
+      if (skip) { await resolveCandidate(skip.dataset.postCallSkip, false, skip); return true; }
+      const draft = hit('[data-create-outlook-draft]');
+      if (draft) { await createDraft(draft); return true; }
+      const question = hit('[data-resolve-question]');
+      if (question) { await resolveQuestion(question); return true; }
+      const retry = hit('[data-retry-call-context]');
+      if (retry) {
+        retry.disabled = true;
+        try {
+          const session = state.postCall.session || state.callMode.session;
+          if (await publishOrRecord(session) && !callModeActive()) startPolling(session, { weekly: true });
+        } finally { retry.disabled = false; }
+        return true;
+      }
     }
     const startButton = hit('[data-call-mode-start]');
     if (startButton) { await start(startButton.dataset.callModeStart); return true; }
