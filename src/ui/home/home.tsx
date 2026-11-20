@@ -5,7 +5,7 @@ import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "reac
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
 import { DropReason } from "./drop-reason.tsx";
-import { EngineMailPriorities } from "./engine-mail-priorities.tsx";
+import { EngineMailPriorities, useEngineMailPriorities } from "./engine-mail-priorities.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
 import { draftCardStatus, hasEngineReview, openStepRefusal } from "./engine-review.ts";
 import {
@@ -373,6 +373,24 @@ function Inbox({ client }: { client: InboxClient }) {
     }
   }
   const items = query.data?.items || [];
+  const engineMail = home && (engineHome || query.data?.engine_marks === true);
+  const priority = useEngineMailPriorities(items, engineMail);
+  useLayoutEffect(() => {
+    if (!home) return;
+    const ids = query.data?.engine_marks ? query.data.items.map((item) => item.item_id) : [];
+    const publish = () => {
+      document.dispatchEvent(new CustomEvent("doctorcre:home-cards", { detail: ids }));
+    };
+    document.addEventListener("doctorcre:request-home-cards", publish);
+    publish();
+    return () => document.removeEventListener("doctorcre:request-home-cards", publish);
+  }, [home, query.data]);
+  useLayoutEffect(() => {
+    if (!home) return;
+    return () => {
+      document.dispatchEvent(new CustomEvent("doctorcre:home-cards", { detail: [] }));
+    };
+  }, [home]);
   const availableUndo = undo.filter((entry) => {
     if (!("mark" in entry)) return true;
     const card = items.find((item) => item.item_id === entry.mark.item_id);
@@ -413,9 +431,16 @@ function Inbox({ client }: { client: InboxClient }) {
       (hasEngineReview(reviewing) || (reviewing.review_reference && reviewing.source_state === "needs_attention"))
         ? client.review
         : undefined;
-    const activity =
-      item.engine_marks && !reviewClient && "source_activity" in item && object(item.source_activity)
-        ? item.source_activity
+    const sourceActivity = "source_activity" in item && object(item.source_activity) ? item.source_activity : null;
+    const activity = item.engine_marks && !reviewClient ? sourceActivity : null;
+    const emailAt =
+      item.engine_marks &&
+      item.source_type === "email_proposal" &&
+      item.section !== "done" &&
+      sourceActivity?.kind === "email" &&
+      typeof sourceActivity.happened_at === "string" &&
+      Number.isFinite(Date.parse(sourceActivity.happened_at))
+        ? sourceActivity.happened_at
         : null;
     const deal = item.deal_id ? `/deals?deal=${encodeURIComponent(item.deal_id)}` : null;
     const source = recordRoutes.source(item) ?? deal;
@@ -520,6 +545,11 @@ function Inbox({ client }: { client: InboxClient }) {
                   {daysLate ? `${daysLate} day${daysLate === 1 ? "" : "s"} late` : <>Due {due}</>}
                 </>
               )}
+            </p>
+          )}
+          {emailAt && (
+            <p className="inbox-detail">
+              Received <time dateTime={emailAt}>{snoozeDate.format(new Date(emailAt))} Central</time>
             </p>
           )}
           {(detail || hold) && (
@@ -682,8 +712,8 @@ function Inbox({ client }: { client: InboxClient }) {
       {home && (
         <>
           <HomeWelcome />
-          {engineHome || query.data?.engine_marks ? (
-            <EngineMailPriorities items={items} locked={openingLocked} review={openCard} />
+          {engineMail ? (
+            <EngineMailPriorities {...priority} />
           ) : (
             <MailPriorities items={items} locked={openingLocked} review={openCard} />
           )}
@@ -791,7 +821,7 @@ function Inbox({ client }: { client: InboxClient }) {
           {searchNotice && <p role="status">{searchNotice}</p>}
           {home ? (
             <HomeSections
-              items={items}
+              items={priority.ordered}
               engine={query.data?.engine_marks === true}
               pinned={reviewing}
               current={reviewing?.item_id || item_id}
