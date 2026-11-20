@@ -44,7 +44,11 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     }
   } else cancelLanding();
   let missingNextStep = null, missingNextStepLoad = null, missingNextStepAttempts = 0;
-  const workingWeek = mountHomeWeek({ document, host: $('homeCalendar') });
+  if (document.documentElement.hasAttribute('data-home-today-from-engine')) {
+    document.querySelectorAll('#homeCalendar, #homeMeetings, #homeMeetingReviews').forEach(panel => panel.remove());
+  }
+  const calendarHost = $('homeCalendar');
+  const workingWeek = calendarHost ? mountHomeWeek({ document, host: calendarHost }) : null;
   let overdueReviews = null, overdueEpoch = 0;
   let taskDone;
   let emailReview = null, replyOutcomes = null, emailFilings = null, emailRetired = false, panelObserver = null, emailInitialRead = Promise.resolve();
@@ -129,6 +133,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     widget('homeMeetings', header + (!failed && count ? `<p class="home-week-zone">Meeting times · ${E(meetingTimeZone)}</p>` : '') + warnings + content);
   };
   const renderCalendar = (agenda, today, signedOut) => {
+    if (!workingWeek) return;
     const agendaDeals = scopedDeals(snapshot?.board, scope);
     const agendaLoading = !signedOut && (!snapshot || snapshot.reads.board?.state === 'loading');
     const agendaUnavailable = !agenda || (!agenda.entries.length && agenda.failed.length === agendaDeals?.length && agenda.failed.length > 0);
@@ -140,7 +145,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
       : agendaPartial ? 'Some dates unavailable or missing'
       : !agendaItems.length ? ({ all: 'No calendar dates', today: 'No dates due today', overdue: 'No overdue dates' })[agendaView] : '';
     const agendaRetry = !signedOut && !agendaLoading && (agendaUnavailable || agenda?.failed.length);
-    $('homeCalendar').setAttribute('aria-busy', String(Boolean(agendaLoading)));
+    calendarHost.setAttribute('aria-busy', String(Boolean(agendaLoading)));
     const weekContent = !signedOut && (agenda || calendar && calendar.state !== 'unavailable') ? workingWeek.html({ agenda, calendar, today, timeZone: meetingTimeZone }) : '';
     if (!weekContent) workingWeek.clear();
     const timezoneControl = weekContent && ['ready', 'partial'].includes(calendar?.state) && calendar.items.some(meeting => !meeting.all_day) ? `<label class="home-meeting-zone">Meeting timezone<select data-meeting-timezone data-home-key="meeting-timezone">${MEETING_TIME_ZONES.map(([zone, label]) => `<option value="${zone}"${zone === meetingTimeZone ? ' selected' : ''}>${label}</option>`).join('')}</select></label>` : '';
@@ -301,13 +306,13 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     $('homeDetail').showModal();
     $('homeDetail').querySelector('[data-close-detail]').onclick = () => $('homeDetail').close();
   });
-  $('homeCalendar').addEventListener('change', event => {
+  calendarHost?.addEventListener('change', event => {
     const choice = event.target.closest('[data-meeting-timezone]');
     if (!choice || !MEETING_TIME_ZONES.some(([zone]) => zone === choice.value)) return;
     meetingTimeZone = choice.value;
     render();
   });
-  $('homeCalendar').addEventListener('click', event => {
+  calendarHost?.addEventListener('click', event => {
     if (workingWeek.click(event)) return;
     const view = event.target.closest('[data-agenda-view]');
     if (view) {
@@ -371,7 +376,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     } catch { if (!disposed && epoch === prepEpoch) { $('homeNotice').hidden = false; $('homeNotice').textContent = 'Meeting preparation unavailable. Try Prepare meetings again.'; } }
   });
   const clearCalendar = () => {
-    prepEpoch++; sequence++; meetingPrep?.clear(); calendar = null; workingWeek.clear();
+    prepEpoch++; sequence++; meetingPrep?.clear(); calendar = null; workingWeek?.clear();
     snapshot = { unauthorized: true, loading: false, board: null, details: new Map(), reads: { board: { state: 'error' } } };
     updatedAt = null; snapshotDocObservedAt = null; pageDocContext?.clear();
     selectedLead = null; $('homeDetail').close(); $('homeDetailBody').replaceChildren(); relationshipDialog?.clear();
@@ -481,7 +486,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     }, { once: true, signal: fragmentLanding.signal });
     anchor();
   });
-  return { refresh: auto.refresh, dispose() { cancelLanding(); missingNextStep?.dispose(); reasons?.dispose(); document.removeEventListener('keydown', flagKeydown); disposed = true; workingWeek.dispose(); sequence++; prepEpoch++; meetingPrep?.dispose(); panelObserver?.disconnect(); emailActivity?.removeEventListener('toggle', openEmailActivity); window.removeEventListener('doctorcre-session-invalidated', retirePendingEmail); expiry.dispose(); auto.dispose(); document.removeEventListener('doctorcre:brief-calendar', updateCalendar); window.removeEventListener('doctorcre-session-invalidated', clearCalendar); relationshipDialog?.dispose(); pastWidget?.dispose(); callTasks?.dispose(); meetingReviews?.dispose(); overdueReviews?.dispose(); emailReview?.dispose(); emailFilings?.dispose(); replyOutcomes?.dispose(); } };
+  return { refresh: auto.refresh, dispose() { cancelLanding(); missingNextStep?.dispose(); reasons?.dispose(); document.removeEventListener('keydown', flagKeydown); disposed = true; workingWeek?.dispose(); sequence++; prepEpoch++; meetingPrep?.dispose(); panelObserver?.disconnect(); emailActivity?.removeEventListener('toggle', openEmailActivity); window.removeEventListener('doctorcre-session-invalidated', retirePendingEmail); expiry.dispose(); auto.dispose(); document.removeEventListener('doctorcre:brief-calendar', updateCalendar); window.removeEventListener('doctorcre-session-invalidated', clearCalendar); relationshipDialog?.dispose(); pastWidget?.dispose(); callTasks?.dispose(); meetingReviews?.dispose(); overdueReviews?.dispose(); emailReview?.dispose(); emailFilings?.dispose(); replyOutcomes?.dispose(); } };
 }
 
 if (typeof document !== 'undefined' && document.getElementById('dealAttention')) {

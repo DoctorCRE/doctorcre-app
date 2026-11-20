@@ -29,7 +29,8 @@ export function createAppLayout(root, title = '', engineToday = false) {
   layout.innerHTML = `<aside id="appSidebar" class="app-layout-sidebar" aria-label="${escape(title)} workspace"><div class="app-layout-sidebar-head"><h2>${escape(title)}</h2><button type="button" data-layout-close="sidebar" aria-label="Close workspace">‹</button></div><div id="appCalendarSlot"></div></aside>
     <div class="app-layout-center"><div class="app-layout-tabbar" role="navigation" aria-label="Page controls"><button type="button" id="appSidebarToggle" aria-label="Workspace sidebar" aria-controls="appSidebar" aria-expanded="false" title="Workspace sidebar">☷</button><div id="appTabsSlot" class="app-layout-tabs" role="group" aria-label="${escape(title)} views"></div><button type="button" id="appTodayToggle" aria-label="Today sidebar" aria-controls="appToday" aria-expanded="true" title="Today">◷</button></div><div id="appMainSlot" class="app-layout-main"></div><details class="app-layout-page-tools"><summary>Page tools</summary><div id="appSidebarSlot"></div><section class="app-layout-working"><h3>Overdue</h3><div id="appWorkingList">Updating…</div></section></details></div>
     <aside id="appToday" class="app-layout-today" aria-labelledby="appTodayTitle"><div class="app-layout-sidebar-head"><h2 id="appTodayTitle">Today</h2><button type="button" data-layout-close="today" aria-label="Close Today">›</button></div>${todayContent}</aside>
-    <button class="app-layout-scrim" id="appDrawerScrim" type="button" aria-label="Close sidebar" hidden></button>`;
+    <button class="app-layout-scrim" id="appDrawerScrim" type="button" aria-label="Close sidebar" hidden></button>
+    ${engineToday ? '<div id="appTodayMoves" hidden></div>' : ''}`;
   const status = root.createElement('footer');
   status.className = 'app-layout-status';
   status.innerHTML = '<span><time id="appSyncTime" title="Last sync">—</time><button type="button" id="appSyncRefresh" aria-label="Refresh workspace" title="Refresh">↻</button></span><span title="Last new-lead search">⌕ <time id="appLeadSearchTime">—</time></span><span id="appConnection" class="app-layout-health" data-state="unknown" role="img" aria-label="Connection unknown" title="Connection unknown"></span><div id="appStatusSlot"></div>';
@@ -47,13 +48,13 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const homeOrInbox = pathname === '/' || pathname === '/review-workflows' || pathname === '/inbox' || pathname === '/inbox.html' || pathname.startsWith('/inbox/card/');
   const progressPage = pathname === '/control-room/progress' || pathname.startsWith('/control-room/progress/board/');
   const title = pathname === '/' ? 'Home' : progressPage ? 'Progress' : pathname.startsWith('/control-room') ? 'Control Room' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .room-wordmark, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
-  const engineToday = pathname === '/' && root.getElementById('homeRoot')?.hasAttribute('data-home-today-from-engine');
+  const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine');
   const { layout, status } = createAppLayout(root, title, engineToday);
   if (vendorDirectory) layout.querySelector('.app-layout-working').remove();
+  else if (homeOrInbox || engineToday) layout.querySelector('.app-layout-working').hidden = true;
   host.after(layout, status);
   const skip = root.querySelector('.skip');
   if (skip) host.querySelector('header')?.prepend(skip);
-  if (homeOrInbox) layout.querySelector('.app-layout-working').hidden = true;
   const main = layout.querySelector('#appMainSlot');
   main.append(layout.querySelector('.app-layout-page-tools'));
   const pageTools = main.firstElementChild;
