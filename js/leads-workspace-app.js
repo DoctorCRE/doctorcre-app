@@ -276,6 +276,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   }
   async function refresh() {
     if (disposed) return false;
+    const detailFocus = focusIdentity(doc.activeElement);
     pageDocContext?.clear();
     const epoch = ++state.epoch;
     startQuietRead(epoch);
@@ -322,8 +323,12 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       if (resumeDetail && (resumeDetail.actor !== state.actor || !leadById(resumeDetail.id))) state.resumeDetail = null;
       if (state.resumeDetail) await readDetail(resumeDetail.id, true, resumeDetail);
       else if (state.detailId && $("leadDetail").open) {
-        if (leadById(state.detailId)) await readDetail(state.detailId, false);
-        else if (next.leads.some(lead => lead.id === state.detailId)) { state.detail = null; $("leadDetail").close(); }
+        if (leadById(state.detailId)) {
+          await readDetail(state.detailId, false);
+          const dialog = $("leadDetail");
+          if (dialog.open && detailFocus?.container === "detailBody" && detailFocus.value === state.detailId &&
+              (doc.activeElement === doc.body || doc.activeElement === dialog)) restoreFocus(detailFocus);
+        } else if (next.leads.some(lead => lead.id === state.detailId)) { state.detail = null; $("leadDetail").close(); }
         else { clearGuidance(); state.detail = null; ++state.detailEpoch; $("detailTitle").textContent = "Lead unavailable"; $("detailBody").innerHTML = '<p class="empty">Unavailable</p>'; }
       }
       openRequestedLead();
