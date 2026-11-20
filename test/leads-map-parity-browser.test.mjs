@@ -21,8 +21,6 @@ test('lead tasks defer map assets until keyboard reveal and retain filters', asy
   const ids = () => page.locator('#leadBoard .lead-card').evaluateAll(nodes => nodes.map(node => node.dataset.leadId));
   const before = await ids();
   assert.deepEqual(requests, [], 'opening and filtering leads must not request map assets');
-  await page.locator('#mapLeadMembers summary').click();
-  assert.ok(await page.locator('#mapLeadMembers button').count() > 0);
   await page.getByRole('button', { name: 'Show territory', exact: true }).focus();
   await page.keyboard.press('Enter');
   await page.locator('.market-marker').first().waitFor();
@@ -71,11 +69,9 @@ test(`shared market location membership is order independent at ${width}px (reve
   await page.getByRole('button', { name: 'Show territory', exact: true }).click();
   await page.locator('.market-marker').first().waitFor();
   const located = await page.locator('.market-marker').evaluateAll(nodes => nodes.flatMap(node => JSON.parse(node.dataset.leadIds)));
-  const unlocated = await page.locator('#mapLeadMembers [data-lead-id]').evaluateAll(nodes =>
-    nodes.filter(node => node.textContent.includes('No location')).map(node => node.dataset.leadId));
-  assert.deepEqual(located, [id(1)], 'only the located member belongs to a marker');
-  assert.deepEqual(unlocated, [id(2)]);
-  assert.deepEqual([...located, ...unlocated].sort(), board.leads.map(row => row.id).sort());
+  assert.deepEqual(located, [id(1)], 'only the located lead belongs to a marker');
+  assert.equal(await page.locator('[data-market="Synthetic shared market"] b').innerText(), '2');
+  assert.deepEqual(await page.locator('#leadBoard .lead-card').evaluateAll(nodes => nodes.map(node => node.dataset.leadId).sort()), [id(1), id(2)]);
   assert.equal(await page.locator('.market-marker').innerText(), '1');
 });
 
@@ -95,7 +91,7 @@ test('phone All stages count describes the destination membership', async t => {
   assert.equal(label, `All stages · ${count}`);
 });
 
-for (const width of [1440, 390]) test(`map members and board select the same lead and retain an unlocated lead at ${width}px`, async t => {
+for (const width of [1440, 390]) test(`map marker and board select the same lead and retain an unlocated lead at ${width}px`, async t => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
@@ -105,10 +101,7 @@ for (const width of [1440, 390]) test(`map members and board select the same lea
   await page.goto('http://localhost/leads');
   await page.getByRole('button', { name: 'Show territory', exact: true }).click();
   await page.locator('.market-marker').first().waitFor();
-  assert.equal(await page.locator('#mapLeadMembers [data-lead-id]').count(), 2);
-  await page.locator('#mapLeadMembers summary').click();
-  const member = page.locator(`#mapLeadMembers [data-lead-id="${id(1)}"]`);
-  await member.click();
+  await page.locator('.market-marker').click();
   await page.locator('#detailStage').waitFor();
   assert.equal(await page.locator('.lead-card[data-selected="true"]').getAttribute('data-lead-id'), id(1));
   assert.equal(await page.locator('.market-marker[aria-pressed="true"]').count(), 1);
@@ -119,8 +112,7 @@ for (const width of [1440, 390]) test(`map members and board select the same lea
   }
   await page.locator(`.lead-card[data-lead-id="${id(2)}"]`).click();
   await page.locator('#detailStage').waitFor();
-  assert.equal(await page.locator('#mapLeadMembers [aria-pressed="true"]').getAttribute('data-lead-id'), id(2));
-  assert.match(await page.locator('#mapLeadMembers [aria-pressed="true"]').innerText(), /No location/);
+  assert.equal(await page.locator('.lead-card[data-selected="true"]').getAttribute('data-lead-id'), id(2));
   assert.equal(await page.locator('.market-marker[aria-pressed="true"]').count(), 0);
 });
 
@@ -163,7 +155,7 @@ const cases = stageCases.flatMap(([stage, stageIds]) => ownerCases.flatMap(([own
     expected: stageIds.filter(n => ownerIds.includes(n) && marketIds.includes(n) && searchIds.includes(n)).map(id).sort(),
   })))));
 
-for (const width of [1440, 390]) test(`map/list IDs, count and highlight match all ${cases.length} filter combinations at ${width}px`, async t => {
+for (const width of [1440, 390]) test(`market counts, map markers and board IDs match all ${cases.length} filter combinations at ${width}px`, async t => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
@@ -184,33 +176,28 @@ for (const width of [1440, 390]) test(`map/list IDs, count and highlight match a
       set('marketFilter', filters.market);
       set('leadSearch', filters.search, 'input');
       const cards = [...document.querySelectorAll('.lead-card')].filter(node => node.getBoundingClientRect().width > 0);
-      const members = [...document.querySelectorAll('#mapLeadMembers [data-lead-id]')];
-      const unlocated = members.filter(node => node.textContent.includes('No location')).map(node => node.dataset.leadId);
+      const marketCount = [...document.querySelectorAll('#marketCounts b')].reduce((n, node) => n + Number(node.textContent), 0);
       const markers = [...document.querySelectorAll('.market-marker')];
       const located = markers.flatMap(node => JSON.parse(node.dataset.leadIds));
       const selected = cards[0]?.dataset.leadId;
       cards[0]?.click();
       const boardHighlight = ids('.lead-card[data-selected="true"]');
-      const mapHighlight = ids('#mapLeadMembers [aria-pressed="true"]');
       const markerHighlight = [...document.querySelectorAll('.market-marker[aria-pressed="true"]')]
         .flatMap(node => JSON.parse(node.dataset.leadIds)).includes(selected);
       $('leadDetail').close();
-      return { list: cards.map(node => node.dataset.leadId).sort(), members: members.map(node => node.dataset.leadId).sort(),
-        represented: [...located,...unlocated].sort(), located, unlocated,
-        count: markers.reduce((n,node) => n + Number(node.textContent),0) + unlocated.length,
-        boardHighlight, mapHighlight, markerHighlight, selected, summary: $('filterSummary').textContent };
+      return { list: cards.map(node => node.dataset.leadId).sort(), located: located.sort(),
+        marketCount, boardHighlight, markerHighlight, selected, summary: $('leadCount').textContent };
     });
   }, cases);
   for (let n = 0; n < cases.length; n++) {
     const result = results[n], expected = cases[n].expected, context = JSON.stringify(cases[n]);
     assert.deepEqual(result.list, expected, `visible list ${context}`);
-    assert.deepEqual(result.members, expected, `map members ${context}`);
-    assert.deepEqual(result.represented, expected, `markers plus no location ${context}`);
-    assert.equal(result.count, expected.length, context);
-    assert.match(result.summary, new RegExp(`^${expected.length} matching leads?$`), context);
+    const knownLocations = [1,2,3,5,6,8,16].map(id);
+    assert.deepEqual(result.located, expected.filter(value => knownLocations.includes(value)), context);
+    assert.equal(result.marketCount, expected.length, context);
+    assert.match(result.summary, new RegExp(`^${expected.length} leads?$`), context);
     const highlight = result.selected ? [result.selected] : [];
     assert.deepEqual(result.boardHighlight, highlight, context);
-    assert.deepEqual(result.mapHighlight, highlight, context);
     assert.equal(result.markerHighlight, Boolean(result.selected && result.located.includes(result.selected)), context);
   }
   assert.ok(await canvas.evaluate(node => node.isConnected), 'filtering preserves the renderer');
@@ -235,17 +222,14 @@ for (const width of [1440,390]) test(`marker selection survives matching filters
   await page.locator('#stageFilter').selectOption('', { force: true });
   await page.locator('#ownerFilter').selectOption('example-partner', { force: true });
   assert.equal(await page.locator('.lead-card[data-selected="true"]').getAttribute('data-lead-id'), id(2));
-  assert.equal(await page.locator('#mapLeadMembers [aria-pressed="true"]').getAttribute('data-lead-id'), id(2));
   assert.equal(await page.locator('.market-marker[aria-pressed="true"]').count(), 1);
   await page.locator('#ownerFilter').selectOption('other', { force: true });
   assert.equal(await page.locator('.lead-card[data-selected="true"]').count(), 0);
-  assert.equal(await page.locator('#mapLeadMembers [aria-pressed="true"]').count(), 0);
   assert.equal(await page.locator('.market-marker[aria-pressed="true"]').count(), 0);
   await page.locator('#ownerFilter').selectOption('', { force: true });
   assert.equal(await page.locator('.lead-card[data-selected="true"]').count(), 0, 'cleared selection does not resurrect');
   await page.locator('#stageFilter').selectOption('qualified', { force: true });
   assert.equal(await page.locator('.lead-card:visible').count(), 1);
-  assert.equal(await page.locator('#mapLeadMembers [data-lead-id]').getAttribute('data-lead-id'), id(2));
 });
 
 for (const width of [1440, 390]) test(`Leads opens the Mobile to Tallahassee working frame through Dothan at ${width}px`, async t => {

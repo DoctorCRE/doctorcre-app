@@ -49,33 +49,18 @@ async function observe(page: Page, origin: string) {
       for (const view of ["reachable", "research"]) {
         await page.locator("#reachabilityFilter").selectOption(view);
         const expected = visibleLeads(leads, { reachability: view });
-        const cohort = visibleLeads(leads);
-        const reachable = cohort.filter(
-          (lead) => parseReachability(lead.reachability)?.classification === "reachable",
-        ).length;
         assert.equal(
-          await page.locator("#reachabilitySummary").textContent(),
-          `${reachable} Reachable · ${cohort.length - reachable} Research`,
+          await page.locator("#leadCount").textContent(),
+          `${expected.length} ${expected.length === 1 ? "lead" : "leads"}`,
         );
-        assert.equal(
-          await page.locator("#filterSummary").textContent(),
-          `${expected.length} matching ${expected.length === 1 ? "lead" : "leads"}`,
-        );
-        const members = await page
-          .locator("#mapLeadMembers [data-lead-id]")
-          .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-lead-id")).sort());
-        assert.deepEqual(members, expected.map((lead) => lead.id).sort());
+        const marketTotal = await page
+          .locator("#marketCounts b")
+          .evaluateAll((nodes) => nodes.reduce((sum, node) => sum + Number(node.textContent), 0));
+        assert.equal(marketTotal, expected.length);
         const markers = await page
           .locator(".market-marker")
           .evaluateAll((nodes) => nodes.flatMap((node) => JSON.parse(node.getAttribute("data-lead-ids") || "[]")));
-        const unlocated = await page
-          .locator("#mapLeadMembers [data-lead-id]")
-          .evaluateAll((nodes) =>
-            nodes
-              .filter((node) => node.querySelector("small")?.textContent?.split(" · ").at(-1) === "No location")
-              .map((node) => node.getAttribute("data-lead-id")),
-          );
-        assert.deepEqual([...markers, ...unlocated].sort(), members);
+        assert.ok(markers.every((id) => expected.some((lead) => lead.id === id)));
         const first = expected[0];
         if (!first) throw unavailable("Displayed positive cohort required");
         const card = page.locator(".lead-card").filter({ has: page.locator(`[data-open="${first.id}"]`) });
@@ -109,7 +94,7 @@ async function observe(page: Page, origin: string) {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       }
     }
-  return { scope: "read-only lead views and exact map membership", leads: leads.length };
+  return { scope: "read-only lead views and market counts", leads: leads.length };
 }
 export async function proveReachability(options: {
   origin: string;

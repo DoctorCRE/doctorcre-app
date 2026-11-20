@@ -26,7 +26,7 @@ for (const width of [1280,390]) for (const theme of ['light','dark']) test(`cont
   assert.equal(await reasons.getByRole('button',{name:'Apply evidence window',exact:true}).count(),1);
   assert.equal(await reasons.locator('button').count(),1);
   assert.match(await reasons.innerText(),/Needs review/);
-  assert.match(await reasons.innerText(),/Florida formations · Not yet covered/);
+  assert.doesNotMatch(await reasons.innerText(),/Florida formations · Not yet covered/);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.equal(reads.length,1);
   assert.deepEqual(writes,[]);
