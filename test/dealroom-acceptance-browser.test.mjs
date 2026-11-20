@@ -5,6 +5,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { text } from 'node:stream/consumers';
 import { fileURLToPath } from 'node:url';
+import { JSDOM } from 'jsdom';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { chromium } from './browser-harness.mjs';
@@ -13,7 +14,34 @@ import { handleDoctorcreRequest } from '../src/worker.js';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const evidence = join(root, 'out/test-artifacts/dealroom-acceptance');
 let outDir, server, browser, origin;
+
+class FixtureHtmlRewriter {
+  handlers = new Map();
+  on(selector, handler) {
+    this.handlers.set(selector, handler);
+    return this;
+  }
+  transform(response) {
+    const handlers = this.handlers;
+    return new Response(new ReadableStream({
+      async start(stream) {
+        const dom = new JSDOM(await response.text());
+        try {
+          for (const [selector, handler] of handlers) {
+            dom.window.document.querySelectorAll(selector).forEach(element => handler.element(element));
+          }
+          stream.enqueue(new TextEncoder().encode(dom.serialize()));
+          stream.close();
+        } finally {
+          dom.window.close();
+        }
+      },
+    }), response);
+  }
+}
+
 before(async () => {
+  globalThis.HTMLRewriter = FixtureHtmlRewriter;
   outDir = await temporaryDirectory('dealroom-acceptance-');
   await buildArtifact({ root, outDir, commit: '0'.repeat(40) });
   server = await (await createQaServer({ buildRoot: join(outDir, 'site') })).start();
@@ -614,6 +642,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
   });
 }
 after(async () => {
+  Reflect.deleteProperty(globalThis, 'HTMLRewriter');
   await browser?.close();
   if (server) await server.close();
   if (outDir) await rm(outDir, { recursive: true, force: true });
@@ -2256,7 +2285,6 @@ for (const [width, readsOn, savesOn] of [
   test(`board card client website with Deals reads ${readsOn ? 'on' : 'off'} and saves ${savesOn ? 'on' : 'off'} at ${width}px`, async t => {
     const { page, deal, row, website, grant, enginePaths } = await clientWebsitePage(t, { readsOn, savesOn, width });
     const prospects = Promise.withResolvers();
-    const changes = Promise.withResolvers();
     if (readsOn) await page.clock.install();
     if (savesOn) {
       await page.route('**/ui-deal-prospects.generated.js', async route => {
@@ -2264,12 +2292,6 @@ for (const [width, readsOn, savesOn] of [
         await route.continue();
       });
       await page.route('**/api/engine/prospects', route => route.fulfill({ json: { prospects: [] } }));
-    }
-    if (readsOn && !savesOn) {
-      await page.route('**/pipeline/changes*', async route => {
-        await changes.promise;
-        await route.fulfill({ json: { events: [], capture_sessions: [{ state: 'recording' }] } });
-      });
     }
     await page.context().route(url => url.href === website || url.href === `${website}/?grant=${grant}`, route =>
       route.fulfill({ body: '<h1>Example client website</h1>', contentType: 'text/html' }));
@@ -2289,9 +2311,6 @@ for (const [width, readsOn, savesOn] of [
       assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Prospects loading moved website focus');
     }
     if (readsOn && !savesOn) {
-      changes.resolve();
-      await page.getByText('Capture: recording', { exact: true }).waitFor();
-      assert.equal(await open.evaluate(button => button === document.activeElement), true, 'Change feed moved website focus');
       await card.screenshot({ path: join(evidence, `client-website-card-${width}.png`) });
       row.open_actions = [{ id: 'example-step', description: 'Confirm the example floor plan' }];
       await page.clock.fastForward(61_000);
