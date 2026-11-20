@@ -1049,3 +1049,16 @@ test('older history preserves captured entries on failure and ignores late respo
   assert.doesNotMatch(s.d.getElementById('detailBody').textContent,/old actor private entry/);
  }finally{s.close()}
 });
+
+for (const [code, message] of [
+ ['lead_not_claimable', 'This lead is no longer available to claim. Reload to see its current status.'],
+ ['lead_not_linkable', 'This lead cannot be linked to a client now. Reload to see its current status.'],
+ ['client_not_found', 'That client could not be found. Reload and choose an existing client.'],
+ ['account_changed', 'Your account changed. Reload Leads before saving again.']
+]) test(`shows recovery for ${code}`, async () => {
+ const s = await setup({claimLead: async () => { throw Object.assign(new Error('refused'), {code}); }});
+ try {
+  s.d.querySelector('[data-claim]').click(); await tick();
+  assert.equal(s.d.getElementById('leadBoardError').textContent.trim(), message);
+ } finally { s.close(); }
+});
