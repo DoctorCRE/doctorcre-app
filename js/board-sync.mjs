@@ -525,6 +525,10 @@ export function createBoardSync({
         counters.change_superseded += 1;
         return { ok: !error, applied: false, reason: 'superseded', changes: null, error, ticket };
       }
+      if (!usesChangeFeed()) {
+        publish();
+        return { ok: true, applied: false, reason: 'disabled', changes: null };
+      }
       if (error) {
         counters.change_failed += 1;
         feedHealth = HEALTH.FAILED;

@@ -258,6 +258,22 @@ test("snapshot-only Deals recover after reconnect without reading the changes fe
   assert.equal(sync.status().state, SYNC_STATES.READY);
 });
 
+test("a feed retired mid-read does not advance its cursor or freshness", async () => {
+  let enabled = true;
+  const sync = createBoardSync({
+    usesChangeFeed: () => enabled,
+    readBoard: async () => board([deal()]),
+    readChanges: async () => { enabled = false; return null; },
+    applyBoard: () => {},
+  });
+  await sync.refreshBoard();
+  const result = await sync.pollChanges();
+  assert.equal(result.reason, "disabled");
+  assert.equal(sync.status().last_change_read_at, null);
+  assert.equal(sync.stats().change_applied, 0);
+  assert.equal(sync.status().state, SYNC_STATES.READY);
+});
+
 test("a working feed cannot clear a failed board read, and a fresh board cannot hide a failed feed", async () => {
   const h = harness({
     boardReads: [
