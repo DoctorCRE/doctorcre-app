@@ -196,7 +196,7 @@ test('Quiet leads, Owner and Market narrow the same board and count', async t =>
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 390, height: 900 } });
-  const board = { ...workspace(), leads: [lead(1), lead(2, { owner: 'dell', stage: 'engaged', city: 'Mobile', state: 'AL' }), lead(3)] };
+  const board = { ...workspace(), leads: [lead(1, { registry_ref: null }), lead(2, { owner: 'dell', stage: 'engaged', city: 'Mobile', state: 'AL' }), lead(3)] };
   const quiet = (n, days) => ({
     subject_type: 'lead', subject_id: id(n), ref: `L-${n}`, name: `Dr. Example ${n}`,
     basis: 'created_at', anchor_on: '2026-08-01', due_on: '2026-09-15', days_overdue: days,
@@ -204,7 +204,7 @@ test('Quiet leads, Owner and Market narrow the same board and count', async t =>
   await routeLeads(page, {
     getBoard: () => board,
     getQuiet: () => ({ ...emptyQuietFollowUps(), proposals: [
-      quiet(1, 16), { ...quiet(2, 0), subject_id: id(202) }, { ...quiet(3, 16), subject_type: 'vendor' },
+      { ...quiet(1, 16), ref: null }, { ...quiet(2, 0), subject_id: id(202), basis: 'last_contact' }, { ...quiet(3, 16), subject_type: 'vendor' },
     ] }),
   });
   await page.goto('http://localhost/leads');
@@ -216,6 +216,14 @@ test('Quiet leads, Owner and Market narrow the same board and count', async t =>
   await filter.click();
   assert.equal(await page.locator('#leadCount').innerText(), '2 leads');
   assert.equal(await page.locator('.lead-card .work-card-status').count(), 1);
+  await page.getByRole('button', { name: 'Dr. Example 2', exact: true }).click();
+  await page.locator('#detailStage').waitFor();
+  assert.equal(await page.getByText('Last contact Aug 1. Follow-up due Sep 15.', { exact: true }).count(), 1);
+  await page.locator('#closeDetail').click();
+  await page.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
+  await page.locator('#detailStage').waitFor();
+  assert.equal(await page.getByText('No contact recorded. Added Aug 1. Follow-up due Sep 15.', { exact: true }).count(), 1);
+  await page.locator('#closeDetail').click();
   await page.locator('#ownerFilter').selectOption('unclaimed');
   assert.equal(await page.locator('#leadCount').innerText(), '1 lead');
   await page.locator('#marketFilter').selectOption('Mobile, AL');

@@ -57,6 +57,16 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     return draft;
   }
   const followUp = lead => state.quiet?.rows?.get(lead.id) || state.quiet?.rows?.get(lead.registry_ref);
+  function paintDetailFollowUp() {
+    const lead = leadById(state.detailId);
+    const row = lead && followUp(lead);
+    const target = $("detailFollowUp");
+    target.hidden = !row;
+    if (!row) { target.textContent = ""; return; }
+    const anchor = shortDate(row.anchor_on, true, "short");
+    const basis = row.basis === "last_contact" ? `Last contact ${anchor}.` : `No contact recorded. Added ${anchor}.`;
+    target.textContent = `${basis} Follow-up due ${shortDate(row.due_on, true, "short")}.`;
+  }
   function card(lead) {
     return workCard({ variant: "tile", className: "lead-card", attributes: `data-lead-id="${esc(lead.id)}" data-selected="${lead.id === state.selectedId}" draggable="true"`,
       title: `<span class="drag-handle" data-drag-handle aria-hidden="true"></span><button class="lead-open" data-open="${esc(lead.id)}" aria-pressed="${lead.id === state.selectedId}">${esc(leadTitle(lead))}</button>`,
@@ -101,6 +111,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     if (state.detailId && leads.some(lead => lead.id === state.detailId) && !shown.some(lead => lead.id === state.detailId)) {
       clearGuidance(); ++state.detailEpoch; state.detailId = null; state.detail = null; $("leadDetail").close();
     }
+    paintDetailFollowUp();
     const contactCohort = visibleLeads(cohort, { ...state.filters, reachability: "" });
     const reachable = contactCohort.filter(lead => lead.reachability?.classification === "reachable").length;
     $("reachabilityFilter").value = state.filters.reachability;
@@ -422,7 +433,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const lead = leadById(id), epoch = ++state.detailEpoch, actor = state.actor;
     state.historyRequest = null; state.historyError = null;
     if (!lead || !state.identityReady) return;
-    if (open) { clearGuidance(); state.resumeDetail = intent; state.selectedId = id; render(); selectDocRecord("lead", id); state.detailId = id; state.detail = null; state.trigger = focusIdentity(doc.activeElement); $("detailTitle").textContent = leadTitle(lead); $("detailBody").innerHTML = '<p class="empty">Updating…</p>'; $("leadDetail").showModal(); }
+    if (open) { clearGuidance(); state.resumeDetail = intent; state.selectedId = id; render(); selectDocRecord("lead", id); state.detailId = id; state.detail = null; paintDetailFollowUp(); state.trigger = focusIdentity(doc.activeElement); $("detailTitle").textContent = leadTitle(lead); $("detailBody").innerHTML = '<p class="empty">Updating…</p>'; $("leadDetail").showModal(); }
     try {
       const response = await client.getLeadDetail(lead);
       if (epoch !== state.detailEpoch || actor !== state.actor) return;
