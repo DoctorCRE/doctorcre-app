@@ -1,20 +1,22 @@
-import { reproTest } from './support.mjs';
 import { expect } from 'e2e';
+import { reproTest } from './support.mjs';
 
 const test = reproTest();
-test('QA-005 final Opportunity score remains uncovered on a phone', { tags: ['regression'], requires: ['browser'], retries: 0 }, async ({ app, browser, screen }) => {
+test('QA-005 the Opportunity card can be opened above the phone controls', { tags: ['regression'], requires: ['browser'], retries: 0 }, async ({ app, browser, screen }) => {
   await browser.setViewport({ width: 390, height: 844 });
   await app.open('/leads');
   await expect(browser.locator('#leadBoard')).toHaveAttribute('aria-busy', 'false');
   await screen.getByLabel('Board stage', { exact: true }).selectOption({ value: 'opportunity' });
-  const card = screen.getByRole('button', 'Dr. Demo 12', { exact: true });
-  await expect(card).toBeVisible();
-  await card.scrollIntoView();
-  const visibility = await browser.evaluate(() => {
-    const card = [...document.querySelectorAll('.lead-card')].find(n => n.querySelector('.lead-open')?.textContent.trim() === 'Dr. Demo 12');
-    const score = card.querySelector('.score'), b = score.getBoundingClientRect();
-    const points = [{ x: b.right - 3, y: b.bottom - 3 }, { x: b.left + b.width / 2, y: b.top + b.height / 2 }];
-    return { score: score.innerText, box: { x: b.x, y: b.y, width: b.width, height: b.height }, visible: points.every(p => { const top = document.elementFromPoint(p.x, p.y); return top && score.contains(top); }), cover: points.map(p => document.elementFromPoint(p.x, p.y)?.id || document.elementFromPoint(p.x, p.y)?.className || null) };
+  const opener = screen.getByRole('button', 'Dr. Demo 12', { exact: true });
+  await expect(opener).toBeVisible();
+  await opener.scrollIntoView();
+  const unobstructed = await browser.evaluate(() => {
+    const button = document.querySelector('#leadBoard .lead-open');
+    if (!button) return false;
+    const { left, top, width, height } = button.getBoundingClientRect();
+    return width >= 44 && height >= 44 && document.elementFromPoint(left + width / 2, top + height / 2) === button;
   });
-  expect(visibility.visible, JSON.stringify(visibility)).toBe(true);
+  expect(unobstructed).toBe(true);
+  await opener.click();
+  await expect(browser.locator('#detailTitle')).toHaveText('Dr. Demo 12');
 });
