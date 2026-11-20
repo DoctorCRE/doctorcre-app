@@ -1,20 +1,5 @@
 import { compareInstants } from './change-receipts.mjs';
 
-// V5-UX-B04 — "Recent activity" on a Vendors or Clients record: every
-// decision, no DOM.
-//
-// The only pinned read that returns a record's timeline is `find-and-catch-up`.
-// It finds by NAME and proceeds only on exactly one live match, then returns
-// that match's catch-me-up timeline. A name is not an identity: two parties can
-// share one, and a vendor's company can match an organization row as well. So
-// the timeline is shown ONLY when the single match's own ref is this record's
-// ref. Every other outcome is a named state, and no row that might belong to
-// another party is ever put under this record's name.
-//
-// `catch-me-up` takes the exact ref and would remove the name step entirely,
-// but it is not pinned in contracts/carr-interface.v1; that gap is
-// reported rather than widened here.
-
 export const ACTIVITY_LIMIT = 10;
 const QUERY_MAX = 200;
 
@@ -23,7 +8,7 @@ export function activityRequest(record) {
   const name = typeof record?.name === "string" ? record.name.trim() : "";
   const ref = typeof record?.ref === "string" ? record.ref.trim() : "";
   if (!name || !ref || name.length > QUERY_MAX) return null;
-  return { query: name, limit: ACTIVITY_LIMIT };
+  return { query: name, limit: ACTIVITY_LIMIT, ref };
 }
 
 function words(slug) {

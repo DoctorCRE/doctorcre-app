@@ -2379,7 +2379,7 @@ export async function createFixtureClient(opts = {}) {
     async findAndCatchUp(args = {}) {
       refuseIfOutage('search', 'find-and-catch-up');
       const keys = Object.keys(args || {});
-      const extra = keys.filter((key) => key !== 'query' && key !== 'limit');
+      const extra = keys.filter((key) => key !== 'query' && key !== 'limit' && key !== 'ref');
       if (extra.length > 0) refuse('find-and-catch-up', 'unregistered_operation_fields', { operation: 'find-and-catch-up', fields: extra });
       const limit = args.limit === undefined ? 20 : args.limit;
       if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
@@ -2401,8 +2401,8 @@ export async function createFixtureClient(opts = {}) {
             : 'No current match.',
         };
       }
-      if (candidates.length === 1) {
-        const match = candidates[0];
+      if (candidates.length === 1 || candidates.some((candidate) => candidate.target === args.ref)) {
+        const match = candidates.find((candidate) => candidate.target === args.ref) || candidates[0];
         return {
           state: 'completed', query,
           match: { kind: match.kind, name: match.name, target: match.target },

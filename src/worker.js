@@ -198,7 +198,7 @@ const ENGINE_READS = new Map([
   ['capture-queue', { key: NATIONAL_DEALS, path: '/api/engine/capture-queue', args: {} }],
   // The old tool answers an empty query and the engine refuses it, so only a nonempty one moves.
   ['find', { key: SEARCH, path: '/api/engine/find', args: { query: isString }, accepts: ({ query }) => Boolean(query) }],
-  ['find-and-catch-up', { key: CLIENTS_VENDORS, path: '/api/engine/recent-activity', args: { query: isString, limit: Number.isFinite } }],
+  ['find-and-catch-up', { key: CLIENTS_VENDORS, path: '/api/engine/recent-activity', args: { query: isString, limit: Number.isFinite, ref: isString } }],
   ['read-vendor-meetings', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-meetings', args: { view: isString, q: isString, limit: Number.isFinite, cursor: isString } }],
   ['read-vendor-markets-v1', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-markets', args: { market: isString } }],
   ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
@@ -923,7 +923,12 @@ async function handleRequest(request, env) {
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     const call = await mcpCall(request, url);
     const engine = await engineSave(request, env, call) ?? await engineResponse(request, env);
-    return engine ?? await refuseFrozenSave(request, env, url, call) ?? carrResponse(request, env);
+    if (engine) return engine;
+    if (call?.method === 'tools/call' && call.params?.name === 'find-and-catch-up' && isObject(call.params.arguments) && Object.hasOwn(call.params.arguments, 'ref')) {
+      delete call.params.arguments.ref;
+      request = new Request(request, { body: JSON.stringify(call) });
+    }
+    return await refuseFrozenSave(request, env, url, call) ?? carrResponse(request, env);
   }
   return json({ error: "not_found" }, 404);
 }

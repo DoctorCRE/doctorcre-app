@@ -30,7 +30,7 @@ const row = (overrides = {}) => ({
 });
 
 test("the request is the record's own name, bounded; a record with no name or no ref sends nothing", () => {
-  assert.deepEqual(activityRequest(vendor), { query: "Demo Gulf Coast CPA", limit: ACTIVITY_LIMIT });
+  assert.deepEqual(activityRequest(vendor), { query: "Demo Gulf Coast CPA", limit: ACTIVITY_LIMIT, ref: vendor.ref });
   assert.equal(activityRequest({ ...vendor, name: "  " }), null);
   assert.equal(activityRequest({ ...vendor, ref: null }), null, "without a ref the answer could never be verified");
   assert.equal(activityRequest({ ...vendor, name: "x".repeat(201) }), null);
@@ -106,4 +106,15 @@ for (const [kind, ref] of [['client', 'C-901'], ['vendor', 'V-901']]) test(`${ki
   assert.equal(result.state, 'ready');
   assert.deepEqual(result.rows.map(item => item.what), ['Latest update', 'Earlier update', 'Historic update', 'Undated update', 'Invalid date update']);
   assert.equal(answer.catch_up.timeline[0].summary, 'Undated update');
+});
+
+test("matching client and lead names resolve the requested client timeline", () => {
+  const client = { name: "Example Practice", ref: "C-901" };
+  const candidates = [{ ref: "C-901", summary: "Client update" }, { ref: "L-901", summary: "Lead update" }];
+  const request = activityRequest(client);
+  const match = candidates.find(candidate => candidate.ref === request.ref);
+  assert.ok(match);
+  const result = activityState(client, completed(match.ref, [row({ summary: match.summary })]));
+  assert.equal(result.state, "ready");
+  assert.equal(result.rows[0].what, "Client update");
 });
