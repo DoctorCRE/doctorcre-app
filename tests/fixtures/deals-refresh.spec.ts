@@ -12,7 +12,7 @@ test.afterAll(async () => {
   await server?.stop();
 });
 
-async function mockReads(page: Page, { engine = true, overnight = false } = {}) {
+async function mockReads(page: Page, { engine = true, savesFromEngine = false, overnight = false } = {}) {
   const requests = { engine, feed: 0, forwarded: 0, confirms: 0, saves: 0, title: "Demo Practice Deal" };
   const env = {
     GIT_SHA: "0".repeat(40),
@@ -63,6 +63,7 @@ async function mockReads(page: Page, { engine = true, overnight = false } = {}) 
         result = {
           actor: "joe",
           board_from_engine: requests.engine,
+          next_deal_saves: savesFromEngine,
           deals: [deal],
           accounts: [account],
         };
@@ -112,6 +113,23 @@ for (const path of [local, national, "/search?mode=live", "/notifications?mode=l
     expect(requests.feed).toBe(0);
     await expect(page.locator("#appTodayMoves").locator("..")).toBeHidden();
     await expect(page.locator("#receiptsOpen, #receiptsJump")).toBeHidden();
+  });
+}
+
+for (const [name, path] of [
+  ["Local Deals", local],
+  ["National Accounts", national],
+] as const) {
+  test(`${name} hides its moves slot outside the pulse wrapper when Deals switches are on`, async ({ page }) => {
+    await mockReads(page, { savesFromEngine: true });
+    await page.goto(server.url + path);
+    await expect(page.locator("#morningUpdated")).toHaveText(updated);
+    const moves = page.locator('[data-layout-slot="moves"]');
+    await moves.evaluate((slot) => {
+      slot.removeAttribute("hidden");
+      document.body.append(slot);
+    });
+    await expect(moves).toHaveCSS("display", "none");
   });
 }
 
