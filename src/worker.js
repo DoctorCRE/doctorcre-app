@@ -897,6 +897,13 @@ async function handleRequest(request, env) {
       (/^\/api\/engine\/calendar\/reviews\/[a-f0-9]{16}\/dismissal$/.test(pathname)
       || (pathname === '/api/engine/activities' && (await request.clone().json().catch(() => null))?.calendar_review_key !== undefined));
     if (meetingAnswer && !await switchedOn(env, HOME)) return json({ error: 'not_found' }, 404);
+    if (request.method === 'POST' && /^\/api\/engine\/next-steps\/[^/]+\/end$/.test(pathname)) {
+      if (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))
+        return json({ error: 'reload_deals' }, 409);
+      const command = await request.clone().json().catch(() => null);
+      if (!isUuid(command?.idempotency_key) || !Number.isSafeInteger(command?.base_version) || command.base_version < 0)
+        return json({ error: 'invalid_arguments' }, 400);
+    }
     if (documentWriteMethod && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);
