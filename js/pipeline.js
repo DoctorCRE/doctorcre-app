@@ -2,7 +2,7 @@ import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
 import {
-  autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, renderDealFacts, renderDealItemButton,
+  autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
   renderDealItems, renderDealSummary, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt,
 } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
@@ -41,7 +41,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
@@ -1529,8 +1529,10 @@ function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_sa
 
 function renderSnapshotFacts(deal, fromEngine) {
   const facts = [];
-  if (fromEngine && deal.market) facts.push({ label: 'Market', value: deal.market });
-  if (deal.workspace_kind === 'national_account' || deal.account_client_id) {
+  const national = deal.workspace_kind === 'national_account' || deal.account_client_id;
+  const market = fromEngine && national ? nationalMarketLabel(deal.market) : deal.market;
+  if (fromEngine && market) facts.push({ label: 'Market', value: market });
+  if (national) {
     facts.push({ label: 'Market agent', value: deal.market_agent || 'Unassigned' });
   }
   if (fromEngine) facts.push(...dealTypeFacts(deal, dealTypeLabel));
@@ -1538,7 +1540,7 @@ function renderSnapshotFacts(deal, fromEngine) {
   if (deal.outcome) facts.push({ label: 'Outcome', value: deal.outcome[0].toUpperCase() + deal.outcome.slice(1) });
   if (fromEngine && deal.outcome === 'lost') {
     facts.push(
-      { label: 'Reason for loss', value: deal.lost_reason || 'Not recorded' },
+      { label: 'Reason for loss', value: lossReasonLabel(deal.lost_reason) },
       { label: 'Close date', value: formatCalendarDate(calendarDay(deal.closed_on)) || 'Close date not recorded' },
     );
   }
@@ -1571,9 +1573,9 @@ function workspaceHtml(detail) {
   const stepLabel = fromEngine ? 'Next step' : stepToday && dueOn && dueOn < stepToday ? 'Overdue action' : 'Next action';
   const stepSummary = `
     ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? stepToday : undefined)}</span></p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
-    ${otherActions.length ? `${ended ? '' : '<p class="deal-items-label">Also open:</p>'}<ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
+    ${otherActions.length ? `${fromEngine || ended ? '' : '<p class="deal-items-label">Also open:</p>'}<ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
       const day = calendarDay(action.due_on);
-      return `<li${stepFocusAttrs(fromEngine ? action : null)}>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, stepToday)}</li>`;
+      return `<li${stepFocusAttrs(fromEngine ? action : null)}>${fromEngine ? 'Next step: ' : ''}${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, stepToday)}</li>`;
     }).join('')}</ul>` : ''}`;
   const itemOwners = fromEngine ? new Map(detail.next_actions?.map(step => [step.id, step.owner])) : undefined;
   const prospect = state.deals.get(d.id);

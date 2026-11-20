@@ -19,8 +19,10 @@ test('pinned registered producer and production parser accept all synthetic snap
   new Function('module', transformSync(source.slice(source.indexOf('export function rebuildMarketTerms('), source.indexOf('\nexport function marketTermsTools(')), { loader: 'ts', format: 'cjs' }).code)(producer);
   const ui = readFileSync(new URL('../src/ui/market-terms.tsx', import.meta.url), 'utf8');
   const parser = 'function isRecord' + ui.split('function isRecord')[1].split('\nfunction Comparison')[0].split('\nfunction basisKey')[0];
-  assert.equal(parser.slice('function isRecord'.length), provenance.parser.bytes);
-  const accepts = new Function(transformSync(parser, { loader: 'ts' }).code + '\nreturn isResponse;')();
+  const compile = text => transformSync(text, { loader: 'ts', minifyWhitespace: true }).code;
+  const compiled = compile(parser);
+  assert.equal(compiled, compile('function isRecord' + provenance.parser.bytes));
+  const accepts = new Function(compiled + '\nreturn isResponse;')();
   for (const record of Object.values(records)) {
     assert.deepEqual(producer.exports.rebuildMarketTerms(record.snapshot, record.query), record.response);
     assert.equal(accepts(record.response), true);
@@ -53,7 +55,7 @@ test('basis keyboard selection intersects loaded term and stage in both themes a
           await basis.selectOption(value);
           const expected = records.full.response.rows.filter(r => (!term || r.fact_key === term) && (!stage || r.term_kind === stage) && (!value || key(r.expense_basis) === value));
           assert.equal(await page.locator('tbody tr').count(), expected.length);
-          assert.match(await page.locator('[data-market-results]').textContent(), new RegExp(`${expected.length} matching loaded terms? across ${new Set(expected.map(r => r.entity_ref)).size} deals?`));
+          assert.match(await page.locator('[data-market-results]').textContent(), new RegExp(`${expected.length} matching terms? across ${new Set(expected.map(r => r.entity_ref)).size} deals?`));
           if (!expected.length) assert.match(await page.locator('main').textContent(), /No comparable terms/);
           assert.equal(await page.locator('details').textContent(), coverage);
           const superseded = expected.filter(row => row.effective_to && records.full.response.rows.some(next => next.entity_ref === row.entity_ref && next.fact_key === row.fact_key && next.term_kind === row.term_kind && next.effective_from === row.effective_to));
@@ -118,7 +120,7 @@ test('refresh retains or resets basis, refuses malformed and failed reads, ignor
       await page.evaluate(() => { window.panel.refresh(); window.pending.at(-1).resolve(window.records.full.response); });
       await basis.waitFor();
       await page.evaluate(() => { window.panel.refresh(); window.pending.at(-1).resolve(window.records.vanished.response); });
-      await page.getByText('The previously selected expense basis is no longer in the loaded results. Showing all expense bases.', { exact: true }).waitFor();
+      await page.getByText('The previously selected expense basis is no longer in these results. Showing all expense bases.', { exact: true }).waitFor();
       assert.equal(await basis.inputValue(), '');
       await page.evaluate(() => { window.panel.refresh(); window.pending.at(-1).resolve(window.records.empty.response); });
       await basis.waitFor();

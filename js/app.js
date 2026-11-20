@@ -3,7 +3,7 @@ import { mountDealRoomForm } from './ui-deal-room-forms.generated.js';
 import { nameMatchDetails } from './ui-name-match.generated.js';
 import { mountDealRoomBoard } from './ui-board.generated.js';
 import { mountDealRoomAgenda } from './ui-agenda.generated.js';
-import { dealStepVersion, partnerDealStep } from './local-deals-model.js';
+import { dealStepVersion, nationalMarketLabel, partnerDealStep } from './local-deals-model.js';
 import { businessDay } from './business-date.js';
 import { daysBetween, toDay } from './calendar-model.js';
 import { formatCalendarDate } from './visual-system.js';
@@ -594,10 +594,7 @@ function boardRow(deal, nationalAccountRows, accountDetail) {
   const parked = deal.operating_state === 'parked';
   const presence = state.presence.filter(lease => lease.deal_id === deal.id && lease.actor !== state.selfActor && new Date(lease.expires_at) > new Date());
   const today = state.boardFromEngine ? businessDay() : new Date().toLocaleDateString('en-CA');
-  const recordedMarket = deal.market?.trim();
-  const market = state.boardFromEngine && deal.account_client_id &&
-    (!recordedMarket || /^market unspecified(?: in source)?$/i.test(recordedMarket))
-    ? 'No market recorded' : deal.market;
+  const market = state.boardFromEngine && deal.account_client_id ? nationalMarketLabel(deal.market) : deal.market;
   return {
     id: deal.id, name: deal.name, parked, attention: Boolean(deal.attention), phase: deal.phase,
     classes: [parked ? 'parked' : '', deal.attention ? 'attention' : '', days !== null && days < 0 ? 'overdue' : ''].join(' '),
