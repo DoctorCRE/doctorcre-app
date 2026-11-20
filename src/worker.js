@@ -92,10 +92,10 @@ function assetPath(pathname) {
 }
 
 async function pageSwitches(env) {
-  const [homeToday, dealsFromEngine, dealSavesFromEngine] = await Promise.all([
-    switchedOn(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES),
+  const [homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine] = await Promise.all([
+    switchedOn(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES), switchedOn(env, CLIENTS_VENDORS),
   ]);
-  return { homeToday, dealsFromEngine, dealSavesFromEngine };
+  return { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine };
 }
 
 async function assetResponse(request, env, path, switches) {
@@ -114,14 +114,15 @@ async function assetResponse(request, env, path, switches) {
   if (path === "/public-shell/sw.js") headers.set("service-worker-allowed", "/");
   const asset = secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
   if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html')) return asset;
-  const { homeToday, dealsFromEngine, dealSavesFromEngine } = switches ?? await pageSwitches(env);
-  if (!homeToday && !dealsFromEngine && !dealSavesFromEngine) return asset;
+  const { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine } = switches ?? await pageSwitches(env);
+  if (!homeToday && !dealsFromEngine && !dealSavesFromEngine && !clientsVendorsFromEngine) return asset;
   const date = dealSavesFromEngine && ['/pipeline.html', '/lease-anniversaries.html', '/workspace.html', '/inbox.html'].includes(path)
     ? await env.ENGINE_ROUTING.get('deal-cutover-date', { cacheTtl: 30 }).catch(() => null)
     : null;
   return new HTMLRewriter().on('html', {
     element(node) {
       if (homeToday) node.setAttribute('data-home-today-from-engine', '');
+      if (clientsVendorsFromEngine) node.setAttribute('data-clients-vendors-from-engine', '');
       if (dealsFromEngine) node.setAttribute('data-deals-from-engine', '');
       if (dealSavesFromEngine) node.setAttribute('data-deals-saves-from-engine', /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '');
     },
