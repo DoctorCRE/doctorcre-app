@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium, settles } from './browser-harness.mjs';
 import { routeLeads } from './leads-browser-fixture.mjs';
-import { id, workspace } from './leads-workspace-fixture.mjs';
+import { detail, id, workspace } from './leads-workspace-fixture.mjs';
 
 const require = createRequire(import.meta.url);
 async function capture(page, name, measurements = {}) {
@@ -261,4 +261,27 @@ for (const width of [768, 1280, 1440]) test(`Leads loading uses board and map sk
   assert.ok(Math.abs(loading.stages[0].width - loaded.stages[0].width) < 2,
     `loading and final stage widths match: ${JSON.stringify({ loading, loaded })}`);
   assert.equal(await page.locator('#territoryMap').getAttribute('aria-busy'), 'false');
+});
+
+
+test('A refreshed drawer keeps keyboard focus on the selected Link action', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.clock.install({ time: new Date('2026-10-01T16:00:00Z') });
+  const board = workspace();
+  const lead = board.leads.find(row => row.id === id(19));
+  lead.possible_clients.push({ client_id: id(902), name: 'Another example match' });
+  let notes = 'Initial synthetic note';
+  await routeLeads(page, { getBoard: () => board, getDetail: row => ({ ...detail(row), notes }) });
+  await page.goto('http://localhost/leads');
+  await page.locator('[data-expand-stage="new"]').click();
+  await page.getByRole('button', { name: 'Dr. Example 19', exact: true }).click();
+  const link = page.getByRole('button', { name: 'Link Dr. Example 19 to Another example match', exact: true });
+  await link.waitFor();
+  await link.focus();
+  notes = 'Changed synthetic note';
+  await page.clock.fastForward(61_000);
+  await page.getByText(notes, { exact: true }).first().waitFor();
+  assert.equal(await link.evaluate(node => node === document.activeElement), true);
 });

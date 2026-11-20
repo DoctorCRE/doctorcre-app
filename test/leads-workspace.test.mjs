@@ -1065,3 +1065,27 @@ for (const [code, message] of [
   assert.equal(s.d.getElementById('leadBoardError').textContent.trim(), message);
  } finally { s.close(); }
 });
+
+test('Link recovery stays in the drawer and retries the same request', async () => {
+ const calls = [];
+ const s = await setup();
+ try {
+  s.client.linkClient = async (...args) => {
+   calls.push(args);
+   if (calls.length === 1) throw Object.assign(new Error('Lost reply'), { code: 'unknown_outcome' });
+   s.board.leads.find(row => row.id === args[0].id).client_id = args[1];
+   return { ok: true };
+  };
+  await s.app.readDetail(id(19));
+  s.d.querySelector('#leadDetail [data-link]').click();
+  await tick();
+  assert.equal(s.d.getElementById('leadDetail').open, true);
+  const recovery = s.d.querySelector('#leadDetail button[id="checkDetailPending"]');
+  assert.ok(recovery && !recovery.closest('[hidden]'));
+  recovery.click();
+  await tick();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1], calls[0]);
+  assert.equal(s.d.getElementById('leadDetail').open, false);
+ } finally { s.close(); }
+});
