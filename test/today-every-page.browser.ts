@@ -35,7 +35,7 @@ const pages = [
 
 const withHomeSwitch = (html: string) => html.replace("<html ", "<html data-home-today-from-engine ");
 
-async function open(t: TestContext, path: string, { enabled = true, width = 1440 } = {}) {
+async function open(t: TestContext, path: string, { enabled = true, width = 1440, recentChanges = false } = {}) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({
@@ -43,11 +43,35 @@ async function open(t: TestContext, path: string, { enabled = true, width = 1440
     timezoneId: "America/Chicago",
     reducedMotion: "reduce",
   });
+  if (recentChanges) {
+    await page.clock.install({ time: new Date("2026-11-19T17:00:00Z") });
+    await page.route("**/pipeline/changes*", (route) =>
+      route.fulfill({
+        json: {
+          cursor: "1",
+          events: new URL(route.request().url()).searchParams.has("cursor")
+            ? []
+            : [
+                {
+                  id: "example-change",
+                  subject_type: "deal",
+                  subject_id: id,
+                  field: "next_step",
+                  actor: "dell",
+                  new_value: "Review sample terms",
+                  recorded_at: "2026-11-19T16:59:00Z",
+                },
+              ],
+        },
+      }),
+    );
+  }
   const legacy: string[] = [];
   const readToday: string[] = [];
-  await page.addInitScript(() =>
-    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ walkthroughSeen: { joe: true } })),
-  );
+  await page.addInitScript(() => {
+    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ walkthroughSeen: { joe: true } }));
+    localStorage.setItem("doctorcre:sidebar:/invoices", "open");
+  });
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
   );
@@ -56,7 +80,7 @@ async function open(t: TestContext, path: string, { enabled = true, width = 1440
     if (legacyVerbs.has(name)) legacy.push(name);
     const payload =
       name === "deal-room-board"
-        ? { actor: "joe", deals: [] }
+        ? { actor: "joe", deals: recentChanges ? [{ id, name: "Example Deal", phase: "pending", owner: "joe" }] : [] }
         : name === "calendar-meeting-prep"
           ? { state: "empty", items: [] }
           : { items: [] };
@@ -112,7 +136,14 @@ async function open(t: TestContext, path: string, { enabled = true, width = 1440
     const response = await route.fetch();
     return route.fulfill({ response, body: withHomeSwitch(await response.text()) });
   });
+  const captureQueue = recentChanges
+    ? page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/mcp") && response.request().postDataJSON()?.params?.name === "capture-queue",
+      )
+    : null;
   const navigation = await page.goto(url.href, { waitUntil: "domcontentloaded" });
+  await (await captureQueue)?.finished();
   assert.equal(navigation?.status(), 200);
   return { page, today: page.getByRole("complementary", { name: "Today", exact: true }), legacy, readToday };
 }
@@ -146,6 +177,7 @@ for (const path of pages)
 test("Doc keeps Morning brief with the switch off and drops it with the switch on", async (t) => {
   const off = await open(t, "/invoices", { enabled: false });
   await off.today.getByRole("heading", { name: "Your schedule", exact: true }).waitFor();
+  assert.equal(await off.page.getByRole("button", { name: "Workspace sidebar", exact: true }).isVisible(), true);
   await off.page.getByRole("button", { name: "Open Doc", exact: true }).click();
   await off.page.getByRole("button", { name: "Morning brief", exact: true }).click();
   await off.page.getByRole("dialog", { name: /^Morning brief/ }).waitFor();
@@ -164,6 +196,9 @@ test("Doc keeps Morning brief with the switch off and drops it with the switch o
 for (const width of [1440, 390])
   test(`Open a meeting on Invoices at ${width}px`, async (t) => {
     const { page, today, legacy } = await open(t, "/invoices", { width });
+    assert.equal(await page.getByRole("button", { name: "Workspace sidebar", exact: true }).count(), 0);
+    assert.equal(await page.locator("#appSidebar").isVisible(), false);
+    assert.equal(await page.locator("#appLayout").getAttribute("data-sidebar"), "closed");
     if (width === 390) await page.getByRole("button", { name: "Today sidebar", exact: true }).click();
     await today.getByText("Example site visit", { exact: true }).click();
     await today.getByText("Attendees: Example Attendee", { exact: true }).waitFor();
@@ -186,3 +221,17 @@ for (const width of [1440, 390])
       await today.screenshot({ path: join(process.env.TODAY_SCREENSHOT_DIR, `today-${width}.png`) });
     }
   });
+
+for (const width of [1440, 390]) {
+  test(`National Recent changes stays visible with Home on and Deals off at ${width}px`, async (t) => {
+    const { page } = await open(t, "/deals?view=national", { width, recentChanges: true });
+    await page.clock.runFor(120_000);
+    const jump = page.getByRole("button", { name: /Go to recent changes/ });
+    await jump.click({ timeout: 10000 });
+    const receipts = page.getByRole("region", { name: "Recent changes", exact: true });
+    await receipts.getByText(/Review sample terms/).waitFor();
+    assert.equal(await page.locator("#receiptsTitle").evaluate((title) => title === document.activeElement), true);
+    assert.equal(await receipts.evaluate((panel) => Boolean(panel.closest("#appMainSlot"))), true);
+    assert.equal(await receipts.evaluate((panel) => panel.getBoundingClientRect().top < innerHeight), true);
+  });
+}

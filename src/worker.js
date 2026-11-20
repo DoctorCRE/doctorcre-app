@@ -106,9 +106,14 @@ async function assetResponse(request, env, path) {
     ? "no-cache" : "public, max-age=300");
   if (path === "/public-shell/sw.js") headers.set("service-worker-allowed", "/");
   const asset = secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
-  if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html') || !await switchedOn(env, HOME)) return asset;
+  if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html')) return asset;
+  const [homeToday, dealsFromEngine] = await Promise.all([switchedOn(env, HOME), switchedOn(env, DEALS)]);
+  if (!homeToday && !dealsFromEngine) return asset;
   return new HTMLRewriter().on('html', {
-    element(node) { node.setAttribute('data-home-today-from-engine', ''); },
+    element(node) {
+      if (homeToday) node.setAttribute('data-home-today-from-engine', '');
+      if (dealsFromEngine) node.setAttribute('data-deals-from-engine', '');
+    },
   }).transform(asset);
 }
 

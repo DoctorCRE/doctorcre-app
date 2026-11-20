@@ -29,8 +29,7 @@ export function createAppLayout(root, title = '', engineToday = false) {
   layout.innerHTML = `<aside id="appSidebar" class="app-layout-sidebar" aria-label="${escape(title)} workspace"><div class="app-layout-sidebar-head"><h2>${escape(title)}</h2><button type="button" data-layout-close="sidebar" aria-label="Close workspace">‹</button></div><div id="appCalendarSlot"></div></aside>
     <div class="app-layout-center"><div class="app-layout-tabbar" role="navigation" aria-label="Page controls"><button type="button" id="appSidebarToggle" aria-label="Workspace sidebar" aria-controls="appSidebar" aria-expanded="false" title="Workspace sidebar">☷</button><div id="appTabsSlot" class="app-layout-tabs" role="group" aria-label="${escape(title)} views"></div><button type="button" id="appTodayToggle" aria-label="Today sidebar" aria-controls="appToday" aria-expanded="true" title="Today">◷</button></div><div id="appMainSlot" class="app-layout-main"></div><details class="app-layout-page-tools"><summary>Page tools</summary><div id="appSidebarSlot"></div><section class="app-layout-working"><h3>Overdue</h3><div id="appWorkingList">Updating…</div></section></details></div>
     <aside id="appToday" class="app-layout-today" aria-labelledby="appTodayTitle"><div class="app-layout-sidebar-head"><h2 id="appTodayTitle">Today</h2><button type="button" data-layout-close="today" aria-label="Close Today">›</button></div>${todayContent}</aside>
-    <button class="app-layout-scrim" id="appDrawerScrim" type="button" aria-label="Close sidebar" hidden></button>
-    ${engineToday ? '<div id="appTodayMoves" hidden></div>' : ''}`;
+    <button class="app-layout-scrim" id="appDrawerScrim" type="button" aria-label="Close sidebar" hidden></button>`;
   const status = root.createElement('footer');
   status.className = 'app-layout-status';
   status.innerHTML = '<span><time id="appSyncTime" title="Last sync">—</time><button type="button" id="appSyncRefresh" aria-label="Refresh workspace" title="Refresh">↻</button></span><span title="Last new-lead search">⌕ <time id="appLeadSearchTime">—</time></span><span id="appConnection" class="app-layout-health" data-state="unknown" role="img" aria-label="Connection unknown" title="Connection unknown"></span><div id="appStatusSlot"></div>';
@@ -64,7 +63,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   for (const node of [...root.querySelectorAll('[data-layout-slot]')]) {
     const slot = node.dataset.layoutSlot;
     const target = slot === 'tabs' ? layout.querySelector('#appTabsSlot') : slot === 'sidebar' ? layout.querySelector('#appSidebarSlot') : slot === 'moves' ? layout.querySelector('#appTodayMoves') : status.querySelector('#appStatusSlot');
-    if (slot === 'moves') target.replaceChildren();
+    if (slot === 'moves') {
+      if (!target) continue;
+      target.replaceChildren();
+    }
     target.append(node);
   }
   for (const node of [...root.body.children]) {
@@ -79,15 +81,22 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   // A page that brings its own freshness and refresh owns the band's one clock and one refresh.
   const pageRefresh = status.querySelector('#appStatusSlot [data-layout-refresh]');
   status.toggleAttribute('data-page-freshness', Boolean(pageRefresh));
-  const pageOwnsMoves = Boolean(layout.querySelector('#appTodayMoves [data-layout-slot="moves"]'));
+  const pageMoves = layout.querySelector('[data-layout-slot="moves"]');
+  const pageOwnsMoves = Boolean(pageMoves);
   const phone = win.matchMedia(pathname === "/leads" ? "(max-width:1023px)" : TOUCH_LAYOUT);
   const itineraryPage = Boolean(root.getElementById('accepted-itinerary'));
   const dealBoard = pathname === '/deals' && root.body.classList.contains('dealroom-page');
-  let sidebar = !boardPage && !itineraryPage && !vendorDirectory, today = true, drawer = null;
+  let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory, today = true, drawer = null;
   let drawerOpener = null;
   const background = new Map();
-  try { const saved = win.localStorage.getItem(`doctorcre:sidebar:${pageKey}`); if (saved !== null) sidebar = saved === 'open'; const savedToday = win.localStorage.getItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today'); if (savedToday !== null) today = savedToday !== 'closed'; } catch {}
+  try {
+    const saved = win.localStorage.getItem(`doctorcre:sidebar:${pageKey}`);
+    if (!engineToday && saved !== null) sidebar = saved === 'open';
+    const savedToday = win.localStorage.getItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today');
+    if (savedToday !== null) today = savedToday !== 'closed';
+  } catch {}
   const sidebarToggle = layout.querySelector('#appSidebarToggle'), todayToggle = layout.querySelector('#appTodayToggle');
+  sidebarToggle.hidden = engineToday;
   const paint = () => {
     layout.dataset.sidebar = sidebar ? 'open' : 'closed'; layout.dataset.today = today ? 'open' : 'closed'; layout.dataset.drawer = drawer || '';
     const leftOpen = phone.matches ? drawer === 'sidebar' : sidebar;
@@ -148,7 +157,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   });
   phone.addEventListener('change', () => { drawer = null; paint(); });
   paint();
-  root.addEventListener('doctorcre:open-today', () => openRegion('today'));
+  root.addEventListener('doctorcre:open-today', () => {
+    if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
+    else openRegion('today');
+  });
   // Page tab controllers retain selection and lazy reads. Give groups without
   // their own roving focus the same left/right keyboard affordance.
   const tabs = layout.querySelector('#appTabsSlot');
