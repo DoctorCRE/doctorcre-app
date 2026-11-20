@@ -102,6 +102,7 @@ test("the switched vendor page opens a vendor without reading approved client ne
   assert.ok(name && typeof name === "object" && "name" in name && typeof name.name === "string");
   await page.goto(`${server.origin}/vendors?record=${vendor}`);
   await page.getByRole("heading", { name: name.name, exact: true }).waitFor();
+  await page.waitForLoadState("networkidle");
   assert.equal(await page.getByRole("region", { name: "Approved client needs", exact: true }).count(), 0);
   assert.equal(needs, 0);
 });
