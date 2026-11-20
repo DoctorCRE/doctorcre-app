@@ -7,7 +7,7 @@ import { BulkControls } from "./bulk-controls";
 import { DropReason } from "./drop-reason.tsx";
 import { EngineMailPriorities } from "./engine-mail-priorities.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
-import { draftCardStatus, hasEngineReview, openStepRefusal } from "./engine-review.ts";
+import { draftCardStatus, draftReference, hasEngineReview, openStepRefusal } from "./engine-review.ts";
 import {
   type Action,
   type Command,
@@ -24,7 +24,7 @@ import {
   taskCommand,
 } from "./inbox";
 import { MailPriorities } from "./mail-priorities";
-import { ReviewCard } from "./review-card";
+import { type DraftEdits, ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { completionLabel, HomeSections, HomeWelcome, lateDays } from "./sections";
 
@@ -100,6 +100,20 @@ function Inbox({ client }: { client: InboxClient }) {
     if (home && !query.isPending && host) markHomeReady(host);
   }, [home, query.isPending]);
   const [reviewing, setReviewing] = useState<(InboxItem & { focusedSuggestionId?: string }) | null>(null);
+  const [draftEdits, setDraftEdits] = useState(() => new Map<string, DraftEdits>());
+  const reviewingDraftId = reviewing
+    ? (draftReference(reviewing)?.id ??
+      (reviewing.review_reference?.kind === "reply_draft" ? reviewing.source_id : null))
+    : null;
+  function updateDraftEdits(id: string, edits: DraftEdits | null) {
+    setDraftEdits((current) => {
+      if (!edits && !current.has(id)) return current;
+      const next = new Map(current);
+      if (edits) next.set(id, edits);
+      else next.delete(id);
+      return next;
+    });
+  }
   const reviewOpener = useRef<HTMLElement | null>(null);
   const [reviewUncertain, setReviewUncertain] = useState(false);
   const openedLink = useRef<string | null>(null);
@@ -239,6 +253,8 @@ function Inbox({ client }: { client: InboxClient }) {
       const results = await client.run(operation.request);
       if (!mounted.current) return;
       const successes = results.filter((result) => result.ok);
+      if (successes.length && operation.request.action === "drop" && operation.request.target.kind === "draft")
+        updateDraftEdits(operation.request.target.id, null);
       const saved = successes.flatMap((result) => (result.item ? [result.item] : []));
       const changed = results.flatMap((result) => (!result.ok && result.current_item ? [result.current_item] : []));
       const updates = [...saved, ...changed];
@@ -661,6 +677,10 @@ function Inbox({ client }: { client: InboxClient }) {
             focusedSuggestionId={reviewing.focusedSuggestionId}
             readOnly={waitingCard}
             client={reviewClient}
+            draftEdits={reviewingDraftId ? draftEdits.get(reviewingDraftId) : undefined}
+            updateDraftEdits={(edits) => {
+              if (reviewingDraftId) updateDraftEdits(reviewingDraftId, edits);
+            }}
             blockSwitching={setReviewUncertain}
             close={() => setReviewing(null)}
             busy={(value) => {

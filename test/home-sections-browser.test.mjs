@@ -435,6 +435,13 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
   await reply.getByText('Please share the sample plan.', { exact: true }).waitFor();
   assert.equal(await suggestions.getByRole('region', { name: /Details for Call suggestions/ }).count(), 0);
+  await reply.getByRole('textbox', { name: 'Subject', exact: true }).fill('Revised sample reply');
+  await reply.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited reply.');
+  await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
+  await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
+  await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
+  assert.equal(await reply.getByRole('textbox', { name: 'Subject', exact: true }).inputValue(), 'Revised sample reply');
+  assert.equal(await reply.getByRole('textbox', { name: 'Message', exact: true }).inputValue(), 'Edited reply.');
   assert.equal(writes.length, writesBeforeReview);
   await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
@@ -501,7 +508,6 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await mail.getByRole('button', { name: 'Sample Sender · Sample draft message', exact: true }).click();
   await reply.getByText('Please share the sample plan.', { exact: true }).waitFor();
   await reply.getByRole('link', { name: 'Sample plan', exact: true }).waitFor();
-  await reply.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited reply.');
   assert.equal(await cardFor(/Remaining email suggestion/).count(), 0);
   await reply.getByRole('button', { name: 'Accept', exact: true }).first().click();
   await reply.getByText('Suggestion accepted.', { exact: true }).waitFor();
@@ -515,20 +521,31 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(await reply.getByRole('textbox', { name: 'Message', exact: true }).inputValue(), 'Edited reply.');
   await reply.getByRole('button', { name: 'Save draft', exact: true }).click();
   await reply.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
-  assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, subject: 'Sample reply', body: 'Edited reply.' });
+  assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, subject: 'Revised sample reply', body: 'Edited reply.' });
   const draftCard = state.items.find(row => row.reply_draft_id === draft);
+  const draftRecord = details.get(draft);
+  await reply.getByRole('button', { name: 'Close review' }).click();
+  Object.assign(draftRecord, { version: 3, body: 'Saved again from another tab.' });
+  Object.assign(draftCard, { source_version: '3', title: 'Reply to the sample email (updated)' });
+  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
+  await reply.getByRole('link', { name: 'Reply to the sample email (updated)', exact: true }).waitFor();
+  await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
+  const message = reply.getByRole('textbox', { name: 'Message', exact: true });
+  assert.equal(await message.inputValue(), 'Saved again from another tab.');
+  await message.fill('Final edited reply.');
+  await email.getByRole('button', { name: 'Open', exact: true }).click();
+  await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
   await reply.getByRole('button', { name: 'Send reply', exact: true }).click();
   const fallback = cardFor(/Remaining email suggestion/);
   await fallback.getByText('Sending', { exact: true }).waitFor();
   assert.equal(await reply.count(), 0);
-  assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 2, subject: 'Sample reply',
-    body: 'Edited reply.', to: 'sender@example.test', cc: 'partner@example.test', document_ids: [dealId] });
+  assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 3, subject: 'Revised sample reply',
+    body: 'Final edited reply.', to: 'sender@example.test', cc: 'partner@example.test', document_ids: [dealId] });
   await fallback.getByRole('button', { name: 'Open', exact: true }).click();
   await fallback.getByRole('status').filter({ hasText: 'Sending' }).waitFor();
   assert.equal(await fallback.getByRole('button', { name: 'Accept', exact: true }).isEnabled(), true);
   assert.equal(await fallback.getByRole('button', { name: 'Send reply', exact: true }).count(), 0);
   await fallback.getByRole('button', { name: 'Close review' }).click();
-  const draftRecord = details.get(draft);
   const fallbackCard = state.items.find(row => row.item_id === `suggestion:${remaining}`);
   Object.assign(draftRecord, { status: 'failed', failure_reason: 'submission_recipients_invalid' });
   Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
@@ -548,13 +565,16 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await fallback.getByRole('button', { name: 'Open', exact: true }).click();
   await fallback.getByRole('button', { name: 'Send reply', exact: true }).click();
   await fallback.getByRole('button', { name: 'Open', exact: true }).waitFor();
-  assert.equal(writes.at(-1)[1].version, 3);
+  assert.equal(writes.at(-1)[1].version, 4);
   details.set(decline, { ...details.get(draft), draft_id: decline, version: 1, status: 'pending' });
   state.items.push({ ...notice, title: 'Another sample draft', item_id: `reply_draft:${decline}`, source_id: decline,
     source_type: 'email_proposal', deal_id: null, kind_label: 'Reply draft', source_version: '1', reply_draft_id: decline, reply_draft_status: 'pending' });
   await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
   const declined = cardFor(/Another sample draft/);
   await declined.getByRole('button', { name: 'Open', exact: true }).click();
+  const declinedMessage = declined.getByRole('textbox', { name: 'Message', exact: true });
+  assert.equal(await declinedMessage.inputValue(), 'Final edited reply.');
+  await declinedMessage.fill('Unsaved text to drop.');
   await declined.getByRole('region', { name: /Details for Another sample draft/ }).getByRole('button', { name: 'Drop', exact: true }).click();
   await confirmDrop('Already answered.');
   await declined.waitFor({ state: 'detached' });

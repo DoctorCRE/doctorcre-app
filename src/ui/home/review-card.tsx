@@ -33,11 +33,15 @@ const emailDate = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   year: "numeric",
 });
+export type DraftEdits = Pick<Extract<Review, { kind: "reply_draft" }>, "subject" | "body">;
+
 type Props = {
   item: InboxItem;
   focusedSuggestionId: string | undefined;
   readOnly: boolean;
   client: InboxClient["review"];
+  draftEdits: DraftEdits | undefined;
+  updateDraftEdits(edits: DraftEdits | null): void;
   children: ReactNode;
   close(): void;
   blockSwitching(value: boolean): void;
@@ -49,6 +53,8 @@ export function ReviewCard({
   focusedSuggestionId,
   readOnly,
   client,
+  draftEdits,
+  updateDraftEdits,
   close,
   blockSwitching,
   busy,
@@ -56,8 +62,6 @@ export function ReviewCard({
   children,
 }: Props) {
   const [state, setState] = useState<State>({ phase: "loading" });
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
   const [reason, setReason] = useState("");
   const [drop, setDrop] = useState<{ title: string; opener: HTMLButtonElement; confirm(reason: string): void } | null>(
     null,
@@ -96,10 +100,6 @@ export function ReviewCard({
       .load(anchor.current, controller.signal)
       .then((review) => {
         if (controller.signal.aborted) return;
-        if (review.kind === "reply_draft") {
-          setSubject(review.subject);
-          setBody(review.body);
-        }
         reconcileFacts(review);
         setState({ phase: "ready", review });
       })
@@ -126,6 +126,7 @@ export function ReviewCard({
   }, [uncertain, blockSwitching]);
   const waiting = state.phase === "submitting" || lock.current;
   const review = "review" in state ? state.review : null;
+  const draft = review?.kind === "reply_draft" ? (draftEdits ?? review) : null;
   const proposals = review && "proposals" in review ? (review.proposals ?? []) : [];
   const proposalLed = item.item_id.startsWith("suggestion:");
   const operations = readOnly ? [] : review?.operations;
@@ -165,6 +166,7 @@ export function ReviewCard({
     try {
       const result = await client.run(anchor.current, request);
       if (!alive.current) return;
+      if (request.verb === "submit-email-draft" || request.verb === "dismiss-email-proposal") updateDraftEdits(null);
       confirmed(result.item, result.receipt, result.snapshot);
       if (request.verb === "decide-engine-home-proposal" && detail.kind === "reply_draft" && result.item) {
         const before = draftReference(anchor.current);
@@ -195,6 +197,7 @@ export function ReviewCard({
           next.body !== request.args.body
         )
           throw Object.assign(Error("The saved draft changed again."), { payload: { error: "version_conflict" } });
+        updateDraftEdits(null);
         setState({ phase: "ready", review: next });
         setMessage("Saved as a draft. Nothing was sent.");
       } else {
@@ -237,10 +240,10 @@ export function ReviewCard({
     if (!review || !editable || lock.current || !form.current) return;
     if (op.verb !== "dismiss-email-proposal" && !form.current.reportValidity()) return;
     let input: Record<string, unknown> = {};
-    if (op.verb === "edit-email-draft" || op.verb === "submit-email-draft")
+    if ((op.verb === "edit-email-draft" || op.verb === "submit-email-draft") && draft)
       input = {
-        subject,
-        body,
+        subject: draft.subject,
+        body: draft.body,
         ...(op.verb === "submit-email-draft" &&
           review.kind === "reply_draft" &&
           review.attachments && { document_ids: review.attachments.map((row) => row.id) }),
@@ -463,7 +466,7 @@ export function ReviewCard({
             </legend>
             {review.kind === "action" && <p>{review.title}</p>}
             {proposalLed && suggestionFields}
-            {review.kind === "reply_draft" && (
+            {review.kind === "reply_draft" && draft && (
               <>
                 {review.addresses ? (
                   <>
@@ -501,9 +504,9 @@ export function ReviewCard({
                 <label>
                   Subject
                   <input
-                    value={subject}
+                    value={draft.subject}
                     disabled={!review.operations.length}
-                    onChange={(event) => setSubject(event.target.value)}
+                    onChange={(event) => updateDraftEdits({ subject: event.target.value, body: draft.body })}
                     maxLength={998}
                     required
                   />
@@ -512,9 +515,9 @@ export function ReviewCard({
                   Message
                   <textarea
                     aria-label="Message"
-                    value={body}
+                    value={draft.body}
                     disabled={!review.operations.length}
-                    onChange={(event) => setBody(event.target.value)}
+                    onChange={(event) => updateDraftEdits({ subject: draft.subject, body: event.target.value })}
                     rows={8}
                     maxLength={20000}
                     required
