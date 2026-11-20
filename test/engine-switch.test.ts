@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import test from "node:test";
 import { readFileSync } from "node:fs";
+import test from "node:test";
 import worker from "../src/worker.js";
 
 const origin = "https://app.example.test";
@@ -1319,9 +1319,7 @@ test("the engine save sets renewed session cookies on the wrapped answer", async
   assert.deepEqual((await f.send(phaseMove, saveHeaders)).headers.getSetCookie(), ["session=fresh"]);
 });
 
-for (const body of [
-  call("patch-deal-field", {}, { method: "initialize" }),
-]) {
+for (const body of [call("patch-deal-field", {}, { method: "initialize" })]) {
   test(`save the engine does not take stays on the old system ${JSON.stringify(body)}`, async () => {
     const f = fixture(savesOn);
     assert.equal(await (await f.send(body, saveHeaders)).text(), "old");
@@ -2215,35 +2213,71 @@ test("every live client mutation is routed, refused, or accounted for after cuto
   tools.delete("morning-brief"); // rawRpc skips the read cache when refresh is requested.
 
   const keep = new Set([
-    "acknowledge-notification", "read-client-portal",
-    "watch-subject-v2", "replace-subject-watch-policy-v2", "pause-subject-watch-v2",
-    "resume-subject-watch-v2", "unwatch-subject-v2",
+    "acknowledge-notification",
+    "read-client-portal",
+    "watch-subject-v2",
+    "replace-subject-watch-policy-v2",
+    "pause-subject-watch-v2",
+    "resume-subject-watch-v2",
+    "unwatch-subject-v2",
   ]);
   const outside = new Map([
     ["presence-lease", "Transient Deals editing presence has no copied record."],
+    ...["add-loop", "update-loop", "close-loop", "add-industry-event", "update-industry-event"].map(
+      (verb) => [verb, "Neither loops nor industry events are copied."] as const,
+    ),
     ...[
-      "add-loop", "update-loop", "close-loop",
-      "add-industry-event", "update-industry-event",
-    ].map(verb => [verb, "Neither loops nor industry events are copied."] as const),
+      "decline-work-request",
+      "supersede-work-request",
+      "set-work-shape-disposition",
+      "link-incident-work-request",
+      "add-room-turn",
+      "answer-work-request-for-joe",
+      "review-and-triage",
+      "cancel-capability-session",
+      "triage-incident",
+      "cancel-workflow-cutover-plan",
+      "advance-workflow-cutover-stage",
+      "confirm-slice-completions",
+      "close-investigation",
+      "accept-ready-plan-amendment",
+      "approve-retrieval-proposals",
+      "answer-board-question",
+    ].map((verb) => [verb, "Control Room work stays in CARR. Calendar answers are checked separately."] as const),
     ...[
-      "decline-work-request", "supersede-work-request", "set-work-shape-disposition", "link-incident-work-request",
-      "add-room-turn", "answer-work-request-for-joe", "review-and-triage", "cancel-capability-session", "triage-incident",
-      "cancel-workflow-cutover-plan", "advance-workflow-cutover-stage", "confirm-slice-completions",
-      "close-investigation", "accept-ready-plan-amendment", "approve-retrieval-proposals", "answer-board-question",
-    ].map(verb => [verb, "Control Room work stays in CARR. Calendar answers are checked separately."] as const),
-    ...[
-      "decide-doc-suggestion", "propose-doc-correction", "submit-doc-request", "create-doc-conversation",
-      "rename-doc-conversation", "share-doc-conversation",
-    ].map(verb => [verb, "Doc conversations and requests stay in CARR."] as const),
+      "decide-doc-suggestion",
+      "propose-doc-correction",
+      "submit-doc-request",
+      "create-doc-conversation",
+      "rename-doc-conversation",
+      "share-doc-conversation",
+    ].map((verb) => [verb, "Doc conversations and requests stay in CARR."] as const),
   ]);
   const switches = new Map([...nextDealsOn, ["home-from-engine", "on"], ["invoices-from-engine", "on"]]);
   const additional = [
-    ...keep, "claim-lead", "update-lead", "link-lead-client", "new-lead", "approve-lead-draft",
-    "new-client", "add-party", "update-party-contact", "new-vendor", "merge-vendor-rows",
-    "add-deal-participant", "reopen-one-action", "save-deal-space-search-v1", "run-deal-space-search-v1",
-    "set-client-publication", "start-deal-deliverable", "abandon-deal-deliverable",
-    "finalize-deal-deliverable", "set-deal-deliverable-visibility",
-    "snooze-home-inbox", "settle-home-inbox", "unsettle-home-inbox",
+    ...keep,
+    "claim-lead",
+    "update-lead",
+    "link-lead-client",
+    "new-lead",
+    "approve-lead-draft",
+    "new-client",
+    "add-party",
+    "update-party-contact",
+    "new-vendor",
+    "merge-vendor-rows",
+    "add-deal-participant",
+    "reopen-one-action",
+    "save-deal-space-search-v1",
+    "run-deal-space-search-v1",
+    "set-client-publication",
+    "start-deal-deliverable",
+    "abandon-deal-deliverable",
+    "finalize-deal-deliverable",
+    "set-deal-deliverable-visibility",
+    "snooze-home-inbox",
+    "settle-home-inbox",
+    "unsettle-home-inbox",
   ];
   for (const name of new Set([...tools, ...additional])) {
     assert.ok(name);
@@ -2268,17 +2302,34 @@ test("audited Tour, comparison, and deliverable writes stop at the Worker", asyn
   const deliverables = "/api/v1/deal-deliverables/demo-deal";
   const writes = [
     ...[
-      "create", "selection-cart", "route-draft", "route-stop", "route-stop-transition", "route-version",
-      "route-reorder", "route-accept", "cheat-sheet/autosave", "cheat-sheet/restore", "projection",
-      "projection/seal", "share/issue", "share/rotate", "share/revoke", "pdf/render", "pdf/review",
-    ].map(path => ["POST", `/api/tours/${path}`, /Tours on the deal page/] as const),
+      "create",
+      "selection-cart",
+      "route-draft",
+      "route-stop",
+      "route-stop-transition",
+      "route-version",
+      "route-reorder",
+      "route-accept",
+      "cheat-sheet/autosave",
+      "cheat-sheet/restore",
+      "projection",
+      "projection/seal",
+      "share/issue",
+      "share/rotate",
+      "share/revoke",
+      "pdf/render",
+      "pdf/review",
+    ].map((path) => ["POST", `/api/tours/${path}`, /Tours on the deal page/] as const),
     ["POST", "/api/v1/fact-review/comparison", /Documents/],
     ["POST", deliverables, /Documents/],
     ["PUT", `${deliverables}/demo-file/bytes`, /Documents/],
-    ...["finalize", "visibility", "abandon"].map(action => ["POST", `${deliverables}/demo-file/${action}`, /Documents/] as const),
+    ...["finalize", "visibility", "abandon"].map(
+      (action) => ["POST", `${deliverables}/demo-file/${action}`, /Documents/] as const,
+    ),
   ] as const;
   for (const [method, path, hint] of writes) {
-    const send = (f: ReturnType<typeof fixture>) => worker.fetch(new Request(origin + path, { method, body: "payload" }), f.env);
+    const send = (f: ReturnType<typeof fixture>) =>
+      worker.fetch(new Request(origin + path, { method, body: "payload" }), f.env);
     const off = fixture(new Map());
     assert.equal(await (await send(off)).text(), "old");
     assert.deepEqual(off.carr, ["payload"]);
@@ -2336,9 +2387,13 @@ test("live client prospect and Monday review HTTP saves route to the engine", as
     ["weekly-reviews", "weekly-reviews"],
     [`weekly-reviews/${id}/remove`, `weekly-reviews/${id}/remove`],
   ] as const) {
-    const response = await worker.fetch(new Request(`${origin}/api/engine/${entry}`, {
-      method: "POST", body: "{}",
-    }), f.env);
+    const response = await worker.fetch(
+      new Request(`${origin}/api/engine/${entry}`, {
+        method: "POST",
+        body: "{}",
+      }),
+      f.env,
+    );
     assert.equal(response.status, 200, entry);
     assert.equal(f.engine.at(-1)?.url, `${origin}/api/engine/${target}`);
   }
