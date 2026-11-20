@@ -104,7 +104,7 @@ function intake(
       if (path === "/mcp") {
         const result =
           body.params.name === "deal-room-board"
-            ? { deals: [{ id: expected.deal_id, name: "Demo Harbor" }] }
+            ? { deals: [{ id: expected.deal_id, name: "Demo Harbor" }], next_deal_saves: mode === "engine-saves" }
             : fixture.list;
         return json({ result: { content: [{ type: "text", text: JSON.stringify(result) }] } });
       }
@@ -197,6 +197,19 @@ test("receiving choosing ready filing filed requires exact receipt and list read
   );
   assert.equal(x.cleared, true);
 });
+test("the save switch offers the selected deal's Documents and makes no legacy write", async (t) => {
+  const x = intake(t, "engine-saves");
+  await x.model.start();
+  x.model.choose(expected.deal_id);
+  assert.deepEqual(x.states.at(-1), {
+    kind: "open-documents",
+    filename: "Photo.jpg",
+    deal: { id: expected.deal_id, name: "Demo Harbor" },
+  });
+  await x.model.file();
+  assert.deepEqual(x.writes, []);
+});
+
 for (const mode of ["lost-reserve", "lost-finalize"])
   test(`${mode} reconciles frozen target and reuses write keys`, async (t) => {
     const x = intake(t, mode);

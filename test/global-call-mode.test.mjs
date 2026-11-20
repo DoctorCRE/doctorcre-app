@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { mountGlobalCallMode } from '../js/global-call-mode.js';
 
+test('the save switch hides the weekly call and keeps the standalone start', async t => {
+  const dom = new JSDOM('<html data-deals-saves-from-engine><button id="callModeButton"></button><span id="callModeAvailability"></span><button id="callModeRetry"></button>');
+  dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  dom.window.HTMLDialogElement.prototype.close = function () { this.open = false; };
+  t.mock.method(globalThis, 'fetch', async url =>
+    Response.json(String(url).includes('/api/state') ? { state: 'idle' } : { deals: [], threads: {} }));
+  const call = await mountGlobalCallMode(dom.window.document);
+  t.after(() => { call.dispose(); dom.window.close(); });
+  assert.equal(await call.open({ session: 'synthetic-review' }), true);
+  assert.equal(dom.window.document.querySelector('[data-call-mode-start="weekly_deal_call"]').hidden, true);
+  assert.equal(dom.window.document.querySelector('[data-call-mode-start="other_call"]').hidden, false);
+});
+
 for (const state of ['idle', 'recording']) test(`session revocation retires a pending ${state} companion probe`, async t => {
   const dom = new JSDOM('<button id="callModeButton"></button><p id="callModeAvailability"></p><button id="callModeRetry"></button>');
   t.after(() => dom.window.close());

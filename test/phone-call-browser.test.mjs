@@ -16,6 +16,10 @@ async function open(t, options = {}) {
   const page = await browser.newPage({ viewport: { width: options.width || 390, height: 900 }, colorScheme: options.theme || 'light', timezoneId: 'America/Chicago' });
   t.after(() => page.close());
   const state = { transferred: false, writes: [], ...options };
+  if (options.savesOn) await page.route('**/calls?**', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: (await response.text()).replace('<html', '<html data-deals-saves-from-engine') });
+  });
   await page.route('**/auth/session', r => r.fulfill({ json: { actor: { slug: 'joe', display: 'Synthetic Joe' }, csrf_token: 'synthetic-csrf' } }));
   await page.route('**/api/v1/call-sessions**', async r => {
     const req = r.request(), path = new URL(req.url()).pathname;
@@ -96,6 +100,15 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`re
   assert.equal(state.undone, true);
   assert.deepEqual(state.writes.find(w => w.name === 'undo-call-change').args.candidate_id, 'applied-1');
   assert.equal(state.writes.some(w => /resolve-/.test(w.name)), false);
+});
+
+test('phone capture keeps recording and summaries without the old deal review after the switch', async t => {
+  const { page } = await open(t, { review: true, transferred: true, savesOn: true });
+  await page.getByText('Call summary and notes', { exact: true }).click();
+  await page.getByText('Synthetic Clinic will review the revised proposal.', { exact: true }).waitFor();
+  assert.equal(await page.locator('#phoneOutcomes').count(), 0);
+  assert.equal(await page.getByRole('heading', { name: 'Deal changes' }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Record microphone' }).isEnabled(), true);
 });
 
 test('microphone interruption keeps captured audio and labels the interruption after reload', async t => {

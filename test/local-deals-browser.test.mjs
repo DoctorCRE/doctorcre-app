@@ -4,7 +4,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { chromium, waitForAsync } from './browser-harness.mjs';
 const root = new URL('../', import.meta.url);
 const phases = ['On Deck', 'Research', 'Site selection', 'Negotiation', 'Legal', 'Diligence', 'Closing', 'Closed'];
-async function open(t, { width = 1440, height = 960, reducedMotion = 'no-preference', many = false, review = false, deal = null, prospect = false, legalDestination = false, timezoneId } = {}) {
+async function open(t, { width = 1440, height = 960, reducedMotion = 'no-preference', many = false, review = false, deal = null, prospect = false, legalDestination = false, savesOn = false, timezoneId } = {}) {
   const browser = await chromium.launch(); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height }, reducedMotion, timezoneId });
   await page.addInitScript(() => localStorage.setItem('doctorcre:today:/deals', 'closed'));
@@ -29,7 +29,10 @@ async function open(t, { width = 1440, height = 960, reducedMotion = 'no-prefere
     if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ actor: { slug: 'joe' }, csrf_token: 'synthetic-only' }) });
     if (url.pathname.startsWith('/api/') || url.pathname === '/app-release') return route.fulfill({ contentType: 'application/json', body: '{}' });
     const file = url.pathname === '/deals' ? 'pipeline.html' : url.pathname.slice(1);
-    try { return route.fulfill({ body: await readFile(new URL(file, root)), contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.json') ? 'application/json' : 'text/html' }); }
+    try {
+      const asset = await readFile(new URL(file, root));
+      const body = savesOn && file === 'pipeline.html' ? asset.toString().replace('<html', '<html data-deals-saves-from-engine') : asset;
+      return route.fulfill({ body, contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.json') ? 'application/json' : 'text/html' }); }
     catch { return route.fulfill({ status: 404, body: '' }); }
   });
   await page.goto('http://localhost/deals' + (deal ? '?deal='+encodeURIComponent(deal) : ''));
@@ -37,6 +40,16 @@ async function open(t, { width = 1440, height = 960, reducedMotion = 'no-prefere
   return { page, errors, seed };
 }
 const refresh = page => page.evaluate(async () => (await import('/js/pipeline.js')).state.boardSync.refreshBoard({ reason: 'test' }));
+
+for (const [label, selector] of [['sourced Terms', '#panelTerms'], ['Mark inactive', '#detailInactiveForm']]) {
+  test(`the save switch hides ${label} on a deal`, async t => {
+    const { page } = await open(t, { deal: 'd14', prospect: true, savesOn: true });
+    await page.getByRole('region', { name: 'Deal snapshot' }).waitFor();
+    assert.equal(await page.locator(selector).count(), 0);
+    await page.getByRole('tab', { name: 'Documents' }).click();
+    await page.getByRole('tabpanel', { name: 'Documents' }).waitFor();
+  });
+}
 
 test('only active prospects remain on the board at desktop and phone widths', async t => {
   for (const width of [1440,390]) await t.test(String(width), async t => {

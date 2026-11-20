@@ -1,3 +1,4 @@
+import { dealsSaveToEngine } from '../js/boot-mode.js';
 import { onDialogClosed } from '../js/dialog-lifecycle.js';
 import { mountAutoRefresh, updatedLabel } from '../js/auto-refresh.mjs';
 import { createPlannerClient, validateTourList, validateTourDetail } from './planner-client.js';
@@ -7,6 +8,7 @@ import { pageDocContext, publishDocRead, selectDocRecord, setDocFilters } from '
 
 export function mountPlanner({ document, window, api = createPlannerClient() }) {
   const $ = selector => document.querySelector(selector);
+  if (dealsSaveToEngine(document)) $('#tour-start-hint')?.remove();
   let tours = [], generation = 0, detailGeneration = 0, disposed = false, scope = api.scope, opener, activeTourId;
   const node = (tag, text) => { const value = document.createElement(tag); value.textContent = text; return value; };
   const workspace = tour => `/deals?deal=${encodeURIComponent(tour.deal_id)}&tab=tours&tour=${encodeURIComponent(tour.id)}`;

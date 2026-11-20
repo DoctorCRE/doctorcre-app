@@ -1,3 +1,4 @@
+import { dealsSaveToEngine } from "../js/boot-mode.js";
 import { navigationFromEvidence } from "../js/ui-tour-navigation.generated.js";
 import { mountStopDrag, reorderFlexibleStops } from "/js/ui-tour-stop-drag.generated.js";
 import { mountSavedSearches } from "/js/ui-deal-space-searches.generated.js";
@@ -16,6 +17,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
   "use strict";
   if (window.parent === window) void import('../js/app-shell.js');
   const $ = (selector) => document.querySelector(selector);
+  const readOnly = dealsSaveToEngine();
   const state = { csrf: "", sessionGeneration: 0, sessionInvalidated: false, tours: [], tour: null, feedback: null, feedbackSeq: 0, feedbackStatus: "missing", rawShareToken: "", shareGrantId: "", shareStatus: "missing", shareGrants: [], projectionId: "", projectionDraftId: "", candidateDigest: "", renderJobId: "", pdfQcRunDigest: "", cheatDirty: false, cheatDraftTourId: "", cheatDraftRevision: null,
     searchItems: [], knownProperties: new Map(), searchCursor: null, searchKey: null, searchCompleted: false, searchSeq: 0, hydrationSeq: 0, cart: null, selectedIds: [], selectionDirty: false, selectionTourId: "", pendingSelection: null, selectionSave: null, undoSelectionIds: null };
   let sheetGenerated = "", sheetRegenerating = false;
@@ -32,7 +34,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     return result.payload;
   }
   function openSavedSearches() {
-    if (!dealContext || state.sessionInvalidated) return;
+    if (readOnly || !dealContext || state.sessionInvalidated) return;
     if (savedSearchPanel) { savedSearchPanel.refresh(); return; }
     const host = $("#saved-space-searches"); host.hidden = false;
     savedSearchPanel = mountSavedSearches(host, {
@@ -62,14 +64,22 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     window.parent.location.pathname === '/deals' && new URLSearchParams(window.parent.location.search).get('deal') === dealContext;
   const notify = data => { if (embedded) window.parent.postMessage({ ...data, generation: Number(new URLSearchParams(window.location.search).get('generation')) }, window.location.origin); };
   if (dealContext && !embedded) {
-    window.location.replace(workspaceUrl(dealContext, new URLSearchParams(window.location.search).get('tour') || 'new')); return;
+    window.location.replace(workspaceUrl(dealContext, new URLSearchParams(window.location.search).get('tour') || (readOnly ? null : 'new'))); return;
   }
-  $('#create-tour-panel').hidden = !embedded;
+  $('#create-tour-panel').hidden = readOnly || !embedded;
+  if (readOnly) {
+    for (const selector of ["#route-editing", "#coordinate-review", ".projection-card", "#regenerate-sheet",
+      "#restore-sheet", "#save-sheet", "#render-pdf", "#review-pdf", "#retry-tour-action"]) $(selector).hidden = true;
+    $("#cheat-content").readOnly = true;
+    $("#internal-cheat-sheet > p").hidden = true;
+    $(".pdf-card > p").hidden = true;
+    $("#route-editing").before($("#route-stops"));
+  }
   if (embedded) {
     document.body.classList.add('tour-embedded');
-    document.querySelector('.discovery').hidden = false;
+    document.querySelector('.discovery').hidden = readOnly;
     document.querySelector('.library').hidden = true;
-    document.querySelector('.tours-heading').querySelector('h1').textContent = 'Tour planner';
+    document.querySelector('.tours-heading').querySelector('h1').textContent = readOnly ? 'Tour' : 'Tour planner';
     const observer = new ResizeObserver(() => notify({ type: 'deal-tour-size', height: document.body.scrollHeight }));
     observer.observe(document.body);
     window.addEventListener('pagehide', () => observer.disconnect(), { once: true });
@@ -111,6 +121,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     return payload?.data || {};
   }
   function post(path, body, binding = sessionBinding) {
+    if (readOnly) return Promise.reject(new Error("tour_read_only"));
     if (!binding || binding !== sessionBinding) return Promise.reject(new Error("session_changed"));
     return request(path, { method: "POST", headers: { "content-type": "application/json", "x-carr-csrf": state.csrf }, body: JSON.stringify(body) }).then(data => { if (binding !== sessionBinding) throw new Error("session_changed"); return data; }).catch(error => { error.writeRefusal = error.status >= 400 && error.status < 500; throw error; });
   }
@@ -296,9 +307,11 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     document.querySelector("#tour-list").setAttribute("aria-busy", "false");
   }
   function readPending() {
+    if (readOnly) return null;
     try { const saved = JSON.parse(sessionStorage.getItem(pendingKey) || "null"); return saved?.sessionBinding === sessionBinding ? saved : null; } catch { return null; }
   }
   function persistPending() {
+    if (readOnly) return;
     if (restoredTourId && !composer) return;
     const pending = createPending ? { create: createPending } : composer?.plan ? { composer: { ...composer, busy: false, undo: null } } : null;
     try {
@@ -369,7 +382,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
   function renderEmptyTours() {
     const list = $("#empty-tours"); list.replaceChildren();
     for (const tour of state.tours.slice(0, 6)) { const item = document.createElement("li"); item.append(tourButton(tour, "empty-tour")); list.append(item); }
-    $("#empty-copy").textContent = state.tours.length ? "Open a tour to edit its route, cheat sheet and client share, or start a new one." : "No tours yet. Start a tour to plan its route.";
+    $("#empty-copy").textContent = readOnly ? (state.tours.length ? "Choose a saved tour." : "No tours yet.") : state.tours.length ? "Open a tour to edit its route, cheat sheet and client share, or start a new one." : "No tours yet. Start a tour to plan its route.";
   }
   const countyNames = ["Escambia", "Santa Rosa", "Okaloosa", "Walton", "Bay"];
   function displayDate(value) { const time = Date.parse(value); return Number.isFinite(time) ? new Date(time).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }) : "unknown"; }
@@ -947,21 +960,23 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     }
     renderSheetRecovery(); renderTourAction();
     const list = $("#route-stops"); list.replaceChildren();
-    for (const stop of stops()) { const row = document.createElement("li"); row.className = "stop"; row.dataset.stopId = text(stop.id); const label = document.createElement("span"); label.textContent = text(stop.label, text(stop.name, "Tour stop")); const controls = document.createElement("span"); for (const [word, delta] of [["Up", -1], ["Down", 1]]) { const button = document.createElement("button"); button.type = "button"; button.textContent = word; button.addEventListener("click", () => moveStop(stop.id, delta)); controls.append(button); } row.append(label, controls); list.append(row); }
+    for (const stop of stops()) { const row = document.createElement("li"); row.className = "stop"; row.dataset.stopId = text(stop.id); const label = document.createElement("span"); label.textContent = text(stop.label, text(stop.name, readOnly ? text(stop.property_name, "Tour stop") : "Tour stop")); const controls = document.createElement("span"); for (const [word, delta] of readOnly ? [] : [["Up", -1], ["Down", 1]]) { const button = document.createElement("button"); button.type = "button"; button.textContent = word; button.addEventListener("click", () => moveStop(stop.id, delta)); controls.append(button); } row.append(label, controls); list.append(row); }
     if (!stops().length) list.textContent = "No stops in this route cart.";
     state.renderJobId = text(tour.pdf_render_job_id); state.pdfQcRunDigest = text(tour.pdf_qc_run_digest);
     $("#pdf-state").textContent = text(tour.pdf_status, "Not rendered").replaceAll("_", " ");
     const reviewable = tour.pdf_status === "review_ready" && id(state.renderJobId);
     $("#preview-pdf").hidden = !reviewable;
-    $("#review-pdf").hidden = !reviewable;
+    $("#review-pdf").hidden = readOnly || !reviewable;
     if (reviewable) $("#preview-pdf").href = `/api/tours/pdf/preview?render_job_id=${encodeURIComponent(state.renderJobId)}`;
     const downloadable = tour.pdf_status === "available" && id(state.renderJobId);
     $("#download-pdf").hidden = !downloadable;
+    if (readOnly) $(".pdf-card").hidden = !reviewable && !downloadable;
     if (downloadable) $("#download-pdf").href = `/api/tours/pdf/download?render_job_id=${encodeURIComponent(state.renderJobId)}`;
     mountPropertyPanel({ tour, request });
     if (composer && tour.routes?.length) renderComposer();
     renderAcceptedItinerary();
-    void renderCoordinateReview();
+    if (readOnly) list.hidden = !$("#accepted-itinerary").hidden || !stops().length;
+    else void renderCoordinateReview();
   }
   async function loadLibrary() {
     try { await request('/api/system-work/session'); } catch { state.userRef = null; }
@@ -978,7 +993,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       throw error;
     }
     libraryReady = true;
-    restoreOtherWrites(); renderTourAction();
+    if (!readOnly) { restoreOtherWrites(); renderTourAction(); }
     $("#retry-library").hidden = true;
     if (!createPending && readPending()?.create) { createPending = readPending().create; createPhase = "unknown"; $("#create-tour-panel").open = true; $("#create-tour-state").textContent = "Creation outcome unknown after reload. Reconcile before retrying the retained request."; renderCreate(); }
     state.tours = Array.isArray(data.tours) ? data.tours.filter((tour) => id(tour?.id) && (!dealContext || tour.deal_id === dealContext)) : []; renderLibrary(); if ($("#tour-recovery").hidden) status("Tour library ready.");
@@ -1030,10 +1045,15 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       const changed = composer && composer.snapshot !== routeSnapshot(tour);
       if (changed && (composer.dirty || composer.plan || composer.busy)) { $("#tour-panel").hidden = false; status("Saved route changed. Save or reconcile the displayed draft before reloading."); return; }
       if (state.tour?.id !== tourId) { state.rawShareToken = ""; state.shareGrantId = ""; $("#share-url").value = ""; $("#share-link").hidden = true; ++state.hydrationSeq; if (state.cheatDraftTourId !== tourId) state.cheatDirty = false; state.cheatDraftTourId = tourId; state.selectedIds = []; state.cart = null; state.selectionDirty = false; state.pendingSelection = null; state.undoSelectionIds = null; state.selectionTourId = tourId; }
+      if (readOnly && state.tour?.id !== tourId) {
+        const accepted = tour.routes?.some(route => route.accepted);
+        $("#internal-cheat-sheet").open = !accepted;
+        $("#property-evidence-panel").open = !accepted;
+      }
       state.tour = tour;
       notify({ type: 'deal-tour-opened', id: tour.id });
       selectDocRecord("tour", tour.id);
-      if (!composer || composer.tourId !== tourId || changed) initComposer(tour);
+      if (!readOnly && (!composer || composer.tourId !== tourId || changed)) initComposer(tour);
       restoredTourId = "";
       renderTour(); renderSelection();
     } catch (error) {
@@ -1067,9 +1087,9 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       navigationBusy = false; if (composer) renderComposer(); renderCreate();
       if (!sheetBusy && state.cheatDirty && state.tour?.id === tourId) $("#cheat-content").dispatchEvent(new Event("input"));
     }
-    await loadSelectionCart(tourId);
+    if (!readOnly) await loadSelectionCart(tourId);
     if (state.tour?.id !== tourId) return;
-    await Promise.all([loadProjectionPreview(), loadFeedback()]);
+    await Promise.all([readOnly ? null : loadProjectionPreview(), loadFeedback()]);
     if (state.tour?.id === tourId) status(state.feedbackStatus === "unavailable" ? "Tour loaded. Client responses are unavailable." : "Tour ready.");
   }
   function moveStop(stopId, delta) { const list = stops(); const index = list.findIndex((stop) => stop.id === stopId); const destination = index + delta; if (index < 0 || destination < 0 || destination >= list.length) return; [list[index], list[destination]] = [list[destination], list[index]]; renderTour(); }

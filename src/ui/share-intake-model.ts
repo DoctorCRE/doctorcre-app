@@ -15,7 +15,7 @@ type Share = {
 export type IntakeState =
   | { kind: "receiving" }
   | { kind: "choosing"; filename: string; deals: Deal[] }
-  | { kind: "ready"; filename: string; deal: Deal }
+  | { kind: "ready" | "open-documents"; filename: string; deal: Deal }
   | { kind: "filing"; filename: string; deal: Deal }
   | { kind: "uncertain"; filename: string; deal: Deal; message: string }
   | { kind: "filed"; attachment: Attachment }
@@ -48,6 +48,7 @@ export function createShareIntake({
     token: string | null = null,
     deals: Deal[] = [],
     selected: Deal | null = null;
+  let nextDealSaves = false;
   const lifetime = new AbortController();
   let recoveryKey: CryptoKey | undefined;
   let expiry: ReturnType<typeof setTimeout> | undefined;
@@ -270,6 +271,7 @@ export function createShareIntake({
     const value = await rpc("deal-room-board", { workspace: "all" });
     if (!record(value) || !Array.isArray(value.deals) || value.deals.length > 1000)
       throw Error("Deal choices unavailable");
+    nextDealSaves = value.next_deal_saves === true;
     return value.deals.map((row: unknown): Deal => {
       if (!record(row) || typeof row.id !== "string" || !uuid.test(row.id) || typeof row.name !== "string" || !row.name)
         throw Error("Invalid deal choice");
@@ -406,6 +408,13 @@ export function createShareIntake({
     }
     throw Error("Receipt received. Document list confirmation unavailable. Retry reconciliation.");
   }
+  function showRecoveredDeal(deal: Deal, filename: string) {
+    set(
+      nextDealSaves
+        ? { kind: "open-documents", filename, deal }
+        : { kind: "uncertain", filename, deal, message: "Reconcile the previous filing before continuing." },
+    );
+  }
   async function run(discard = false) {
     if (!share || !selected || !["ready", "uncertain"].includes(state.kind)) return;
     const active = share,
@@ -414,6 +423,18 @@ export function createShareIntake({
     try {
       const fresh = await board();
       if (!fresh.some((row) => row.id === deal.id)) throw Error("The selected deal is no longer available.");
+      if (nextDealSaves) {
+        if (discard) {
+          await clear();
+          retire("File discarded.");
+        } else
+          set({
+            kind: "open-documents",
+            filename: active.file?.name ?? active.expected?.filename ?? "Shared file",
+            deal,
+          });
+        return;
+      }
       const expected = await material(active, deal);
       active.expected = expected;
       const operation = active.operation?.reservation ? active.operation : await reserve(active, deal, expected);
@@ -509,12 +530,7 @@ export function createShareIntake({
           deals = await board();
           selected = deals.find((row) => row.id === recovered.operation?.deal) ?? null;
           if (!selected) throw Error("Original deal unavailable.");
-          set({
-            kind: "uncertain",
-            filename: recovered.expected?.filename ?? "Shared file",
-            deal: selected,
-            message: "Reconcile the previous filing before continuing.",
-          });
+          showRecoveredDeal(selected, recovered.expected?.filename ?? "Shared file");
           return;
         }
         const value = await handoff(await session(), "read");
@@ -578,12 +594,7 @@ export function createShareIntake({
         if (operation) {
           selected = deals.find((row) => row.id === operation.deal) ?? null;
           if (!selected) throw Error("Original deal unavailable.");
-          set({
-            kind: "uncertain",
-            filename: share.file?.name ?? share.expected?.filename ?? "Shared file",
-            deal: selected,
-            message: "Reconcile the previous filing before continuing.",
-          });
+          showRecoveredDeal(selected, share.file?.name ?? share.expected?.filename ?? "Shared file");
         } else
           set({ kind: "choosing", filename: share.file?.name ?? share.expected?.filename ?? "Shared file", deals });
       } catch (error) {
@@ -592,19 +603,23 @@ export function createShareIntake({
       }
     },
     choose(id: string) {
-      if (!share || share.operation || !["choosing", "ready"].includes(state.kind)) return;
+      if (!share || share.operation || !["choosing", "ready", "open-documents"].includes(state.kind)) return;
       const deal = deals.find((row) => row.id === id);
       if (!deal) {
         set({ kind: "refused", message: "Choose an exact available deal." });
         return;
       }
       selected = deal;
-      set({ kind: "ready", filename: share.file?.name ?? share.expected?.filename ?? "Shared file", deal });
+      set({
+        kind: nextDealSaves ? "open-documents" : "ready",
+        filename: share.file?.name ?? share.expected?.filename ?? "Shared file",
+        deal,
+      });
     },
     file: () => run(),
     async discard() {
       if (!share || state.kind === "filing") return;
-      if (share.operation) return run(true);
+      if (share.operation && !nextDealSaves) return run(true);
       try {
         await clear();
         retire("File discarded.");

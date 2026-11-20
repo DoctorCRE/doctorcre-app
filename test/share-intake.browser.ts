@@ -35,7 +35,10 @@ test("installed-worker share handoff files a producer fixture and renders at pho
             const body = await request.json();
             const value =
               body.params.name === "deal-room-board"
-                ? { deals: [{ id: expected.deal_id, name: "Demo Harbor" }] }
+                ? {
+                    deals: [{ id: expected.deal_id, name: "Demo Harbor" }],
+                    next_deal_saves: scenario === "engine-saves",
+                  }
                 : fixture.list;
             return json({ result: { content: [{ type: "text", text: JSON.stringify(value) }] } });
           }
@@ -78,7 +81,7 @@ test("installed-worker share handoff files a producer fixture and renders at pho
   await mkdir(screenshots, { recursive: true });
   const cases = [
     ...[390, 1440].flatMap((width) => (["light", "dark"] as const).map((theme) => ({ width, theme, mode: "normal" }))),
-    ...["before-selection", "after-reserve", "lost-finalize"].map((mode) => ({
+    ...["before-selection", "after-reserve", "lost-finalize", "engine-saves"].map((mode) => ({
       width: 390,
       theme: "light" as const,
       mode,
@@ -143,6 +146,12 @@ test("installed-worker share handoff files a producer fixture and renders at pho
         .catch(async (error) => {
           throw Error(String(error) + (await page.locator("body").textContent()) + JSON.stringify(errors));
         });
+      if (mode === "engine-saves") {
+        const documents = page.getByRole("link", { name: "Demo Harbor’s Documents" });
+        assert.equal(await documents.getAttribute("href"), `/deals?deal=${expected.deal_id}&tab=documents`);
+        assert.equal(await page.getByRole("button", { name: "File document" }).count(), 0);
+        continue;
+      }
       await page.getByRole("button", { name: "File document", exact: true }).waitFor();
       assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
       assert.equal(await page.locator("body").evaluate((node) => node.scrollWidth <= innerWidth), true);

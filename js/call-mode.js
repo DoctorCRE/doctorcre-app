@@ -1,3 +1,4 @@
+import { dealsSaveToEngine } from './boot-mode.js';
 import { createPageBudget } from './read-budget.mjs';
 import { mountLocalTicker } from './visibility-poll.mjs';
 import { createRetainedCommands } from './retained-commands.mjs';
@@ -105,6 +106,13 @@ export function createCallMode(deps) {
   const candidateCommands = createRetainedCommands({ scope: () => deps.client()?.selfActor || null });
   const root = deps.root;
   const $ = (selector) => root.querySelector(selector);
+  const engineSaves = dealsSaveToEngine(root);
+  if (engineSaves) {
+    const weekly = $('[data-call-mode-start="weekly_deal_call"]');
+    if (weekly) weekly.hidden = true;
+    const detail = $('#callModeDetail');
+    if (detail) detail.hidden = true;
+  }
   const fetchImpl = deps.fetchImpl || ((...args) => fetch(...args));
   const now = deps.now || (() => Date.now());
   const toast = deps.toast || (() => {});
@@ -768,7 +776,7 @@ export function createCallMode(deps) {
   }
 
   async function start(mode) {
-    if (!CALL_MODES.includes(mode)) return false;
+    if (!CALL_MODES.includes(mode) || (engineSaves && mode === 'weekly_deal_call')) return false;
     const consent = $('#callModeConsent');
     if (!consent?.checked) {
       toast('Confirm that everyone has been told before recording.');

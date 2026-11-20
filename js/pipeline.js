@@ -20,7 +20,7 @@ import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient, dealTypeLabel } from './live-client.js';
 import { emailSubject, emailPlaceholderText, loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
-import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
+import { dealsSaveToEngine, deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
 import { formatCalendarDate } from './visual-system.js';
@@ -1569,6 +1569,7 @@ function workspaceHtml(detail) {
   const parker = fromEngine && parked ? parkingAttributionHtml(d) : '';
   const parkingNote = concise(d.parking_note);
   const nextParking = detail.next_deal_saves === true;
+  const engineSaves = nextParking || dealsSaveToEngine();
   const parkingSummary = nextParking && parked ? parkingDetailsHtml(d)
     : parkingNote ? `<p>${esc(parkingNote)}</p>${parker}` : parker || '<p>Parked</p>';
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !isClosedDeal(d);
@@ -1593,14 +1594,14 @@ function workspaceHtml(detail) {
     ${detail.next_deal_saves ? `<div data-detail-read="attention">${Number.isSafeInteger(d.seen) && !isClosedDeal(d)
       ? `<button class="btn" type="button" data-deal-attention data-detail-focus="attention">${d.attention === true ? 'Clear needs attention' : 'Mark needs attention'}</button>` : ''}</div>` : ''}
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
-    <section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>
+    ${engineSaves ? '' : '<section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>'}
     <div data-detail-read="checklist"></div>
     <form id="detailUpdateForm" class="deal-update-form" novalidate><label for="dealUpdate">Update</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000"${detail.next_deal_saves ? '' : ' required'}></textarea><details id="detailNextStepEditor"><summary>${ownStep ? 'Change your next step' : 'Change next step'}</summary><div class="deal-next-step-fields"><label for="dealUpdateStep">${ownStep ? 'Your next step' : 'Next step'}</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${today}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div></details><button class="btn btn-primary" type="submit">Add update</button><button class="btn" type="button" data-review-update-step hidden>Review current next step</button><button class="btn btn-quiet" type="button" data-discard-update>Discard draft</button><p id="detailUpdateStatus" role="status"></p></form>
     <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail) : '<p role="status">Updating email follow-ups…</p>'}</section>
     ${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner">${fromEngine ? '' : '<option value="">Unassigned</option>'}${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div></div>` : fromEngine ? `<div data-detail-read="parking">${nextParking && parked ? parkingSummary : parker}</div>` : ''}</div>
-    <div data-detail-read="prospect">${controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
+    <div data-detail-read="prospect">${!engineSaves && controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
     ${!fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     <h2>Critical dates</h2>
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
@@ -1804,6 +1805,33 @@ async function refreshEvidence(detail, id, seq) {
   root.innerHTML = template.innerHTML;
   root.querySelectorAll('details').forEach(n => { if (expanded.has(n.querySelector('summary')?.textContent)) n.open = true; });
 }
+function mountSourcedTerms(terms, dealId) {
+  let disposed = false, loading = false, mounted;
+  const observer = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) void loadTerms();
+  });
+  async function loadTerms() {
+    if (disposed || loading) return;
+    loading = true;
+    observer.disconnect();
+    terms.textContent = 'Loading terms…';
+    try {
+      const { mountFactReview } = await import('./ui-facts.generated.js');
+      if (disposed) return;
+      terms.replaceChildren();
+      mounted = mountFactReview(terms, { client: state.client, entityRef: dealId, terms: FACT_TERMS });
+    } catch {
+      if (!disposed) terms.textContent = 'Terms unavailable. Reopen this deal to try again.';
+    }
+  }
+  terms.querySelector('[data-open-terms]').addEventListener('click', loadTerms);
+  observer.observe(terms);
+  return {
+    refresh() { return mounted?.refresh(); },
+    dispose() { disposed = true; observer.disconnect(); mounted?.dispose(); },
+  };
+}
+
 function paintPanel(detail) {
   $('panelTitle').textContent = dealTitle(detail.deal);
   renderWorkspaceFacts(detail);
@@ -1820,31 +1848,7 @@ function paintPanel(detail) {
   $('workspace-overview').prepend(watchElement);
   watchSubject = detail.deal.id;
   watchControl ||= mountWatchControl(watchElement, {subject:{subject_type:'deal',subject_id:detail.deal.id}});
-  const terms = $('panelTerms');
-  let disposed = false, loading = false, mounted;
-  const observer = new IntersectionObserver(entries => {
-    if (entries.some(entry => entry.isIntersecting)) void loadTerms();
-  });
-  async function loadTerms() {
-    if (disposed || loading) return;
-    loading = true;
-    observer.disconnect();
-    terms.textContent = 'Loading terms…';
-    try {
-      const { mountFactReview } = await import('./ui-facts.generated.js');
-      if (disposed) return;
-      terms.replaceChildren();
-      mounted = mountFactReview(terms, { client: state.client, entityRef: detail.deal.id, terms: FACT_TERMS });
-    } catch {
-      if (!disposed) terms.textContent = 'Terms unavailable. Reopen this deal to try again.';
-    }
-  }
-  terms.querySelector('[data-open-terms]').addEventListener('click', loadTerms);
-  observer.observe(terms);
-  factReviewPanel = {
-    refresh() { return mounted?.refresh(); },
-    dispose() { disposed = true; observer.disconnect(); mounted?.dispose(); },
-  };
+  factReviewPanel = $('panelTerms') ? mountSourcedTerms($('panelTerms'), detail.deal.id) : null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   syncUpdateForm();
@@ -1884,7 +1888,7 @@ function paintPanel(detail) {
         ]);
         if (toursDisposed) return;
         root.replaceChildren();
-        toursMounted = mountDealTours(root, { dealId: detail.deal.id, client: createPlannerClient(), initialTourId: new URLSearchParams(location.search).get('tour'), navigate: (url, push) => writeWorkspaceHistory({...history.state, ...(push ? {doctorcreTourWorkspace:detail.deal.id} : {})}, url, push) });
+        toursMounted = mountDealTours(root, { dealId: detail.deal.id, client: createPlannerClient(), readOnly: detail.next_deal_saves === true || dealsSaveToEngine(), initialTourId: new URLSearchParams(location.search).get('tour'), navigate: (url, push) => writeWorkspaceHistory({...history.state, ...(push ? {doctorcreTourWorkspace:detail.deal.id} : {})}, url, push) });
       } catch {
         if (!toursDisposed) {
           root.textContent = 'Tours unavailable. ';

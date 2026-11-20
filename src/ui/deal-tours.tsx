@@ -40,8 +40,15 @@ export function mountDealTours(
     dealId,
     client,
     initialTourId,
+    readOnly = false,
     navigate,
-  }: { dealId: string; client: Client; initialTourId?: string | null; navigate(url: URL, push: boolean): void },
+  }: {
+    dealId: string;
+    client: Client;
+    initialTourId?: string | null;
+    readOnly?: boolean;
+    navigate(url: URL, push: boolean): void;
+  },
 ) {
   if (!uuid.test(dealId)) throw Error("Invalid deal");
   const root = createRoot(element);
@@ -201,7 +208,7 @@ export function mountDealTours(
       root.render(
         <section className="deal-tours" aria-label="Deal tours">
           <h2>Properties &amp; tours</h2>
-          <p>Plan and review the shortlist, route and packet for this deal.</p>
+          {!readOnly && <p>Plan and review the shortlist, route and packet for this deal.</p>}
           {lifecycle === "retired" ? (
             <p role="status">Your session has changed. Reload this deal to continue.</p>
           ) : selection.kind === "ready" || selection.kind === "creating" ? (
@@ -226,9 +233,11 @@ export function mountDealTours(
           ) : (
             <>
               <div className="deal-tour-actions">
-                <button type="button" className="btn" data-start-tour onClick={startCreation}>
-                  Start a tour
-                </button>
+                {!readOnly && (
+                  <button type="button" className="btn" data-start-tour onClick={startCreation}>
+                    Start a tour
+                  </button>
+                )}
                 <button type="button" className="btn btn-quiet" data-refresh-tours onClick={() => void refresh()}>
                   Refresh tours
                 </button>
@@ -254,7 +263,7 @@ export function mountDealTours(
                       ))}
                     </ul>
                   ) : (
-                    <p>No tours for this deal. Start a tour to select properties.</p>
+                    <p>No tours for this deal.{!readOnly && " Start a tour to select properties."}</p>
                   ))}
                 {selection.kind === "loading" && <p>Opening tour…</p>}
                 {selection.kind === "unavailable" && (
@@ -279,7 +288,7 @@ export function mountDealTours(
     );
   }
   function startCreation() {
-    if (!active()) return;
+    if (!active() || readOnly) return;
     departureApproved = false;
     ++detailGeneration;
     requested = null;
@@ -311,8 +320,10 @@ export function mountDealTours(
       const id = requested;
       requested = null;
       if (!id) return;
-      if (id === "new") startCreation();
-      else if (uuid.test(id)) await open(id);
+      if (id === "new") {
+        if (readOnly) setUrl();
+        else startCreation();
+      } else if (uuid.test(id)) await open(id);
     }
   }
   async function open(id: string) {
