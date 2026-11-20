@@ -5,7 +5,7 @@ export function mountMarketTerms(root: HTMLElement, options: Parameters<typeof m
   const document = root.ownerDocument;
   const cutover = dealCutover(document);
   const coverage = document.createElement("p");
-  coverage.textContent = cutover?.label ? `Recorded through ${cutover.label}` : "Recorded before the switch";
+  coverage.textContent = `Recorded through ${cutover?.label ?? "the switch"}.`;
   const comparison = document.createElement("div");
   root.replaceChildren(coverage, comparison);
 

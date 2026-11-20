@@ -162,7 +162,7 @@ async function mountedWatch(
   t: TestContext,
   kind: "deal" | "lease",
   subjectId = originalWatch.subject_id,
-  frozen = false,
+  cutoff: string | null = null,
 ) {
   const subject = { subject_type: kind, subject_id: subjectId };
   const sample = {
@@ -175,7 +175,7 @@ async function mountedWatch(
   const page = await browser.newPage({ viewport: { width: kind === "deal" ? 390 : 1440, height: 900 } });
   await componentDocument(page, "http://localhost:43210", {
     headers: { "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" },
-    html: `<!doctype html><html${frozen ? " data-deals-saves-from-engine" : ""}><meta name="viewport" content="width=device-width,initial-scale=1"><div id="host"></div></html>`,
+    html: `<!doctype html><html${cutoff === null ? "" : ` data-deals-saves-from-engine="${cutoff}"`}><meta name="viewport" content="width=device-width,initial-scale=1"><div id="host"></div></html>`,
     dispose: (page) =>
       page.evaluate(() => {
         const control: unknown = Reflect.get(window, "control");
@@ -748,12 +748,16 @@ test("month-bearing late read is discarded after session invalidation", async (t
 
 for (const copied of [true, false])
   test(`switched deal watch explains ${copied ? "old-system changes" : "an unavailable new deal"}`, async (t) => {
-    const fixture = await mountedWatch(t, "deal", originalWatch.subject_id, true);
+    const fixture = await mountedWatch(t, "deal", originalWatch.subject_id, copied ? "2025-06-12" : "");
     if (!copied) fixture.setMode("missing");
     await fixture.page.locator("summary").click();
     const panel = fixture.page.getByRole("region", { name: "Deal watch", exact: true });
     await panel
-      .getByText(copied ? "This watch only follows changes in the old system." : "You can’t watch this deal yet.")
+      .getByText(
+        `Watches see changes made before ${copied ? "Jun 12, 2025" : "the switch"} only. New deals can't be watched yet.`,
+        { exact: true },
+      )
       .waitFor();
-    assert.equal(await panel.getByRole("button", { name: "Start watch" }).count(), copied ? 1 : 0);
+    const startWatch = panel.getByRole("button", { name: "Start watch" });
+    await startWatch.waitFor({ state: copied ? "visible" : "detached" });
   });

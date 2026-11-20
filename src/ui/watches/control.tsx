@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { dealCutover } from "../deal-cutover.ts";
 import { createWatchClient, type WatchClient } from "./client.ts";
 import { defaultPolicy, isWatchSubjectId, type Policy, type Subject, type Watch } from "./model.ts";
 import { PolicyEditor } from "./policy-editor.tsx";
@@ -12,7 +13,8 @@ type Command = {
 };
 type Phase = "loading" | "ready" | "saving" | "unknown" | "unavailable" | "missing" | "retired";
 export function WatchControl({ subject, client }: { subject: Subject; client: WatchClient }) {
-  const frozen = document.documentElement.hasAttribute("data-deals-saves-from-engine");
+  const cutover = dealCutover(document);
+  const frozen = cutover !== null;
   const opened = useRef(false);
   const [watch, setWatch] = useState<Watch | null | undefined>();
   const [phase, setPhase] = useState<Phase>("loading");
@@ -44,7 +46,7 @@ export function WatchControl({ subject, client }: { subject: Subject; client: Wa
       if (outcome.kind === "missing" && frozen) {
         setWatch(undefined);
         setPhase("missing");
-        setMessage(`You can’t watch this ${subject.subject_type} yet.`);
+        setMessage("");
         return;
       }
       if (outcome.kind === "denied" || outcome.kind === "missing") {
@@ -192,7 +194,7 @@ export function WatchControl({ subject, client }: { subject: Subject; client: Wa
       </summary>
       <section aria-label={`${subject.subject_type === "deal" ? "Deal" : "Lease"} watch`} className="watch-panel">
         {confirmed && <h3>{confirmed}</h3>}
-        {frozen && confirmed && <p>This watch only follows changes in the old system.</p>}
+        {cutover && <p>Watches see changes made before {cutover.label} only. New deals can't be watched yet.</p>}
         {watch && phase !== "retired" && (
           <section aria-label="Confirmed watch policy">
             <p className="watch-detail">

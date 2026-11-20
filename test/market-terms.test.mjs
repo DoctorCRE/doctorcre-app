@@ -240,7 +240,7 @@ test('Compare terms labels coverage and excludes dates after the switch', async 
     const calls = [];
     const response = {ok:true,schema_version:'market-terms.v1',rows:[],coverage:{recorded_documents:0,canonical_receipts:0,unsupported_receipts:0,unclassified_receipts:0,comparable_deals:0}};
     const panel = mountFrozenMarketTerms(root, {entityRef:'d1',client:{readMarketTerms:async args => { calls.push(args); return response; }}});
-    assert.match(root.textContent, date ? /Recorded through Jun 12, 2025/ : /Recorded before the switch/);
+    assert.match(root.textContent, date ? /Recorded through Jun 12, 2025\./ : /Recorded through the switch\./);
     const field = root.querySelector('[name=as_of]');
     assert.equal(field.disabled, !date);
     if (date) {

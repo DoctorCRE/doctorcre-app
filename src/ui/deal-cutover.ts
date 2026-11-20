@@ -10,5 +10,5 @@ export function dealCutover(document: Document) {
     new Date(value).toISOString().slice(0, 10) === value
       ? value
       : null;
-  return { date, label: date ? formatDay(date) : null };
+  return { date, label: date ? formatDay(date) : "the switch" };
 }

@@ -91,7 +91,14 @@ function assetPath(pathname) {
   return STATIC_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ? pathname : null;
 }
 
-async function assetResponse(request, env, path) {
+async function pageSwitches(env) {
+  const [homeToday, dealsFromEngine, dealSavesFromEngine] = await Promise.all([
+    switchedOn(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES),
+  ]);
+  return { homeToday, dealsFromEngine, dealSavesFromEngine };
+}
+
+async function assetResponse(request, env, path, switches) {
   if (!env?.ASSETS?.fetch) return json({ error: "app_assets_unavailable" }, 503);
   const url = new URL(request.url);
   url.pathname = path;
@@ -107,11 +114,9 @@ async function assetResponse(request, env, path) {
   if (path === "/public-shell/sw.js") headers.set("service-worker-allowed", "/");
   const asset = secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
   if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html')) return asset;
-  const [homeToday, dealsFromEngine, dealSavesFromEngine] = await Promise.all([
-    switchedOn(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES),
-  ]);
+  const { homeToday, dealsFromEngine, dealSavesFromEngine } = switches ?? await pageSwitches(env);
   if (!homeToday && !dealsFromEngine && !dealSavesFromEngine) return asset;
-  const date = dealSavesFromEngine && ['/pipeline.html', '/lease-anniversaries.html'].includes(path)
+  const date = dealSavesFromEngine && ['/pipeline.html', '/lease-anniversaries.html', '/workspace.html', '/inbox.html'].includes(path)
     ? await env.ENGINE_ROUTING.get('deal-cutover-date', { cacheTtl: 30 }).catch(() => null)
     : null;
   return new HTMLRewriter().on('html', {
@@ -815,13 +820,14 @@ async function handleRequest(request, env) {
     const gateRequest = gateRequestFor(request, pathname);
     const gate = await carrResponse(gateRequest, env, true);
     if (gate.status !== 200) return gateRequest === request ? gate : restoreOriginalReturnTo(gate, request);
-    if (reviewView && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))) {
+    const switches = await pageSwitches(env);
+    if (reviewView && (!switches.dealsFromEngine || !switches.dealSavesFromEngine)) {
       url.searchParams.delete('view');
       return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
     }
-    if (routeAsset === 'review-workflows.html' && await switchedOn(env, HOME))
-      return copySessionCookies(gate, await assetResponse(request, env, '/review-workflows-moved.html'));
-    if (['lease-radar.html', 'client-portal.html'].includes(routeAsset) && await switchedOn(env, NEXT_DEAL_SAVES)) {
+    if (routeAsset === 'review-workflows.html' && switches.homeToday)
+      return copySessionCookies(gate, await assetResponse(request, env, '/review-workflows-moved.html', switches));
+    if (['lease-radar.html', 'client-portal.html'].includes(routeAsset) && switches.dealSavesFromEngine) {
       const deal = url.searchParams.get('deal');
       if (routeAsset === 'client-portal.html' && deal) {
         const query = new URLSearchParams({ deal, tab: 'client-view' });
@@ -830,9 +836,9 @@ async function handleRequest(request, env) {
         } }));
       }
       const page = routeAsset === 'lease-radar.html' ? '/lease-anniversaries.html' : '/client-website-moved.html';
-      return copySessionCookies(gate, await assetResponse(request, env, page));
+      return copySessionCookies(gate, await assetResponse(request, env, page, switches));
     }
-    return copySessionCookies(gate, await assetResponse(request, env, `/${routeAsset}`));
+    return copySessionCookies(gate, await assetResponse(request, env, `/${routeAsset}`, switches));
   }
 
   const staticAsset = assetPath(pathname);
