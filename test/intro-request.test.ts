@@ -100,6 +100,14 @@ test("selected path requires explicit review and preserves exact party identitie
   });
   assert.equal(h.network.edges.at(-1)?.kind, "intro_requested");
 });
+test("a switch while reviewing prevents the introduction save", async () => {
+  const h = harness();
+  h.model.open(h.network, offerId);
+  Object.assign(h.network, { can_request_introductions: false });
+  await h.model.submit("2026-11-10", "Please connect these practices.", true);
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.model.view().status, "changed_source");
+});
 test("lost response blocks replacement and recovers with identical key after reopening", async () => {
   const h = harness();
   h.model.open(h.network, offerId);

@@ -39,7 +39,7 @@ export function mountRelationshipDialog({ document, onReviewIntroduction }) {
         })
         .join("") || "<p>No connections recorded</p>"
     }</section></div>`;
-    if (onReviewIntroduction) for (const offer of snapshot.suggestions.filter(s => [s.from, s.to, s.via].includes(node.id))) {
+    if (onReviewIntroduction && snapshot.can_request_introductions !== false) for (const offer of snapshot.suggestions.filter(s => [s.from, s.to, s.via].includes(node.id))) {
       const action = document.createElement('button');
       action.type = 'button';
       action.dataset.reviewIntroduction = offer.id;

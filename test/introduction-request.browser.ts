@@ -60,6 +60,7 @@ async function open(t: TestContext, width = 1440, paceMs = 0) {
     if (url.origin !== origin) return r.abort();
     if (url.pathname === "/api/v1/business/relationships") {
       const payload: ReturnType<typeof relationshipNetworkFixture> = structuredClone(introRecording.snapshot);
+      if (mode === "switched") Object.assign(payload, { can_request_introductions: false });
       payload.observed_at = new Date().toISOString();
       payload.valid_until = new Date(Date.now() + 120000).toISOString();
       if (recorded) {
@@ -113,6 +114,18 @@ async function open(t: TestContext, width = 1440, paceMs = 0) {
     },
   };
 }
+for (const width of [1440, 390])
+  test(`switched relationships keep suggestions without a request action at ${width}`, async (t) => {
+    const { page, origin, setMode, writes } = await open(t, width);
+    setMode("switched");
+    await page.goto(`${origin}/relationships?mode=live`);
+    const suggestion = page.locator("#networkIntroductions [data-node]").first();
+    await suggestion.click();
+    assert.equal(await page.locator("[data-review-introduction]").count(), 0);
+    assert.equal(writes.length, 0);
+    await page.screenshot({ path: `out/test-artifacts/w14/switched-${width}.png` });
+  });
+
 for (const width of [1440, 390])
   for (const theme of ["light", "dark"])
     test(`V03 explicitly reviews and records the exact introduction at ${width} ${theme}`, async (t) => {
