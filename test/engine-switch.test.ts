@@ -47,6 +47,20 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
   return { env, send, engine, carr, kv };
 }
 
+test("retiring the feed stops forwarding its cursor without changing the legacy response", async () => {
+  const switches = new Map([["deals-from-engine", "off"]]);
+  const { env, carr } = fixture(switches);
+  const read = () => worker.fetch(new Request(`${origin}/pipeline/changes?cursor=synthetic`), env);
+  assert.equal(await (await read()).text(), "old");
+  assert.equal(carr.length, 1);
+  switches.set("deals-from-engine", "on");
+  const retired = await read();
+  assert.equal(retired.status, 204);
+  assert.equal(retired.headers.get("cache-control"), "no-store");
+  assert.equal(await retired.text(), "");
+  assert.equal(carr.length, 1);
+});
+
 test("document writes require both Deals switches and preserve bytes and session headers", async () => {
   const bytes = "%PDF-1.7 synthetic";
   const digest = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bytes))).toString("hex");
@@ -2104,6 +2118,65 @@ test("old settle operations cannot reach the engine Home marks door", async () =
   }
   assert.deepEqual(f.engine, []);
   assert.deepEqual(f.carr, []);
+});
+
+test("workspace HTML selects all three engine switches independently", async (t) => {
+  const html = "<!doctype html><html><body>Example workspace</body></html>";
+  const setAttribute = t.mock.fn();
+  const transform = t.mock.fn((asset: Response) => asset);
+  class Rewriter {
+    on(selector: string, handler: { element: (node: { setAttribute: typeof setAttribute }) => void }) {
+      assert.equal(selector, "html");
+      handler.element({ setAttribute });
+      return this;
+    }
+    transform = transform;
+  }
+  const original = Object.getOwnPropertyDescriptor(globalThis, "HTMLRewriter");
+  Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: Rewriter });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "HTMLRewriter", original);
+    else Reflect.deleteProperty(globalThis, "HTMLRewriter");
+  });
+
+  for (const path of ["/invoices", "/deals", "/deals?view=national", "/tours/day.html"]) {
+    for (const home of [false, true]) {
+      for (const [deals, saves] of [
+        [false, false],
+        [false, true],
+        [true, false],
+        [true, true],
+      ]) {
+        setAttribute.mock.resetCalls();
+        transform.mock.resetCalls();
+        const { env } = fixture(
+          new Map([
+            ["home-from-engine", home ? "on" : "off"],
+            ["deals-from-engine", deals ? "on" : "off"],
+            ["deals-saves-from-engine", saves ? "on" : "off"],
+            ["deal-cutover-date", "2025-06-12"],
+          ]),
+        );
+        const ASSETS = { fetch: async () => new Response(html, { headers: { "content-type": "text/html" } }) };
+        const assetEnv = { ...env, ASSETS };
+        const response = await worker.fetch(new Request(origin + path), assetEnv);
+        assert.equal(response.status, 200);
+        const attributes = setAttribute.mock.calls.map(({ arguments: args }) => args[0]).sort();
+        const expected = [
+          ...(deals ? ["data-deals-from-engine"] : []),
+          ...(saves ? ["data-deals-saves-from-engine"] : []),
+          ...(home ? ["data-home-today-from-engine"] : []),
+        ];
+        assert.deepEqual(attributes, expected, path);
+        const date = setAttribute.mock.calls.find(({ arguments: args }) => args[0] === "data-deals-saves-from-engine");
+        if (saves) assert.equal(date?.arguments[1], path === "/deals" ? "2025-06-12" : "");
+        assert.equal(transform.mock.callCount(), Number(home || deals || saves));
+        if (!home && !deals && !saves) {
+          assert.equal(await response.text(), html);
+        }
+      }
+    }
+  }
 });
 
 test("Home Today reads only the engine when the Home switch is on", async () => {

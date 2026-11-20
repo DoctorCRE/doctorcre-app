@@ -107,17 +107,17 @@ async function assetResponse(request, env, path) {
   if (path === "/public-shell/sw.js") headers.set("service-worker-allowed", "/");
   const asset = secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
   if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html')) return asset;
-  const [homeFromEngine, dealSavesFromEngine] = await Promise.all([
-    path === '/workspace.html' && switchedOn(env, HOME),
-    switchedOn(env, NEXT_DEAL_SAVES),
+  const [homeToday, dealsFromEngine, dealSavesFromEngine] = await Promise.all([
+    switchedOn(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES),
   ]);
-  if (!homeFromEngine && !dealSavesFromEngine) return asset;
+  if (!homeToday && !dealsFromEngine && !dealSavesFromEngine) return asset;
   const date = dealSavesFromEngine && ['/pipeline.html', '/lease-anniversaries.html'].includes(path)
     ? await env.ENGINE_ROUTING.get('deal-cutover-date', { cacheTtl: 30 }).catch(() => null)
     : null;
   return new HTMLRewriter().on('html', {
     element(node) {
-      if (homeFromEngine) node.setAttribute('data-home-today-from-engine', '');
+      if (homeToday) node.setAttribute('data-home-today-from-engine', '');
+      if (dealsFromEngine) node.setAttribute('data-deals-from-engine', '');
       if (dealSavesFromEngine) node.setAttribute('data-deals-saves-from-engine', /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '');
     },
   }).transform(asset);
@@ -837,6 +837,9 @@ async function handleRequest(request, env) {
     }
   }
 
+  if (pathname === '/pipeline/changes' && await switchedOn(env, DEALS)) {
+    return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+  }
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     const engine = await engineSave(request, env) ?? await engineResponse(request, env);
     if (engine) return engine;

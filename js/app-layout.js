@@ -47,14 +47,13 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const homeOrInbox = pathname === '/' || pathname === '/review-workflows' || pathname === '/inbox' || pathname === '/inbox.html' || pathname.startsWith('/inbox/card/');
   const progressPage = pathname === '/control-room/progress' || pathname.startsWith('/control-room/progress/board/');
   const title = pathname === '/' ? 'Home' : progressPage ? 'Progress' : pathname.startsWith('/control-room') ? 'Control Room' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .room-wordmark, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
-  const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine') ||
-    (pathname === '/' && root.getElementById('homeRoot')?.hasAttribute('data-home-today-from-engine'));
+  const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine');
   const { layout, status } = createAppLayout(root, title, engineToday);
   if (vendorDirectory) layout.querySelector('.app-layout-working').remove();
+  else if (homeOrInbox || engineToday) layout.querySelector('.app-layout-working').hidden = true;
   host.after(layout, status);
   const skip = root.querySelector('.skip');
   if (skip) host.querySelector('header')?.prepend(skip);
-  if (homeOrInbox) layout.querySelector('.app-layout-working').hidden = true;
   const main = layout.querySelector('#appMainSlot');
   main.append(layout.querySelector('.app-layout-page-tools'));
   const pageTools = main.firstElementChild;
@@ -64,7 +63,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   for (const node of [...root.querySelectorAll('[data-layout-slot]')]) {
     const slot = node.dataset.layoutSlot;
     const target = slot === 'tabs' ? layout.querySelector('#appTabsSlot') : slot === 'sidebar' ? layout.querySelector('#appSidebarSlot') : slot === 'moves' ? layout.querySelector('#appTodayMoves') : status.querySelector('#appStatusSlot');
-    if (slot === 'moves') target.replaceChildren();
+    if (slot === 'moves') {
+      if (!target) continue;
+      target.replaceChildren();
+    }
     target.append(node);
   }
   for (const node of [...root.body.children]) {
@@ -79,15 +81,23 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   // A page that brings its own freshness and refresh owns the band's one clock and one refresh.
   const pageRefresh = status.querySelector('#appStatusSlot [data-layout-refresh]');
   status.toggleAttribute('data-page-freshness', Boolean(pageRefresh));
-  const pageOwnsMoves = Boolean(layout.querySelector('#appTodayMoves [data-layout-slot="moves"]'));
+  const pageMoves = layout.querySelector('[data-layout-slot="moves"]');
+  const pageOwnsMoves = Boolean(pageMoves);
+  const canReadMoves = () => !pageOwnsMoves && !root.documentElement.hasAttribute('data-deals-from-engine');
   const phone = win.matchMedia(pathname === "/leads" ? "(max-width:1023px)" : TOUCH_LAYOUT);
   const itineraryPage = Boolean(root.getElementById('accepted-itinerary'));
   const dealBoard = pathname === '/deals' && root.body.classList.contains('dealroom-page');
-  let sidebar = !boardPage && !itineraryPage && !vendorDirectory, today = true, drawer = null;
+  let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory, today = true, drawer = null;
   let drawerOpener = null;
   const background = new Map();
-  try { const saved = win.localStorage.getItem(`doctorcre:sidebar:${pageKey}`); if (saved !== null) sidebar = saved === 'open'; const savedToday = win.localStorage.getItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today'); if (savedToday !== null) today = savedToday !== 'closed'; } catch {}
+  try {
+    const saved = win.localStorage.getItem(`doctorcre:sidebar:${pageKey}`);
+    if (!engineToday && saved !== null) sidebar = saved === 'open';
+    const savedToday = win.localStorage.getItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today');
+    if (savedToday !== null) today = savedToday !== 'closed';
+  } catch {}
   const sidebarToggle = layout.querySelector('#appSidebarToggle'), todayToggle = layout.querySelector('#appTodayToggle');
+  sidebarToggle.hidden = engineToday;
   const paint = () => {
     layout.dataset.sidebar = sidebar ? 'open' : 'closed'; layout.dataset.today = today ? 'open' : 'closed'; layout.dataset.drawer = drawer || '';
     const leftOpen = phone.matches ? drawer === 'sidebar' : sidebar;
@@ -148,7 +158,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   });
   phone.addEventListener('change', () => { drawer = null; paint(); });
   paint();
-  root.addEventListener('doctorcre:open-today', () => openRegion('today'));
+  root.addEventListener('doctorcre:open-today', () => {
+    if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
+    else openRegion('today');
+  });
   // Page tab controllers retain selection and lazy reads. Give groups without
   // their own roving focus the same left/right keyboard affordance.
   const tabs = layout.querySelector('#appTabsSlot');
@@ -191,7 +204,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     return null;
   });
   let client, feedActor = null, cursor = null, feed = createFeedProgress(), receipts = [];
-  const resetFeed = () => { feedActor = null; cursor = null; feed = createFeedProgress(); receipts = []; if (!homeToday && !pageOwnsMoves) renderMoves(); };
+  const resetFeed = () => { feedActor = null; cursor = null; feed = createFeedProgress(); receipts = []; if (!homeToday && canReadMoves()) renderMoves(); };
   let todayItems = null, todayNeeds = null, nextExpanded = false, failedReads = [], todayReadState = 'loading', listedOverdue = new Set();
   const row = (item, extra = '', overdue = '') => `<button type="button" class="app-layout-item" data-layout-deal="${escape(item.subject_id || item.id)}"><strong>${escape(item.subject_name || item.name)}</strong>${briefOwnerLabel(item) ? `<small class="morning-owner">${briefOwnerLabel(item)}</small>` : ''}${extra || overdue ? `<span>${escape(extra)}${extra && overdue ? ' ' : ''}${overdue ? `<span class="app-layout-age">${escape(overdue)}</span>` : ''}</span>` : ''}</button>`;
   const render = (target, html) => { const node = layout.querySelector(target); if (node.innerHTML !== html) { const id = node.contains(root.activeElement) ? root.activeElement.dataset.layoutDeal : null; node.innerHTML = html; if (id) [...node.querySelectorAll('button')].find(b => b.dataset.layoutDeal === id)?.focus(); } };
@@ -266,9 +279,9 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     todayReadState = 'settled';
     void calendarPanels.then(panel => panel?.clear());
     failedReads = ['Schedule', 'Overdue', 'Dated reminders'];
-    if (!pageOwnsMoves) failedReads.push('Deal pulse');
+    if (canReadMoves()) failedReads.push('Deal pulse');
     renderToday();
-    if (!pageOwnsMoves && !feed.caught_up) render('#appTodayMoves', unavailable);
+    if (canReadMoves() && !feed.caught_up) render('#appTodayMoves', unavailable);
     renderReadStatus();
   };
   const lifetime = new AbortController();
@@ -347,7 +360,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       todayItems = (triageValid ? triage.value.items : todayItems)?.filter(item => item.subject_type !== 'deal' || authorized.has(item.subject_id)) ?? null;
       receipts = receipts.filter(receipt => authorized.has(receipt.deal_id))
         .map(receipt => ({ ...receipt, deal_name: authorized.get(receipt.deal_id) }));
-      if (!pageOwnsMoves) renderMoves();
+      if (canReadMoves()) renderMoves();
       const active = scopedDeals(value, 'team');
       // Home and Inbox list overdue deals in their main column, so their Today panel keeps only late reminders.
       const reminded = homeOrInbox ? active.filter(deal => todayItems?.some(item => item.subject_type === 'deal' && item.subject_id === deal.id)) : active;
@@ -355,7 +368,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       else todayNeeds = todayNeeds.filter(deal => active.some(current => current.id === (deal.subject_id || deal.id)));
       if (!vendorDirectory) render('#appWorkingList', overdueRows(active.filter(d => needsAttention(d))).slice(0,8).join('') || empty);
       renderToday();
-      if (!pageOwnsMoves) {
+      if (canReadMoves()) {
         try {
           // The existing feed starts with history. Never present its oldest
           // page as recent; advance bounded pages until it reaches the present.
@@ -365,6 +378,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
             takePage();
             const changes = await readWithDeadline(() => client.getChanges(cursor), { signal });
             if (signal?.aborted || win.navigator.onLine === false) return;
+            if (changes === null) break;
             if (!Array.isArray(changes?.events)) throw new Error('Invalid change response');
             const batch = changes.events;
             feed = observeChangeBatch(feed, batch);
@@ -373,17 +387,19 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
             cursor = changes.cursor ?? cursor;
             if (feed.caught_up) break;
           }
-          renderMoves();
+          if (canReadMoves()) renderMoves();
         } catch {
           if (signal?.aborted) return;
-          failedReads.push('Deal pulse');
-          if (!feed.caught_up) render('#appTodayMoves', unavailable);
+          if (canReadMoves()) {
+            failedReads.push('Deal pulse');
+            if (!feed.caught_up) render('#appTodayMoves', unavailable);
+          }
         }
       }
     } else {
       if (triageValid) todayItems = triage.value.items;
       if (!vendorDirectory && !todayNeeds) render('#appWorkingList', unavailable);
-      if (!pageOwnsMoves) {
+      if (canReadMoves()) {
         failedReads.push('Deal pulse');
         if (!feed.caught_up) render('#appTodayMoves', unavailable);
       }
@@ -411,7 +427,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   pageRefresh?.addEventListener('click', () => { if (!fanOut) auto.refresh(); });
   void (homeToday || ready).then(() => auto.refresh());
   // Ages are relative to now, so the list repaints each minute; render() skips the DOM when the text is unchanged.
-  const ageTick = mountLocalTicker({ document: root, window: win, tick: () => { if (!homeToday && !pageOwnsMoves && feed.caught_up) renderMoves(); }, intervalMs: 60_000 });
+  const ageTick = mountLocalTicker({ document: root, window: win, tick: () => { if (!homeToday && canReadMoves() && feed.caught_up) renderMoves(); }, intervalMs: 60_000 });
   const invalidateSession = () => {
     preparation.retire();
     void calendarPanels.then(panel => panel?.retire());

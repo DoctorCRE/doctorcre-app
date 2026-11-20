@@ -24,7 +24,7 @@ export function normalizeBrief(payload) {
   return {...payload,sections};
 }
 
-export function morningBriefView(payload, { now = new Date(), since, events = [], caughtUp = false, owner = 'all' } = {}) {
+export function morningBriefView(payload, { now = new Date(), since, events = [], caughtUp = false, feedRetired = false, owner = 'all' } = {}) {
   payload = normalizeBrief(payload);
   if (!payload) return null;
   const { sponsor, sections } = payload, day = localDay(now);
@@ -52,7 +52,7 @@ export function morningBriefView(payload, { now = new Date(), since, events = []
   const ranked = due.filter(row => { if (seen.has(row.key)) return false; seen.add(row.key); return true; });
   const unique = filterBriefOwners(ranked, owner);
   const first = unique[0] || null, teamFirst = ranked[0] || null;
-  const receipts = caughtUp ? events.map(event => normalizeChangeEvent(event, { dealName:id => deals.get(id)?.name })).filter(row => row && Date.parse(row.recorded_at) >= Date.parse(since) && Date.parse(row.recorded_at) <= now.valueOf()).sort(compareReceipts) : [];
+  const receipts = caughtUp && !feedRetired ? events.map(event => normalizeChangeEvent(event, { dealName:id => deals.get(id)?.name })).filter(row => row && Date.parse(row.recorded_at) >= Date.parse(since) && Date.parse(row.recorded_at) <= now.valueOf()).sort(compareReceipts) : [];
   const change = receipts.find(row => ['phase','next_step','next_date','note','attention','operating_state'].includes(row.field) && !(teamFirst?.kind === 'deal' && row.deal_id === teamFirst.id));
   const overnight = change ? { key:`deal:${change.deal_id}`, kind:'deal', id:change.deal_id, title:change.deal_name, summary:change.kind === 'note' ? 'New note' : todayMove(change).action, due:null } : null;
   const remaining = unique.find(row => row.key !== first?.key && !(row.kind === 'deal' && row.id === overnight?.id)) || null;
@@ -64,7 +64,7 @@ export function morningBriefView(payload, { now = new Date(), since, events = []
     });
   const unavailable = [];
   if (sections.today.state === 'unavailable' || sections.loops.state === 'unavailable' || sections.deals.state === 'unavailable') unavailable.push('Today’s priorities unavailable');
-  if (!caughtUp || sections.deals.state === 'unavailable') unavailable.push('Overnight updates unavailable');
+  if (!feedRetired && (!caughtUp || sections.deals.state === 'unavailable')) unavailable.push('Overnight updates unavailable');
   const coverage = briefSections(payload);
   return { sponsor, day, groups, unavailable, coverage, observedAt:now.toISOString() };
 }
