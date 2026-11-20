@@ -365,8 +365,30 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   details.set(draft, { draft_id: draft, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
     to: 'sender@example.test', cc: 'partner@example.test', attachments: [{ document_id: dealId, name: 'Sample plan' }],
     source_activity: { sender: 'sender@example.test', subject: 'Sample email', body: 'Please share the sample plan.', happened_at: NOW.toISOString() } });
+  const lead = '00000000-0000-0000-0000-000000000030';
+  state.items.push({ ...notice, title: 'New Example · Possible lead', item_id: `suggestion:${lead}`, source_id: lead,
+    source_type: 'email_proposal', deal_id: null, open_url: null, source_activity: null,
+    suggestions: [{ id: lead, kind: 'email_lead', candidate_id: partyId, activity_id: null }] });
+  details.set(lead, { proposal_id: lead, kind: 'email_lead', target_name: 'New Example',
+    evidence: 'Asked about leasing a suite.', evidence_quote: 'I am looking to lease a suite.',
+    source_activity: { kind: 'email', id: null, sender: 'new@example.test', sender_name: 'New Example',
+      happened_at: '2026-01-08T12:00:00Z', subject: null, body: null, summary: null } });
   await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
   const cardFor = name => inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name }) });
+  await inbox.getByRole('region', { name: 'Needs your attention', exact: true }).getByRole('button', { name: /^See all/ }).click();
+  const leadCard = inbox.locator(`[data-inbox-row="suggestion:${lead}"]`);
+  await leadCard.getByRole('button', { name: 'Open', exact: true }).click();
+  await leadCard.getByRole('heading', { name: 'Possible lead · New Example' }).waitFor();
+  await leadCard.getByText('Asked about leasing a suite.', { exact: true }).waitFor();
+  await leadCard.getByText('I am looking to lease a suite.', { exact: true }).waitFor();
+  await leadCard.getByText(/new@example.test/).waitFor();
+  await leadCard.getByText(/Jan 8, 2026/).waitFor();
+  const leadReview = leadCard.getByRole('region', { name: /Details for New Example/ });
+  assert.equal(await leadReview.getByRole('button', { name: 'Accept', exact: true }).count(), 1);
+  assert.equal(await leadReview.getByRole('button', { name: 'Drop', exact: true }).count(), 1);
+  await leadReview.getByRole('button', { name: 'Accept', exact: true }).click();
+  await leadCard.waitFor({ state: 'detached' });
+  assert.equal(writes.at(-1)[1].decision, 'accept');
   const review = cardFor(/Did this happen\? Review the sample site/);
   await review.getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
@@ -382,7 +404,6 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await review.getByRole('button', { name: 'Not yet', exact: true }).click();
   await review.waitFor({ state: 'detached' });
   assert.equal(writes.at(-1)[1].decision, 'dismiss');
-  await inbox.getByRole('region', { name: 'Needs your attention', exact: true }).getByRole('button', { name: /^See all/ }).click();
   const suggestions = cardFor(/Call suggestions/);
   const reply = cardFor(/Reply to the sample email/);
   for (const [row, id] of [[suggestions, `suggestion:${log}`], [reply, `reply_draft:${draft}`]]) {
