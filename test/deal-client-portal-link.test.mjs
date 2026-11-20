@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile, mkdir} from 'node:fs/promises';
 import {chromium, waitForAsync} from './browser-harness.mjs';
-import {renderClientPortalLink} from '../js/client-portal-link.js';
+import worker from "../src/worker.js";
+import {openEngineClientWebsite, renderClientPortalLink} from '../js/client-portal-link.js';
 const root=new URL('../',import.meta.url);
 const PORTAL='https://share.doctorcre.com/demo-practice';
 
@@ -14,6 +15,66 @@ test('the client portal link renders only for https and escapes the address',()=
  const html=renderClientPortalLink('https://share.doctorcre.com/a"b');
  assert.match(html,/href="https:\/\/share\.doctorcre\.com\/a&quot;b"/);
  assert.match(html,/target="_blank" rel="noopener noreferrer"/);
+});
+
+test("the deal opens a grant only at its configured share origin", async (t) => {
+  const deal = "00000000-0000-4000-8000-000000000001";
+  const staging = "https://share-staging.example.test";
+  const production = "https://share.doctorcre.com";
+  const grantPath = "/example-site/?grant=00000000-0000-4000-8000-000000000002";
+  const opened = [];
+  const tab = {
+    opener: null,
+    document: { body: { textContent: "" } },
+    location: { replace: (url) => opened.push(url) },
+    close: () => {},
+  };
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { open: () => tab },
+  });
+  t.after(() => Reflect.deleteProperty(globalThis, "window"));
+
+  let grantUrl = staging + grantPath;
+  const bindings = {
+    CLIENT_WEBSITE_ORIGIN: staging,
+    ENGINE_ROUTING: new Map([["deals-from-engine", "on"]]),
+    ENGINE: {
+      fetch: async () => Response.json({ url: grantUrl }, {
+        headers: { "x-doctorcre-client-website-origin": production },
+      }),
+    },
+  };
+  t.mock.method(globalThis, "fetch", async (path, init) =>
+    worker.fetch(new Request("https://app.example.test" + path, init), bindings),
+  );
+
+  assert.equal(await openEngineClientWebsite(deal), null);
+  for (const other of [production, staging + ".invalid", "http://share-staging.example.test"]) {
+    grantUrl = other + grantPath;
+    assert.match((await openEngineClientWebsite(deal)) ?? "", /Could not open/);
+  }
+  bindings.CLIENT_WEBSITE_ORIGIN = production;
+  grantUrl = production + grantPath;
+  assert.equal(await openEngineClientWebsite(deal), null);
+  assert.deepEqual(opened, [staging + grantPath, production + grantPath]);
+});
+
+test("the app refuses to request a grant without a configured share origin", async (t) => {
+  const endpoint = "https://app.example.test/api/engine/deals/00000000-0000-4000-8000-000000000001/client-website/open";
+  const forward = t.mock.fn(async () => Response.json({
+    url: "https://share.doctorcre.com/example-site/?grant=00000000-0000-4000-8000-000000000002",
+  }));
+  for (const origin of [undefined, "", "http://share.example.test"]) {
+    const response = await worker.fetch(new Request(endpoint, { method: "POST" }), {
+      CLIENT_WEBSITE_ORIGIN: origin,
+      ENGINE_ROUTING: new Map([["deals-from-engine", "on"]]),
+      ENGINE: { fetch: forward },
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "client_website_origin_unconfigured" });
+  }
+  assert.equal(forward.mock.callCount(), 0);
 });
 
 async function open(t,width=1280,{portal=null,closed=false}={}) {

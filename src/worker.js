@@ -747,6 +747,9 @@ async function handleRequest(request, env) {
     const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);
     if (website && (!await switchedOn(env, DEALS) || (!website[1] && !await switchedOn(env, NEXT_DEAL_SAVES))))
       return json({ error: 'not_found' }, 404);
+    const shareOrigin = website?.[1] ? URL.parse(env?.CLIENT_WEBSITE_ORIGIN ?? '') : null;
+    if (website?.[1] && (shareOrigin?.protocol !== 'https:' || shareOrigin.href !== `${shareOrigin.origin}/`))
+      return json({ error: 'client_website_origin_unconfigured' }, 503);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     const marketDealRead = pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
     if ((weeklyReview && !await switchedOn(env, NEXT_DEAL_SAVES))
@@ -775,6 +778,11 @@ async function handleRequest(request, env) {
         return await env.ENGINE.fetch(new Request(url, forwarded));
       }
       const response = await env.ENGINE.fetch(forwarded);
+      if (shareOrigin && response.ok) {
+        const grant = new Response(response.body, response);
+        grant.headers.set('x-doctorcre-client-website-origin', shareOrigin.origin);
+        return grant;
+      }
       if (!weeklyReview || request.method !== 'GET' || !response.ok) return response;
       const review = new Response(response.body, response);
       review.headers.set('x-doctorcre-deal-saves', await switchedOn(env, NEXT_DEAL_SAVES) ? 'on' : 'off');

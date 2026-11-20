@@ -2122,6 +2122,7 @@ test('switched-on Deals sets up a client website and opens it unlocked in a new 
   });
   let registered = false;
   const env = {
+    CLIENT_WEBSITE_ORIGIN: new URL(website).origin,
     ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
     ENGINE: { fetch: async request => {
       const pathname = new URL(request.url).pathname;
@@ -2206,6 +2207,7 @@ async function clientWebsitePage(t, { readsOn = true, savesOn = true, closed = f
   }] };
   const enginePaths = [];
   const env = {
+    CLIENT_WEBSITE_ORIGIN: new URL(website).origin,
     ENGINE_ROUTING: { get: async key => ({ 'deals-from-engine': readsOn, 'deals-saves-from-engine': savesOn }[key] ? 'on' : null) },
     ENGINE: { fetch: async request => {
       const path = new URL(request.url).pathname;
