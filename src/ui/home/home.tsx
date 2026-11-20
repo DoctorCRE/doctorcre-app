@@ -94,11 +94,8 @@ function Inbox({ client }: { client: InboxClient }) {
   });
   useEffect(() => {
     const host = document.getElementById("homeRoot");
-    if (home && !query.isPending && host) {
-      host.toggleAttribute("data-engine-home", query.data?.engine_marks === true);
-      markHomeReady(host);
-    }
-  }, [home, query.isPending, query.data?.engine_marks]);
+    if (home && !query.isPending && host) markHomeReady(host);
+  }, [home, query.isPending]);
   const [reviewing, setReviewing] = useState<(InboxItem & { focusedSuggestionId?: string }) | null>(null);
   const reviewOpener = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {

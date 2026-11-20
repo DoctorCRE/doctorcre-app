@@ -133,6 +133,7 @@ const DEALS = 'deals-from-engine';
 const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
 const LEADS = 'leads-from-engine';
 const HOME = 'home-from-engine';
+const HOME_TODAY = '/api/engine/home/today';
 const LEGACY_HOME_MARKS = new Set(['snooze-home-inbox', 'settle-home-inbox', 'unsettle-home-inbox']);
 const HOME_WRITES = new Map([
   ['end-engine-home-step', ['next-steps', 'end']],
@@ -167,6 +168,7 @@ const ENGINE_READS = new Map([
   ['quiet-follow-ups', { key: LEADS, path: '/api/engine/quiet-follow-ups', args: { lead_days: Number.isFinite, vendor_days: Number.isFinite, owner_slug: isString } }],
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
   ['territory-state-board', { key: LEADS, path: '/api/engine/territory-state-board', args: { vertical: isString, city: isString, state: isString } }],
+  [HOME_TODAY, { key: HOME, path: HOME_TODAY, engineOnly: true }],
   ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {} }],
   ['/api/v1/intelligence/mail-needs-partner', { key: HOME, path: '/api/engine/home/mail-priorities', forwardQuery: false, engineOnly: true }],
   ['read-engine-home-proposal', homeDetail('proposals')],
@@ -726,13 +728,24 @@ async function handleRequest(request, env) {
       url.searchParams.delete('view');
       return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
     }
-    return copySessionCookies(gate, await assetResponse(request, env, `/${routeAsset}`));
+    let asset = await assetResponse(request, env, `/${routeAsset}`);
+    if (pathname === '/' && routeAsset === 'workspace.html' && request.method === 'GET' && asset.ok && await switchedOn(env, HOME)) {
+      asset = new HTMLRewriter().on('#homeRoot', {
+        element(node) { node.setAttribute('data-home-today-from-engine', ''); },
+      }).transform(asset);
+    }
+    return copySessionCookies(gate, asset);
   }
 
   const staticAsset = assetPath(pathname);
   if (staticAsset) {
     if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method_not_allowed" }, 405);
     return assetResponse(request, env, staticAsset);
+  }
+
+  if (pathname === HOME_TODAY) {
+    if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405);
+    return await engineResponse(request, env) ?? json({ error: 'not_found' }, 404);
   }
 
   if (pathname.startsWith('/api/engine/')) {

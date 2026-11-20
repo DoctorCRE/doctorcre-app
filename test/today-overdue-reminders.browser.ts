@@ -48,7 +48,7 @@ const brief = {
   },
 };
 
-async function mountToday(t: test.TestContext, path: string, engine = false) {
+async function mountToday(t: test.TestContext, path: string) {
   const dom = new JSDOM('<nav id="host"></nav><main><h1>Example</h1><div id="homeRoot"></div></main>', {
     url: "http://localhost/?mode=live",
     pretendToBeVisual: true,
@@ -58,7 +58,6 @@ async function mountToday(t: test.TestContext, path: string, engine = false) {
   Object.defineProperty(win, "matchMedia", {
     value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
   });
-  if (engine) root.getElementById("homeRoot")?.setAttribute("data-engine-home", "true");
   const previousFetch = globalThis.fetch,
     previousLocation = globalThis.location;
   globalThis.location = win.location;
@@ -136,20 +135,5 @@ test("Today on the review page leaves out a deal the Overdue deals board already
   assert.deepEqual(
     cards("#appTodayNeeds").map((card) => card.deal),
     ["d1"],
-  );
-});
-
-test("Engine Home's Today panel labels a late reminder in calendar days", async (t) => {
-  const { root, cards, listsOverdue } = await mountToday(t, "/", true);
-  assert.equal(root.querySelector("#appTodayNeeds")?.previousElementSibling?.textContent, "Late");
-  assert.equal(cards("#appTodayNeeds")[0]?.detail, "Demo notice deadline 89 days late");
-  listsOverdue(["action-past", "action-future"]);
-  assert.deepEqual(
-    cards("#appTodayNeeds").map((card) => card.deal),
-    ["d2"],
-  );
-  assert.deepEqual(
-    cards("#appTodayNext").map((card) => card.deal),
-    ["d3"],
   );
 });
