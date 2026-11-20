@@ -17,11 +17,11 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
       await page.screenshot({ path: `${process.env.LEADS_DESIGN_DIR}/${width}-${theme}-${name}-viewport.png` });
     };
     await capture('leads');
-    const framing = await page.locator('#leadBoard .stage-column .lead-card').evaluateAll(cards => cards.map(card => {
-      const style = getComputedStyle(card);
+    const framing = await page.locator('#leadBoard .stage-column').evaluateAll(columns => columns.map(column => {
+      const style = getComputedStyle(column);
       return [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth].every(value => parseFloat(value) > 0);
     }));
-    expect.soft(framing.some(Boolean), 'stage panels must not contain fully bordered cards').toBe(false);
+    expect.soft(framing.some(Boolean), 'stage columns have no surrounding outline').toBe(false);
     const accents = await page.locator('button, a').evaluateAll(nodes => {
       const probe = document.createElement('span');
       probe.style.backgroundColor = 'var(--accent)'; document.body.append(probe);

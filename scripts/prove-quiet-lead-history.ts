@@ -258,7 +258,7 @@ export async function prove({
       const expected = visible.map((row) => ({
         id: row.subject_id,
         name: row.name,
-        href: `/leads?lead=${encodeURIComponent(row.ref)}`,
+        href: `/leads?lead=${encodeURIComponent(row.ref ?? row.subject_id)}`,
         reason:
           (row.basis === "created_at"
             ? `No contact recorded. Added ${date(row.anchor_on)}.`
@@ -327,7 +327,7 @@ export async function prove({
     assert.ok(subject, "eligible lead");
     const basis = subject.basis;
     const key = subject.owner == null ? "unrecorded" : `owner:${subject.owner}`;
-    const query = subject.ref.trim().toLowerCase();
+    const query = (subject.ref ?? subject.name).trim().toLowerCase();
     await bounded(history.selectOption(basis));
     await bounded(owner.selectOption(key));
     await bounded(input.fill(query));
@@ -336,7 +336,7 @@ export async function prove({
         (row) =>
           row.basis === basis &&
           (row.owner ?? null) === (subject.owner ?? null) &&
-          (row.name.toLowerCase().includes(query) || row.ref.toLowerCase().includes(query)),
+          (row.name.toLowerCase().includes(query) || row.ref?.toLowerCase().includes(query)),
       ),
       0,
     );
