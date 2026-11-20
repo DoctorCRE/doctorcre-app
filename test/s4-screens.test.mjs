@@ -115,6 +115,21 @@ for(const failure of [401,403,503,'malformed','refusal','timeout']) test(`F04 ag
   assert.deepEqual(errors,[]);
 });
 
+test('the save switch hides existing call confirmations on National Accounts', async t => {
+  const page = await national(t);
+  const dock = page.locator('#confirmDock');
+  await page.evaluate(async () => {
+    window.s4App.state.client.getPendingConfirms = async () => ({ proposals: [{ id: 'demo', label: 'Demo call suggestion' }] });
+    await window.s4App.loadConfirms();
+  });
+  await dock.getByText('Demo call suggestion').waitFor();
+  await page.evaluate(async () => {
+    document.documentElement.setAttribute('data-deals-saves-from-engine', '');
+    await window.s4App.loadConfirms();
+  });
+  assert.equal(await dock.isVisible(), false);
+});
+
 test('F06 capture queue failure has visible retry; a late success cannot restore denied suggestions',async t=>{
   const page=await national(t);
   await page.evaluate(async()=>{

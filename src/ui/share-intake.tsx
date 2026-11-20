@@ -45,6 +45,12 @@ export function mountShareIntake(element: Element, options: Parameters<typeof cr
               </button>
             </>
           )}
+          {state.kind === "open-documents" && (
+            <p>
+              Add this file from{" "}
+              <a href={`/deals?deal=${state.deal.id}&tab=documents`}>{state.deal.name}’s Documents</a>.
+            </p>
+          )}
           {state.kind === "filing" && <p>Filing in {state.deal.name}. Keep this page open.</p>}
           {state.kind === "uncertain" && (
             <>
@@ -69,7 +75,7 @@ export function mountShareIntake(element: Element, options: Parameters<typeof cr
           )}
           {(state.kind === "refused" || state.kind === "retired") && <p>{state.message}</p>}
         </div>
-        {["choosing", "ready", "uncertain"].includes(state.kind) && (
+        {["choosing", "ready", "uncertain", "open-documents"].includes(state.kind) && (
           <button type="button" onClick={() => void model.discard()}>
             Discard file
           </button>

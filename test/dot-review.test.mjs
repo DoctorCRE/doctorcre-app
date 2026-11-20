@@ -32,7 +32,11 @@ function handlers(path, start, end, globals = {}, expose = []) {
   const finish = end ? text.indexOf(end, offset + start.length) : text.length;
   assert.ok(finish > offset, end);
   const context = vm.createContext({createPageBudget,sessionFetch:(...args)=>globals.fetch(...args),observeDocRead,selectDocRecord,setDocFilters,pageDocContext:null,authGeneration,authReadable,createRetainedCommands,answerBaseVersion,ANSWER_VERSION_CONFLICT_SENTENCE,classifyCommandOutcome,appWrite:(_key,args,send)=>send({...args,idempotency_key:"key"}), console, Date, Map, Set, Promise, URL, URLSearchParams, setTimeout, clearTimeout, ...globals });
-  if (path === "tours/app.js") { vm.runInContext(tourImports, context); Object.assign(context, globals); }
+  if (path === "js/call-mode.js") context.engineSaves = false;
+  if (path === "tours/app.js") {
+    vm.runInContext(tourImports, context);
+    Object.assign(context, { readOnly: false }, globals);
+  }
   vm.runInContext(text.slice(offset, finish).replace(/export /g, "") + "\nObject.assign(globalThis, {" + expose.join(",") + "});", context);
   return context;
 }

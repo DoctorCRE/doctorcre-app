@@ -122,8 +122,12 @@ function drawnButton(html, attribute, value) {
 
 // ------------------------------------------------------------ fakes
 
-function harness({ agenda = [], state = { state: "idle" }, statuses = [], contextDeals, withAgenda = true, agendaResult, now = () => Date.parse("2026-09-23T15:01:05Z") } = {}) {
+function harness({ agenda = [], state = { state: "idle" }, statuses = [], contextDeals, withAgenda = true, agendaResult, savesOn = false, now = () => Date.parse("2026-09-23T15:01:05Z") } = {}) {
   const doc = callModeDocument();
+  if (savesOn) {
+    doc.documentElement = guideDom.window.document.createElement('html');
+    doc.documentElement.setAttribute('data-deals-saves-from-engine', '');
+  }
   const requests = [];
   const timers = [];
   const fetchImpl = async (url, init = {}) => {
@@ -367,6 +371,42 @@ const REPORT = {
     review_questions: [{ question: "Which suite?" }],
   },
 };
+
+test('after the save switch, a filed weekly call shows its summary without legacy review actions', async t => {
+  const report = structuredClone(REPORT.report);
+  report.review_questions[0].id = 'demo-question';
+  report.deal_updates[0].candidate_status = 'pending';
+  const h = harness({ savesOn: true, state: { state: 'filed', mode: 'weekly_deal_call', session: 'demo-filed-call' },
+    statuses: [{ status: { state: 'filed' }, report }] });
+  t.after(() => h.controller.dispose());
+  let outcomeReads = 0;
+  h.client.readCallOutcomes = async () => { ++outcomeReads; return { calls: [] }; };
+  await h.controller.open();
+  await new Promise(resolve => setImmediate(resolve));
+  const html = h.doc.getElementById('postCallReport').innerHTML;
+  assert.match(html, /Pipeline review/);
+  assert.doesNotMatch(html, /data-post-call-(confirm|skip)|data-create-outlook-draft|data-resolve-question/);
+  assert.equal(h.doc.getElementById('postCallOutcomes').hidden, true);
+  assert.equal(outcomeReads, 0);
+  await h.controller.handleClick(new StubElement('button', { 'data-post-call-confirm': 'cand-update' }));
+  assert.deepEqual(h.calls.resolveConfirm, []);
+  assert.equal(h.doc.querySelector('[data-call-mode-start="other_call"]').hidden, false);
+});
+
+for (const state of ['recording', 'ready_to_extract']) {
+  test(`after the save switch, a weekly call in ${state} never recovers context`, async t => {
+    const h = harness({ savesOn: true, agenda: agendaOf(2),
+      state: { state, mode: 'weekly_deal_call', session: 'demo-weekly-call' },
+      statuses: [{ status: { state: 'awaiting_context' } }] });
+    t.after(() => h.controller.dispose());
+    await h.controller.open();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(h.calls.getCallContext, []);
+    assert.deepEqual(h.calls.publishCallContext, []);
+    assert.doesNotMatch(h.doc.getElementById('postCallStatus').innerHTML, /Retry deal context|Preparing the weekly deal context/);
+    if (state === 'recording') assert.equal(h.doc.getElementById('callModeStop').hidden, false);
+  });
+}
 
 async function reviewReady() {
   const h = harness({ statuses: [REPORT] });

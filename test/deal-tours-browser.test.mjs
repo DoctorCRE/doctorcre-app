@@ -446,3 +446,66 @@ test('creation and pending-write departures preserve history and saved notes', a
 });
 
 });
+
+
+test('the save switch keeps saved tours viewable at 390 and 1440 pixels', async t => {
+  const deal = '11111111-1111-4111-8111-111111111111';
+  const tour = '33333333-3333-4333-8333-333333333333';
+  const row = { id: tour, deal_id: deal, name: 'Demo deal tour', status: 'scheduled' };
+  const artifact = await temporaryDirectory('doctorcre-cutover-tours-', t);
+  await buildArtifact({ root: fileURLToPath(new URL('../', import.meta.url)), outDir: artifact, commit: '1'.repeat(40) });
+  const server = await startFixtureServer({ env: { DOCTORCRE_FIXTURE_ROOT: `${artifact}/site` } });
+  t.after(() => server.stop());
+  const browser = await chromium.launch({ args: [...CHROMIUM_SAFETY_ARGS] });
+  t.after(() => browser.close());
+  const seed = (await readFile(new URL('../data/board-seed.json', import.meta.url), 'utf8')).replaceAll('"d14"', JSON.stringify(deal));
+  const { detail } = await import('./fixtures/tour-day.synthetic.mjs');
+  const stops = detail.stops.map(stop => ({ ...stop, locked_appointment: false }));
+  const fixture = { ...detail, ...row, stops, routes: [{ ...detail.routes[0], stops }],
+    route_version_id: detail.routes[0].id, route_version_state: 'accepted', accepted_route_version: 1 };
+  for (const width of [390, 1440]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    await page.route(/^https:\/\//, route => route.abort());
+    await page.route('**/data/board-seed.json', route => route.fulfill({ body: seed, contentType: 'application/json' }));
+    await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'demo' } }));
+    await page.route(/\/(?:deals|tours|tours\/route-editor\.html)\?/, async route => {
+      const response = await route.fetch();
+      await route.fulfill({ response, body: (await response.text()).replace('<html', '<html data-deals-saves-from-engine') });
+    });
+    await page.route('**/api/tours/**', route => route.fulfill({ json: {
+      data: new URL(route.request().url()).pathname.endsWith('/library') ? { tours: [row] } : fixture, csrf_token: 'demo',
+    } }));
+    try {
+      await page.goto(`${server.url}/deals?deal=${deal}&tab=tours&tour=new`);
+      const openTour = page.getByRole('button', { name: row.name });
+      await t.test(`Start a tour is absent at ${width}`, async () => {
+        await openTour.waitFor({ timeout: 5000 });
+        assert.equal(await page.getByRole('button', { name: 'Start a tour' }).count(), 0);
+        assert.equal(new URL(page.url()).searchParams.has('tour'), false);
+      });
+      if (!await openTour.isVisible()) await page.goto(`${server.url}/deals?deal=${deal}&tab=tours`);
+      await openTour.click();
+      const editor = page.frameLocator('iframe[title="Tour shortlist, route and packet"]');
+      await editor.getByRole('heading', { name: row.name }).waitFor({ timeout: 5000 });
+      await editor.locator('#status').filter({ hasText: 'Tour ready.' }).waitFor({ timeout: 5000 });
+      await t.test(`editor saves are absent and Tour Day is reachable at ${width}`, async () => {
+        assert.equal(await editor.getByText('Edit route', { exact: true }).isVisible(), false);
+        assert.equal(await editor.getByRole('button', { name: 'Save now' }).count(), 0);
+        assert.equal(await editor.getByRole('button', { name: 'Create Tour' }).count(), 0);
+        assert.equal(await editor.getByRole('link', { name: 'Navigate tour' }).getAttribute('href'), `/tours/day.html?tour=${tour}`);
+      });
+      await t.test(`Saved deal searches is absent at ${width}`, async () => {
+        assert.equal(await editor.locator('#saved-space-searches').isVisible(), false);
+      });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      const evidence = new URL('../out/test-artifacts/deal-tours/', import.meta.url);
+      await mkdir(evidence, { recursive: true });
+      await page.screenshot({ path: fileURLToPath(new URL(`cutover-${width}.png`, evidence)), fullPage: true });
+      await page.goto(`${server.url}/tours?mode=fixture`);
+      await page.getByRole('link', { name: row.name }).waitFor();
+      assert.equal(await page.getByText('Open a deal workspace to start a tour.', { exact: false }).count(), 0);
+    } finally {
+      await page.close();
+    }
+  }
+});

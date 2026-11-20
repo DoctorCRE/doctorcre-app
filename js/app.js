@@ -15,7 +15,7 @@ import {onDialogClosed} from './dialog-lifecycle.js';
 import { CLOSED_SLUG, columnByValue, dealInsightLines } from './pipeline-model.js';
 import { selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createClient, PHASES, PHICON, ACTOR_LABEL, phaseLabel } from './client.js';
-import { deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
+import { dealsSaveToEngine, deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { uuidv4 } from './uuid.js';
 import { createPostCallClient } from './post-call-review-client.js';
 import { createCallMode, CALL_MODE_URL, CALL_MODE_HEADER } from './call-mode.js';
@@ -710,6 +710,7 @@ async function runScreenAction(key,args,method,label,accepted) {
   return true;
 }
 async function loadConfirms() {
+  if (state.nextDealSaves || dealsSaveToEngine()) { renderConfirms(); return; }
   if (state.accessDenied) return;
   try {
     const pending = await state.client.getPendingConfirms();
@@ -741,6 +742,7 @@ function renderAgendaView() {
   const review = state.review;
   const captured = review && (review.deals[review.index] || review.deals.at(-1));
   const deal = review && resolveCurrentRow(captured, state.deals);
+  const engineSaves = state.nextDealSaves || dealsSaveToEngine();
   agendaView.render({
     buttonHidden: state.nextDealSaves || (state.workspace === 'national_account' && !state.accountId && !state.query),
     disabled: state.accessDenied || Object.values(screenCommands).some(command => command.status === 'pending'),
@@ -748,7 +750,8 @@ function renderAgendaView() {
       deal: { id: deal.id, name: deal.name, context: deal.market || deal.client_name || '', reason: reasonFor(deal),
         phase: phaseLabel(deal.phase), nextStep: deal.next_step || 'Not set', nextDate: dateLabel(deal.next_date, engineToday()),
         marketAgent: deal.workspace_kind === 'national_account' ? deal.market_agent || 'Unassigned' : null } } : null,
-    confirms: state.confirms.map(({ id, label }) => ({ id, label })), confirmError: state.confirmError || null,
+    confirms: engineSaves ? [] : state.confirms.map(({ id, label }) => ({ id, label })),
+    confirmError: engineSaves ? null : state.confirmError || null,
   });
 }
 

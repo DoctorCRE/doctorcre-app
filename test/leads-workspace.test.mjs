@@ -703,6 +703,17 @@ test('QA008 Leads freshness is Unavailable when a failed identity read clears th
  } finally { s.close(); }
 });
 
+test('the save switch hides Mark active on a returned prospect', async t => {
+  const s = await setup({}, undefined, w => w.document.documentElement.setAttribute('data-deals-saves-from-engine', ''));
+  t.after(s.close);
+  const row = s.board.leads[0];
+  Object.assign(row, { prospect_client_id: 'demo-client', prospect_client_version: 7, prospect_engagement_status: 'inactive' });
+  await s.app.refresh();
+  await s.app.readDetail(row.id);
+  assert.equal(s.d.getElementById('leadDetail').open, true);
+  assert.equal(s.d.getElementById('activateProspect'), null);
+});
+
 test('a returned prospect can be activated from Leads using its fresh client version',async()=>{
  const s=await setup();try{
   const row=s.board.leads.find(l=>l.stage==='nurture_drip');

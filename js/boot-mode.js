@@ -36,3 +36,7 @@ export function resolveDealroomBoot(locationLike) {
   const selfActor = params.get("actor") || undefined;
   return { mode: "fixture", options: selfActor ? { selfActor } : {} };
 }
+
+export function dealsSaveToEngine(root = document) {
+  return root.documentElement?.hasAttribute('data-deals-saves-from-engine') === true;
+}
