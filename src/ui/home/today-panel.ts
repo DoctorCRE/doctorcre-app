@@ -3,6 +3,10 @@ const instant = (value: unknown): value is string => text(value) && Number.isFin
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
+function unavailableReason(section: unknown, fallback: string) {
+  return object(section) && section.state === "unavailable" && text(section.reason) ? section.reason : fallback;
+}
+
 function localHref(value: unknown) {
   const base = "https://doctorcre.invalid";
   return typeof value === "string" && /^\/[a-z]/.test(value) && URL.parse(value, base)?.origin === base ? value : null;
@@ -12,7 +16,12 @@ type Meeting = Record<string, unknown> & { title: string; start: string; end: st
 function meeting(value: unknown): value is Meeting {
   return object(value) && text(value.title) && instant(value.start) && instant(value.end);
 }
-type Reminder = Record<string, unknown> & { title: string; owner: string; due_on: string };
+type Reminder = Record<string, unknown> & {
+  kind: "step" | "call_follow_up";
+  title: string;
+  owner: string;
+  due_on: string;
+};
 type Partner = { slug: string; name: string };
 function partner(value: unknown): value is Partner {
   return object(value) && text(value.slug) && text(value.name);
@@ -116,7 +125,7 @@ export async function mountHomeTodayPanel(rail: HTMLElement) {
     lateGroup.hidden = !lateRows;
     paint(late, lateRows);
     const upcomingRows = data ? rows(data.upcoming, data.today) : "";
-    const upcomingHeading = lateRows && upcomingRows ? "<h4>Due today or later</h4>" : "";
+    const upcomingHeading = lateRows && upcomingRows ? "<h4>Due today</h4>" : "";
     paint(
       upcoming,
       upcomingHeading + (upcomingRows || (lateRows ? "" : status(data ? "No dated reminders." : message))),
@@ -156,16 +165,7 @@ export async function mountHomeTodayPanel(rail: HTMLElement) {
       !Array.isArray(section.items) ||
       !section.items.every(meeting)
     ) {
-      paint(
-        schedule,
-        status(
-          object(section) &&
-            section.state === "unavailable" &&
-            section.reason === "No calendar snapshot has been synced from Outlook yet."
-            ? "Outlook hasn't synced your calendar yet."
-            : "Couldn't load meetings. Check Outlook for your schedule.",
-        ),
-      );
+      paint(schedule, status(unavailableReason(section, "Couldn't load meetings. Check Outlook for your schedule.")));
       return false;
     }
     const partial = section.state === "partial";
@@ -185,7 +185,11 @@ export async function mountHomeTodayPanel(rail: HTMLElement) {
   function reminders(answer: Record<string, unknown> & { today: string }): DatedReminders | null {
     const section = answer.reminders;
     const validRow = (value: unknown): value is Reminder =>
-      object(value) && text(value.title) && text(value.owner) && dates.isCalendarDay(value.due_on);
+      object(value) &&
+      (value.kind === "step" || value.kind === "call_follow_up") &&
+      text(value.title) &&
+      text(value.owner) &&
+      dates.isCalendarDay(value.due_on);
     if (
       !object(section) ||
       !["ready", "empty"].includes(String(section.state)) ||
@@ -235,7 +239,7 @@ export async function mountHomeTodayPanel(rail: HTMLElement) {
       paint(select, options);
       select.value = partners.some((p) => p.slug === previous) ? previous : "all";
       owners.hidden = !partners.length;
-      renderReminders("Couldn't load dated reminders.");
+      renderReminders(unavailableReason(answer.reminders, "Couldn't load dated reminders."));
       retry.hidden = meetingsReady && data !== null;
       return retry.hidden;
     },

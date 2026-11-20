@@ -163,19 +163,21 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
       ok: true, schema_version: 'home-today.v1', viewer: 'joe', owner: 'all', today: '2026-11-19',
       partners: [{ slug: 'joe', name: 'Joe Example' }, { slug: 'dell', name: 'Dell Example' }],
       meetings: todayFailure === 'meetings'
-        ? { state: 'unavailable', reason: 'No calendar snapshot has been synced from Outlook yet.', items: [] }
-        : { state: 'partial', observed_at: '2026-11-19T15:00:00Z', items: [{
+        ? { state: 'unavailable', reason: "Today's meetings could not be loaded.", observed_at: null, items: [], follow_up_reviews: [] }
+        : { state: 'partial', reason: null, observed_at: '2026-11-19T15:00:00Z', follow_up_reviews: [], items: [{
         title: 'Example walkthrough', start: '2026-11-19T16:00:00Z', end: '2026-11-19T17:00:00Z',
         context_label: 'Example Dental', attendees: [{ name: 'Demo Attendee', email: null }],
         open_url: '/deals?deal=demo', possible_deals: [{ name: 'Example Dental', open_url: '/deals?deal=demo' }],
       }] },
-      reminders: {
-        state: 'ready',
-        late: [{ id, home_item_id: step.item_id, owner: 'joe', title: step.title,
-          context_label: 'Example Dental', due_on: step.due_on, late_label: '3 days late', open_url: null }],
-        upcoming: [{ id: 'date', home_item_id: null, owner: 'dell', title: 'Send the sample invoice',
-          context_label: 'Example Office', due_on: '2026-11-20', late_label: null, open_url: '/deals?deal=example' }],
-      },
+      reminders: todayFailure === 'reminders'
+        ? { state: 'unavailable', reason: "Today's reminders could not be loaded.", late: [], upcoming: [] }
+        : {
+          state: 'ready', reason: null,
+          late: [{ id, kind: 'step', home_item_id: step.item_id, owner: 'joe', title: step.title,
+            context_label: 'Example Dental', due_on: step.due_on, days_late: 3, late_label: '3 days late', open_url: null }],
+          upcoming: [{ id: 'follow-up', kind: 'call_follow_up', home_item_id: null, owner: 'dell', title: 'Send the sample invoice',
+            context_label: 'Example Office', due_on: '2026-11-19', days_late: null, late_label: null, open_url: '/calls?session=example' }],
+        },
     } });
   });
   let capabilities = false, stepOpen = true, feedbackOpen = true;
@@ -231,6 +233,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   await today.getByText('Example walkthrough', { exact: true }).waitFor();
   assert.equal(await page.getByText('Example walkthrough', { exact: true }).count(), 1);
   assert.equal(await today.getByText('Deal pulse', { exact: true }).count(), 0);
+  await today.getByRole('heading', { name: 'Due today', exact: true }).waitFor();
   if (width === 1440) await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: `test-artifacts/inbox-v3/engine-today-${width}.png`, animations: 'disabled' });
   await today.getByText('Example walkthrough', { exact: true }).click();
@@ -255,8 +258,13 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   await today.getByText('Example walkthrough', { exact: true }).waitFor();
   todayFailure = 'meetings';
   await page.locator('#appSyncRefresh').evaluate(button => button.click());
-  await today.getByText("Outlook hasn't synced your calendar yet.").waitFor();
+  await today.getByRole('region', { name: 'Meetings', exact: true }).getByText("Today's meetings could not be loaded.", { exact: true }).waitFor();
   await reminder.waitFor();
+  todayFailure = 'reminders';
+  await today.getByRole('button', { name: 'Retry Today' }).click();
+  await today.getByRole('region', { name: 'Dated reminders', exact: true }).getByText("Today's reminders could not be loaded.", { exact: true }).waitFor();
+  assert.equal(await reminder.count(), 0);
+  await today.getByText('Example walkthrough', { exact: true }).waitFor();
   todayFailure = 'both';
   await today.getByRole('button', { name: 'Retry Today' }).click();
   await today.getByText("Couldn't load meetings.").waitFor();
