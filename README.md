@@ -77,7 +77,9 @@ as individual `test.fixme` cases tagged `@fixme`; list them with
 
 The Home section browser tests open step links on Prospects and Relationships
 at phone and desktop widths. Each link brings the selected step into view
-and shows its recorded origin in the same words as the deal page.
+and shows its recorded origin in the same words as the deal page. This includes
+Done links to prospect follow-ups. A saved Relationships step link still opens
+the selected node when an older engine only supports the base network read.
 
 `npm run release:prepare` runs checks, tests, build and source-bound artifact
 verification with a credential-free child environment. Run it before either

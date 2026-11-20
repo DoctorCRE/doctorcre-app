@@ -652,9 +652,11 @@ for (const width of [390, 1440]) test(`Home opens the exact prospect and Relatio
   const prospectStep = '00000000-0000-4000-8000-000000000033';
   const relationshipStep = '00000000-0000-4000-8000-000000000034';
   const otherStep = '00000000-0000-4000-8000-000000000035';
+  const completedStep = '00000000-0000-4000-8000-000000000036';
   const tasks = [
     [prospectStep, 'Ask about the site', `/deals?prospect=${prospect}&focus=follow-up&step=${prospectStep}&mode=live`],
     [relationshipStep, 'Send the floor plan', `/relationships?node=party:${person}&step=${relationshipStep}&mode=live`],
+    [completedStep, 'Confirm the tour', `/deals?prospect=${prospect}&focus=follow-up&step=${completedStep}&mode=live`],
   ];
   const at = NOW.toISOString();
   const inbox = {
@@ -662,8 +664,9 @@ for (const width of [390, 1440]) test(`Home opens the exact prospect and Relatio
     working_collapsed: true, home_mark_drop: true,
     items: tasks.map(([id, title, open_url]) => ({
       item_id: `next_action:${id}`, source_id: id, source_type: 'next_action', source_version: '3',
-      source_state: 'needs_attention', activity_at: at, completed_at: null, due_on: '2026-11-03',
-      hold_until: null, unseen: false, disposition: 'inbox', snoozed_until: null, section: 'inbox',
+      source_state: id === completedStep ? 'done' : 'needs_attention', activity_at: at,
+      completed_at: id === completedStep ? at : null, due_on: '2026-11-03',
+      hold_until: null, unseen: false, disposition: 'inbox', snoozed_until: null, section: id === completedStep ? 'done' : 'inbox',
       base_version: '3:0:inbox', waiting_version: 0, waiting_on: null, context_label: 'Example contact', title, open_url, kind_label: 'Task',
       merged_source_ids: [id], action_id: id, action_version: 3, deal_id: null,
     })),
@@ -686,11 +689,19 @@ for (const width of [390, 1440]) test(`Home opens the exact prospect and Relatio
     const value = params.name === 'read-home-inbox-v5' ? inbox : params.name === 'deal-room-board' ? board : { items: [] };
     return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(value) }] } } });
   });
-  await page.route('**/api/engine/prospects**', route => route.fulfill({ json:
-    new URL(route.request().url()).pathname.endsWith(prospect) ? prospectRow : { prospects: [prospectRow], count: 1 },
-  }));
+  await page.route('**/api/engine/prospects**', route => {
+    const url = new URL(route.request().url());
+    if (!url.pathname.endsWith(prospect)) return route.fulfill({ json: { prospects: [prospectRow], count: 1 } });
+    const completed = url.searchParams.get('step') === completedStep;
+    return route.fulfill({ json: { ...prospectRow, ...(completed && { completed_follow_up: {
+      next_step_id: completedStep, owner: 'joe', what: tasks[2][1],
+      due_on: '2026-11-03', change_id: 4, ...origin, set_from: 'email',
+    } }) } });
+  });
+  let olderEngine = false;
   await page.route('**/api/v1/business/relationships?*', route => {
     const step = new URL(route.request().url()).searchParams.get('step');
+    if (olderEngine && step) return route.fulfill({ status: 400, json: { error: 'QUERY_INVALID' } });
     return route.fulfill({ json: { schema: 'carr-relationship-network.v1',
       observed_at: at, valid_until: new Date(NOW.getTime() + 120_000).toISOString(),
       nodes: [{ id: `party:${person}`, kind: 'contact', name: 'Example Contact', verticals: [] }],
@@ -699,8 +710,8 @@ for (const width of [390, 1440]) test(`Home opens the exact prospect and Relatio
     } });
   });
 
-  for (const [, title] of tasks) {
-    const isProspect = title === tasks[0][1];
+  for (const [id, title] of tasks) {
+    const isProspect = id !== relationshipStep;
     await open('/?mode=live');
     if (!isProspect) {
       const today = page.getByRole('region', { name: 'Today', exact: true });
@@ -712,6 +723,7 @@ for (const width of [390, 1440]) test(`Home opens the exact prospect and Relatio
     await step.getByText(/Set by Example Partner · Nov 3.*10:00 AM CST · From an? (email|meeting)/).waitFor();
     assert.match(await step.innerText(), new RegExp(title));
     assert.match(await step.innerText(), isProspect ? /From an email/ : /From a meeting/);
+    if (id === completedStep) assert.match(await step.innerText(), /Done/);
     const box = await step.boundingBox();
     assert.ok(box && box.y >= 0 && box.y + box.height <= 900);
     if (isProspect) {
@@ -719,6 +731,12 @@ for (const width of [390, 1440]) test(`Home opens the exact prospect and Relatio
       assert.doesNotMatch(await unknown.innerText(), /Set |From /);
     }
   }
+  olderEngine = true;
+  await open(tasks[1][2]);
+  const contact = page.getByRole('dialog', { name: 'Example Contact' });
+  await contact.waitFor();
+  assert.equal(await contact.getByText(tasks[1][1], { exact: true }).count(), 0);
+  assert.equal(await page.getByText('Connections temporarily unavailable').isVisible(), false);
 });
 
 for (const width of [390, 1024, 1280, 1440]) for (const theme of ['light', 'dark']) test(`sectioned Home and shared panels ${width} ${theme}`, async t => {

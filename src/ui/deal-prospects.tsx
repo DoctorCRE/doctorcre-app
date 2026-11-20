@@ -199,7 +199,8 @@ function parseDetail(value: Record<string, unknown>) {
     return { ...parseNote(note), id: note.activity_id };
   });
   const dropped = value.state === "dropped" ? parseDrop(value.dropped) : null;
-  return { ...parseProspect(value), notes, dropped };
+  const completed = value.completed_follow_up == null ? null : parseStep(value.completed_follow_up);
+  return { ...parseProspect(value), notes, dropped, completed };
 }
 
 function parseDrop(value: unknown) {
@@ -319,15 +320,17 @@ function ProspectDetail({
   const followUps = useRef<HTMLHeadingElement>(null);
   const linkedStep = useRef<HTMLLIElement>(null);
   const [revision, update] = useState(0);
+  const detailPath = `${prospectsPath}/${id}`;
   const { value: row, unavailable } = useProspectRead(
     client.prospectRequest,
-    `${prospectsPath}/${id}`,
+    stepId && uuid.test(stepId) ? `${detailPath}?step=${stepId}` : detailPath,
     revision,
     parseDetail,
     refreshNotes,
   );
   const loaded = row !== undefined;
   const canSave = filters.canSave && !row?.dropped;
+  const followUpsInView = row?.completed ? [row.completed, ...row.follow_ups] : (row?.follow_ups ?? []);
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
@@ -364,9 +367,9 @@ function ProspectDetail({
             <h3 ref={followUps} tabIndex={-1}>
               Follow-ups
             </h3>
-            {row.follow_ups.length ? (
+            {followUpsInView.length ? (
               <ul>
-                {row.follow_ups.map((item) => {
+                {followUpsInView.map((item) => {
                   const origin = stepOriginLabel(item);
                   const linked = item.next_step_id === stepId;
                   return (
@@ -375,7 +378,7 @@ function ProspectDetail({
                       ref={linked ? linkedStep : undefined}
                       tabIndex={linked ? -1 : undefined}
                     >
-                      {label(item.owner)} · {item.what} · {due(item.due_on)}
+                      {label(item.owner)} · {item.what} · {item === row.completed ? "Done" : due(item.due_on)}
                       {origin && <small> · {origin}</small>}
                     </li>
                   );
