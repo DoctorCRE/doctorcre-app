@@ -243,8 +243,8 @@ for (const width of [1440, 390]) {
       assert.equal(await phase.textContent(), row === lost ? 'Lost' : 'Closed');
       const steps = detail.getByRole('region', { name: 'Open before this deal ended' });
       await steps.getByText('Send the sample plan', { exact: true }).waitFor({ timeout: 5000 });
-      assert.match(await steps.innerText(), /Next step: Send the sample plan · Joe · Due Wed, Oct 21, 2026/);
-      assert.match(await steps.innerText(), /Next step: Check the sample lease · Dell · Due Tue, Oct 20, 2026/);
+      assert.match(await steps.innerText(), /Send the sample plan\s+Joe · Due Wed, Oct 21, 2026/);
+      assert.match(await steps.innerText(), /Check the sample lease\s+Dell · Due Tue, Oct 20, 2026/);
       assert.doesNotMatch(await steps.innerText(), /days? late|Find the sample map/);
       await detail.getByText('Change next step', { exact: true }).click();
       assert.equal(await detail.getByText('Current next date is overdue.').isVisible(), false);
@@ -353,7 +353,7 @@ for (const width of [1440, 390]) {
     await button('List').click();
     await card(late).getByText(date, { exact: false }).waitFor();
     await button(late.name).click();
-    await panel.locator('.deal-current-action').getByText(date, { exact: false }).waitFor();
+    await panel.getByRole('list', { name: 'Open steps' }).getByText(date, { exact: false }).waitFor();
     await panel.locator('#panelEmailFollowups').getByText(date, { exact: false }).waitFor();
     assert.equal(await button('Mark needs attention').count(), 0);
 
@@ -989,8 +989,9 @@ for (const width of [1440, 390]) {
       await visibleStep.waitFor();
       assert.equal(await visibleStep.count(), 1);
     }
-    assert.match(await snapshot.locator('.deal-current-action').innerText(), /^Next step.*Send the floor plan.*Dell.*1 day late/);
-    assert.match(await snapshot.getByRole('listitem').filter({ hasText: otherStep.description }).innerText(), /^Next step: Call the architect · Joe · Due Sun, Nov 15, 2026 · 4 days late$/);
+    const stepRows = snapshot.getByRole('list', { name: 'Open steps' }).getByRole('listitem');
+    assert.match(await stepRows.first().innerText(), /Send the floor plan\s+Dell · Due Wed, Nov 18, 2026 · 1 day late/);
+    assert.match(await stepRows.nth(1).innerText(), /Call the architect\s+Joe · Due Sun, Nov 15, 2026 · 4 days late/);
     assert.equal(await snapshot.getByText('Also open:', { exact: true }).count(), 0);
     const task = snapshot.getByRole('listitem').filter({ hasText: item.title });
     assert.match(await task.innerText(), /Check the plans.*Joe.*Wed, Nov 18, 2026/s);
@@ -1124,7 +1125,7 @@ test('Undoing an invoice close restores late steps to the deal page', async t =>
     return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
   });
 
-  const otherSteps = page.getByRole('list', { name: 'Other open steps' });
+  const steps = page.getByRole('list', { name: 'Open steps' });
   const undo = page.getByRole('button', { name: 'Undo invoice close' });
   const openClosedDeal = async () => {
     await page.goto(`${origin}/deals?mode=live`);
@@ -1136,7 +1137,7 @@ test('Undoing an invoice close restores late steps to the deal page', async t =>
     await page.getByRole('button', { name, exact: true }).click();
     await page.getByRole('heading', { name, exact: true }).waitFor();
     const endedSteps = page.getByRole('region', { name: 'Open before this deal ended' });
-    await endedSteps.getByText(/Call the architect.*Due Mon, Nov 16, 2026/).waitFor({ timeout: 5000 });
+    await endedSteps.getByRole('listitem').filter({ hasText: 'Call the architect' }).getByText('Mon, Nov 16, 2026').waitFor({ timeout: 5000 });
     assert.doesNotMatch(await endedSteps.innerText(), /days? late|Overdue/);
   };
   await openClosedDeal();
@@ -1149,11 +1150,11 @@ test('Undoing an invoice close restores late steps to the deal page', async t =>
   await page.getByText('This deal changed. Reload the deal before saving.', { exact: true }).waitFor();
   assert.equal(undoRequests.length, 1);
   await page.getByRole('button', { name: 'Reload deal', exact: true }).click();
-  await otherSteps.getByText(/Call the architect again/).waitFor();
+  await steps.getByText('Call the architect again').waitFor();
   await undo.click();
   await page.locator('#detailPhase').waitFor();
   assert.equal(await page.locator('#detailPhase').inputValue(), 'legal');
-  await otherSteps.getByText(/Call the architect again.*2 days late/).waitFor();
+  await steps.getByRole('listitem').filter({ hasText: 'Call the architect again' }).getByText(/2 days late/).waitFor();
   assert.equal(await page.getByRole('region', { name: 'Open before this deal ended' }).count(), 0);
   assert.equal(await undo.count(), 0);
   await page.getByRole('button', { name: 'Back to deals' }).click();
@@ -3002,6 +3003,95 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   await panel.getByText('No emails or meetings filed yet. 1 email is waiting to be filed on Overview.', { exact: true }).waitFor();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await panel.screenshot({ path: join(evidence, `deal-correspondence-waiting-${width}.png`) });
+});
+
+for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a partner can finish deal steps at ${width}px in ${theme}`, async t => {
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  t.after(() => page.close());
+  await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
+  await page.clock.setFixedTime(new Date('2026-11-20T16:00:00Z'));
+  const fixtureOrigin = await dealFixtureOrigin(t);
+  const deal = crypto.randomUUID();
+  const row = { id: deal, deal_id: deal, name: 'Example Deal', owner: 'joe', phase: 'research', seen: 23 };
+  const own = { id: crypto.randomUUID(), description: 'Send the sample plan', owner: 'joe', due_on: '2026-11-24', status: 'open', change_id: 10 };
+  const other = { id: crypto.randomUUID(), description: 'Check the sample lease', owner: 'dell', due_on: '2026-11-25', status: 'open', change_id: 11 };
+  const writes = [];
+  const env = {
+    ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      if (path === '/api/engine/deals') return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals: [row] });
+      if (path === `/api/engine/deals/${deal}`) return Response.json({ ...row, email_follow_ups: [], next_actions: [own, other] });
+      const step = [own, other].find(step => path === `/api/engine/next-steps/${step.id}/end`);
+      assert.ok(step, `Unexpected engine path ${path}`);
+      const body = await request.json();
+      assert.equal(body.resolution, 'done');
+      assert.match(body.idempotency_key, /^[\da-f-]{36}$/i);
+      writes.push({ id: step.id, ...body });
+      if (body.base_version !== step.change_id)
+        return Response.json({ error: 'version_conflict', current_version: step.change_id }, { status: 409 });
+      const change_id = step.change_id + 1;
+      Object.assign(step, { status: 'done', actor: 'joe', updated_at: '2026-11-20T17:00:00Z', change_id: null });
+      return Response.json({ next_step_id: step.id, status: 'done', change_id });
+    } },
+  };
+  const seeded = await page.request.post(`${fixtureOrigin}/api/test/seed`, { data: { namespace: 'deal-step-done', viewer: 'joe' } });
+  assert.equal(seeded.status(), 200);
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    if (!['deal-room-board', 'get-deal-room', 'complete-deal-step'].includes(request.postDataJSON()?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+    }), env);
+    await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
+  });
+
+  await page.goto(`${fixtureOrigin}/deals?deal=${deal}&mode=live`);
+  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  await snapshot.getByText(own.description, { exact: true }).waitFor();
+  const capture = (region, stage) => region.screenshot({ path: join(evidence, `deal-step-${stage}-${width}-${theme}.png`), animations: 'disabled' });
+  await capture(snapshot, 'open');
+  assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+  const done = snapshot.getByRole('button', { name: 'Done', exact: true });
+  assert.equal(await done.count(), 2);
+  for (const button of await done.all()) {
+    await button.scrollIntoViewIfNeeded();
+    assert.ok(await button.evaluate(el => {
+      const { x, y, width, height } = el.getBoundingClientRect();
+      return width >= 44 && height >= 44 && el.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+    }), 'Done has an unobstructed 44 px touch target');
+  }
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+
+  other.description = 'Check the revised sample lease';
+  other.change_id = 15;
+  await done.last().focus();
+  await page.keyboard.press('Enter');
+  await page.getByText('This step changed. Review the latest version.', { exact: true }).waitFor();
+  await snapshot.getByText(other.description, { exact: true }).waitFor();
+  assert.equal(other.status, 'open');
+  assert.ok(await done.last().evaluate(button => document.activeElement === button));
+
+  await page.keyboard.press('Enter');
+  await snapshot.getByText(other.description, { exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('tab', { name: 'Timeline' }).click();
+  const timeline = page.getByRole('tabpanel', { name: 'Timeline' });
+  const completed = timeline.getByRole('listitem').filter({ hasText: `${other.description} · Done` });
+  await completed.getByText('Joe', { exact: true }).waitFor();
+
+  Object.assign(row, { phase: 'closed', outcome: 'won' });
+  await page.getByRole('tab', { name: 'Overview' }).click();
+  await page.getByRole('button', { name: 'Refresh deal' }).click();
+  const ended = snapshot.getByRole('region', { name: 'Open before this deal ended' });
+  await capture(ended, 'ended');
+  await ended.getByRole('button', { name: 'Done', exact: true }).click();
+  await ended.waitFor({ state: 'hidden' });
+  await snapshot.getByText('No next step set.', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Timeline' }).click();
+  await timeline.getByText(own.description + ' · Done', { exact: false }).waitFor();
+  await capture(timeline, 'timeline');
+  assert.deepEqual(writes.map(({ id, base_version }) => [id, base_version]), [[other.id, 11], [other.id, 15], [own.id, 10]]);
+  assert.notEqual(writes[0].idempotency_key, writes[1].idempotency_key);
 });
 
 for (const width of [1440, 390]) test(`a changed checklist item stays open until reviewed again at ${width}px`, async t => {

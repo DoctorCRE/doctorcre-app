@@ -1565,7 +1565,61 @@ function stepOrigin(step) {
     cadence: 'From the automatic follow-up schedule' };
   const set = step.set_by ? `Set by ${step.set_by} · ${at}` : `Set ${at}`;
   const from = Object.hasOwn(origins, step.set_from) ? origins[step.set_from] : '';
-  return `<small> · ${esc(from ? `${set} · ${from}` : set)}</small>`;
+  return `<small>${esc(from ? `${set} · ${from}` : set)}</small>`;
+}
+
+const completeStepKey = id => `complete-step:${state.selfActor}:${id}`;
+
+function openDealStepsHtml(detail, steps, today) {
+  const heading = isClosedDeal(detail.deal) && steps.length ? 'Open before this deal ended' : 'Next steps';
+  const rows = steps.map(step => {
+    const id = esc(step.id);
+    const canFinish = detail.next_deal_saves && Number.isSafeInteger(detail.deal.seen) && dealStepVersion(step);
+    const saving = pendingCommand(commandState, completeStepKey(step.id))?.status === 'pending';
+    return `<li${stepFocusAttrs(step)}>
+      <div><strong id="step-text-${id}">${esc(step.description.trim())}</strong>
+        <p>${esc(actorName(step.owner))} · ${dueDateHtml(calendarDay(step.due_on), today)}</p>
+        ${stepOrigin(step)}
+      </div>
+      ${canFinish ? `<button class="btn btn-quiet" type="button" data-complete-step="${id}" data-detail-focus="done-${id}" aria-describedby="step-text-${id}"${saving ? ' aria-disabled="true"' : ''}>Done</button>` : ''}
+    </li>`;
+  }).join('');
+  return `<section class="deal-open-steps" aria-labelledby="deal-open-steps-heading">
+    <h2 id="deal-open-steps-heading">${heading}</h2>
+    ${rows ? `<ul aria-label="Open steps" role="list">${rows}</ul>` : '<p>No next step set.</p>'}
+  </section>`;
+}
+
+async function completeDealStep(button) {
+  const detail = state.panelDetail;
+  const step = ordinaryOpenSteps(detail?.next_actions).find(row => row.id === button.dataset.completeStep);
+  const version = dealStepVersion(step);
+  if (!detail?.next_deal_saves || !version || button.getAttribute('aria-disabled') === 'true') return;
+  const operationKey = completeStepKey(step.id);
+  const notice = $('detailStepStatus');
+  notice.textContent = 'Saving…';
+  button.setAttribute('aria-disabled', 'true');
+  const pending = pendingCommand(commandState, operationKey);
+  const result = await performCommand({
+    operationKey,
+    args: pending?.request ?? { deal: detail.deal.id, next_step_id: step.id, seen_change_id: detail.deal.seen, base_version: version.change_id },
+    getState: () => commandState,
+    setState: next => { commandState = next; },
+    newKey: uuidv4,
+    call: request => state.client.completeDealStep(request),
+  });
+  const saved = result.status === 'ok';
+  const changed = ['version_conflict', 'step_ended', 'not_found'].includes(result.code);
+  if (saved) state.boardSync.requestRefresh('after-write');
+  if (!notice.isConnected) return;
+  if (saved || changed) await refreshPanel({ changed: true });
+  if (!notice.isConnected) return;
+  $('panelBody').querySelector(`[data-complete-step="${CSS.escape(step.id)}"]`)?.removeAttribute('aria-disabled');
+  notice.textContent = saved
+    ? $('detailReadStatus').textContent ? 'Step marked done. Refresh to update this deal.' : 'Step marked done.'
+    : changed ? 'This step changed. Review the latest version.'
+    : result.status === 'unknown' ? 'Could not confirm this step is done. Choose Done again to check.'
+    : 'Could not mark this step done. Try again.';
 }
 
 function workspaceHtml(detail) {
@@ -1573,20 +1627,17 @@ function workspaceHtml(detail) {
   const ownStep = canEditOwnDealStep(detail);
   const d = detail.deal;
   const items = detail.items || d.items || [];
-  const [leadStep, ...remainingSteps] = fromEngine ? dealOwnerFirstSteps(d, detail.next_actions) : [];
   const { text: nextStep, dueOn, item: nextItem, otherActions } = fromEngine
-    ? { text: leadStep?.description.trim(), dueOn: calendarDay(leadStep?.due_on), otherActions: remainingSteps }
-    : dealNextStep(d, detail.next_actions || [], items);
+    ? {} : dealNextStep(d, detail.next_actions || [], items);
   const today = fromEngine ? businessDay() : todayIso();
   const ended = isClosedDeal(d);
   const stepToday = ended ? undefined : today;
-  const stepLabel = fromEngine ? 'Next step' : stepToday && dueOn && dueOn < stepToday ? 'Overdue action' : 'Next action';
-  const stepSummary = `
-    ${nextStep ? `<p class="deal-current-action"${stepFocusAttrs(leadStep)}><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${leadStep ? `${esc(actorName(leadStep.owner))} · ` : ''}${dueDateHtml(dueOn, fromEngine ? stepToday : undefined)}</span>${stepOrigin(leadStep)}</p>` : `<p>${fromEngine ? 'No next step set.' : 'No next step or key date set.'}</p>`}
-    ${otherActions.length ? `${fromEngine || ended ? '' : '<p class="deal-items-label">Also open:</p>'}<ul class="deal-items" aria-label="Other open steps">${otherActions.map(action => {
-      const day = calendarDay(action.due_on);
-      return `<li${stepFocusAttrs(fromEngine ? action : null)}>${fromEngine ? 'Next step: ' : ''}${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(day, stepToday)}${stepOrigin(action)}</li>`;
-    }).join('')}</ul>` : ''}`;
+  const stepLabel = stepToday && dueOn && dueOn < stepToday ? 'Overdue action' : 'Next action';
+  const stepSummary = fromEngine ? openDealStepsHtml(detail, dealOwnerFirstSteps(d, detail.next_actions), stepToday) : `
+    ${nextStep ? `<p class="deal-current-action"><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${dueDateHtml(dueOn)}</span></p>` : '<p>No next step or key date set.</p>'}
+    ${otherActions.length ? `${ended ? '' : '<p class="deal-items-label">Also open:</p>'}<ul class="deal-items" aria-label="Other open steps">${otherActions.map(action =>
+      `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(calendarDay(action.due_on), stepToday)}</li>`
+    ).join('')}</ul>` : ''}`;
   const itemOwners = fromEngine ? new Map(detail.next_actions?.map(step => [step.id, step.owner])) : undefined;
   const prospect = state.deals.get(d.id);
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
@@ -1603,11 +1654,11 @@ function workspaceHtml(detail) {
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && d.client_id : controlsAvailable)
     ? clientPortalSetupHtml() : '';
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
-    <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview"><section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
+    <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview">${fromEngine ? '<p id="detailStepStatus" role="status"></p>' : ''}<section class="deal-opening-snapshot" data-detail-read="snapshot" aria-label="Deal snapshot">
       ${websiteLink}
       ${renderInvoiceClose(d, state.nextDealSaves)}
       ${fromEngine ? `<div data-phase-move>${detailPhaseMoveHtml(detail)}</div>` : ''}
-      ${ended && (nextStep || otherActions.length) ? `<section aria-labelledby="ended-deal-steps"><h3 id="ended-deal-steps">Open before this deal ended</h3>${stepSummary}</section>` : stepSummary}
+      ${!fromEngine && ended && (nextStep || otherActions.length) ? `<section aria-labelledby="ended-deal-steps"><h3 id="ended-deal-steps">Open before this deal ended</h3>${stepSummary}</section>` : stepSummary}
       <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today:stepToday,buttons:true,empty:false,itemOwners})}</div>
       ${renderSnapshotFacts(d, fromEngine)}
       ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
@@ -2498,6 +2549,8 @@ function wire() {
   }, true);
   $('panelBody').addEventListener('click', async e => {
     if (e.target.closest('[data-undo-invoice]')) void undoInvoiceClose();
+    const done = e.target.closest('[data-complete-step]');
+    if (done) return completeDealStep(done);
     const attention = e.target.closest('[data-deal-attention]');
     if (attention) return toggleDealAttention(attention);
     if (e.target.closest('[data-discard-update]') && !pendingCommand(commandState, updateKey(state.panelDeal)) && !pendingCommand(commandState, nextStepKey(state.panelDeal))) { discardUpdate(state.panelDeal); syncUpdateForm(); }

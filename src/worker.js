@@ -334,7 +334,7 @@ async function engineResponse(request, env) {
 
 // New-schema receipts are separate from the legacy tool receipts.
 const CUTOVER_SAVES = new Set([
-  'patch-deal-field', 'update-deal', 'set-next-step', 'complete-deal-item', 'record-deal-item',
+  'patch-deal-field', 'update-deal', 'set-next-step', 'complete-deal-step', 'complete-deal-item', 'record-deal-item',
   'add-deal-note', 'new-deal', 'set-market-agent', 'add-critical-date',
   'remove-deal-participant', 'confirm-critical-date', 'resolve-critical-date',
   'instruct-deal-item', 'revert-deal-field', 'resolve-conflict', 'undo-invoice-close', 'undo-automatic-phase-move',
@@ -423,10 +423,13 @@ function nextDealSave(verb, args) {
     case 'set-next-step':
       return post('/next-steps', { deal_id: deal, what: args.text, due_on: args.next_date ?? undefined,
         replaces: 'current', seen_current_step: args.seen_current_step });
-    case 'complete-deal-item':
-      return isUuid(args.item_id) ? post(`/next-steps/${args.item_id}/end`, {
+    case 'complete-deal-step':
+    case 'complete-deal-item': {
+      const id = verb === 'complete-deal-step' ? args.next_step_id : args.item_id;
+      return isUuid(id) ? post(`/next-steps/${id}/end`, {
         resolution: 'done', base_version: args.base_version,
       }) : null;
+    }
     case 'record-deal-item':
       return post('/next-steps', { deal_id: deal, what: args.title, due_on: args.due_on ?? undefined,
         item: { title: args.title, bullets: args.bullets, source_ref: args.source_ref } });
@@ -488,12 +491,14 @@ async function cutoverSave(request, env, call) {
   const phaseUndo = name === 'undo-automatic-phase-move';
   if (phaseUndo && (!on || !fromNext)) return saveRefusal(call, 'version_conflict', 'Reload Deals before using Undo.');
   const conversion = name === 'new-deal' && args.prospect_id !== undefined;
+  const completeStep = name === 'complete-deal-step';
+  if (completeStep && (!on || !fromNext)) return saveRefusal(call, 'reload_deals', 'Reload the deal before saving.');
   if (!on && !fromNext && !conversion) return null;
   if (creating && (!on || !fromNext)) return saveRefusal(call, 'reload_deals', 'Reload Deals before adding a deal.');
   if (accountSave && (!on || !fromNext || !await switchedOn(env, DEALS)))
     return saveRefusal(call, 'reload_deals', 'Reload Deals before saving the account.');
   if (!accountSave && on && !await switchedOn(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
-  if (on && name === 'complete-deal-item' && (!Number.isSafeInteger(args.base_version) || args.base_version < 0))
+  if (on && (completeStep || name === 'complete-deal-item') && (!Number.isSafeInteger(args.base_version) || args.base_version < 0))
     return saveRefusal(call, 'version_conflict', 'Reload the item before marking it done.');
   const save = nextDealSave(name, args);
   if (on && !save) return saveRefusal(call, 'deal_save_unavailable', name === 'set-market-agent' && fromNext
@@ -551,6 +556,8 @@ async function cutoverSave(request, env, call) {
     : creating ? isUuid(body.deal_id) && Number.isSafeInteger(body.change_id) && body.change_id >= 0
     : phaseUndo ? body.deal_id === args.deal && isString(body.phase) && isString(body.phase_changed_at)
     : name === 'undo-invoice-close' ? body.invoice_id === args.invoice_id && body.status === 'undone'
+    : completeStep ? body.next_step_id === args.next_step_id && body.status === 'done'
+      && Number.isSafeInteger(body.change_id) && body.change_id > args.base_version
     : save.path.endsWith('/changes') ? body.deal_id === args.deal
     : save.body.party_id ? body.deal_id === args.deal && body.party_id === save.body.party_id && body.role === save.body.role
     : name.endsWith('-critical-date') ? isUuid(body.critical_date_id)
