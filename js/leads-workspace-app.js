@@ -589,6 +589,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
         lead_not_claimable: "This lead is no longer available to claim. Reload to see its current status.",
         lead_not_linkable: "This lead cannot be linked to a client now. Reload to see its current status.",
         client_not_found: "That client could not be found. Reload and choose an existing client.",
+        client_not_suggested: "That client isn't one of this lead's matches. Reload and pick one of the suggested clients.",
         account_changed: "Your account changed. Reload Leads before saving again."
       };
       const message = error.code === "unknown_outcome" ? "Confirmation pending · checking current stage…" :
