@@ -19,8 +19,10 @@ test('pinned registered producer and production parser accept all synthetic snap
   new Function('module', transformSync(source.slice(source.indexOf('export function rebuildMarketTerms('), source.indexOf('\nexport function marketTermsTools(')), { loader: 'ts', format: 'cjs' }).code)(producer);
   const ui = readFileSync(new URL('../src/ui/market-terms.tsx', import.meta.url), 'utf8');
   const parser = 'function isRecord' + ui.split('function isRecord')[1].split('\nfunction Comparison')[0].split('\nfunction basisKey')[0];
-  assert.equal(parser.slice('function isRecord'.length), provenance.parser.bytes);
-  const accepts = new Function(transformSync(parser, { loader: 'ts' }).code + '\nreturn isResponse;')();
+  const compile = text => transformSync(text, { loader: 'ts', minifyWhitespace: true }).code;
+  const compiled = compile(parser);
+  assert.equal(compiled, compile('function isRecord' + provenance.parser.bytes));
+  const accepts = new Function(compiled + '\nreturn isResponse;')();
   for (const record of Object.values(records)) {
     assert.deepEqual(producer.exports.rebuildMarketTerms(record.snapshot, record.query), record.response);
     assert.equal(accepts(record.response), true);
