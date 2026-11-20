@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium, settles, waitForAsync } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
+import { handleDoctorcreRequest } from '../src/worker.js';
 import { directoryFixture } from './fixtures/vendor-directory.synthetic.mjs';
 let server, origin;
 before(async()=>{
@@ -16,18 +17,34 @@ async function open(t,width=1440){
   page.on('pageerror',e=>errors.push(e.message));
   await page.clock.install({time:new Date('2026-10-01T18:00:00Z')});await page.route('https://**',r=>r.abort());
   let fail=false,expired=false,writes=0,writeMode='saved';
+  const cutoverStarted = Promise.withResolvers();
+  const releaseRefusal = Promise.withResolvers();
+  t.after(() => releaseRefusal.resolve());
   await page.route('**/api/v1/business/**',r=>{calls.push(r.request().url());return expired?r.fulfill({status:401,json:{error:'AUTHENTICATION_REQUIRED'}}):fail?r.fulfill({status:503,json:{error:'DEPENDENCY_UNAVAILABLE'}}):r.fulfill({json:directoryFixture(r.request().url(),{overrides})});});
   await page.route('**/{api/system-work/session,auth/session}',r=>r.fulfill({json:{csrf_token:'synthetic-session',actor:{slug:'joe'}}}));
-  await page.route('**/mcp',r=>{
+  await page.route('**/mcp',async r=>{
     const {name,arguments:args}=r.request().postDataJSON().params;let payload={ok:true};
     if(name==='update-vendor'){
+      if (writeMode === 'cutover') {
+        const id = `00000000-0000-4000-8000-${args.vendor.split('-').at(-1).padStart(12, '0')}`;
+        overrides.set(id, { ...args.fields.trust_override, recorded_by: 'joe', recorded_at: '2026-10-01T18:00:00Z' });
+        cutoverStarted.resolve();
+        await releaseRefusal.promise;
+        const response = await handleDoctorcreRequest(new Request(r.request().url(), {
+          method: 'POST', body: r.request().postData(),
+        }), {
+          ENGINE_ROUTING: { get: async key => key === 'deals-saves-from-engine' ? 'on' : null },
+          CARR: { fetch: async () => { writes++; return Response.json({}); } },
+        });
+        return r.fulfill({ status: response.status, body: await response.text(), contentType: 'application/json' });
+      }
       assert.match(args.vendor,/^V-DEMO-\d+$/);assert.equal(args.base_version,1);assert.deepEqual(Object.keys(args.fields),['trust_override']);assert.match(args.idempotency_key,/^[a-f0-9-]{36}$/);if(args.fields.trust_override){assert.ok(['Trial','Established','Proven'].includes(args.fields.trust_override.tier));assert.ok(args.fields.trust_override.reason);}writes++;payload={ok:true,updated:['trust_override']};if(writeMode==='rejected')return r.fulfill({json:{jsonrpc:'2.0',id:1,result:{isError:true,content:[{type:'text',text:JSON.stringify({error:'AUTHORIZATION_REFUSED'})}]}}});if(writeMode==='unknownAck')return r.fulfill({json:{jsonrpc:'2.0',id:1,result:{content:[{type:'text',text:JSON.stringify({ok:true,updated:[]})}]}}});if(writeMode==='unknownTool')return r.fulfill({json:{jsonrpc:'2.0',id:1,result:{isError:true,content:[{type:'text',text:JSON.stringify({error:'DEPENDENCY_UNAVAILABLE'})}]}}});if(writeMode==='unknown200')return r.fulfill({json:{jsonrpc:'2.0',id:1,result:{content:[{type:'text',text:'{}'}]}}});if(writeMode==='uncertain')return r.fulfill({status:502,body:'Synthetic lost response'});const n=Number(args.vendor.split('-').at(-1));const id=`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
       overrides.set(id,args.fields.trust_override?{...args.fields.trust_override,recorded_by:'joe',recorded_at:'2026-10-01T18:00:00Z'}:null);
     if(writeMode==='lost')return r.fulfill({status:502,body:'Synthetic lost response'});
     }else if(name==='find-and-catch-up')payload={state:'not_found',candidates:[]};
     return r.fulfill({json:{jsonrpc:'2.0',id:1,result:{content:[{type:'text',text:JSON.stringify(payload)}]}}});
   });
-  return {page,errors,calls,get writes(){return writes;},setFail:value=>{fail=value;},setExpired:value=>{expired=value;},setWriteMode:value=>{writeMode=value;}};
+  return {page,errors,calls,cutoverStarted:cutoverStarted.promise,releaseRefusal:releaseRefusal.resolve,get writes(){return writes;},setFail:value=>{fail=value;},setExpired:value=>{expired=value;},setWriteMode:value=>{writeMode=value;}};
 }
 test('V01 shared directory has neutral loading identity before its module starts', async t => {
   const { page } = await open(t);
@@ -158,6 +175,29 @@ for(const mode of ['lost','rejected','uncertain','unknown200','unknownAck','unkn
   if(mode==='lost'){assert.match(await page.locator('.relationship-section').innerText(),/Computed: Proven/);assert.equal(await page.locator('#trustStatus').textContent(),'Rating confirmed');assert.equal(await page.locator('#trustForm button').isDisabled(),false);}
   else assert.equal(await page.locator('#trustForm button').isDisabled(),['uncertain','unknown200','unknownAck','unknownTool'].includes(mode));
   await page.clock.fastForward(31000);await page.waitForTimeout(80);assert.equal(h.writes,1,'polling never repeats a write');assert.deepEqual(h.errors,[]);
+});
+
+test('a cutover refusal cannot confirm a vendor rating from a concurrent save', async t => {
+  const fixture = await open(t);
+  fixture.setWriteMode('cutover');
+  const { page } = fixture;
+  await page.goto(origin + '/vendors?mode=live');
+  await page.locator('.record-row').first().click();
+  await page.locator('[data-details-key="trust"] summary').click();
+  await page.locator('[name="tier"]').selectOption('Trial');
+  await page.locator('[name="reason"]').fill('Same rating from another tab');
+  await page.locator('#trustForm button').click();
+  await fixture.cutoverStarted;
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await page.locator('.relationship-section .note-summary').filter({ hasText: 'Same rating from another tab' }).waitFor();
+  const statusWhileSending = await page.locator('#trustStatus').textContent();
+  fixture.releaseRefusal();
+  await page.waitForFunction(() => document.querySelector('#trustStatus')?.textContent !== 'Saving…');
+  assert.equal(statusWhileSending, 'Saving…');
+  assert.equal(await page.locator('#trustStatus').textContent(), 'Open Vendors to see the current records.');
+  assert.equal(await page.locator('#trustForm button').isDisabled(), false);
+  assert.equal(fixture.writes, 0);
+  assert.deepEqual(fixture.errors, []);
 });
 
 test('W5 Clients exposes every requested sort and owner without territory controls',async t=>{

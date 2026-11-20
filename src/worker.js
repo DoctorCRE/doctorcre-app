@@ -562,9 +562,7 @@ const DEAL_EMAIL_REFUSALS = new Map([
 // switch goes on to the other one. Both read the key's receipt before writing,
 // and tool_call's primary key refuses a second one, so the second replays or
 // refuses and never writes.
-async function engineSave(request, env) {
-  const url = new URL(request.url);
-  const call = await mcpCall(request, url);
+async function engineSave(request, env, call) {
   if (call?.method !== 'tools/call' || !isObject(call.params?.arguments)) return null;
   if (call.params.name === 'decide-engine-deal-email') {
     if (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))
@@ -604,15 +602,6 @@ async function engineSave(request, env) {
     return engineAnswer(request, env, call, { path: `/api/engine/${record}/${id}/${action}` },
       { allowHandoff: false, body, rawClientError: record === 'proposals' });
   }
-  if (LEGACY_HOME_MARKS.has(call.params.name)) {
-    const { items, undo_of } = call.params.arguments;
-    if ((Array.isArray(items) || undo_of) && await switchedOn(env, HOME))
-      return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
-  }
-  const args = call.params.arguments;
-  if (((call.params.name === 'log-activity' && args.kind === 'meeting' && 'calendar_event_key' in args) ||
-       (call.params.name === 'answer-board-question' && args.board_id === 'calendar-agenda')) && await switchedOn(env, HOME))
-    return saveRefusal(call, 'home_routing_changed', 'Refresh Home and answer the question in Today.');
   if (call.params.name === 'record-commission-receipt') {
     if (!await switchedOn(env, INVOICES)) return null;
     return engineAnswer(request, env, call, { path: '/api/engine/invoices/mark-paid' }, { allowHandoff: false });
@@ -627,6 +616,89 @@ async function engineSave(request, env) {
   const old = await carrResponse(request, env);
   if (await oldRefusal(old.clone()) !== 'key_reuse') return old;
   return await engineAnswer(request, env, call, save) ?? old;
+}
+
+const DEAL_PAGE_HINT = 'Open the deal page to work from the current record.';
+const HOME_HINT = 'Open Home to review the current work.';
+const TOUR_HINT = 'Open Tours on the deal page to view existing tours.';
+const MONDAY_HINT = 'Open Monday review from Deals.';
+const PROSPECTS_HINT = 'Open Prospects on the Deals board.';
+const DOCUMENTS_HINT = 'Open Documents on the deal page.';
+const FROZEN_TOOLS = new Map([
+  ['start-deal-review', MONDAY_HINT],
+  ['review-deal', MONDAY_HINT],
+  ['end-deal-review', MONDAY_HINT],
+  ['complete-one-action', HOME_HINT],
+  ['reopen-one-action', HOME_HINT],
+  ['resolve-candidate', HOME_HINT],
+  ['resolve-post-call-candidate', HOME_HINT],
+  ['review-call-outcome', HOME_HINT],
+  ['undo-call-change', HOME_HINT],
+  ['snooze-email-proposal', HOME_HINT],
+  ['handle-email-proposal', HOME_HINT],
+  ['confirm-email-filing', HOME_HINT],
+  ['confirm-email-next-step', HOME_HINT],
+  ['confirm-email-deal-progress', HOME_HINT],
+  ['dismiss-email-proposal', HOME_HINT],
+  ['edit-email-draft', HOME_HINT],
+  ['submit-email-draft', HOME_HINT],
+  ['undo-email-thread-filing', HOME_HINT],
+  ['set-notification-preference', 'Open Home to see current updates.'],
+  ['log-activity', DEAL_PAGE_HINT],
+  ['set-lead', DEAL_PAGE_HINT],
+  ['add-deal-participant', DEAL_PAGE_HINT],
+  ['register-client-portal', 'Open Client website on the deal page.'],
+  ['append-tour-selection-cart-version', TOUR_HINT],
+  ['save-deal-space-search-v1', DEAL_PAGE_HINT],
+  ['run-deal-space-search-v1', DEAL_PAGE_HINT],
+  ['record-human-fact', DOCUMENTS_HINT],
+  ['set-client-publication', DOCUMENTS_HINT],
+  ['resolve-fact-review', DOCUMENTS_HINT],
+  ['start-deal-deliverable', DOCUMENTS_HINT],
+  ['finalize-deal-deliverable', DOCUMENTS_HINT],
+  ['abandon-deal-deliverable', DOCUMENTS_HINT],
+  ['set-deal-deliverable-visibility', DOCUMENTS_HINT],
+  ['set-prospect-engagement-status', PROSPECTS_HINT],
+  ['claim-lead', PROSPECTS_HINT],
+  ['approve-lead-draft', HOME_HINT],
+  ['update-lead', PROSPECTS_HINT],
+  ['link-lead-client', PROSPECTS_HINT],
+  ['new-lead', PROSPECTS_HINT],
+  ['new-client', 'Open Clients to see the current records.'],
+  ['add-party', 'Open Search to find the current record.'],
+  ['link-parties', 'Open Search to find the current record.'],
+  ['update-party-contact', 'Open Search to find the current record.'],
+  ['new-vendor', 'Open Vendors to see the current records.'],
+  ['update-vendor', 'Open Vendors to see the current records.'],
+  ['merge-vendor-rows', 'Open Vendors to see the current records.'],
+  ['record-commission-receipt', 'Open Invoices to mark an invoice paid.'],
+]);
+
+async function refuseFrozenSave(request, env, url, call) {
+  const { pathname } = url;
+  if (call?.method === 'tools/call') {
+    const { name, arguments: supplied } = call.params ?? {};
+    const wrapped = name === 'call-verb';
+    const verb = wrapped ? supplied?.verb : name;
+    let args = wrapped ? supplied?.args : supplied;
+    if (wrapped && isString(args)) {
+      try { args = JSON.parse(args); } catch { args = null; }
+    }
+    const calendarAnswer = (verb === 'answer-board-question' && args?.board_id === 'calendar-agenda') ||
+      (verb === 'log-activity' && args?.kind === 'meeting' && Object.hasOwn(args, 'calendar_event_key'));
+    if (calendarAnswer && await switchedOn(env, HOME))
+      return saveRefusal(call, 'home_routing_changed', 'Refresh Home and answer the question in Today.');
+    if ((verb === 'review-deal-update' || LEGACY_HOME_MARKS.has(verb)) && await switchedOn(env, HOME))
+      return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+    const hint = FROZEN_TOOLS.get(verb) ?? (CUTOVER_SAVES.has(verb) ? DEAL_PAGE_HINT : null);
+    return hint && await switchedOn(env, NEXT_DEAL_SAVES) ? saveRefusal(call, 'old_save_closed', hint) : null;
+  }
+  if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return null;
+  const hint = pathname.startsWith('/api/tours/') && pathname !== '/api/tours/properties/search'
+    ? TOUR_HINT
+    : /^\/api\/v1\/fact-review\/(comparison|record|resolve)$/.test(pathname) || pathname.startsWith('/api/v1/deal-deliverables/')
+    ? DOCUMENTS_HINT : null;
+  return hint && await switchedOn(env, NEXT_DEAL_SAVES) ? json({ error: hint }, 409) : null;
 }
 
 async function sendEngineSave(request, env, path, body) {
@@ -827,9 +899,9 @@ async function handleRequest(request, env) {
     return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
   }
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    const engine = await engineSave(request, env) ?? await engineResponse(request, env);
-    if (engine) return engine;
-    return carrResponse(request, env);
+    const call = await mcpCall(request, url);
+    const engine = await engineSave(request, env, call) ?? await engineResponse(request, env);
+    return engine ?? await refuseFrozenSave(request, env, url, call) ?? carrResponse(request, env);
   }
   return json({ error: "not_found" }, 404);
 }

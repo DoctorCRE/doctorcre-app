@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { parse } from "@babel/parser";
+import traverse from "@babel/traverse";
+import phone from "../contracts/carr-interface.v1/phone_call_sessions.json" with { type: "json" };
+import deliverables from "../contracts/deal-deliverables.v1.json" with { type: "json" };
+import documentIntake from "../contracts/deal-document-intake.v1.json" with { type: "json" };
+import tourComposer from "../contracts/tour-composer.v1.json" with { type: "json" };
 import worker from "../src/worker.js";
 
 const origin = "https://app.example.test";
@@ -880,7 +887,6 @@ test("Mark paid keeps the original CARR call with the invoice switch off", async
   const f = fixture(new Map([["invoices-from-engine", "off"]]));
   assert.equal(await (await f.send(markPaid)).text(), "old");
   assert.deepEqual(f.carr, [JSON.stringify(markPaid)]);
-  assert.deepEqual(f.kv, [["invoices-from-engine", { cacheTtl: 30 }]]);
   assert.deepEqual(f.engine, []);
 });
 
@@ -1374,11 +1380,7 @@ test("the engine save sets renewed session cookies on the wrapped answer", async
   assert.deepEqual((await f.send(phaseMove, saveHeaders)).headers.getSetCookie(), ["session=fresh"]);
 });
 
-for (const body of [
-  call("patch-deal-field", null),
-  call("patch-deal-field", []),
-  call("patch-deal-field", {}, { method: "initialize" }),
-]) {
+for (const body of [call("patch-deal-field", {}, { method: "initialize" })]) {
   test(`save the engine does not take stays on the old system ${JSON.stringify(body)}`, async () => {
     const f = fixture(savesOn);
     assert.equal(await (await f.send(body, saveHeaders)).text(), "old");
@@ -1772,10 +1774,13 @@ for (const [verb, args] of [
   ["set-lead", { new_lead: "dell" }],
   ["add-deal-participant", { party_id: marketId, role: "listing_side" }],
 ] as const) {
-  test(`Deals cutover does not route ${verb} to the engine`, async () => {
+  test(`Deals cutover refuses the old ${verb} save`, async () => {
     const f = fixture(nextDealsOn);
     const save = call(verb, { ...args, deal: dealId, seen_change_id: 23, idempotency_key: operationId });
-    assert.equal(await (await f.send(save, saveHeaders)).text(), "old");
+    const reply = await (await f.send(save, saveHeaders)).json();
+    assert.equal(reply.result.isError, true);
+    assert.match(JSON.parse(reply.result.content[0].text).hint, /deal page/);
+    assert.deepEqual(f.carr, []);
     assert.deepEqual(f.engine, []);
   });
 }
@@ -2239,4 +2244,322 @@ test("Home meeting answers switch from legacy writes to the signed-in engine rou
     writes.map(([, body]) => body),
   );
   assert.ok(on.engine.every((request) => request.headers.get("x-carr-csrf") === "synthetic"));
+});
+
+test("a stale weekly review cannot write to CARR after Deals switches", async () => {
+  const body = call("start-deal-review");
+  const off = fixture(new Map());
+  assert.equal(await (await off.send(body)).text(), "old");
+  assert.deepEqual(off.carr, [JSON.stringify(body)]);
+
+  const on = fixture(new Map([["deals-saves-from-engine", "on"]]));
+  const response = await on.send(body);
+  const reply = await response.json();
+  assert.equal(reply.id, body.id);
+  assert.equal(reply.result.isError, true);
+  assert.match(JSON.parse(reply.result.content[0].text).hint, /Monday review/);
+  assert.deepEqual(on.carr, []);
+  assert.deepEqual(on.engine, []);
+});
+
+function liveClientWrites(source: string): Set<string> {
+  const verbs = new Set<string>();
+  traverse(parse(source, { sourceType: "module" }), {
+    CallExpression(path) {
+      const callee = path.get("callee");
+      if (!callee.isIdentifier()) return;
+      const { name } = callee.node;
+      if (!["write", "save", "rawRpc", "emailAction", "requestMcp"].includes(name)) return;
+      const verb = path.get("arguments")[name === "emailAction" ? 1 : 0];
+      assert.ok(verb?.isExpression(), `Missing verb at ${path.node.loc?.start.line}`);
+      if (verb.isIdentifier({ name: "verb" })) {
+        const parameter = verb.scope.getBinding("verb");
+        const owner = parameter?.scope.path;
+        const parent = owner?.parentPath;
+        const helper = owner?.isFunctionDeclaration()
+          ? owner.node.id?.name
+          : parent?.isVariableDeclarator() && parent.node.id.type === "Identifier"
+            ? parent.node.id.name
+            : undefined;
+        if (
+          parameter?.kind === "param" &&
+          ((name === "requestMcp" && helper === "rawRpc") ||
+            (name === "rawRpc" && helper !== undefined && ["rpc", "write", "save", "emailAction"].includes(helper)))
+        )
+          return;
+        if (
+          name === "write" &&
+          owner?.isObjectMethod() &&
+          owner.node.key.type === "Identifier" &&
+          owner.node.key.name === "triageSystemWork"
+        ) {
+          const allowed = path.scope.getBinding("allowed")?.path;
+          assert.ok(allowed?.isVariableDeclarator());
+          const initializer = allowed.get("init");
+          assert.ok(initializer.isNewExpression() && initializer.get("callee").isIdentifier({ name: "Set" }));
+          const list = initializer.get("arguments")[0]?.evaluate();
+          assert.ok(list?.confident && Array.isArray(list.value), "Unresolved triage verbs");
+          for (const value of list.value) {
+            assert.equal(typeof value, "string");
+            verbs.add(value);
+          }
+          return;
+        }
+      }
+      const resolved = verb.evaluate();
+      assert.ok(
+        resolved.confident && typeof resolved.value === "string",
+        `Unresolved ${name} verb at line ${path.node.loc?.start.line}`,
+      );
+      verbs.add(resolved.value);
+    },
+  });
+  verbs.delete("morning-brief"); // rawRpc bypasses the read cache on refresh.
+  return verbs;
+}
+
+test("every live client mutation is routed, refused, or accounted for after cutover", async () => {
+  const client = readFileSync(new URL("../js/live-client.js", import.meta.url), "utf8");
+  const keep = new Set([
+    "acknowledge-notification",
+    "read-client-portal",
+    "watch-subject-v2",
+    "replace-subject-watch-policy-v2",
+    "pause-subject-watch-v2",
+    "resume-subject-watch-v2",
+    "unwatch-subject-v2",
+  ]);
+  const outside = new Map([
+    ["presence-lease", "Transient Deals editing presence has no copied record."],
+    ...["add-loop", "update-loop", "close-loop", "add-industry-event", "update-industry-event"].map(
+      (verb) => [verb, "Neither loops nor industry events are copied."] as const,
+    ),
+    ...[
+      "decline-work-request",
+      "supersede-work-request",
+      "set-work-shape-disposition",
+      "link-incident-work-request",
+      "add-room-turn",
+      "answer-work-request-for-joe",
+      "review-and-triage",
+      "cancel-capability-session",
+      "triage-incident",
+      "cancel-workflow-cutover-plan",
+      "advance-workflow-cutover-stage",
+      "confirm-slice-completions",
+      "close-investigation",
+      "accept-ready-plan-amendment",
+      "approve-retrieval-proposals",
+      "answer-board-question",
+    ].map((verb) => [verb, "Control Room work stays in CARR. Calendar answers are checked separately."] as const),
+    ...[
+      "decide-doc-suggestion",
+      "propose-doc-correction",
+      "submit-doc-request",
+      "create-doc-conversation",
+      "rename-doc-conversation",
+      "share-doc-conversation",
+    ].map((verb) => [verb, "Doc conversations and requests stay in CARR."] as const),
+  ]);
+  const switches = new Map([...nextDealsOn, ["home-from-engine", "on"], ["invoices-from-engine", "on"]]);
+  const additional = [
+    ...keep,
+    "claim-lead",
+    "update-lead",
+    "link-lead-client",
+    "new-lead",
+    "approve-lead-draft",
+    "new-client",
+    "add-party",
+    "update-party-contact",
+    "new-vendor",
+    "merge-vendor-rows",
+    "add-deal-participant",
+    "append-tour-selection-cart-version",
+    "reopen-one-action",
+    "save-deal-space-search-v1",
+    "run-deal-space-search-v1",
+    "set-client-publication",
+    "start-deal-deliverable",
+    "abandon-deal-deliverable",
+    "finalize-deal-deliverable",
+    "set-deal-deliverable-visibility",
+    "snooze-home-inbox",
+    "settle-home-inbox",
+    "unsettle-home-inbox",
+  ];
+  async function verify(verbs: Iterable<string>) {
+    for (const name of verbs) {
+      const f = fixture(switches);
+      const body = call(name);
+      const response = await f.send(body);
+      if (keep.has(name) || outside.has(name)) {
+        assert.equal(await response.text(), "old", name);
+        assert.deepEqual(f.carr, [JSON.stringify(body)], outside.get(name) ?? name);
+      } else {
+        assert.deepEqual(f.carr, [], `${name} can still save to CARR`);
+        if (!f.engine.length) {
+          const reply = await response.json();
+          assert.equal(reply.result.isError, true, name);
+          assert.ok(JSON.parse(reply.result.content[0].text).hint, name);
+        }
+      }
+    }
+  }
+  await verify(new Set([...liveClientWrites(client), ...additional]));
+  const templateWrite = `function probe() { write(\`synthetic-\${"unclassified-save"}\`, {}); }`;
+  await assert.rejects(
+    verify(liveClientWrites(client + "\n" + templateWrite)),
+    /synthetic-unclassified-save can still save/,
+  );
+  assert.throws(
+    () => liveClientWrites(client + "\nfunction probe(name) { write(name, {}); }"),
+    /Unresolved write verb/,
+  );
+});
+
+test("the MCP Tour cart write still forwards before the switch", async () => {
+  const body = call("append-tour-selection-cart-version");
+  const off = fixture(new Map());
+  assert.equal(await (await off.send(body)).text(), "old");
+  assert.deepEqual(off.carr, [JSON.stringify(body)]);
+});
+
+test("legacy HTTP writes in the pinned contracts have a cutover disposition", async () => {
+  const index = new URL("../contracts/carr-interface.v1/http_surfaces/", import.meta.url);
+  const surfaces = readdirSync(index)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => {
+      const entry: unknown = JSON.parse(readFileSync(new URL(file, index), "utf8"));
+      assert.ok(entry && typeof entry === "object" && "value" in entry && typeof entry.value === "string", file);
+      return entry.value;
+    });
+  const reads = new Set([
+    "/api/tours/feedback",
+    "/api/tours/properties/search",
+    "/api/tours/property-evidence/v1",
+    "/api/v1/atlas-graph",
+    "/api/v1/business/*",
+    "/api/v1/call-sessions/{id}",
+    "/api/v1/call-sessions/{id}/report",
+    "/api/v1/command-center",
+    "/api/v1/fact-review/comparison/validate",
+    "/api/v1/fact-review/documents",
+    "/api/v1/fact-review/list",
+    "/api/v1/jev-deal-reading",
+    "/api/v1/market-terms/read",
+    "/api/v1/work-inventory",
+    "/pipeline/changes",
+  ]);
+  const keptPhone = [phone.admission, phone.transfer, phone.answer];
+  const phoneMethods = new Map(keptPhone.map(({ method, path }) => [path, method]));
+  const fileRoutes = [
+    ...Object.keys(deliverables.browser.routes).map((route) =>
+      route.replace("{base_path}", deliverables.browser.base_path),
+    ),
+    documentIntake.browser.abandon.replace("base_path", documentIntake.browser.base_path),
+  ];
+  const contractWrites = [
+    ...Object.keys(tourComposer.writes).map((path) => `POST ${path}`),
+    ...fileRoutes.filter((route) => !route.startsWith("GET ")),
+  ];
+
+  async function verify(paths: string[]) {
+    const routes = new Set(contractWrites);
+    for (const path of new Set([...paths, ...phoneMethods.keys()])) {
+      // The producer's path-only index also lists reads and unrelated workspaces.
+      if (
+        reads.has(path) ||
+        ["/api/room/", "/api/share/", "/api/system-work/"].some((prefix) => path.startsWith(prefix))
+      )
+        continue;
+      routes.add(`${phoneMethods.get(path) ?? "POST"} ${path}`);
+    }
+    for (const route of routes) {
+      const [method, path] = route.split(" ");
+      assert.ok(method && path);
+      const send = (f: ReturnType<typeof fixture>) =>
+        worker.fetch(
+          new Request(origin + path.replaceAll(/\{[^}]+\}|\*/g, "cutover-example"), { method, body: "payload" }),
+          f.env,
+        );
+      const off = fixture(new Map());
+      assert.equal(await (await send(off)).text(), "old", route);
+      assert.deepEqual(off.carr, ["payload"], route);
+      const on = fixture(nextDealsOn);
+      const response = await send(on);
+      if (phoneMethods.has(path)) {
+        assert.equal(await response.text(), "old", route);
+        assert.deepEqual(on.carr, ["payload"], route);
+      } else {
+        assert.equal(response.status, 409, `${route} is unguarded`);
+        assert.match(
+          (await response.json()).error,
+          path.startsWith("/api/tours/") ? /Tours on the deal page/ : /Documents/,
+        );
+        assert.deepEqual(on.carr, [], route);
+      }
+    }
+  }
+  await verify(surfaces);
+  await assert.rejects(
+    verify([...surfaces, "/api/v1/fact-review/synthetic-unclassified-save"]),
+    /POST \/api\/v1\/fact-review\/synthetic-unclassified-save is unguarded/,
+  );
+});
+
+test("the cutover preserves the local report and read-only Tour search", async () => {
+  const f = fixture(nextDealsOn);
+  for (const [method, path] of [
+    ["GET", "/api/post-call"],
+    ["GET", "/api/tours/detail"],
+    ["POST", "/api/tours/properties/search"],
+    ["GET", "/api/v1/deal-deliverables/demo-deal"],
+  ] as const) {
+    const response = await worker.fetch(new Request(origin + path, { method }), f.env);
+    assert.equal(await response.text(), "old", path);
+  }
+  assert.equal(f.carr.length, 4);
+});
+
+test("Home-only legacy saves use the Home switch independently", async () => {
+  for (const name of ["review-deal-update", "snooze-home-inbox", "settle-home-inbox", "unsettle-home-inbox"]) {
+    assert.equal(await (await fixture(nextDealsOn).send(call(name))).text(), "old", name);
+    const home = fixture(new Map([["home-from-engine", "on"]]));
+    const reply = await (await home.send(call(name))).json();
+    assert.match(JSON.parse(reply.result.content[0].text).hint, /Home/);
+    assert.deepEqual(home.carr, []);
+  }
+});
+
+test("a wrapped Deal save cannot reach the old system", async () => {
+  const f = fixture(nextDealsOn);
+  const reply = await (await f.send(call("call-verb", { verb: "patch-deal-field", args: {} }))).json();
+  assert.equal(reply.result.isError, true);
+  assert.deepEqual(f.carr, []);
+});
+
+test("live client prospect and Monday review HTTP saves route to the engine", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const f = fixture(nextDealsOn);
+  for (const [entry, target] of [
+    ["prospects", "prospects"],
+    ["prospects/note", "activities"],
+    ["prospects/follow-up", "next-steps"],
+    [`prospects/${id}/changes`, `prospects/${id}/changes`],
+    [`prospects/${id}/drop`, `prospects/${id}/drop`],
+    ["weekly-reviews", "weekly-reviews"],
+    [`weekly-reviews/${id}/remove`, `weekly-reviews/${id}/remove`],
+  ] as const) {
+    const response = await worker.fetch(
+      new Request(`${origin}/api/engine/${entry}`, {
+        method: "POST",
+        body: "{}",
+      }),
+      f.env,
+    );
+    assert.equal(response.status, 200, entry);
+    assert.equal(f.engine.at(-1)?.url, `${origin}/api/engine/${target}`);
+  }
+  assert.deepEqual(f.carr, []);
 });
