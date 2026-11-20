@@ -226,21 +226,21 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
         await expect(hold).toContainText('Jan 1, 2027');
         for (const text of ['Demo lease document','Demo next action','Demo owner changed','Demo discovery meeting','Demo recorded deal note','Demo LOI deadline','Vendor Introductions']) await expect(page.locator('.workspace-events')).toContainText(text);
         await expect(page.locator('.workspace-events li').filter({hasText:'Vendor Introductions'})).toContainText('Feb 1, 2026');
-        await page.getByLabel('Filter by type').selectOption('Document');
+        await page.getByLabel('Filter by kind').selectOption('Document');
         await expect(page.locator('.workspace-events li:visible')).toHaveCount(1);
         await expect(page.locator('.workspace-events li:visible')).toContainText('Demo lease document');
         await page.getByRole('button',{name:'Refresh deal',exact:true}).click();
-        await expect(page.getByLabel('Filter by type')).toHaveValue('Document');
+        await expect(page.getByLabel('Filter by kind')).toHaveValue('Document');
         await expect(page.locator('.workspace-events li:visible')).toHaveCount(1);
         await page.evaluate(() => { window.workspaceDocumentRemoved = true; });
         await page.getByRole('button',{name:'Refresh deal',exact:true}).click();
         await expect(page.locator('.workspace-events')).not.toContainText('Demo lease document');
-        await expect(page.getByLabel('Filter by type')).toHaveValue('');
+        await expect(page.getByLabel('Filter by kind')).toHaveValue('');
         await expect(page.locator('.workspace-events li:visible')).not.toHaveCount(0);
         await page.evaluate(() => { window.workspaceDocumentRemoved = false; });
         await page.getByRole('button',{name:'Refresh deal',exact:true}).click();
         await expect(page.locator('.workspace-events')).toContainText('Demo lease document');
-        await expect(page.getByLabel('Filter by type')).toHaveValue('');
+        await expect(page.getByLabel('Filter by kind')).toHaveValue('');
       }
       if (tab === 'correspondence') {
         await expect(page.getByRole('region', { name: 'Deal notes', exact: true })).toContainText('Demo recorded deal note');

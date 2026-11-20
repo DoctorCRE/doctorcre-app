@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { loadEvidence, renderEvidence } from '../js/correspondence.js';
+import { loadEvidence, renderEvidence, renderCorrespondence } from '../js/correspondence.js';
 
 test('latest email threads keep email classification and message times in newest-first order', async () => {
   const view = await loadEvidence({ email_threads: [
@@ -33,7 +33,7 @@ test('email snapshots distinguish empty coverage and escape missing or untrusted
   const html = renderEvidence(view);
   assert.doesNotMatch(html, /<img/);
   assert.match(html, /&lt;img/);
-  assert.equal(view.threads.items[0].title, 'No subject recorded');
+  assert.equal(view.threads.items[0].title, '(No subject)');
 });
 
 test('email snapshots preserve meeting ordering, provenance checks and escaping', async () => {
@@ -58,4 +58,12 @@ test('an unreadable read shows unavailable with Refresh deal, which re-reads the
   const groups = [...doc.querySelectorAll('[data-evidence-group]')];
   assert.deepEqual(groups.map(group => group.querySelector('h4').textContent), ['Email threads unavailable', 'Meetings unavailable']);
   assert.ok(groups.every(group => group.querySelector('button[data-refresh-detail]')?.textContent === 'Refresh deal'));
+});
+
+test('filed correspondence uses clear empty and missing subject wording', () => {
+  assert.match(renderCorrespondence([]), /No emails or meetings filed to this deal yet\./);
+  const doc = new JSDOM(renderCorrespondence([{kind: 'email', subject: '', sender: 'Demo sender', happened_at: '2026-12-01T12:00:00Z'}])).window.document;
+  assert.equal(doc.querySelector('li b').textContent, '(No subject)');
+  const supplied = new JSDOM(renderCorrespondence([{kind: 'email', subject: '(no subject)'}])).window.document;
+  assert.equal(supplied.querySelector('li b').textContent, '(No subject)');
 });
