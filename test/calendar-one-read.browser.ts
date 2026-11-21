@@ -101,7 +101,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
                   ...["22", "24", "26", "30"].map((day) => ({
                     id: `step-${day}`,
                     what: day === "30" ? upcomingTitle : "Confirm suite availability",
-                    ...(day === "22" ? { why: "Confirm suite availability" } : {}),
+                    ...(day === "22" ? { why: null } : {}),
                     owner: "dell",
                     record_label: "Example clinic",
                     due_on: `2026-10-${day}`,
@@ -238,10 +238,8 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             "href",
             "/relationships?node=party:example-clinic",
           );
-          await t.test("the instruction appears even when it matches the title", async () => {
-            await expect(panel).toHaveText(
-              "Next step · Dell Confirm suite availability Confirm suite availability Example clinic",
-            );
+          await t.test("a short step appears once when the engine omits its body", async () => {
+            await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
             await comingUpPanel.getByRole("button", { name: /^Oct 24\b/ }).click();
             await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
           });

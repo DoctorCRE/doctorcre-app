@@ -3197,6 +3197,7 @@ for (const width of [1440, 390]) test(`a changed checklist item stays open until
   const fixtureOrigin = await dealFixtureOrigin(t);
   const deal = crypto.randomUUID();
   const step = { id: crypto.randomUUID(), title: 'Review the floor plan', due_on: '2026-11-24', status: 'open', change_id: 0 };
+  const short = { ...step, id: crypto.randomUUID(), title: 'Call the office' };
   const url = `https://example.test/plans/${'long-path-'.repeat(25)}`;
   const instruction = `Confirm signage against the plan (${url}) before replying.`;
   const row = { id: deal, deal_id: deal, name: 'Example Deal', owner: 'joe', phase: 'research', seen: 23 };
@@ -3210,10 +3211,11 @@ for (const width of [1440, 390]) test(`a changed checklist item stays open until
         schema_version: 'local-deals-board.v2', actor: 'joe', deals: [{ ...row, items: [item] }],
       });
       if (pathname === `/api/engine/deals/${deal}`) return Response.json({
-        ...row, email_follow_ups: [], items: [item],
+        ...row, email_follow_ups: [], items: [item, short],
         next_actions: [{ ...step, description: `Confirm signage against [the plan](${url}) before replying.`,
           display_title: step.title,
-          display_instruction: instruction, change_id: step.status === 'open' ? change_id : null }],
+          display_instruction: instruction, change_id: step.status === 'open' ? change_id : null },
+        { ...short, description: short.title, display_title: short.title, display_instruction: null }],
       });
       if (pathname !== `/api/engine/next-steps/${step.id}/end`) return new Response(null, { status: 404 });
       const command = await request.json();
@@ -3239,6 +3241,13 @@ for (const width of [1440, 390]) test(`a changed checklist item stays open until
   const stillNeeded = page.locator('#recordPanel .deal-items').getByRole('listitem').filter({ hasText: step.title });
   const title = stillNeeded.getByRole('button', { name: step.title, exact: true });
   await title.waitFor();
+  const shortRow = page.locator('#recordPanel .deal-items').getByRole('listitem').filter({ hasText: short.title });
+  assert.equal(await shortRow.getByText(short.title, { exact: true }).count(), 1);
+  await shortRow.getByRole('button', { name: short.title }).click();
+  const shortSheet = page.getByRole('dialog', { name: short.title });
+  await shortSheet.waitFor();
+  assert.equal(await shortSheet.getByText(short.title, { exact: true }).count(), 1);
+  await page.keyboard.press('Escape');
   const body = stillNeeded.getByText(instruction, { exact: true });
   assert.equal(await body.isVisible(), true);
   const heading = await title.boundingBox();

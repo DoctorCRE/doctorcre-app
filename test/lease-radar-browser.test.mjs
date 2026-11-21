@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { chromium } from './browser-harness.mjs';
+import { chromium, pausedClock } from './browser-harness.mjs';
 import { createFixtureClient } from '../js/fixture-client.js';
 import { leaseRadarFixture } from '../js/lease-radar-fixture.js';
 import { invoiceTrackerFixture } from '../js/invoice-tracker-fixture.js';
@@ -16,11 +16,12 @@ async function shot(page, name) {
   await page.clock.runFor(300);
   await page.screenshot({ path: join(process.env.W13_SCREENSHOT_DIR, `${name}.png`), animations: 'disabled' });
 }
-async function open(t, { width = 1440, home = false, long = false, motion = 'reduce' } = {}) {
+async function open(t, { width = 1440, home = false, long = false, motion = 'reduce', freezeTime = false } = {}) {
   const client = await createFixtureClient({ seedUrl: `data:application/json;base64,${Buffer.from(await readFile(new URL('../data/board-seed.json', import.meta.url))).toString('base64')}` });
   const browser = await chromium.launch({ args: [...CHROMIUM_SAFETY_ARGS] }); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 1000 }, timezoneId: 'America/Chicago', reducedMotion: motion });
-  await page.clock.install({ time: NOW });
+  if (freezeTime) await pausedClock(page, NOW);
+  else await page.clock.install({ time: NOW });
   const payload = leaseRadarFixture('2026-10-01'), errors = [], calls = [];
   let failure = null, reads = 0, anniversaryReads = 0;
   if (long) payload.leases[0].client_name = `Demo${'Practice'.repeat(30)}`;
@@ -177,13 +178,23 @@ test('polling updates an open detail and preserves focus, while refusals clear s
   assert.deepEqual(state.errors, []);
 });
 test('timeout clears stale details and automatically recovers', async t => {
-  const state = await open(t); const { page } = state; await settled(page);
-  await page.locator('[data-lease="demo-lease-1"]').click(); state.fail('timeout'); await online(page);
-  await page.clock.runFor(10_001); await settled(page);
+  const state = await open(t, { freezeTime: true });
+  const { page } = state;
+  const cards = page.locator('#leaseRadar .lease-card');
+  await cards.first().click();
+
+  state.fail('timeout');
+  await Promise.all([page.waitForRequest('**/api/v1/business/leases'), online(page)]);
+  await page.clock.runFor(10_000);
+  await page.getByText('Lease dates unavailable', { exact: true }).waitFor();
   assert.equal(await page.locator('#leaseDetail').evaluate(n => n.open), false);
-  assert.equal(await page.locator('#leaseRadar .lease-card').count(), 0);
-  state.fail(null); await page.clock.runFor(121_000); await settled(page);
-  assert.equal(await page.locator('#leaseRadar .lease-card').count(), 9);
+  assert.equal(await cards.count(), 0);
+
+  state.fail(null);
+  // Leave the clock at the next poll while Chromium receives the fixture response.
+  await page.clock.runFor(60_000);
+  await cards.first().waitFor();
+  assert.equal(await cards.count(), 9);
 });
 test('urgency lights stay still and cards never lift, with or without reduced motion', async t => {
   const { page } = await open(t, { motion: 'no-preference' });
