@@ -32,8 +32,10 @@ const WORKSPACE_GATES = new Set([
   '/business', '/clients', '/vendors', '/work-inventory', '/tasks',
   '/control-room', '/incidents', '/notifications', '/conversations',
 ]);
-const PARTNER_HEADERS = ['accept', 'content-type', 'content-length', 'cookie', 'origin',
+const PARTNER_HEADERS = ['accept', 'content-type', 'content-length', 'origin',
   'sec-fetch-site', 'x-carr-csrf', 'x-correlation-id', 'user-agent'];
+const PARTNER_SESSION_COOKIE = '__Host-doctorcre_session=';
+const PARTNER_OAUTH_STATE_COOKIE = '__Host-doctorcre_oauth_state=';
 
 function gateRequestFor(request, pathname) {
   const gatePath = GATE_PATHS.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
@@ -85,7 +87,14 @@ async function engineFetch(request, env) {
     const value = request.headers.get(key);
     if (value !== null) headers.set(key, value);
   }
-  if ((request.method === 'GET' || request.method === 'HEAD') && new URL(request.url).pathname === '/api/engine/find' &&
+  const path = new URL(request.url).pathname;
+  const googleCallback = request.method === 'GET' && path === '/auth/callback/google';
+  // Better Auth checks the browser's OAuth state on the Google return.
+  const cookies = (request.headers.get('cookie') ?? '').split(';').map(cookie => cookie.trim())
+    .filter(cookie => cookie.startsWith(PARTNER_SESSION_COOKIE) ||
+      (googleCallback && cookie.startsWith(PARTNER_OAUTH_STATE_COOKIE)));
+  if (cookies.length) headers.set('cookie', cookies.join('; '));
+  if ((request.method === 'GET' || request.method === 'HEAD') && path === '/api/engine/find' &&
       request.headers.get('x-doctorcre-search') === 'search.v1')
     headers.set('x-doctorcre-search', 'search.v1');
   return noStore(await env.PARTNER_APP.fetch(new Request(request, { headers, redirect: 'manual' })));
@@ -207,6 +216,7 @@ async function assetResponse(request, env, path, switches) {
 }
 
 async function carrResponse(request, env, documentRequest = false) {
+  if (engineSignIn(env)) return json({ error: 'not_available_yet' }, 404);
   if (!env?.CARR?.fetch) return unavailable(documentRequest);
   try {
     const response = await env.CARR.fetch(new Request(request, { redirect: "manual" }));
@@ -258,6 +268,10 @@ const ENGINE_READS = new Map([
   ['deal-room-board', { key: DEALS, path: '/api/engine/deals', args: { workspace: isString, account_client_id: isString } }],
   ['get-deal-room', { key: DEALS, path: '/api/engine/deals', segment: 'deal', args: { deal: isString },
     accepts: ({ deal }) => !['', '.', '..', undefined].includes(deal) }],
+  ['get-call-context', { key: DEALS, path: '/api/engine/call-context', partnerSignInOnly: true,
+    args: { deal_ids: ids => Array.isArray(ids) && ids.length > 0 && ids.length <= 50 && ids.every(isUuid) },
+    accepts: ({ deal_ids }) => Boolean(deal_ids),
+    query: ({ deal_ids }) => new URLSearchParams(deal_ids.map(id => ['deal_id', id])).toString() }],
   ['search-parties-v1', { key: DEALS, path: '/api/engine/parties/search', search: 'kind=person',
     args: { query: isString }, accepts: ({ query }) => Boolean(query?.trim()) }],
   // Without the workspace the old tool answers Home's legacy board, which the engine does not serve.
@@ -274,14 +288,14 @@ const ENGINE_READS = new Map([
     args: { item_id: isHomeReviewId }, accepts: ({ item_id }) => isHomeReviewId(item_id) }],
   ['read-invoice-tracker', { key: INVOICES, path: '/api/engine/invoices', args: {} }],
   ['ideal-client-profile', { key: CHARTS, path: '/api/engine/client-fit', args: { vertical: isString, city: isString, state: isString } }],
-  ['capture-queue', { key: NATIONAL_DEALS, path: '/api/engine/capture-queue', args: {} }],
+  ['capture-queue', { key: NATIONAL_DEALS, path: '/api/engine/capture-queue', args: {}, usedOnDeals: true }],
   // The old tool answers an empty query and the engine refuses it, so only a nonempty one moves.
   ['find', { key: SEARCH, path: '/api/engine/find', args: { query: isString }, accepts: ({ query }) => Boolean(query) }],
   ['find-and-catch-up', { key: CLIENTS_VENDORS, path: '/api/engine/recent-activity', args: { query: isString, limit: Number.isFinite, ref: isString } }],
   ['read-vendor-meetings', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-meetings', args: { view: isString, q: isString, limit: Number.isFinite, cursor: isString } }],
-  ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
+  ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients', usedOnDeals: true }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
-  ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true }],
+  ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true, usedOnDeals: true }],
   ['today-triage', { key: FRAME, path: '/api/engine/today-triage', args: {} }],
   ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {} }],
 ]);
@@ -315,19 +329,18 @@ async function legacyInvoiceReceipt(response) {
 }
 
 // The registered read a request asks for: a business GET, or a tool call with its arguments.
-async function engineRead(request, url) {
+function engineRead(request, url, call) {
   if (request.method === 'GET') {
     const [, path, record = ''] = BUSINESS_GET.exec(url.pathname) ?? [null, url.pathname];
     const read = ENGINE_READS.get(path);
     return read && !(read.listOnly && record) ? { read, record } : null;
   }
-  const call = await mcpCall(request, url);
-  const read = ENGINE_READS.get(call?.params?.name);
+  const read = call?.method === 'tools/call' && ENGINE_READS.get(call.params?.name);
   const args = call?.params?.arguments === undefined ? {} : call.params.arguments;
-  if (call?.method !== 'tools/call' || !read?.args || !isObject(args)
+  if (!read?.args || !isObject(args)
       || Object.entries(args).some(([key, value]) => !Object.hasOwn(read.args, key) || !read.args[key](value))
       || (read.accepts && !read.accepts(args))) return null;
-  return { read, call, args };
+  return { read, args };
 }
 
 // A switch that can't be read is off.
@@ -335,14 +348,24 @@ async function switchedOn(env, key) {
   try { return await env?.ENGINE_ROUTING?.get(key, { cacheTtl: 30 }) === 'on'; } catch { return false; }
 }
 
-async function engineResponse(request, env) {
+function routeToEngine(env, key, usedOnDeals = false) {
+  if (engineSignIn(env) && (usedOnDeals || key === DEALS || key === NEXT_DEAL_SAVES)) return true;
+  return switchedOn(env, key);
+}
+
+async function engineResponse(request, env, call) {
   const url = new URL(request.url);
-  const asked = await engineRead(request, url);
-  if (!asked) return null;
-  const { read, call, args, record } = asked;
-  if (!await switchedOn(env, read.key)) return null;
+  const asked = engineRead(request, url, call);
+  if (!asked) {
+    if (engineSignIn(env) && call?.method === 'tools/call' && ENGINE_READS.get(call.params?.name)?.key === DEALS)
+      return saveRefusal(call, 'invalid_arguments', 'Reload Deals and try again.');
+    return null;
+  }
+  const { read, args, record } = asked;
+  if (read.partnerSignInOnly && !engineSignIn(env)) return null;
+  if (!await routeToEngine(env, read.key, read.usedOnDeals)) return null;
   let cutover;
-  const cutoverOn = () => cutover ??= switchedOn(env, NEXT_DEAL_SAVES);
+  const cutoverOn = () => cutover ??= routeToEngine(env, NEXT_DEAL_SAVES);
   const origin = request.headers.get('origin');
   if (origin && origin !== url.origin) return json({ error: 'origin_mismatch' }, 403);
   const headers = new Headers();
@@ -358,10 +381,13 @@ async function engineResponse(request, env) {
   try {
     if (call) {
       url.pathname = read.segment ? `${read.path}/${encodeURIComponent(args[read.segment])}` : read.path;
-      url.search = read.search ?? '';
-      // The engine takes the old tool's arguments as query text, an object as its JSON.
-      for (const [key, value] of Object.entries(args)) {
-        if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
+      if (read.query) url.search = read.query(args);
+      else {
+        url.search = read.search ?? '';
+        // The engine takes the old tool's arguments as query text, an object as its JSON.
+        for (const [key, value] of Object.entries(args)) {
+          if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
+        }
       }
     } else {
       url.pathname = read.path + record;
@@ -396,8 +422,11 @@ async function engineResponse(request, env) {
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
           if (board?.schema_version === 'local-deals-board.v2') {
+            const saves = await cutoverOn();
+            const prospects = saves && (!engineSignIn(env) ||
+              (await switchedOn(env, DEALS) && await switchedOn(env, NEXT_DEAL_SAVES)));
             text = JSON.stringify({ ...board, board_from_engine: true,
-              ...(await cutoverOn() ? { engine_prospects: true, next_deal_saves: true } : {}) });
+              ...(prospects ? { engine_prospects: true } : {}), ...(saves ? { next_deal_saves: true } : {}) });
           }
         }
         if (call.params.name === 'get-deal-room' && response.ok) {
@@ -579,7 +608,7 @@ function dealPeopleAndDateHint(name, body) {
 
 async function cutoverSave(request, env, call) {
   const { name, arguments: args } = call.params;
-  const on = await switchedOn(env, NEXT_DEAL_SAVES);
+  const on = await routeToEngine(env, NEXT_DEAL_SAVES);
   const marketDeal = name === 'create-national-market-deal';
   const creating = name === 'new-deal' || marketDeal;
   const accountSave = name === 'create-national-account' || name === 'set-national-account-owner';
@@ -590,9 +619,9 @@ async function cutoverSave(request, env, call) {
   const conversion = name === 'new-deal' && args.prospect_id !== undefined;
   if (!on && !fromNext && !conversion) return null;
   if (creating && (!on || !fromNext)) return saveRefusal(call, 'reload_deals', 'Reload Deals before adding a deal.');
-  if (accountSave && (!on || !fromNext || !await switchedOn(env, DEALS)))
+  if (accountSave && (!on || !fromNext || !await routeToEngine(env, DEALS)))
     return saveRefusal(call, 'reload_deals', 'Reload Deals before saving the account.');
-  if (!accountSave && on && !await switchedOn(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
+  if (!accountSave && on && !await routeToEngine(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
   if (on && name === 'complete-deal-item' && (!Number.isSafeInteger(args.base_version) || args.base_version < 0))
     return saveRefusal(call, 'version_conflict', 'Reload the item before marking it done.');
   const save = nextDealSave(name, args);
@@ -715,11 +744,16 @@ const DEAL_EMAIL_REFUSALS = new Map([
 // and tool_call's primary key refuses a second one, so the second replays or
 // refuses and never writes.
 async function engineSave(request, env, call) {
-  if (call?.method !== 'tools/call' || !isObject(call.params?.arguments)) return null;
+  if (call?.method !== 'tools/call') return null;
+  if (!isObject(call.params?.arguments)) {
+    if (engineSignIn(env) && CUTOVER_SAVES.has(call.params?.name))
+      return saveRefusal(call, 'invalid_arguments', 'Reload the deal before saving.');
+    return null;
+  }
   const leadAction = LEAD_ACTIONS.get(call.params.name);
   if (leadAction) return routeLeadSave(request, env, call, leadAction);
   if (call.params.name === 'decide-engine-deal-email') {
-    if (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))
+    if (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES))
       return saveRefusal(call, 'deal_email_routing_changed', 'Reload the deal before reviewing this email.');
     const { proposal_id, decision, idempotency_key, edits } = call.params.arguments;
     if (!isUuid(proposal_id) || !isUuid(idempotency_key) || !['accept', 'dismiss'].includes(decision)
@@ -1015,28 +1049,28 @@ async function handleRequest(request, env) {
       || (pathname === '/api/engine/activities' && (await request.clone().json().catch(() => null))?.calendar_review_key !== undefined));
     if (meetingAnswer && !await switchedOn(env, HOME)) return json({ error: 'not_found' }, 404);
     if (request.method === 'POST' && /^\/api\/engine\/next-steps\/[^/]+\/end$/.test(pathname)) {
-      if (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))
+      if (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES))
         return json({ error: 'reload_deals' }, 409);
       const command = await request.clone().json().catch(() => null);
       if (!isUuid(command?.idempotency_key) || !Number.isSafeInteger(command?.base_version) || command.base_version < 0)
         return json({ error: 'invalid_arguments' }, 400);
     }
-    if (documentWriteMethod && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
+    if (documentWriteMethod && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);
-    if (website && (!await switchedOn(env, DEALS) || (!website[1] && !await switchedOn(env, NEXT_DEAL_SAVES))))
+    if (website && (!await routeToEngine(env, DEALS) || (!website[1] && !await routeToEngine(env, NEXT_DEAL_SAVES))))
       return json({ error: 'not_found' }, 404);
     const shareOrigin = website?.[1] ? URL.parse(env?.CLIENT_WEBSITE_ORIGIN ?? '') : null;
     if (website?.[1] && (shareOrigin?.protocol !== 'https:' || shareOrigin.href !== `${shareOrigin.origin}/`))
       return json({ error: 'client_website_origin_unconfigured' }, 503);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     const dealRead = pathname === '/api/engine/calendar/critical-dates' || pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
-    if ((weeklyReview && !await switchedOn(env, NEXT_DEAL_SAVES))
-        || ((weeklyReview || dealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
+    if ((weeklyReview && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
+        || ((dealRead || pathname.startsWith('/api/engine/documents/')) && !await routeToEngine(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     const dealClientLookup = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
       || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname);
-    if (dealClientLookup && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
+    if (dealClientLookup && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
     const prospectSave = prospects && request.method === 'POST';
@@ -1077,12 +1111,17 @@ async function handleRequest(request, env) {
     return response;
   }
 
-  if (pathname === '/pipeline/changes' && await switchedOn(env, DEALS)) {
-    return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+  if (pathname === '/pipeline/changes') {
+    if (engineSignIn(env)) {
+      url.pathname = '/api/engine/pipeline/changes';
+      return engineFetch(new Request(url, request), env).catch(() => json({ error: 'engine_unavailable' }, 503));
+    }
+    if (await switchedOn(env, DEALS))
+      return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
   }
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     const call = await mcpCall(request, url);
-    const engine = await engineSave(request, env, call) ?? await engineResponse(request, env);
+    const engine = await engineSave(request, env, call) ?? await engineResponse(request, env, call);
     if (engine) return engine;
     if (call?.method === 'tools/call' && call.params?.name === 'find-and-catch-up' && isObject(call.params.arguments) && Object.hasOwn(call.params.arguments, 'ref')) {
       delete call.params.arguments.ref;

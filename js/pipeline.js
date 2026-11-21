@@ -11,7 +11,7 @@ import { engagementWriterFor } from './prospect-engagement.mjs';
 import { showToast } from './toast.js';
 import { renderDealVendors } from './deal-vendors.js';
 import { openEngineClientWebsite, renderClientPortalLink, saveEngineClientWebsite } from './client-portal-link.js';
-import { clearPrivateTextDrafts, privateTextDraft, sessionFetch } from './private-session.js';
+import { clearPrivateTextDrafts, privateSession, privateTextDraft, sessionFetch } from './private-session.js';
 import { pageDocContext, selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createCommandDock } from './command-dock.js';
 import { readWithDeadline } from './auto-refresh.mjs';
@@ -535,7 +535,7 @@ function applyBoardSnapshot(board) {
   const boardFromEngine = board.board_from_engine === true;
   const boardSourceChanged = state.boardFromEngine !== boardFromEngine;
   state.boardFromEngine = boardFromEngine;
-  $('mondayReviewLink').hidden = !state.nextDealSaves;
+  $('mondayReviewLink').hidden = board.engine_prospects !== true;
   syncProspects(board.engine_prospects === true);
   if (boardSourceChanged || saveSwitchChanged) renderReceipts();
   const actorChanged = previousActor && previousActor !== state.selfActor;
@@ -1134,7 +1134,7 @@ function disposeActivityAttribution() { activityAttribution?.dispose(); activity
 function mountPanelActivityAttribution() {
   disposeActivityAttribution();
   const root = $('panelBody').querySelector('.deal-updates');
-  if (root) activityAttribution = mountActivityAttribution(root, { onDenied: refusePanelDetail });
+  if (root?.querySelector('[data-attribution-id]')) activityAttribution = mountActivityAttribution(root, { onDenied: refusePanelDetail });
 }
 let watchControl = null, watchElement = null, watchSubject = null;
 let panelEmailFollowups = null;
@@ -1654,7 +1654,7 @@ async function completeDealStep(button) {
     : 'Could not mark this step done. Try again.';
 }
 
-function workspaceHtml(detail) {
+function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
   const fromEngine = isEngineDealDetail(detail);
   const ownStep = canEditOwnDealStep(detail);
   const d = detail.deal;
@@ -1721,11 +1721,11 @@ function workspaceHtml(detail) {
     <h2>Critical dates</h2>
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
-    <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
-    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
+    <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { attributionAvailable: !engineMode })}</div></section>
+    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
-    <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>
+    <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2>
       ${fromEngine ? `<div data-detail-read="correspondence">${renderCorrespondence(detail.correspondence, detail.email_follow_ups.filter(row => row.kind === 'file_to_deal').length)}</div>` : '<details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>'}
@@ -1968,13 +1968,19 @@ function paintPanel(detail) {
   clientPublicationsPanel?.dispose(); clientPublicationsPanel = null;
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose();
-  $('panelBody').innerHTML = workspaceHtml(detail);
+  const engineMode = privateSession()?.engineSignIn;
+  $('panelBody').innerHTML = workspaceHtml(detail, engineMode);
   mountChecklist(detail);
-  if (watchSubject !== detail.deal.id) disposeWatchControl();
-  watchElement ||= document.createElement('div');
-  $('workspace-overview').prepend(watchElement);
-  watchSubject = detail.deal.id;
-  watchControl ||= mountWatchControl(watchElement, {subject:{subject_type:'deal',subject_id:detail.deal.id}});
+  const overview = $('workspace-overview');
+  if (engineMode) {
+    overview.insertAdjacentHTML('afterbegin', '<section aria-label="Deal watch settings"><h2>Deal watch settings</h2><p>Not available yet</p></section>');
+  } else {
+    if (watchSubject !== detail.deal.id) disposeWatchControl();
+    watchElement ||= document.createElement('div');
+    overview.prepend(watchElement);
+    watchSubject = detail.deal.id;
+    watchControl ||= mountWatchControl(watchElement, {subject:{subject_type:'deal',subject_id:detail.deal.id}});
+  }
   factReviewPanel = $('panelTerms') ? mountSourcedTerms($('panelTerms'), detail.deal.id) : null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
@@ -1985,7 +1991,7 @@ function paintPanel(detail) {
   }
   updateDetailTimestamp();
   let marketDisposed = false, marketLoading = false;
-  marketTermsPanel = {
+  marketTermsPanel = engineMode ? null : {
     async load() {
       if (marketDisposed || marketLoading) return;
       const root = $('workspace-market-terms');
@@ -2011,7 +2017,7 @@ function paintPanel(detail) {
   const property = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;
   const propertyRead = new AbortController();
   let toursDisposed = false, toursLoading = false, toursMounted;
-  dealToursPanel = {
+  dealToursPanel = engineMode ? null : {
     async load() {
       if (toursDisposed || toursLoading || toursMounted) return;
       toursLoading = true;
