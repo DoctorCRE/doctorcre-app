@@ -701,6 +701,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   const legacy = row(16, 'email_proposal', 'Pat Example · Sample lease', undefined, undefined,
     { item_id: `suggestion:${id(16)}`, kind_label: 'Suggestion', deal_id: null, suggestions: [{ id: id(17) }] });
   let items = [task, followUp, reminder, requirement, completion, meeting, call, feedback, legacy, ownDone, otherDone];
+  let savedStepDescription = 'Send the signed lease';
   const writes = [];
   await page.route('**/mcp', route => {
     const { name, arguments: args } = route.request().postDataJSON().params;
@@ -708,7 +709,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
     if (name === 'read-home-inbox-v5') result = { ...result, schema_version: 'home-inbox.v5', engine_marks: true, home_mark_drop: true,
       home_proposal_drop: true, truncated: false, limit: 1000, working_collapsed: true, items };
     if (name === 'get-deal-room') result = { deal_id: args.deal, name: 'Example Dental', email_follow_ups: [],
-      next_actions: [{ id: step, description: 'Send the signed lease', owner: 'joe', status: 'done',
+      next_actions: [{ id: step, description: savedStepDescription, owner: 'joe', status: 'done',
         ...(width === 1440 && { title: 'Signed lease' }) }],
       items: [{ id: checklist, title: 'Review lease clauses', status: 'open', bullets: [] }],
       checklist: { schema_version: 'deal-checklist.v1', template_state: 'current', due_items: [], phases: [
@@ -830,6 +831,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   const completedStep = page.getByRole('region', { name: 'Completed step', exact: true });
   await completedStep.getByText('Send the signed lease', { exact: true }).waitFor();
   await page.waitForFunction(id => document.activeElement?.getAttribute('data-detail-focus') === `next-step-${id}`, step);
+  savedStepDescription = 'Send the updated signed lease';
+  await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
+  await completedStep.getByText(savedStepDescription, { exact: true }).waitFor();
 });
 
 for (const width of [390, 1440]) test(`Home opens the exact prospect and Relationships steps with their origin at ${width}px`, async t => {
