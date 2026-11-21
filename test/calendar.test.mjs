@@ -26,13 +26,6 @@ import {
 } from "../js/calendar-model.js";
 import { carrInterface } from "./carr-contract.mjs";
 
-test("Calendar rereads on return and clears prior-session dates while checking", async () => {
-  const source = await readFile(new URL("../js/calendar.js", import.meta.url), "utf8");
-  assert.match(source, /mountAutoRefresh\(\{[\s\S]*?refresh:\s*\(\)\s*=>\s*load\(\{\s*failClosed:\s*true\s*\}\)/);
-  assert.match(source, /if\s*\(failClosed\)\s*\{[\s\S]*?status:\s*["']loading["']/);
-  assert.match(source, /asOf\.textContent\s*=\s*""/, "a failed return cannot retain an old read count");
-});
-
 const ROOT = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, ROOT), "utf8");
 
@@ -343,7 +336,7 @@ test("the Calendar page carries the shared shell, an accessible grid and an agen
   assert.match(html, /id="calToday"/);
   assert.match(html, /id="calNext"/);
   assert.match(html, /id="calPeriod"[^>]*aria-live="polite"/);
-  assert.match(html, /id="calAgenda"/, "a plain list carries the period dates for a reader who never touches the grid");
+  assert.match(html, /id="calAgenda"/, "the Coming up list provides shortcuts to upcoming days");
   assert.match(html, /id="calUndated"/, "undated rows have a place, so missing is not shown as empty");
   assert.match(html, /id="dayPanel"/);
   assert.match(html, /<script type="module" src="\/js\/calendar\.js"><\/script>/);

@@ -24,7 +24,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
   const browser = await chromium.launch();
   t.after(() => browser.close());
 
-  for (const status of [200, 401]) await t.test(String(status), async () => {
+  for (const status of [200, 401, 502]) await t.test(String(status), async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
@@ -54,7 +54,8 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
       if (args.deal === 'late') await late;
       if (args.deal === 'slow') {
         await held;
-        if (status === 401) return route.fulfill({ status: 401, json: { error: 'not_authenticated' } });
+        if (status === 401) return route.fulfill({ status, json: { error: 'not_authenticated' } });
+        if (status === 502) return route.fulfill({ status });
       }
       return answer(route, { deal_id: args.deal, critical_dates: [{
         id: args.deal, kind: 'loi_expiry', due_on: '2026-10-20', status: 'open', note: `Synthetic ${args.deal} date`,
@@ -65,12 +66,9 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
     try {
       await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `calendar-${status}`, reset: true } });
       await page.goto('https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev/calendar?d=2026-10-01');
-      const agenda = page.locator('.cal-agenda-item');
-      await expect(agenda).toHaveCount(1);
       await expect(page.locator('#calGrid .cal-chip')).toHaveCount(1);
-      await expect(page.locator('#calAgenda')).toHaveAttribute('aria-busy', 'true');
-      await expect(page.locator('#calStatusLabel')).toHaveText(`Reading 1 of ${status === 401 ? 3 : 2} deals…`);
-      await agenda.click();
+      await expect(page.locator('#calGrid')).toHaveAttribute('aria-busy', 'true');
+      await page.locator('.cal-day-open[data-select-day="2026-10-20"]').click();
       await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
       await expect(page.locator('#dayPanelBody')).not.toContainText('Synthetic finished date');
       await mkdir(join(root, 'test-artifacts/calendar-loading'), { recursive: true });
@@ -78,14 +76,17 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
       release();
       if (status === 200) {
         await expect(page.locator('#calCount')).toHaveText('2 critical dates');
-        await expect(agenda).toHaveCount(2);
-        await expect(page.locator('#calAgenda')).toHaveAttribute('aria-busy', 'false');
-        await expect(page.locator('#calStatusLabel')).toHaveText('Current');
+        await expect(page.locator('#calGrid')).toHaveAttribute('aria-busy', 'false');
+        await expect(page.locator('#calAsOf')).toContainText('Updated');
         await expect(page.locator('.cal-day-open[data-select-day="2026-10-20"]')).toBeFocused();
+      } else if (status === 502) {
+        await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
+        await expect(page.getByRole('main').getByRole('button', { name: /^Refresh/ })).toHaveCount(1);
+        await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
       } else {
         await page.waitForURL('**/public-shell/session-ended.html');
         await expect(page.getByRole('heading',{name:'Session ended'})).toBeVisible();
-        await expect(agenda).toHaveCount(0);
+        await expect(page.locator('.cal-chip')).toHaveCount(0);
         releaseLate();
         await expect(page.locator('body')).not.toContainText('Synthetic fast date', { timeout: 5000 });
 

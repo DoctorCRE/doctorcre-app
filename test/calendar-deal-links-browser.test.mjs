@@ -81,7 +81,7 @@ test('Calendar opens each owning deal and Back restores the selected period and 
       try {
         await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `deal-links-${width}-${theme}`, reset: true } });
         await page.goto(`https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev${calendarPath}`);
-        await expect(page.locator('#calStatusLabel')).toHaveText('Current');
+        await expect(page.locator('#calAsOf')).toContainText('Updated');
         await expect(page.locator('#dayPanelBody .cal-day-entry')).toHaveCount(3);
         const links = page.locator('#dayPanelBody a, #calUndatedList a');
         await expect(links).toHaveCount(4);
@@ -117,7 +117,7 @@ test('Calendar opens each owning deal and Back restores the selected period and 
           assert.deepEqual([...new Set(roomReads.slice(before))], [id], `only ${id} was opened`);
           await page.goBack();
           await expect(page).toHaveURL(calendarUrl);
-          await expect(page.locator('#calStatusLabel')).toHaveText('Current');
+          await expect(page.locator('#calAsOf')).toContainText('Updated');
           await expect(page.locator('#calPeriod')).toHaveText(period);
           await expect(page.locator('.cal-day[aria-selected="true"]')).toHaveAttribute('data-day', '2026-10-20');
           await expect(page.locator('#calUndatedList')).toContainText('Date unavailable');
@@ -125,7 +125,7 @@ test('Calendar opens each owning deal and Back restores the selected period and 
         assert.equal(calls.includes('add-critical-date'), false);
         empty = true;
         await page.locator('#calRefresh').click();
-        await expect(page.locator('#calState')).toContainText('No deal carries a critical date yet');
+        await expect(page.locator('#calState')).toContainText('No critical dates or next steps this month.');
         await expect(links).toHaveCount(0);
         empty = false;
         missingDestination = true;
