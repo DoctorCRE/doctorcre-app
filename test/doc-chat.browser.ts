@@ -460,8 +460,12 @@ for (const returning of ["quick tab return with input", "Back from history witho
         window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
       });
       await expect(paused).toHaveCount(1);
-      await page.clock.runFor(5_000);
+      assert.equal(await paused.isVisible(), true, "the budget pause is visible while Back verifies the session");
+      await page.clock.runFor(1_000);
+      await expect(paused).toHaveCount(0);
+      await page.waitForFunction(() => document.documentElement.style.visibility === "");
       assert.equal(await page.locator("main").getAttribute("inert"), null);
+      await page.clock.runFor(5_000);
       const paths = await reads.jsonValue();
       assert.equal(paths[0], "/auth/session", "the restored page verifies its session before reading the chat");
       assert.equal(paths.at(-1), detailPath);

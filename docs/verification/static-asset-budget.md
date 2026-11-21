@@ -11,8 +11,9 @@ It was an application budget, not a hosting constraint. The actual browser check
 in `test/progress-work-browser.test.mjs` measures a burst of at most 600 fetch/XHR
 attempts, then verifies that the burst and normal unattended polling together
 stay within 1,000 first-party requests over 24 simulated hours. The document's
-allowance refills at one request per second, up to 600, independent of tab events
-and input. The browser test still bounds the initial asset requests at 400.
+allowance refills at one request per second, up to 600, using elapsed monotonic
+time. Tab events, input and wall-clock changes grant no requests. The browser
+test still bounds the initial asset requests at 400.
 
 ## Alternatives
 

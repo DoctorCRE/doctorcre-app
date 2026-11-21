@@ -5,6 +5,7 @@ import { createSessionBoundary } from '../js/private-session.js';
 
 test('a burst shares the 600-request limit, including session checks', async t => {
  t.mock.timers.enable({ apis: ['Date'] });
+ t.mock.method(performance, 'now', Date.now);
  let requests = 0;
  const budget = createRequestBudget({ fetchImpl: async path => {
   requests++;
@@ -22,6 +23,7 @@ test('a burst shares the 600-request limit, including session checks', async t =
 
 test('rapid visibility changes and trusted input grant only the elapsed refill', async t => {
  t.mock.timers.enable({ apis: ['Date'] });
+ t.mock.method(performance, 'now', Date.now);
  const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
  const budget = createRequestBudget({ document, fetchImpl: async () => new Response() });
  for (let i = 0; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
@@ -42,6 +44,7 @@ test('rapid visibility changes and trusted input grant only the elapsed refill',
 
 test('sustained demand after exhaustion averages at most 60 requests per minute', async t => {
  t.mock.timers.enable({ apis: ['Date'] });
+ t.mock.method(performance, 'now', Date.now);
  let requests = 0;
  const budget = createRequestBudget({ fetchImpl: async () => { requests++; return new Response(); } });
  for (let i = 0; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
@@ -58,8 +61,29 @@ test('sustained demand after exhaustion averages at most 60 requests per minute'
  await assert.rejects(budget.fetch('/fixture'), { code: 'request_budget_exhausted' });
 });
 
+test('wall-clock jumps do not grant requests or delay a refill', async t => {
+ t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+ let elapsed = 0;
+ t.mock.method(performance, 'now', () => elapsed);
+ const budget = createRequestBudget({ fetchImpl: async () => new Response() });
+ for (let i = 0; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
+ await assert.rejects(budget.fetch('/fixture'), { code: 'request_budget_exhausted' });
+
+ t.mock.timers.setTime(9_000_000);
+ const afterForwardJump = await budget.fetch('/fixture').then(() => true, () => false);
+ if (afterForwardJump) {
+  for (let i = 1; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
+ }
+ t.mock.timers.setTime(1_000_000);
+ elapsed += 1_000;
+ const afterCorrection = await budget.fetch('/fixture').then(() => true, () => false);
+ assert.deepEqual({ afterForwardJump, afterCorrection }, { afterForwardJump: false, afterCorrection: true });
+ await assert.rejects(budget.fetch('/fixture'), { code: 'request_budget_exhausted' });
+});
+
 test('a send can wait for one token and the pause clears on a successful read', async t => {
  t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
+ t.mock.method(performance, 'now', Date.now);
  const notices = [];
  const sent = [];
  const budget = createRequestBudget({

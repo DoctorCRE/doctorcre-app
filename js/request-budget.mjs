@@ -6,8 +6,7 @@ const pauseMessage = 'Updates paused. Trying again shortly.';
 
 // eslint-disable-next-line no-restricted-syntax -- Cap the document burst at 600 attempts and refill one request per second.
 export function createRequestBudget({ fetchImpl, onPauseChange = () => {} }) {
-  let credit = capacity;
-  let refilledAt = Date.now();
+  let credit = capacity, refilledAt = performance.now();
   let paused = false;
 
   async function fetch(path, init, { waitForBudget = false } = {}) {
@@ -15,8 +14,9 @@ export function createRequestBudget({ fetchImpl, onPauseChange = () => {} }) {
     // eslint-disable-next-line no-restricted-syntax -- Only deadline-bound callers wait, one timeout per request until a token refills.
     while (true) {
       signal?.throwIfAborted();
-      const now = Math.max(refilledAt, Date.now());
-      credit = Math.min(capacity, credit + now - refilledAt);
+      const now = performance.now();
+      const elapsed = Math.min(capacity, Math.max(0, now - refilledAt));
+      credit = Math.min(capacity, credit + elapsed);
       refilledAt = now;
       if (credit >= refillMs) {
         credit -= refillMs;

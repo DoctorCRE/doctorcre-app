@@ -33,11 +33,11 @@ export function watchPresence({ document, window, onResume, onWake, onInput = ()
     else if (!hidden()) onInput();
   });
   const resume = mountReadOnResume({ document, window, refresh: () => { if (active()) return onResume(); } });
-  return { active, dispose() { resume.dispose(); stopInput(); } };
+  return { active, restart() { lastInput = now(); }, dispose() { resume.dispose(); stopInput(); } };
 }
 
 // All automatic clocks and lifecycle signals share one attempt counter and
-// one next-read deadline. Only trusted input can grant another presence period.
+// one next-read deadline per started session. Only trusted input renews presence.
 export function mountVisibilityPoll({
   poll, intervalMs = MIN_POLL_MS, keepAlive = () => false, idleMs, now = () => Date.now(),
   document = globalThis.document, window = globalThis, periodic = true, lifecycle = false, shouldPoll = () => true,
@@ -48,9 +48,10 @@ export function mountVisibilityPoll({
   let timer = null, disposed = false, running = null, attempts = 0, failures = 0, requested = false;
   const asked = () => typeof intervalMs === 'function' ? intervalMs() : intervalMs;
   const delay = () => Math.min(MAX_BACKOFF_MS, (keepAlive() ? asked() : Math.max(MIN_POLL_MS, asked())) * 2 ** Math.max(failures, Math.floor(attempts / 5)));
-  let nextReadAt = periodic ? now() + delay() : now();
+  let nextReadAt;
   const stop = () => { if (timer !== null) clearTimeout(timer); timer = null; };
-  const eligible = () => !disposed && attempts < MAX_POLL_ATTEMPTS && (presence.active() || keepAlive());
+  const eligible = () => !disposed && attempts < MAX_POLL_ATTEMPTS
+    && document.documentElement?.style?.visibility !== 'hidden' && (presence.active() || keepAlive());
   const arm = () => {
     stop();
     // eslint-disable-next-line no-restricted-syntax -- 20 automatic reads shared by clocks and lifecycle events; only trusted input can renew attempts. Rejected/false results double the delay; every five attempts also doubles it; ceiling 15 minutes Hidden or 30-minute idle; no lifecycle or scroll renewal. Live recorder keepAlive is still capped at 20
@@ -78,17 +79,22 @@ export function mountVisibilityPoll({
     onWake: () => restartFromInput(onWake),
     onInput: () => { if (attempts >= MAX_POLL_ATTEMPTS) restartFromInput(() => {}); } });
   const visibility = () => { if (document.visibilityState === 'hidden' && !keepAlive()) stop(); };
-  const eventRead = () => run(false, undefined, true);
   // eslint-disable-next-line no-restricted-syntax -- Visibility callback will stop the poll timer when hidden; 0 HTTP reads in this listener.
   document.addEventListener('visibilitychange', visibility);
   const lifecycleRead = () => run(false, onResume, true);
   // eslint-disable-next-line no-restricted-syntax -- Lifecycle dispatches share a max of 20 poll attempts and failure backoff; hidden or 30-minute idle state stops reads, and events never replenish attempts.
   if (lifecycle) { window.addEventListener('online', lifecycleRead); window.addEventListener('focus', lifecycleRead); }
-  if (periodic) arm();
+  const start = () => {
+    presence.restart();
+    attempts = 0; failures = 0; nextReadAt = now() + (periodic ? delay() : 0);
+    if (periodic) arm();
+  };
+  window.addEventListener('doctorcre-session-ready', start);
+  start();
   return {
-    refresh: () => run(true), poll: eventRead,
+    refresh: () => run(true), poll: () => run(false, undefined, true),
     revalidate() { const pending = running; onResume(); return pending ? pending.then(() => run(true)) : run(true); },
-    dispose() { disposed = true; stop(); presence.dispose(); document.removeEventListener?.('visibilitychange', visibility); window.removeEventListener?.('online', lifecycleRead); window.removeEventListener?.('focus', lifecycleRead); },
+    dispose() { disposed = true; stop(); presence.dispose(); window.removeEventListener?.('doctorcre-session-ready', start); document.removeEventListener?.('visibilitychange', visibility); window.removeEventListener?.('online', lifecycleRead); window.removeEventListener?.('focus', lifecycleRead); },
   };
 }
 
