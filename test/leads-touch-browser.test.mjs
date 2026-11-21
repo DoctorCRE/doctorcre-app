@@ -14,7 +14,7 @@ test('blocking 10: real phone touch drag scrolls to an offscreen stage and opens
  await touch('touchStart',box.x+box.width/2,box.y+box.height/2);await touch('touchMove',195,945);
  await page.clock.runFor(500);assert.ok(await page.evaluate(start=>scrollY>start+150,initial),'edge drag scrolls after 500ms of animation frames');
  const target=page.locator('[data-stage="qualified"] .stage-head');
- const destinationVisible=()=>page.evaluate(()=>{const r=document.querySelector('[data-stage="qualified"] .stage-head').getBoundingClientRect();const top=document.querySelector('.app-layout-tabbar').getBoundingClientRect().bottom;const bottom=document.querySelector('.app-layout-status').getBoundingClientRect().top;return r.top>top&&r.bottom<bottom});
+ const destinationVisible=()=>page.evaluate(()=>{const r=document.querySelector('[data-stage="qualified"] .stage-head').getBoundingClientRect();const top=document.querySelector('.app-layout-tabbar').getBoundingClientRect().bottom;const bottom=document.querySelector('#appShell').getBoundingClientRect().top;return r.top>top&&r.bottom<bottom});
  for(let frame=0;frame<250&&!await destinationVisible();frame++)await page.clock.runFor(16);
  assert.ok(await destinationVisible(),'edge drag brings the target into the usable viewport');
  const destination=await target.boundingBox();await touch('touchMove',destination.x+destination.width/2,destination.y+destination.height/2);

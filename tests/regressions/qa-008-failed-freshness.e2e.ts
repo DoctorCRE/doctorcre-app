@@ -1,113 +1,165 @@
-import { expect } from 'e2e';
-import { reproTest, proveVisibleFailure } from './support.mjs';
+import assert from "node:assert/strict";
+import type { WebRoute } from "@e2e-dev/web";
+import { expect } from "e2e";
+import { proveVisibleFailure, reproTest } from "./support.mjs";
 
 const test = reproTest();
 const surfaces = [
-  { name: 'Tours', path: '/tours?mode=live', failure: '#tour-library-state', freshness: '#planner-updated', refresh: '#planner-refresh', settled: /unavailable|sign in/i },
-  { name: 'Leads', path: '/leads?mode=live', failure: '#leadBoardError', freshness: '#boardUpdated', refresh: '#refreshBoard', settled: /interrupted|sign-in/i },
-  { name: 'Deals', path: '/deals?mode=live', failure: '#boardLive', freshness: '#boardAsOf', refresh: '#retryRead', settled: /could not be read|unavailable|sign in/i },
+  {
+    name: "Tours",
+    path: "/tours?mode=live",
+    failure: "#tour-library-state",
+    freshness: "#planner-updated",
+    refresh: "#planner-refresh",
+    settled: /unavailable|sign in/i,
+  },
+  {
+    name: "Leads",
+    path: "/leads?mode=live",
+    failure: "#leadBoardError",
+    freshness: "#boardUpdated",
+    refresh: "#refreshBoard",
+    settled: /interrupted|sign-in/i,
+  },
+  {
+    name: "Deals",
+    path: "/deals?mode=live",
+    failure: "#boardLive",
+    freshness: "#boardAsOf",
+    refresh: "#retryRead",
+    settled: /could not be read|unavailable|sign in/i,
+  },
 ];
-for (const viewport of [{ width: 1440, height: 960 }, { width: 390, height: 844 }]) for (const surface of surfaces) for (const status of [503, 401, 403]) {
-  test(`QA-008 ${surface.name} freshness settles after ${status} retry${surface.name === 'Tours' ? '' : ' and recovers'} at ${viewport.width}px`, { tags: ['regression'], requires: ['browser'], retries: 0 }, async ({ app, browser }) => {
-    await browser.setViewport(viewport);
-    const origin = new URL(app.baseUrl).origin;
-    const refresh = viewport.width < 760 ? '#appSyncRefresh' : surface.refresh;
-    const failure = surface.failure;
-    let refusedReads = 0;
-    let retryGate = null;
-    const reject = async route => {
-      if (surface.name === 'Tours' ? route.request.url.includes('/api/tours/library')
-        : surface.name === 'Leads' ? route.request.url.includes('/api/system-work/session')
-        : JSON.parse(route.request.postData || '{}').params?.name === 'deal-room-board') refusedReads += 1;
-      if (retryGate) await retryGate;
-      return route.fulfill({ status, json: { ok: false, error: status === 401 ? 'unauthorized' : 'temporarily_unavailable', code: status === 401 ? 'unauthorized' : 'temporarily_unavailable' } });
-    };
-    await browser.route(`${origin}/api/**`, reject);
-    await browser.route(`${origin}/mcp`, reject);
-    await app.open(surface.path);
-    if (status === 401 || status === 403) {
-      await expect(browser.locator('.app-shell-signed-out, #selfAvatar')).toHaveCount(0);
-      await expect(browser.locator('h1')).toHaveText('Session ended');
-      await expect(browser).toHaveURL('/public-shell/session-ended.html');
-      await expect(browser.locator('#leadBoard,.kanban-card,.tour-button')).toHaveCount(0);
-      await browser.unroute(`${origin}/api/**`); await browser.unroute(`${origin}/mcp`);
-      await app.open(surface.path);
-      await expect(browser.locator('#selfAvatar')).toHaveText('J');
-      if (surface.name !== 'Tours') await expect(browser.locator(surface.freshness)).toContainText(/Updated/i);
-      return;
+for (const viewport of [
+  { width: 1440, height: 960 },
+  { width: 390, height: 844 },
+])
+  for (const surface of surfaces)
+    for (const status of [503, 401, 403]) {
+      test(`QA-008 ${surface.name} freshness settles after ${status} retry${surface.name === "Tours" ? "" : " and recovers"} at ${viewport.width}px`, {
+        tags: ["regression"],
+        requires: ["browser"],
+        retries: 0,
+      }, async ({ app, browser }) => {
+        await browser.setViewport(viewport);
+        assert.ok(app.baseUrl);
+        const origin = new URL(app.baseUrl).origin;
+        const refresh = viewport.width < 760 ? "#appSyncRefresh" : surface.refresh;
+        const failure = surface.failure;
+        let refusedReads = 0;
+        let retryGate: Promise<void> | null = null;
+        const reject = async (route: WebRoute) => {
+          if (
+            surface.name === "Tours"
+              ? route.request.url.includes("/api/tours/library")
+              : surface.name === "Leads"
+                ? route.request.url.includes("/api/system-work/session")
+                : JSON.parse(route.request.postData || "{}").params?.name === "deal-room-board"
+          )
+            refusedReads += 1;
+          if (retryGate) await retryGate;
+          return route.fulfill({
+            status,
+            json: {
+              ok: false,
+              error: status === 401 ? "unauthorized" : "temporarily_unavailable",
+              code: status === 401 ? "unauthorized" : "temporarily_unavailable",
+            },
+          });
+        };
+        await browser.route(`${origin}/api/**`, reject);
+        await browser.route(`${origin}/mcp`, reject);
+        await app.open(surface.path);
+        if (status === 401 || status === 403) {
+          await expect(browser.locator(".app-shell-signed-out, #selfAvatar")).toHaveCount(0);
+          await expect(browser.locator("h1")).toHaveText("Session ended");
+          await expect(browser).toHaveURL("/public-shell/session-ended.html");
+          await expect(browser.locator("#leadBoard,.kanban-card,.tour-button")).toHaveCount(0);
+          await browser.unroute(`${origin}/api/**`);
+          await browser.unroute(`${origin}/mcp`);
+          await app.open(surface.path);
+          await expect(browser.locator("#selfAvatar")).toHaveText("J");
+          if (surface.name !== "Tours") await expect(browser.locator(surface.freshness)).toContainText(/Updated/i);
+          return;
+        }
+        await expect(browser.locator(failure)).toContainText(surface.settled);
+        await expect(browser.locator(surface.freshness)).toContainText(/unavailable/i);
+        const boardRead = () =>
+          browser.evaluate(async () => {
+            const { state } = await import(new URL("/js/pipeline.js", location.href).href);
+            return { failed: state.boardSync.stats().board_failed, ...state.boardSync.status() };
+          });
+        let failedBeforeRetry = 0;
+        if (surface.name === "Deals") {
+          await expect
+            .poll(async () => {
+              const read = await boardRead();
+              return !read.board_read_in_flight && !read.refresh_pending;
+            })
+            .toBe(true);
+          failedBeforeRetry = (await boardRead()).failed;
+        }
+        if (surface.name === "Tours") await proveVisibleFailure(browser, failure);
+        const beforeRetry = refusedReads;
+        const { promise, resolve: releaseRetry } = Promise.withResolvers<void>();
+        retryGate = promise;
+        if (viewport.width < 760) await browser.locator("#selfAvatar").tap();
+        await browser.locator(refresh).focus();
+        await browser.locator(refresh).press("Enter");
+        if (viewport.width < 760) await browser.keyboard.press("Escape");
+        await expect.poll(() => refusedReads).toBeGreaterThan(beforeRetry);
+        // Hold the refused responses until the retry lifecycle has been observed.
+        // Old failure text cannot satisfy these completion checks.
+        if (surface.name === "Leads") await expect(browser.locator("#leadBoard")).toHaveAttribute("aria-busy", "true");
+        if (surface.name === "Deals")
+          await expect.poll(async () => (await boardRead()).board_read_in_flight).toBe(true);
+        if (surface.name === "Tours") {
+          await expect(browser.locator(surface.freshness)).toHaveText("Updating…");
+          const response = browser.waitForResponse("**/api/tours/library");
+          releaseRetry();
+          const refused = await response;
+          expect(refused.status).toBe(status);
+          await refused.json();
+        } else {
+          releaseRetry();
+          if (surface.name === "Leads")
+            await expect(browser.locator("#leadBoard")).toHaveAttribute("aria-busy", "false");
+          if (surface.name === "Deals")
+            await expect
+              .poll(async () => {
+                const read = await boardRead();
+                return read.failed > failedBeforeRetry && !read.board_read_in_flight && !read.refresh_pending;
+              })
+              .toBe(true);
+        }
+        retryGate = null;
+        await expect(browser.locator(failure)).toContainText(surface.settled);
+        await expect(browser.locator(surface.freshness)).toContainText(/unavailable/i);
+        if (surface.name === "Tours") await proveVisibleFailure(browser, failure);
+        // These local interactions repaint the settled failed read.
+        if (surface.name === "Leads") {
+          await browser.locator("#appSidebarToggle").tap();
+          await browser.locator("#leadSearch").fill("Demo");
+          await browser.locator('[data-layout-close="sidebar"]').tap();
+        }
+        if (surface.name === "Deals") await browser.locator("#listView").tap();
+        await expect(browser.locator(surface.freshness)).toContainText(/unavailable/i);
+        // The fixture server does not implement Tours' legacy library transport;
+        // its existing regression covers failed retries, while Leads/Deals recover.
+        if (status === 503) await app.screenshot(`failed-freshness-${surface.name}-${viewport.width}`);
+        if (surface.name === "Tours") return;
+        await browser.unroute(`${origin}/api/**`);
+        await browser.unroute(`${origin}/mcp`);
+        if (viewport.width < 760) await browser.locator("#selfAvatar").tap();
+        await browser.locator(refresh).tap();
+        if (viewport.width < 760) await browser.keyboard.press("Escape");
+        await expect(browser.locator(surface.freshness)).toContainText(/Updated/i);
+        if (surface.name === "Leads") {
+          await browser.locator("#appSidebarToggle").tap();
+          await browser.locator("#leadSearch").fill("");
+          await browser.locator('[data-layout-close="sidebar"]').tap();
+        }
+        if (surface.name === "Deals") await browser.locator("#boardView").tap();
+        await expect(browser.locator(surface.freshness)).toContainText(/Updated/i);
+      });
     }
-    await expect(browser.locator(failure)).toContainText(surface.settled);
-    await expect(browser.locator(surface.freshness)).toContainText(/unavailable/i);
-    await expect(browser.locator('.app-layout-status')).not.toContainText('Updating…');
-    const boardRead = () => browser.evaluate(async () => {
-      const { state } = await import('/js/pipeline.js');
-      return { failed: state.boardSync.stats().board_failed, ...state.boardSync.status() };
-    });
-    let failedBeforeRetry;
-    if (surface.name === 'Deals') {
-      await expect.poll(async () => {
-        const read = await boardRead();
-        return !read.board_read_in_flight && !read.refresh_pending;
-      }).toBe(true);
-      failedBeforeRetry = (await boardRead()).failed;
-    }
-    if (surface.name === 'Tours') await proveVisibleFailure(browser, failure);
-    const beforeRetry = refusedReads;
-    let releaseRetry;
-    retryGate = new Promise(resolve => { releaseRetry = resolve; });
-    if (viewport.width < 760) await browser.locator('#selfAvatar').tap();
-    await browser.locator(refresh).focus();
-    await browser.locator(refresh).press('Enter');
-    if (viewport.width < 760) await browser.keyboard.press('Escape');
-    await expect.poll(() => refusedReads).toBeGreaterThan(beforeRetry);
-    // Hold the refused responses until the retry lifecycle has been observed.
-    // Old failure text cannot satisfy these completion checks.
-    if (surface.name === 'Leads') await expect(browser.locator('#leadBoard')).toHaveAttribute('aria-busy', 'true');
-    if (surface.name === 'Deals') await expect.poll(async () => (await boardRead()).board_read_in_flight).toBe(true);
-    if (surface.name === 'Tours') {
-      await expect(browser.locator(surface.freshness)).toHaveText('Updating…');
-      const response = browser.waitForResponse('**/api/tours/library');
-      releaseRetry();
-      const refused = await response;
-      expect(refused.status).toBe(status);
-      await refused.json();
-    } else {
-      releaseRetry();
-      if (surface.name === 'Leads') await expect(browser.locator('#leadBoard')).toHaveAttribute('aria-busy', 'false');
-      if (surface.name === 'Deals') await expect.poll(async () => {
-        const read = await boardRead();
-        return read.failed > failedBeforeRetry && !read.board_read_in_flight && !read.refresh_pending;
-      }).toBe(true);
-    }
-    retryGate = null;
-    await expect(browser.locator(failure)).toContainText(surface.settled);
-    await expect(browser.locator(surface.freshness)).toContainText(/unavailable/i);
-    if (surface.name === 'Tours') await proveVisibleFailure(browser, failure);
-    // These local interactions repaint the settled failed read.
-    if (surface.name === 'Leads') {
-      await browser.locator('#appSidebarToggle').tap();
-      await browser.locator('#leadSearch').fill('Demo');
-      await browser.locator('[data-layout-close="sidebar"]').tap();
-    }
-    if (surface.name === 'Deals') await browser.locator('#listView').tap();
-    await expect(browser.locator(surface.freshness)).toContainText(/unavailable/i);
-    // The fixture server does not implement Tours' legacy library transport;
-    // its existing regression covers failed retries, while Leads/Deals recover.
-    if (status === 503) await app.screenshot(`failed-freshness-${surface.name}-${viewport.width}`);
-    if (surface.name === 'Tours') return;
-    await browser.unroute(`${origin}/api/**`);
-    await browser.unroute(`${origin}/mcp`);
-    if (viewport.width < 760) await browser.locator('#selfAvatar').tap();
-    await browser.locator(refresh).tap();
-    if (viewport.width < 760) await browser.keyboard.press('Escape');
-    await expect(browser.locator(surface.freshness)).toContainText(/Updated/i);
-    if (surface.name === 'Leads') {
-      await browser.locator('#appSidebarToggle').tap();
-      await browser.locator('#leadSearch').fill('');
-      await browser.locator('[data-layout-close="sidebar"]').tap();
-    }
-    if (surface.name === 'Deals') await browser.locator('#boardView').tap();
-    await expect(browser.locator(surface.freshness)).toContainText(/Updated/i);
-    await expect(browser.locator('.app-layout-status')).not.toContainText(/Updating|unavailable/i);
-  });
-}

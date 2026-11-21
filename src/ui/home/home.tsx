@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
+import { readDashboard } from "./dashboard-read";
 import { DropReason } from "./drop-reason.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
 import { draftCardStatus, draftReference, hasEngineReview, openStepRefusal } from "./engine-review.ts";
@@ -25,7 +26,7 @@ import {
 import { MeetingReview, MeetingTile, readMeetings } from "./meetings";
 import { type DraftEdits, ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
-import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays, readDashboard } from "./sections";
+import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
 
 type SnoozePreview = Readonly<{
@@ -99,7 +100,16 @@ function Inbox({ client }: { client: InboxClient }) {
   const mounted = useRef(true);
   const query = useQuery({
     queryKey,
-    queryFn: async ({ signal }) => (home && engineHome ? await readDashboard(signal) : null) ?? client.read(signal),
+    queryFn: async ({ signal }) => {
+      if (home && engineHome) {
+        const dashboard = await readDashboard(signal);
+        if (dashboard) return dashboard;
+        const current = cache.getQueryData<Snapshot | { grouped: true }>(queryKey);
+        if (inFlight.current && current && "grouped" in current)
+          throw Error("Reminders and waiting items unavailable.");
+      }
+      return client.read(signal);
+    },
     // eslint-disable-next-line no-restricted-syntax -- One read per 60000ms while visible and online; paused during writes and cleared on unmount by Query.
     refetchInterval: () =>
       navigator.onLine && document.visibilityState === "visible" && !inFlight.current ? 60_000 : false,
@@ -120,6 +130,23 @@ function Inbox({ client }: { client: InboxClient }) {
     const host = document.getElementById("homeRoot");
     if (home && !query.isPending && host) markHomeReady(host);
   }, [home, query.isPending]);
+  async function updateAfterSave(flat?: Snapshot | null, updates: readonly InboxItem[] = []) {
+    if (query.data && "grouped" in query.data) {
+      await query.refetch({ cancelRefetch: false });
+      return;
+    }
+    if (!flat && !updates.length) return;
+    cache.setQueryData<Snapshot>(
+      queryKey,
+      (current) =>
+        flat ??
+        (current && {
+          ...current,
+          items: current.items.map((item) => updates.find((next) => next.item_id === item.item_id) ?? item),
+        }),
+      { updatedAt: query.dataUpdatedAt },
+    );
+  }
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
   const [draftEdits, setDraftEdits] = useState(() => new Map<string, DraftEdits>());
   const reviewingDraftId = reviewing
@@ -186,10 +213,7 @@ function Inbox({ client }: { client: InboxClient }) {
     // eslint-disable-next-line no-restricted-syntax -- At most one read per 1000ms only on reconnect; never runs a mutation.
     addEventListener("online", update);
     addEventListener("offline", update);
-    const refreshButton = home ? document.getElementById("appSyncRefresh") : null;
-    refreshButton?.addEventListener("click", refresh);
     return () => {
-      refreshButton?.removeEventListener("click", refresh);
       mounted.current = false;
       removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
@@ -283,18 +307,8 @@ function Inbox({ client }: { client: InboxClient }) {
       const changed = results.flatMap((result) => (!result.ok && result.current_item ? [result.current_item] : []));
       const updates = [...saved, ...changed];
       const failed = results.filter((result) => !result.ok && !result.current_item);
-      cache.setQueryData<Snapshot>(
-        queryKey,
-        (snapshot) =>
-          results.find((result) => result.snapshot)?.snapshot ??
-          (snapshot
-            ? {
-                ...snapshot,
-                items: snapshot.items.map((item) => updates.find((next) => next.item_id === item.item_id) || item),
-              }
-            : snapshot),
-        { updatedAt: query.dataUpdatedAt },
-      );
+      await updateAfterSave(results.find((result) => result.snapshot)?.snapshot, updates);
+      if (!mounted.current) return;
       setFailures(failed);
       select(new Set(failed.map((result) => result.item_id)));
       if ((successes.length || changed.length) && !operation.undoing) {
@@ -420,7 +434,9 @@ function Inbox({ client }: { client: InboxClient }) {
   }
   const items = query.data?.items ?? EMPTY_ITEMS;
   const today = day(new Date(query.dataUpdatedAt || Date.now()));
-  const pinnedTile = reviewing && ["working", "held", "snoozed"].includes(reviewing.section) ? "waiting" : "reminders";
+  const pinnedTile =
+    reviewing?.dashboard_tile ??
+    (reviewing && ["working", "held", "snoozed"].includes(reviewing.section) ? "waiting" : "reminders");
   const tiles = useMemo(() => {
     const placed = dashboardCards(items, today);
     const otherTile = pinnedTile === "reminders" ? "waiting" : "reminders";
@@ -807,20 +823,10 @@ function Inbox({ client }: { client: InboxClient }) {
               setBusy(value);
               if (value) void cache.cancelQueries({ queryKey });
             }}
-            confirmed={(current, receipt, snapshot) => {
-              if (snapshot) cache.setQueryData(queryKey, snapshot);
-              if (!current) {
-                setReviewing(null);
-                return;
-              }
-              cache.setQueryData<Snapshot>(queryKey, (snapshot) =>
-                snapshot
-                  ? {
-                      ...snapshot,
-                      items: snapshot.items.map((row) => (row.item_id === current.item_id ? current : row)),
-                    }
-                  : snapshot,
-              );
+            confirmed={async (current, receipt, snapshot) => {
+              if (!current) setReviewing(null);
+              await updateAfterSave(snapshot, current ? [current] : []);
+              if (!mounted.current || !current) return;
               if (receipt) {
                 setUndo((entries) => [
                   ...entries.filter((entry) => entry.items[0]?.item_id !== current.item_id),
@@ -999,7 +1005,9 @@ function Inbox({ client }: { client: InboxClient }) {
       ) : (
         <>
           {item_id && !placed.current && <p role="status">This card is not in your current inbox snapshot.</p>}
-          {query.data?.truncated && <p role="status">Showing the first 1,000 cards. More work is available.</p>}
+          {query.data && "truncated" in query.data && query.data.truncated && (
+            <p role="status">Showing the first 1,000 cards. More work is available.</p>
+          )}
           {!home && (
             <>
               <section className="inbox-section" aria-label="Inbox">
@@ -1100,7 +1108,7 @@ function Inbox({ client }: { client: InboxClient }) {
           selected={selected}
           locked={singleBusy || !!pending || !!reviewing || !online}
           select={select}
-          snapshot={(value) => cache.setQueryData(queryKey, value)}
+          snapshot={updateAfterSave}
           prepare={() => cache.cancelQueries({ queryKey })}
           lock={(value) => {
             inFlight.current = value;

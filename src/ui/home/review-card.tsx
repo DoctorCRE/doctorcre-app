@@ -46,7 +46,7 @@ type Props = {
   close(): void;
   blockSwitching(value: boolean): void;
   busy(value: boolean): void;
-  confirmed(item: InboxItem | null, receipt?: TaskReceipt, snapshot?: Snapshot): void;
+  confirmed(item: InboxItem | null, receipt?: TaskReceipt, snapshot?: Snapshot): void | Promise<void>;
 };
 export function ReviewCard({
   item,
@@ -143,7 +143,8 @@ export function ReviewCard({
       if (!alive.current) return;
       reconcileFacts(updated);
       anchor.current = current;
-      confirmed(current);
+      await confirmed(current);
+      if (!alive.current) return;
       setState({ phase: "ready", review: updated });
       setMessage(
         "Updated evidence loaded. Your edits are kept. Review the evidence and recipients before submitting again.",
@@ -165,7 +166,8 @@ export function ReviewCard({
       const result = await client.run(anchor.current, request);
       if (!alive.current) return;
       if (request.verb === "submit-email-draft" || request.verb === "dismiss-email-proposal") updateDraftEdits(null);
-      confirmed(result.item, result.receipt, result.snapshot);
+      await confirmed(result.item, result.receipt, result.snapshot);
+      if (!alive.current) return;
       if (request.verb === "decide-engine-home-proposal" && detail.kind === "reply_draft" && result.item) {
         const before = draftReference(anchor.current);
         const after = draftReference(result.item);

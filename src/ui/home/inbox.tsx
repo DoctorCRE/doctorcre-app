@@ -368,6 +368,56 @@ const inboxVersions = [
   { version: "v3", schema: "home-inbox.v3", settlement: true, completion: false, waiting: false },
   { version: "v2", schema: "home-inbox.v2", settlement: false, completion: false, waiting: false },
 ] as const;
+export function parseInboxCard(
+  item: unknown,
+  contract: Pick<(typeof inboxVersions)[number], "settlement" | "completion" | "waiting">,
+  engine: boolean,
+  value: Record<string, unknown>,
+): InboxItem {
+  const parsed = parseItem(item, contract.settlement, contract.completion, engine);
+  const card: InboxItem = engine
+    ? {
+        ...parsed,
+        ...(object(item) && text(item.card_id) && { card_id: item.card_id }),
+        ...(object(item) && text(item.waiting_reason) && { waiting_reason: item.waiting_reason }),
+        ...(object(item) &&
+          text(item.returns_at) &&
+          Number.isFinite(Date.parse(item.returns_at)) && { returns_at: item.returns_at }),
+        ...(object(item) &&
+          typeof item.days_late === "number" &&
+          Number.isSafeInteger(item.days_late) &&
+          item.days_late >= 0 && { days_late: item.days_late }),
+        ...(object(item) && item.kind === "tour_feedback" && { kind_label: "Tour feedback" as const }),
+        ...(value.home_mark_drop === true && { home_mark_drop: true as const }),
+        ...(value.home_proposal_drop === true && { home_proposal_drop: true as const }),
+        ...(parsed.section === "settled" && {
+          disposition: "inbox" as const,
+          section:
+            parsed.source_state === "done"
+              ? ("done" as const)
+              : parsed.hold_until
+                ? ("held" as const)
+                : ("inbox" as const),
+        }),
+      }
+    : parsed;
+  if (!contract.waiting) {
+    const { waiting_version, waiting_on, ...legacy } = card;
+    return legacy;
+  }
+  if (
+    !object(item) ||
+    typeof item.waiting_version !== "number" ||
+    !Number.isSafeInteger(item.waiting_version) ||
+    item.waiting_version < 0
+  )
+    throw Error("Waiting version unavailable.");
+  return {
+    ...card,
+    waiting_version: item.waiting_version,
+    waiting_on: parseWaiting(item.waiting_on, item.waiting_version),
+  };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const contract = object(value) ? inboxVersions.find((entry) => entry.schema === value.schema_version) : undefined;
   const engine = object(value) && value.engine_marks === true;
@@ -383,55 +433,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     (engine ? contract.schema !== "home-inbox.v5" : value.auto_settle_enabled !== contract.settlement)
   )
     throw Error("Inbox unavailable. The server could not provide the complete inbox.");
-  const items = value.items.map((item) => {
-    const parsed = parseItem(item, contract.settlement, contract.completion, engine);
-    const card: InboxItem = engine
-      ? {
-          ...parsed,
-          ...(object(item) && text(item.card_id) && { card_id: item.card_id }),
-          ...(object(item) && text(item.waiting_reason) && { waiting_reason: item.waiting_reason }),
-          ...(object(item) &&
-            text(item.returns_at) &&
-            Number.isFinite(Date.parse(item.returns_at)) && { returns_at: item.returns_at }),
-          ...(object(item) &&
-            (item.dashboard_tile === "reminders" || item.dashboard_tile === "waiting") && {
-              dashboard_tile: item.dashboard_tile,
-            }),
-          ...(object(item) &&
-            typeof item.days_late === "number" &&
-            Number.isSafeInteger(item.days_late) &&
-            item.days_late >= 0 && { days_late: item.days_late }),
-          ...(object(item) && item.kind === "tour_feedback" && { kind_label: "Tour feedback" as const }),
-          ...(value.home_mark_drop === true && { home_mark_drop: true as const }),
-          ...(value.home_proposal_drop === true && { home_proposal_drop: true as const }),
-          ...(parsed.section === "settled" && {
-            disposition: "inbox" as const,
-            section:
-              parsed.source_state === "done"
-                ? ("done" as const)
-                : parsed.hold_until
-                  ? ("held" as const)
-                  : ("inbox" as const),
-          }),
-        }
-      : parsed;
-    if (!contract.waiting) {
-      const { waiting_version, waiting_on, ...legacy } = card;
-      return legacy;
-    }
-    if (
-      !object(item) ||
-      typeof item.waiting_version !== "number" ||
-      !Number.isSafeInteger(item.waiting_version) ||
-      item.waiting_version < 0
-    )
-      throw Error("Waiting version unavailable.");
-    return {
-      ...card,
-      waiting_version: item.waiting_version,
-      waiting_on: parseWaiting(item.waiting_on, item.waiting_version),
-    };
-  });
+  const items = value.items.map((item) => parseInboxCard(item, contract, engine, value));
   if (new Set(items.map((item) => item.item_id)).size !== items.length)
     throw Error("Inbox returned duplicate items. Refresh to try again.");
   const shared = {

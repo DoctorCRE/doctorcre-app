@@ -1,5 +1,5 @@
 import { Component, Fragment, type ReactNode, useState } from "react";
-import { type InboxItem, object, parseSnapshot } from "./inbox";
+import type { InboxItem } from "./inbox";
 
 const dayFormat = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Chicago",
@@ -26,31 +26,6 @@ export function completionLabel(item: InboxItem) {
   if (!item.completed_at) return "Done, time not recorded";
   const label = item.engine_marks && item.kind_label === "Reply draft" ? "Sent" : "Done";
   return `${label} ${completionFormat.format(new Date(item.completed_at))}`;
-}
-
-export async function readDashboard(signal: AbortSignal) {
-  const { sessionFetch } = await import(new URL("./private-session.js", import.meta.url).href);
-  const response: Response = await sessionFetch("/api/engine/home/inbox?view=dashboard", {
-    signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) throw Error("Reminders and waiting items unavailable");
-  const answer: unknown = await response.json();
-  if (object(answer) && !("reminders" in answer) && !("waiting" in answer)) return null;
-  if (!object(answer)) throw Error("Reminders and waiting items unavailable");
-  const items = (["reminders", "waiting"] as const).flatMap((tile) => {
-    const group = answer[tile];
-    if (!object(group) || !Array.isArray(group.items) || group.count !== group.items.length)
-      throw Error("Reminders and waiting items unavailable");
-    return group.items.map((item: unknown) => {
-      if (!object(item) || typeof item.card_id !== "string" || !item.card_id.trim())
-        throw Error("Reminders and waiting items unavailable");
-      return { ...item, card_id: item.card_id, dashboard_tile: tile };
-    });
-  });
-  if (new Set(items.map((item) => item.card_id)).size !== items.length)
-    throw Error("Reminders and waiting items unavailable");
-  return parseSnapshot({ ...answer, items, engine_marks: true });
 }
 
 const previewCount = 3;

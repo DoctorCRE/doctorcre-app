@@ -1,3 +1,5 @@
+import { readDashboardGroups } from "./dashboard-read";
+
 const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 const instant = (value: unknown): value is string => text(value) && Number.isFinite(Date.parse(value));
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -116,7 +118,7 @@ export async function mountHomeTodayPanel(
   type DatedReminders = { today: string; partners: Partner[]; late: Reminder[]; upcoming: Reminder[] };
   let data: DatedReminders | null = null;
   let revision = 0;
-  let inboxCards = new Set<string>();
+  let homeCards = new Set<string>();
   const rendered = new Map<Element, string>();
   const paint = (node: Element, html: string) => {
     if (rendered.get(node) === html) return;
@@ -129,12 +131,12 @@ export async function mountHomeTodayPanel(
     const rows = (items: Reminder[], today: string) =>
       items
         .filter((item) => scope === "all" || item.owner === scope)
-        .filter((item) => !text(item.home_item_id) || !inboxCards.has(item.home_item_id))
         .filter((item) => !hideEndedDealReminders || item.deal_ended !== true)
         .map((item) => {
-          const destination = text(item.home_item_id)
-            ? `/?card=${encodeURIComponent(item.home_item_id)}`
-            : localHref(item.open_url);
+          const destination =
+            text(item.home_item_id) && homeCards.has(item.home_item_id)
+              ? `/?card=${encodeURIComponent(item.home_item_id)}`
+              : localHref(item.open_url);
           const timing = text(item.late_label) ? item.late_label : dates.shortDay(item.due_on, today);
           const detail = [item.context_label, name.get(item.owner), timing].filter(text).join(" · ");
           const body = `<strong>${escapeText(item.title)}</strong><span>${escapeText(detail)}</span>`;
@@ -154,16 +156,6 @@ export async function mountHomeTodayPanel(
     );
   };
   select.onchange = () => renderReminders("");
-  const watchInbox = (event: Event) => {
-    if (event instanceof CustomEvent && Array.isArray(event.detail)) {
-      inboxCards = new Set(event.detail.filter(text));
-      if (data) renderReminders("");
-    }
-  };
-  const doc = rail.ownerDocument;
-  doc.addEventListener("doctorcre:home-cards", watchInbox);
-  doc.dispatchEvent(new Event("doctorcre:request-home-cards"));
-
   const clear = (state: "loading" | "offline" | "unavailable" = "unavailable") => {
     revision++;
     data = null;
@@ -240,7 +232,6 @@ export async function mountHomeTodayPanel(
   return {
     clear,
     dispose() {
-      doc.removeEventListener("doctorcre:home-cards", watchInbox);
       meetingReviews.dispose();
     },
     async refresh(signal: AbortSignal) {
@@ -269,7 +260,14 @@ export async function mountHomeTodayPanel(
         return false;
       }
       const meetingsReady = showMeetings(answer.meetings);
-      data = reminders({ ...answer, today: answer.today });
+      const dated = reminders({ ...answer, today: answer.today });
+      const groups =
+        dated && [...dated.late, ...dated.upcoming].some((item) => text(item.home_item_id))
+          ? await readDashboardGroups(signal).catch(() => null)
+          : null;
+      if (signal.aborted || current !== revision) return false;
+      homeCards = new Set(groups ? [...groups.reminders, ...groups.waiting].map((card) => card.item_id) : []);
+      data = dated;
       const partners = data?.partners ?? [];
       const previous = select.value;
       const options =

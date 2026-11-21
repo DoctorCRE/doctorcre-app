@@ -101,9 +101,9 @@ test("W16 desktop and phone renders: reachable capture, wide Details, full width
     await page.locator('body.has-app-layout').waitFor();
     assert.equal(await page.locator('#appMainSlot #tour-day').count(), 1, 'Tour day belongs in the workspace main region');
     const record = await page.locator("#day-record").boundingBox();
-    const status = await page.locator(width <= 760 ? '#appShell' : '.app-layout-status').boundingBox();
-    assert.ok(record.width >= 140 && record.height >= 60 && record.y + record.height < status.y,
-      JSON.stringify({record,status,width}));
+    const bottom = width <= 760 ? (await page.locator('#appShell').boundingBox()).y : page.viewportSize().height;
+    assert.ok(record.width >= 140 && record.height >= 60 && record.y + record.height < bottom,
+      JSON.stringify({record,bottom,width}));
     const dock = await page.locator('.capture-dock').boundingBox();
     const docPresence = await page.locator(width <= 760 ? '#selfAvatar' : '#docPresence').boundingBox();
     assert.ok(dock.x + dock.width <= docPresence.x || docPresence.x + docPresence.width <= dock.x ||
@@ -423,12 +423,12 @@ test("accepted Tour keeps itinerary, numbered markers, next stop and phone hando
       await mkdir(process.env.TOUR_PARITY_SCREENSHOTS, { recursive: true });
       const capture = async name => {
         await page.evaluate(() => {
-          for (const overlay of document.querySelectorAll('#appShell, .app-layout-tabbar, .app-layout-status, .capture-dock')) overlay.style.visibility = 'hidden';
+          for (const overlay of document.querySelectorAll('#appShell, .app-layout-tabbar, .app-layout-topbar, .capture-dock')) overlay.style.visibility = 'hidden';
           window.scrollTo(0, 0);
         });
         await page.screenshot({ path: `${process.env.TOUR_PARITY_SCREENSHOTS}/tour-${name}-${width}.png`, fullPage: true });
         await page.evaluate(() => {
-          for (const overlay of document.querySelectorAll('#appShell, .app-layout-tabbar, .app-layout-status, .capture-dock')) overlay.style.removeProperty('visibility');
+          for (const overlay of document.querySelectorAll('#appShell, .app-layout-tabbar, .app-layout-topbar, .capture-dock')) overlay.style.removeProperty('visibility');
         });
       };
       await capture('parity');

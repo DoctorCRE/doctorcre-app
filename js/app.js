@@ -205,7 +205,7 @@ function setSync(status) {
   const label = status.state === SYNC_STATES.OFFLINE ? 'Offline'
     : status.state === SYNC_STATES.ERROR ? 'Board view error'
     : status.state === SYNC_STATES.RECONNECTING ? 'Reconnecting'
-    : status.state === SYNC_STATES.READY ? (state.boardFromEngine ? updatedLabel(status.last_read_at) : 'Current')
+    : status.state === SYNC_STATES.READY ? updatedLabel(status.last_read_at)
     : 'Syncing…';
   el.classList.toggle('offline',
     [SYNC_STATES.OFFLINE, SYNC_STATES.RECONNECTING, SYNC_STATES.ERROR].includes(status.state));

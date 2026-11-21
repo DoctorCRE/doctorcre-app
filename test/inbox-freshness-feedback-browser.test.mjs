@@ -101,14 +101,14 @@ test('transient refresh failure retains readable cards, chosen focus and an open
   assert.equal(await page.getByRole('dialog').isVisible(), true);
   assert.equal(calls.some(call => /^(snooze|settle|complete|reopen)/.test(call.name)), false);
 });
-for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`expanded bulk controls clear fixed footer ${width} ${theme}`, async t => {
+for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`expanded bulk controls stay above phone navigation ${width} ${theme}`, async t => {
   const { page } = await open(t, { width, theme, extra: Array.from({ length: 14 }, (_, i) => row(`extra${i}`, { action_id: `00000000-0000-0000-0000-${String(100 + i).padStart(12, '0')}` })) });
   await page.getByLabel('Select Synthetic a', { exact: true }).check();
   await page.getByLabel('Select Synthetic b', { exact: true }).check();
   await page.locator('.inbox-bulk').scrollIntoViewIfNeeded();
-  await page.evaluate(() => { document.querySelector('#appStatusSlot').textContent = 'Synthetic status'; scrollTo(0, 1000); });
+  await page.evaluate(() => scrollTo(0, 1000));
   const bar = await page.locator('.inbox-bulk').boundingBox();
-  const bottom = await page.evaluate(() => Math.min(innerHeight, ...[...document.querySelectorAll('.app-shell-header, .app-layout-status')].map(node => node.getBoundingClientRect()).filter(box => box.height && box.top > innerHeight / 2).map(box => box.top)));
+  const bottom = await page.evaluate(() => Math.min(innerHeight, ...[...document.querySelectorAll('.app-shell-header')].map(node => node.getBoundingClientRect()).filter(box => box.height && box.top > innerHeight / 2).map(box => box.top)));
   assert.ok(bar.y + bar.height <= bottom - 8, `bulk bottom ${bar.y + bar.height} clears footer ${bottom}`);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await mkdir('/tmp/WR39.S1.J64-evidence', { recursive: true });
@@ -201,7 +201,7 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`re
   await page.waitForFunction(() => document.activeElement.closest('[data-inbox-row]')?.dataset.inboxRow === 'extra11');
   const notice = await page.locator('.inbox-notice').boundingBox();
   const undo = await page.getByRole('button', { name: 'Undo', exact: true }).boundingBox();
-  const bottom = await page.evaluate(() => Math.min(innerHeight, ...[...document.querySelectorAll('.app-shell-header, .app-layout-status')].map(node => node.getBoundingClientRect()).filter(box => box.height && box.top > innerHeight / 2).map(box => box.top)));
+  const bottom = await page.evaluate(() => Math.min(innerHeight, ...[...document.querySelectorAll('.app-shell-header')].map(node => node.getBoundingClientRect()).filter(box => box.height && box.top > innerHeight / 2).map(box => box.top)));
   assert.ok(notice.y >= 60 && notice.y + notice.height < bottom);
   assert.ok(undo.y + undo.height < bottom);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));

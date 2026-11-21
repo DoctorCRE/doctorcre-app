@@ -939,6 +939,13 @@ const step = (number, title, fields = {}) => ({
   kind_label: 'Task', action_id: id(number), action_version: 1, merged_source_ids: [id(number)],
   waiting_version: 0, waiting_on: null, ...fields,
 });
+const dashboardAnswer = (reminders, waiting) => {
+  const group = items => ({ count: items.length, items });
+  return {
+    ok: true, schema_version: 'home-inbox.v5', home_mark_drop: true, home_proposal_drop: true,
+    reminders: group(reminders), waiting: group(waiting),
+  };
+};
 const snapshot = items => ({
   ok: true, schema_version: 'home-inbox.v5', engine_marks: true, truncated: false,
   limit: 1000, working_collapsed: true, items,
@@ -967,30 +974,52 @@ async function dashboard(t, width, theme) {
       step(9, 'Call the snoozed prospect', { deal_id: null, open_url: `/deals?prospect=${id(55)}&focus=follow-up`, section: 'snoozed', disposition: 'snoozed' }),
     ],
     dashboard: false,
+    oldEngine: false,
     dashboardReads: 0,
+    draft: { draft_id: id(20), version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.' },
     unavailable: false,
   };
   await page.route('**/api/engine/home/inbox?view=dashboard', route => {
     state.dashboardReads++;
-    if (state.unavailable) return route.fulfill({ status: 503 });
+    if (state.unavailable) return route.fulfill({ status: 400, json: { error: 'unregistered_operation_fields', fields: ['other'] } });
+    if (state.oldEngine) return route.fulfill({ status: 400, json: { error: 'unregistered_operation_fields', fields: ['view'] } });
     if (!state.dashboard) return route.fulfill(width === 390
       ? { status: 404 }
       : { json: snapshot(state.items) });
-    const waiting = state.items.filter(item => item.section === 'snoozed');
-    const reminders = state.items.filter(item => item.section === 'inbox');
-    const group = items => ({ count: items.length, items });
-    return route.fulfill({ json: { ...snapshot([]), reminders: group(reminders), waiting: group(waiting) } });
+    const cards = state.items.filter(item => item.section !== 'done').map(item => ({
+      why: 'The practice requested an update.', primary_action: item.section === 'inbox' ? 'Mark done' : null,
+      source_activity: null, undo_completion: false, returns_at: item.snoozed_until,
+      waiting_reason: item.section === 'snoozed' ? 'Snoozed' : null, days_late: null, late_label: null, ...item,
+    }));
+    return route.fulfill({ json: dashboardAnswer(
+      cards.filter(item => item.section === 'inbox'), cards.filter(item => item.section === 'snoozed'),
+    ) });
   });
   await page.route('**/mcp', route => {
     const request = route.request().postDataJSON();
     const { name, arguments: args } = request.params;
     let result = { ok: true, items: [], deals: [] };
-    if (name === 'read-home-inbox-v5') result = snapshot(state.items);
+    if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item));
     if (name === 'read-engine-home-draft') result = {
-      draft_id: args.id, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
+      ...state.draft,
       to: 'sender@example.test', cc: 'partner@example.test', attachments: [], source_activity: { sender: 'sender@example.test', subject: 'Sample email',
         body: 'Can you share the floor plan?', happened_at: now.toISOString() },
     };
+    if (name === 'edit-engine-home-draft') {
+      assert.equal(args.id, state.draft.draft_id);
+      assert.equal(args.version, state.draft.version);
+      state.draft = { ...state.draft, version: args.version + 1, body: args.body, subject: args.subject };
+      state.items = state.items.map(item => item.reply_draft_id === args.id
+        ? { ...item, source_version: String(state.draft.version) } : item);
+      result = state.draft;
+    }
+    if (name === 'save-engine-home-mark') {
+      assert.equal(args.action, 'snooze');
+      state.items = state.items.map(item => item.item_id === args.item_id
+        ? { ...item, base_version: '1:1:snoozed', section: 'snoozed', disposition: 'snoozed', snoozed_until: args.until }
+        : item);
+      result = { ok: true, item_id: args.item_id, base_version: '1:1:snoozed', previous: { disposition: null, snoozed_until: null } };
+    }
     if (name === 'end-engine-home-step') {
       state.items = state.items.map(item => item.action_id === args.id
         ? { ...item, section: 'done', source_state: 'done', completed_at: now.toISOString(), action_version: 2 }
@@ -1002,10 +1031,23 @@ async function dashboard(t, width, theme) {
   return { page, open, state };
 }
 
+test('Home uses the flat inbox when the older engine refuses the dashboard view', async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  state.oldEngine = true;
+  await open('/?mode=live');
+  await page.getByRole('region', { name: 'Reminders', exact: true }).getByRole('link', { name: 'Send the signed lease' }).waitFor();
+});
+
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home dashboard at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
   await page.clock.install({ time: now });
   await open('/?mode=live');
+  const heading = page.getByRole('heading', { name: 'Home', level: 1, exact: true });
+  assert.equal(await heading.count(), 1);
+  assert.deepEqual(await heading.evaluate(node => {
+    const style = getComputedStyle(node);
+    return [style.position, style.width, style.height, style.overflow];
+  }), ['absolute', '1px', '1px', 'hidden']);
   const tile = name => page.getByRole('region', { name, exact: true });
   const reminders = tile('Reminders'), waiting = tile('In motion and waiting');
   await reminders.getByRole('heading', { name: 'Reminders 4' }).waitFor();
@@ -1019,6 +1061,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
   assert.equal(await page.getByRole('button', { name: 'Today sidebar' }).isVisible(), false);
   assert.equal(await page.locator('#appToday').isVisible(), false);
+  assert.equal(await page.locator('.app-shell-search').count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Search and quick switcher' }).isVisible(), true);
+  assert.equal(await page.locator('.app-layout-status').count(), 0);
   const [first, second] = await Promise.all([reminders.boundingBox(), waiting.boundingBox()]);
   if (width === 390) {
     assert.equal(first.x, second.x);
@@ -1057,13 +1102,60 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await waiting.waitFor({ state: 'detached' });
 });
 
+const draftCard = () => ({
+  ...step(20, 'Reply to the practice manager'), item_id: `reply_draft:${id(20)}`,
+  source_type: 'email_proposal', reply_draft_id: id(20), reply_draft_status: 'pending', kind_label: 'Reply draft',
+  action_id: null, action_version: null, due_on: null, open_url: null, deal_id: null, card_id: 'conversation:1',
+  primary_action: null,
+});
+
+for (const save of ['single', 'bulk', 'review']) test(`Home keeps grouped cards after a ${save} save`, async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  const done = step(1, 'Send the signed lease', { card_id: 'lease:1' });
+  const next = step(2, 'Call the practice manager', { card_id: 'lease:2' });
+  const untouched = step(3, 'Confirm the site visit', { card_id: 'lease:3', due_on: '2026-11-09' });
+  state.dashboard = true;
+  state.items = [untouched, draft, done, next];
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const unchanged = reminders.getByRole('link', { name: untouched.title });
+  await unchanged.waitFor();
+  const original = await unchanged.elementHandle();
+  const reads = state.dashboardReads;
+
+  if (save === 'single') {
+    await reminders.locator('[data-inbox-row]').filter({ hasText: done.title }).getByRole('button', { name: 'Mark done' }).click();
+    await page.getByText(/Marked done: Send the signed lease/).waitFor();
+    assert.equal(await reminders.getByRole('link', { name: done.title }).count(), 0);
+  }
+  if (save === 'bulk') {
+    await reminders.getByRole('button', { name: 'See all 4' }).click();
+    for (const task of [done, next])
+      await reminders.locator('[data-inbox-row]').filter({ hasText: task.title }).getByRole('checkbox').check();
+    await page.getByRole('button', { name: 'Snooze selected' }).click();
+    await page.getByRole('button', { name: /^Not now · Tomorrow/ }).click();
+    await page.locator('[data-batch-state="results"]').waitFor();
+    await page.getByRole('region', { name: 'In motion and waiting', exact: true })
+      .getByRole('heading', { name: 'In motion and waiting 2' }).waitFor();
+  }
+  if (save === 'review') {
+    await reminders.getByRole('link', { name: draft.title }).click();
+    const review = reminders.getByRole('region', { name: `Details for ${draft.title}` });
+    await review.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited sample draft.');
+    await review.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await review.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
+  }
+
+  assert.equal(state.dashboardReads, reads + 1);
+  assert.equal(await original.evaluate(node => node.isConnected), true);
+  await unchanged.waitFor();
+});
+
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home polls in place at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
-  const draft = {
-    ...step(20, 'Reply to the practice manager'), item_id: `reply_draft:${id(20)}`,
-    source_type: 'email_proposal', reply_draft_id: id(20), reply_draft_status: 'pending', kind_label: 'Reply draft',
-    action_id: null, action_version: null, due_on: null, open_url: null, deal_id: null, card_id: 'conversation:1',
-  };
+  const draft = draftCard();
   const tasks = Array.from({ length: 10 }, (_, index) => ({
     ...step(21 + index, `Call about sample suite ${index + 1}`), card_id: `suite:${index}`,
   }));
@@ -1078,7 +1170,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const review = reminders.getByRole('region', { name: `Details for ${draft.title}` });
   const message = review.getByRole('textbox', { name: 'Message', exact: true });
   await message.fill('Unsaved edit for the floor plan.');
-  await message.evaluate(node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await message.scrollIntoViewIfNeeded();
   const before = await message.evaluate(node => ({ y: scrollY, top: node.getBoundingClientRect().top }));
   assert.ok(before.y > 0 && before.top >= 0 && before.top < 760);
   const reads = state.dashboardReads;
@@ -1174,6 +1266,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await meetings.getByRole('button', { name: 'Show less' }).click();
   assert.equal(await meetings.getByText(earlier.title, { exact: true }).count(), 0);
   assert.equal(await page.locator('#appToday').isVisible(), false);
+  assert.equal(await page.locator('.app-shell-search').count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Search and quick switcher' }).isVisible(), true);
+  assert.equal(await page.locator('.app-layout-status').count(), 0);
+  assert.equal(await page.getByRole('heading', { name: 'Home', exact: true }).count(), 0);
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
   if (process.env.HOME_MEETING_SCREENSHOTS) {
     await mkdir(process.env.HOME_MEETING_SCREENSHOTS, { recursive: true });
