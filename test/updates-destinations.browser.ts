@@ -171,8 +171,10 @@ for (const width of viewports)
 
     test(`an empty Updates read shows No updates at ${width}px in ${theme} mode`, async (t) => {
       const { page } = await open(t, width, theme);
+      await page.clock.setFixedTime(new Date("2026-07-01T12:27:00Z"));
       await page.goto(updates);
       await page.getByRole("heading", { name: "No updates", exact: true }).waitFor({ timeout: 2500 });
+      assert.equal(await page.locator("#feedAsOf").textContent(), "As of 7:27 AM CDT");
       assert.equal(await page.getByText("Nothing unread", { exact: true }).count(), 1);
       assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
       assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /\bunknown\b/i);
@@ -292,6 +294,9 @@ test("Updates lists the partner's engine updates with the unread count", async (
   const open_ = page.getByRole("link", { name: "Open checklist item" });
   assert.equal(await open_.getAttribute("href"), unread.open_url);
   assert.equal(await page.getByRole("heading", { name: seen.title }).count(), 1);
+  const unreadCard = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: unread.title }) });
+  assert.equal(await unreadCard.getByText("9:00 AM CST", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("Acknowledged at 10:00 AM CST", { exact: true }).count(), 1);
   assert.equal(await page.getByRole("button", { name: "Acknowledge this notification" }).count(), 1);
   assert.equal(verbs.filter((verb) => /notification/.test(verb)).length, 0);
 });
@@ -413,6 +418,10 @@ test("Who did what shows the engine's first page and Show more follows next_befo
   });
   await page.goto(updatesPath);
   await page.getByRole("heading", { name: "Alex Example · moved the deal to LOI" }).waitFor();
+  assert.equal(
+    await page.locator("#activityList").getByText("Example Dental · 9:00 AM CST", { exact: true }).count(),
+    1,
+  );
   assert.equal(
     await page.locator("#activityList").getByRole("link", { name: "Open deal" }).getAttribute("href"),
     `/deals?deal=${deal}`,

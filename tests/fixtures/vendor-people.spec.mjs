@@ -31,13 +31,13 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`Ve
   await expect(contacts).toBeVisible();
   await expect(contacts.getByText('Demo Contact Alpha', { exact: true })).toBeVisible();
   await expect(contacts.getByText('1 Demo Plaza', { exact: false })).toBeVisible();
-  await expect(contacts.getByText('Recorded territory', { exact: true })).toBeVisible();
+  await expect(contacts.getByText('Territory', { exact: true })).toBeVisible();
   await expect(contacts.getByText('Demo South', { exact: true })).toBeVisible();
-  await expect(contacts.getByText('Office not recorded', { exact: true })).toHaveCount(2);
+  await expect(contacts.getByText('Office not recorded', { exact: true })).toHaveCount(0);
   await expect(contacts.getByText('Not researched', { exact: true })).toBeVisible();
   await expect(contacts.getByText('Needs review', { exact: true })).toBeVisible();
-  await expect(contacts.getByText('Email not recorded', { exact: true })).toHaveCount(3);
-  await expect(contacts.getByText('Phone not recorded', { exact: true })).toHaveCount(3);
+  await expect(contacts.getByText('Email not recorded', { exact: true })).toHaveCount(0);
+  await expect(contacts.getByText('Phone not recorded', { exact: true })).toHaveCount(0);
   await expect(contacts.getByText('Synthetic office evidence', { exact: false })).toBeVisible();
   await expect(page.locator('#recordPanel')).not.toContainText(/Service coverage|Ready to meet|Enrichment queued/);
   expect(reads.find(url => /vendors\/[^/]+$/.test(url.pathname)).searchParams.get('contract')).toBe('vendor-directory.v2');

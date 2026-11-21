@@ -1,3 +1,5 @@
+export const NODE_LABELS = { vendor: "Vendor", client: "Client", lead: "Lead", deal: "Deal", contact: "Contact" };
+
 const NETWORK_SCHEMA = "carr-relationship-network.v1";
 export const EDGE_LABELS = Object.freeze({
   knows: "Knows",

@@ -29,6 +29,8 @@ import { readFileSync } from 'node:fs';
 import { openDom } from './jsdom-harness.mjs';
 import * as model from '../js/workspace-business-model.js';
 import { activityCopy } from '../js/record-activity-model.js';
+import { BUSINESS_TIME_ZONE } from '../js/business-date.js';
+import { phoneLabel, withoutRecordCodes } from '../js/visual-system.js';
 import { updatedLabel } from '../js/auto-refresh.mjs';
 import { renderEvidence } from '../js/correspondence.js';
 
@@ -38,7 +40,7 @@ const page = readFileSync(new URL('../business.html', import.meta.url), 'utf8');
 function setup(dataset, locale = 'en-US') {
   const dom = openDom(page, { url: `https://example.test/${dataset}`, runScripts: 'outside-only' });
   const { window } = dom;
-  Object.assign(window, model, { activityCopy, updatedLabel, renderEvidence, resolveDealroomBoot: () => ({ mode: 'fixture' }) });
+  Object.assign(window, model, { activityCopy, updatedLabel, renderEvidence, BUSINESS_TIME_ZONE, phoneLabel, withoutRecordCodes, resolveDealroomBoot: () => ({ mode: 'fixture' }) });
   window.matchMedia = () => Object.assign(new window.EventTarget(), { matches: false });
   // Emulate a browser whose default clock is 24-hour without changing the
   // renderer. Explicit locales and clock options still reach native Intl.
@@ -71,7 +73,7 @@ for (const dataset of ['clients', 'vendors']) {
     assert.match(link.textContent, /Owner: Joe/);
   });
 
-  test(`${dataset}: the internal reference is available only inside collapsed Details`, () => {
+  test(`${dataset}: drawer follows the internal reference visibility for this directory`, () => {
     const { document, app, payload } = setup(dataset);
     app.view.recordId = payload.record.id;
     app.view.record = { status: 'ready', payload };
@@ -79,6 +81,10 @@ for (const dataset of ['clients', 'vendors']) {
     assert.equal(document.querySelector('#recordTitle').textContent, payload.record.name);
     const body = document.querySelector('#recordBody');
     const reference = [...body.querySelectorAll('details')].find(el => el.textContent.includes(payload.record.ref));
+    if (dataset === 'vendors') {
+      assert.equal(reference, undefined);
+      return;
+    }
     assert.ok(reference, 'the existing read reference remains accessible in Details');
     assert.equal(reference.querySelector('summary').textContent, 'Details');
     assert.equal(reference.open, false);
@@ -94,7 +100,7 @@ for (const dataset of ['clients', 'vendors']) {
     test(`${dataset}: ${locale} defaults cannot put broker timestamps on a 24-hour clock`, () => {
       const { document, app, row, payload } = setup(dataset, locale);
       for (const hour of [0, 9, 12, 17, 23]) {
-        const value = new Date(2026, 9, 1, hour, 7).toISOString();
+        const value = new Date(Date.UTC(2026, 9, 1, hour + 5, 7)).toISOString();
         const expected = `${hour % 12 || 12}:07 ${hour < 12 ? 'AM' : 'PM'}`;
         assert.ok(app.formatMoment(value).includes(expected), app.formatMoment(value));
       }
@@ -118,3 +124,59 @@ for (const dataset of ['clients', 'vendors']) {
     });
   }
 }
+
+test('Vendors show recorded facts and keep names, phones and notes readable', () => {
+  const { document, app, row, payload } = setup('vendors');
+  row.name = payload.record.name = '(TBD: intake contact) (V-SUP-901)';
+  row.owner_label = 'Example Owner';
+  Object.assign(row.relationship, { computed_tier: 'Trial', win_rate: null, last_contact_note: 'Recovered from CARR calendar history' });
+  Object.assign(payload.record, { phone: '+15550102000', intro_notes: row.relationship.last_contact_note });
+  document.querySelector('#recordList').innerHTML = app.rowHtml('vendors', row, row.id);
+  const link = document.querySelector('.record-row');
+  assert.equal(link.querySelector('.row-name').textContent, '(TBD: intake contact)');
+  assert.equal(link.querySelector('.row-owner').textContent, 'Owner: Example Owner');
+  assert.doesNotMatch(link.textContent, /Trial|CARR|Not recorded|Win rate/);
+  assert.match(link.textContent, /Recovered from calendar history/);
+  app.view.recordId = payload.record.id;
+  app.view.record = { status: 'ready', payload };
+  app.renderRecordPanel();
+  assert.equal(document.querySelector('#recordTitle').textContent, '(TBD: intake contact)');
+  assert.match(document.querySelector('#recordBody').textContent, /\(555\) 010-2000/);
+  assert.doesNotMatch(document.querySelector('#recordBody').textContent, /CARR|Relationship level|Proven/);
+});
+
+test('Vendor contact dates keep their calendar day while timestamps use Central', () => {
+  const { document, app, row, payload } = setup('vendors');
+  row.relationship.last_contacted_at = payload.record.relationship.last_contacted_at = '2026-03-08';
+  document.querySelector('#recordList').innerHTML = app.rowHtml('vendors', row, row.id);
+  assert.equal(document.querySelector('.row-last-contact .fact-value').textContent, 'Mar 8, 2026');
+  app.view.recordId = payload.record.id;
+  app.view.record = { status: 'ready', payload };
+  app.renderRecordPanel();
+  assert.equal(document.querySelector('.relationship-metric:last-child strong').textContent, 'Mar 8, 2026');
+  assert.match(app.formatMoment('2026-03-08T00:00:00Z'), /^Mar 7, 2026.*6:00 PM$/);
+});
+
+test('Vendor badges distinguish unknown workability from recorded false', () => {
+  const { document, app, row } = setup('vendors');
+  const list = document.querySelector('#recordList');
+  row.recorded_disposition_workable = null;
+  list.innerHTML = app.rowHtml('vendors', row, row.id);
+  assert.equal(list.querySelector('.tone'), null);
+  row.recorded_disposition_workable = false;
+  list.innerHTML = app.rowHtml('vendors', row, row.id);
+  assert.equal(list.querySelector('.tone').textContent, 'Not workable');
+});
+
+test('An undated vendor conversation shows the note without a time', () => {
+  const { document, app, payload } = setup('vendors');
+  const [entry] = payload.record.relationship.recent_entries;
+  entry.when = null;
+  assert.ok(model.validRecordPayload(payload, 'vendors'));
+  app.view.recordId = payload.record.id;
+  app.view.record = { status: 'ready', payload };
+  app.renderRecordPanel();
+  const conversation = document.querySelector('.record-section:has([data-details-key="entry-demo-entry"])');
+  assert.equal(conversation.querySelector('.note-summary').textContent, entry.summary);
+  assert.equal(conversation.querySelector('time'), null);
+});

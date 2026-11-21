@@ -62,6 +62,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   // Lift declarative page slots before putting the remaining page into main.
   const pageViews = layout.querySelector('#appTabsSlot');
   const slots = {
+    title: layout.querySelector(".app-layout-tabbar"),
     tabs: pageViews,
     actions: pageViews,
     sidebar: layout.querySelector('#appSidebarSlot'),
@@ -72,7 +73,8 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     const target = slots[slot];
     if (!target) continue;
     if (slot === 'moves') target.replaceChildren();
-    target.append(node);
+    if (slot === 'title') target.before(node);
+    else target.append(node);
   }
   for (const node of [...root.body.children]) {
     if (node === host || node === layout || ['SCRIPT','DIALOG'].includes(node.tagName) || node.matches('.app-shell-account-menu, .skip, .toast, .receipt-dock, .record-backdrop, aside.record-panel, .room-toast')) continue;

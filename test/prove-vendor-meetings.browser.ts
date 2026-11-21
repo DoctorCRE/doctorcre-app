@@ -26,12 +26,7 @@ async function fixture(t: import("node:test").TestContext, mode = "ready", sourc
         ...value,
         body:
           mode === "near-miss" && path === "/js/ui-vendor-meetings.generated.js"
-            ? Buffer.from(
-                value.body
-                  .toString()
-                  .replaceAll("Meeting reason not recorded", "Wrong reason")
-                  .replaceAll("row.reason ||", '"Wrong reason" ||'),
-              )
+            ? Buffer.from(value.body.toString().replaceAll("data-meeting-reason", "data-wrong-meeting-reason"))
             : mode === "theme-reset-failure" && path === "/js/workspace-business.js"
               ? Buffer.concat([
                   value.body,

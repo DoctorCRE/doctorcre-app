@@ -1,3 +1,4 @@
+import { withoutRecordCodes } from "./visual-system.js";
 import { privateSession } from './private-session.js';
 import { setDocFilters } from './doc-context.js';
 import { createCurrentRead } from "./current-read.mjs";
@@ -33,7 +34,7 @@ const searchReads = createCurrentRead();
 
 function rowHtml(row, group) {
   const isDeal = ["deals", "deals_via_link"].includes(group.id);
-  const title = escapeHtml(isDeal ? dealName(row.name) : row.name);
+  const title = escapeHtml(isDeal ? dealName(row.name) : withoutRecordCodes(row.name));
   const phase = row.phase ?? row.facts?.find(fact => fact.label === "Phase")?.value;
   const owner = row.owner ?? row.facts?.find(fact => fact.label === "Owner")?.value;
   const meta = isDeal

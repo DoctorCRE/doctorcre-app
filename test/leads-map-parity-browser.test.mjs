@@ -147,7 +147,7 @@ const stageCases = [['',[1,2,3,4,5,6,8,15,16]], ['new',[1,15,16]], ['qualified',
   ['outreach_active',[3]], ['engaged',[4]], ['nurture_drip',[5,8]], ['opportunity',[6]], ['archived',[7]]];
 const ownerCases = [['',all], ['example-partner',[2,4,6]], ['other',[3,5,7]]];
 const marketCases = [['',all], ['Pensacola, FL',[1,3,5]], ['Mobile, AL',[2,6,8]],
-  ['Synthetic Unlocated, FL',[4,7]], ['Market pending',[15]], ['Westlake, FL',[16]]];
+  ['Synthetic Unlocated, FL',[4,7]], ['Leads without a market',[15]], ['Westlake, FL',[16]]];
 const searchCases = [['',all], [' EXAMPLE 1 ',[1,15,16]], ['Dental',all], ['Mobile',[2,6,8]], ['zzzero',[]]];
 const cases = stageCases.flatMap(([stage, stageIds]) => ownerCases.flatMap(([owner, ownerIds]) =>
   marketCases.flatMap(([market, marketIds]) => searchCases.map(([search, searchIds]) => ({

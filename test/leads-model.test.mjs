@@ -19,6 +19,12 @@ test('title priority and smart titles discard referral decorations',()=>{
  assert.equal(leadTitle({entity_name:'Example Entity'}),'Example Entity');
  assert.equal(leadTitle({specialty:'Dental',city:'Gulf Breeze'}),'Dental startup in Gulf Breeze');
 });
+test('Leads search finds the displayed name and the original stored name', () => {
+ const row = lead(1, { doctor_name: 'Example (V-SUP-901) Clinic' });
+ for (const search of ['Example Clinic', 'Example (V-SUP-901) Clinic']) {
+  assert.deepEqual(visibleLeads([row], { search }), [row], search);
+ }
+});
 test('filters and market counts share exact eligibility; archive never adds to active figures',()=>{
  assert.equal(visibleLeads(leads,{market:'Mobile, AL'}).length,1);
  assert.equal(visibleLeads(leads,{search:'gulf'}).length,1);
