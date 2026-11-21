@@ -5,7 +5,7 @@ import { mountAutoRefresh, updatedLabel } from './auto-refresh.mjs';
 import { localToday, isCalendarDay } from './calendar-model.js';
 import { partnerName } from './task-records-model.js';
 import { uuidv4 } from './uuid.js';
-import { AGES, projectInvoices, invoiceSummary, invoiceMoney, invoiceDate } from './invoice-tracker-model.js';
+import { AGES, projectInvoices, validInvoiceTracker, invoiceSummary, invoiceMoney, invoiceDate } from './invoice-tracker-model.js';
 const E=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const amountLabel = amount => amount === null ? 'Amount not recorded' : invoiceMoney(amount);
 const ownerLabel = owner => partnerName(owner) || 'Unassigned';
@@ -26,9 +26,9 @@ const paymentRefusals = new Map([
 export function mountInvoiceTracker({ document, window, client, today=localToday, intervalMs }) {
   const $=id=>document.getElementById(id);
   let rows=null,status='all',age=null,selected=null,opener=null,disposed=false,updatedAt=null;
-  let snapshot=null;
+  let snapshot=null, readSequence=0;
   const payments=new Map();
-  const receipts=new Map();
+  const confirmedPayments=new Map();
   const preparingPayments=new Set();
   let paymentStore=null;
   let paymentActor=null;
@@ -43,7 +43,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
         || !isCalendarDay(args.received_on) || typeof args.idempotency_key!=='string' || !args.idempotency_key)throw new Error('Invalid payment recovery');
       restored.set(args.commission_id,{args:Object.freeze(args),state:'uncertain'});
     }
-    paymentStore=key;paymentActor=actor;payments.clear();receipts.clear();
+    paymentStore=key;paymentActor=actor;payments.clear();confirmedPayments.clear();
     for(const [id,intent] of restored)payments.set(id,intent);
   }
   function savePayments() {
@@ -52,8 +52,26 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
   function forgetPayment(key) {
     if(payments.delete(key))savePayments();
   }
-  function projectSnapshot(next) {
-    return projectInvoices(next,{today:today(),receipts:next?.actor===paymentActor ? receipts : undefined});
+  function applyRead(next, sequence) {
+    if (confirmedPayments.size) {
+      const entries = new Map(next.entries.map(entry => [entry.commission_id ?? entry, entry]));
+      for (const [id, payment] of confirmedPayments) {
+        const entry = entries.get(id);
+        if (sequence <= payment.sequence ||
+          (entry ? entry.base_version < (payment.entry?.base_version ?? 0) : payment.awaitingRead)) {
+          if (payment.entry) entries.set(id, payment.entry);
+          else entries.delete(id);
+        } else {
+          confirmedPayments.set(id, { sequence, entry, awaitingRead: false });
+        }
+      }
+      next = { ...next, entries: [...entries.values()] };
+    }
+    const projected = projectInvoices(next, { today: today() });
+    if (!projected) throw new Error('Invalid invoice snapshot');
+    snapshot = next;
+    rows = projected;
+    updatedAt = next.observed_at;
   }
   const requested=new URL(window.location.href).searchParams.get('invoice');
   let requestHandled=false;
@@ -156,15 +174,14 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
   $('clearInvoiceFilters').addEventListener('click',()=>{status='all';age=null;$('invoiceSearch').value='';$('invoiceOwner').value='';render();});
   async function refresh({signal}={}) {
     try{
-      const next=await client.getInvoiceTracker({signal});const projected=projectSnapshot(next);
-      if(!projected)throw new Error('Invalid invoice snapshot');if(disposed||signal?.aborted)return;
+      const sequence = ++readSequence;
+      const next = await client.getInvoiceTracker({ signal });
+      if (disposed || signal?.aborted) return;
+      if (!validInvoiceTracker(next)) throw new Error('Invalid invoice snapshot');
       loadPayments(next.actor);
-      for(const entry of next.entries){
-        const receipt=receipts.get(entry.commission_id);
-        if(receipt && entry.base_version>=receipt.base_version)receipts.delete(entry.commission_id);
-      }
-      for(const row of projected)if(row.status==='paid')forgetPayment(row.key);
-      snapshot=next;rows=projected;updatedAt=next.observed_at;$('invoiceNotice').hidden=true;
+      applyRead(next, sequence);
+      for (const row of rows) if (row.status === 'paid') forgetPayment(row.key);
+      $('invoiceNotice').hidden = true;
       const owner=$('invoiceOwner').value;const owners=[...new Set([...rows.map(row=>row.owner),owner].filter(Boolean))].sort();
       const options='<option value="">Everyone</option>'+owners.map(value=>`<option value="${E(value)}">${E(ownerLabel(value))}</option>`).join('');
       if($('invoiceOwner').innerHTML!==options){$('invoiceOwner').innerHTML=options;$('invoiceOwner').value=owner;}
@@ -172,7 +189,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     }catch(error){if(disposed||signal?.aborted)return;$('invoiceNotice').hidden=false;
       const signedOut=[401,403].includes(error?.status);
       $('invoiceNotice').innerHTML=signedOut?'<a href="/auth/login?return_to=%2Finvoices">Sign in</a>':'Invoices temporarily unavailable';
-      if(signedOut){snapshot=null;rows=null;updatedAt=null;receipts.clear();closeDetail();render();}
+      if(signedOut){snapshot=null;rows=null;updatedAt=null;confirmedPayments.clear();closeDetail();render();}
       else if(!rows){$('invoiceRows').innerHTML='<p>Invoices unavailable</p>';$('invoiceRows').setAttribute('aria-busy','false');}
     }
   }
@@ -189,12 +206,14 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       preparingPayments.add(row.key);$('markInvoicePaid').disabled=true;
       let current;
       try{
-        const next=await client.getInvoiceTracker(),projected=projectSnapshot(next);
-        if(disposed)return;
-        if(!projected)throw new Error('Invalid invoice snapshot');
-        if(next.actor!==paymentActor){snapshot=null;rows=null;receipts.clear();closeDetail();render();throw new Error('Account changed');}
-        current=projected.find(item=>item.key===row.key);
-        snapshot=next;rows=projected;updatedAt=next.observed_at;render();
+        const sequence = ++readSequence;
+        const next = await client.getInvoiceTracker();
+        if (disposed) return;
+        if (!validInvoiceTracker(next)) throw new Error('Invalid invoice snapshot');
+        if(next.actor!==paymentActor){snapshot=null;rows=null;confirmedPayments.clear();closeDetail();render();throw new Error('Account changed');}
+        applyRead(next, sequence);
+        current = rows.find(item => item.key === row.key);
+        render();
         if(selected!==row.key)return;
         if(!current?.canMarkPaid || current.base_version!==row.base_version){
           $('invoicePaymentNotice').hidden=false;
@@ -212,6 +231,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       }
     }
     intent.state='sending';renderDetail();
+    const paymentEntry = snapshot.entries.find(entry => entry.commission_id === row.key);
     let receipt,refusalMessage;
     try{receipt=await client.markInvoicePaid(intent.args);}
     catch(error){
@@ -223,11 +243,19 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     }
     if(disposed)return;
     if(payments.get(row.key)===intent){
-      if(receipt?.ok===true && receipt.id===intent.args.commission_id && receipt.received_on===intent.args.received_on
-        && Number.isSafeInteger(receipt.base_version) && receipt.base_version>intent.args.base_version){
-        receipts.set(row.key,receipt);
+      if(receipt?.engine_receipt === true && receipt.ok === true && receipt.id === intent.args.commission_id
+        && receipt.received_on === intent.args.received_on && Number.isSafeInteger(receipt.base_version)
+        && receipt.base_version > intent.args.base_version && receipt.base_version >= paymentEntry.base_version
+        && receipt.received_on >= paymentEntry.commission_invoiced_on){
+        const paid = { ...paymentEntry, status: 'received', base_version: receipt.base_version, received_on: receipt.received_on };
+        confirmedPayments.set(row.key, { sequence: readSequence, entry: paid, awaitingRead: true });
         forgetPayment(row.key);
-        if(snapshot){rows=projectSnapshot(snapshot);render();}
+        if (snapshot) {
+          const entries = [...snapshot.entries.filter(entry => entry.commission_id !== row.key), paid];
+          snapshot = { ...snapshot, entries };
+          rows = projectInvoices(snapshot, { today: today() });
+          render();
+        }
       }else if(refusalMessage)forgetPayment(row.key);
       else intent.state='uncertain';
     }

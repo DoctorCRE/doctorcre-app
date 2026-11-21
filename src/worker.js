@@ -734,7 +734,9 @@ async function engineSave(request, env, call) {
   }
   if (call.params.name === 'record-commission-receipt') {
     if (!await switchedOn(env, INVOICES)) return null;
-    return engineAnswer(request, env, call, { path: '/api/engine/invoices/mark-paid' }, { allowHandoff: false });
+    return engineAnswer(request, env, call, { path: '/api/engine/invoices/mark-paid' }, {
+      allowHandoff: false, mapReceipt: receipt => ({ ...receipt, engine_receipt: true }),
+    });
   }
   if (CUTOVER_SAVES.has(call.params.name)) {
     const result = await cutoverSave(request, env, call);
@@ -843,7 +845,7 @@ async function sendEngineSave(request, env, path, body) {
 }
 
 // Only the legacy-schema saves share a receipt with CARR.
-async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments, rawClientError = false, uncertainServerError = false } = {}) {
+async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments, rawClientError = false, uncertainServerError = false, mapReceipt } = {}) {
   const response = await sendEngineSave(request, env, save.path, body);
   if (engineSignIn(env) && response?.status === 503) return response;
   if (!response || (uncertainServerError && response.status >= 500)) return unavailable(false);
@@ -851,6 +853,11 @@ async function engineAnswer(request, env, call, save, { allowHandoff = true, bod
   try {
     if ((rawClientError && response.status >= 400 && response.status < 500) || [401, 403, 429].includes(response.status)) return response;
     text = await response.text();
+    if (mapReceipt && response.status === 200) {
+      const receipt = JSON.parse(text);
+      if (!isObject(receipt)) return unavailable(false);
+      text = JSON.stringify(mapReceipt(receipt));
+    }
   } catch { return unavailable(false); }
   const handoff = OLD_SYSTEM_ANSWERS.get(response.status);
   if (!engineSignIn(env) && allowHandoff && handoff && handoff === parsedError(text)) return null;

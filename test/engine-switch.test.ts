@@ -979,7 +979,9 @@ test("Mark paid follows the invoice tracker switch", async () => {
   assert.deepEqual(await request.json(), markPaidArgs);
   assert.deepEqual(f.kv, [["invoices-from-engine", { cacheTtl: 30 }]]);
   assert.deepEqual(f.carr, []);
-  assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: JSON.stringify(receipt) }] });
+  assert.deepEqual((await response.json()).result, {
+    content: [{ type: "text", text: JSON.stringify({ ...receipt, engine_receipt: true }) }],
+  });
 });
 
 test("Mark paid keeps the original CARR call with the invoice switch off", async () => {
