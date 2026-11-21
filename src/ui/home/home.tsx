@@ -24,7 +24,7 @@ import {
   taskCommand,
 } from "./inbox";
 import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
-import { type DraftEdit, ReviewCard } from "./review-card";
+import { type DraftEdit, ReviewCard, reviewDispositionLabel } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
@@ -53,6 +53,15 @@ const snoozeDate = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
   timeStyle: "short",
 });
+const isWaitingCard = (item: InboxItem) =>
+  item.engine_marks === true && ["working", "held", "snoozed"].includes(item.section);
+
+function snoozeLabel(item: InboxItem) {
+  return item.disposition === "snoozed" && item.snoozed_until
+    ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
+    : null;
+}
+
 const cardTitle = ":is(h3 a, h3[tabindex])";
 const visibleRow = (node: HTMLElement) => !node.closest("details:not([open])") && node.getClientRects().length > 0;
 const isEngineStep = (item: InboxItem) => item.engine_marks && item.source_type === "next_action";
@@ -513,7 +522,7 @@ function Inbox({ client }: { client: InboxClient }) {
       item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
     const markAction = item.engine_marks ? "unsnooze" : item.disposition === "inbox" ? "settle" : "unsettle";
     const snoozable = canSnooze(item);
-    const waitingCard = item.engine_marks === true && ["working", "held", "snoozed"].includes(item.section);
+    const waitingCard = isWaitingCard(item);
     const wakeable =
       home && item.disposition !== "snoozed"
         ? false
@@ -580,20 +589,19 @@ function Inbox({ client }: { client: InboxClient }) {
     const legacyFailedReply =
       !item.engine_marks && item.source_type === "email_proposal" && item.source_state === "failed";
     const detail =
-      item.disposition === "snoozed" && item.snoozed_until
-        ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
-        : draftCardStatus(item) ||
-          (item.section === "done" || (!item.engine_marks && item.auto_settled)
-            ? completionLabel(item)
-            : item.disposition === "settled"
-              ? "Hidden from inbox by you"
-              : item.source_state === "working"
-                ? "Dr. CRE is working. You can come back to this."
-                : item.source_state === "done"
-                  ? completionLabel(item)
-                  : item.source_state === "failed"
-                    ? home && !presentation && !legacyFailedReply && "Open the card to review the failed action."
-                    : !item.engine_marks && "Ready for your attention");
+      snoozeLabel(item) ||
+      draftCardStatus(item) ||
+      (item.section === "done" || (!item.engine_marks && item.auto_settled)
+        ? completionLabel(item)
+        : item.disposition === "settled"
+          ? "Hidden from inbox by you"
+          : item.source_state === "working"
+            ? "Dr. CRE is working. You can come back to this."
+            : item.source_state === "done"
+              ? completionLabel(item)
+              : item.source_state === "failed"
+                ? home && !presentation && !legacyFailedReply && "Open the card to review the failed action."
+                : !item.engine_marks && "Ready for your attention");
     const waitingOn =
       item.waiting_reason ??
       (item.waiting_on &&
@@ -1250,6 +1258,59 @@ function Inbox({ client }: { client: InboxClient }) {
     </section>
   );
 }
+function LinkedReview({ itemId, client }: { itemId: string; client: InboxClient["linkedReview"] }) {
+  const [draftEdits, setDraftEdits] = useState<DraftEdit | undefined>();
+  const { data, isPending } = useQuery({
+    queryKey: ["home-linked-review", itemId],
+    queryFn: ({ signal }) => client.read(itemId, signal),
+  });
+
+  if (!data)
+    return (
+      <>
+        <p role="status">{isPending ? "Loading review…" : "This review is unavailable."}</p>
+        <a href="/">Back to Home</a>
+      </>
+    );
+
+  if (data.state !== "active")
+    return (
+      <>
+        <p role="status">{reviewDispositionLabel(data.state, itemId.startsWith("reply_draft:"))}</p>
+        {data.reason && <p>{data.reason}</p>}
+        <a href="/">Back to Home</a>
+      </>
+    );
+
+  const waiting = isWaitingCard(data.item);
+  return (
+    <>
+      <h1>{data.item.title}</h1>
+      {waiting && (
+        <>
+          <p role="status">{snoozeLabel(data.item) ?? data.item.waiting_reason}</p>
+          <a href="/">Back to Home</a>
+        </>
+      )}
+      <ReviewCard
+        item={data.item}
+        readOnly={waiting}
+        client={client.client}
+        draftEdits={draftEdits}
+        updateDraftEdits={(edits) => setDraftEdits(edits ?? undefined)}
+        close={() => location.assign("/")}
+      />
+    </>
+  );
+}
+
+function InboxCard({ client }: { client: InboxClient }) {
+  const { item_id } = useParams();
+  if (item_id?.startsWith("suggestion:") || item_id?.startsWith("reply_draft:"))
+    return <LinkedReview key={item_id} itemId={item_id} client={client.linkedReview} />;
+  return <Inbox client={client} />;
+}
+
 export function mountInbox(host: HTMLElement, client: InboxClient) {
   const query = new QueryClient({
     defaultOptions: {
@@ -1276,7 +1337,7 @@ export function mountInbox(host: HTMLElement, client: InboxClient) {
           <Route path="/" element={inbox} />
           <Route path="/inbox" element={inbox} />
           <Route path="/inbox.html" element={inbox} />
-          <Route path="/inbox/card/:item_id" element={inbox} />
+          <Route path="/inbox/card/:item_id" element={<InboxCard client={client} />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>,

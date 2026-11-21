@@ -1,4 +1,4 @@
-import { type CardReview, type InboxItem, object, type ReviewRequest } from "./inbox.tsx";
+import { type CardReview, type InboxItem, object, type ReviewItem, type ReviewRequest } from "./inbox.tsx";
 
 type Rpc = (name: string, args: unknown, signal?: AbortSignal) => Promise<unknown>;
 const string = (value: unknown) => (typeof value === "string" ? value : null);
@@ -32,7 +32,7 @@ export function draftCardStatus(item: InboxItem) {
   return draft ? draftStatus(draft.status, draft.failureReason) : null;
 }
 
-export function proposalIds(item: InboxItem) {
+export function proposalIds(item: ReviewItem) {
   const review = "completion_review" in item ? item.completion_review : null;
   if (object(review) && typeof review.proposal_id === "string") return [review.proposal_id];
   const suggestions = "suggestions" in item ? item.suggestions : null;
@@ -40,13 +40,13 @@ export function proposalIds(item: InboxItem) {
     ? suggestions.flatMap((row: unknown) => (object(row) && typeof row.id === "string" ? [row.id] : []))
     : [];
 }
-function matchesProposal(item: InboxItem, id: string) {
+function matchesProposal(item: ReviewItem, id: string) {
   return proposalIds(item).includes(id);
 }
 
-export function draftReference(item: InboxItem) {
+export function draftReference(item: ReviewItem) {
   const id = "reply_draft_id" in item ? string(item.reply_draft_id) : null;
-  if (id)
+  if (id && item.source_version)
     return {
       id,
       version: item.source_version,
@@ -230,42 +230,51 @@ export type Suggestion = {
   filingChoices: FilingChoice[] | undefined;
 };
 
-export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: AbortSignal): Promise<CardReview> {
+function parseProposal(value: Record<string, unknown>, id: string, canAccept: boolean) {
+  const label = kinds.get(string(value.kind) ?? "");
+  if (value.proposal_id !== id || typeof value.evidence !== "string" || !label) throw unreadable();
+  const change = string(value.to_phase) || string(value.to_stage);
+  const activity = object(value.source_activity) ? value.source_activity : null;
+  const leadCandidate = value.kind === "email_lead" && activity?.id === null && !Array.isArray(value.thread);
+  const thread =
+    !leadCandidate && (Array.isArray(value.thread) || activity?.kind === "email") ? emailThread(value) : null;
+  const choices = filingChoices(value.filing_choices);
+  const proposal: Suggestion = {
+    id,
+    label: choices ? "File this email" : label,
+    target: string(value.target_name),
+    // Imported proposals can store raw email quotes in evidence.
+    reason: thread ? string(value.reason) : value.evidence,
+    emailLead: value.kind === "email_lead",
+    senderAddress: leadCandidate ? string(activity?.sender) : null,
+    source: thread ? null : source(activity),
+    what: string(value.what) || change?.replaceAll("_", " ") || null,
+    dueOn: string(value.due_on),
+    editable: value.kind === "next_step",
+    completion: value.kind === "next_step_done",
+    canAccept,
+    filingChoices: choices,
+  };
+  return { proposal, thread };
+}
+
+export async function loadEngineReview(rpc: Rpc, item: ReviewItem, signal?: AbortSignal): Promise<CardReview> {
   const draft = draftReference(item);
   const ids = proposalIds(item);
   if (!draft && !ids.length) throw unreadable();
-  const pending = Promise.all(
-    ids.map(async (id) => {
-      const value = await answer(rpc, "read-engine-home-proposal", { id }, signal);
-      const label = kinds.get(string(value.kind) ?? "");
-      if (value.proposal_id !== id || typeof value.evidence !== "string" || !label) throw unreadable();
-      const change = string(value.to_phase) || string(value.to_stage);
-      const review = "completion_review" in item && object(item.completion_review) ? item.completion_review : null;
-      const activity = object(value.source_activity) ? value.source_activity : null;
-      const leadCandidate = value.kind === "email_lead" && activity?.id === null && !Array.isArray(value.thread);
-      const thread =
-        !leadCandidate && (Array.isArray(value.thread) || activity?.kind === "email") ? emailThread(value) : null;
-      const choices = filingChoices(value.filing_choices);
-      const proposal: Suggestion = {
-        id,
-        label: choices ? "File this email" : label,
-        target: string(value.target_name),
-        // Imported proposals can store raw email quotes in evidence.
-        reason: thread ? string(value.reason) : value.evidence,
-        emailLead: value.kind === "email_lead",
-        senderAddress: leadCandidate ? string(activity?.sender) : null,
-        source: thread ? null : source(activity),
-        what: string(value.what) || change?.replaceAll("_", " ") || null,
-        dueOn: string(value.due_on),
-        editable: value.kind === "next_step",
-        completion: value.kind === "next_step_done",
-        canAccept: review?.can_resolve !== false,
-        filingChoices: choices,
-      };
-      return { proposal, thread };
-    }),
-  );
-  const [reply, details] = await Promise.all([draft && loadDraft(rpc, item, draft, signal), pending]);
+  const completion = "completion_review" in item && object(item.completion_review) ? item.completion_review : null;
+  const [reply, details] = await Promise.all([
+    draft && loadDraft(rpc, item.item_id, draft, signal),
+    Promise.all(
+      ids.map(async (id) =>
+        parseProposal(
+          await answer(rpc, "read-engine-home-proposal", { id }, signal),
+          id,
+          completion?.can_resolve !== false,
+        ),
+      ),
+    ),
+  ]);
   const threads = details.flatMap(({ thread }) => (thread ? [thread] : []));
   const proposals = details.map(({ proposal }) => proposal);
   if (reply) return { ...reply, proposals, thread: combineThreads([reply.thread, ...threads]) };
@@ -279,12 +288,23 @@ export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: Abort
 
 async function loadDraft(
   rpc: Rpc,
-  item: InboxItem,
+  itemId: string,
   draft: { id: string; version: string },
   signal?: AbortSignal,
 ): Promise<Extract<CardReview, { kind: "reply_draft" }> & { thread: EmailThread }> {
   const { id } = draft;
   const value = await answer(rpc, "read-engine-home-draft", { id }, signal);
+  const review = parseDraft(value, itemId, id);
+  if (review.reference.source_version !== draft.version)
+    throw Object.assign(Error("Draft changed."), { payload: { error: "version_conflict" } });
+  return review;
+}
+
+function parseDraft(
+  value: Record<string, unknown>,
+  itemId: string,
+  id: string,
+): Extract<CardReview, { kind: "reply_draft" }> & { thread: EmailThread } {
   const { subject, body, version, status, to, cc } = value;
   if (
     value.draft_id !== id ||
@@ -296,8 +316,6 @@ async function loadDraft(
     !Array.isArray(value.attachments)
   )
     throw unreadable();
-  if (String(version) !== draft.version)
-    throw Object.assign(Error("Draft changed."), { payload: { error: "version_conflict" } });
   const attachments = value.attachments.map((row: unknown) => {
     if (!object(row) || typeof row.document_id !== "string" || typeof row.name !== "string") throw unreadable();
     return { id: row.document_id, name: row.name };
@@ -322,7 +340,7 @@ async function loadDraft(
     kind: "reply_draft",
     reference: {
       kind: "reply_draft",
-      item_id: item.item_id,
+      item_id: itemId,
       source_version: String(version),
       operations: operations.map((op) => op.verb),
     },
@@ -338,7 +356,7 @@ async function loadDraft(
   };
 }
 
-export async function saveEngineReview(rpc: Rpc, item: InboxItem, request: ReviewRequest) {
+export async function saveEngineReview(rpc: Rpc, item: ReviewItem, request: ReviewRequest) {
   const { args, verb } = request;
   if (verb === "decide-engine-home-proposal") {
     if (typeof args.id !== "string" || !matchesProposal(item, args.id)) throw unreadable();
