@@ -5,7 +5,7 @@ import { chromium } from './browser-harness.mjs';
 import { routeLeads } from './leads-browser-fixture.mjs';
 import { detail, id } from './leads-workspace-fixture.mjs';
 
-const evidenceDir = new URL('../.github/pr-evidence/WR647.S1.J9/', import.meta.url);
+const evidenceDir = 'test-artifacts/leads-board/research';
 const source = 'https://example.test/registry/1';
 const expiredSource = 'https://example.test/filings/none';
 const research = {
@@ -50,16 +50,14 @@ async function open(t, { width = 1440, height = 900, theme = 'light', proposals 
 
 test('sourced research shows each fact source and only server-classified leads are linked', async t => {
   const { page, calls } = await open(t);
-  const list = page.locator('#quietFollowUps');
-  await list.getByRole('link', { name: /^Dr\. Example 1/ }).waitFor();
+  await page.locator('#quietFilter').click();
+  const board = page.locator('#leadBoard');
+  const opener = board.getByRole('button', { name: 'Dr. Example 1', exact: true });
   assert.deepEqual(calls, [{}], 'the follow-up read uses the server cadence');
-  assert.equal(await list.getByRole('link', { name: /^Dr\. Example 1/ }).getAttribute('href'), '/leads?lead=L-1');
-  assert.match(await list.innerText(), /Last contact/);
-  assert.match(await list.innerText(), /Last contact Aug 17\. Follow-up due Oct 1 · 15 days overdue/);
-  assert.equal(await list.getByText('Synthetic broker').count(), 0);
-  assert.equal(await list.getByText('Synthetic site owner').count(), 0);
+  assert.equal(await board.locator('.lead-open').count(), 1);
+  assert.equal(await board.getByText('Follow-up late', { exact: true }).count(), 1);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await list.getByRole('link', { name: /^Dr\. Example 1/ }).click();
+  await opener.click();
   const detailBody = page.locator('#detailBody');
   await detailBody.getByRole('heading', { name: 'Sourced research', exact: true }).waitFor();
   const text = await detailBody.innerText();
@@ -85,36 +83,34 @@ test('quiet leads explain an empty server list without calling it a refusal', as
   let release;
   const hold = { promise: new Promise(resolve => { release = resolve; }) };
   const { page } = await open(t, { proposals: [], hold });
-  await page.getByRole('status').filter({ hasText: 'Loading follow-ups…' }).waitFor();
+  await page.locator('.lead-card').first().waitFor();
+  assert.equal(await page.locator('#quietFilter').isDisabled(), true);
   release();
-  const list = page.locator('#quietFollowUps');
-  await list.getByText('No quiet leads.', { exact: true }).waitFor();
-  assert.doesNotMatch(await list.innerText(), /refused/i);
+  await page.locator('#quietFilter').click();
+  assert.equal(await page.locator('#leadCount').innerText(), '0 leads');
+  assert.equal(await page.locator('#quietStatus').isVisible(), false);
 });
 
-test('a refused follow-up read stays a refusal', async t => {
+test('a refused follow-up read shows unavailable and keeps the board', async t => {
   const { page } = await open(t, { refuse: true });
-  const list = page.locator('#quietFollowUps');
-  await list.getByRole('alert').waitFor();
-  assert.match(await list.innerText(), /The follow-up list was refused/);
-  assert.doesNotMatch(await list.innerText(), /No quiet leads/);
+  const status = page.locator('#quietStatus');
+  await status.waitFor();
+  assert.match(await status.innerText(), /Quiet leads unavailable/);
+  assert.ok(await page.locator('.lead-card').count() > 0);
 });
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
   test(`sourced research and quiet leads fit ${width}px ${theme}`, async t => {
     const { page } = await open(t, { width, height: width === 390 ? 844 : 960, theme });
-    const list = page.locator('#quietFollowUps');
-    await list.getByRole('link', { name: /^Dr\. Example 1/ }).waitFor();
-    await list.scrollIntoViewIfNeeded();
-    const link = list.getByRole('link', { name: /^Dr\. Example 1/ });
-    const name = await link.locator('span').boundingBox();
-    const reason = await link.locator('p').boundingBox();
-    assert.ok((await link.boundingBox()).height >= 44, 'whole row is a touch target');
-    assert.ok(reason.y - name.y - name.height <= 4, 'name and reason stay grouped');
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'quiet list fits');
+    const filter = page.locator('#quietFilter');
+    await filter.click();
+    const target = await filter.boundingBox();
+    assert.ok(target.width >= 44 && target.height >= 44);
+    const opener = page.locator('#leadBoard').getByRole('button', { name: 'Dr. Example 1', exact: true });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'quiet board fits');
     await mkdir(evidenceDir, { recursive: true });
-    await page.screenshot({ path: new URL(`quiet-leads-${width}-${theme}.png`, evidenceDir).pathname, animations: 'disabled' });
-    await list.getByRole('link', { name: /^Dr\. Example 1/ }).click();
+    await page.screenshot({ path: `${evidenceDir}/quiet-leads-${width}-${theme}.png`, animations: 'disabled' });
+    await opener.click();
     const researchPanel = page.locator('#sourcedResearch');
     await researchPanel.waitFor();
     await researchPanel.scrollIntoViewIfNeeded();
@@ -125,19 +121,19 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.equal(await fact.locator('.research-source a').getAttribute('href'), expiredSource);
     assert.equal(await fact.locator('.research-expiry').innerText(), 'Expired');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'research fits');
-    await page.screenshot({ path: new URL(`sourced-research-${width}-${theme}.png`, evidenceDir).pathname, animations: 'disabled' });
+    await page.screenshot({ path: `${evidenceDir}/sourced-research-${width}-${theme}.png`, animations: 'disabled' });
   });
 }
 
  test('research with no recorded findings says so plainly', async t => {
   const { page } = await open(t, { researchValue: { ...research, state: 'needs_research', evidence: [] } });
-  await page.locator('#quietFollowUps').getByRole('link', { name: /^Dr\. Example 1/ }).click();
+  await page.locator('#leadBoard').getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
   await page.locator('#sourcedResearch').waitFor();
   assert.match(await page.locator('#sourcedResearch').innerText(), /No sourced findings/);
  });
  test('refused research details do not claim a connection failure or empty findings', async t => {
   const { page } = await open(t, { refuseDetail: true });
-  await page.locator('#quietFollowUps').getByRole('link', { name: /^Dr\. Example 1/ }).click();
+  await page.locator('#leadBoard').getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
   await page.locator('#detailBody [role="alert"]').waitFor({ timeout: 3000 });
   assert.match(await page.locator('#detailBody').innerText(), /Lead details were refused/);
  });

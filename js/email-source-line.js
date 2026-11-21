@@ -34,3 +34,20 @@ export function waitingDays(occurredAt, now = new Date()) {
   const days = Math.max(0, Math.floor((now.getTime() - sent.getTime()) / 86400000));
   return `${days} ${days === 1 ? 'day' : 'days'} waiting`;
 }
+
+const origins = new Map([
+  ['call', 'From a call'],
+  ['email', 'From an email'],
+  ['meeting', 'From a meeting'],
+  ['cadence', 'From the automatic follow-up schedule'],
+]);
+
+/** @param {{set_by?: string | null, set_at?: string | null, set_from?: string | null} | null | undefined} step */
+export function stepOriginLabel(step, { showDateOnly = false } = {}) {
+  const at = sourceTime(step?.set_at, undefined, '');
+  const by = typeof step?.set_by === 'string' ? step.set_by : '';
+  const from = origins.get(step?.set_from ?? '');
+  if (!at || (!by && !from && !showDateOnly)) return '';
+  const set = by ? `Set by ${by} · ${at}` : `Set ${at}`;
+  return from ? `${set} · ${from}` : set;
+}
