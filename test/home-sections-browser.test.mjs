@@ -1015,6 +1015,7 @@ async function dashboard(t, width, theme, timezone) {
     const { name, arguments: args } = request.params;
     let result = { ok: true, items: [], deals: [] };
     if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item), state.legacy);
+    if (name === 'read-engine-home-card') result = { item_id: args.item_id, ...state.linkedDisposition };
     if (name === 'read-engine-home-proposal') result = {
       proposal_id: args.id, kind: args.id === id(41) ? 'file_to_deal' : 'next_step',
       target_name: 'Example Dental',
@@ -1514,6 +1515,183 @@ const draftCard = () => ({
   source_type: 'email_proposal', reply_draft_id: id(20), reply_draft_status: 'pending', kind_label: 'Reply draft',
   action_id: null, action_version: null, due_on: null, open_url: null, deal_id: null, card_id: 'conversation:1',
   primary_action: null,
+});
+
+for (const width of [390, 1440]) test(`Home links open exact mailbox reviews without loading the inbox at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  const draft = { ...draftCard(), suggestions: [{ id: id(43) }] };
+  const suggestion = { ...mailCard, source_id: id(41), item_id: `suggestion:${id(41)}` };
+  const writes = [];
+  const listReads = [];
+  let cardRouteAvailable = true;
+  async function signIn(page, partner) {
+    await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: partner }, csrf_token: 'synthetic' } }));
+    await page.route('**/mcp', async route => {
+      const request = route.request();
+      const name = request.postDataJSON()?.params?.name;
+      if (name?.startsWith('read-home-inbox-')) listReads.push(name);
+      if (!name?.includes('engine-home-') && !name?.startsWith('read-home-inbox-')) return route.fallback();
+      const response = await worker.fetch(new Request(request.url(), {
+        method: request.method(), headers: request.headers(), body: request.postData(),
+      }), {
+        ENGINE_ROUTING: { get: async key => key === 'home-from-engine' ? 'on' : null },
+        ENGINE: { fetch: async request => {
+          const [, , , collection, reviewId, action] = new URL(request.url).pathname.split('/');
+          if (collection === 'home') {
+            if (reviewId !== 'cards') return Response.json(snapshot([]));
+            if (!cardRouteAvailable) return new Response('404 Not Found', { status: 404 });
+            const itemId = decodeURIComponent(action);
+            const card = [draft, suggestion].find(item => item.item_id === itemId ||
+              item.suggestions.some(({ id }) => `suggestion:${id}` === itemId));
+            if (partner !== 'joe' || !card) return Response.json({ error: 'not_found' }, { status: 404 });
+            if (card === draft) return Response.json({ ...draft, source_version: String(state.draft.version) });
+            const [{ id }] = suggestion.suggestions;
+            return Response.json({ ...suggestion, source_id: id, item_id: `suggestion:${id}` });
+          }
+          if (collection === 'proposals' && [id(41), id(42), id(43)].includes(reviewId)) {
+            if (partner !== 'joe') return Response.json({ error: 'not_found' }, { status: 404 });
+            if (action === 'decision') {
+              const { decision } = await request.json();
+              writes.push([action, reviewId, decision]);
+              if (reviewId === id(43)) draft.suggestions = [];
+              else suggestion.suggestions = suggestion.suggestions.filter(({ id }) => id !== reviewId);
+              return Response.json({ proposal_id: reviewId, status: 'accepted' });
+            }
+            return Response.json({
+              proposal_id: reviewId, kind: reviewId === id(42) ? 'phase_move' : 'file_to_deal',
+              target_name: 'Example Dental', evidence: 'Review the plan.', reason: 'The sender named the suite.',
+              source_activity: mailSource, thread: mailThread,
+            });
+          }
+          assert.equal(collection, 'reply-drafts');
+          assert.equal(reviewId, id(20));
+          if (partner !== 'joe') return Response.json({ error: 'not_mailbox_owner' }, { status: 403 });
+          if (action) {
+            const { version, subject, body } = await request.json();
+            writes.push([action, reviewId, version, body]);
+            state.draft = { ...state.draft, version: version + 1, subject, body,
+              status: action === 'edit' ? 'pending' : 'approved' };
+          }
+          return Response.json({
+            ...state.draft, to: 'sender@example.test', cc: 'partner@example.test', attachments: [],
+            source_activity: mailSource, thread: mailThread,
+          });
+        } },
+      });
+      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
+    });
+  }
+
+  await signIn(page, 'joe');
+  const path = item => `/inbox/card/${encodeURIComponent(item)}?mode=live`;
+  const suggestionUrl = path(suggestion.item_id);
+  const draftUrl = path(draft.item_id);
+  await open(suggestionUrl);
+  const thread = page.getByRole('region', { name: 'Email thread' });
+  await thread.getByText(mailThread[0].body, { exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Deal progress', exact: true }).getByRole('button', { name: 'Accept' }).waitFor();
+  assert.equal(await thread.getByText(mailThread[0].body, { exact: true }).count(), 1);
+  await page.getByRole('region', { name: 'File this email', exact: true }).getByRole('button', { name: 'Accept' }).click();
+  await page.getByText('Suggestion accepted.', { exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Deal progress', exact: true }).getByRole('button', { name: 'Accept' }).waitFor();
+
+  await open(draftUrl);
+  await page.getByText('First draft.', { exact: true }).waitFor();
+  const filing = page.getByRole('region', { name: 'File this email', exact: true });
+  await filing.getByText('The sender named the suite.', { exact: true }).waitFor();
+  assert.equal(await thread.getByText(mailThread[0].body, { exact: true }).count(), 1);
+  await filing.getByRole('button', { name: 'Accept' }).click();
+  await page.getByText('Suggestion accepted.', { exact: true }).waitFor();
+  await filing.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Updated sample draft.');
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await page.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Send reply', exact: true }).click();
+  await page.getByText('Sending', { exact: true }).waitFor();
+  assert.deepEqual(writes, [
+    ['decision', id(41), 'accept'],
+    ['decision', id(43), 'accept'],
+    ['edit', id(20), 1, 'Updated sample draft.'],
+    ['submission', id(20), 2, 'Updated sample draft.'],
+  ]);
+
+  const otherPartner = await scenario(t, { root: join(outDir, 'site'), page: { viewport: { width, height: 760 } } });
+  otherPartner.page.setDefaultTimeout(4000);
+  await signIn(otherPartner.page, 'dell');
+  for (const url of [suggestionUrl, draftUrl]) {
+    await otherPartner.open(url);
+    const deniedPage = otherPartner.page;
+    await deniedPage.getByText('This review is unavailable.', { exact: true }).waitFor();
+    assert.equal(await deniedPage.getByRole('region', { name: 'Email thread' }).count(), 0);
+    assert.equal(await deniedPage.getByText(/Sample email|Review the plan|Updated sample draft/).count(), 0);
+    assert.equal(await deniedPage.getByRole('button', { name: /^(Accept|Edit|Send reply)$/ }).count(), 0);
+  }
+  cardRouteAvailable = false;
+  await open(draftUrl);
+  await page.getByText('This review is unavailable.', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('link', { name: 'Back to Home' }).getAttribute('href'), '/');
+  assert.deepEqual(listReads, []);
+  assert.equal(state.dashboardReads, 0);
+});
+
+for (const width of [390, 1440]) {
+  test(`A snoozed Home link shows its evidence without review actions at ${width}px`, async t => {
+    const { page, open, state } = await dashboard(t, width, 'light');
+    const draft = draftCard();
+    state.linkedDisposition = {
+      ...draft, suggestions: [{ id: id(41) }], disposition: 'snoozed', section: 'snoozed',
+      snoozed_until: '2026-11-04T16:00:00Z', waiting_reason: 'Snoozed',
+    };
+    await open(`/inbox/card/${encodeURIComponent(draft.item_id)}?mode=live`);
+    const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+    await review.getByText('First draft.', { exact: true }).waitFor();
+    await review.getByRole('region', { name: 'File this email', exact: true }).waitFor();
+    assert.equal(await review.getByRole('button', { name: /^(Accept|Drop|Edit|Send reply)$/ }).count(), 0);
+    await page.getByText('Snoozed until Nov 4, 2026, 10:00 AM Central', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Back to Home' }).getAttribute('href'), '/');
+  });
+
+  test(`An older filing link opens the current Home decision at ${width}px`, async t => {
+    const { page, open, state } = await dashboard(t, width, 'light');
+    const requested_item_id = `suggestion:${id(44)}`;
+    state.linkedDisposition = {
+      ...mailCard, item_id: `suggestion:${id(41)}`, source_id: id(41),
+      suggestions: [{ id: id(41) }], requested_item_id,
+    };
+    await open(`/inbox/card/${encodeURIComponent(requested_item_id)}?mode=live`);
+    await page.getByRole('region', { name: 'File this email', exact: true }).getByRole('button', { name: 'Accept' }).waitFor();
+    await page.getByRole('region', { name: 'Email thread' }).getByText(mailThread[0].body, { exact: true }).waitFor();
+  });
+}
+
+test('A link to a dropped or replaced Home draft shows its saved outcome', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  state.draft.status = 'dismissed';
+  for (const [disposition, label, reason] of [
+    ['dropped', 'Draft dropped.', 'I already replied'],
+    ['replaced', 'Draft replaced.', 'Replaced by a newer reply draft in this conversation'],
+  ]) {
+    state.linkedDisposition = { state: disposition, reason };
+    await open(`/inbox/card/${encodeURIComponent(draftCard().item_id)}?mode=live`);
+    await page.getByText(label, { exact: true }).waitFor();
+    await page.getByText(reason, { exact: true }).waitFor();
+    assert.equal(await page.getByText(/A reply needs the sender/).count(), 0);
+    assert.equal(await page.getByRole('button', { name: /^(Edit|Drop|Send reply)$/ }).count(), 0);
+  }
+});
+
+test('The Home query link still opens its loaded draft', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  state.dashboard = true;
+  state.items = [draft];
+  await open(`/?mode=live&card=${encodeURIComponent(draft.item_id)}`);
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  await review.getByRole('button', { name: 'Close review' }).click();
+  assert.equal(await review.count(), 0);
+  await page.getByRole('link', { name: draft.title }).waitFor();
 });
 
 for (const save of ['single', 'bulk', 'review']) test(`Home keeps grouped cards after a ${save} save`, async t => {

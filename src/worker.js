@@ -268,6 +268,8 @@ const ENGINE_READS = new Map([
   ['/api/v1/intelligence/mail-needs-partner', { key: HOME, path: '/api/engine/home/mail-priorities', forwardQuery: false, engineOnly: true }],
   ['read-engine-home-proposal', homeDetail('proposals')],
   ['read-engine-home-draft', homeDetail('reply-drafts')],
+  ['read-engine-home-card', { key: HOME, path: '/api/engine/home/cards', segment: 'item_id', engineOnly: true,
+    args: { item_id: isHomeReviewId }, accepts: ({ item_id }) => isHomeReviewId(item_id) }],
   ['read-invoice-tracker', { key: INVOICES, path: '/api/engine/invoices', args: {} }],
   ['ideal-client-profile', { key: CHARTS, path: '/api/engine/client-fit', args: { vertical: isString, city: isString, state: isString } }],
   ['capture-queue', { key: NATIONAL_DEALS, path: '/api/engine/capture-queue', args: {} }],
@@ -433,6 +435,11 @@ const CUTOVER_SAVES = new Set([
   'create-national-account', 'set-national-account-owner', 'create-national-market-deal',
 ]);
 const isUuid = value => isString(value) && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
+function isHomeReviewId(value) {
+  if (!isString(value)) return false;
+  const [kind, id, extra] = value.split(':');
+  return (kind === 'suggestion' || kind === 'reply_draft') && isUuid(id) && extra === undefined;
+}
 
 function nextDealSave(verb, args) {
   const { deal, idempotency_key, seen_change_id, field, value } = args;
