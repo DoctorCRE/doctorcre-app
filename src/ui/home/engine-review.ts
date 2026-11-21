@@ -311,42 +311,6 @@ function parseDraft(
   };
 }
 
-export async function loadLinkedReview(rpc: Rpc, itemId: string, signal?: AbortSignal) {
-  const [kind, id, extra] = itemId.split(":");
-  if (extra !== undefined || !id || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) throw unreadable();
-  if (kind === "suggestion") {
-    const value = await answer(rpc, "read-engine-home-proposal", { id }, signal);
-    const { proposal, thread } = parseProposal(value, id, value.can_resolve !== false);
-    const item = {
-      item_id: itemId,
-      title: proposal.label,
-      engine_marks: true,
-      home_proposal_drop: true,
-      suggestions: [{ id }],
-    } satisfies ReviewItem & { suggestions: { id: string }[] };
-    return {
-      item,
-      review: {
-        kind: "suggestions",
-        operations: [],
-        proposals: [proposal],
-        ...(thread && { thread }),
-      } satisfies CardReview,
-    };
-  }
-  if (kind !== "reply_draft") throw unreadable();
-  const value = await answer(rpc, "read-engine-home-draft", { id }, signal);
-  const review = parseDraft(value, itemId, id);
-  const item = {
-    item_id: itemId,
-    title: "Reply draft",
-    engine_marks: true,
-    reply_draft_id: id,
-    source_version: review.reference.source_version,
-  } satisfies ReviewItem & { reply_draft_id: string };
-  return { item, review };
-}
-
 export async function saveEngineReview(rpc: Rpc, item: ReviewItem, request: ReviewRequest) {
   const { args, verb } = request;
   if (verb === "decide-engine-home-proposal") {

@@ -5,7 +5,6 @@ import {
   type EmailThread,
   hasEngineReview,
   loadEngineReview,
-  loadLinkedReview,
   proposalIds,
   type Suggestion,
   saveEngineReview,
@@ -420,6 +419,10 @@ export function parseInboxCard(
     waiting_on: parseWaiting(item.waiting_on, item.waiting_version),
   };
 }
+export function parseEngineDashboardCard(item: unknown, capabilities: Record<string, unknown>) {
+  return parseInboxCard(item, { settlement: true, completion: true, waiting: true }, true, capabilities);
+}
+
 export function parseSnapshot(value: unknown): Snapshot {
   const contract = object(value) ? inboxVersions.find((entry) => entry.schema === value.schema_version) : undefined;
   const engine = object(value) && value.engine_marks === true;
@@ -573,11 +576,15 @@ export type ReviewClient<Item extends ReviewItem> = {
   ): Promise<{ item: Item | null; receipt?: TaskReceipt; saved_version?: number; snapshot?: Snapshot }>;
 };
 
+export type LinkedReview =
+  | { state: "active"; item: InboxItem }
+  | { state: "done" | "dropped" | "replaced"; reason: string | null };
+
 export type InboxClient = {
   review?: ReviewClient<InboxItem>;
   linkedReview: {
-    read(itemId: string, signal?: AbortSignal): Promise<{ item: ReviewItem; review: CardReview }>;
-    client: ReviewClient<ReviewItem>;
+    read(itemId: string, signal?: AbortSignal): Promise<LinkedReview>;
+    client: ReviewClient<InboxItem>;
   };
   read(signal?: AbortSignal): Promise<Snapshot>;
   run(request: Command): Promise<ItemResult[]>;
@@ -688,19 +695,44 @@ export function createInboxClient(
     }
     throw Error("Inbox unavailable. No supported inbox could be verified.");
   }
-  const readLinkedReview = (itemId: string, signal?: AbortSignal) => loadLinkedReview(rpc, itemId, signal);
+  async function readLinkedReview(itemId: string, signal?: AbortSignal): Promise<LinkedReview> {
+    const [kind, id, extra] = itemId.toLowerCase().split(":");
+    const unavailable = () =>
+      Object.assign(Error("This review is unavailable."), { payload: { error: "home_review_not_found" } });
+    if ((kind !== "reply_draft" && kind !== "suggestion") || !uuid(id) || extra !== undefined) throw unavailable();
+    const key = `${kind}:${id}`;
+    const value = await rpc("read-engine-home-card", { item_id: key }, signal);
+    if (!object(value)) throw unavailable();
+    if (value.state === "done" || value.state === "dropped" || value.state === "replaced") {
+      if (value.item_id !== key) throw unavailable();
+      return { state: value.state, reason: text(value.reason) ? value.reason : null };
+    }
+    const item = parseEngineDashboardCard(value, { home_proposal_drop: true });
+    if (kind === "reply_draft" ? draftReference(item)?.id !== id : !proposalIds(item).includes(id)) throw unavailable();
+    return { state: "active", item };
+  }
   return {
     read,
     linkedReview: {
       read: readLinkedReview,
       client: {
         async current(item) {
-          return (await readLinkedReview(item.item_id)).item;
+          const current = await readLinkedReview(item.item_id);
+          if (current.state !== "active")
+            throw Object.assign(Error("This review is finished."), { payload: { error: "home_review_not_found" } });
+          return current.item;
         },
         load: (item, signal) => loadEngineReview(rpc, item, signal),
         async run(item, request) {
           if (navigator.onLine === false) throw Error("Offline. Nothing was sent.");
           const version = await saveEngineReview(rpc, item, request);
+          if (request.verb === "decide-engine-home-proposal") {
+            const draft = draftReference(item);
+            const next = proposalIds(item).find((id) => id !== request.args.id);
+            if (!draft && !next) return { item: null };
+            const current = await readLinkedReview(draft ? `reply_draft:${draft.id}` : `suggestion:${next}`);
+            return { item: current.state === "active" ? current.item : null };
+          }
           return request.verb === "edit-email-draft" && version !== undefined
             ? { item: { ...item, source_version: String(version) }, saved_version: version }
             : { item: null };

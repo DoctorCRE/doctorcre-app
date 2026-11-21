@@ -24,7 +24,7 @@ import {
   taskCommand,
 } from "./inbox";
 import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
-import { type DraftEdit, ReviewCard } from "./review-card";
+import { type DraftEdit, ReviewCard, reviewDispositionLabel } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
@@ -1262,13 +1262,21 @@ function LinkedReview({ itemId, client }: { itemId: string; client: InboxClient[
       </>
     );
 
+  if (data.state !== "active")
+    return (
+      <>
+        <p role="status">{reviewDispositionLabel(data.state, itemId.startsWith("reply_draft:"))}</p>
+        {data.reason && <p>{data.reason}</p>}
+        <a href="/">Back to Home</a>
+      </>
+    );
+
   return (
     <>
       <h1>{data.item.title}</h1>
       <ReviewCard
         item={data.item}
         client={client.client}
-        initialReview={data.review}
         draftEdits={draftEdits}
         updateDraftEdits={(edits) => setDraftEdits(edits ?? undefined)}
         close={() => location.assign("/")}

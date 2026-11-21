@@ -1015,6 +1015,7 @@ async function dashboard(t, width, theme, timezone) {
     const { name, arguments: args } = request.params;
     let result = { ok: true, items: [], deals: [] };
     if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item), state.legacy);
+    if (name === 'read-engine-home-card') result = { item_id: args.item_id, ...state.linkedDisposition };
     if (name === 'read-engine-home-proposal') result = {
       proposal_id: args.id, kind: args.id === id(41) ? 'file_to_deal' : 'next_step',
       target_name: 'Example Dental',
@@ -1518,7 +1519,8 @@ const draftCard = () => ({
 
 for (const width of [390, 1440]) test(`Home links open exact mailbox reviews without loading the inbox at ${width}px`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
-  const draft = draftCard();
+  const draft = { ...draftCard(), suggestions: [{ id: id(43) }] };
+  const suggestion = { ...mailCard, source_id: id(41), item_id: `suggestion:${id(41)}` };
   const writes = [];
   const listReads = [];
   async function signIn(page, partner) {
@@ -1534,16 +1536,28 @@ for (const width of [390, 1440]) test(`Home links open exact mailbox reviews wit
         ENGINE_ROUTING: { get: async key => key === 'home-from-engine' ? 'on' : null },
         ENGINE: { fetch: async request => {
           const [, , , collection, reviewId, action] = new URL(request.url).pathname.split('/');
-          if (collection === 'home') return Response.json(snapshot([]));
-          if (collection === 'proposals' && reviewId === id(41)) {
+          if (collection === 'home') {
+            if (reviewId !== 'cards') return Response.json(snapshot([]));
+            const itemId = decodeURIComponent(action);
+            const card = [draft, suggestion].find(item => item.item_id === itemId ||
+              item.suggestions.some(({ id }) => `suggestion:${id}` === itemId));
+            if (partner !== 'joe' || !card) return Response.json({ error: 'not_found' }, { status: 404 });
+            if (card === draft) return Response.json({ ...draft, source_version: String(state.draft.version) });
+            const [{ id }] = suggestion.suggestions;
+            return Response.json({ ...suggestion, source_id: id, item_id: `suggestion:${id}` });
+          }
+          if (collection === 'proposals' && [id(41), id(42), id(43)].includes(reviewId)) {
             if (partner !== 'joe') return Response.json({ error: 'not_found' }, { status: 404 });
             if (action === 'decision') {
               const { decision } = await request.json();
               writes.push([action, reviewId, decision]);
+              if (reviewId === id(43)) draft.suggestions = [];
+              else suggestion.suggestions = suggestion.suggestions.filter(({ id }) => id !== reviewId);
               return Response.json({ proposal_id: reviewId, status: 'accepted' });
             }
             return Response.json({
-              proposal_id: reviewId, kind: 'file_to_deal', target_name: 'Example Dental', evidence: 'Review the plan.',
+              proposal_id: reviewId, kind: reviewId === id(42) ? 'phase_move' : 'file_to_deal',
+              target_name: 'Example Dental', evidence: 'Review the plan.', reason: 'The sender named the suite.',
               source_activity: mailSource, thread: mailThread,
             });
           }
@@ -1568,15 +1582,25 @@ for (const width of [390, 1440]) test(`Home links open exact mailbox reviews wit
 
   await signIn(page, 'joe');
   const path = item => `/inbox/card/${encodeURIComponent(item)}?mode=live`;
-  const suggestionUrl = path(`suggestion:${id(41)}`);
+  const suggestionUrl = path(suggestion.item_id);
   const draftUrl = path(draft.item_id);
   await open(suggestionUrl);
-  await page.getByRole('region', { name: 'Email thread' }).getByText(mailThread[0].body, { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Accept', exact: true }).click();
+  const thread = page.getByRole('region', { name: 'Email thread' });
+  await thread.getByText(mailThread[0].body, { exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Deal progress', exact: true }).getByRole('button', { name: 'Accept' }).waitFor();
+  assert.equal(await thread.getByText(mailThread[0].body, { exact: true }).count(), 1);
+  await page.getByRole('region', { name: 'File this email', exact: true }).getByRole('button', { name: 'Accept' }).click();
   await page.getByText('Suggestion accepted.', { exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Deal progress', exact: true }).getByRole('button', { name: 'Accept' }).waitFor();
 
   await open(draftUrl);
   await page.getByText('First draft.', { exact: true }).waitFor();
+  const filing = page.getByRole('region', { name: 'File this email', exact: true });
+  await filing.getByText('The sender named the suite.', { exact: true }).waitFor();
+  assert.equal(await thread.getByText(mailThread[0].body, { exact: true }).count(), 1);
+  await filing.getByRole('button', { name: 'Accept' }).click();
+  await page.getByText('Suggestion accepted.', { exact: true }).waitFor();
+  await filing.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Updated sample draft.');
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
@@ -1585,6 +1609,7 @@ for (const width of [390, 1440]) test(`Home links open exact mailbox reviews wit
   await page.getByText('Sending', { exact: true }).waitFor();
   assert.deepEqual(writes, [
     ['decision', id(41), 'accept'],
+    ['decision', id(43), 'accept'],
     ['edit', id(20), 1, 'Updated sample draft.'],
     ['submission', id(20), 2, 'Updated sample draft.'],
   ]);
@@ -1601,6 +1626,23 @@ for (const width of [390, 1440]) test(`Home links open exact mailbox reviews wit
     assert.equal(await deniedPage.getByRole('button', { name: /^(Accept|Edit|Send reply)$/ }).count(), 0);
   }
   assert.deepEqual(listReads, []);
+  assert.equal(state.dashboardReads, 0);
+});
+
+test('A link to a dropped or replaced Home draft shows its saved outcome', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  state.draft.status = 'dismissed';
+  for (const [disposition, label, reason] of [
+    ['dropped', 'Draft dropped.', 'I already replied'],
+    ['replaced', 'Draft replaced.', 'Replaced by a newer reply draft in this conversation'],
+  ]) {
+    state.linkedDisposition = { state: disposition, reason };
+    await open(`/inbox/card/${encodeURIComponent(draftCard().item_id)}?mode=live`);
+    await page.getByText(label, { exact: true }).waitFor();
+    await page.getByText(reason, { exact: true }).waitFor();
+    assert.equal(await page.getByText(/A reply needs the sender/).count(), 0);
+    assert.equal(await page.getByRole('button', { name: /^(Edit|Drop|Send reply)$/ }).count(), 0);
+  }
 });
 
 test('The Home query link still opens its loaded draft', async t => {

@@ -4,7 +4,7 @@ Home at `/` shows **Reminders**, **In motion and waiting**, and **Today's meetin
 
 Run `node --test test/home-sections-browser.test.mjs` against synthetic data at 390px and 1440px in both themes. Check that a 90-character action title appears in full on the first card view, with no type label above it. Check that a scheduled refresh adds and removes cards while retaining the scroll position, active control, and unsaved review text. Set `HOME_GRID_SCREENSHOTS` to retain the four captures.
 
-Open a suggestion or reply-draft link at `/inbox/card/:item_id` for an item outside the Home list. Check that the signed-in partner can review and act on it. Open the same link as the other partner and require an unavailable message with no review text. The Home browser suite covers both widths and the existing `/?card=` link.
+Open a suggestion or reply-draft link at `/inbox/card/:item_id` without loading Home. Check that all the card's decisions are actionable and the email thread appears once. Reopen a dropped or replaced draft and check its saved disposition and reason. Open the same link as the other partner and require an unavailable message with no review text. The Home browser suite covers both widths and the existing `/?card=` link.
 
 Open a meeting to check its time, attendees, deal link, and any outcome review. Verify that earlier outcomes appear in Reminders and that a calendar failure keeps the last successful calendar and the other tiles visible. Set `HOME_MEETING_SCREENSHOTS` to retain the four meeting captures.
 

@@ -1,7 +1,15 @@
 import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { DropReason } from "./drop-reason.tsx";
 import { draftReference, proposalRefusal, type Suggestion } from "./engine-review.ts";
-import type { CardReview as Review, ReviewClient, ReviewItem, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
+import type {
+  LinkedReview,
+  CardReview as Review,
+  ReviewClient,
+  ReviewItem,
+  ReviewRequest,
+  Snapshot,
+  TaskReceipt,
+} from "./inbox";
 import { type Operation, reviewError } from "./review";
 import { sourceExcerptText } from "./source-excerpt.ts";
 
@@ -64,7 +72,6 @@ type Props<Item extends ReviewItem> = {
   item: Item;
   readOnly?: boolean;
   client: ReviewClient<Item> | undefined;
-  initialReview?: Review;
   draftEdits: DraftEdit | undefined;
   updateDraftEdits(edits: DraftEdit | null): void;
   children?: ReactNode;
@@ -73,11 +80,21 @@ type Props<Item extends ReviewItem> = {
   busy?(value: boolean): void;
   confirmed?(item: Item | null, receipt?: TaskReceipt, snapshot?: Snapshot): void | Promise<void>;
 };
+export function reviewDispositionLabel(state: Exclude<LinkedReview["state"], "active">, draft: boolean) {
+  switch (state) {
+    case "done":
+      return draft ? "Sent" : "Suggestion accepted.";
+    case "dropped":
+      return draft ? "Draft dropped." : "Suggestion dismissed.";
+    case "replaced":
+      return draft ? "Draft replaced." : "Suggestion replaced.";
+  }
+}
+
 export function ReviewCard<Item extends ReviewItem>({
   item,
   readOnly = false,
   client,
-  initialReview,
   draftEdits,
   updateDraftEdits,
   close,
@@ -122,7 +139,8 @@ export function ReviewCard<Item extends ReviewItem>({
     if (!client) return;
     const controller = new AbortController();
     alive.current = true;
-    void (initialReview ? Promise.resolve(initialReview) : client.load(anchor.current, controller.signal))
+    void client
+      .load(anchor.current, controller.signal)
       .catch(async (error: unknown) => {
         const draft = draftReference(anchor.current);
         if (controller.signal.aborted || !draft || reviewError(error).kind !== "conflict") throw error;
@@ -151,7 +169,7 @@ export function ReviewCard<Item extends ReviewItem>({
       alive.current = false;
       controller.abort();
     };
-  }, [client, initialReview, reconcileFacts]);
+  }, [client, reconcileFacts]);
   const uncertain = state.phase === "uncertain";
   useLayoutEffect(() => {
     if (!uncertain) return;
@@ -225,16 +243,22 @@ export function ReviewCard<Item extends ReviewItem>({
       if (request.verb === "submit-email-draft" || request.verb === "dismiss-email-proposal") updateDraftEdits(null);
       await confirmed?.(result.item, result.receipt, result.snapshot);
       if (!alive.current) return;
-      if (request.verb === "decide-engine-home-proposal" && detail.kind === "reply_draft" && result.item) {
-        const before = draftReference(anchor.current);
-        const after = draftReference(result.item);
-        if (!before || after?.id !== before.id || after.version !== before.version)
-          throw Object.assign(Error("The draft changed."), { payload: { error: "version_conflict" } });
+      if (
+        request.verb === "decide-engine-home-proposal" &&
+        result.item &&
+        (detail.kind === "reply_draft" || !result.snapshot)
+      ) {
+        if (detail.kind === "reply_draft") {
+          const before = draftReference(anchor.current);
+          const after = draftReference(result.item);
+          if (!before || after?.id !== before.id || after.version !== before.version)
+            throw Object.assign(Error("The draft changed."), { payload: { error: "version_conflict" } });
+        }
         const refreshed = await client.load(result.item);
         if (!alive.current) return;
         anchor.current = result.item;
         setState({ phase: "ready", review: refreshed });
-        setMessage(request.args.decision === "accept" ? "Suggestion accepted." : "Suggestion dismissed.");
+        setMessage(reviewDispositionLabel(request.args.decision === "accept" ? "done" : "dropped", false));
         return;
       }
       if (result.snapshot && request.verb !== "edit-email-draft") {
@@ -267,11 +291,9 @@ export function ReviewCard<Item extends ReviewItem>({
                 ? "Sending"
                 : "Reply submitted to the existing sender. Delivery is not yet confirmed."
               : request.verb === "decide-engine-home-proposal"
-                ? request.args.decision === "accept"
-                  ? "Suggestion accepted."
-                  : "Suggestion dismissed."
+                ? reviewDispositionLabel(request.args.decision === "accept" ? "done" : "dropped", false)
                 : request.verb === "dismiss-email-proposal" && item.engine_marks
-                  ? "Draft dropped."
+                  ? reviewDispositionLabel("dropped", true)
                   : "This card is confirmed. Its current state is shown in your inbox.",
         });
         setMessage("");
