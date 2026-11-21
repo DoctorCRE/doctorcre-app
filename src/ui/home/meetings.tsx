@@ -154,7 +154,7 @@ function meetingRows(data: MeetingRead, today: string, revision: number, previou
     if (!onMeetingDay(review, today)) continue;
     const id = review.key;
     const prior = previousById.get(id)?.item;
-    const item = rows.get(id)?.item ?? (prior && onMeetingDay(prior, today) ? prior : review);
+    const item = rows.get(id)?.item ?? (prior && onMeetingDay(prior, today) ? { ...prior, ...review } : review);
     rows.set(id, { id, item, outcome: { pending: review } });
   }
 
@@ -162,6 +162,15 @@ function meetingRows(data: MeetingRead, today: string, revision: number, previou
   for (const old of previous) {
     const current = rows.get(old.id);
     rows.delete(old.id);
+    if (current?.item.key) {
+      const { item } = current;
+      current.item = {
+        ...item,
+        attendees: Array.isArray(item.attendees) && item.attendees.length ? item.attendees : old.item.attendees,
+        location: text(item.location) ? item.location : old.item.location,
+        open_url: href(item.open_url) ?? old.item.open_url,
+      };
+    }
     // Outlook's next snapshot can omit an ended meeting and its answered review.
     if (old.outcome && !current?.outcome && onMeetingDay(old.item, today))
       retained.push({ ...(current ?? old), outcome: { pending: null } });

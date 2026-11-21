@@ -1273,19 +1273,37 @@ test('Home keeps a review-only meeting after its outcome is saved and refreshed'
   await title.waitFor();
 });
 
-test('Home keeps previously read attendees and deal links when Outlook moves the event to outcomes', async t => {
+test('Home keeps meeting details when Outlook sends the review-only meeting item', async t => {
   const open_url = `/deals?deal=${meetingDeal.id}`;
-  const calendar = { items: [{ ...scheduledMeeting, open_url, attendees: [{ name: 'Pat Example' }] }] };
+  const location = 'Cedar Suite lobby';
+  const calendar = { items: [{ ...scheduledMeeting, open_url, location, attendees: [{ name: 'Pat Example' }] }] };
   const { page, meetings } = await meetingDashboard(t, calendar);
   const summary = meetings.locator('summary').filter({ hasText: scheduledMeeting.title });
   await summary.press('Enter');
   await meetings.getByText('Pat Example', { exact: true }).waitFor();
-  calendar.items = [];
-  calendar.follow_up_reviews = [meetingOutcome];
+
+  const { key, title, start, end } = {
+    ...scheduledMeeting, title: 'Cedar Suite walkthrough',
+    start: '2026-11-03T14:00:00.000Z', end: '2026-11-03T15:00:00.000Z',
+  };
+  calendar.items = [{
+    key, title, start, end, location: null, organizer: { name: null, email: null },
+    attendees: [], attendee_count: 0, all_day: false, recurring: false, time_changed: false,
+    times: [], conflict: false, schedule_conflict: false, schedule_conflicts: [], schedule_conflicts_omitted: 0,
+  }];
+  calendar.follow_up_reviews = [{
+    key, title, start, end, state: 'needs_review', prompt: 'Confirm whether this meeting happened.',
+  }];
+  calendar.state = 'partial';
+  calendar.observed_at = '2026-11-03T15:00:00.000Z';
   await page.clock.fastForward(60_000);
-  await meetings.getByRole('button', { name: 'It happened', exact: true }).waitFor();
-  await meetings.getByText('Pat Example', { exact: true }).waitFor();
-  assert.equal(await meetings.getByRole('link', { name: 'Open deal' }).getAttribute('href'), open_url);
+
+  const updated = meetings.locator('details[open]').filter({ has: page.locator('summary').filter({ hasText: title }) });
+  await updated.getByRole('button', { name: 'It happened', exact: true }).waitFor();
+  assert.equal(await updated.locator('summary time').getAttribute('datetime'), start);
+  assert.equal(await updated.getByText('Pat Example', { exact: true }).isVisible(), true);
+  assert.equal(await updated.getByText(location, { exact: true }).isVisible(), true);
+  assert.equal(await updated.getByRole('link', { name: 'Open deal' }).getAttribute('href'), open_url);
 });
 
 test('Home puts an overnight outcome on its meeting', async t => {
