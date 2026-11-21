@@ -75,7 +75,7 @@ test('Lead opening and actions are separate accessible keyboard controls', async
   assert.equal(writes[0].name, 'claim-lead');
   assert.equal(await page.locator('#leadDetail').evaluate(node => node.open), false, 'Claim does not open details');
   await page.getByRole('button', { name: 'Dr. Example 19', exact: true }).click();
-  await page.getByRole('button', { name: 'Link Dr. Example 19 to Example Client Match', exact: true }).click();
+  await page.getByRole('button', { name: 'Link to client Example Client Match', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('#moveAnnouncement').textContent === 'Client linked');
   assert.equal(writes.at(-1).name, 'link-lead-client');
   await page.locator('#leadDetail').waitFor({ state: 'hidden' });
@@ -162,7 +162,7 @@ test('Lead actions stay disabled until Claim refresh completes, then one Link cl
   await page.locator('#leadDetail').getByRole('button', { name: 'Claim', exact: true }).click();
   await held;
   await page.waitForFunction(() => document.querySelector('#moveAnnouncement').textContent === 'Lead claimed');
-  const link = page.getByRole('button', { name: 'Link Dr. Example 19 to Example Client Match', exact: true });
+  const link = page.getByRole('button', { name: 'Link to client Example Client Match', exact: true });
   assert.equal(await link.isDisabled(), true, 'Link communicates that Claim readback still owns the write lock');
   assert.equal(await page.getByRole('button', { name: 'Claim', exact: true }).first().isDisabled(), true);
   assert.deepEqual(writes.map(write => write.name), ['claim-lead']);
@@ -277,7 +277,7 @@ test('A refreshed drawer keeps keyboard focus on the selected Link action', asyn
   await page.goto('http://localhost/leads');
   await page.locator('[data-expand-stage="new"]').click();
   await page.getByRole('button', { name: 'Dr. Example 19', exact: true }).click();
-  const link = page.getByRole('button', { name: 'Link Dr. Example 19 to Another example match', exact: true });
+  const link = page.getByRole('button', { name: 'Link to client Another example match', exact: true });
   await link.waitFor();
   await link.focus();
   notes = 'Changed synthetic note';

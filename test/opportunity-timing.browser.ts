@@ -74,7 +74,7 @@ function runCli(origin: string, expectedCommit = appCommit, screenshots = false)
       origin,
       "--expected-commit",
       expectedCommit,
-      ...(screenshots ? ["--screenshot-dir", "/tmp/WR591.S13.J6-shots"] : []),
+      ...(screenshots ? ["--screenshot-dir", "test-artifacts/opportunity-timing"] : []),
     ],
     { timeout: 40000 },
   );
@@ -133,7 +133,7 @@ test("Selected detail replaces revisions, withdraws and restores support, closes
   await page.evaluate(() => {
     document.getElementById("refreshBoard")?.click();
   });
-  await panel.getByText("Opportunity timing unknown", { exact: true }).waitFor();
+  await panel.getByText("No sourced timing evidence", { exact: true }).waitFor();
   assert.equal(await panel.locator("details").count(), 0);
   fixture.restore();
   await page.evaluate(() => {
@@ -143,7 +143,7 @@ test("Selected detail replaces revisions, withdraws and restores support, closes
   await page.keyboard.press("Escape");
   await page.locator("#leadDetail").waitFor({ state: "hidden" });
   await page.locator("[data-open]").nth(1).click();
-  await panel.getByText("Opportunity timing unknown", { exact: true }).waitFor();
+  await panel.getByText("No sourced timing evidence", { exact: true }).waitFor();
   await page.evaluate(() => window.dispatchEvent(new Event("doctorcre-session-invalidated")));
   assert.equal(await page.locator(".lead-timing").count(), 0);
 });

@@ -81,7 +81,7 @@ test('guidance refresh preserves correspondence and focus, clears missing fields
   assert.equal(await page.locator('#leadGuidance details').getAttribute('open'), '');
   current = { handling_advice: null, strategy: null };
   await page.locator('#refreshBoard').evaluate(button => button.click());
-  await page.getByText('Handling advice unavailable.', { exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Handling advice', exact: true }).waitFor({ state: 'hidden' });
   assert.doesNotMatch(await page.locator('#leadGuidance').innerText(), /2028-05-19/);
   await page.route('http://localhost/api/system-work/session', route => route.fulfill({ status: 401, json: { error: 'not_authenticated' } }));
   await page.locator('#refreshBoard').evaluate(button => button.click());
