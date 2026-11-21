@@ -2,12 +2,13 @@
   "schema_version": "engine-lead-saves.v1",
   "producer": {
     "repository": "DoctorCRE/doctorcre-engine",
-    "source_commit": "5c9baf05024686f27b73175c46cf54d03cf487d6"
+    "source_commit": "1c09c0ab729339856b80ad3fb0f3f13e48a3caf9"
   },
   "post": "/api/engine/leads/{lead_id}/changes",
   "switches": ["leads-from-engine", "deals-saves-from-engine"],
   "required": ["action", "base_version", "expected_actor", "idempotency_key"],
   "actions": {
+    "acknowledge_email": [],
     "claim": [],
     "stage": ["stage", "reason when archived"],
     "link": ["client_id", "confirmed"]
