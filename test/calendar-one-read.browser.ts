@@ -187,8 +187,11 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await page.locator('[data-select-day="2026-10-17"]').click();
             await expect(late).toHaveCount(0);
             await expect(panel.getByText(stepTitle)).toHaveCount(0);
-            if (width === 1440) await page.getByRole("button", { name: "2 late steps", exact: true }).click();
-            else await page.getByRole("button", { name: "Jump to today" }).click();
+            const lateChip = page.getByRole("button", { name: "2 late steps", exact: true });
+            await expect(lateChip).toHaveCount(1);
+            await expect(lateChip).toBeVisible();
+            await expect(lateChip).toHaveText("2 late");
+            await lateChip.click();
           });
           await expect(step.getByRole("link")).toHaveAttribute(
             "href",

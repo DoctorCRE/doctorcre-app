@@ -126,7 +126,9 @@
   .cal-day { min-height: var(--touch); padding: 0; }
   .cal-day-open { display: grid; justify-items: center; justify-content: center; min-height: var(--touch); }
   .cal-weekday { padding-inline: 0; text-align: center; }
-  .cal-grid[data-view="month"] :is(.cal-chips, .cal-more) { display: none; }
+  .cal-grid[data-view="month"] :is(.cal-chips, .cal-chips > li):not(:has([data-entry="late"])),
+  .cal-grid[data-view="month"] .cal-more { display: none; }
+  .cal-grid[data-view="month"] .cal-chip[data-entry="late"] { padding-inline: var(--space-1); }
   .cal-grid[data-view="week"] .cal-week { grid-template-columns: minmax(0, 1fr); }
   .cal-grid[data-view="week"] .cal-weekday { display: none; }
   .cal-grid[data-view="week"] .cal-day { grid-template-columns: 60px minmax(0, 1fr); min-height: var(--touch); border-left: 0; border-bottom: var(--hairline-width) solid var(--hairline); }
