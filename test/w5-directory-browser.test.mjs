@@ -370,3 +370,99 @@ for(const dataset of ['clients','vendors']) test(`${dataset} record panel shows 
  assert.doesNotMatch(await page.locator('#recordBody').innerText(),/Email threads|Meetings unavailable|Refresh deal|Retry evidence/);
  assert.deepEqual(errors,[]);
 });
+
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+  test(`Clients show recorded facts and open activity at ${width}px in ${theme}`, async t => {
+    const { page, errors } = await open(t, width);
+    await page.addInitScript(theme => localStorage.setItem("dealroom-theme", theme), theme);
+    const id = '00000000-0000-4000-8000-000000000001';
+    const deal = { id: '00000000-0000-4000-8000-000000000071', name: 'Demo expansion' };
+    const url = '/deals?deal=' + deal.id;
+    const note = 'The practice is reviewing three possible spaces. '.repeat(12) + 'The last sentence stays whole. (Notes/Demo.md)';
+    const contracts = [];
+    await page.route('**/api/v1/business/clients**', async route => {
+      contracts.push(new URL(route.request().url()).searchParams.get("contract"));
+      const json = directoryFixture(route.request().url());
+      if (json.record?.id === id) Object.assign(json.record, {
+        active_deals: [deal], acquisition_source: 'cold_outreach', phone: '+12025550101 x45',
+        cell: '+442079460123', notes: note,
+      });
+      if (json.record?.name === 'Demo Practice 02') Object.assign(json.record, {
+        name: '1234', vertical: '12345; Demo City', city: 'FL', notes: '202-555-0100',
+        acquisition_source: 'not_recorded',
+        acquisition_detail: 'Existing active Salesforce opportunity imported; original acquisition source unavailable.',
+      });
+      if (json.rows) {
+        Object.assign(json.rows[0], { active_deals: [deal] });
+        Object.assign(json.rows[1], { name: '1234', recorded_status_active_pipeline: false,
+          vertical: '12345; Demo City', city: 'FL', state: null, deal_type: null });
+      }
+      await route.fulfill({ json });
+    });
+    await page.route('**/mcp', async route => {
+      const { name, arguments: args } = route.request().postDataJSON().params;
+      if (name !== 'find-and-catch-up') return route.fallback();
+      const entries = [
+        { verb: 'email', email_subject: 'Lease update', summary: 'Email to demo@example.test: Lease update', deal_id: deal.id, detail: 'The updated lease is ready.' },
+        { verb: 'email', summary: 'Email from demo@example.test: (no subject)', detail: 'The saved email body.' },
+        { verb: 'call', summary: 'Called about timing', actor: 'agent' },
+        { verb: 'note', summary: 'Earlier note' },
+      ];
+      await route.fulfill({ json: { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify({
+        state: 'completed', match: { target: args.ref },
+        catch_up: { timeline: entries.reverse().map((entry, index) => ({
+          entry_kind: 'activity', occurred_at: `2026-09-2${index}T15:00:00Z`, actor: 'old_system', ...entry,
+        })) },
+      }) }] } } });
+    });
+    await page.goto(origin + '/clients?mode=live');
+    await page.waitForSelector('.record-row');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+    assert.equal(await page.getByRole('link', { name: deal.name, exact: true }).getAttribute('href'), url);
+    assert.match(await page.locator('.record-row').first().innerText(), /Territory/);
+    assert.doesNotMatch(await page.locator('#listRegion').innerText(), /Not in the active pipeline|Not recorded:/);
+    await page.screenshot({ animations: 'disabled', path: `out/test-artifacts/w5/clients-list-${width}-${theme}.png` });
+    await page.locator('.record-row').first().click();
+    const panel = page.getByRole('dialog', { name: /Demo Practice 01/ });
+    assert.equal(await panel.getByRole('link', { name: deal.name, exact: true }).getAttribute('href'), url);
+    assert.match(await panel.innerText(), /How found\s+Cold outreach/);
+    assert.match(await panel.innerText(), /\(202\) 555-0101 x45/);
+    assert.match(await panel.innerText(), /\+442079460123/);
+    assert.equal(await panel.getByText('Details', { exact: true }).count(), 1);
+    assert.doesNotMatch(await panel.innerText(), /Notes\/Demo\.md/);
+    await page.screenshot({ animations: 'disabled', path: `out/test-artifacts/w5/clients-drawer-${width}-${theme}.png` });
+    await panel.getByText('More', { exact: true }).click();
+    assert.match(await panel.innerText(), /The last sentence stays whole\./);
+    const activity = panel.getByRole('region', { name: 'Recent activity' });
+    const linkedEmail = activity.getByRole('listitem').filter({ hasText: 'Email · Lease update' });
+    assert.equal(await linkedEmail.getByRole('link', { name: 'Email · Lease update' }).getAttribute('href'), url);
+    assert.equal(await linkedEmail.getByText('The updated lease is ready.').isVisible(), false);
+    const readEmail = linkedEmail.getByText('Read email', { exact: true });
+    assert.equal(await readEmail.isVisible(), true);
+    await readEmail.click();
+    assert.equal(await linkedEmail.getByText('The updated lease is ready.').isVisible(), true);
+    const recent = await activity.innerText();
+    assert.doesNotMatch(recent, /demo@example\.test|old_system|· agent|\(no subject\)/);
+    assert.match(recent, /Old system/);
+    assert.match(recent, /Assistant/);
+    assert.equal(await activity.getByText('Earlier note').isVisible(), false);
+    assert.equal(await activity.getByText('The saved email body.').isVisible(), false);
+    await activity.getByText('Email without a subject', { exact: true }).click();
+    assert.equal(await activity.getByText('The saved email body.').isVisible(), true);
+    await activity.getByText('Show all', { exact: true }).click();
+    assert.equal(await activity.getByText('Earlier note').isVisible(), true);
+    await page.screenshot({ animations: 'disabled', path: `out/test-artifacts/w5/clients-activity-${width}-${theme}.png` });
+    await panel.getByRole('button', { name: 'Close record', exact: true }).click();
+    await page.getByRole('link', { name: /^1234/ }).click();
+    const unchanged = page.getByRole('dialog', { name: '1234', exact: true });
+    await unchanged.getByText('Imported from Salesforce. Original source not recorded.').waitFor();
+    assert.match(await unchanged.innerText(), /How found\s+Not recorded/);
+    assert.match(await unchanged.innerText(), /12345; Demo City/);
+    assert.match(await unchanged.innerText(), /202-555-0100/);
+    assert.equal(await unchanged.getByRole('link', { name: deal.name, exact: true }).count(), 0);
+    assert.ok(contracts.length >= 3 && contracts.every(value => value === 'vendor-directory.v2'));
+    await unchanged.getByRole('button', { name: 'Close record', exact: true }).click();
+    await Promise.all([page.waitForURL('**' + url), page.getByRole('link', { name: deal.name, exact: true }).click()]);
+    assert.deepEqual(errors, []);
+  });
+}

@@ -1,14 +1,15 @@
 import { compareInstants } from './change-receipts.mjs';
+import { clientNoteText } from './workspace-business-model.js';
 
 export const ACTIVITY_LIMIT = 10;
 const QUERY_MAX = 200;
 
 /** The one request, or null when the answer could never be verified. */
-export function activityRequest(record) {
+export function activityRequest(record, dataset) {
   const name = typeof record?.name === "string" ? record.name.trim() : "";
   const ref = typeof record?.ref === "string" ? record.ref.trim() : "";
   if (!name || !ref || name.length > QUERY_MAX) return null;
-  return { query: name, limit: ACTIVITY_LIMIT, ref };
+  return { query: name, limit: dataset === "clients" ? 50 : ACTIVITY_LIMIT, ref };
 }
 
 function words(slug) {
@@ -27,8 +28,31 @@ function timelineRow(row) {
   };
 }
 
+const ACTIVITY_SOURCES = new Map([
+  ["joe", "Joe"], ["dell", "Dell"], ["agent", "Assistant"],
+  ["old_system", "Old system"], ["mail_capture", "Mail capture"],
+]);
+
+function clientTimelineRow(source) {
+  const row = timelineRow(source);
+  const isEmail = /^email(?:_in|_out)?$/.test(source?.verb);
+  const subject = (typeof source?.email_subject === "string" ? source.email_subject : row.what.replace(/^Email (?:from|to) [^:\n]+:\s*/i, "")).trim();
+  const emailLabel = !subject || /^(?:\(no subject\)|email(?: in| out)?)$/i.test(subject)
+    ? "Email without a subject"
+    : `Email · ${subject}`;
+  const what = clientNoteText(isEmail ? emailLabel : row.what);
+  const dealId = typeof source?.deal_id === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(source.deal_id) ? source.deal_id : null;
+  return {
+    when: row.when,
+    source: ACTIVITY_SOURCES.get(row.actor),
+    what: what.replace(/[^\s<>@,;]+@[^\s<>@,;]+/g, "").replace(/\s+/g, " ").trim() || "Recorded activity",
+    dealId,
+    email: isEmail && typeof source?.detail === "string" ? source.detail : null,
+  };
+}
+
 /** What a find-and-catch-up answer means for THIS record. */
-export function activityState(record, answer) {
+export function activityState(record, answer, dataset) {
   const ref = typeof record?.ref === "string" ? record.ref.trim() : "";
   if (!ref) return { state: "no_ref" };
   if (!answer || typeof answer !== "object") return { state: "unavailable" };
@@ -43,7 +67,7 @@ export function activityState(record, answer) {
   if (!target || target.toUpperCase() !== ref.toUpperCase()) return { state: "mismatch" };
   const timeline = answer.catch_up?.timeline;
   if (!Array.isArray(timeline)) return { state: "unavailable" };
-  const rows = timeline.map(timelineRow).sort((a, b) => compareInstants(a.when, b.when));
+  const rows = timeline.map(dataset === "clients" ? clientTimelineRow : timelineRow).sort((a, b) => compareInstants(a.when, b.when));
   return rows.length ? { state: "ready", rows } : { state: "empty", rows: [] };
 }
 

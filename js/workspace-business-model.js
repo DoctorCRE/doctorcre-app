@@ -25,9 +25,9 @@ const SORT_LABEL = { name: "Alphabetical", recent: "Recently updated", vertical:
 export const PIPELINE_FILTERS = ["any", "active", "other", "unknown"];
 export const PIPELINE_LABEL = {
   any: "Any pipeline",
-  active: "In the active pipeline",
-  other: "Not in the active pipeline",
-  unknown: "Pipeline not set",
+  active: "Active pipeline",
+  other: "Outside active pipeline",
+  unknown: "Pipeline not recorded",
 };
 export const PAGE_SIZE = 25;
 const MAX_PAGE = 200;
@@ -147,13 +147,13 @@ export function viewHref(query, recordId = null) {
 /** The read the server answers. `record` is a UI concern and never travels here. */
 export function listRequestUrl(query) {
   const params = new URLSearchParams(queryPairs(query));
-  params.set("contract","vendor-directory.v1");
+  params.set("contract", query.dataset === "clients" ? "vendor-directory.v2" : "vendor-directory.v1");
   const search = params.toString();
   return `${API_PREFIX}${query.dataset}${search ? `?${search}` : ""}`;
 }
 
 export function recordRequestUrl(dataset, id, { people = false } = {}) {
-  return `${API_PREFIX}${dataset}/${id}?contract=vendor-directory.${dataset === 'vendors' && people ? 'v2' : 'v1'}`;
+  return `${API_PREFIX}${dataset}/${id}?contract=vendor-directory.${dataset === 'clients' || people ? 'v2' : 'v1'}`;
 }
 
 export function sameQuery(left, right) {
@@ -364,9 +364,15 @@ function partialValid(value) {
     typeof value.note === "string");
 }
 
+function activeDealsValid(deals) {
+  return deals === undefined || (Array.isArray(deals) && deals.every(deal =>
+    exactKeys(deal, ["id", "name"]) && typeof deal.id === "string" && UUID.test(deal.id) &&
+    typeof deal.name === "string" && deal.name.trim()));
+}
+
 function rowValid(row, dataset) {
-  return extendedKeys(row, LIST_ROW_KEYS[dataset], dataset === "vendors" ? ["relationship", "vertical", "deal_type", "last_deal_at", "territory"] : ["deal_type", "last_deal_at"]) && typeof row.id === "string" && UUID.test(row.id) &&
-    typeof row.name === "string" && row.name.length > 0 && relationshipValid(row.relationship);
+  return extendedKeys(row, LIST_ROW_KEYS[dataset], dataset === "vendors" ? ["relationship", "vertical", "deal_type", "last_deal_at", "territory"] : ["deal_type", "last_deal_at", "active_deals"]) && typeof row.id === "string" && UUID.test(row.id) &&
+    typeof row.name === "string" && row.name.length > 0 && relationshipValid(row.relationship) && activeDealsValid(row.active_deals);
 }
 
 export function relationshipValid(value) {
@@ -457,7 +463,8 @@ export function validRecordPayload(payload, dataset, id = null, { people = false
   if (payload.partial && payload.partial.count > 1) return false;
   const record = payload.record;
   const withPeople = dataset === 'vendors' && people;
-  if (!extendedKeys(record, [...RECORD_KEYS[dataset], ...(withPeople ? ['people'] : [])], dataset === "vendors" ? ["relationship", "loan_programs"] : ["deal_type", "last_deal_at"]) || typeof record.id !== "string" || !UUID.test(record.id)) return false;
+  if (!extendedKeys(record, [...RECORD_KEYS[dataset], ...(withPeople ? ['people'] : [])], dataset === "vendors" ? ["relationship", "loan_programs"] : ["deal_type", "last_deal_at", "active_deals"]) || typeof record.id !== "string" || !UUID.test(record.id)) return false;
+  if (!activeDealsValid(record.active_deals)) return false;
   if (withPeople && !peopleValid(record.people)) return false;
   if (typeof record.name !== "string" || !record.name) return false;
   if (!relationshipValid(record.relationship) || (record.loan_programs !== undefined && record.loan_programs !== null && (!Array.isArray(record.loan_programs) || !record.loan_programs.every(program => typeof program === 'string')))) return false;
@@ -493,21 +500,6 @@ export function partyKindText(value) {
   return recordedValue(value);
 }
 
-/**
- * Clients: the warm-versus-active distinction a partner needs to see, taken
- * only from what is on the record. The flag lives on the STATUS list, so the
- * three answers are exactly the three that list can give, and a status missing
- * from it is UNSET rather than quietly "not active". The word for a warm
- * relationship is whatever the status itself is called — this never renames it,
- * and it never stands in for a countersigned agreement or a written assignment.
- */
-function clientPipelineTone(row) {
-  const flag = row?.recorded_status_active_pipeline;
-  if (flag === true) return { tone: "active", label: "In the active pipeline" };
-  if (flag === false) return { tone: "warm", label: "Not in the active pipeline" };
-  return { tone: "unknown", label: "Pipeline not set" };
-}
-
 /** Vendors: workable is a property of the disposition on the record, not a judgement. */
 function vendorDispositionTone(row) {
   const workable = row?.recorded_disposition_workable;
@@ -517,7 +509,7 @@ function vendorDispositionTone(row) {
 }
 
 export function rowTone(dataset, row) {
-  return dataset === "clients" ? clientPipelineTone(row) : vendorDispositionTone(row);
+  return dataset === "vendors" ? vendorDispositionTone(row) : null;
 }
 
 /**
@@ -625,7 +617,7 @@ const CLIENT_SECTIONS = [
     ["npi", "NPI"],
   ] },
   { title: "Where", fields: [
-    ["city", "City"], ["state", "State"], ["county", "County"],
+    ["city", "Territory"], ["state", "State"], ["county", "County"],
   ] },
   { title: "Contact", fields: [
     ["contact_label", "Main contact"],
@@ -636,11 +628,10 @@ const CLIENT_SECTIONS = [
     ["contact_state_cadence", "How often to reach out"],
   ] },
   { title: "How it started", fields: [
-    ["acquisition_source", "How they found us"],
-    ["acquisition_detail", "More on how they found us"],
+    ["acquisition_source", "How found"],
+    ["acquisition_detail", "Source details"],
     ["possible_duplicate_label", "Possible duplicate"],
   ] },
-  { title: "Notes", fields: [["notes", "Notes"]] },
   { title: "About this record", fields: [
     ["owner_label", "Owner"],
     ["record_version", "Version"],
@@ -688,6 +679,31 @@ const VENDOR_SECTIONS = [
   ] },
 ];
 
+export const clientNoteText = value => typeof value === "string"
+  ? value.replace(/[ \t]*\((?:[\w .-]+\/)+[\w .-]+\.[a-z0-9]{1,8}\)/gi, "").trim()
+  : "";
+
+const HOW_FOUND = new Map([
+  ["referral", "Referral"], ["vendor", "Vendor"], ["marketing_post", "Marketing post"],
+  ["public_records", "Public records"], ["cold_outreach", "Cold outreach"], ["own_research", "Own research"],
+  ["inbound", "Inbound"], ["national_account", "National account or corporate lead"],
+  ["existing_relationship", "Existing relationship"], ["event", "Event"], ["not_recorded", "Not recorded"],
+  ["old_system", "Old system"], ["agent", "Assistant"],
+]);
+
+function clientField(key, value) {
+  if (typeof value !== "string") return value;
+  if (key === "acquisition_source") return HOW_FOUND.get(value.trim().toLowerCase()) ?? value;
+  if (key === "acquisition_detail" && /^Existing active Salesforce opportunity imported; original acquisition source unavailable\.?$/i.test(value.trim()))
+    return "Imported from Salesforce. Original source not recorded.";
+  if (key === "contact_state" && value === "do_not_contact") return "Do not contact";
+  if (key === "phone" || key === "cell") {
+    const parts = /^(?:\+?1[ .-]?)?(?:\(([2-9]\d{2})\)|([2-9]\d{2}))[ .-]?([2-9]\d{2})[ .-]?(\d{4})( x\d+)?$/.exec(value);
+    if (parts) return `(${parts[1] || parts[2]}) ${parts[3]}-${parts[4]}${parts[5] || ""}`;
+  }
+  return value;
+}
+
 /**
  * The detail panel's whole content, derived once. Every field in the read model
  * appears exactly once, and a field with nothing in it still appears — as
@@ -698,7 +714,8 @@ export function recordSections(dataset, record) {
   return groups.map((group) => ({
     title: group.title,
     fields: group.fields.map(([key, label, labelKey]) => {
-      const presented = labelKey ? recordedCode(record?.[key], record?.[labelKey]) : recordedValue(record?.[key]);
+      const value = dataset === "clients" ? clientField(key, record?.[key]) : record?.[key];
+      const presented = labelKey ? recordedCode(value, record?.[labelKey]) : recordedValue(value);
       return {
         key, label, text: presented.text, known: presented.known,
         resolved: presented.resolved !== false,
