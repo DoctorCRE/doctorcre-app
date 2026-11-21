@@ -163,7 +163,6 @@
 .add-deal-with-terms .dialog-body { overflow-y: auto; }
 .add-deal-with-terms #addDealError:empty { position: absolute; margin: 0; }
 #addDealError:not(:empty) { color: var(--status-danger-ink); }
-.dealroom-page .app-layout-page-tools { display: none; }
 
 .deal-update-form { display:grid; gap:var(--space-2); margin-bottom:var(--space-4); }
 .deal-update-form textarea { min-height:80px; width:100%; box-sizing:border-box; }

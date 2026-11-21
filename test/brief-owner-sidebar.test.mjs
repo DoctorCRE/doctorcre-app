@@ -26,6 +26,8 @@ for (const legacy of [false,true]) for (const shared of [false,true]) test(`Toda
   let morning;
   t.after(()=>{morning?.dispose();win.dispatchEvent(new win.Event('pagehide'));dom.window.close();globalThis.fetch=previousFetch;globalThis.location=previousLocation;});
   mountAppLayout(root,root.getElementById('host'),'/example');
+  assert.equal(root.querySelector('.app-layout-page-tools').hidden, false);
+  assert.ok(root.querySelector('.app-layout-working'));
   for(let i=0;i<100 && !root.querySelector('#appTodayNext [data-layout-deal]');i++)await new Promise(resolve=>setTimeout(resolve,5));
   assert.ok(root.querySelector('#appTodayNext [data-layout-deal]'));
   const rows=selector=>[...root.querySelectorAll(`${selector} [data-layout-deal]`)].map(node=>node.dataset.layoutDeal);

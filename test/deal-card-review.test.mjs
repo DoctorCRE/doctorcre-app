@@ -131,6 +131,9 @@ test('deal review prioritizes cards, page tabs and Add deal in both themes and w
    assert.equal(await page.locator('#appTodayToggle').getAttribute('aria-expanded'),'true','look-ahead defaults open on Deals');
    assert.ok((await page.locator('#kanban').boundingBox()).width>790,'board retains desktop width beside look-ahead');
   }
+  assert.equal(await page.getByRole('heading',{level:1}).count(),1);
+  assert.equal(await page.getByRole('heading',{level:1,name:'Local Deals'}).isVisible(),true);
+  assert.equal(await page.locator('.app-layout-working').count(),0);
   assert.equal(await page.getByText('Page tools', {exact:true}).isVisible(),false);
   assert.equal(await page.getByRole('button',{name:/Recent changes/}).isVisible(),true);
   assert.equal(await page.locator('.dealroom-heading').evaluate(n=>n.lastElementChild.id),'addDealOpen');
