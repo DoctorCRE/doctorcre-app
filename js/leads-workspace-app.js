@@ -88,7 +88,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       actions: claimButton(lead) });
   }
   function focusIdentity(node) {
-    const container = node?.closest?.("#leadBoard, #detailBody, #marketCounts, #territoryMap");
+    const container = node?.closest?.("#leadBoard, #detailBody, #marketCounts, #territoryMapFrame");
     if (container) {
       for (const attr of ["data-claim", "data-undo", "data-link", "data-open", "data-lead-id", "data-market", "data-expand-stage", "data-map-lead", "data-map-marker"]) {
         if (node.hasAttribute(attr)) return { container: container.id, attr, value: node.getAttribute(attr), client: node.dataset.clientId };
