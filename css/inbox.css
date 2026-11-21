@@ -39,10 +39,16 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-slice .inbox-actions { margin-left: 39px; width: calc(100% - 39px); gap: 6px; }
 .home-slice .inbox-actions button { padding-inline: 10px; font-size: 12px; flex: 0 1 auto; }
 .home-late { font-size: 12px; color: var(--status-danger-ink); margin: 2px 0 6px; }
-.home-read-status { color: var(--fg-muted); font-size: 12px; }
+.home-meeting { border-top: 1px solid var(--hairline); padding: 6px 0; overflow-wrap: anywhere; }
+.home-meeting summary { cursor: pointer; align-content: center; min-height: 54px; padding: 5px 3px; }
+.home-meeting :is(time, summary span, p), .home-tile-status { color: var(--fg-muted); font-size: 12px; }
 .home-meeting summary span { display: block; margin-left: 12px; }
 .home-meeting strong { margin-inline: 6px; }
 .home-meeting a { display: inline-block; padding-block: 12px; }
+.home-meeting-outcome { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-2); }
+.home-meeting-outcome label { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.home-meeting-outcome select { min-width: 0; min-height: var(--touch); color: var(--fg); background: var(--surface-2); }
+.home-slice .home-meeting-review .work-card-title button { padding-inline: 0; border: 0; background: transparent; text-align: left; }
 .home-read-status { margin-top: 12px; color: var(--fg-muted); font-size: 12px; }
 .home-kicker { font-size: 10px; letter-spacing: 1.7px; font-weight: 600; color: var(--accent-ink); }
 .has-app-layout main:has(.home-inbox) .inbox-shell { max-width: 1440px; padding: 0 0 100px; }
