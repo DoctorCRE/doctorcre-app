@@ -393,7 +393,13 @@ test("a settings save that crossed another change reloads and says so", async (t
     .getByText(/^Preferences changed elsewhere\. Your changes were not saved\./)
     .waitFor();
   await page.locator("#prefSummary").getByText("No quiet hours set · America/Chicago · device push on").waitFor();
-  assert.equal(await page.locator("#prefVersion").textContent(), "Version 9");
+  assert.equal(
+    await page
+      .locator("#prefForm")
+      .getByText(/Version 9/)
+      .count(),
+    0,
+  );
 });
 
 test("Who did what shows the engine's first page and Show more follows next_before", async (t) => {
