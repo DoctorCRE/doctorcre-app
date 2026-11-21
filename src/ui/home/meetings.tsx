@@ -61,7 +61,9 @@ export async function readMeetings(signal: AbortSignal) {
     );
 
   const { meetingReviews } = await sibling("./home-meeting-reviews.js");
-  const reviews: (Event & { key: string })[] = meetingReviews(calendar);
+  const actor = text(answer.viewer) ? answer.viewer : null;
+  const pending: (Event & { key: string })[] = actor ? meetingReviews(calendar) : [];
+  const reviews = [...new Map(pending.map((review) => [review.key, review])).values()];
   let deals: unknown[] | null = [];
   if (reviews.length) {
     const [{ createClient }, { scopedDeals }] = await Promise.all([
@@ -75,7 +77,7 @@ export async function readMeetings(signal: AbortSignal) {
       .catch(() => null);
   }
   return {
-    actor: text(answer.viewer) ? answer.viewer : null,
+    actor,
     today,
     items,
     reviews,

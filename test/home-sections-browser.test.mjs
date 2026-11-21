@@ -1133,7 +1133,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const earlier = { ...completed, key: 'bbbbbbbbbbbbbbbb', title: 'Yesterday’s site visit',
     start: '2026-11-02T19:00:00Z', end: '2026-11-02T20:00:00Z' };
   let items = [current, current, ...later, laterDay];
-  let reviews = [completed, earlier];
+  let reviews = [completed, earlier, earlier];
   let meetingError = false;
   const writes = [];
   await page.route(request => request.pathname === '/mcp', route => {
