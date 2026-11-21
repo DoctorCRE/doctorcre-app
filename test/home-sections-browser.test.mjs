@@ -1303,7 +1303,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await earlierReview.getByRole('button', { name: 'Dismiss', exact: true }).click();
   await earlierReview.waitFor({ state: 'detached' });
   meetingError = false;
-  items = [];
+  items = [laterDay];
   await page.clock.fastForward(60_000);
   await meetings.waitFor({ state: 'detached' });
   assert.equal(await reminders.getByRole('heading', { name: 'Reminders 4' }).count(), 1);
