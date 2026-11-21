@@ -277,12 +277,8 @@ button.client-portal-link:disabled { cursor: wait; }
   .workspace-facts dd { display: inline; }
   .workspace-facts .workspace-client-labeled { display: flex; align-items: baseline; gap: var(--space-1); }
   .workspace-facts .workspace-client-labeled dt { position: static; width: auto; height: auto; clip-path: none; }
-  #workspaceTabs { gap: 0; overflow-x: auto; padding-right: 32px; scrollbar-width: thin; scrollbar-color: var(--hairline-strong) transparent; }
-  .workspace-tabs-wrap { position: relative; }
-  .workspace-tabs-wrap::after { content: "›"; position: absolute; right: 0; top: 0; bottom: 0; display: grid; place-items: center; width: 24px; background: var(--surface-2); color: var(--fg-muted); pointer-events: none; }
-  #workspaceTabs::-webkit-scrollbar { height: 8px; background: transparent; }
-  #workspaceTabs::-webkit-scrollbar-thumb { border-radius: 8px; background: var(--hairline-strong); }
-  .workspace-tab { padding: var(--space-2); }
+  #workspaceTabs { flex-wrap: wrap; gap: 0; overflow: visible; }
+  .workspace-tab { max-inline-size: 40%; padding: var(--space-1); font-size: var(--font-size-1); white-space: normal; }
   .workspace-events li { padding-block: var(--space-2); }
 }
 

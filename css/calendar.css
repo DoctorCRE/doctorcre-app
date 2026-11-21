@@ -121,6 +121,7 @@
   .cal-layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
 }
 @media (max-width: 640px) {
+  .cal-day-panel a { display: inline-flex; align-items: center; min-height: var(--touch); }
   .cal-day { min-height: var(--touch); padding: 0; }
   .cal-day-open { display: grid; justify-items: center; justify-content: center; min-height: var(--touch); }
   .cal-weekday { padding-inline: 0; text-align: center; }

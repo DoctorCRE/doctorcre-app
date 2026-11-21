@@ -13,10 +13,10 @@ import { shortDay, toDay } from './calendar-model.js';
 import { engagementWriterFor, engagementStorage } from './prospect-engagement.mjs';
 import {onDialogClosed} from './dialog-lifecycle.js';
 import { pageDocContext, publishDocRead, selectDocRecord, setDocFilters } from './doc-context.js';
-import { createLeadBoardClient, validateLeadWorkspace as validateWorkspace, validateLeadDetail as validateDetail } from "./leads-client.js";
+import { createLeadBoardClient, hasLeadVersion, validateLeadWorkspace as validateWorkspace, validateLeadDetail as validateDetail } from "./leads-client.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import { BOARD_STAGES, FILTER_STAGES, stageLabel, normalizedStage, eligibleLead, leadTitle, leadMarket, marketKey, specialtyKey,
-  visibleLeads, marketCounts, stageReview, automaticMove, undoReview, leadTimestamp } from "./leads-model.js";
+  visibleLeads, marketCounts, stageReview, automaticMove, undoReview, leadTimestamp, leadReachability } from "./leads-model.js";
 import { mountTerritoryMap } from "./leads-territory-map.js";
 
 const validateLeadWorkspace = value => validateWorkspace(value, parseOpportunityTiming);
@@ -31,6 +31,7 @@ const stamp = value => Number.isFinite(Date.parse(value)) ? new Date(value).toLo
 const summary = value => String(value || "").split(/\n\s*\n/)[0].slice(0, 230);
 const ownerName = owner => owner ? owner.charAt(0).toUpperCase() + owner.slice(1) : "Unclaimed";
 const claimButton = lead => !lead.owner && normalizedStage(lead) !== "archived" ? `<button data-claim="${esc(lead.id)}">Claim</button>` : "";
+const readOnlyMessage = "Can't edit right now. Refresh to try again.";
 const quietLeadIndex = proposals => new Map(proposals.filter(row => row.subject_type === "lead").flatMap(row =>
   row.ref ? [[row.subject_id, row], [row.ref, row]] : [[row.subject_id, row]]
 ));
@@ -56,6 +57,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   const state = { board: null, readFailed: false, actor: null, epoch: 0, detailEpoch: 0, reviewEpoch: 0, quietEpoch: 0, quiet: null, openedRequestedLead: false, showEmptyStages: false, filters: { quiet: false, reachability: "", search: "", owner: "", stage: "", market: "", specialty: "" },
     historyRequest: null, historyError: null, selectedId: null, detail: null, detailId: null, resumeDetail: null, resumeReview: null, commandFeedback: null, connectionFeedback: null, proposal: null, reviewTarget: null, pending: null, writing: false, identityReady: false, trigger: null, drag: null, map: null };
   const leadById = id => state.board?.leads.find(lead => lead.id === id && eligibleLead(lead));
+  const canEditLead = lead => hasLeadVersion(lead) && hasLeadVersion(leadById(lead.id));
   const reviewComplete = (lead, target, undoEventId) => (undoEventId ? lead.stage : normalizedStage(lead)) === target;
   function captureReviewDraft() {
     const draft = state.reviewTarget, input = $("stageQuestions").querySelector("textarea");
@@ -74,12 +76,15 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     target.textContent = `${basis} Follow-up due ${shortDate(row.due_on, true)}.`;
   }
   function card(lead) {
-    return workCard({ variant: "tile", className: "lead-card", attributes: `data-lead-id="${esc(lead.id)}" data-selected="${lead.id === state.selectedId}" draggable="true"`,
-      title: `<span class="drag-handle" data-drag-handle aria-hidden="true"></span><button class="lead-open" data-open="${esc(lead.id)}" aria-pressed="${lead.id === state.selectedId}">${esc(leadTitle(lead))}</button>`,
+    const editable = hasLeadVersion(lead);
+    const dragHandle = editable ? '<span class="drag-handle" data-drag-handle aria-hidden="true"></span>' : "";
+    const badge = lead.new_from_email && emailAcknowledgements.get(lead.id) !== "cleared"
+      ? '<span class="lead-email-badge">New from email</span>' : "";
+    return workCard({ variant: "tile", className: "lead-card", attributes: `data-lead-id="${esc(lead.id)}" data-selected="${lead.id === state.selectedId}" draggable="${editable}"`,
+      title: `${dragHandle}<button class="lead-open" data-open="${esc(lead.id)}" aria-pressed="${lead.id === state.selectedId}">${esc(leadTitle(lead))}</button>`,
       meta: esc(ownerName(lead.owner)),
       status: followUp(lead)?.days_overdue > 0 ? "Follow-up late" : "",
-      body: lead.new_from_email && emailAcknowledgements.get(lead.id) !== "cleared"
-        ? '<span class="lead-email-badge">New from email</span>' : "",
+      body: badge + (editable ? "" : `<p>${readOnlyMessage}</p>`),
       actions: claimButton(lead) });
   }
   function focusIdentity(node) {
@@ -119,15 +124,16 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     }
     paintDetailFollowUp();
     const contactCohort = visibleLeads(cohort, { ...state.filters, reachability: "" });
-    const reachable = contactCohort.filter(lead => lead.reachability?.classification === "reachable").length;
+    const hasReachability = classification => contactCohort.some(lead => leadReachability(lead) === classification);
     $("reachabilityFilter").value = state.filters.reachability;
     $("reachabilityFilter").parentElement.hidden = !state.filters.reachability &&
-      (reachable === 0 || reachable === contactCohort.length);
+      !(hasReachability("reachable") && hasReachability("research"));
     if (state.identityReady) {
       setDocFilters(state.filters);
       if (state.board) publishDocRead("getWorkspace", { ...state.board, leads: shown });
     }
     const loading = !state.board && !state.readFailed;
+    $("leadBoard").toggleAttribute("data-unavailable", !state.board && state.readFailed);
     const quietUnavailable = state.filters.quiet && !state.quiet?.rows;
     const resultsReady = state.board && !quietUnavailable;
     const count = `${shown.length} ${shown.length === 1 ? "lead" : "leads"}`;
@@ -143,7 +149,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     $("marketFilter").innerHTML = options(markets.map(k => [k, k]), state.filters.market, "All markets");
     $("specialtyFilter").innerHTML = options(specialties.map(k => [k, k]), state.filters.specialty, "All specialties");
     $("clearMarket").hidden = !state.filters.market;
-    $("marketCounts").innerHTML = groups.map(g => `<button data-market="${esc(g.key)}" aria-pressed="${g.key === state.filters.market}">${esc(g.key)}<b>${g.count}</b></button>`).join("") || '<p class="empty">No leads in these markets</p>';
+    $("marketCounts").innerHTML = groups.map(g => `<button data-market="${esc(g.key)}" aria-pressed="${g.key === state.filters.market}">${esc(g.key)}<b>${g.count}</b></button>`).join("") || (state.board ? '<p class="empty">No leads in these markets</p>' : "");
     state.map?.update(groups, state.selectedId);
     const currentStage = state.filters.stage;
     const stageCount = stage => resultsReady ? ` · ${visibleLeads(cohort, { ...state.filters, stage }).length}` : "";
@@ -153,9 +159,9 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     $("territoryMap").setAttribute("aria-busy", String(loading));
     if (loading) {
       $("leadBoard").innerHTML = '<span class="sr-only" role="status">Loading leads…</span><div class="stage-columns" aria-hidden="true">' + BOARD_STAGES.map(() => `<section class="stage-column"><div class="stage-head"><span class="skeleton-line"></span></div><div class="lead-stack">${skeletonCard.repeat(2)}</div></section>`).join("") + '</div>';
-    } else if (quietUnavailable) {
+    } else if (!resultsReady) {
       $("leadBoard").replaceChildren();
-    } else if (state.board && !shown.length && Object.values(state.filters).some(Boolean)) {
+    } else if (!shown.length && Object.values(state.filters).some(Boolean)) {
       $("leadBoard").innerHTML = '<div class="filtered-empty"><p>No leads match these filters.</p><button id="resetFilters">Reset filters</button></div>';
       $("resetFilters").addEventListener("click", () => {
         state.filters = { quiet: false, reachability: "", search: "", owner: "", stage: "", market: "", specialty: "" };
@@ -163,7 +169,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
         render();
         $("leadSearch").focus({ preventScroll: true });
       });
-    } else if (state.board && !shown.length) {
+    } else if (!shown.length) {
       $("leadBoard").innerHTML = '<div class="filtered-empty"><p>No active leads are on the board.</p><button id="refreshEmptyBoard">Refresh leads</button></div>';
       $("refreshEmptyBoard").addEventListener("click", () => refresh());
     } else if (state.filters.stage === "archived") {
@@ -189,7 +195,21 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   }
   function paintWriteControls() {
     const disabled = !state.identityReady || state.writing || Boolean(state.pending);
-    for (const control of doc.querySelectorAll("[data-claim], [data-link], [data-undo], #detailStage")) control.disabled = disabled;
+    const detailEditable = canEditLead(state.detail);
+    for (const control of $("leadBoard").querySelectorAll("[data-claim]")) {
+      control.disabled = disabled || !hasLeadVersion(leadById(control.dataset.claim));
+    }
+    for (const control of $("detailBody").querySelectorAll("[data-claim], [data-link], [data-undo], #detailStage")) {
+      control.disabled = disabled || !detailEditable;
+    }
+    const note = $("leadReadOnly");
+    if (note) note.hidden = detailEditable;
+    const activationForm = $("activateProspect");
+    if (activationForm) {
+      activationForm.elements.reason.disabled = !detailEditable;
+      activationForm.querySelector("button").disabled = !state.identityReady || !detailEditable ||
+        Boolean(engagement.get(state.detail?.prospect_client_id, state.actor)?.sending);
+    }
     $("checkDetailPending").disabled = state.writing;
   }
   function paintCommandFeedback() {
@@ -212,7 +232,6 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     if (form) {
       form.elements.reason.readOnly = Boolean(activation);
       if (activation) form.elements.reason.value = activation.request.reason;
-      form.querySelector("button").disabled = Boolean(activation?.sending);
       form.querySelector("button").textContent = activation ? "Check outcome" : "Mark active";
     }
     if (state.pending && $("stageDialog").open) {
@@ -292,16 +311,23 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       if (state.actor && actor !== state.actor) { clearPrivateView(); startQuietRead(epoch); }
       state.actor = actor;
       state.identityReady = true;
-      const next = await client.getWorkspace();
+      const response = await client.getWorkspace();
       if (epoch !== state.epoch) return;
-      validateLeadWorkspace(next);
-      next.leads.forEach(lead => parseReachability(lead.reachability));
+      const next = validateLeadWorkspace(response);
+      const leads = next.leads.map(lead => {
+        try { parseReachability(lead.reachability); }
+        catch (error) {
+          if (error?.code !== "invalid_projection") throw error;
+          return { ...lead, reachability: null };
+        }
+        return lead;
+      });
       state.connectionFeedback = null;
-      state.readFailed = false; state.board = next;
-      for (const lead of next.leads) engagement.confirm({ client_id: lead.prospect_client_id,
+      state.readFailed = false; state.board = { ...next, leads };
+      for (const lead of leads) engagement.confirm({ client_id: lead.prospect_client_id,
         status: lead.prospect_engagement_status, version: lead.prospect_client_version }, state.actor);
       if (state.pending) {
-        const current = next.leads.find(l => l.id === state.pending.lead.id);
+        const current = leads.find(l => l.id === state.pending.lead.id);
         const move = current?.last_stage_move;
         if ((state.pending.kind === "link" && current?.client_id === state.pending.clientId) ||
             (state.pending.kind === "stage" && move?.idempotency_key === state.pending.key) ||
@@ -318,7 +344,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       }
       if (!resumeReview && state.reviewTarget && $("stageDialog").open && !state.writing && !state.pending) {
         const { id, target, undoEventId } = state.reviewTarget, current = leadById(id);
-        if (!current || reviewComplete(current, target, undoEventId)) $("stageDialog").close();
+        if (!hasLeadVersion(current) || reviewComplete(current, target, undoEventId)) $("stageDialog").close();
         else await openReview(id, target, { updating: true, undoEventId });
       }
       const resumeDetail = state.resumeDetail;
@@ -330,7 +356,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
           const dialog = $("leadDetail");
           if (dialog.open && detailFocus?.container === "detailBody" && detailFocus.value === state.detailId &&
               (doc.activeElement === doc.body || doc.activeElement === dialog)) restoreFocus(detailFocus);
-        } else if (next.leads.some(lead => lead.id === state.detailId)) { state.detail = null; $("leadDetail").close(); }
+        } else if (leads.some(lead => lead.id === state.detailId)) { state.detail = null; $("leadDetail").close(); }
         else { clearGuidance(); state.detail = null; ++state.detailEpoch; $("detailTitle").textContent = "Lead unavailable"; $("detailBody").innerHTML = '<p class="empty">Unavailable</p>'; }
       }
       openRequestedLead();
@@ -345,7 +371,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       ++state.detailEpoch; state.trigger = null;
       clearGuidance(); $("leadDetail").close(); $("detailTitle").textContent = ""; $("detailBody").replaceChildren();
       render();
-      state.connectionFeedback = error.code === "invalid_projection" ? `Source refused · invalid reachability response.${state.board ? " Previous snapshot is stale." : ""}` : state.board ? "Connection interrupted · Source stale · reconnecting…" : "Connection interrupted · reconnecting…";
+      state.connectionFeedback = error.code === "invalid_projection" ? `Leads couldn't be loaded.${state.board ? " Showing the last update." : ""}` : state.board ? "Connection interrupted · Source stale · reconnecting…" : "Connection interrupted · reconnecting…";
       paintCommandFeedback();
       return false;
     } finally {
@@ -393,6 +419,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     clearGuidance();
     $("detailBody").innerHTML = `<section class="detail-summary">${detail.score == null ? "" : `<div><h3>Lead score</h3><div class="detail-score">${esc(Math.round(Number(detail.score)))}<span>/ 100</span></div></div>`}<label>Stage<select id="detailStage">${FILTER_STAGES.filter(([key]) => key !== "do_not_contact").map(([key,text]) => `<option value="${key}"${normalizedStage(detail) === key ? " selected" : ""}>${text}</option>`).join("")}</select></label></section>
       ${becameDeal ? '<p class="detail-archive-reason">Became a deal.</p>' : ""}
+      <p id="leadReadOnly" hidden>${readOnlyMessage}</p>
       <div class="detail-actions">${claimButton(detail)}
         ${move ? `<div class="auto-move">Moved automatically: ${esc(move.reason || "stage updated")} ${shortDate(move.evidence_date || move.occurred_at, !!move.evidence_date)}${undo ? `<button data-undo="${esc(detail.id)}">Undo</button>` : ""}</div>` : ""}
         ${detail.possible_clients.map(match => `<button class="client-hint" data-link="${esc(detail.id)}" data-client-id="${esc(match.client_id)}">Link to client ${esc(match.name)}</button>`).join("")}
@@ -466,7 +493,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     if (!state.drag && !touch) render();
   }
   async function acknowledgeDrawerEmail(lead, actor) {
-    if (!lead.new_from_email || drawerEmailAttempted || emailAcknowledgements.has(lead.id)) return;
+    if (!canEditLead(lead) || !lead.new_from_email || drawerEmailAttempted || emailAcknowledgements.has(lead.id)) return;
     drawerEmailAttempted = true;
     const attempt = Symbol();
     emailAcknowledgements.set(lead.id, attempt);
@@ -513,7 +540,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   }
   async function openReview(id, target, { updating = false, undoEventId = null, draft = null } = {}) {
     const lead = leadById(id);
-    if (!lead || !state.identityReady || state.writing || state.pending || reviewComplete(lead, target, undoEventId) || (!undoEventId && !FILTER_STAGES.some(([key]) => key === target))) return;
+    if (!hasLeadVersion(lead) || !state.identityReady || state.writing || state.pending || reviewComplete(lead, target, undoEventId) || (!undoEventId && !FILTER_STAGES.some(([key]) => key === target))) return;
     if (updating) draft = captureReviewDraft();
     if (!draft || draft.actor !== state.actor || draft.id !== id || draft.target !== target || draft.undoEventId !== undoEventId) {
       draft = { id, target, undoEventId, actor: state.actor, question: null, answer: "" };
@@ -531,7 +558,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       const response = await client.getLeadDetail(lead);
       if (epoch !== state.reviewEpoch || actor !== state.actor || state.reviewTarget !== draft || !$("stageDialog").open) return;
       const detail = response.detail;
-      if (!leadById(id) || !detail || detail.id !== id || !eligibleLead(detail) || reviewComplete(detail, target, undoEventId)) { state.proposal = null; $("stageDialog").close(); return; }
+      if (!canEditLead(detail) || detail.id !== id || !eligibleLead(detail) || reviewComplete(detail, target, undoEventId)) { state.proposal = null; $("stageDialog").close(); return; }
       validateLeadDetail(detail, id);
       const undo = undoEventId ? undoReview(detail) : null;
       if (undoEventId && (undo?.stage_review.undo_event_id !== undoEventId || undo.stage !== target)) { $("stageDialog").close(); return; }
@@ -554,13 +581,13 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     }
   }
   async function command(intent) {
+    if (!state.identityReady || !canEditLead(intent.lead)) return;
     if (intent.kind === "engagement") {
-      if (!state.identityReady) return;
       const clientId = intent.lead.prospect_client_id;
       return executeEngagement({ client_id: clientId, base_version: intent.lead.prospect_client_version,
         status: "active", reason: intent.reason, human_quote: intent.reason, expected_actor: state.actor });
     }
-    if (!state.identityReady || state.writing || state.pending) return;
+    if (state.writing || state.pending) return;
     state.commandFeedback = null;
     state.pending = { ...intent, key: win.crypto.randomUUID(), actor: state.actor };
     return executePending();
@@ -575,7 +602,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
         const current = (await client.getLeadDetail(lead)).detail;
         validateLeadDetail(current, lead.id);
         if (state.actor !== args.expected_actor) return;
-        if (current.prospect_client_id !== args.client_id || current.prospect_client_version !== args.base_version) {
+        if (!canEditLead(current) || current.prospect_client_id !== args.client_id || current.prospect_client_version !== args.base_version) {
           await refresh();
           const form = $("activateProspect");
           if (form && state.detail?.prospect_client_id === args.client_id) form.elements.reason.value = args.reason;
@@ -741,7 +768,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       const next = BOARD_STAGES[index + (event.key === "ArrowRight" ? 1 : -1)]; if (next) openReview(lead.id, next[0]);
     }
   });
-  board.addEventListener("dragstart", event => { const card = event.target.closest("[data-lead-id]"); if (!card || state.pending) { event.preventDefault(); return; } state.drag = card.dataset.leadId; event.dataTransfer.setData("text/plain", state.drag); event.dataTransfer.effectAllowed = "move"; card.classList.add("dragging"); });
+  board.addEventListener("dragstart", event => { const card = event.target.closest("[data-lead-id][draggable='true']"); if (!card || state.pending) { event.preventDefault(); return; } state.drag = card.dataset.leadId; event.dataTransfer.setData("text/plain", state.drag); event.dataTransfer.effectAllowed = "move"; card.classList.add("dragging"); });
   board.addEventListener("dragover", event => { const column = event.target.closest("[data-stage]"); if (column && state.drag) { event.preventDefault(); column.dataset.dropActive = "true"; } });
   board.addEventListener("dragleave", event => { const column = event.target.closest("[data-stage]"); if (column) delete column.dataset.dropActive; });
   board.addEventListener("drop", event => { event.preventDefault(); const column = event.target.closest("[data-stage]"); if (column && state.drag) openReview(state.drag, column.dataset.stage); state.drag = null; });
