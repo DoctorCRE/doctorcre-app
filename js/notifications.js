@@ -37,7 +37,7 @@ import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, classifyPreferenceFailure,
   classifyPreferenceReadFailure, classifyReadFailure, feedState, notificationCards,
-  preferenceOriginSentence, preferenceState, preferenceSummary, preferenceView,
+  preferenceState, preferenceSummary, preferenceView,
   quietNowBanner, setPreferenceArgs, unreadLine, validFeedPayload, versionConflictLine,
   preferenceSaveView, preferenceTimeLabel,
 } from "./notifications-model.js";
@@ -151,11 +151,6 @@ function renderFeed() {
   const unread = unreadLine(payload);
   $("unreadLine").textContent = unread;
   announceFeed(state.sentence || unread);
-  $("feedOrb").setAttribute(
-    "data-state",
-    state.state === "ready" || state.state === "empty" ? "healthy"
-      : failed ? "urgent" : "still",
-  );
   $("feedList").innerHTML = notificationCards(payload).map(cardHtml).join("");
   const banner = $("quietNowBanner");
   const sentence = quietNowBanner(payload, view.preference.payload);
@@ -180,7 +175,6 @@ function renderPreference() {
   block.hidden = state.state === "ready";
   $("prefAsOf").textContent = asOf(read);
   const model = state.state === "ready" ? preferenceView(read.payload) : null;
-  $("prefOrigin").textContent = preferenceOriginSentence(model);
   $("prefSummary").textContent = preferenceSummary(model);
   $("prefVersion").textContent = model ? `Version ${model.version}` : "";
   const form = $("prefForm");
@@ -202,12 +196,8 @@ function renderPreference() {
 
 function renderActivity() {
   const read = view.activity;
-  if (read.state === "retired") {
-    $("activityAsOf").textContent = "";
-    $("activityState").hidden = true;
-    $("activityList").innerHTML = "<li>Recent deal activity isn't shown here yet.</li>";
-    return;
-  }
+  // The old change feed is retired once deal saves move to the engine, and the engine has no all-records activity read yet.
+  $("activityBlock").hidden = read.state === "retired" || read.state === "pending";
   $("activityAsOf").textContent = asOf(read);
   const payload = read.state === "read" ? read.payload : null;
   const rows = activityRows(payload?.events);

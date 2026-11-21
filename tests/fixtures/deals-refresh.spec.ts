@@ -135,20 +135,18 @@ for (const [name, path] of [
   });
 }
 
-const retiredActivity = "Recent deal activity isn't shown here yet.";
-test("Notifications explains why retired activity is missing", async ({ page }) => {
+test("Notifications hides Who did what once old activity is retired", async ({ page }) => {
   await mockReads(page);
   await page.goto(server.url + "/notifications?mode=live");
-  await expect(page.getByText(retiredActivity, { exact: true })).toBeVisible();
-  await expect(page.getByText("No recent activity", { exact: true })).toHaveCount(0);
-  await expect(page.locator("#activityAsOf")).toBeEmpty();
+  await expect(page.locator("#feedState")).toHaveAttribute("data-state", /^(?!loading$)/);
+  await expect(page.getByRole("heading", { name: "Who did what" })).toBeHidden();
 });
 
 test("Updates omits old activity when Deals saves switch on by themselves", async ({ page }) => {
   await mockReads(page, { engine: false, savesFromEngine: true });
   await page.goto(server.url + "/updates?mode=live");
-  await expect(page.getByText(retiredActivity, { exact: true })).toBeVisible();
-  await expect(page.locator("#activityAsOf")).toBeEmpty();
+  await expect(page.locator("#feedState")).toHaveAttribute("data-state", /^(?!loading$)/);
+  await expect(page.getByRole("heading", { name: "Who did what" })).toBeHidden();
 });
 
 test("an open Notifications tab stops reaching CARR after the switch flips", async ({ page }) => {
@@ -161,7 +159,7 @@ test("an open Notifications tab stops reaching CARR after the switch flips", asy
   const forwarded = requests.forwarded;
   const feed = requests.feed;
   await page.locator("#retryRead").click();
-  await expect(page.getByText(retiredActivity, { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Who did what" })).toBeHidden();
   expect(requests.feed).toBeGreaterThan(feed);
   expect(requests.forwarded).toBe(forwarded);
   const afterRetirement = requests.feed;

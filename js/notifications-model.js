@@ -189,9 +189,9 @@ export const FEED_STATES = Object.freeze({
   empty: "No updates",
   no_match: "No matching notifications",
   stale: "Updating…",
-  unavailable: "Notifications temporarily unavailable",
+  unavailable: "Couldn't load updates",
   refused: "Unavailable for this account",
-  unknown: "Notifications temporarily unavailable",
+  unknown: "Couldn't load updates",
   partial: "More notifications available",
 });
 
@@ -346,16 +346,6 @@ export function preferenceSummary(view) {
     ? `Quiet hours ${preferenceTimeLabel(view.start)} to ${preferenceTimeLabel(view.end)} ${view.timezone}`
     : `No quiet hours set · ${view.timezone}`;
   return `${window} · device push ${view.deviceOptIn ? "on" : "off"}`;
-}
-
-/** The documented answer when no row exists, said as an absence, not a value. */
-export const PREFERENCE_DEFAULTS_SENTENCE =
-  "Quiet hours off · Push off · UTC";
-export const PREFERENCE_SAVED_SENTENCE =
-  "Preferences saved";
-export function preferenceOriginSentence(view) {
-  if (!view) return "";
-  return view.exists ? PREFERENCE_SAVED_SENTENCE : PREFERENCE_DEFAULTS_SENTENCE;
 }
 
 /** The five states the panel can be in, each with the sentence it renders. */
