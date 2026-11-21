@@ -104,6 +104,18 @@ export function createLiveClient(opts = {}) {
       .finally(() => { if (!signal?.aborted) release(); });
   };
 
+  // Engine answers keep their status and body so the page can read the refusal's code.
+  const engineAnswer = async response => {
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw Object.assign(new Error(`engine ${response.status}`), { status: response.status, payload: body });
+    return body;
+  };
+  const engineRead = async path => engineAnswer(await fetchReadImpl(path, { headers: { accept: 'application/json' } }));
+  const engineSave = (path, body) => readWithDeadline(async signal => engineAnswer(await fetchImpl(path, {
+    method: 'POST', credentials: 'same-origin', signal,
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  })), { timeoutMs: opts.writeTimeoutMs || 10_000 });
+
   async function rawRpc(verb, args = {}, signal, timeoutMs, headers) {
     const outcome = await requestMcp(verb, args, { signal, timeoutMs, headers });
     if (outcome.kind === 'authorization' || outcome.reason === 'http') {
@@ -832,6 +844,15 @@ export function createLiveClient(opts = {}) {
     // `base_version` is a compare-and-swap the caller must have READ: this
     // layer never supplies, defaults or increments it.
     async notificationPreferences() { return rpc('read-notification-preferences', {}); },
+
+    // The Updates page's engine routes, used once deal saves go to the engine (#1175).
+    async updates() { return engineRead('/api/engine/updates'); },
+    async markUpdatesRead(args) { return engineSave('/api/engine/updates/read', args); },
+    async preferences() { return engineRead('/api/engine/preferences'); },
+    async savePreferences(args) { return engineSave('/api/engine/preferences', args); },
+    async updateChanges(before = null) {
+      return engineRead(`/api/engine/updates/changes${before ? `?before=${encodeURIComponent(before)}` : ''}`);
+    },
 
     // --------------------------------- session identity and dispatch (S02)
     // Three reads, passed through untouched. None names an actor: their schemas

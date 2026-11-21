@@ -31,14 +31,14 @@ import { performCommand } from "./command-feedback.mjs";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
 import { createLiveClient } from "./live-client.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
-import { mountNotificationBadge, mountPrefs } from "./shell.js";
+import { mountPrefs, renderNotificationBadge } from "./shell.js";
 import { formatClock } from "./visual-system.js";
 import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
-  acknowledgeArgs, acknowledgeOperationKey, activityRows, classifyPreferenceFailure,
-  classifyPreferenceReadFailure, classifyReadFailure, feedState, notificationCards,
-  preferenceState, preferenceSummary, preferenceView,
-  quietNowBanner, setPreferenceArgs, unreadLine, validFeedPayload, versionConflictLine,
+  acknowledgeArgs, acknowledgeOperationKey, activityRows, changeRows, classifyPreferenceFailure,
+  classifyPreferenceReadFailure, classifyReadFailure, enginePreferenceArgs, feedState, markReadArgs,
+  notificationCards, preferenceState, preferenceSummary, preferenceView,
+  quietNowBanner, setPreferenceArgs, unreadLine, validChangesPage, validFeedPayload,
   preferenceSaveView, preferenceTimeLabel,
 } from "./notifications-model.js";
 import { uuidv4 } from "./uuid.js";
@@ -67,6 +67,26 @@ const view = {
 };
 
 let client = null;
+/** Where this page reads and saves: the engine once deal saves go there, the old verbs before. */
+const sources = {
+  engine: {
+    feed: () => client.updates(),
+    readArgs: markReadArgs,
+    markRead: (request) => client.markUpdatesRead(request),
+    preference: () => client.preferences(),
+    preferenceArgs: enginePreferenceArgs,
+    savePreference: (request) => client.savePreferences(request),
+  },
+  old: {
+    feed: () => client.notificationFeed(view.after ? { after: view.after, limit: LIMIT } : { limit: LIMIT }),
+    readArgs: acknowledgeArgs,
+    markRead: (request) => client.acknowledgeNotification(request),
+    preference: () => client.notificationPreferences(),
+    preferenceArgs: setPreferenceArgs,
+    savePreference: (request) => client.setNotificationPreference(request),
+  },
+};
+let source = sources.old;
 let commandState = {};
 let preferenceAnchorRevealed = false;
 let dock = { record: () => {}, mount: () => {}, render: () => {} };
@@ -75,8 +95,9 @@ const operations = new Map();
 /** True while a save is in flight, and true while the fields hold an edit. */
 let saving = false;
 let dirty = false;
-/** Version shown when the person first edited; resume reads cannot move it. */
+/** A conflict clears the draft version until the current preferences are read. */
 let draftBaseVersion = null;
+let preferenceSequence = 0;
 
 function announceFeed(text) {
   const live = $("feedLive");
@@ -104,9 +125,9 @@ function recordDetailsHtml(details, path = null) {
 }
 
 function cardHtml(card) {
-  const delivery = card.delivery
+  const delivery = card.delivery.length ? `<ul class="note-delivery">${card.delivery
     .map((row) => `<li data-channel="${escapeHtml(row.channel)}" data-delivery="${escapeHtml(row.state)}">${escapeHtml(row.phrase)}</li>`)
-    .join("");
+    .join("")}</ul>` : "";
   const link = card.link.path
     ? (card.link.href
       ? `<p class="note-link" data-link="routed"><a href="${escapeHtml(card.link.href)}" target="_blank" rel="noopener">${escapeHtml(card.link.label)}</a></p>`
@@ -126,7 +147,7 @@ function cardHtml(card) {
       </div>
       <h3 class="note-reason">${escapeHtml(card.reason)}</h3>
       <p class="note-subject">${escapeHtml(card.subject)}</p>
-      <ul class="note-delivery">${delivery}</ul>
+      ${delivery}
       ${quiet}
       ${link}
       ${recordDetailsHtml(card.details, card.link.path)}
@@ -148,6 +169,7 @@ function renderFeed() {
   if (hint) hint.textContent = FEED_HINT[state.state] || "";
   block.hidden = state.state === "ready";
   const payload = read.state === "read" ? read.payload : null;
+  renderNotificationBadge(payload?.unread_count);
   const unread = unreadLine(payload);
   $("unreadLine").textContent = unread;
   announceFeed(state.sentence || unread);
@@ -173,12 +195,15 @@ function renderPreference() {
   block.setAttribute("data-state", state.state);
   $("prefStateTitle").textContent = state.sentence || "";
   block.hidden = state.state === "ready";
+  $("retryPreference").hidden = state.state === "ready" || state.state === "loading";
   $("prefAsOf").textContent = asOf(read);
   const model = state.state === "ready" ? preferenceView(read.payload) : null;
   $("prefSummary").textContent = preferenceSummary(model);
+  $("prefSummary").hidden = !model;
   $("prefVersion").textContent = model ? `Version ${model.version}` : "";
+  $("prefVersion").closest("details").hidden = !model;
   const form = $("prefForm");
-  form.hidden = !model;
+  form.hidden = !model && !dirty;
   form.setAttribute("data-disabled", String(saving));
   form.setAttribute("data-quiet", model?.quietHoursSet ? "set" : "off");
   const retained = commandState[PREFERENCE_OPERATION_KEY];
@@ -196,15 +221,20 @@ function renderPreference() {
 
 function renderActivity() {
   const read = view.activity;
-  // The old change feed is retired once deal saves move to the engine, and the engine has no all-records activity read yet.
+  // The old change feed retires when Deals reads move to the engine before its saves do.
   $("activityBlock").hidden = read.state === "retired" || read.state === "pending";
   $("activityAsOf").textContent = asOf(read);
   const payload = read.state === "read" ? read.payload : null;
-  const rows = activityRows(payload?.events);
+  const rows = payload?.changes ? changeRows(payload.changes) : activityRows(payload?.events);
   $("activityState").hidden = read.state === "pending" || Boolean(payload);
+  const more = $("activityMore");
+  more.hidden = !payload?.next_before;
+  more.disabled = read.loadingMore === true;
+  $("activityMoreState").textContent = read.moreFailed ? "Couldn't load more" : "";
   $("activityList").innerHTML = rows.map((row) => `<li class="work-item" data-priority="ordinary">
     <div><h3>${escapeHtml(row.actor)} · ${escapeHtml(row.verb)}</h3>
     <div class="work-meta"><span>${escapeHtml(row.subject)}${row.clock ? ` · ${escapeHtml(row.clock)}` : ""}</span></div>
+    ${row.link?.href ? `<p class="note-link"><a href="${escapeHtml(row.link.href)}">${escapeHtml(row.link.label)}</a></p>` : ""}
     ${recordDetailsHtml(row.details)}</div>
     <div class="stack-end"></div>
   </li>`).join("") || (payload
@@ -230,8 +260,7 @@ async function takeFeed() {
   view.feed = view.feed.state === "read" ? { ...view.feed, refreshing: true } : { state: "pending" };
   render();
   try {
-    const args = view.after ? { after: view.after, limit: LIMIT } : { limit: LIMIT };
-    const payload = await client.notificationFeed(args);
+    const payload = await source.feed();
     if (view.sequence !== sequence) return;
     if (!validFeedPayload(payload)) throw new Error("Invalid notification feed");
     view.feed = { state: "read", payload, observed_at: new Date().toISOString() };
@@ -248,25 +277,92 @@ async function takeFeed() {
  * tenant or a filter could be introduced here.
  */
 async function takePreference() {
-  const sequence = view.sequence;
+  const sequence = ++preferenceSequence;
+  if (view.preference.state !== "read" || (dirty && draftBaseVersion === null)) {
+    view.preference = { state: "pending" };
+    renderPreference();
+  }
   try {
-    const payload = await client.notificationPreferences();
-    if (view.sequence !== sequence) return;
+    const payload = await source.preference();
+    if (preferenceSequence !== sequence) return;
     view.preference = { state: "read", payload, observed_at: new Date().toISOString() };
-    if (dirty && draftBaseVersion !== null && payload.version !== draftBaseVersion) {
-      showPreferenceMessage("Preferences changed while you were editing. Save will check your earlier version before changing anything.");
+    if (dirty) {
+      const version = preferenceView(payload)?.version ?? null;
+      if (draftBaseVersion === null) draftBaseVersion = version;
+      else if (version !== draftBaseVersion) {
+        showPreferenceMessage("Preferences changed while you were editing. Save will check your earlier version before changing anything.");
+      }
     }
   } catch (error) {
-    if (view.sequence !== sequence) return;
+    if (preferenceSequence !== sequence) return;
     view.preference = classifyPreferenceReadFailure(error);
   }
   render();
 }
 
+async function takeChanges() {
+  const sequence = view.sequence;
+  const shown = new Set(view.activity.payload?.changes.map((row) => row.id));
+  const newer = [];
+  let before = null;
+  const takePage = createPageBudget();
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- takePage checks the budget before each read, with a max of 100 pages per refresh.
+    do {
+      takePage();
+      const page = await readChanges(before);
+      if (view.sequence !== sequence) return;
+      before = page.next_before;
+      const overlap = page.changes.findIndex((row) => shown.has(row.id));
+      newer.push(...(overlap < 0 ? page.changes : page.changes.slice(0, overlap)));
+      if (overlap >= 0) break;
+    } while (shown.size && before);
+    const current = view.activity.payload;
+    const changes = uniqueChanges([...newer, ...(current?.changes ?? [])]);
+    view.activity = {
+      ...view.activity,
+      state: "read", observed_at: new Date().toISOString(),
+      payload: { changes, next_before: shown.size ? current.next_before : before },
+    };
+  } catch {
+    if (view.sequence !== sequence) return;
+    if (view.activity.state !== "read") view.activity = { state: "unknown" };
+  }
+  renderActivity();
+}
+
+async function readChanges(before) {
+  const page = await client.updateChanges(before);
+  if (!validChangesPage(page) || (before && page.next_before === before)) throw new Error("Who did what unavailable");
+  return page;
+}
+
+function uniqueChanges(changes) {
+  return [...new Map(changes.map((row) => [row.id, row])).values()];
+}
+
+async function takeMoreChanges() {
+  const before = view.activity.payload?.next_before;
+  if (!before || view.activity.loadingMore) return;
+  view.activity = { ...view.activity, loadingMore: true, moreFailed: false };
+  renderActivity();
+  try {
+    const page = await readChanges(before);
+    const changes = uniqueChanges([...view.activity.payload.changes, ...page.changes]);
+    view.activity = {
+      state: "read", observed_at: new Date().toISOString(),
+      payload: { changes, next_before: page.next_before },
+    };
+  } catch {
+    view.activity = { ...view.activity, loadingMore: false, moreFailed: true };
+  }
+  renderActivity();
+}
+
 async function takeActivity() {
+  if (source === sources.engine) return takeChanges();
   const sequence = view.sequence;
   try {
-    const dealsSavesFromEngine = document.documentElement.hasAttribute("data-deals-saves-from-engine");
     let cursor = view.activity?.payload?.cursor || null;
     let events = view.activity?.payload?.events || [];
     const seen = new Set();
@@ -275,7 +371,7 @@ async function takeActivity() {
     // eslint-disable-next-line no-restricted-syntax -- Feed pagination consumes takePage before each read; a max of 100 pages per refresh.
     do {
       takePage();
-      payload = dealsSavesFromEngine ? null : await client.getChanges(cursor);
+      payload = await client.getChanges(cursor);
       if (view.sequence !== sequence) return;
       if (payload === null) {
         view.activity = { state: "retired" };
@@ -321,9 +417,7 @@ async function dispatch(operationKey, args, summary, preference = false) {
     getState: () => commandState,
     setState: (next) => { commandState = next; },
     newKey: uuidv4,
-    call: (request) => (preference
-      ? client.setNotificationPreference(request)
-      : client.acknowledgeNotification(request)),
+    call: (request) => (preference ? source.savePreference(request) : source.markRead(request)),
   });
   // THE FLAG IS CARRIED, and this is the whole of blocker B1. `dispatch` is
   // reached twice for one preference save — once from `savePreference` and once
@@ -351,12 +445,12 @@ async function dispatch(operationKey, args, summary, preference = false) {
 }
 
 function acknowledge(id) {
-  const built = acknowledgeArgs(id);
+  const built = source.readArgs(id);
   if (!built.ok) {
     announceFeed(built.message);
     return;
   }
-  const operationKey = acknowledgeOperationKey(built.args.notification_id);
+  const operationKey = acknowledgeOperationKey(id);
   const summary = "Acknowledge notification";
   dock.record(operationKey, { summary, status: "sending", undo: false });
   dispatch(operationKey, built.args, summary);
@@ -374,7 +468,7 @@ async function savePreference(form) {
   if (saving) return;
   const model = view.preference.state === "read" ? preferenceView(view.preference.payload) : null;
   const retained = commandState[PREFERENCE_OPERATION_KEY];
-  const built = retained ? { ok: true, args: retained.request } : setPreferenceArgs(form, preferenceSaveView(model, draftBaseVersion));
+  const built = retained ? { ok: true, args: retained.request } : source.preferenceArgs(form, preferenceSaveView(model, draftBaseVersion));
   if (!built.ok) {
     showPreferenceMessage(built.message);
     return built;
@@ -384,7 +478,7 @@ async function savePreference(form) {
   renderPreference();
   if (!commandState[PREFERENCE_OPERATION_KEY]) {
     try {
-      const payload = await client.notificationPreferences(), current = preferenceView(payload);
+      const payload = await source.preference(), current = preferenceView(payload);
       if (!current) throw new Error("Preferences unavailable");
       view.preference = { state: "read", payload, observed_at: new Date().toISOString() };
       if (current.version !== built.args.base_version) {
@@ -411,7 +505,7 @@ async function savePreference(form) {
     getState: () => commandState,
     setState: (next) => { commandState = next; },
     newKey: uuidv4,
-    call: (request) => client.setNotificationPreference(request),
+    call: (request) => source.savePreference(request),
   });
   operations.set(PREFERENCE_OPERATION_KEY, { args: built.args, summary, preference: true });
   saving = false;
@@ -426,17 +520,10 @@ async function savePreference(form) {
     // unsaved fields so the person can review both before another save.
     if (refusal.conflict) {
       dirty = true;
-      await takePreference();
-      // F3: the number the refusal named, SHOWN. It is preferred from the
-      // refusal itself when the refusal carried it, and otherwise taken from
-      // the re-read that just landed — the two are the same number, and the
-      // re-read is the one the person is now looking at.
-      const fresh = view.preference.state === "read" ? preferenceView(view.preference.payload) : null;
-      draftBaseVersion = fresh?.version ?? built.args.base_version;
-      const current = refusal.currentVersion ?? fresh?.version ?? null;
-      const line = versionConflictLine(current, built.args.base_version);
-      if (line) sentence = `${sentence} ${line}`;
+      draftBaseVersion = null;
       sentence = `${sentence} Your draft is kept. Review the current saved preferences above before saving again.`;
+      showPreferenceMessage(sentence);
+      await takePreference();
     }
   }
   dock.record(PREFERENCE_OPERATION_KEY, {
@@ -519,6 +606,8 @@ async function boot() {
   const params = new URLSearchParams(location.search || "");
   view.after = params.get("after") || null;
   $("retryRead")?.addEventListener("click", () => load());
+  $("retryPreference")?.addEventListener("click", () => takePreference());
+  $("activityMore")?.addEventListener("click", () => takeMoreChanges());
   $("prefForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     savePreference(formValues());
@@ -538,10 +627,10 @@ async function boot() {
   });
   const boot_ = resolveDealroomBoot(location);
   const outage = params.get("outage");
+  if (document.documentElement.hasAttribute("data-deals-saves-from-engine")) source = sources.engine;
   client = boot_.mode === "live"
     ? createLiveClient()
     : await (await import("./fixture-client.js")).createFixtureClient({ ...boot_.options, ...(outage ? { outage } : {}) });
-  mountNotificationBadge(client);
   mountAutoRefresh({ document, window: globalThis.window, refresh: load });
   await load();
 }

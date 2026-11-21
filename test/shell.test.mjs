@@ -49,6 +49,24 @@ test("B12b-shell-1: a positive unread_count shows the badge with the number and 
   assert.equal(badge.getAttribute("aria-label"), "3 unread notifications");
 }));
 
+test("the badge counts engine updates once deal saves go to the engine", async () => {
+  const badge = new StubBadge();
+  const saved = globalThis.document;
+  globalThis.document = {
+    getElementById: (id) => (id === "navUnreadBadge" ? badge : null),
+    documentElement: { hasAttribute: (name) => name === "data-deals-saves-from-engine" },
+  };
+  try {
+    await mountNotificationBadge({
+      notificationFeed: async () => { throw new Error("the old feed is not read"); },
+      updates: async () => ({ unread_count: 2, updates: [] }),
+    });
+    assert.equal(badge.textContent, "2");
+  } finally {
+    globalThis.document = saved;
+  }
+});
+
 test("B12b-shell-2: exactly one unread notification gets the singular aria-label", () => withBadgeDocument("navUnreadBadge", async (badge) => {
   const client = { notificationFeed: async () => ({ unread_count: 1, notifications: [] }) };
   await mountNotificationBadge(client);
@@ -213,10 +231,10 @@ test("B12b-shell-8: every page with the shared top bar carries the navUnreadBadg
   }
 });
 
-test("B12b-shell-9: every page whose script builds a dealroom client also mounts the badge from it", async () => {
+test("B12b-shell-9: every page whose script builds a dealroom client also renders its unread badge", async () => {
   for (const [, script] of PAGES_WITH_BADGE_JS) {
     const source = await read(script);
-    assert.match(source, /mountNotificationBadge\(/, script);
+    assert.match(source, script === "js/notifications.js" ? /renderNotificationBadge\(/ : /mountNotificationBadge\(/, script);
   }
 });
 

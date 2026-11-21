@@ -56,11 +56,14 @@ const isText = (value) => typeof value === "string" && value.length > 0;
 
 /* --------------------------------------------------------------- the payload */
 
-/** `notification-feed`'s own shape: the count, and the list, kept separate. */
+/** The old feed lists `notifications`; the engine's `/updates` lists `updates`. */
+const feedRows = (payload) => payload.notifications ?? payload.updates;
+
+/** The count and the list, kept separate. */
 export function validFeedPayload(payload) {
   if (!payload || typeof payload !== "object") return false;
   if (!Number.isInteger(payload.unread_count) || payload.unread_count < 0) return false;
-  return Array.isArray(payload.notifications);
+  return Array.isArray(feedRows(payload));
 }
 
 /* ---------------------------------------------------------------- the header */
@@ -139,6 +142,9 @@ export function deepLinkView(deepLink, routes = APP_ROUTE_PATHS) {
  */
 export function notificationCards(payload, routes = APP_ROUTE_PATHS) {
   if (!validFeedPayload(payload)) return [];
+  if (payload.updates) return payload.updates
+    .filter((row) => row && typeof row === "object" && isText(row.source_id) && isText(row.title))
+    .map((row) => updateCard(row, routes));
   return payload.notifications
     .filter((row) => row && typeof row === "object" && isText(row.id))
     .map((row) => ({
@@ -160,6 +166,25 @@ export function notificationCards(payload, routes = APP_ROUTE_PATHS) {
       quietSuppressed: row.quiet_suppressed === true,
       link: deepLinkView(row.deep_link, routes),
     }));
+}
+
+/** An engine update is a Home card: its title, its one-line why, and where it opens. */
+function updateCard(row, routes) {
+  const link = deepLinkView(row.open_url, routes);
+  return {
+    id: row.source_id,
+    severity: null,
+    severityLabel: isText(row.kind_label) ? row.kind_label : "Update",
+    reason: row.title,
+    subject: isText(row.why) ? row.why : "",
+    details: {},
+    clock: formatClock(row.activity_at),
+    read: isText(row.read_at),
+    readClock: formatClock(row.read_at) || null,
+    delivery: [],
+    quietSuppressed: false,
+    link: link.routed && isText(row.primary_action) ? { ...link, label: row.primary_action } : link,
+  };
 }
 
 /* -------------------------------------------------------------- the UX20 states */
@@ -210,7 +235,7 @@ export function feedState(read = {}, { after = null, limit = null } = {}) {
   }
   if (read.refreshing === true && has) return { state: "stale", sentence: FEED_STATES.stale };
   if (!has) return { state: "loading", sentence: FEED_STATES.loading };
-  const rows = read.payload.notifications.length;
+  const rows = feedRows(read.payload).length;
   if (rows === 0) {
     return isText(after)
       ? { state: "no_match", sentence: FEED_STATES.no_match }
@@ -252,6 +277,26 @@ export function activityRows(events) {
     }));
 }
 
+/** Who did what from the engine: newest first already, each row openable. */
+export function changeRows(changes) {
+  return (Array.isArray(changes) ? changes : [])
+    .filter((row) => row && typeof row === "object" && isText(row.who) && isText(row.what))
+    .map((row) => ({
+      actor: row.who,
+      verb: row.what,
+      subject: isText(row.record) ? row.record : "",
+      details: {},
+      clock: formatClock(row.changed_at),
+      link: deepLinkView(row.open_url),
+    }));
+}
+
+export function validChangesPage(page) {
+  return Boolean(page) && Array.isArray(page.changes)
+    && page.changes.every((row) => isText(row?.id))
+    && (page.next_before === null || isText(page.next_before));
+}
+
 /* -------------------------------------------------------------- the one write */
 
 /** One operation per notification id, so two cards never share a key. */
@@ -271,6 +316,12 @@ export function acknowledgeArgs(id) {
   const value = String(id || "").trim();
   if (!UUID.test(value)) return { ok: false, message: ID_REFUSAL };
   return { ok: true, args: { notification_id: value } };
+}
+
+/** The engine's mark-read takes a list of update ids. */
+export function markReadArgs(id) {
+  const built = acknowledgeArgs(id);
+  return built.ok ? { ok: true, args: { update_ids: [built.args.notification_id] } } : built;
 }
 
 /* ------------------------------------------ the preference form (WR-000116) */
@@ -320,8 +371,27 @@ export function preferenceTimeLabel(value) {
   return `${Number(hour) % 12 || 12}:${minute} ${Number(hour) < 12 ? "AM" : "PM"}`;
 }
 
-/** Everything the panel draws, decided once, from the payload alone. */
+const validEnginePreference = (payload) => Boolean(payload) && typeof payload === "object"
+  && isText(payload.time_zone) && typeof payload.push_to_device === "boolean"
+  && Number.isSafeInteger(payload.base_version) && payload.base_version >= 0
+  && [payload.quiet_from, payload.quiet_until].every((value) => value === null || typeof value === "string");
+
+/** Everything the panel draws, decided once, from either answer alone. */
 export function preferenceView(payload) {
+  if (validEnginePreference(payload)) {
+    const start = toInputTime(payload.quiet_from);
+    const end = toInputTime(payload.quiet_until);
+    return {
+      exists: payload.base_version > 0,
+      deviceOptIn: payload.push_to_device,
+      start,
+      end,
+      timezone: payload.time_zone,
+      version: payload.base_version,
+      quietNow: false,
+      quietHoursSet: start !== null && end !== null,
+    };
+  }
   if (!validPreferencePayload(payload)) return null;
   const start = toInputTime(payload.quiet_hours_start);
   const end = toInputTime(payload.quiet_hours_end);
@@ -367,7 +437,7 @@ export function classifyPreferenceReadFailure(error) {
 }
 
 export function preferenceState(read = {}) {
-  if (read.state === "read" && validPreferencePayload(read.payload)) return { state: "ready", sentence: null };
+  if (read.state === "read" && preferenceView(read.payload)) return { state: "ready", sentence: null };
   if (["refused", "unavailable", "unknown"].includes(read.state)) {
     return { state: read.state, sentence: PREFERENCE_STATES[read.state] };
   }
@@ -414,6 +484,28 @@ export function setPreferenceArgs(form = {}, view = null) {
   return { ok: true, args };
 }
 
+export const QUIET_PAIR_REFUSAL =
+  "Quiet hours need a start and an end that differ, or neither. Nothing was sent.";
+
+/** The engine save sends all four fields, so blanks mean no quiet hours. */
+export function enginePreferenceArgs(form = {}, view = null) {
+  if (!view || !Number.isInteger(view.version)) return { ok: false, message: BASE_VERSION_REFUSAL };
+  const typed = (value) => (form.clear_quiet_hours !== true && typeof value === "string" ? value.trim() : "");
+  const [from, until] = [typed(form.quiet_hours_start), typed(form.quiet_hours_end)];
+  const quiet_from = from ? toInputTime(from) : null;
+  const quiet_until = until ? toInputTime(until) : null;
+  if ((from && !quiet_from) || (until && !quiet_until)) return { ok: false, message: TIME_REFUSAL };
+  if ((quiet_from === null) !== (quiet_until === null) || (quiet_from && quiet_from === quiet_until))
+    return { ok: false, message: QUIET_PAIR_REFUSAL };
+  return { ok: true, args: {
+    base_version: view.version,
+    time_zone: (typeof form.timezone === "string" && form.timezone.trim()) || view.timezone,
+    quiet_from,
+    quiet_until,
+    push_to_device: typeof form.device_opt_in === "boolean" ? form.device_opt_in : view.deviceOptIn,
+  } };
+}
+
 /**
  * Every refusal `ops.set_notification_preference` can return, in this page's
  * plain English. A reason id this page has not been taught is named as itself:
@@ -443,6 +535,9 @@ export const PREFERENCE_REFUSALS = Object.freeze({
     "Preferences were not saved.",
   notification_preference_not_set:
     "Preferences were not saved.",
+  // The engine's only field refusal left once the page has checked the quiet-hours pair.
+  invalid_field_value:
+    "Timezone unavailable. Preferences were not saved.",
 });
 
 export const VERSION_CONFLICT = "version_conflict";
@@ -484,24 +579,13 @@ export function quietNowBanner(feedPayload, preferencePayload) {
 }
 
 /**
- * F3: the two versions, named. The refusal carries `current_version` and the
- * form carried the `base_version` it was saving against, and a person told only
- * that "something changed" has been given a fact they cannot check. Null when
- * either number is missing, because half of this sentence is not worth saying.
- */
-export function versionConflictLine(currentVersion, baseVersion) {
-  if (!Number.isInteger(currentVersion) || !Number.isInteger(baseVersion)) return null;
-  return `Preferences changed elsewhere.`;
-}
-
-/**
  * A resumed read may advance the current version while a person still holds
  * fields typed against an older one. Keep that draft's base for the record
  * layer's compare-and-swap. An untouched form uses the current read.
  */
 export function preferenceSaveView(currentView, draftBaseVersion) {
   if (!currentView) return null;
-  return Number.isInteger(draftBaseVersion) && draftBaseVersion > 0
+  return Number.isInteger(draftBaseVersion) && draftBaseVersion >= 0
     ? { ...currentView, version: draftBaseVersion }
     : currentView;
 }
