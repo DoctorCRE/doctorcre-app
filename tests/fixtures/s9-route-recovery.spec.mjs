@@ -22,6 +22,10 @@ async function tourPage(page, { accepted = false, failedLibrary = false } = {}) 
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.origin !== 'http://localhost') return route.abort();
+    if (url.pathname === '/auth/session') return route.fulfill({
+      headers: { 'x-doctorcre-partner-sign-in': 'engine' },
+      json: { actor: { slug: 'joe' }, csrf_token: 'synthetic-fixture' },
+    });
     if (url.pathname === '/api/tours/library' && fail) return route.fulfill({ status: 503, json: { error: 'unavailable' } });
     if (url.pathname.startsWith('/api/')) {
       const data = url.pathname === '/api/tours/library' ? { tours: [{ id: tourId, name: tour.name, status: 'draft' }] }

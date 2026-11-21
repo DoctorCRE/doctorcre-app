@@ -181,7 +181,10 @@ export async function runTaskScenario({ page, context, origin, task, cdp }) {
       }
       return route.fulfill({ json: { items: [], counts: {} } });
     });
-    await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'example-partner' }, csrf_token: 'synthetic-performance-session' } }));
+    await page.route('**/auth/session', route => route.fulfill({
+      headers: { 'x-doctorcre-partner-sign-in': 'engine' },
+      json: { actor: { slug: 'example-partner' }, csrf_token: 'synthetic-performance-session' },
+    }));
   }
   const started = performance.now();
   await page.goto(origin + task.route, { waitUntil: 'domcontentloaded' });
