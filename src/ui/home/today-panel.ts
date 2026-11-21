@@ -110,10 +110,15 @@ export async function mountHomeTodayPanel(
     host: reviewHost,
     engine: true,
   });
-  const both = '<option value="all">Both partners</option>';
-  owners.innerHTML = `<label>Reminders for <select>${both}</select></label>`;
-  const select = owners.querySelector("select");
-  if (!select) throw Error("Missing reminder partner selector");
+  owners.classList.add("chip-bar");
+  owners.setAttribute("role", "group");
+  owners.setAttribute("aria-label", "Reminders for");
+  let scope = "all";
+  const paintOwnerSelection = () => {
+    for (const button of owners.querySelectorAll("button")) {
+      button.setAttribute("aria-pressed", String(button.value === scope));
+    }
+  };
 
   type DatedReminders = { today: string; partners: Partner[]; late: Reminder[]; upcoming: Reminder[] };
   let data: DatedReminders | null = null;
@@ -126,7 +131,6 @@ export async function mountHomeTodayPanel(
     rendered.set(node, html);
   };
   const renderReminders = (message: string) => {
-    const scope = select.value;
     const name = new Map(data?.partners.map((p) => [p.slug, p.name]));
     const rows = (items: Reminder[], today: string) =>
       items
@@ -139,7 +143,8 @@ export async function mountHomeTodayPanel(
               : localHref(item.open_url);
           const timing = text(item.late_label) ? item.late_label : dates.shortDay(item.due_on, today);
           const detail = [item.context_label, name.get(item.owner), timing].filter(text).join(" · ");
-          const body = `<strong>${escapeText(item.title)}</strong><span>${escapeText(detail)}</span>`;
+          const why = text(item.why) ? `<span>${escapeText(item.why)}</span>` : "";
+          const body = `<strong>${escapeText(item.title)}</strong>${why}<span>${escapeText(detail)}</span>`;
           return destination
             ? `<a href="${escapeText(destination)}" class="app-layout-item">${body}</a>`
             : `<div class="app-layout-item">${body}</div>`;
@@ -155,7 +160,12 @@ export async function mountHomeTodayPanel(
       upcomingHeading + (upcomingRows || (lateRows ? "" : status(data ? "No dated reminders." : message))),
     );
   };
-  select.onchange = () => renderReminders("");
+  owners.onclick = (event) => {
+    if (!(event.target instanceof HTMLButtonElement)) return;
+    scope = event.target.value;
+    paintOwnerSelection();
+    renderReminders("");
+  };
   const clear = (state: "loading" | "offline" | "unavailable" = "unavailable") => {
     revision++;
     data = null;
@@ -189,20 +199,14 @@ export async function mountHomeTodayPanel(
       !Array.isArray(section.items) ||
       !section.items.every(meeting)
     ) {
-      paint(schedule, status(unavailableReason(section, "Couldn't load meetings. Check Outlook for your schedule.")));
+      paint(schedule, status("Check Outlook for today’s meetings."));
       return false;
     }
-    const partial = section.state === "partial";
-    const last =
-      partial && instant(section.observed_at) ? status(`Last synced ${central(section.observed_at, true)}.`) : "";
     paint(
       schedule,
-      [
-        last,
-        section.items.length
-          ? section.items.map(meetingRow).join("")
-          : status(partial ? "No meetings found in the last calendar update." : "No meetings today."),
-      ].join(""),
+      section.items.length
+        ? section.items.map(meetingRow).join("")
+        : status(section.state === "partial" ? "Check Outlook for today’s meetings." : "No meetings today."),
     );
     return true;
   };
@@ -226,7 +230,13 @@ export async function mountHomeTodayPanel(
     )
       return null;
     const partners = Array.isArray(answer.partners) ? answer.partners.filter(partner) : [];
-    return { today: answer.today, partners, late: section.late, upcoming: section.upcoming };
+    const outsideLeads = (item: Reminder) => !/^\/leads(?:\.html)?(?:[?#]|$)/.test(localHref(item.open_url) ?? "");
+    return {
+      today: answer.today,
+      partners,
+      late: section.late.filter(outsideLeads),
+      upcoming: section.upcoming.filter(outsideLeads),
+    };
   }
 
   return {
@@ -269,11 +279,15 @@ export async function mountHomeTodayPanel(
       homeCards = new Set(groups ? [...groups.reminders, ...groups.waiting].map((card) => card.item_id) : []);
       data = dated;
       const partners = data?.partners ?? [];
-      const previous = select.value;
-      const options =
-        both + partners.map((p) => `<option value="${escapeText(p.slug)}">${escapeText(p.name)}</option>`).join("");
-      paint(select, options);
-      select.value = partners.some((p) => p.slug === previous) ? previous : "all";
+      if (!partners.some((p) => p.slug === scope)) scope = "all";
+      const options = [{ slug: "all", name: "Both partners" }, ...partners];
+      paint(
+        owners,
+        options
+          .map((p) => `<button class="chip" type="button" value="${escapeText(p.slug)}">${escapeText(p.name)}</button>`)
+          .join(""),
+      );
+      paintOwnerSelection();
       owners.hidden = !partners.length;
       renderReminders(unavailableReason(answer.reminders, "Couldn't load dated reminders."));
       retry.hidden = meetingsReady && data !== null;
