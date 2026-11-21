@@ -45,7 +45,19 @@ async function open(
     malformedEndedReminder = false,
     meetingState = "ready",
     meetingItems = true,
+    meetingsMayBeMissing,
+    todayStatus = 200,
     theme = "dark",
+  }: {
+    enabled?: boolean;
+    width?: number;
+    recentChanges?: boolean;
+    malformedEndedReminder?: boolean;
+    meetingState?: string;
+    meetingItems?: boolean;
+    meetingsMayBeMissing?: boolean | string | null | undefined;
+    todayStatus?: number;
+    theme?: string;
   } = {},
 ) {
   const browser = await chromium.launch();
@@ -114,6 +126,7 @@ async function open(
   );
   await page.route("**/api/engine/home/today", (route) => {
     readToday.push(route.request().method());
+    if (todayStatus !== 200) return route.fulfill({ status: todayStatus });
     return route.fulfill({
       json: {
         ok: true,
@@ -126,6 +139,7 @@ async function open(
         today: "2026-11-19",
         meetings: {
           state: meetingState,
+          ...(meetingsMayBeMissing === undefined ? {} : { meetings_may_be_missing: meetingsMayBeMissing }),
           observed_at: "2026-11-19T21:40:00Z",
           notes: ["Internal calendar instruction"],
           items:
@@ -277,12 +291,20 @@ test("The shell keeps Morning brief with the switch off and drops it with the sw
 for (const width of [390, 1440])
   for (const theme of ["light", "dark"]) {
     test(`Today shows meetings and reminder filters at ${width}px in ${theme}`, async (t) => {
-      const { page, today } = await open(t, "/invoices", { width, theme, meetingState: "partial" });
+      const { page, today } = await open(t, "/invoices", {
+        width,
+        theme,
+        meetingState: "partial",
+        meetingsMayBeMissing: true,
+      });
       if (width === 390) await page.getByRole("button", { name: "Today sidebar", exact: true }).click();
       const meetings = today.getByRole("region", { name: "Meetings", exact: true });
       await meetings.getByText("Example site visit", { exact: true }).waitFor();
       assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
-      assert.equal(await meetings.getByText(/Check Outlook|Internal calendar instruction/).count(), 0);
+      assert.equal(
+        await meetings.getByText(/Check Outlook|Internal calendar instruction|Calendar may be incomplete/).count(),
+        0,
+      );
       assert.equal(await meetings.getByText(/Last synced/).count(), 0);
       const owners = today.getByRole("group", { name: "Reminders for" });
       const both = owners.getByRole("button", { name: "Both partners" });
@@ -301,18 +323,64 @@ for (const width of [390, 1440])
     });
   }
 
-for (const meetingState of ["partial", "unavailable"]) {
-  test(`Today omits the Outlook prompt when meetings are ${meetingState}`, async (t) => {
-    const { today } = await open(t, "/invoices", { meetingState, meetingItems: false });
+for (const [meetingState, meetingsMayBeMissing] of [
+  ["empty", undefined],
+  ["empty", false],
+  ["partial", false],
+  ["partial", true],
+] as const) {
+  test(`Today shows an empty calendar (${meetingState}, missing meetings: ${meetingsMayBeMissing})`, async (t) => {
+    const { today } = await open(t, "/invoices", { meetingState, meetingItems: false, meetingsMayBeMissing });
     await today.getByText("Send sample floor plan", { exact: true }).waitFor();
-    assert.equal(await today.getByText(/Check Outlook|Last synced|last calendar update/).count(), 0);
-    assert.equal(await today.getByText("Couldn't load meetings.", { exact: true }).count(), 1);
+    const meetings = today.getByRole("region", { name: "Meetings", exact: true });
+    assert.equal(await meetings.getByText("No meetings today.", { exact: true }).count(), 1);
+    assert.equal(
+      await meetings.getByText("Calendar may be incomplete", { exact: true }).count(),
+      Number(meetingsMayBeMissing === true),
+    );
+    assert.equal(
+      await meetings
+        .getByText(/Couldn't load meetings|Check Outlook|Last synced|Internal calendar instruction/)
+        .count(),
+      0,
+    );
   });
 }
 
-test("Today says when the calendar is empty", async (t) => {
-  const { today } = await open(t, "/invoices", { meetingState: "empty" });
-  await today.getByText("No meetings today.", { exact: true }).waitFor();
+for (const { meetingsMayBeMissing, meetingItems } of [
+  { meetingsMayBeMissing: "false", meetingItems: false },
+  { meetingsMayBeMissing: null, meetingItems: true },
+]) {
+  test(`Today rejects a malformed calendar flag (${JSON.stringify(meetingsMayBeMissing)})`, async (t) => {
+    const { today } = await open(t, "/invoices", { meetingsMayBeMissing, meetingItems });
+    await today.getByText("Send sample floor plan", { exact: true }).waitFor();
+    const meetings = today.getByRole("region", { name: "Meetings", exact: true });
+    assert.equal(await meetings.getByText("Couldn't load meetings.", { exact: true }).count(), 1);
+    assert.equal(
+      await meetings.getByText(/No meetings today|Calendar may be incomplete|Example site visit/).count(),
+      0,
+    );
+  });
+}
+
+for (const meetingState of ["unavailable", "invalid"]) {
+  test(`Today reports an unavailable calendar (${meetingState} section)`, async (t) => {
+    const { today } = await open(t, "/invoices", { meetingState, meetingItems: false });
+    await today.getByText("Send sample floor plan", { exact: true }).waitFor();
+    const meetings = today.getByRole("region", { name: "Meetings", exact: true });
+    assert.equal(await meetings.getByText("Couldn't load meetings.", { exact: true }).count(), 1);
+    assert.equal(
+      await meetings.getByText(/No meetings today|Calendar may be incomplete|Check Outlook|Last synced/).count(),
+      0,
+    );
+  });
+}
+
+test("Today reports an unavailable calendar when the request fails", async (t) => {
+  const { today } = await open(t, "/invoices", { todayStatus: 503 });
+  const meetings = today.getByRole("region", { name: "Meetings", exact: true });
+  await meetings.getByText("Couldn't load meetings.", { exact: true }).waitFor();
+  assert.equal(await meetings.getByText(/No meetings today|Calendar may be incomplete/).count(), 0);
 });
 
 for (const width of [1440, 390])
