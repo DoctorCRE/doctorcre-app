@@ -24,6 +24,7 @@
 .cal-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-4); }
 .cal-steps { display: flex; gap: var(--space-1); }
 .cal-period { flex: 1 1 180px; margin: 0; font: var(--font-weight-strong) var(--font-size-3)/var(--line-height-heading) var(--font-text); font-variant-numeric: tabular-nums; }
+.cal-count { margin: 0; }
 .cal-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); width: 100%; margin: 0; padding: 0; list-style: none; color: var(--fg-muted); font-size: var(--font-size-1); }
 .cal-legend li { display: inline-flex; align-items: center; gap: var(--space-2); }
 .cal-notices:empty { display: none; }

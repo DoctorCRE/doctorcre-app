@@ -61,7 +61,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
     });
     try {
       await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `calendar-${status}`, reset: true } });
-      await page.goto('https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev/calendar');
+      await page.goto('https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev/calendar?d=2026-10-01');
       const agenda = page.locator('.cal-agenda-item');
       await expect(agenda).toHaveCount(1);
       await expect(page.locator('#calAgenda')).toHaveAttribute('aria-busy', 'true');

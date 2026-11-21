@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="description" content="DoctorCRE Calendar — every deal's critical dates by month and week, ">
+  <meta name="description" content="Open deal critical dates by month and week">
   <title>Calendar · DoctorCRE</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/dealroom-192.png">
@@ -30,10 +30,10 @@
   </div>
 
   <main id="main" class="shell">
-    <section class="card glass" aria-labelledby="pageTitle">
+    <section class="card" aria-labelledby="pageTitle">
       <div>
         <h1 id="pageTitle">Calendar</h1>
-        <p class="page-sub"><span class="orb" data-state="still" id="calOrb" aria-hidden="true"></span> Critical dates from every deal, shared by both partners</p>
+        <p class="page-sub"><span class="orb" data-state="still" id="calOrb" aria-hidden="true"></span> Critical dates from open deals</p>
       </div>
       <div class="chip-bar">
         <span class="status" data-state="unknown" id="calStatus"><span class="orb" data-state="unknown" aria-hidden="true"></span> <span id="calStatusLabel">Updating…</span></span>
@@ -46,7 +46,7 @@
     <div class="cal-notices" id="calNotices"></div>
 
     <div class="cal-layout">
-      <section class="card glass cal-board" aria-labelledby="calPeriod">
+      <section class="card cal-board" aria-labelledby="calPeriod">
         <div class="cal-toolbar">
           <div class="btn-group" id="calViewSwitch" role="group" aria-label="Calendar view">
             <button class="btn" type="button" data-view="month" aria-pressed="true">Month</button>
@@ -58,6 +58,7 @@
             <button class="btn icon-btn" type="button" id="calNext" aria-label="Next month">›</button>
           </div>
           <h2 class="cal-period" id="calPeriod" aria-live="polite">Calendar</h2>
+          <p class="small cal-count" id="calCount"></p>
           <ul class="cal-legend" aria-label="What each marker means">
             <li><span class="cal-pulse" data-pulse="urgent" aria-hidden="true"></span>Today or overdue</li>
             <li><span class="cal-pulse" data-pulse="attention" aria-hidden="true"></span>This week</li>
@@ -65,21 +66,20 @@
             <li><span class="cal-pulse" data-pulse="still" aria-hidden="true"></span>Later or settled</li>
           </ul>
         </div>
-        <div class="state-block" id="calState" data-state="loading"><h3>Reading every deal's critical dates…</h3></div>
+        <div class="state-block" id="calState" data-state="loading"><h3>Reading critical dates…</h3></div>
         <div class="cal-grid" id="calGrid" role="grid" aria-labelledby="calPeriod" data-view="month"></div>
         <div class="chip-bar">
           <button class="btn" type="button" id="calRefresh" aria-label="Refresh" title="Refresh"><span aria-hidden="true">↻</span></button>
-          <p class="small" id="calSource"></p>
         </div>
       </section>
 
-      <aside class="side-panel glass cal-day-panel" id="dayPanel" aria-labelledby="dayPanelTitle">
+      <aside class="side-panel cal-day-panel" id="dayPanel" aria-labelledby="dayPanelTitle">
         <h2 id="dayPanelTitle">Choose a day</h2>
         <div id="dayPanelBody"><p class="small">Select a day or a date to see what falls on it.</p></div>
       </aside>
 
-      <section class="card glass cal-coming" aria-labelledby="agendaTitle">
-        <div class="card-heading"><div><h2 id="agendaTitle">Coming up</h2><p class="page-sub">Open dates, nearest first</p></div></div>
+      <section class="card cal-coming" aria-labelledby="agendaTitle">
+        <div class="card-heading"><h2 id="agendaTitle">Dates this month</h2></div>
         <ol class="cal-agenda" id="calAgenda"></ol>
         <div class="cal-undated" id="calUndated" hidden>
           <h3>No readable date</h3>
