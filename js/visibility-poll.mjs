@@ -13,7 +13,7 @@ const INPUT_EVENTS = ["pointerdown", "pointermove", "keydown", "touchstart", "to
 
 // Scroll events are also dispatched for scrollIntoView and restored scroll.
 // Pointer, touch, wheel and keyboard input establish user presence instead.
-export function listenForHumanInput(document, callback) {
+function listenForHumanInput(document, callback) {
   const options = { capture: true, passive: true };
   const input = event => { if (event.isTrusted === true) callback(event); };
   // eslint-disable-next-line no-restricted-syntax -- Registers only the finite INPUT_EVENTS list; trusted input renews presence, and this callback performs 0 reads.

@@ -21,7 +21,8 @@ export function refreshWhileVisible(
     const { signal } = controller;
     const visibleSince = performance.now();
     async function read() {
-      if (signal.aborted || document.visibilityState !== "visible") return;
+      if (signal.aborted) return;
+      if (document.visibilityState !== "visible") return stop();
       const result = await refresh(signal);
       if (!signal.aborted && result !== "stop") schedule();
     }
@@ -35,8 +36,11 @@ export function refreshWhileVisible(
 
   // eslint-disable-next-line no-restricted-syntax -- Visible view owns one read at a time, aborted on hide or unmount.
   document.addEventListener("visibilitychange", syncVisibility);
+  // eslint-disable-next-line no-restricted-syntax -- A history restore only restarts a stopped visible refresh.
+  window.addEventListener("pageshow", syncVisibility);
   syncVisibility();
   return () => {
+    window.removeEventListener("pageshow", syncVisibility);
     document.removeEventListener("visibilitychange", syncVisibility);
     stop();
   };

@@ -68,8 +68,8 @@ type Ask = Pick<Turn, "question" | "idempotency_key"> & {
   context?: z.infer<typeof recordRef>;
 };
 type Session = {
-  verify(options: { fresh: boolean }): Promise<unknown>;
-  fetch(path: string, init: RequestInit, options: { boundRead: boolean }): Promise<Response>;
+  verify(options: { fresh: boolean; waitForBudget?: boolean }): Promise<unknown>;
+  fetch(path: string, init: RequestInit, options: { boundRead: boolean; waitForBudget: boolean }): Promise<Response>;
 };
 
 const api = "/api/engine/doc";
@@ -115,7 +115,8 @@ async function docFetch<T>(
   const session = privateSession();
   if (!session) throw Error(statusText.signIn);
   signal?.throwIfAborted();
-  if (!boundRead) await session.verify({ fresh: true });
+  const waitForBudget = Boolean(ask);
+  if (!boundRead) await session.verify({ fresh: true, waitForBudget });
   signal?.throwIfAborted();
   const timeout = AbortSignal.timeout(12000);
   const response = await session.fetch(
@@ -128,11 +129,11 @@ async function docFetch<T>(
         body: JSON.stringify(ask),
       }),
     },
-    { boundRead },
+    { boundRead, waitForBudget },
   );
   signal?.throwIfAborted();
   const unavailable = response.status === 404 && path.startsWith("/conversations/");
-  if (!boundRead || unavailable) await session.verify({ fresh: true });
+  if (!boundRead || unavailable) await session.verify({ fresh: true, waitForBudget });
   signal?.throwIfAborted();
   if (unavailable) throw new ConversationUnavailable();
   if (!response.ok) throw Error(`Doc request failed with status ${response.status}`);
@@ -258,12 +259,9 @@ function DocChat() {
           setTurns((rows) => rows.map((row) => (row.id === turn.id ? turn : row)));
           if (turn.state !== "queued" && turn.state !== "working") return "stop";
         } catch (error) {
-          if (signal.aborted || retired.current) return;
-          if (error instanceof ConversationUnavailable) {
-            showUnavailable();
-            return "stop";
-          }
-          if (error instanceof Error && "code" in error && error.code === "request_budget_exhausted") return "stop";
+          if (!(error instanceof ConversationUnavailable) || signal.aborted || retired.current) return;
+          showUnavailable();
+          return "stop";
         }
       },
       {

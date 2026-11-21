@@ -26,13 +26,13 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
     if (startedEpoch !== epoch()) revoke('session-changed');
     if (revoked || ticket !== generation) throw failure();
   }
-  async function verify({ fresh = false } = {}) {
+  async function verify({ fresh = false, waitForBudget = false } = {}) {
     if (revoked) throw failure();
     if (!fresh && trusted && now() - trusted.at < SESSION_TRUST_MS) return trusted.session;
     if (!fresh && checking) return checking;
     const ticket = generation, startedEpoch = epoch(), startedAt = now();
     const pending = (async () => {
-      const response = await fetchImpl('/auth/session', { credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000) });
+      const response = await fetchImpl('/auth/session', { credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000) }, { waitForBudget });
       const engineSignIn = response.headers.get('x-doctorcre-partner-sign-in') === 'engine';
       engineSessionSeen ||= engineSignIn;
       if ([401,403].includes(response.status)) { if (!(anonymousDiagnostics && !binding)) revoke(); throw failure(); }
@@ -54,14 +54,14 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
     revoke, verify,
     get revoked() { return revoked; },
     get engineSignIn() { return !revoked && trusted?.engineSignIn === true; },
-    async fetch(path, init = {}, { boundRead = false } = {}) {
+    async fetch(path, init = {}, { boundRead = false, waitForBudget = false } = {}) {
       // Writes read the session to scope themselves; that read is a fresh, bound check.
-      if (path === '/auth/session') return Response.json(await verify({ fresh: true }));
+      if (path === '/auth/session') return Response.json(await verify({ fresh: true, waitForBudget }));
       // Bound reads are for URLs whose records belong to the already verified partner.
       if (boundRead && (!trusted || (init.method ?? 'GET') !== 'GET')) throw failure();
       const ticket = generation, startedEpoch = boundRead ? trusted.epoch : epoch();
       current(ticket, startedEpoch);
-      const session = boundRead ? trusted.session : await verify();
+      const session = boundRead ? trusted.session : await verify({ waitForBudget });
       current(ticket, startedEpoch);
       const controller = new AbortController(); active.add(controller);
       const cancel = () => controller.abort();
@@ -73,7 +73,7 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
           if (headers.has('x-carr-csrf') && headers.get('x-carr-csrf') !== session.csrf_token) { revoke('session-changed'); throw failure(); }
           headers.set('x-carr-csrf', session.csrf_token);
         }
-        const response = await fetchImpl(path, { ...init, headers, cache: 'no-store', redirect: 'error', signal: controller.signal });
+        const response = await fetchImpl(path, { ...init, headers, cache: 'no-store', redirect: 'error', signal: controller.signal }, { waitForBudget });
         // Even an older read's denial revokes the entire view.
         if ([401,403].includes(response.status)) { revoke(); throw failure(); }
         const bytes = await response.arrayBuffer();
@@ -126,15 +126,14 @@ function mountSessionPause(win) {
 }
 
 let browserBoundary, browserRequests, browserPause;
-function browserFetch(path, init) {
+function browserFetch(path, init, budgetOptions) {
   if (typeof window === 'undefined' || globalThis !== window || resolveDealroomBoot(window.location).mode !== 'live') return globalThis.fetch(path, init);
   const pause = browserPause ??= mountSessionPause(window);
   browserRequests ||= createRequestBudget({
-    document: window.document,
     fetchImpl: (...args) => window.fetch(...args),
     onPauseChange: pause.budget,
   });
-  return browserRequests.fetch(path, init);
+  return browserRequests.fetch(path, init, budgetOptions);
 }
 export function privateSession() {
   if (browserBoundary) return browserBoundary;
@@ -166,7 +165,6 @@ export function privateSession() {
     invalidate(reason, engineSession) {
       // Clear before async cleanup/navigation so private text and controls
       // disappear immediately, including detached dialogs and account labels.
-      browserRequests?.dispose();
       win.dispatchEvent(new win.Event('doctorcre-session-invalidated'));
       const retiredDocument = win.document;
       const cleanup = offlineTourSession(win).revoke({ expectedEpoch: engineSession ? initialEpoch : undefined });
@@ -198,12 +196,11 @@ export function privateSession() {
   const restore = mountVisibilityPoll({ document: win.document, window: win, periodic: false, poll: async () => {
     const generation = restoreGeneration;
     try {
-      const session = await browserBoundary.verify({ fresh: true });
+      const session = await browserBoundary.verify({ fresh: true, waitForBudget: true });
       finishRestore(generation, false);
       return session;
     } catch (error) {
-      // A persisted pageshow has its own fallback when the budget blocks verification.
-      if (error?.code !== 'request_budget_exhausted') finishRestore(generation, true);
+      finishRestore(generation, true);
       throw error;
     }
   } });

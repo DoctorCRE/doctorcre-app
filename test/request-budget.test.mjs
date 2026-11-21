@@ -1,85 +1,92 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRequestBudget, TAB_REQUEST_LIMIT, INITIAL_ASSET_REQUEST_LIMIT, QUIET_TAB_REQUEST_LIMIT } from '../js/request-budget.mjs';
+import { createRequestBudget, TAB_REQUEST_LIMIT } from '../js/request-budget.mjs';
 import { createSessionBoundary } from '../js/private-session.js';
 
-test('the document caps HTTP attempts until trusted input',async t=>{
+test('a burst shares the 600-request limit, including session checks', async t => {
  t.mock.timers.enable({ apis: ['Date'] });
- const document=Object.assign(new EventTarget(),{visibilityState:'visible'});let app=0,api=0;
- const budget=createRequestBudget({document,fetchImpl:async path=>{
-  if(String(path).includes('api.doctorcre'))api++;else app++;
-  return Response.json(path==='/auth/session'?{actor:{slug:'joe'},csrf_token:'synthetic'}:{ok:true});
- }});
- const boundary=createSessionBoundary({fetchImpl:budget.fetch,invalidate:()=>assert.fail('budget exhaustion is not sign-out')});
- for(let i=0;i<1000;i++)await boundary.fetch('/mcp').catch(error=>assert.equal(error.code,'request_budget_exhausted'));
- assert.equal(app,600);assert.equal(api,0);assert.equal(budget.used,TAB_REQUEST_LIMIT);
- const scroll=new Event('scroll');Object.defineProperty(scroll,'isTrusted',{value:true});document.dispatchEvent(scroll);
- await assert.rejects(boundary.verify({fresh:true}),{code:'request_budget_exhausted'});assert.equal(app,600);
- document.dispatchEvent(new Event('pointerdown'));assert.equal(budget.used,600,'synthetic input cannot reset the counter');
- t.mock.timers.tick(119_999);
- const human=new Event('wheel');Object.defineProperty(human,'isTrusted',{value:true});document.dispatchEvent(human);
- await boundary.fetch('/mcp');assert.equal(app,601);assert.equal(budget.used,1);
- for (let i = 1; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
- t.mock.timers.tick(1);
- returnToView(document);
- await assert.rejects(budget.fetch('/fixture'), { code: 'request_budget_exhausted' });
- budget.dispose();
+ let requests = 0;
+ const budget = createRequestBudget({ fetchImpl: async path => {
+  requests++;
+  return Response.json(path === '/auth/session' ? { actor: { slug: 'joe' }, csrf_token: 'synthetic' } : { ok: true });
+ } });
+ const boundary = createSessionBoundary({ fetchImpl: budget.fetch, invalidate: () => assert.fail('budget exhaustion is not sign-out') });
+ for (let i = 1; i < TAB_REQUEST_LIMIT; i++) await boundary.fetch('/mcp');
+ await assert.rejects(boundary.fetch('/mcp'), { code: 'request_budget_exhausted' });
+ await assert.rejects(boundary.verify({ fresh: true }), { code: 'request_budget_exhausted' });
+ assert.equal(requests, 600);
+ t.mock.timers.tick(1_000);
+ await boundary.verify({ fresh: true });
+ assert.equal(requests, 601);
 });
 
-function returnToView(document) {
- for (const state of ['hidden', 'visible']) {
-  document.visibilityState = state;
-  document.dispatchEvent(new Event('visibilitychange'));
- }
-}
-
-test('returning to a tab with requests left preserves the remaining allowance', async t => {
+test('rapid visibility changes and trusted input grant only the elapsed refill', async t => {
  t.mock.timers.enable({ apis: ['Date'] });
  const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
  const budget = createRequestBudget({ document, fetchImpl: async () => new Response() });
- t.after(() => budget.dispose());
+ for (let i = 0; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
 
- await budget.fetch('/fixture');
- t.mock.timers.tick(120_000);
- returnToView(document);
- for (let i = 1; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
+ const input = new Event('pointerdown');
+ Object.defineProperty(input, 'isTrusted', { value: true });
+ for (let i = 1; i <= 20; i++) {
+  t.mock.timers.tick(500);
+  for (const state of ['hidden', 'visible']) {
+   document.visibilityState = state;
+   document.dispatchEvent(new Event('visibilitychange'));
+  }
+  document.dispatchEvent(input);
+  if (i % 2 === 0) await budget.fetch('/fixture');
+  await assert.rejects(budget.fetch('/fixture'), { code: 'request_budget_exhausted' });
+ }
+});
+
+test('sustained demand after exhaustion averages at most 60 requests per minute', async t => {
+ t.mock.timers.enable({ apis: ['Date'] });
+ let requests = 0;
+ const budget = createRequestBudget({ fetchImpl: async () => { requests++; return new Response(); } });
+ for (let i = 0; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
+ for (let minute = 0; minute < 2; minute++) {
+  const before = requests;
+  for (let i = 0; i < 600; i++) {
+   t.mock.timers.tick(100);
+   await budget.fetch('/fixture').catch(error => assert.equal(error.code, 'request_budget_exhausted'));
+  }
+  assert.equal(requests - before, 60);
+ }
+ t.mock.timers.tick(60 * 60_000);
+ for (let i = 0; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
  await assert.rejects(budget.fetch('/fixture'), { code: 'request_budget_exhausted' });
 });
 
-test('rapid returns cannot restore an exhausted tab again within two minutes', async t => {
- t.mock.timers.enable({ apis: ['Date'] });
- const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
- let requests = 0;
- const budget = createRequestBudget({ document, fetchImpl: async () => { requests++; } });
- t.after(() => budget.dispose());
- const exhaust = async () => {
-  for (let i = 0; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
- };
+test('a send can wait for one token and the pause clears on a successful read', async t => {
+ t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
+ const notices = [];
+ const sent = [];
+ const budget = createRequestBudget({
+  onPauseChange: message => notices.push(message),
+  fetchImpl: async (path, init) => {
+   if (init.method === 'POST') sent.push(path);
+   return new Response(null, { status: path === '/failed' ? 503 : 200 });
+  },
+ });
+ for (let i = 0; i < TAB_REQUEST_LIMIT; i++) await budget.fetch('/fixture');
 
- await exhaust();
- t.mock.timers.tick(120_000);
- returnToView(document);
- assert.equal(requests, TAB_REQUEST_LIMIT, 'returning to view does not itself send a request');
- await exhaust();
- for (let i = 0; i < 20; i++) {
-  t.mock.timers.tick(500);
-  returnToView(document);
-  await assert.rejects(budget.fetch('/fixture'), { code: 'request_budget_exhausted' });
- }
- assert.equal(requests, 2 * TAB_REQUEST_LIMIT);
-
- t.mock.timers.tick(120_000 - 10_000 - 1);
- returnToView(document);
- await assert.rejects(budget.fetch('/fixture'), { code: 'request_budget_exhausted' });
+ const signal = new AbortController().signal;
+ const sending = budget.fetch('/send', { method: 'POST', signal }, { waitForBudget: true }).catch(error => error);
+ t.mock.timers.tick(999);
+ assert.deepEqual(sent, []);
+ assert.equal(notices.length, 1);
+ assert.match(notices[0], /paused/i);
  t.mock.timers.tick(1);
- returnToView(document);
- await exhaust();
- assert.equal(requests, 3 * TAB_REQUEST_LIMIT);
+ assert.equal((await sending).ok, true);
+ assert.deepEqual(sent, ['/send']);
 
- budget.dispose();
- t.mock.timers.tick(120_000);
- returnToView(document);
- await assert.rejects(budget.fetch('/fixture'), { code: 'request_budget_exhausted' });
+ t.mock.timers.tick(1_000);
+ await budget.fetch('/failed');
+ assert.equal(notices.length, 1);
+ t.mock.timers.tick(1_000);
+ await budget.fetch('/fixture');
+ assert.deepEqual(notices, [notices[0], null]);
 });
 
 test('the deployed static payload retains platform headroom independently of per-page requests', async t => {
@@ -87,7 +94,6 @@ test('the deployed static payload retains platform headroom independently of per
  const {buildArtifact}=await import('../scripts/artifact.mjs');
  const {fileURLToPath}=await import('node:url');
  const built=await buildArtifact({root:fileURLToPath(new URL('../',import.meta.url)),outDir:temporaryDirectory('quiet-tab-assets-',t),commit:'1'.repeat(40)});
- assert.equal(INITIAL_ASSET_REQUEST_LIMIT,400);assert.equal(QUIET_TAB_REQUEST_LIMIT,1000);
  const {assetBudget}=await import('../scripts/asset-budget.ts');
  const capacity=assetBudget(built.manifest.files.length);
  t.diagnostic(JSON.stringify(capacity));
