@@ -28,6 +28,7 @@ const primaryActions = [
   "Mark done",
   "Open",
   "Review completion",
+  "Review filing",
   "Review suggestions",
   "Open checklist item",
   "Review feedback",
@@ -338,7 +339,13 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   const reference = v3 ? parseReference(value.review_reference) : null;
   const { explicit_unsettle, auto_settled, undo_completion, why, primary_action, checklist_item_ref, ...fields } =
     value;
-  const primaryAction = engineMarks && primaryActions.find((action) => action === primary_action);
+  const actionLabel =
+    Array.isArray(value.filing_choices) &&
+    value.filing_choices.length > 0 &&
+    (primary_action === "Choose deal" || primary_action === "Choose vendor")
+      ? "Review filing"
+      : primary_action;
+  const primaryAction = engineMarks && primaryActions.find((action) => action === actionLabel);
   const presentation = primaryAction && text(why) ? { why, primaryAction } : undefined;
   // Version-specific checks above validate the item before normalized optional fields are added.
   return {
@@ -564,7 +571,13 @@ export type InboxClient = {
     run(
       item: InboxItem,
       request: ReviewRequest,
-    ): Promise<{ item: InboxItem | null; receipt?: TaskReceipt; saved_version?: number; snapshot?: Snapshot }>;
+    ): Promise<{
+      item: InboxItem | null;
+      receipt?: TaskReceipt;
+      saved_version?: number;
+      snapshot?: Snapshot;
+      alreadyResolved?: true;
+    }>;
   };
   read(signal?: AbortSignal): Promise<Snapshot>;
   run(request: Command): Promise<ItemResult[]>;
@@ -710,12 +723,13 @@ export function createInboxClient(
       async run(item, request) {
         if (navigator.onLine === false) throw Error("Offline. Nothing was sent.");
         if (hasEngineReview(item)) {
-          const version = await saveEngineReview(rpc, item, request);
+          const outcome = await saveEngineReview(rpc, item, request);
           const snapshot = await read();
           return {
             item: snapshot.items.find((row) => row.item_id === item.item_id) ?? null,
             snapshot,
-            ...(version === undefined ? {} : { saved_version: version }),
+            ...(typeof outcome === "number" && { saved_version: outcome }),
+            ...(outcome === "already_decided" && { alreadyResolved: true as const }),
           };
         }
         const value = await rpc(request.verb, request.args);

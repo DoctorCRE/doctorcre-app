@@ -1019,13 +1019,22 @@ async function dashboard(t, width, theme, timezone) {
     let result = { ok: true, items: [], deals: [] };
     if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item), state.legacy);
     if (name === 'read-engine-home-proposal') result = {
-      proposal_id: args.id, kind: args.id === id(41) ? 'file_to_deal' : 'next_step',
-      target_name: 'Example Dental',
+      proposal_id: args.id, kind: args.id === id(41)
+        ? (state.filingChoices ? 'possible_new_deal' : 'file_to_deal') : 'next_step',
+      target_name: state.filingChoices && args.id === id(41) ? null : 'Example Dental',
       evidence: state.proposalEvidence ?? (args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.'),
       reason: args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.',
       what: args.id === id(42) ? 'Send the floor plan' : null,
       source_activity: mailSource, thread: state.thread,
+      ...(args.id === id(41) && state.filingChoices && { filing_choices: state.filingChoices }),
     };
+    if (name === 'deal-room-board') result = { deals: [{ id: id(61), name: 'Sample clinic' }] };
+    if (name === 'decide-engine-home-proposal' && state.filingWrites) {
+      state.filingWrites.push(args);
+      state.items = [];
+      if (state.filingConflict) return route.fulfill({ status: 409, json: { error: 'already_decided' } });
+      result = { proposal_id: args.id, status: args.decision === 'accept' ? 'accepted' : 'dismissed' };
+    }
     if (name === 'read-engine-home-draft') result = {
       ...state.draft, to: 'sender@example.test', cc: 'partner@example.test', attachments: [],
       source_activity: mailSource, thread: state.draftThread ?? state.thread,
@@ -1093,6 +1102,73 @@ for (const available of [true, false]) test(`Home email suggestions ${available 
   await review.getByText('The manager needs the floor plan.', { exact: true }).waitFor();
   assert.equal(await review.getByText(mailSource.body, { exact: true }).count(), 0);
   assert.equal(await review.getByRole('button', { name: 'Accept', exact: true }).count(), 2);
+});
+
+const dealChoice = { kind: 'deal', label: 'Choose deal' };
+const vendorChoice = { kind: 'vendor', label: 'Choose vendor' };
+
+for (const { name, choices, kind, conflict, dismiss } of [
+  { name: 'mixed choices file to a deal', choices: [dealChoice, vendorChoice], kind: 'deal' },
+  { name: 'vendor-only choices file to a vendor', choices: [vendorChoice], kind: 'vendor' },
+  { name: 'an already decided filing leaves Home quietly', choices: [vendorChoice], kind: 'vendor', conflict: true },
+  { name: 'a filing can be dismissed', choices: [dealChoice], dismiss: true },
+  { name: 'an older filing keeps Accept', choices: undefined },
+]) test(`Home filing: ${name}`, async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  state.dashboard = true;
+  state.items = [{ ...mailCard, suggestions: [{ id: id(41) }], ...(choices && {
+    filing_choices: choices, primary_action: choices.length === 1 ? choices[0].label : 'Review filing',
+  }) }];
+  state.filingChoices = choices;
+  state.filingConflict = conflict;
+  state.filingWrites = [];
+  await page.route('**/api/v1/business/vendors?**', route => route.fulfill({
+    json: { rows: [{ id: id(62), name: 'Sample surveyors' }], page_count: 1 },
+  }));
+  await open('/?mode=live');
+  const card = page.getByRole('link', { name: mailCard.title });
+  if (choices) await page.getByRole('button', { name: 'Review filing', exact: true }).click();
+  else await card.click();
+  const review = page.getByRole('region', { name: `Details for ${mailCard.title}` });
+  const filing = review.getByRole('region', { name: 'File this email' });
+  await filing.waitFor();
+  const expected = { id: id(41), decision: dismiss ? 'dismiss' : 'accept' };
+  if (choices) {
+    for (const choice of [dealChoice, vendorChoice]) {
+      assert.equal(await filing.getByRole('button', { name: choice.label, exact: true }).count(),
+        Number(choices.includes(choice)));
+    }
+    assert.equal(await filing.getByRole('button', { name: 'Accept', exact: true }).count(), 0);
+    if (dismiss) await filing.getByRole('button', { name: 'Dismiss' }).click();
+    else {
+      await filing.getByRole('button', { name: `Choose ${kind}` }).click();
+      if (kind === 'vendor') {
+        await filing.getByRole('searchbox', { name: 'Vendor name' }).fill('surveyors');
+        const searched = page.waitForRequest(request => new URL(request.url()).searchParams.get('q') === 'surveyors');
+        await filing.getByRole('button', { name: 'Search vendors' }).click();
+        await searched;
+      }
+      const destination = filing.getByRole('combobox', { name: kind === 'deal' ? 'Deal' : 'Vendor', exact: true });
+      const label = kind === 'deal' ? 'Sample clinic' : 'Sample surveyors';
+      await destination.selectOption({ label });
+      if (kind === 'deal') {
+        expected.reason = 'This email is about the sample clinic.';
+        await filing.getByRole('textbox', { name: 'Reason if correcting the filing' }).fill(expected.reason);
+      }
+      assert.deepEqual(state.filingWrites, []);
+      await filing.getByRole('button', { name: 'File email' }).click();
+      expected[`${kind}_id`] = kind === 'deal' ? id(61) : id(62);
+    }
+  } else {
+    assert.equal(await filing.getByRole('button', { name: /^Choose / }).count(), 0);
+    await filing.getByRole('button', { name: 'Accept', exact: true }).click();
+  }
+  await card.waitFor({ state: 'hidden' });
+  await review.waitFor({ state: 'hidden' });
+  assert.equal(state.filingWrites.length, 1);
+  const [{ idempotency_key, ...request }] = state.filingWrites;
+  assert.match(idempotency_key, /^[a-f0-9-]{36}$/);
+  assert.deepEqual(request, expected);
 });
 
 test('Home reveals earlier text only for the selected email message', async t => {

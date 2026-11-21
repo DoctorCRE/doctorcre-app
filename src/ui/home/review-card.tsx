@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { DropReason } from "./drop-reason.tsx";
 import { draftReference, proposalRefusal, type Suggestion } from "./engine-review.ts";
+import { FilingControls, type FilingDestination } from "./filing-controls.tsx";
 import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
 import { type Operation, reviewError } from "./review";
 import { sourceExcerptText } from "./source-excerpt.ts";
@@ -233,7 +234,9 @@ export function ReviewCard({
         if (!alive.current) return;
         anchor.current = result.item;
         setState({ phase: "ready", review: refreshed });
-        setMessage(request.args.decision === "accept" ? "Suggestion accepted." : "Suggestion dismissed.");
+        if (!result.alreadyResolved)
+          setMessage(request.args.decision === "accept" ? "Suggestion accepted." : "Suggestion dismissed.");
+        else setMessage("");
         return;
       }
       if (result.snapshot && request.verb !== "edit-email-draft") {
@@ -346,7 +349,12 @@ export function ReviewCard({
     }
     void run({ verb: op.verb, args: { ...op.args, ...input, idempotency_key: crypto.randomUUID() } }, review);
   }
-  function decideSuggestion(proposal: Suggestion, decision: "accept" | "dismiss", reason?: string) {
+  function decideSuggestion(
+    proposal: Suggestion,
+    decision: "accept" | "dismiss",
+    reason?: string,
+    destination?: FilingDestination,
+  ) {
     if (!review || !form.current || !editable) return;
     const fields = new FormData(form.current);
     const what = fields.get(`${proposal.id}-what`);
@@ -362,6 +370,7 @@ export function ReviewCard({
           id: proposal.id,
           decision,
           ...(reason && { reason }),
+          ...destination,
           idempotency_key: crypto.randomUUID(),
           ...(edits && { edits: { what, due_on: fields.get(`${proposal.id}-date`) || null } }),
         },
@@ -370,7 +379,7 @@ export function ReviewCard({
     );
   }
   function suggestionDecisions(proposal: Suggestion): readonly ("accept" | "dismiss")[] {
-    if (readOnly) return [];
+    if (readOnly || proposal.filingChoices) return [];
     return !item.engine_marks || proposal.completion || item.home_proposal_drop ? ["accept", "dismiss"] : ["accept"];
   }
   const suggestionFields = (
@@ -424,6 +433,13 @@ export function ReviewCard({
             )}
             {!readOnly && !proposal.canAccept && (
               <p>This step changed after the suggestion. Mark it done from the step, or choose Not yet.</p>
+            )}
+            {proposal.filingChoices && !readOnly && (
+              <FilingControls
+                choices={proposal.filingChoices}
+                file={(destination, reason) => decideSuggestion(proposal, "accept", reason, destination)}
+                dismiss={() => decideSuggestion(proposal, "dismiss")}
+              />
             )}
             <div className="inbox-actions">
               {suggestionDecisions(proposal).map((decision) => (
