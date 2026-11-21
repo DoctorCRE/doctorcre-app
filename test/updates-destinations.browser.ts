@@ -23,6 +23,9 @@ const screenshotDir = process.env.UPDATES_SCREENSHOT_DIR;
 const viewports = screenshotDir ? [390, 1440] : [390];
 const themes = screenshotDir ? ["light", "dark"] : ["dark"];
 
+const explainers =
+  /Addressed to you|Accountable activity|shown here yet|About updates|Quiet hours hold|Preferences saved|Quiet hours off · Push off/;
+
 const assets = await appAssetSnapshot();
 const server = await startWorkerFixture({
   routes: assets,
@@ -61,7 +64,21 @@ async function open(
     const payload = name === "read-notification-preferences" ? savedPreferences : emptyFeed;
     return route.fulfill({ json: rpc(payload) });
   });
+  const updatesPage = assets.get("/notifications.html")?.body;
+  assert.ok(updatesPage);
+  await page.route(`${server.origin}/updates?**`, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: updatesPage.toString().replace("<html ", "<html data-deals-saves-from-engine "),
+    }),
+  );
   return page;
+}
+
+async function assertListOnly(page: Page) {
+  const main = page.locator("main");
+  assert.doesNotMatch((await main.textContent()) ?? "", explainers);
+  assert.equal(await main.getByRole("heading", { name: "Who did what" }).count(), 0);
 }
 
 async function capture(page: Page, name: string, width: number, theme: string) {
@@ -85,6 +102,7 @@ for (const width of viewports)
       assert.equal(await page.getByRole("heading", { level: 1, name: "Updates" }).isVisible(), true);
       assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /\bunknown\b/i);
       assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
+      await assertListOnly(page);
       await capture(page, "updates-loading", width, theme);
       pending.resolve({ json: rpc(emptyFeed) });
       await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
@@ -99,11 +117,12 @@ for (const width of viewports)
       });
       t.after(() => recovered.resolve({ json: rpc(emptyFeed) }));
       await page.goto(updates);
-      await page.getByRole("heading", { name: "Notifications temporarily unavailable" }).waitFor();
+      await page.getByRole("heading", { name: "Couldn't load updates", exact: true }).waitFor();
       const retry = page.getByRole("button", { name: "Retry", exact: true });
       await retry.waitFor({ timeout: 2500 });
       assert.equal(await retry.textContent(), "Retry");
       assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /\bunknown\b/i);
+      await assertListOnly(page);
       await capture(page, "updates-unavailable", width, theme);
       await retry.click();
       await page.getByRole("heading", { name: "Loading notifications…" }).waitFor();
@@ -119,6 +138,7 @@ for (const width of viewports)
       assert.equal(reads, 2);
       assert.equal(await retry.count(), 0);
       assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /\bunknown\b/i);
+      await assertListOnly(page);
       await capture(page, "updates-recovered", width, theme);
     });
 
@@ -129,6 +149,7 @@ for (const width of viewports)
       assert.equal(await page.getByText("Nothing unread", { exact: true }).count(), 1);
       assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
       assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /\bunknown\b/i);
+      await assertListOnly(page);
       await capture(page, "updates-empty", width, theme);
     });
 
@@ -178,7 +199,7 @@ for (const width of viewports)
 test("an invalid feed reply offers Retry instead of staying in loading", async (t) => {
   const page = await open(t, 390, "dark", () => ({ json: rpc({}) }));
   await page.goto(`${server.origin}/updates?mode=live`);
-  await page.getByRole("heading", { name: "Notifications temporarily unavailable" }).waitFor();
+  await page.getByRole("heading", { name: "Couldn't load updates", exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).isVisible(), true);
 });
 

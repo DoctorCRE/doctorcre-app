@@ -98,15 +98,8 @@ for (const viewport of viewports) test(`V1 audit 15/21/25b: Updates uses human l
   assert.equal(await page.locator('[data-section="exposure"], #exposureStatement, #exposureTitle').count(), 0);
   for (const heading of await page.locator('main h2').all()) assert.notEqual((await heading.textContent()).trim(), '');
 
-  // Finding 25b: guidance is collapsed contextual help, never a caption under a heading.
-  assert.equal(await page.locator('#vocabularyLine, #quietHoursEffect, #quietHoursScope, #activityBlock > p.caption').count(), 0);
-  const help = page.locator('details.context-help');
-  assert.equal(await help.evaluate(node => node.open), false);
-  assert.equal(await help.locator('summary').textContent(), 'About updates');
-  assert.equal(await help.getByText(/addressed to you/).isVisible(), false);
-  await help.locator('summary').click();
-  assert.equal(await help.getByText(/addressed to you/).isVisible(), true);
-  assert.equal(await help.getByText(/Acknowledging clears the notification/).isVisible(), true);
+  // Updates shows no guidance text, collapsed or not.
+  assert.equal(await page.locator('#vocabularyLine, #quietHoursEffect, #quietHoursScope, #activityBlock > p.caption, details.context-help').count(), 0);
 
   // Quiet hours read and summarize in AM/PM; the version is in Details only.
   await settles(async () => assert.equal(await page.locator('#quietStart').inputValue(), '10:00 PM'));
@@ -149,13 +142,13 @@ for (const viewport of viewports) test(`V1 audit 15/21/25b: Updates uses human l
 for (const reducedMotion of ['no-preference', 'reduce']) test(`Updates disclosures ease open with a ${reducedMotion} motion fallback`, async t => {
   const { page, errors } = await open(t, { reducedMotion, hooks: updatesHooks });
   await page.goto(origin + '/updates', { waitUntil: 'domcontentloaded' });
-  const help = page.locator('details.context-help');
-  await help.locator('summary').click();
-  const motion = await help.locator('p').first().evaluate(node => getComputedStyle(node).animationName);
+  const details = page.locator('#prefForm details.record-details');
+  await details.locator('summary').click();
+  const motion = await details.locator('p').first().evaluate(node => getComputedStyle(node).animationName);
   assert.equal(motion, reducedMotion === 'reduce' ? 'none' : 'details-reveal');
   // The app's own motion setting reduces it too.
   await page.evaluate(() => document.documentElement.setAttribute('data-motion', 'reduced'));
-  assert.equal(await help.locator('p').first().evaluate(node => getComputedStyle(node).animationName), 'none');
+  assert.equal(await details.locator('p').first().evaluate(node => getComputedStyle(node).animationName), 'none');
   assert.deepEqual(errors, []);
 });
 

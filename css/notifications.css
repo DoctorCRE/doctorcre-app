@@ -14,7 +14,6 @@
 
 .hero { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .hero-card { display: grid; gap: var(--space-3); }
-.page-sub { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 
 .headline { margin: 0; font: var(--font-weight-strong) var(--font-size-3)/var(--line-height-heading) var(--font-text); font-variant-numeric: tabular-nums; }
 .caption { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); line-height: var(--line-height-body); }
@@ -24,7 +23,7 @@
 .chip { min-height: var(--touch); overflow-wrap: anywhere; }
 .btn { min-height: var(--touch); }
 
-.headline:empty, .as-of:empty, #prefOrigin:empty { display: none; }
+.headline:empty, .as-of:empty { display: none; }
 
 /* --------------------------------------------------------------- the feed */
 #feedList { grid-template-columns: minmax(0, 1fr); }
@@ -90,14 +89,14 @@
   .note-top { flex-direction: column; align-items: flex-start; }
 }
 
-/* Details and contextual help: collapsed by default, a 44px summary that
+/* Details: collapsed by default, a 44px summary that
  * brightens on hover and focus. Opening is a state change, so the contents
  * ease in once (opacity and transform); with motion reduced they just appear. */
-.record-details, .context-help { margin-top: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
-.record-details summary, .context-help summary { display: list-item; align-content: center; min-height: var(--touch); border-radius: var(--radius-2); cursor: pointer; transition: color var(--duration-hover) var(--ease-out); }
-@media (hover: hover) { .record-details summary:hover, .context-help summary:hover { color: var(--fg); } }
-.record-details summary:focus-visible, .context-help summary:focus-visible { color: var(--fg); outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
-.record-details[open] > :not(summary), .context-help[open] > :not(summary) { animation: details-reveal var(--duration-menu) var(--ease-out) both; }
+.record-details { margin-top: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
+.record-details summary { display: list-item; align-content: center; min-height: var(--touch); border-radius: var(--radius-2); cursor: pointer; transition: color var(--duration-hover) var(--ease-out); }
+@media (hover: hover) { .record-details summary:hover { color: var(--fg); } }
+.record-details summary:focus-visible { color: var(--fg); outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
+.record-details[open] > :not(summary) { animation: details-reveal var(--duration-menu) var(--ease-out) both; }
 .record-details dl { margin: 0; }
 .record-details dt { color: var(--fg-muted); }
 .record-details dd { margin: 0 0 var(--space-2); overflow-wrap: anywhere; }

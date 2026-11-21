@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="description" content="DoctorCRE notifications — the items addressed to you, what was delivered and what quiet hours held, and who did what">
+  <meta name="description" content="DoctorCRE updates">
   <title>Updates · DoctorCRE</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/dealroom-192.png">
@@ -32,10 +32,7 @@
   <main id="main" class="shell">
     <section class="card glass hero-card" aria-labelledby="pageTitle">
       <div class="hero">
-        <div>
-          <h1 id="pageTitle">Updates</h1>
-          <p class="page-sub"><span class="orb" data-state="still" id="feedOrb" aria-hidden="true"></span> Addressed to you</p>
-        </div>
+        <h1 id="pageTitle">Updates</h1>
         <span class="as-of" id="feedAsOf"></span>
       </div>
       <p class="headline" id="unreadLine"></p>
@@ -55,10 +52,9 @@
 
     <section class="card glass" data-section="quiet_hours" id="quietHoursBlock" aria-labelledby="quietHoursTitle">
       <div class="card-heading">
-        <div><h2 id="quietHoursTitle">Your notification preferences</h2><p class="page-sub">Quiet hours hold device pushes until they end</p></div>
+        <h2 id="quietHoursTitle">Your notification preferences</h2>
         <span class="as-of" id="prefAsOf"></span>
       </div>
-      <p class="caption" id="prefOrigin"></p>
       <div class="state-block" id="prefState" data-state="loading"><h3 id="prefStateTitle">Reading your preferences…</h3></div>
       <form class="pref-form" id="prefForm" novalidate hidden>
         <div class="switch-field">
@@ -80,20 +76,15 @@
       </form>
     </section>
 
-    <section class="card glass" data-section="activity" id="activityBlock" aria-labelledby="activityTitle">
+    <section class="card glass" data-section="activity" id="activityBlock" aria-labelledby="activityTitle" hidden>
       <div class="card-heading">
-        <div><h2 id="activityTitle">Who did what</h2><p class="page-sub">Accountable activity, not notifications</p></div>
+        <h2 id="activityTitle">Who did what</h2>
         <span class="as-of" id="activityAsOf"></span>
       </div>
       <ul class="work-list" id="activityList"></ul>
       <div class="state-block" id="activityState" data-state="unavailable" hidden><h3>Recent activity is unavailable</h3></div>
     </section>
 
-    <details class="context-help">
-      <summary>About updates</summary>
-      <p class="caption">Notifications are action-required items or failures addressed to you. Routine progress appears in activity.</p>
-      <p class="caption">Activity records who did what. Acknowledging clears the notification, never the work behind it.</p>
-    </details>
     <div id="phonePush"></div>
   </main>
 

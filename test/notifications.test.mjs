@@ -12,12 +12,12 @@ import { JSDOM } from "jsdom";
 
 import {
   APP_ROUTE_PATHS, BASE_VERSION_REFUSAL, DEVICE_OFF,
-  FEED_STATES, NO_PAGE_SENTENCE, PREFERENCE_DEFAULTS_SENTENCE, PREFERENCE_OPERATION_KEY,
+  FEED_STATES, NO_PAGE_SENTENCE, PREFERENCE_OPERATION_KEY,
   PREFERENCE_REFUSALS, QUIET_NOW_BANNER, versionConflictLine,
   QUIET_SUPPRESSED_MARK, SEVERITIES, SEVERITY_LABELS, TIME_REFUSAL,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, preferenceTimeLabel, classifyPreferenceFailure,
   classifyPreferenceReadFailure, classifyReadFailure, deepLinkView, deliveryPhrases, feedState,
-  notificationCards, preferenceOriginSentence, preferenceState, preferenceSummary,
+  notificationCards, preferenceState, preferenceSummary,
   preferenceView, quietNowBanner, setPreferenceArgs, toInputTime, unreadLine,
   validFeedPayload, validPreferencePayload,
 } from "../js/notifications-model.js";
@@ -389,8 +389,6 @@ test("B12-1 defaults panel: with no row the page prints the record layer's docum
   const model = preferenceView(prefs);
   assert.equal(model.quietHoursSet, false);
   assert.equal(model.version, 1);
-  assert.equal(preferenceOriginSentence(model), PREFERENCE_DEFAULTS_SENTENCE);
-  assert.equal(PREFERENCE_DEFAULTS_SENTENCE, "Quiet hours off · Push off · UTC");
   assert.equal(preferenceSummary(model), "No quiet hours set · UTC · device push off");
   assert.equal(preferenceSummary(null), "");
   assert.equal(preferenceState({ state: "read", payload: prefs }).state, "ready");
