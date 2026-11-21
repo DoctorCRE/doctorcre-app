@@ -651,3 +651,142 @@ test("Session invalidation aborts an in-flight Doc refresh and clears the chat",
   await page.clock.runFor(15_000);
   assert.equal(requests, 1);
 });
+
+const confirmationPath = `/api/engine/doc/turns/${answeredTurn.id}/confirmation`;
+const deal = { ref: { kind: "deal", id }, label: "Example deal", href: `/deals?deal=${id}` };
+const savedId = "00000000-0000-4000-8000-000000000004";
+const draftHref = `/inbox/card/${encodeURIComponent(`reply_draft:${savedId}`)}`;
+
+for (const scenario of ["note", "next step", "reply", "unavailable"] as const) {
+  test(`Doc confirms an edited proposal for ${scenario}`, async (t) => {
+    const note = { kind: "note", target: deal, text: "A proposed note" };
+    const proposal =
+      scenario === "next step"
+        ? { kind: "next_step", target: deal, what: "A proposed step", due_on: "2026-01-02" }
+        : scenario === "reply"
+          ? {
+              kind: "reply_draft",
+              target: { ref: { kind: "email", id }, label: "Example email", href: "/inbox" },
+              subject: "A proposed subject",
+              body: "A proposed reply",
+            }
+          : note;
+    const askKey = "00000000-0000-4000-8000-000000000003";
+    const turn = { ...answeredTurn, idempotency_key: askKey, answer: { ...answeredTurn.answer, proposal } };
+    const attempts: { idempotency_key: string; edits: unknown }[] = [];
+    let result: { kind: string; id: string; href: string; existing?: boolean } | null = null;
+    let saves = 0;
+    const { page, origin } = await docChatFixture(t, async (request) => {
+      switch (new URL(request.url).pathname) {
+        case "/api/engine/doc/conversations":
+          return Response.json({ conversations: [conversation], next_before: null });
+        case detailPath:
+          return Response.json({ conversation, turns: [{ ...turn, confirmation: result }] });
+        case confirmationPath: {
+          assert.equal(request.method, "POST");
+          assert.equal(request.headers.get("x-carr-csrf"), "joe-test");
+          const command: unknown = await request.json();
+          assert.ok(
+            command &&
+              typeof command === "object" &&
+              "idempotency_key" in command &&
+              typeof command.idempotency_key === "string" &&
+              "edits" in command,
+          );
+          attempts.push({ idempotency_key: command.idempotency_key, edits: command.edits });
+          if (scenario === "unavailable") return Response.json({ error: "not_found" }, { status: 404 });
+          if (scenario === "next step")
+            return Response.json(
+              { error: "open_step_exists", next_step_id: savedId, href: deal.href },
+              { status: 409 },
+            );
+          if (!result) {
+            saves++;
+            result =
+              scenario === "reply"
+                ? { kind: "reply_draft", id: savedId, href: draftHref, existing: true }
+                : { kind: "note", id: savedId, href: deal.href };
+          }
+          return Response.json({ result });
+        }
+        default:
+          return Response.json({}, { status: 404 });
+      }
+    });
+    page.setDefaultTimeout(5000);
+    await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+    await expect(page.getByRole("link", { name: proposal.target.label, exact: true })).toHaveAttribute(
+      "href",
+      proposal.target.href,
+    );
+    assert.equal(attempts.length, 0);
+    const save = (name: string) => page.getByRole("button", { name, exact: true }).click();
+
+    if (scenario === "next step") {
+      await expect(page.getByText("Owner: You")).toBeVisible();
+      await page.getByLabel("Next step", { exact: true }).fill("An edited step");
+      await page.getByLabel("Due date").fill("");
+      await save("Save next step");
+      await expect(page.getByRole("link", { name: "Open existing next step" })).toHaveAttribute("href", deal.href);
+      await expect(page.getByLabel("Next step", { exact: true })).toHaveValue("An edited step");
+      assert.deepEqual(
+        attempts.map(({ edits }) => edits),
+        [{ what: "An edited step", due_on: null }],
+      );
+      assert.equal(saves, 0);
+      return;
+    }
+
+    if (scenario === "reply") {
+      await page.getByLabel("Subject").fill("An edited subject");
+      await page.getByLabel("Reply", { exact: true }).fill("An edited reply");
+      await page.route(`${origin}${draftHref}`, (route) => route.fulfill({ body: "Example reply review" }));
+      await save("Save draft and open review");
+      await expect(page).toHaveURL(`${origin}${draftHref}`);
+      assert.deepEqual(
+        attempts.map(({ edits }) => edits),
+        [{ subject: "An edited subject", body: "An edited reply" }],
+      );
+      return;
+    }
+
+    const field = page.getByLabel("Note", { exact: true });
+    await field.fill("An edited note");
+    await page.reload();
+    await expect(field).toHaveValue("An edited note");
+    if (scenario === "unavailable") {
+      await save("Save note");
+      await expect(page.getByRole("alert")).toHaveText("This record is no longer available.");
+      await expect(field).toHaveValue("An edited note");
+      assert.equal(saves, 0);
+      return;
+    }
+
+    await page.route(
+      `${origin}${confirmationPath}`,
+      async (route) => {
+        const response = await route.fetch();
+        assert.equal(response.status(), 200);
+        await route.abort();
+      },
+      { times: 1 },
+    );
+    await save("Save note");
+    await expect(page.getByRole("alert")).toHaveText("Doc couldn’t tell if this saved. Try again.");
+    await expect(field).toHaveValue("An edited note");
+    assert.equal(saves, 1);
+    await save("Retry save");
+    const saved = page.getByRole("link", { name: "Open saved note" });
+    await expect(saved).toHaveAttribute("href", deal.href);
+    assert.equal(attempts.length, 2);
+    assert.deepEqual(attempts[1], attempts[0]);
+    assert.equal(saves, 1);
+    const [command] = attempts;
+    assert.ok(command);
+    assert.notEqual(command.idempotency_key, askKey);
+    assert.deepEqual(command.edits, { text: "An edited note" });
+    await page.reload();
+    await expect(saved).toHaveCount(1);
+    await expect(field).toHaveCount(0);
+  });
+}
