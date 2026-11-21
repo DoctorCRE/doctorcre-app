@@ -1042,6 +1042,12 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const { page, open, state } = await dashboard(t, width, theme);
   await page.clock.install({ time: now });
   await open('/?mode=live');
+  const heading = page.getByRole('heading', { name: 'Home', level: 1, exact: true });
+  assert.equal(await heading.count(), 1);
+  assert.deepEqual(await heading.evaluate(node => {
+    const style = getComputedStyle(node);
+    return [style.position, style.width, style.height, style.overflow];
+  }), ['absolute', '1px', '1px', 'hidden']);
   const tile = name => page.getByRole('region', { name, exact: true });
   const reminders = tile('Reminders'), waiting = tile('In motion and waiting');
   await reminders.getByRole('heading', { name: 'Reminders 4' }).waitFor();
