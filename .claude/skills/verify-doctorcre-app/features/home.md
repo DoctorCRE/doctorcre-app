@@ -2,7 +2,7 @@
 
 Home at `/` shows **Reminders**, **In motion and waiting**, and **Today's meetings** in a responsive grid. Open a card by its title. **See all** expands the tile's remaining work. Empty tiles and finished work stay off Home.
 
-Run `node --test test/home-sections-browser.test.mjs` against synthetic data at 390px and 1440px in both themes. Check that a scheduled refresh adds and removes cards while retaining the scroll position, active control, and unsaved review text. Set `HOME_GRID_SCREENSHOTS` to retain the four captures.
+Run `node --test test/home-sections-browser.test.mjs` against synthetic data at 390px and 1440px in both themes. Check that a 90-character action title appears in full on the first card view, with no type label above it. Check that a scheduled refresh adds and removes cards while retaining the scroll position, active control, and unsaved review text. Set `HOME_GRID_SCREENSHOTS` to retain the four captures.
 
 Open a meeting to check its time, attendees, deal link, and any outcome review. Verify that earlier outcomes appear in Reminders and that a calendar failure keeps the last successful calendar and the other tiles visible. Set `HOME_MEETING_SCREENSHOTS` to retain the four meeting captures.
 
