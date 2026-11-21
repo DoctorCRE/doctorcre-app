@@ -28,7 +28,7 @@ export const tasks = [
     async verify(page) {
       await page.waitForFunction(() => document.querySelectorAll('#homeBrief a').length >= 40);
     } },
-  { id: 'task-leads', route: '/leads', fixture: 'leads', conditions: '375 synthetic leads; board and detail reads delayed 75ms; intercepted telephone link and persisted pageshow',
+  { id: 'task-leads', route: '/leads', fixture: 'leads', conditions: '375 synthetic leads; board and detail reads delayed 75ms; intercepted telephone link and return to the visible tab',
     ready: '#leadBoard .lead-open',
     async verify(page) {
       const button = page.locator('#leadBoard .lead-open').first();
@@ -40,7 +40,12 @@ export const tasks = [
       await page.evaluate(() => document.querySelector('#leadDetail a[href^="tel:"]').addEventListener('click', event => event.preventDefault(), { once: true }));
       await page.locator('#leadDetail a[href^="tel:"]').tap();
       const reread = page.waitForResponse(response => response.url().endsWith('/mcp') && response.request().postDataJSON()?.params?.arguments?.lead_id);
-      await page.evaluate(() => { dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })); dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })); });
+      await page.evaluate(() => {
+        for (const value of ['hidden', 'visible']) {
+          Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+          document.dispatchEvent(new Event('visibilitychange'));
+        }
+      });
       await reread;
       await page.waitForFunction(title => document.querySelector('#leadDetail')?.open && document.querySelector('#detailTitle')?.textContent === title && document.querySelector('#detailBody a[href^="tel:"]'), selected);
     } },

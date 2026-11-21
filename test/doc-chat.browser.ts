@@ -331,6 +331,42 @@ function waitingChat(t: TestContext) {
   });
 }
 
+test("Back reloads Ask Doc once and a failed session check cannot read the saved chat", async (t) => {
+  const { page, origin } = await waitingChat(t);
+  await pausedClock(page, new Date(created_at));
+  const url = `${origin}/doc-chats?mode=live&chat=${id}`;
+  await page.goto(url);
+  await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
+
+  let reloads = 0;
+  let detailReads = 0;
+  await page.route(url, (route) => {
+    reloads++;
+    return route.continue();
+  });
+  await page.route(`**${detailPath}`, (route) => {
+    detailReads++;
+    return route.fulfill({ json: { conversation, turns: [answered] } });
+  });
+  const sessionUrl = "**/auth/session";
+  await page.route(sessionUrl, (route) => route.fulfill({ status: 503 }));
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow")));
+  assert.equal(reloads, 0);
+
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+  await expect(page.getByRole("button", { name: "Retry loading" })).toBeVisible({ timeout: 5_000 });
+  await page.clock.runFor(5_000);
+  assert.equal(reloads, 1);
+  assert.equal(detailReads, 0);
+  await expect(page.getByText("Doc is waiting.", { exact: true })).toHaveCount(0);
+
+  await page.unroute(sessionUrl);
+  await page.getByRole("button", { name: "Retry loading" }).click();
+  await expect(page.getByText(answered.answer.text)).toBeVisible();
+  assert.equal(detailReads, 1);
+  assert.equal(reloads, 1);
+});
+
 test("A visible Ask Doc chat can receive its answer after three idle hours", async (t) => {
   const { page, origin } = await waitingChat(t);
   await pausedClock(page, new Date(created_at));
@@ -408,73 +444,52 @@ test("An unavailable chat keeps the unsent question and other recent chats for t
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
 });
 
-for (const returning of ["quick tab return with input", "Back from history without a visibility event"] as const) {
-  test(`Ask Doc retries an exhausted read after ${returning}`, async (t) => {
-    const { page, origin } = await waitingChat(t);
-    await pausedClock(page, new Date(created_at));
-    await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
-    await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
+test("Ask Doc retries an exhausted read after a quick tab return with input", async (t) => {
+  const { page, origin } = await waitingChat(t);
+  await pausedClock(page, new Date(created_at));
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
 
-    if (returning === "quick tab return with input") {
-      await page.clock.runFor(500);
-      await page.evaluate(() => {
-        for (const value of ["hidden", "visible"]) {
-          Object.defineProperty(document, "visibilityState", { configurable: true, value });
-          document.dispatchEvent(new Event("visibilitychange"));
-        }
-      });
-      await page.clock.runFor(4_999);
+  await page.clock.runFor(500);
+  await page.evaluate(() => {
+    for (const value of ["hidden", "visible"]) {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value });
+      document.dispatchEvent(new Event("visibilitychange"));
     }
-
-    const reads = await page.evaluateHandle(
-      async ({ detailPath, conversation, answered }) => {
-        const { privateSession } = await import(String("/js/private-session.js"));
-        const session = privateSession();
-        const paths: string[] = [];
-        window.fetch = async (input) => {
-          const path = String(input);
-          if (path === "/fixture/other-read") return Response.json({});
-          paths.push(path);
-          if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "joe-test" });
-          if (path === detailPath) return Response.json({ conversation, turns: [answered] });
-          return Response.json({}, { status: 404 });
-        };
-        await Promise.allSettled(Array.from({ length: 600 }, () => session.fetch("/fixture/other-read")));
-        return paths;
-      },
-      { detailPath, conversation, answered },
-    );
-    const paused = page.getByRole("status", { includeHidden: true }).filter({ hasText: /paused/i });
-    if (returning === "quick tab return with input") {
-      await page.clock.runFor(1);
-      assert.deepEqual(await reads.jsonValue(), [], "the first chat read is refused");
-      await expect(paused).toHaveCount(1);
-      await page.keyboard.press("Shift");
-      const noticesAfterInput = await paused.count();
-      await page.clock.runFor(5_000);
-      assert.deepEqual(await reads.jsonValue(), [detailPath], "the next tick reads without another visibility event");
-      assert.equal(noticesAfterInput, 1, "input does not clear the pause");
-    } else {
-      await page.evaluate(() => {
-        window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
-        window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
-      });
-      await expect(paused).toHaveCount(1);
-      assert.equal(await paused.isVisible(), true, "the budget pause is visible while Back verifies the session");
-      await page.clock.runFor(1_000);
-      await expect(paused).toHaveCount(0);
-      await page.waitForFunction(() => document.documentElement.style.visibility === "");
-      assert.equal(await page.locator("main").getAttribute("inert"), null);
-      await page.clock.runFor(5_000);
-      const paths = await reads.jsonValue();
-      assert.equal(paths[0], "/auth/session", "the restored page verifies its session before reading the chat");
-      assert.equal(paths.at(-1), detailPath);
-    }
-    await expect(page.getByText(answered.answer.text)).toBeVisible();
-    await expect(paused).toHaveCount(0);
-    await reads.dispose();
   });
-}
+  await page.clock.runFor(4_999);
+
+  const reads = await page.evaluateHandle(
+    async ({ detailPath, conversation, answered }) => {
+      const { privateSession } = await import(String("/js/private-session.js"));
+      const session = privateSession();
+      const paths: string[] = [];
+      window.fetch = async (input) => {
+        const path = String(input);
+        if (path === "/fixture/other-read") return Response.json({});
+        paths.push(path);
+        if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "joe-test" });
+        if (path === detailPath) return Response.json({ conversation, turns: [answered] });
+        return Response.json({}, { status: 404 });
+      };
+      await Promise.allSettled(Array.from({ length: 600 }, () => session.fetch("/fixture/other-read")));
+      return paths;
+    },
+    { detailPath, conversation, answered },
+  );
+  const paused = page.getByRole("status", { includeHidden: true }).filter({ hasText: /paused/i });
+  await page.clock.runFor(1);
+  assert.deepEqual(await reads.jsonValue(), [], "the first chat read is refused");
+  await expect(paused).toHaveCount(1);
+  await page.keyboard.press("Shift");
+  const noticesAfterInput = await paused.count();
+  await page.clock.runFor(5_000);
+  assert.deepEqual(await reads.jsonValue(), [detailPath], "the next tick reads without another visibility event");
+  assert.equal(noticesAfterInput, 1, "input does not clear the pause");
+  await expect(page.getByText(answered.answer.text)).toBeVisible();
+  await expect(paused).toHaveCount(0);
+  await reads.dispose();
+});
 
 test("Doc links to app records and renders other source labels as text", async (t) => {
   const ref = { kind: "deal", id };

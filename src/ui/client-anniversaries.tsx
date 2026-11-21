@@ -173,19 +173,15 @@ function Panel({ load, cutover, win, dispose }: PanelProps) {
     }
   }, [load]);
   useEffect(() => {
-    function onPagehide(event: PageTransitionEvent) {
-      if (event.persisted) flushSync(reset);
-      else dispose();
-    }
-    win?.addEventListener("pagehide", onPagehide);
+    win?.addEventListener("pagehide", dispose);
     win?.addEventListener("doctorcre-session-invalidated", dispose);
     void open();
     return () => {
-      win?.removeEventListener("pagehide", onPagehide);
+      win?.removeEventListener("pagehide", dispose);
       win?.removeEventListener("doctorcre-session-invalidated", dispose);
       cancel();
     };
-  }, [win, dispose, open, reset, cancel]);
+  }, [win, dispose, open, cancel]);
   return (
     <section aria-label="Closing anniversaries" style={{ overflowWrap: "anywhere" }}>
       {!cutover && <h2>Closing anniversaries</h2>}

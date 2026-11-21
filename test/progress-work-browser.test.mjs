@@ -1197,7 +1197,7 @@ for (const path of [taskPath, '/control-room/progress/board/demo-project']) test
         window.dispatchEvent(new Event('online'));window.dispatchEvent(new Event('focus'));
         Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});document.dispatchEvent(new Event('visibilitychange'));
         Object.defineProperty(document,'visibilityState',{configurable:true,value:'visible'});document.dispatchEvent(new Event('visibilitychange'));
-        window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));
+        window.dispatchEvent(new PageTransitionEvent('pageshow'));
       }
     });
     // Coalesce local repaint ticks during an unattended hour.

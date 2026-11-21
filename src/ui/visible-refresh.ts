@@ -11,19 +11,17 @@ export function refreshWhileVisible(
     controller = undefined;
   }
 
-  const visible = () =>
-    document.visibilityState === "visible" && document.documentElement.style.visibility !== "hidden";
-
-  function syncVisibility(event?: Event) {
-    const isVisible = visible();
-    if (!isVisible || event?.type === "doctorcre-session-ready") stop();
-    if (!isVisible || controller) return;
+  function syncVisibility() {
+    if (document.visibilityState !== "visible") {
+      stop();
+      return;
+    }
+    if (controller) return;
     controller = new AbortController();
     const { signal } = controller;
     const visibleSince = performance.now();
     async function read() {
-      if (signal.aborted) return;
-      if (!visible()) return stop();
+      if (signal.aborted || document.visibilityState !== "visible") return;
       const result = await refresh(signal);
       if (!signal.aborted && result !== "stop") schedule();
     }
@@ -37,10 +35,8 @@ export function refreshWhileVisible(
 
   // eslint-disable-next-line no-restricted-syntax -- Visible view owns one read at a time, aborted on hide or unmount.
   document.addEventListener("visibilitychange", syncVisibility);
-  window.addEventListener("doctorcre-session-ready", syncVisibility);
   syncVisibility();
   return () => {
-    window.removeEventListener("doctorcre-session-ready", syncVisibility);
     document.removeEventListener("visibilitychange", syncVisibility);
     stop();
   };

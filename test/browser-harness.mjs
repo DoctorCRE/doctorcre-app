@@ -110,6 +110,15 @@ export const chromium = browserEngine(playwrightChromium);
 export const webkit = browserEngine(playwrightWebkit);
 webkit.skip = webkitSkipReason();
 
+export async function returnToTab(page) {
+  await page.evaluate(() => {
+    for (const value of ['hidden', 'visible']) {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
+  });
+}
+
 export async function fixtureServer({ root } = {}, capability) {
   const server = await startFixtureServer({ env: root ? { DOCTORCRE_FIXTURE_ROOT: root } : {} }, capability);
   return { origin: server.url, close: server.stop };

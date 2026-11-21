@@ -17,7 +17,7 @@ const answers = new Map(), answering = new Set();
 const tour_id = 'calls';
 let reviewGeneration = 0, guide = null;
 let wakeLock = null, wakeGeneration = 0, transferringId = null, pollTimer = null, pollDelay = 30000, pollAttempts = 0;
-const pollPresence = watchPresence({ document, window, onResume: resumeReads, onWake: resumeReads });
+const pollPresence = watchPresence({ document, onResume: resumeReads, onWake: resumeReads });
 function resumeReads() {
   schedulePoll();
   if (currentId && !disposed) void review(currentId).catch(() => notice('Call review could not be refreshed. Please retry.'));

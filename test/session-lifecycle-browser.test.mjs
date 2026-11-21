@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { createFixtureClient } from '../js/fixture-client.js';
-import { chromium, pausedClock } from './browser-harness.mjs';
+import { chromium } from './browser-harness.mjs';
 import { presentedPacket } from './packet-presentation.fixture.ts';
 const root=new URL('../',import.meta.url);
 async function open(t) {
@@ -114,108 +114,29 @@ test('S1 browser: simultaneous public links keep their own context and a refresh
  assert.doesNotMatch(await first.locator('body').textContent(),new RegExp(`Synthetic projection ${other}`));
  assert.equal(await first.locator('.report-item').count(),0);assert.deepEqual(app.errors,[]);
 });
-test('S1 browser: a history restore verifies its session before revealing the old view',async t=>{
- const app=await open(t);await seedPrivate(app.page);
- await app.page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
- await app.page.waitForFunction(()=>document.documentElement.style.visibility==='');
- assert.match(await app.page.locator('#conversationList').textContent(),/Demo — Crestview/);
- app.switchActor();
- await app.page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
- await app.page.waitForURL('**/public-shell/session-ended.html');
- await assertPurged(app.page);assert.deepEqual(app.errors,[]);
-});
-
-test('S1 browser: history restore verifies afresh when an older session check is in flight', async t => {
- const app=await open(t);
- await app.page.route(app.origin+'/restore-verification-fixture*',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><main><h1>Joe private cached view</h1></main>'}));
- await app.page.goto(app.origin+'/restore-verification-fixture?mode=live');
- await app.page.evaluate(async()=>{const {privateSession}=await import('/js/private-session.js');await privateSession().verify();});
+test('S1 browser: Back reloads private pages once and checks the current session', async t => {
+ const app = await open(t);
+ for (const path of ['/', '/deals', '/leads', '/leases', '/doc-chats', '/doc-chats/work', '/control-room', '/updates']) {
+  await app.page.goto(`${app.origin}${path}?mode=live`);
+  await app.page.waitForFunction(() => document.querySelector('#selfAvatar')?.textContent === 'J');
+  const url = app.page.url();
+  const navigations = [];
+  const track = request => { if (request.isNavigationRequest()) navigations.push(request.url()); };
+  app.page.on('request', track);
+  const loaded = app.page.waitForEvent('load', { timeout: 5_000 });
+  await app.page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await loaded;
+  await app.page.waitForFunction(() => document.querySelector('#selfAvatar')?.textContent === 'J');
+  app.page.off('request', track);
+  assert.deepEqual(navigations, [url], path);
+ }
+ await app.visit(app.page);
  await seedPrivate(app.page);
- await app.page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
- await app.page.waitForFunction(()=>document.documentElement.style.visibility==='');
- let actor='joe', release, started;
- const held=new Promise(resolve=>{release=resolve;});
- t.after(()=>release());
- const requested=new Promise(resolve=>{started=resolve;});
- let reads=0;
- await app.context.route('**/auth/session',async route=>{
-  const snapshot=actor;
-  if(++reads===1){started();await held;}
-  await route.fulfill({json:{actor:{slug:snapshot},csrf_token:`synthetic-${snapshot}`}});
- });
- await app.page.evaluate(async()=>{
-  const {privateSession}=await import('/js/private-session.js');
-  window.olderVerification=privateSession().verify({fresh:true}).catch(()=>{});
- });
- await requested;
- actor='dell';app.switchActor();
- await app.page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
- release();
+ app.switchActor();
+ await app.page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
  await app.page.waitForURL('**/public-shell/session-ended.html');
- assert.ok(reads>=2,'restoration must issue a fresh session read');
- await assertPurged(app.page);assert.deepEqual(app.errors,[]);
-});
-
-for (const outcome of ['same', 'changed', 'denied', 'unavailable', 'older unavailable', 'superseded twice', 'older denied']) test(`S1 browser: overlapping restores keep cached controls hidden until latest verification is ${outcome}`, async t => {
- const app=await open(t), {page}=app;
- await page.route(app.origin+'/overlap-fixture*',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><main id="cached"><h1>Joe private cached view</h1><button>Cached action</button></main>'}));
- await page.goto(app.origin+'/overlap-fixture?mode=live');
- await page.evaluate(async()=>{const {privateSession}=await import('/js/private-session.js');await privateSession().verify();});
- await seedPrivate(page);
- const restore=()=>page.evaluate(()=>{
-  window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}));
-  window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));
- });
- await restore();
- await page.waitForFunction(()=>document.documentElement.style.visibility==='');
- const releases=[], requests=[];
- let reads=0;
- for(let i=0;i<2;i++){
-  let release, start;
-  const held=new Promise(resolve=>{release=resolve;});
-  const requested=new Promise(resolve=>{start=resolve;});
-  releases.push(release); requests.push({held,requested,start});
- }
- t.after(()=>releases.forEach(release=>release()));
- await app.context.route('**/auth/session',async route=>{
-  const index=reads++;
-  if(index>=2)return route.fallback();
-  requests[index].start();await requests[index].held;
-  const unavailable=index===0?outcome==='older unavailable':outcome==='unavailable';
-  const actor=index===1&&outcome==='changed'?'dell':'joe';
-  const denied=index===0?outcome==='older denied':outcome==='denied';
-  const status=unavailable?503:denied?401:200;
-  await route.fulfill({status,json:{actor:{slug:actor},csrf_token:`synthetic-${actor}`}});
- });
- await restore();await requests[0].requested;
- await restore();
- if(outcome==='superseded twice')await restore();
- releases[0]();
- if(outcome==='older denied'){
-  await page.waitForURL('**/public-shell/session-ended.html');await assertPurged(page);
-  assert.deepEqual(app.errors,[]);return;
- }
- await requests[1].requested;
- await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
- assert.equal(await page.locator('html').evaluate(node=>getComputedStyle(node).visibility),'hidden','old restore response must not release the newer restore fence');
- assert.equal(await page.getByRole('button',{name:'Cached action'}).isVisible(),false);
- releases[1]();
- if(outcome==='changed'||outcome==='denied'){
-  await page.waitForURL('**/public-shell/session-ended.html');await assertPurged(page);
- }else{
-  await page.waitForFunction(()=>document.documentElement.style.visibility==='');
-  assert.equal(await page.locator('#cached').evaluate(node=>node.inert),outcome==='unavailable');
-  const refresh=page.getByRole('button',{name:'Refresh page',exact:true});
-  assert.equal(await refresh.isVisible(),outcome==='unavailable');
-  if(outcome==='unavailable'){
-   await app.context.unroute('**/auth/session');
-   await restore();await page.waitForFunction(()=>document.documentElement.style.visibility==='');
-   assert.equal(await page.locator('#cached').evaluate(node=>node.inert),false);
-   assert.equal(await refresh.isVisible(),false);
-  }
- }
- assert.ok(reads>=2,'the latest restore needs its own session read');
- assert.deepEqual(app.errors,[]);
+ await assertPurged(app.page);
+ assert.deepEqual(app.errors, []);
 });
 
 test('S1 browser: revocation clears a private tab title before asynchronous storage cleanup', async t => {
@@ -250,36 +171,4 @@ test('S1/S2 browser: the shared Room writer succeeds in-session and retires an o
  await app.page.waitForURL('**/public-shell/session-ended.html');
  assert.equal(payloads.length,1,'the retired editor cannot dispatch under the switched cookie');
  assert.deepEqual(app.errors,[]);
-});
-
-
-test('S1 browser: Back after 31 idle minutes verifies and starts the normal poll', async t => {
- const {page,origin,errors}=await open(t);
- await pausedClock(page,Date.parse('2026-10-01T15:00:00Z'));
- await page.route(origin+'/restore-fixture*',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><main><button>Cached action</button></main>'}));
- await page.goto(origin+'/restore-fixture?mode=live');
- await page.evaluate(async()=>{
-  const fetch=window.fetch;
-  window.restoreRequests=[];
-  window.fetch=(path,init)=>{
-   window.restoreRequests.push(path);
-   return path==='/fixture/poll' ? Promise.resolve(Response.json({})) : fetch(path,init);
-  };
-  const {privateSession}=await import('/js/private-session.js');
-  const {mountVisibilityPoll}=await import('/js/visibility-poll.mjs');
-  const session=privateSession();
-  await session.verify();
-  mountVisibilityPoll({poll:()=>session.fetch('/fixture/poll',{}, {boundRead:true})});
-  window.restoreRequests.length=0;
- });
- await page.clock.setSystemTime(new Date(await page.evaluate(()=>Date.now())+31*60_000));
- await page.evaluate(()=>{
-  window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}));
-  window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));
- });
- await page.waitForFunction(()=>document.documentElement.style.visibility==='');
- await page.clock.runFor(60_000);
- assert.deepEqual(await page.evaluate(()=>window.restoreRequests),['/auth/session','/fixture/poll']);
- assert.equal(await page.getByRole('button',{name:'Cached action'}).isEnabled(),true);
- assert.deepEqual(errors,[]);
 });

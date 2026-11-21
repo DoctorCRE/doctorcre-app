@@ -3,7 +3,7 @@ import { appAssetSnapshot } from '../scripts/fixture-app-assets.mjs';
 import { startWorkerFixture } from '../scripts/fixture-http.mjs';
 import assert from 'node:assert/strict';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
-import {chromium,waitForAsync} from './browser-harness.mjs';
+import {chromium,waitForAsync, returnToTab } from './browser-harness.mjs';
 import {createFixtureClient} from '../js/fixture-client.js';
 import axe from 'axe-core';
 import hierarchy from './fixtures/progress-board-hierarchy.json' with {type:'json'};
@@ -213,7 +213,7 @@ test('finding 8: poll preserves calendar, management and popup activity focus pl
  await section(page,'tabDashboard');const card=page.locator('.work-card h4 a').first();await card.click();await page.locator('.job-summary').getByText('Demo acceptance summary',{exact:true}).waitFor();await page.locator('#jobBody summary').click();const activity=page.locator('#jobBody details a');await activity.focus();state.pr=77;await advanceRoom(page,60_001);await page.waitForFunction(()=>document.querySelector('#jobBody').textContent.includes('PR #77'));assert.equal(await activity.evaluate(e=>e===document.activeElement),true);
  await page.locator('#jobClose').click();await page.waitForFunction(()=>document.querySelector('.work-card h4 a')===document.activeElement);
 });
-test('finding 9: persisted pagehide/pageshow continues Control Room polling',async t=>{
+test('finding 9: Control Room continues polling after a tab return',async t=>{
  const {page,state}=await open(t);await section(page,'tabViews');await page.waitForSelector('#incidentGroups [data-incident]');
  const incidentRead=()=>page.waitForResponse(response=>new URL(response.url()).pathname==='/mcp'
   && response.request().postDataJSON()?.params?.name==='incident-board');
@@ -221,7 +221,7 @@ test('finding 9: persisted pagehide/pageshow continues Control Room polling',asy
  // Consume the resume read before advancing past a read deadline. Otherwise
  // the virtual clock can time out a network response that has not arrived yet.
  state.incidentState='monitoring';const resumed=incidentRead();
- await page.evaluate(()=>{dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}));dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));});
+ await returnToTab(page);
  await (await resumed).finished();await showsState('monitoring');
  state.incidentState='investigating';const polled=incidentRead();await advanceRoom(page,60_001);
  await (await polled).finished();await showsState('investigating');

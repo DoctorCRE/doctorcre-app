@@ -53,7 +53,6 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
     revoke,
     async verify(options) { return (await verify(options)).session; },
     get revoked() { return revoked; },
-    get verified() { return Boolean(trusted); },
     get engineSignIn() { return !revoked && trusted?.signIn === 'engine'; },
     async fetch(path, init = {}, { boundRead = false, waitForBudget = false } = {}) {
       // Writes read the session to scope themselves; that read is a fresh, bound check.
@@ -95,48 +94,32 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
   };
 }
 
-function mountSessionPause(win) {
-  const { document } = win;
-  const paused = document.createElement('aside'), refresh = document.createElement('button');
-  const message = document.createTextNode('');
-  const fenced = new Set();
-  let budgetNotice;
-  paused.setAttribute('role', 'status');
-  paused.style.cssText = 'position:fixed;visibility:visible;inset:1rem 1rem auto;z-index:2147483647;padding:1rem;border:1px solid;background:Canvas;color:CanvasText';
-  refresh.type = 'button'; refresh.textContent = 'Refresh page'; refresh.onclick = () => win.location.reload();
-  refresh.hidden = true;
-  paused.append(message, ' ', refresh);
-  function render() {
-    message.textContent = budgetNotice ?? (refresh.hidden ? '' : 'Updates paused. Showing last loaded data.');
-    if (!message.textContent) paused.remove();
-    else if (!paused.isConnected) document.body.prepend(paused);
+let browserBoundary, browserRequests, browserPause;
+function showBudgetPause(document, notice) {
+  if (!notice) {
+    browserPause?.remove();
+    return;
   }
-  return {
-    budget(notice) { budgetNotice = notice; render(); },
-    setUnavailable(unavailable) {
-      refresh.hidden = !unavailable;
-      if (unavailable) {
-        for (const node of document.body.children) if (node !== paused && !node.inert) fenced.add(node);
-      }
-      for (const node of fenced) node.inert = unavailable;
-      if (!unavailable) fenced.clear();
-      render();
-    },
-  };
+  if (!browserPause) {
+    browserPause = document.createElement('aside');
+    browserPause.setAttribute('role', 'status');
+    browserPause.style.cssText = 'position:fixed;visibility:visible;inset:1rem 1rem auto;z-index:2147483647;padding:1rem;border:1px solid;background:Canvas;color:CanvasText';
+  }
+  browserPause.textContent = notice;
+  if (!browserPause.isConnected) document.body.prepend(browserPause);
 }
 
-let browserBoundary, browserRequests, browserPause;
 function browserFetch(path, init, budgetOptions) {
   if (typeof window === 'undefined' || globalThis !== window || resolveDealroomBoot(window.location).mode !== 'live') return globalThis.fetch(path, init);
   return (browserRequests ??= createRequestBudget({
     fetchImpl: (...args) => window.fetch(...args),
-    onPauseChange: notice => (browserPause ??= mountSessionPause(window)).budget(notice),
+    onPauseChange: notice => showBudgetPause(window.document, notice),
   })).fetch(path, init, budgetOptions);
 }
 export function privateSession() {
   if (browserBoundary) return browserBoundary;
   if (typeof window === 'undefined' || globalThis !== window || resolveDealroomBoot(window.location).mode !== 'live') return null;
-  const win = window, root = win.document.documentElement;
+  const win = window;
   const { pathname } = win.location;
   const returnQuery = /^\/a\/al1_[A-Za-z0-9_-]{1,120}$/.test(pathname) ? `?return_to=${encodeURIComponent(pathname)}` : '';
   const sessionEndedUrl = '/public-shell/session-ended.html' + returnQuery;
@@ -185,36 +168,9 @@ export function privateSession() {
       });
     },
   });
-  const { verify, fetch } = browserBoundary;
-  let starting, restart;
-  browserBoundary.verify = options => starting ?? verify(options);
-  browserBoundary.fetch = (...args) => starting ? starting.then(() => fetch(...args)) : fetch(...args);
-  function start() {
-    if (browserBoundary.revoked) { win.location.replace(sessionEndedUrl); return; }
-    if (sessionEpoch(win) !== initialEpoch) { browserBoundary.revoke('session-changed'); return; }
-    if (starting) { restart = true; return; }
-    const cached = browserBoundary.verified;
-    if (cached) root.style.visibility = 'hidden';
-    starting = (async () => {
-      let session;
-      // eslint-disable-next-line no-restricted-syntax -- A single queued startup shares the document request budget with the active startup.
-      do {
-        restart = false;
-        session = await verify({ fresh: true, waitForBudget: true }).catch(() => null);
-      } while (restart && !browserBoundary.revoked);
-      starting = null;
-      root.style.visibility = '';
-      if (cached && !browserBoundary.revoked) (browserPause ??= mountSessionPause(win)).setUnavailable(!session);
-      if (!session) throw new Error('Session verification unavailable');
-      win.dispatchEvent(new win.CustomEvent('doctorcre-session-ready', { detail: { cached } }));
-      return session;
-    })();
-    void starting.catch(() => {});
-  }
   win.addEventListener('storage', event => { if (event.key === SESSION_EPOCH_KEY && sessionEpoch(win) !== initialEpoch) browserBoundary.revoke('session-changed'); });
-  // eslint-disable-next-line no-restricted-syntax -- A single active startup verifies through the document request budget.
-  win.addEventListener('pageshow', event => { if (event.persisted) start(); });
-  start();
+  // eslint-disable-next-line no-restricted-syntax -- A cached Back return navigates once and leaves session reads to normal boot.
+  win.addEventListener('pageshow', event => { if (event.persisted) win.location.reload(); });
   return browserBoundary;
 }
 

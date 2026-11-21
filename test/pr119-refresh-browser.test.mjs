@@ -1,7 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { chromium, settles, waitForAsync } from './browser-harness.mjs';
+import { chromium, settles, waitForAsync, returnToTab } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
 import { atlasFixtureResponse } from '../scripts/atlas-fixture.mjs';
 import { createFixtureClient } from '../js/fixture-client.js';
@@ -101,7 +101,7 @@ for(const trigger of ['online','timer','resume'])test('PR119 dismissed-draft reg
  await page.locator('h1').evaluate(e=>{e.tabIndex=-1;e.focus();});
  const before=await page.evaluate(()=>({...window.chatReads}));
  if(trigger==='timer')await page.clock.fastForward(120_000);
- else if(trigger==='resume')await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
+ else if(trigger==='resume')await returnToTab(page);
  else await online(page);
  // Client calls start synchronously when a read is eligible. Count that
  // public read boundary so an indefinitely skipped callback fails directly.
@@ -191,7 +191,7 @@ for(const trigger of ['online','timer','resume'])test('PR119 finding 6: '+trigge
  const {page,errors}=await open(t,{smallChats:true});await page.goto(origin+'/doc-chats', {waitUntil:'domcontentloaded'});
  const card=page.locator('.suggestion-card').first();await card.locator('[data-correction]').fill('Synthetic correction');await card.locator('[data-snooze-date]').fill('2026-12-01');
  await card.locator('[data-correction]').focus();await card.locator('[data-correction]').evaluate(e=>{window.editor=e;e.setSelectionRange(3,8);});
- if(trigger==='timer')await page.clock.fastForward(31_000);else if(trigger==='resume')await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));else await online(page);
+ if(trigger==='timer')await page.clock.fastForward(31_000);else if(trigger==='resume')await returnToTab(page);else await online(page);
  const editor=await page.evaluate(()=>({connected:window.editor.isConnected,focused:document.activeElement===window.editor,start:window.editor.selectionStart,end:window.editor.selectionEnd,date:document.querySelector('[data-snooze-date]').value}));
  assert.deepEqual(editor,{connected:true,focused:true,start:3,end:8,date:'2026-12-01'});assert.deepEqual(errors,[]);
 });

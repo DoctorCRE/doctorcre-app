@@ -464,7 +464,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     void homeToday?.then(panel => panel?.dispose());
   };
   win.addEventListener('doctorcre-session-invalidated', invalidateSession);
-  win.addEventListener('pagehide', event => {
-    if (!event.persisted) { void calendarPanels.then(panel => panel?.retire()); lifetime.abort(); preparation.retire(); win.removeEventListener('doctorcre-session-invalidated', invalidateSession); ageTick.dispose(); auto.dispose(); if (owners) owners.dispose(); win.removeEventListener('offline', failedRead); }
+  win.addEventListener('pagehide', () => {
+    void calendarPanels.then(panel => panel?.retire()); lifetime.abort(); preparation.retire(); win.removeEventListener('doctorcre-session-invalidated', invalidateSession); ageTick.dispose(); auto.dispose(); if (owners) owners.dispose(); win.removeEventListener('offline', failedRead);
   });
 }
