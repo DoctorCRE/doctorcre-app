@@ -238,6 +238,18 @@ test("Doc link settings are available only with engine sign-in", async (t) => {
   for (const signIn of ["engine", "carr"] as const) {
     const { server, context } = await app(t, { signIn });
     const page = await context.newPage();
+    if (signIn === "carr") {
+      await page.route("**/js/notifications.js", async (route) => {
+        const response = await route.fetch();
+        const source = await response.text();
+        const end = /\.catch\(\(\)=>\{[^{}]*"Couldn't load Doc link settings\."\)\}\)/;
+        assert.match(source, end, "Doc link initialization must be observed");
+        await route.fulfill({
+          response,
+          body: source.replace(end, '$&.finally(() => { document.documentElement.dataset.docLinkSettled = "true"; })'),
+        });
+      });
+    }
     await page.goto(server.origin + "/updates?mode=live#docLinkSettings");
     await page.locator('#selfAvatar[aria-label*="account and settings"]').click();
     await page.getByRole("link", { name: "Notification preferences" }).waitFor();
@@ -247,12 +259,14 @@ test("Doc link settings are available only with engine sign-in", async (t) => {
       await entry.waitFor();
       await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
     } else {
+      await page.getByText("Joe's Workspace", { exact: true }).waitFor();
+      await page.locator('html[data-doc-link-settled="true"]').waitFor();
       assert.equal(await entry.count(), 0, "CARR sign-in must hide the Doc link entry");
-      assert.equal(await settings.count(), 0);
       assert.equal(
         server.requests.some(({ path }) => path === docLink),
         false,
       );
+      assert.equal(await settings.count(), 0);
     }
   }
 });
