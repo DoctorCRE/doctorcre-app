@@ -30,7 +30,10 @@ const stamp = value => Number.isFinite(Date.parse(value)) ? new Date(value).toLo
 const summary = value => String(value || "").split(/\n\s*\n/)[0].slice(0, 230);
 const score = lead => lead.score == null ? "—" : esc(Math.round(Number(lead.score)));
 const ownerName = owner => owner ? owner.charAt(0).toUpperCase() + owner.slice(1) : "Unclaimed";
-const phoneLabel = phone => phone.replace(/^(?:\+?1[ .-]?)?\(?(\d{3})\)?[ .-]?(\d{3})[ .-]?(\d{4})(?=\s+x\d+$|$)/i, "($1) $2-$3");
+const phoneLabel = phone => phone.replace(
+  /^(?:\+1[ .-]?)?(?:\(([2-9]\d{2})\)|([2-9]\d{2}))[ .-]?([2-9]\d{2})[ .-]?(\d{4})(?= +x\d+$|$)/i,
+  (_, parenthesizedArea, area, exchange, line) => `(${parenthesizedArea || area}) ${exchange}-${line}`,
+);
 const claimButton = lead => !lead.owner && normalizedStage(lead) !== "archived" ? `<button data-claim="${esc(lead.id)}">Claim</button>` : "";
 const quietLeadIndex = proposals => new Map(proposals.filter(row => row.subject_type === "lead").flatMap(row =>
   row.ref ? [[row.subject_id, row], [row.ref, row]] : [[row.subject_id, row]]
@@ -68,8 +71,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const target = $("detailFollowUp");
     target.hidden = !row;
     if (!row) { target.textContent = ""; return; }
-    const anchor = shortDate(row.anchor_on, true);
-    const basis = row.basis === "last_contact" ? `Last contact ${anchor}.` : `No contact recorded. Added ${anchor}.`;
+    const { last_contact_on: lastContact = row.basis === "last_contact" ? row.anchor_on : null } = row;
+    const basis = lastContact ? `Last contact ${shortDate(lastContact, true)}.` : `No contact recorded. Added ${shortDate(row.anchor_on, true)}.`;
     target.textContent = `${basis} Follow-up due ${shortDate(row.due_on, true)}.`;
   }
   function card(lead) {

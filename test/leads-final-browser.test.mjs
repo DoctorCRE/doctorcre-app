@@ -205,6 +205,7 @@ test('Quiet leads, Owner and Market narrow the same board and count', async t =>
   });
   await routeLeads(page, {
     getBoard: () => board,
+    getDetail: row => ({ ...detail(row), notes: 'Interested in a second location.' }),
     getQuiet: () => ({ ...emptyQuietFollowUps(), proposals: [
       { ...quiet(1, 16), ref: null }, { ...quiet(2, 0), subject_id: id(202), basis: 'last_contact' }, { ...quiet(3, 16), subject_type: 'vendor' },
     ] }),
@@ -221,6 +222,7 @@ test('Quiet leads, Owner and Market narrow the same board and count', async t =>
   await page.getByRole('button', { name: 'Dr. Example 2', exact: true }).click();
   await page.locator('#detailStage').waitFor();
   assert.equal(await page.getByText('Last contact Aug 1. Follow-up due Sep 15.', { exact: true }).count(), 1);
+  assert.equal(await page.getByText('Interested in a second location.', { exact: true }).count(), 1);
   await page.locator('#closeDetail').click();
   await page.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
   await page.locator('#detailStage').waitFor();
@@ -265,13 +267,16 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     });
     await routeLeads(page, {
       getBoard: () => ({ ...workspace(), leads: [unclaimed, claimed, archived, ...filler] }),
-      getQuiet: () => ({ ...emptyQuietFollowUps(), proposals: [due(1, 'created_at'), due(2, 'last_contact')] }),
+      getQuiet: () => ({ ...emptyQuietFollowUps(), proposals: [
+        { ...due(1, 'created_at'), last_contact_on: null },
+        { ...due(2, 'created_at'), last_contact_on: '2020-07-31' },
+      ] }),
       getDetail: row => ({
         ...detail(row), research, phone: '+18505550100 x123', notes,
         plans: 'Planning a dental relocation.\n\nNeeds two treatment rooms.',
         est_lease_event: '2028-12-01', handling_advice: null,
         strategy: { basis: 'stage_based_guidance', hold: row === archived ? { reason: 'contact_ineligible' } : null },
-        correspondence: row === unclaimed ? [] : [{ id: id(600), kind: 'call', occurred_at: added, summary: 'Discussed a relocation.' }],
+        correspondence: row === unclaimed ? [] : [{ id: id(600), kind: 'call', occurred_at: '2020-07-31T12:00:00Z', summary: 'Discussed a relocation.' }],
         correspondence_page: { total: row === unclaimed ? 0 : 1, has_more: false, next_cursor: null },
         stage_history: row === archived ? [
           { event_id: id(500), prior_stage: 'engaged', stage: 'archived', occurred_at: added, reason: 'became a deal in the old system' },
@@ -333,7 +338,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await page.getByRole('button', { name: 'Dr. Example 2', exact: true }).click();
     await drawer.getByRole('heading', { name: 'Sourced research' }).waitFor();
     assert.match(await drawer.innerText(), /Owner\s+Example Partner/);
-    assert.match(await drawer.innerText(), /Last contact Aug 1, 2020/);
+    assert.match(await drawer.innerText(), /Last contact Jul 31, 2020\. Follow-up due Sep 15, 2020\./);
     assert.match(await drawer.locator('.correspondence time').innerText(), /2020/);
     assert.equal(await drawer.getByRole('button', { name: 'Claim', exact: true }).count(), 0);
     await page.locator('#closeDetail').click();
