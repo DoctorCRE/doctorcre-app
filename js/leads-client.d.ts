@@ -1,3 +1,4 @@
+export function hasLeadVersion(lead: unknown): lead is { base_version: number };
 export function validateLeadWorkspace<T>(payload: T, parseTiming?: (value: unknown) => unknown): T;
 export function validateLeadDetail<T>(detail: T, id: string, parseTiming?: (value: unknown) => unknown): T;
 export type QuietProposal = {

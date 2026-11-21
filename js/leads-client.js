@@ -21,12 +21,14 @@ export function createLeadBoardClient(options = {}) {
   }
 
   async function rpc(name, args = {}, mutation = false, { signal } = {}) {
+    const workspaceRead = name === "lead-board" && args.workspace === "leads";
     const outcome = await requestMcp(name, args, { signal, timeoutMs: options.timeoutMs || 10_000 });
     if (outcome.kind === "authorization") {
       throw typedError({ error: outcome.status === 401 ? "not_authenticated" : "forbidden" }, "Sign-in required", outcome.status);
     }
     if (outcome.kind === "unconfirmed") {
       if (mutation) throw unknownMcpOutcome(outcome.cause || outcome.payload);
+      if (workspaceRead && ["envelope", "content", "missing", "payload"].includes(outcome.reason)) projection(false);
       switch (outcome.reason) {
         case "deadline": throw outcome.cause;
         case "network": throw Object.assign(new Error("The Lead Board could not reach the server."), { code: "network_error", cause: outcome.cause });
@@ -38,13 +40,22 @@ export function createLeadBoardClient(options = {}) {
       }
     }
     const { payload, isError } = outcome;
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw mutation ? unknownMcpOutcome(payload) : typedError(null, "The Lead Board returned an incomplete response.");
+    if (!object(payload)) {
+      if (mutation) throw unknownMcpOutcome(payload);
+      if (workspaceRead) projection(false);
+      throw typedError(null, "The Lead Board returned an incomplete response.");
+    }
     if (isError || payload.error || payload.ok === false) {
       if (payload.error === "carr_unavailable") throw unknownMcpOutcome(payload);
       throw typedError(payload);
     }
     if (mutation && payload.ok !== true) throw unknownMcpOutcome(payload);
     return payload;
+  }
+
+  async function writeLead(name, lead, args) {
+    projection(hasLeadVersion(lead));
+    return rpc(name, { ...args, base_version: lead.base_version }, true);
   }
 
   return observeDocClient({
@@ -71,20 +82,20 @@ export function createLeadBoardClient(options = {}) {
     getQuietFollowUps: async () => validateQuietFollowUps(await rpc("quiet-follow-ups", {})),
     setProspectEngagementStatus: createEngagementWriter(args => rpc("set-prospect-engagement-status", args, true)),
     acknowledgeLeadEmail(lead, key, actor) {
-      return rpc("acknowledge-lead-email", { lead_id: lead.id, base_version: lead.base_version,
-        expected_actor: actor, idempotency_key: key }, true);
+      return writeLead("acknowledge-lead-email", lead, { lead_id: lead.id,
+        expected_actor: actor, idempotency_key: key });
     },
     claimLead(lead, key, actor) {
-      return rpc("claim-lead", { lead: lead.registry_ref || lead.id, lead_id: lead.id, base_version: lead.base_version,
-        expected_actor: actor, idempotency_key: key }, true);
+      return writeLead("claim-lead", lead, { lead: lead.registry_ref || lead.id, lead_id: lead.id,
+        expected_actor: actor, idempotency_key: key });
     },
     recordStage(lead, stage, review, key, actor) {
-      return rpc("update-lead", { lead: lead.registry_ref || lead.id, lead_id: lead.id, base_version: lead.base_version,
-        expected_actor: actor, fields: { stage }, stage_review: review, idempotency_key: key }, true);
+      return writeLead("update-lead", lead, { lead: lead.registry_ref || lead.id, lead_id: lead.id,
+        expected_actor: actor, fields: { stage }, stage_review: review, idempotency_key: key });
     },
     linkClient(lead, clientId, key, actor) {
-      return rpc("link-lead-client", { lead: lead.registry_ref || lead.id, lead_id: lead.id, base_version: lead.base_version,
-        expected_actor: actor, client_id: clientId, confirmed: true, idempotency_key: key }, true);
+      return writeLead("link-lead-client", lead, { lead: lead.registry_ref || lead.id, lead_id: lead.id,
+        expected_actor: actor, client_id: clientId, confirmed: true, idempotency_key: key });
     },
   }, options.docContext === false ? null : undefined);
 }
@@ -95,8 +106,11 @@ const optionalText = value => value == null || typeof value === "string";
 function projection(condition) {
   if (!condition) throw Object.assign(new Error("Leads update unavailable"), { code: "invalid_projection" });
 }
+export function hasLeadVersion(lead) {
+  return Number.isSafeInteger(lead?.base_version) && lead.base_version > 0;
+}
 function validateLead(lead, parseTiming) {
-  projection(object(lead) && text(lead.id) && Number.isSafeInteger(lead.base_version) && lead.base_version > 0 && text(lead.stage) && typeof lead.suppressed === "boolean");
+  projection(object(lead) && text(lead.id) && (lead.base_version == null || hasLeadVersion(lead)) && text(lead.stage) && typeof lead.suppressed === "boolean");
   for (const key of ["registry_ref", "party_id", "doctor_name", "practice_name", "entity_name", "name", "owner", "city", "state", "market", "specialty", "vertical", "plan_type"]) projection(optionalText(lead[key]));
   for (const key of ["is_client", "linked_client", "is_past_client", "is_deal", "do_not_contact", "new_from_email"]) projection(lead[key] == null || typeof lead[key] === "boolean");
   projection(lead.score == null || (["string", "number"].includes(typeof lead.score) && Number.isFinite(Number(lead.score))));
@@ -107,9 +121,16 @@ function validateLead(lead, parseTiming) {
 }
 export function validateLeadWorkspace(payload, parseTiming) {
   projection(object(payload) && payload.schema_version === "lead-workspace.v1" && leadTimestamp(payload.generated_at) !== null && Array.isArray(payload.leads));
-  payload.leads.forEach(lead => validateLead(lead, parseTiming));
-  projection(new Set(payload.leads.map(lead => lead.id)).size === payload.leads.length);
-  return payload;
+  const leads = payload.leads.filter(lead => {
+    try { validateLead(lead, parseTiming); return true; }
+    catch (error) {
+      if (error?.code !== "invalid_projection") throw error;
+      return false;
+    }
+  });
+  projection(!payload.leads.length || leads.length > 0);
+  projection(new Set(leads.map(lead => lead.id)).size === leads.length);
+  return leads.length === payload.leads.length ? payload : { ...payload, leads };
 }
 const validCorrespondence = entry => object(entry) && text(entry.id) && text(entry.kind) &&
   leadTimestamp(entry.occurred_at) !== null && optionalText(entry.summary) && optionalText(entry.detail);

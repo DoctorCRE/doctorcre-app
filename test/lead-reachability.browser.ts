@@ -85,7 +85,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
                   }
                 : { error: "unsupported_fixture_read" };
           if ("leads" in payload && failure === "workspace")
-            payload.leads = payload.leads.map((row) => ({ ...row, base_version: null }));
+            payload.leads = payload.leads.map((row) => ({ ...row, stage: null }));
           else if ("leads" in payload && Object.hasOwn(malformed, failure)) {
             const invalid = {
               ...structuredClone(current),
@@ -206,7 +206,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         await page.waitForFunction(
           () =>
             document.getElementById("leadBoardError")?.textContent ===
-            "Source refused · invalid Leads board response. Previous snapshot is stale. Retry",
+            "Leads couldn't be loaded. Showing the last update. Retry",
         );
         failure = "denied";
         await page.locator("#refreshBoard").click();
