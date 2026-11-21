@@ -1095,6 +1095,35 @@ for (const available of [true, false]) test(`Home email suggestions ${available 
   assert.equal(await review.getByRole('button', { name: 'Accept', exact: true }).count(), 2);
 });
 
+for (const width of [390, 1440]) test(`Home preserves authored lines and empty message disclosures at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.thread = [
+    { ...mailThread[0], body: 'First line\nSecond line\n\nA postscript.', folded: null },
+    { ...mailThread[1], body: '', folded: '' },
+    { ...mailThread[1], activity_id: id(43), body: '', folded: 'Earlier conversation.' },
+  ];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const thread = page.getByRole('region', { name: 'Email thread' });
+  await thread.waitFor();
+  const articles = thread.getByRole('article');
+  assert.equal(await articles.count(), 3);
+  const body = articles.nth(0).getByText('First line', { exact: false });
+  assert.equal(await body.innerText(), state.thread[0].body);
+  assert.equal(await body.evaluate(node => getComputedStyle(node).whiteSpace), 'pre-wrap');
+  assert.equal(await articles.nth(0).getByRole('button').count(), 0);
+  assert.match(await articles.nth(1).innerText(), /From Pat · Nov 3/);
+  const toggle = articles.nth(1).getByRole('button', { name: 'Show earlier text' });
+  assert.equal(await toggle.isVisible(), true);
+  await toggle.click();
+  assert.equal(await articles.nth(1).getByRole('button', { name: 'Hide earlier text' }).getAttribute('aria-expanded'), 'true');
+  const earlier = articles.nth(2);
+  await earlier.getByRole('button', { name: 'Show earlier text' }).click();
+  assert.equal(await earlier.getByText('Earlier conversation.').isVisible(), true);
+});
+
 test('Home reveals earlier text only for the selected email message', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
   const earlier = ['Can we use the east entrance?\n\nPat Example', 'The sample suite is open.'];
