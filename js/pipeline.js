@@ -1567,7 +1567,7 @@ function openDealStepsHtml(detail, steps, today) {
         <p>${esc(actorName(step.owner))} · ${dueDateHtml(calendarDay(step.due_on), today)}</p>
         ${stepOrigin(step)}
       </div>
-      ${canFinish ? `<button class="btn btn-quiet" type="button" data-complete-step="${id}" data-detail-focus="done-${id}" aria-describedby="step-text-${id}"${saving ? ' aria-disabled="true"' : ''}>Done</button>` : ''}
+      ${canFinish ? `<button class="btn" type="button" data-complete-step="${id}" data-detail-focus="done-${id}" aria-describedby="step-text-${id}"${saving ? ' aria-disabled="true"' : ''}>Done</button>` : ''}
     </li>`;
   }).join('');
   return `<section class="deal-open-steps" aria-labelledby="deal-open-steps-heading">

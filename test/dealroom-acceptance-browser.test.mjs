@@ -3010,8 +3010,10 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   const fixtureOrigin = await dealFixtureOrigin(t);
   const deal = crypto.randomUUID();
   const row = { id: deal, deal_id: deal, name: 'Example Deal', owner: 'joe', phase: 'research', seen: 23 };
-  const own = { id: crypto.randomUUID(), description: 'Send the sample plan', owner: 'joe', due_on: '2026-11-24', status: 'open', change_id: 10 };
-  const other = { id: crypto.randomUUID(), description: 'Check the sample lease', owner: 'dell', due_on: '2026-11-25', status: 'open', change_id: 11 };
+  const own = { id: crypto.randomUUID(), description: 'Send the sample plan', owner: 'joe', due_on: '2026-11-24', status: 'open', change_id: 10,
+    set_by: 'Example Partner', set_at: '2026-10-29T13:51:00Z' };
+  const other = { id: crypto.randomUUID(), description: 'Check the sample lease', owner: 'dell', due_on: '2026-11-25', status: 'open', change_id: 11,
+    set_by: null, set_at: '2026-10-30T14:30:00Z' };
   const writes = [];
   let ownReceipt;
   const env = {
@@ -3056,13 +3058,22 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
 
   await page.goto(`${fixtureOrigin}/deals?deal=${deal}&mode=live`);
   const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
-  await snapshot.getByText(own.description, { exact: true }).waitFor();
+  const steps = snapshot.getByRole('region', { name: 'Next steps' });
+  const stepRow = step => steps.getByRole('listitem').filter({ hasText: step.description });
+  await stepRow(own).getByText('Set by Example Partner · Oct 29, 8:51 AM CDT', { exact: true }).waitFor();
+  await stepRow(other).getByText('Set Oct 30, 9:30 AM CDT', { exact: true }).waitFor();
   const capture = (region, stage) => region.screenshot({ path: join(evidence, `deal-step-${stage}-${width}-${theme}.png`), animations: 'disabled' });
   await capture(snapshot, 'open');
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
-  const done = snapshot.getByRole('button', { name: 'Done', exact: true });
+  const done = steps.getByRole('button', { name: 'Done', exact: true });
+  const buttonStyle = button => button.evaluate(el => {
+    const { backgroundColor, borderTopColor, borderTopStyle, borderTopWidth, borderRadius, color } = getComputedStyle(el);
+    return { backgroundColor, borderTopColor, borderTopStyle, borderTopWidth, borderRadius, color };
+  });
+  const secondaryStyle = await buttonStyle(page.getByRole('button', { name: 'Mark needs attention', exact: true }));
   assert.equal(await done.count(), 2);
   for (const button of await done.all()) {
+    assert.deepEqual(await buttonStyle(button), secondaryStyle, 'Done matches the bordered secondary action');
     await button.scrollIntoViewIfNeeded();
     assert.ok(await button.evaluate(el => {
       const { x, y, width, height } = el.getBoundingClientRect();
@@ -3070,6 +3081,13 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
     }), 'Done has an unobstructed 44 px touch target');
   }
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await done.first().focus();
+  await page.keyboard.press('Tab');
+  assert.ok(await done.last().evaluate(el => {
+    const { outlineStyle, outlineWidth } = getComputedStyle(el);
+    return el.matches(':focus-visible') && outlineStyle === 'solid' && parseFloat(outlineWidth) > 0;
+  }), 'Tab reaches Done and shows a focus ring');
+  await capture(page, 'focus');
 
   other.description = 'Check the revised sample lease';
   other.change_id = 15;
