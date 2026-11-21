@@ -91,8 +91,9 @@ export function prepareDealDetail(detail) {
   const steps = new Map(detail.next_actions?.map(step => [step.id, step]));
   const items = (detail.items || detail.deal?.items)?.map(item => {
     const step = steps.get(item.id);
-    const instruction = step?.display_instruction ?? step?.description;
-    return step ? { ...item, title: step.display_title ?? item.title, instruction } : item;
+    if (!step) return item;
+    const { display_instruction: instruction = step.description } = step;
+    return { ...item, title: step.display_title ?? item.title, instruction };
   });
   return { ...detail, entries, items,
     thread: newestFirst(detail.thread || [], threadInstant),
