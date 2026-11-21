@@ -11,7 +11,6 @@ const root = new URL('../', import.meta.url);
 const contract = (await import("../js/routes.js")).routeContract;
 const primary = navigationItems.filter(item => !item.secondary).map(item => item.label);
 const secondary = navigationItems.filter(item => item.secondary).map(item => item.label);
-const phoneMore = ['Tours', 'Vendors'];
 const registry = JSON.parse(await readFile(new URL('fixtures/walk-verb-registry.json', import.meta.url), 'utf8')).response;
 const readVerbs = new Set(registry.verbs.filter(verb => verb.write === false).map(verb => verb.name));
 const isWriteCall = call => call.method === 'POST' && !(call.url === '/mcp' && readVerbs.has(call.verb));
@@ -85,7 +84,8 @@ for (const actor of ['joe','dell']) test(`signed-in ${actor} gets workspace, acc
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
   await page.locator('#selfAvatar').click(); assert.equal(await page.locator('#accountMenu').isVisible(), true);
   assert.equal(await page.getByText('Notification preferences', {exact:true}).getAttribute('href'), '/updates#prefForm');
-  await page.getByText('Theme', {exact:true}).click(); assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Dark mode', {exact:true}).click(); assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   await page.locator('#selfAvatar').click(); await page.getByText('Profile', {exact:true}).click();
   assert.ok((await page.locator('.app-shell-profile').boundingBox()).width > 900);
   await page.getByLabel('Close profile').click(); await page.locator('#selfAvatar').click(); await page.keyboard.press('Escape'); assert.equal(await page.locator('#accountMenu').isVisible(), false);
@@ -165,10 +165,9 @@ test('desktop and phone navigation, account and Call mode work with reduced moti
   await mkdir(new URL('out/test-artifacts/w1b/regression/', root), { recursive: true });
   for (const width of [1440, 390, 320]) await t.test(String(width), async t => {
     const { page, errors, calls } = await open(t, { width, minimal: true, reducedMotion: 'reduce' });
-    const onPhone = width <= 760;
-    assert.deepEqual(await page.locator('.app-shell-navigation > a').evaluateAll(nodes => nodes.map(n => n.getAttribute('aria-label'))), onPhone ? primary.filter(label => !phoneMore.includes(label)) : primary);
+    assert.deepEqual(await page.locator('.app-shell-navigation > a').evaluateAll(nodes => nodes.map(n => n.getAttribute('aria-label'))), primary);
     await page.getByLabel('More', {exact:true}).click();
-    assert.deepEqual(await page.locator('.app-shell-more-list a').evaluateAll(nodes => nodes.map(n => n.getAttribute('aria-label'))), onPhone ? [...phoneMore, ...secondary] : secondary);
+    assert.deepEqual(await page.locator('.app-shell-more-list a').evaluateAll(nodes => nodes.map(n => n.getAttribute('aria-label'))), secondary);
     assert.equal(await page.locator('[data-app-nav-item]').count(), primary.length + secondary.length);
     assert.equal(await page.locator('[data-app-nav-item][href="/tasks"]').count(), 0);
     const controls = await page.locator('.app-shell-controls').evaluate(el => [...el.querySelectorAll('button')].filter(e => e.offsetParent).map(e => ({ width: e.getBoundingClientRect().width, height: e.getBoundingClientRect().height, transition: getComputedStyle(e).transitionDuration })));
@@ -200,7 +199,7 @@ for (const width of [320, 390]) test(`phone destinations are named, separate 44p
     const label = node.querySelector('.app-shell-nav-label'), box = node.getBoundingClientRect(), text = label.getBoundingClientRect();
     return { name: node.getAttribute('aria-label'), shown: label.innerText.trim(), labelVisible: text.width > 8 && text.height > 8 && getComputedStyle(label).clipPath === 'none', left: box.left, right: box.right, width: box.width, height: box.height, bottom: box.bottom };
   }));
-  assert.deepEqual(bar.map(item => item.shown), ['Deals', 'Home', 'Leads', 'Clients', 'Calendar', 'More']);
+  assert.deepEqual(bar.map(item => item.shown), ['Home', 'Deals', 'Leads', 'Vendors', 'More']);
   assert.ok(bar.every(item => item.labelVisible), 'every phone destination shows its name');
   assert.ok(bar.every(item => item.width >= 44 && item.height >= 44), 'each target is at least 44px');
   for (const [i, item] of bar.entries()) if (i) assert.ok(item.left >= bar[i - 1].right, `${item.name} does not overlap ${bar[i - 1].name}`);
@@ -211,7 +210,7 @@ for (const width of [320, 390]) test(`phone destinations are named, separate 44p
   await page.locator('.app-shell-navigation > a').first().focus();
   const order = [await page.evaluate(() => document.activeElement.getAttribute('aria-label'))];
   for (let i = 0; i < bar.length - 1; i++) { await page.keyboard.press('Tab'); order.push(await page.evaluate(() => document.activeElement.getAttribute('aria-label'))); }
-  assert.deepEqual(order, ['Local Deals', 'Home', 'Leads', 'Clients', 'Calendar', 'More'], 'keyboard order follows the visible order');
+  assert.deepEqual(order, ['Home', 'Deals', 'Leads', 'Vendors', 'More'], 'keyboard order follows the visible order');
 });
 
 // 200% browser zoom on a 1280x960 window is a 640x480 CSS-pixel viewport.
@@ -223,7 +222,8 @@ test('at 200% zoom exactly the active destination is current and the bar stays u
   assert.ok(bar.every(item => item.visible && item.width >= 44 && item.height >= 44), 'every destination stays visible at 44px');
   for (const [i, item] of bar.entries()) if (i) assert.ok(item.left >= bar[i - 1].right, `${item.name} does not overlap ${bar[i - 1].name}`);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no horizontal scroll at 200% zoom');
-  await page.getByLabel('Calendar', { exact: true }).first().click();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('link', { name: 'Calendar', exact: true }).click();
   await page.waitForURL(/\/calendar/);
   assert.deepEqual(await current(), ['Calendar'], 'only Calendar is current after navigating');
 });
@@ -370,8 +370,8 @@ for (const [width, height] of [[390, 960], [1440, 960], [390, 600], [390, 700]])
   await guide.waitFor();
   assert.equal(await guide.getByRole('button', { name: 'Back', exact: true }).isDisabled(), true);
   const steps = [
-    ['Home', '[data-app-nav-item][href="/"]'], ['Local Deals', '[data-app-nav-item][href="/deals"]'],
-    ['Leads', '[data-app-nav-item][href="/leads"]'], ['Calendar', '[data-app-nav-item][href="/calendar"]'],
+    ['Home', '[data-app-nav-item][href="/"]'], ['Deals', '[data-app-nav-item][href="/deals"]'],
+    ['Leads', '[data-app-nav-item][href="/leads"]'], ['Calendar', '.app-shell-more-toggle'],
     ['Doc', '#docOpen'], ['Call mode', '#callModeButton'],
   ];
   for (const [index, [title, selector]] of steps.entries()) {
@@ -421,8 +421,8 @@ for (const [width, height] of [[390, 960], [1440, 960], [390, 600], [390, 700]])
 
 test('walkthrough skips unavailable Call Mode', async t => {
   const { page } = await open(t, { callUnavailable: true });
-  await page.locator('#callModeRetry').waitFor({ state: 'visible' });
   await page.locator('#selfAvatar').click();
+  await page.locator('#callModeRetry').waitFor({ state: 'visible' });
   await page.getByRole('button', { name: 'How DoctorCRE works', exact: true }).click();
   const guide = page.getByRole('dialog', { name: 'How DoctorCRE works', exact: true });
   for (let index = 0; index < 4; index++) await guide.getByRole('button', { name: 'Next', exact: true }).click();

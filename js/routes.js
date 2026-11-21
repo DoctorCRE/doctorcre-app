@@ -64,13 +64,12 @@ export const routeContract = {
   gatePaths: Object.fromEntries(routeEntries.map(([path, , gate]) => [path, gate])),
 };
 export const navigationItems = [
-  { label: "Local Deals", href: "/deals" },
   { label: "Home", href: "/" },
+  { label: "Deals", href: "/deals" },
   { label: "Leads", href: "/leads" },
-  { label: "Clients", href: "/clients" },
-  { label: "Calendar", href: "/calendar" },
-  { label: "Tours", href: "/tours" },
   { label: "Vendors", href: "/vendors" },
+  { label: "Clients", href: "/clients", secondary: true },
+  { label: "Calendar", href: "/calendar", secondary: true },
   { label: "Phone capture", href: "/calls", secondary: true },
   { label: "Relationships", href: "/relationships", secondary: true },
   { label: "Invoices", href: "/invoices", secondary: true },
@@ -79,10 +78,13 @@ export const navigationItems = [
   { label: "Updates", href: "/updates", secondary: true },
 ];
 
+export const toursDestination = { label: "Tours", href: "/tours" };
+
 export const switcherUtilityPages = [
   { label: "Inbox", href: "/inbox" },
   { label: "Review workflows", href: "/review-workflows" },
   { label: "Search", href: "/search" },
+  toursDestination,
   { label: "Doc Activity", href: "/doc-activity" },
   { label: "Client portal", href: "/client-portal" },
   { label: "Share", href: "/share" },

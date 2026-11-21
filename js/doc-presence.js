@@ -1,7 +1,7 @@
 import { mountLocalTicker } from './visibility-poll.mjs';
 import { onDialogClosed } from './dialog-lifecycle.js';
 import { mountDocCommandBar } from './doc-command-bar.js';
-import { navigationItems } from './navigation.js';
+import { navigationItems, toursDestination } from './routes.js';
 import { createClient } from './client.js';
 import { resolveDealroomBoot } from './boot-mode.js';
 import { pageDocContext } from './doc-context.js';
@@ -102,7 +102,7 @@ export function mountDocPresence({ document: root = document, window: win = wind
   };
   const auto = mountAutoRefresh({ document:root, window:win, refresh, intervalMs, shouldRefresh:() => dialog.open, onResume:() => { ++readEpoch; } });
   const command = mountDocCommandBar({ dialog, window:win, context,
-    pages: navigationItems, onOpen:() => {
+    pages: [...navigationItems, toursDestination], onOpen:() => {
       const brief = root.getElementById('docMorningBrief');
       if (brief?.open) brief.close();
       actionGate ||= mountFeatureGate({document:root,window:win,name:'doc-suggestion-actions',

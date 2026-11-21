@@ -32,7 +32,7 @@ test('finding 6: emitted public report shell reserves space beside the fixed rai
   assert.equal(await page.getByLabel('Leads', {exact:true}).getAttribute('href'), 'https://app.doctorcre.com/leads');
   await page.getByLabel('More', {exact:true}).click();
   assert.equal(await page.getByLabel('More', {exact:true}).getAttribute('aria-expanded'), 'true');
-  assert.equal(await page.getByLabel('Local Deals', {exact:true}).getAttribute('href'), 'https://app.doctorcre.com/deals');
+  assert.equal(await page.getByLabel('Deals', {exact:true}).getAttribute('href'), 'https://app.doctorcre.com/deals');
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.app-shell-more-list').isVisible(), false);
   assert.equal(await page.getByLabel('More', {exact:true}).evaluate(node=>node===document.activeElement), true);

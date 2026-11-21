@@ -260,7 +260,7 @@ test('honest controls fit 320px, 390px and iPad in both motion settings with 44p
       await page.locator('#conversationList').waitFor({ state: 'attached' });
 
       await page.goto(`${base}/deals`);
-      if (width <= 760) await page.locator('#selfAvatar').click();
+      await page.locator('#selfAvatar').click();
       await page.locator('#callModeRetry:enabled').waitFor({ state:'visible' });
       assert.equal(await page.locator('#callModeButton').isVisible(), false);
       assert.match(await page.locator('#callModeAvailability').textContent(), /^Call recorder not connected$/);

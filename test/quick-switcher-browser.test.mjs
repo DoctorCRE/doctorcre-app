@@ -27,12 +27,12 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     const nav = page.getByRole('navigation', { name: 'Primary navigation' });
     await nav.getByRole('link', { name: 'Home', exact: true }).waitFor();
     assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+    await nav.getByRole('button', { name: 'More', exact: true }).click();
     for (const [name, href] of [['Clients', '/clients'], ['Calendar', '/calendar']]) {
-      const link = nav.getByRole('link', { name, exact: true });
-      assert.equal(await link.isVisible(), true, `${name} is in the primary rail`);
+      const link = nav.locator('.app-shell-more-list').getByRole('link', { name, exact: true });
+      assert.equal(await link.isVisible(), true, `${name} is in More`);
       assert.equal(await link.getAttribute('href'), href);
     }
-    await nav.getByRole('button', { name: 'More', exact: true }).click();
     const hrefs = await nav.getByRole('link').evaluateAll(links => links.map(link => link.getAttribute('href')));
     assert.deepEqual(hrefs.filter(href => builderLinks.includes(href)), []);
     if (process.env.PARTNER_MENU_SCREENSHOT_DIR) {
@@ -67,7 +67,7 @@ for (const modifier of ['Meta', 'Control']) test(`${modifier}-Alt-K opens the gl
     await page.goto(server.url);
     const opener = page.getByRole('button', { name: 'Quick switcher' });
     await opener.waitFor();
-    assert.equal(await opener.getAttribute('title'), 'Quick switcher (⌘/Ctrl+Alt+K)');
+    assert.equal(await opener.getAttribute('title'), 'Search (⌘/Ctrl+Alt+K)');
     assert.equal(await opener.getAttribute('aria-keyshortcuts'), 'Meta+Alt+K Control+Alt+K');
     await page.keyboard.press(`${modifier}+Alt+k`);
     const input = page.getByRole('combobox', { name: 'Jump to' });
