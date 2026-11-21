@@ -2,16 +2,33 @@ import {onDialogClosed} from './dialog-lifecycle.js';
 import { stepOriginLabel } from './email-source-line.js';
 import {
   escapeHtml as E,
-  EDGE_LABELS,
   indexConnections,
   shortSummary,
 } from "./relationship-network-model.js";
 const relationshipDate = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
 const PAGE_SIZE = 20;
 
-function connectionTime(edge) {
-  const time = Date.parse(edge.when);
-  return Number.isNaN(time) ? -Infinity : time;
+function renderConnection({ other, links }) {
+  const introducersByLabel = new Map();
+  for (const { label, introducer } of links) {
+    if (!introducersByLabel.has(label)) introducersByLabel.set(label, new Set());
+    if (introducer) introducersByLabel.get(label).add(introducer.name);
+  }
+  const labels = [...introducersByLabel].map(([label, names]) =>
+    names.size ? `${label} · via ${[...names].join(", ")}` : label,
+  ).join(" · ");
+  const latest = links[0];
+  const date = Number.isFinite(latest.time)
+    ? `<time datetime="${E(latest.when)}">${E(latest.label)} · ${E(relationshipDate.format(latest.time))}</time>`
+    : "";
+  const evidence = links.map(({ id, summary, detail }) => {
+    const excerpt = shortSummary(summary);
+    const notes = detail && detail.trim().replace(/\s+/g, " ") !== excerpt
+      ? `<details data-entry="${E(id)}"><summary data-card-key="detail:${E(id)}">Details</summary><p>${E(detail)}</p></details>`
+      : "";
+    return `${excerpt ? `<p>${E(excerpt)}</p>` : ""}${notes}`;
+  }).join("");
+  return `<article class="relationship-entry"><span>${E(labels)}</span><button type="button" data-open-node="${E(other.id)}" data-card-key="connection:${E(other.id)}">${E(other.name)} <span aria-hidden="true">↗</span></button>${date}${evidence}</article>`;
 }
 
 export function mountRelationshipDialog({ document, onReviewIntroduction, onRefresh }) {
@@ -22,6 +39,9 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
   let snapshot, selected, returnFocus;
   let visibleConnections = PAGE_SIZE;
   let readFailed = false;
+  const setSnapshot = (value) => {
+    snapshot = { ...value, connectionsByNode: value.connectionsByNode ?? indexConnections(value) };
+  };
   const paint = () => {
     const node = snapshot?.nodes.find((n) => n.id === selected);
     if (!node) {
@@ -34,14 +54,13 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
     const focused = dialog.contains(document.activeElement)
       ? document.activeElement.dataset.cardKey
       : null;
-    const connectionsByNode = snapshot.connectionsByNode ?? indexConnections(snapshot.edges);
-    const edges = connectionsByNode.get(node.id) ?? [];
-    const headingCount = readFailed && !edges.length ? "" : ` ${edges.length}`;
+    const connections = snapshot.connectionsByNode.get(node.id) ?? [];
+    const headingCount = readFailed && !connections.length ? "" : ` ${connections.length}`;
     const readNotice = readFailed
       ? '<p role="status">Connections temporarily unavailable.</p><button type="button" data-retry-connections data-card-key="retry-connections">Retry</button>'
       : "";
-    const empty = !readFailed && !edges.length ? "<p>No connections recorded</p>" : "";
-    const more = edges.length > visibleConnections
+    const empty = !readFailed && !connections.length ? "<p>No connections recorded</p>" : "";
+    const more = connections.length > visibleConnections
       ? '<button type="button" data-more-connections data-card-key="more-connections">Show more</button>'
       : "";
     const refs = snapshot.referrals.find((r) => r.node_id === node.id);
@@ -50,17 +69,7 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
     const origin = showStep && stepOriginLabel(step);
     const nextStep = showStep ? `<p class="relationship-summary" tabindex="-1" data-card-key="next-step"><strong>${step.status === "done" ? "Done" : "Next step"}:</strong> ${E(step.what)}${origin ? `<small> · ${E(origin)}</small>` : ""}</p>` : "";
     dialog.innerHTML = `<header><div><span class="relationship-kicker">${E(String(node.kind || "").replace(/^./, (c) => c.toUpperCase()))}</span><h2 id="relationshipTitle" tabindex="-1">${E(node.name)}</h2></div><button data-card-key="close" data-close-card type="button" aria-label="Close relationship">×</button></header><div class="relationship-detail-grid"><section>${nextStep}${node.contact_state && node.contact_state !== "active" ? `<span class="relationship-hold">Contact hold</span>` : ""}${node.summary ? `<p class="relationship-summary">${E(shortSummary(node.summary))}</p>${node.summary.trim().replace(/\s+/g, " ") !== shortSummary(node.summary) ? `<details data-entry="summary"><summary data-card-key="summary">Details</summary><p>${E(node.summary)}</p></details>` : ""}` : ""}${refs ? `<div class="relationship-metrics"><div><strong>${refs.deals}</strong><span>Deals sent</span></div><div><strong>${refs.win_rate === null ? "—" : `${Math.round(refs.win_rate * 100)}%`}</strong><span>Win rate · ${refs.won} won / ${refs.won + refs.lost} resolved</span></div></div>` : ""}</section><section><h3>Connections${headingCount}</h3>${readNotice}${empty}${
-      edges
-        .toSorted((a, b) => connectionTime(b) - connectionTime(a))
-        .slice(0, visibleConnections)
-        .map((e) => {
-          const other = snapshot.nodes.find(
-            (n) => n.id === (e.from === node.id ? e.to : e.from),
-          );
-          const via = snapshot.nodes.find((n) => n.id === e.via);
-          return `<article class="relationship-entry"><span>${E(EDGE_LABELS[e.kind])}${via ? ` · via ${E(via.name)}` : ""}</span><button type="button" data-open-node="${E(other.id)}" data-card-key="${E(e.id)}">${E(other.name)} <span aria-hidden="true">↗</span></button>${e.summary ? `<p>${E(shortSummary(e.summary))}</p>` : ""}${e.when && Number.isFinite(Date.parse(e.when)) ? `<time datetime="${E(e.when)}">${E(EDGE_LABELS[e.kind])} · ${E(relationshipDate.format(new Date(e.when)))}</time>` : ""}${e.detail && e.detail.trim().replace(/\s+/g, " ") !== shortSummary(e.summary) ? `<details data-entry="${E(e.id)}"><summary data-card-key="detail:${E(e.id)}">Details</summary><p>${E(e.detail)}</p></details>` : ""}</article>`;
-        })
-        .join("")
+      connections.slice(0, visibleConnections).map(renderConnection).join("")
     }${more}</section></div>`;
     if (onReviewIntroduction && snapshot.can_request_introductions !== false) for (const offer of snapshot.suggestions.filter(s => [s.from, s.to, s.via].includes(node.id))) {
       const action = document.createElement('button');
@@ -116,7 +125,7 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
   });
   return {
     open(value, id, trigger = document.activeElement) {
-      snapshot = value;
+      setSnapshot(value);
       selected = id;
       visibleConnections = PAGE_SIZE;
       returnFocus = trigger;
@@ -127,7 +136,7 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
       }
     },
     update(value) {
-      snapshot = value;
+      setSnapshot(value);
       readFailed = false;
       if (dialog.open) paint();
     },

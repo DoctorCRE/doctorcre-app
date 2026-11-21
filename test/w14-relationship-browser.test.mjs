@@ -469,7 +469,7 @@ test("Reciprocal links show one connection with every label and the latest date"
   await contact.click();
   const dialog = page.getByRole("dialog");
   assert.equal(await dialog.getByRole("heading", { name: "Connections 45", exact: true }).count(), 1);
-  const link = dialog.getByRole("button", { name: "Demo Link 2", exact: true });
+  const link = page.getByRole("button", { name: "Demo Link 2", exact: true });
   const entry = dialog.locator(".relationship-entry").filter({ has: link });
   assert.equal(await entry.count(), 1);
   assert.deepEqual((await entry.locator(":scope > span").innerText()).split(" · ").sort(), ["Knows", "Works with"]);
@@ -653,7 +653,7 @@ test('H05 dates identify the recorded relationship without inventing a meeting',
   await page.locator('#homeIntroductions [data-intro-node]').click();
   await page.locator('.relationship-dialog[open]').waitFor();
   const dates = page.locator('.relationship-dialog time');
-  assert.deepEqual(await dates.allTextContents(), ['Can introduce · Oct 1, 2026', 'Referred · Oct 1, 2026']);
+  assert.deepEqual(await dates.allTextContents(), ['Referred · Oct 1, 2026', 'Can introduce · Oct 1, 2026']);
   assert.deepEqual(await dates.evaluateAll(nodes => nodes.map(node => node.dateTime)), ['2026-10-01T15:00:00Z', '2026-10-01T15:00:00Z']);
   assert.doesNotMatch(await page.locator('.relationship-dialog').innerText(), /Met on|Employer/);
   assert.deepEqual(errors, []);

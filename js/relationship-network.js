@@ -308,11 +308,8 @@ export function mountRelationshipNetwork({
       if (disposed || seq !== epoch) return;
       if (!validNetwork(next) || Date.parse(next.valid_until) <= Date.now())
         throw Error("invalid_network");
-      snapshot = {
-        ...next,
-        nodes: next.nodes.map(node => node.kind === "deal" ? { ...node, name: dealName(node.name) } : node),
-        connectionsByNode: indexConnections(next.edges),
-      };
+      const nodes = next.nodes.map(node => node.kind === "deal" ? { ...node, name: dealName(node.name) } : node);
+      snapshot = { ...next, nodes, connectionsByNode: indexConnections({ nodes, edges: next.edges }) };
       facets();
       $("networkNotice").hidden = true;
       $("networkUpdated").textContent = updatedLabel(next.observed_at);
