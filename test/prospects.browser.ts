@@ -813,7 +813,7 @@ test("an open prospect shows a partner's new note without disturbing the draft o
       await Promise.all([detailResponse(304), visibility("visible")]);
       assert.deepEqual(tags, [null, '"1"', '"1"', '"2"']);
       await dialog.getByRole("button", { name: "Back to Deals" }).click();
-      await dialog.waitFor({ state: "detached" });
+      await page.locator("dialog.prospect-dialog").waitFor({ state: "detached" });
       await page.clock.fastForward(15_000);
       assert.equal(await detailFetchCount(), 4, "closing the dialog stops prospect detail fetches");
     } finally {
