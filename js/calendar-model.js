@@ -239,8 +239,11 @@ export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onP
             !Number.isInteger(row.days_late) || row.days_late < 0 ||
             !(row.open_url === null || (typeof row.open_url === "string" && /^\/(?:deals|relationships)\?/.test(row.open_url))))
           throw new Error("Calendar step unreadable");
+        const label = row.what.trim().replace(/\s+/g, " ");
+        const why = typeof row.why === "string" ? row.why.trim().replace(/\s+/g, " ") : "";
         return {
-          key: `step:${row.id}`, type: "step", day: row.display_on, label: row.what,
+          key: `step:${row.id}`, type: "step", day: row.display_on, label,
+          why: why.toLowerCase() === label.toLowerCase() ? "" : why,
           owner: row.owner, record_name: row.record_label, open_url: row.open_url,
           days_late: row.days_late, due_on: row.due_on, settled: false,
         };

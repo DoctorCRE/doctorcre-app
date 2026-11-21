@@ -17,6 +17,7 @@ import {
   filterNetwork,
   introductionSuggestions,
   introductionRouteLabel,
+  indexConnections,
   focusedNetwork,
   escapeHtml as E,
 } from "./relationship-network-model.js";
@@ -30,7 +31,11 @@ export function mountRelationshipNetwork({
 }) {
   const $ = (id) => document.getElementById(id),
     intro = mountIntroductionRequest({ document, client, validNetwork, onConfirmed: () => auto.refresh(), recoveryHost: $('networkIntroductions').parentElement }),
-    dialog = mountRelationshipDialog({ document, onReviewIntroduction: id => intro.open(snapshot, id) });
+    dialog = mountRelationshipDialog({
+      document,
+      onReviewIntroduction: id => intro.open(snapshot, id),
+      onRefresh: () => auto.refresh(),
+    });
   let snapshot = null,
     epoch = 0,
     disposed = false,
@@ -175,10 +180,10 @@ export function mountRelationshipNetwork({
     $("networkCount").textContent = `${view.nodes.length}`;
     $("networkMore").hidden = graph.nodes.length === view.nodes.length;
     $("networkNodes").innerHTML = view.nodes
-      .map(
-        (n) =>
-          `<button type="button" class="relationship-card" data-node="${E(n.id)}"><strong>${E(withoutRecordCodes(n.name))}</strong><span>${E(NODE_LABELS[n.kind])}${n.territory ? ` · ${E(n.territory)}` : ""}</span></button>`,
-      )
+      .map((n) => {
+        const count = snapshot.connectionsByNode.get(n.id)?.length ?? 0;
+        return `<button type="button" class="relationship-card" data-node="${E(n.id)}"><strong>${E(withoutRecordCodes(n.name))}</strong><span>${E(NODE_LABELS[n.kind])}${n.territory ? ` · ${E(n.territory)}` : ""} · ${count} ${count === 1 ? "connection" : "connections"}</span></button>`;
+      })
       .join("");
     const intros = introductionSuggestions(view, { limit: 6 });
     $("networkIntroductions").innerHTML =
@@ -306,13 +311,14 @@ export function mountRelationshipNetwork({
       if (disposed || seq !== epoch) return;
       if (!validNetwork(next) || Date.parse(next.valid_until) <= Date.now())
         throw Error("invalid_network");
-      snapshot = { ...next, nodes: next.nodes.map(node => node.kind === "deal" ? { ...node, name: dealName(node.name) } : node) };
+      const nodes = next.nodes.map(node => node.kind === "deal" ? { ...node, name: dealName(node.name) } : node);
+      snapshot = { ...next, nodes, connectionsByNode: indexConnections({ nodes, edges: next.edges }) };
       facets();
       $("networkNotice").hidden = true;
       $("networkUpdated").textContent = updatedLabel(next.observed_at, BUSINESS_TIME_ZONE);
       render();
+      dialog.update(snapshot);
       if (openLinkedRecord && snapshot.nodes.some(node => node.id === focus)) open(focus);
-      else dialog.update(next);
       openLinkedRecord = false;
     } catch (error) {
       if (disposed || seq !== epoch) return;
@@ -328,7 +334,11 @@ export function mountRelationshipNetwork({
       $("networkNotice").hidden = false;
       $("networkNotice").innerHTML = expired
         ? '<a href="/auth/login?return_to=%2Frelationships">Sign in</a>'
-        : "Connections temporarily unavailable";
+        : 'Connections temporarily unavailable. <button type="button">Retry</button>';
+      if (!expired) {
+        $("networkNotice").querySelector("button").onclick = auto.refresh;
+        dialog.showReadError();
+      }
       $("networkUpdated").textContent = "Updating…";
     } finally {
       if (seq === epoch) $("networkRefresh").setAttribute("aria-busy", "false");

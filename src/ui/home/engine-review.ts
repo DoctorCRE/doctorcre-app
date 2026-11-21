@@ -73,7 +73,7 @@ export const hasEngineReview = (item: InboxItem) =>
 
 export type EmailThread = {
   subject: string | null;
-  messages: { id: string; sender: string | null; occurredAt: string; body: string }[];
+  messages: { id: string; sender: string | null; occurredAt: string; body: string; folded: string | null }[];
 };
 
 function emailThread(value: Record<string, unknown>): EmailThread {
@@ -89,7 +89,15 @@ function emailThread(value: Record<string, unknown>): EmailThread {
           typeof body !== "string"
         )
           return [];
-        return [{ id, occurredAt, body, sender: string(sender_name)?.trim().split(/\s+/, 1)[0] || null }];
+        return [
+          {
+            id,
+            occurredAt,
+            body,
+            sender: string(sender_name)?.trim().split(/\s+/, 1)[0] || null,
+            folded: string(message.folded),
+          },
+        ];
       })
     : [];
   return {

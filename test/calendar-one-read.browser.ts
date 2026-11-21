@@ -14,6 +14,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const app = "https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev";
 const calendarRead = "/api/engine/calendar/critical-dates";
 const stepTitle = "Send revised offer for ExampleLeaseRenewalPackageRevision20261020";
+const stepWhy = "The owner asked for an update on <Suite A> & parking.";
 
 test("Calendar reads once and shows dates and next steps in the visible period", async (t) => {
   const outDir = await temporaryDirectory("calendar-one-read-");
@@ -78,6 +79,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
                   {
                     id: "step-a",
                     what: stepTitle,
+                    why: stepWhy,
                     owner: "joe",
                     record_label: "Example lease",
                     due_on: "2026-10-17",
@@ -88,6 +90,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
                   ...["22", "24", "26", "30"].map((day) => ({
                     id: `step-${day}`,
                     what: "Confirm suite availability",
+                    ...(day === "22" ? { why: "  CONFIRM SUITE AVAILABILITY  " } : {}),
                     owner: "dell",
                     record_label: "Example clinic",
                     due_on: `2026-10-${day}`,
@@ -156,6 +159,12 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             true,
             "The full step title fits inside the selected-day panel",
           );
+          await t.test("the reason appears as plain muted text beneath the title", async () => {
+            const reason = title.locator("+ p").filter({ hasText: stepWhy });
+            await expect(reason).toBeVisible();
+            await expect(reason).toHaveText(stepWhy);
+            await expect(reason).toHaveCSS("color", await panel.evaluate((node) => getComputedStyle(node).color));
+          });
           await expect(step).toContainText("Next step · Joe");
           await expect(step).toContainText("3 days late");
           await expect(step.getByRole("link")).toHaveAttribute(
@@ -168,6 +177,12 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           assert.deepEqual(reads, [calendarRead]);
           await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
           await expect(page.locator("#calCount")).toHaveText("5 next steps · 2 critical dates");
+          await t.test("the period total appears once", async () => {
+            const total = page.getByText("5 next steps · 2 critical dates", { exact: true });
+            await expect(total).toHaveCount(1);
+            await expect(total).toBeVisible();
+            await expect(total).toHaveAttribute("aria-live", "polite");
+          });
           await expect(page.locator("#calGrid .cal-chip")).toHaveCount(7);
           await expect(page.locator("#calAgenda .cal-agenda-item")).toHaveCount(5);
           await expect(page.locator("#dayPanelBody .cal-day-entry")).toHaveCount(2);
@@ -191,6 +206,11 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             "href",
             "/relationships?node=party:example-clinic",
           );
+          await t.test("repeated and missing reasons add no copy", async () => {
+            await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
+            await comingUpPanel.getByRole("button", { name: /^Oct 24\b/ }).click();
+            await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
+          });
           await page.getByRole("button", { name: "Jump to today" }).click();
           await expect(step).toBeVisible();
           const week = page.getByRole("button", { name: "Week", exact: true });

@@ -149,6 +149,42 @@ export function introductionSuggestions(
 export function introductionRouteLabel(path) {
   return path.map(node => node.name).join(" → ");
 }
+function compareIds(a, b) {
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+export function indexConnections({ nodes, edges }) {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const links = edges.map((edge) => {
+    const time = Date.parse(edge.when);
+    return {
+      ...edge,
+      label: EDGE_LABELS[edge.kind],
+      introducer: nodesById.get(edge.via),
+      time: Number.isNaN(time) ? -Infinity : time,
+    };
+  }).sort((a, b) => b.time - a.time || compareIds(a, b));
+
+  const byNode = new Map();
+  for (const link of links) {
+    for (const id of new Set([link.from, link.to, link.via])) {
+      if (!id) continue;
+      // An introducer's connection opens the source of the introduction.
+      const otherId = id === link.from ? link.to : link.from;
+      if (!byNode.has(id)) byNode.set(id, new Map());
+      const byOther = byNode.get(id);
+      if (!byOther.has(otherId)) byOther.set(otherId, { other: nodesById.get(otherId), links: [] });
+      byOther.get(otherId).links.push(link);
+    }
+  }
+  return new Map([...byNode].map(([id, byOther]) => [
+    id,
+    [...byOther.values()].sort((a, b) =>
+      b.links[0].time - a.links[0].time ||
+      a.other.name.localeCompare(b.other.name, "en-US") ||
+      compareIds(a.other, b.other),
+    ),
+  ]));
+}
 export function focusedNetwork(snapshot, focus, limit = 12) {
   const candidates = new Set([focus]);
   snapshot.edges.forEach((e) => {
