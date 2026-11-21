@@ -419,6 +419,38 @@ test('Opening a lead shows its exact source and clears the badge for both partne
   assert.equal(writes.length, 1);
 });
 
+test('Malformed source email leaves the drawer and Claim available', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const row = lead(1);
+  const writes = [];
+  await routeLeads(page, {
+    actor: 'joe',
+    getBoard: () => ({ ...workspace(), leads: [row] }),
+    getDetail: row => ({
+      ...detail(row),
+      source_email: { id: id(800), kind: 'email', occurred_at: '2026-10-01T10:00:00Z', summary: 'Original request', detail: 17 },
+    }),
+    saveLead: (lead_id, { action, expected_actor }) => {
+      writes.push({ lead_id, action, expected_actor });
+      row.owner = expected_actor;
+      return Response.json({ ok: true, lead_id });
+    },
+  });
+  await page.goto('http://localhost/leads');
+  await page.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
+  const drawer = page.locator('#leadDetail');
+  const contact = drawer.getByRole('heading', { name: 'Contact', exact: true });
+  const refusal = drawer.getByText('Lead details were refused.', { exact: true });
+  await contact.or(refusal).waitFor();
+  assert.equal(await refusal.isVisible(), false, 'A malformed source email refused the drawer');
+  assert.equal(await drawer.getByRole('heading', { name: 'Source email', exact: true }).count(), 0);
+  await drawer.getByRole('button', { name: 'Claim', exact: true }).click();
+  await page.getByText('Lead claimed', { exact: true }).waitFor();
+  assert.deepEqual(writes, [{ lead_id: row.id, action: 'claim', expected_actor: 'joe' }]);
+});
+
 test('A failed drawer read does not acknowledge and a 503 retries only on reopening', async t => {
   const browser = await chromium.launch();
   t.after(() => browser.close());

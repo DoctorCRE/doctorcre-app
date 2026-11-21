@@ -125,7 +125,6 @@ export function validateLeadDetail(detail, id, parseTiming) {
   validateLead(detail, parseTiming); projection(detail.id === id);
   for (const key of ["phone", "email", "notes", "plans", "est_lease_event"]) projection(optionalText(detail[key]));
   projection(Array.isArray(detail.correspondence) && detail.correspondence.every(validCorrespondence));
-  projection(detail.source_email == null || validCorrespondence(detail.source_email));
   projection(Array.isArray(detail.stage_history) && detail.stage_history.every(entry => object(entry) && text(entry.event_id) && leadTimestamp(entry.occurred_at) !== null && optionalText(entry.prior_stage) && optionalText(entry.stage) && optionalText(entry.reason)));
   for (const kind of ["correspondence", "stage_history"]) {
     const page = detail[`${kind}_page`];
@@ -136,6 +135,7 @@ export function validateLeadDetail(detail, id, parseTiming) {
     else projection(typeof page.next_cursor === "string" && /^[0-9]+$/.test(page.next_cursor));
   }
   if (detail.research !== undefined) validateResearch(detail.research);
+  if (detail.source_email != null && !validCorrespondence(detail.source_email)) detail.source_email = null;
   return detail;
 }
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
