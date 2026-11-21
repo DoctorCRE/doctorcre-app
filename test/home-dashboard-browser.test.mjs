@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { chromium, settles, returnToTab } from './browser-harness.mjs';
+import { chromium, pausedClock, settles, returnToTab, waitForAsync } from './browser-harness.mjs';
 import { relationshipNetworkFixture } from '../js/relationship-network-fixture.js';
 import { createFixtureClient } from '../js/fixture-client.js';
 import axe from 'axe-core';
@@ -17,14 +17,15 @@ const screenshot = async (page, name) => {
   await page.screenshot({ path: join(process.env.W2_SCREENSHOT_DIR, `${name}.png`), fullPage: !name.includes('detail') });
 };
 
-async function open(t, { preparationResponse, calendarPanelsGate, actionCompletion, calendar, initialBriefFailure = false, theme = 'dark', delayHome = false, width = 1440, height = 1000, invoiceAttention = false, motion = 'reduce', leads = true, delayDetails = false, hangDetails = false, longLead = false, tasksOnly = false, heldTasks = false, malformedTasks = false, delayBoard = false, delayInitialFeed = false, origin = 'http://localhost', malformedBoard = false, firstOpen = false, freshBrief = false, emptyAgenda = false, initialDetailFailure = null, blockUi = false } = {}) {
+async function open(t, { preparationResponse, calendarPanelsGate, actionCompletion, calendar, initialBriefFailure = false, theme = 'dark', delayHome = false, width = 1440, height = 1000, invoiceAttention = false, motion = 'reduce', leads = true, delayDetails = false, hangDetails = false, longLead = false, tasksOnly = false, heldTasks = false, malformedTasks = false, delayBoard = false, delayInitialFeed = false, freezeTime = false, origin = 'http://localhost', malformedBoard = false, firstOpen = false, freshBrief = false, emptyAgenda = false, initialDetailFailure = null, blockUi = false } = {}) {
   const client = await createFixtureClient({ seedUrl: `data:application/json;base64,${Buffer.from(await readFile(new URL('../data/board-seed.json', import.meta.url))).toString('base64')}` });
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width, height }, timezoneId: 'UTC', reducedMotion: motion });
   await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true, dell: true } })), theme);
   // Virtual time pauses CSS transitions. Data journeys use reduced motion so
   // actionability cannot wait on a hover transition the clock never advances.
-  await page.clock.install({ time: NOW });
+  if (freezeTime) await pausedClock(page, NOW);
+  else await page.clock.install({ time: NOW });
   if (!firstOpen && !freshBrief) await page.addInitScript(() => {
     if (!localStorage.getItem('doctorcre:morning:joe')) localStorage.setItem('doctorcre:morning:joe', JSON.stringify({ day: '2026-10-01', lastShownAt: '2026-10-01T14:00:00Z', since: '2026-09-30T17:00:00Z' }));
   });
@@ -92,7 +93,7 @@ async function open(t, { preparationResponse, calendarPanelsGate, actionCompleti
     if (url.pathname === '/api/system-work/current') { calls.push('current-work-requests'); return route.fulfill({ json: { ok: true, data: await client.currentWorkRequests() } }); }
     if (url.pathname === '/pipeline/changes') {
       feedReads++;
-      if (delayInitialFeed && feedReads === 1) await initialFeed;
+      if (delayInitialFeed) await initialFeed;
       return route.fulfill({ json: { events: [], cursor: null } });
     }
     if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({ json: { actor: { slug: 'joe', label: 'Demo partner' }, csrf_token: 'synthetic' } });
@@ -437,10 +438,12 @@ test('R6 settled board failure shows unavailable rather than Updating and automa
 
 test('R7 linked Deals detail refusal or timeout cannot prevent board and feed polling', async t => {
   for (const failure of ['503', 'timeout']) await t.test(failure, async t => {
-    const state = await open(t, { delayInitialFeed: true }); const { page } = state;
+    const state = await open(t, { delayInitialFeed: true, freezeTime: true });
+    const { page } = state;
     await page.waitForFunction(() => document.querySelector('#refreshHome').getAttribute('aria-busy') === 'false');
     state.failDetails(failure);
-    const firstFeed = page.waitForRequest('**/pipeline/changes');
+    const firstFeed = page.waitForRequest(request => new URL(request.url()).pathname === '/pipeline/changes'
+      && new URL(request.frame().url()).pathname === '/deals');
     const detailRead = page.waitForRequest(request => new URL(request.url()).pathname === '/mcp'
       && request.postDataJSON()?.params?.name === 'get-deal-room'
       && new URL(request.frame().url()).pathname === '/deals');
@@ -449,7 +452,10 @@ test('R7 linked Deals detail refusal or timeout cannot prevent board and feed po
     await firstFeed;
     state.releaseInitialFeed();
     await detailRead;
-    await page.clock.runFor(10_001);
+    await waitForAsync(page, async () =>
+      (await import('/js/pipeline.js')).state.boardSync.status().feed_health === 'ok');
+    const elapsed = failure === 'timeout' ? 10_000 : 0;
+    if (elapsed) await page.clock.runFor(elapsed);
     await page.locator('#panelBody').getByText('Updates temporarily unavailable',{exact:true}).waitFor();
     assert.match(await page.locator('#panelBody').textContent(), /Updates temporarily unavailable/);
     assert.equal(await page.locator('#recordPanel').getByRole('button', { name: 'Back to deals', exact: true }).isVisible(), true);
@@ -457,7 +463,8 @@ test('R7 linked Deals detail refusal or timeout cannot prevent board and feed po
     const nextBoard = page.waitForResponse(response => new URL(response.url()).pathname === '/mcp'
       && response.request().postDataJSON()?.params?.name === 'deal-room-board');
     const nextFeed = page.waitForResponse(response => new URL(response.url()).pathname === '/pipeline/changes');
-    await page.clock.runFor(65_000);
+    // Stop at the poll so its reads can finish before their deadlines tick.
+    await page.clock.runFor(60_000 - elapsed);
     await Promise.all([nextBoard, nextFeed]);
     assert.ok(state.boardReads > before[0], 'board refresh continues');
     assert.ok(state.feedReads > before[1], 'feed polling continues');
