@@ -49,11 +49,16 @@ async function open(
     route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
   );
   await page.route("**/pipeline/changes", (route) => route.fulfill({ json: { cursor: "", events: [] } }));
+  let savedPreferences = preferences;
   await page.route("**/mcp", async (route) => {
     const request: { params: { name: string; arguments: { limit?: number } } } = route.request().postDataJSON();
     const { name, arguments: args } = request.params;
     if (name === "notification-feed" && args.limit === 25) return route.fulfill(await readFeed());
-    const payload = name === "read-notification-preferences" ? preferences : emptyFeed;
+    if (name === "set-notification-preference") {
+      savedPreferences = { ...preferences, exists: true, device_opt_in: true, version: 2 };
+      return route.fulfill({ json: rpc(savedPreferences) });
+    }
+    const payload = name === "read-notification-preferences" ? savedPreferences : emptyFeed;
     return route.fulfill({ json: rpc(payload) });
   });
   return page;
@@ -175,4 +180,42 @@ test("an invalid feed reply offers Retry instead of staying in loading", async (
   await page.goto(`${server.origin}/updates?mode=live`);
   await page.getByRole("heading", { name: "Notifications temporarily unavailable" }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).isVisible(), true);
+});
+
+test("saving notification preferences keeps its confirmation separate from a pending feed refresh", async (t) => {
+  const refreshed = Promise.withResolvers<Reply>();
+  let firstRead = true;
+  const page = await open(t, 390, "dark", () => {
+    if (!firstRead) return refreshed.promise;
+    firstRead = false;
+    return { json: rpc(emptyFeed) };
+  });
+  t.after(() => refreshed.resolve({ json: rpc(emptyFeed) }));
+  await page.goto(`${server.origin}/updates?mode=live`);
+  await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
+
+  const feedStatus = page.getByRole("status").filter({ hasText: /^No updates$/ });
+  const announcements = await feedStatus.evaluateHandle((region) => {
+    const messages: string[] = [];
+    new MutationObserver((changes) => {
+      for (const change of changes) {
+        for (const node of change.addedNodes) messages.push(node.textContent ?? "");
+      }
+    }).observe(region, { childList: true });
+    return messages;
+  });
+
+  await page.getByRole("checkbox", { name: "Send a device push when something is addressed to me" }).check();
+  await page.getByRole("button", { name: "Save preferences" }).click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: /^Updating…$/ })
+    .waitFor();
+  const confirmation = page.getByRole("status").filter({ hasText: /^Saved$/ });
+  assert.equal(await confirmation.count(), 1);
+  assert.deepEqual(await announcements.jsonValue(), ["Updating…"]);
+
+  refreshed.resolve({ json: rpc(emptyFeed) });
+  await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
+  assert.equal(await confirmation.count(), 1);
 });

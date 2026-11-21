@@ -78,9 +78,14 @@ let dirty = false;
 /** Version shown when the person first edited; resume reads cannot move it. */
 let draftBaseVersion = null;
 
-function announce(text) {
+function announceFeed(text) {
   const live = $("feedLive");
   if (live && live.textContent !== text) live.textContent = text;
+}
+
+function showPreferenceMessage(text) {
+  const message = $("prefMessage");
+  if (message.textContent !== text) message.textContent = text;
 }
 
 const asOf = (read) => {
@@ -145,7 +150,7 @@ function renderFeed() {
   const payload = read.state === "read" ? read.payload : null;
   const unread = unreadLine(payload);
   $("unreadLine").textContent = unread;
-  announce(state.sentence || unread);
+  announceFeed(state.sentence || unread);
   $("feedOrb").setAttribute(
     "data-state",
     state.state === "ready" || state.state === "empty" ? "healthy"
@@ -259,7 +264,7 @@ async function takePreference() {
     if (view.sequence !== sequence) return;
     view.preference = { state: "read", payload, observed_at: new Date().toISOString() };
     if (dirty && draftBaseVersion !== null && payload.version !== draftBaseVersion) {
-      $("prefMessage").textContent = "Preferences changed while you were editing. Save will check your earlier version before changing anything.";
+      showPreferenceMessage("Preferences changed while you were editing. Save will check your earlier version before changing anything.");
     }
   } catch (error) {
     if (view.sequence !== sequence) return;
@@ -345,7 +350,10 @@ async function dispatch(operationKey, args, summary, preference = false) {
     // eslint-disable-next-line no-restricted-syntax -- Only an explicit dock-button click retries a notification; the receipt flag schedules no attempts.
     retry: result.retry, undo: false, request: result.request,
   });
-  if (result.message) announce(result.message);
+  if (result.message) {
+    if (preference) showPreferenceMessage(result.message);
+    else announceFeed(result.message);
+  }
   // Only the record layer knows what the feed now holds, so a settled write
   // re-reads it rather than marking the card this page hoped for.
   if (result.status === "ok") await load();
@@ -355,7 +363,7 @@ async function dispatch(operationKey, args, summary, preference = false) {
 function acknowledge(id) {
   const built = acknowledgeArgs(id);
   if (!built.ok) {
-    announce(built.message);
+    announceFeed(built.message);
     return;
   }
   const operationKey = acknowledgeOperationKey(built.args.notification_id);
@@ -377,14 +385,12 @@ async function savePreference(form) {
   const model = view.preference.state === "read" ? preferenceView(view.preference.payload) : null;
   const retained = commandState[PREFERENCE_OPERATION_KEY];
   const built = retained ? { ok: true, args: retained.request } : setPreferenceArgs(form, preferenceSaveView(model, draftBaseVersion));
-  const message = $("prefMessage");
   if (!built.ok) {
-    message.textContent = built.message;
-    announce(built.message);
+    showPreferenceMessage(built.message);
     return built;
   }
   saving = true;
-  message.textContent = "";
+  showPreferenceMessage("");
   renderPreference();
   if (!commandState[PREFERENCE_OPERATION_KEY]) {
     try {
@@ -396,14 +402,12 @@ async function savePreference(form) {
         // The next deliberate save reviews this version and reads again.
         dirty = true; draftBaseVersion = current.version; saving = false;
         renderPreference();
-        message.textContent = "Preferences changed. Review the current saved preferences above and your kept draft before saving again.";
-        announce(message.textContent);
+        showPreferenceMessage("Preferences changed. Review the current saved preferences above and your kept draft before saving again.");
         return;
       }
     } catch {
       saving = false; renderPreference();
-      message.textContent = "Preferences not sent. Their current version could not be verified.";
-      announce(message.textContent);
+      showPreferenceMessage("Preferences not sent. Their current version could not be verified.");
       return;
     }
   }
@@ -454,12 +458,9 @@ async function savePreference(form) {
     dirty = false;
     draftBaseVersion = null;
     sentence = sentence || "Saved";
-    message.textContent = sentence;
-    announce(sentence);
-    await load();
   }
-  $("prefMessage").textContent = sentence || "";
-  if (sentence) announce(sentence);
+  showPreferenceMessage(sentence || "");
+  if (result.status === "ok") await load();
   renderPreference();
   return result;
 }
