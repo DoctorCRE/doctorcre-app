@@ -501,15 +501,12 @@ export function partyKindText(value) {
 }
 
 /** Vendors: workable is a property of the disposition on the record, not a judgement. */
-function vendorDispositionTone(row) {
+export function rowTone(dataset, row) {
+  if (dataset !== "vendors") return null;
   const workable = row?.recorded_disposition_workable;
   if (workable === true) return { tone: "active", label: "Workable" };
   if (workable === false) return { tone: "warm", label: "Not workable" };
-  return { tone: "unknown", label: "Workable not set" };
-}
-
-export function rowTone(dataset, row) {
-  return dataset === "vendors" ? vendorDispositionTone(row) : null;
+  return null;
 }
 
 /**

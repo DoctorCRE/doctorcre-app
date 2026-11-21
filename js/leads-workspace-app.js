@@ -15,7 +15,7 @@ import {onDialogClosed} from './dialog-lifecycle.js';
 import { pageDocContext, publishDocRead, selectDocRecord, setDocFilters } from './doc-context.js';
 import { createLeadBoardClient, validateLeadWorkspace as validateWorkspace, validateLeadDetail as validateDetail } from "./leads-client.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
-import { BOARD_STAGES, FILTER_STAGES, stageLabel, normalizedStage, eligibleLead, leadTitle as recordedLeadTitle, leadMarket, marketKey, specialtyKey,
+import { BOARD_STAGES, FILTER_STAGES, stageLabel, normalizedStage, eligibleLead, leadTitle, leadMarket, marketKey, specialtyKey,
   visibleLeads, marketCounts, stageReview, automaticMove, undoReview, leadTimestamp } from "./leads-model.js";
 import { mountTerritoryMap } from "./leads-territory-map.js";
 
@@ -29,7 +29,6 @@ const shortDate = (value, calendarDate = false) => {
 };
 const stamp = value => Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("en-US", { timeZone: BUSINESS_TIME_ZONE, month: "short", day: "numeric", year: yearIfNeeded(new Date(value)), hour: "numeric", minute: "2-digit", hour12: true }) : "—";
 const summary = value => String(value || "").split(/\n\s*\n/)[0].slice(0, 230);
-const leadTitle = lead => withoutRecordCodes(recordedLeadTitle(lead));
 const ownerName = owner => owner ? owner.charAt(0).toUpperCase() + owner.slice(1) : "Unclaimed";
 const claimButton = lead => !lead.owner && normalizedStage(lead) !== "archived" ? `<button data-claim="${esc(lead.id)}">Claim</button>` : "";
 const quietLeadIndex = proposals => new Map(proposals.filter(row => row.subject_type === "lead").flatMap(row =>

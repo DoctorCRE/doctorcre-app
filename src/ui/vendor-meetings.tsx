@@ -51,6 +51,7 @@ function VendorMeetings({ options }: { options: Options }) {
       generation.current++;
     };
   }, [options, query]);
+  const calendarUnavailable = state.kind === "ready" && state.page.calendar.state === "unavailable";
   return (
     <section aria-label="People worth meeting">
       <div role="tablist" aria-label="Vendor meetings">
@@ -104,19 +105,13 @@ function VendorMeetings({ options }: { options: Options }) {
         aria-busy={state.kind === "loading"}
       >
         {state.kind === "loading" && <p role="status">Loading people…</p>}
-        {state.kind === "failed" && (
+        {(state.kind === "failed" || calendarUnavailable) && (
           <>
-            <p role="alert">People could not be loaded. Try again.</p>
-            <button
-              type="button"
-              className="action"
-              onClick={() => {
-                generation.current++;
-                setState({ kind: "loading" });
-                setQuery({ ...query });
-              }}
-            >
-              Retry people
+            <p role="alert">
+              {calendarUnavailable ? "Calendar unavailable." : "People could not be loaded. Try again."}
+            </p>
+            <button type="button" className="action" onClick={() => change({ ...query })}>
+              {calendarUnavailable ? "Retry calendar" : "Retry people"}
             </button>
           </>
         )}

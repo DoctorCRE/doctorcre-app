@@ -50,7 +50,7 @@ async function open(t, width = 1440) {
       }
       if (mode === "route-text") payload.nodes[0].name = "Demo <em>Lending</em> & Partners";
       if (mode === "twins") {
-        payload.nodes[0].name = "Demo Healthcare Lending North Partners (V-DEMO-123)";
+        payload.nodes[0].name = "Demo Healthcare Lending North Partners (V-SUP-901)";
         payload.nodes[3].name = "Demo Healthcare Lending South Partners";
       }
       return r.fulfill({ json: payload });
@@ -234,9 +234,9 @@ for (const width of [1440, 320])
     for (const side of ["North", "South"])
       assert.equal(await page.getByRole("button", { name: width === 1440 ? `Open Vendor, Demo Healthcare Lending ${side} Partners, Demo Coast` : `Demo Healthcare Lending ${side} Partners Vendor · Demo Coast`, exact: true }).count(), 1);
     const search = page.getByRole("searchbox", { name: "Find a relationship" });
-    await search.fill("Demo Healthcare Lending North Partners (V-DEMO-123)");
+    await search.fill("Demo Healthcare Lending North Partners (V-SUP-901)");
     assert.equal(await page.locator('.relationship-node').count(), 1);
-    assert.doesNotMatch(await page.locator('#networkCanvas').textContent(), /V-DEMO-123/);
+    assert.doesNotMatch(await page.locator('#networkCanvas').textContent(), /V-SUP-901/);
     await search.fill("");
     await page.addScriptTag({ content: axe.source });
     const audit = await page.evaluate(() => window.axe.run(document.querySelector(innerWidth < 760 ? "#networkNodes" : "#networkCanvas"), { runOnly: ["label-content-name-mismatch"] }));

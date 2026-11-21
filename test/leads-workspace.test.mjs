@@ -1115,12 +1115,12 @@ test('Link recovery stays in the drawer and retries the same request', async () 
 
 test('Lead details keep names and plans readable and omit absent facts', async t => {
   const board = workspace();
-  Object.assign(board.leads[0], { doctor_name: '(TBD: office contact) (V-DEMO-123)', city: null, state: null, score: null });
+  Object.assign(board.leads[0], { doctor_name: '(TBD: office contact) (V-SUP-901)', city: null, state: null, score: null });
   const s = await setup({
     getWorkspace: async () => board,
     getLeadDetail: async ({ id }) => ({ detail: {
       ...detail(board.leads.find(row => row.id === id)),
-      plans: 'Tour confirmed (V-DEMO-123). T2 closed.\n\nCheck access (V-DEMO-456).',
+      plans: 'Tour confirmed (V-SUP-901). T2 closed.\n\nCheck access (V-SUP-902).',
       phone: '+15550102000', email: null,
     } }),
   });
@@ -1128,7 +1128,7 @@ test('Lead details keep names and plans readable and omit absent facts', async t
   await s.app.readDetail(id(1));
   const body = s.d.querySelector('#detailBody');
   assert.equal(s.d.querySelector('#detailTitle').textContent, '(TBD: office contact)');
-  assert.doesNotMatch(body.textContent, /V-DEMO-|T2|Market pending|Lead score/);
+  assert.doesNotMatch(body.textContent, /V-SUP-|T2|Market pending|Lead score/);
   assert.deepEqual([...body.querySelectorAll('.detail-overview dt')].map(dt => dt.textContent), ['Owner', 'Phone', 'Vertical', 'Estimated lease date']);
   assert.equal(body.querySelector('a[href="tel:+15550102000"]').textContent, '(555) 010-2000');
   await s.app.readDetail(id(2));

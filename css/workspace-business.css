@@ -94,13 +94,11 @@
 .tone-active { border-color: var(--status-ok); color: var(--status-ok-ink); }
 .tone-warm { border-color: var(--status-warn); color: var(--status-warn-ink); }
 .tone-warm::before { border-radius: 0; transform: rotate(45deg) scale(.85); }
-.tone-unknown::before { background: transparent; border: var(--hairline-width) solid currentColor; }
 .tone-plain { color: var(--fg-muted); }
 .tone-plain::before { display: none; }
 .tone-plain.unknown { color: var(--fg-quiet); }
 [data-color-assist="on"] .tone-active { border-style: solid; border-width: 2px; }
 [data-color-assist="on"] .tone-warm { border-style: dashed; }
-[data-color-assist="on"] .tone-unknown { border-style: dotted; }
 
 
 /* Loading, empty and the end of the list. */

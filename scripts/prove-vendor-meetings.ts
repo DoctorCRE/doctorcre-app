@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import type { Browser, Page } from "playwright";
 import { chromium as driver } from "playwright";
+import { withoutRecordCodes } from "../js/visual-system.js";
 import type { MeetingQuery } from "../src/ui/vendor-meetings-client.ts";
 import { parseMeetingPage, researchReason } from "../src/ui/vendor-meetings-client.ts";
 import { launchProofBrowser, readAppRelease } from "./app-release-reader.mjs";
@@ -11,7 +12,6 @@ import { CHROMIUM_SAFETY_ARGS } from "./chromium-safety-args.mjs";
 import { requireContainingRelease } from "./containing-release.ts";
 import { chromium } from "./proof-browser.mjs";
 
-const nameWithoutReferences = (text: string) => text.replace(/ *\([A-Z]-(?:[A-Z0-9]+-)*[0-9]+\)/g, "").trim();
 const phoneDigits = (text: string) => text.replace(/\D/g, "").replace(/^1(?=\d{10,}$)/, "");
 const insufficient = (message: string) => Object.assign(Error(message), { exitCode: 78 });
 export async function prove({
@@ -173,7 +173,7 @@ export async function prove({
             assert.equal(await row.getAttribute("data-meeting-person"), item.contact?.id ?? "");
             assert.equal(
               await row.locator(":scope > a").textContent(),
-              nameWithoutReferences(item.contact?.name || item.company?.name || "Open vendor"),
+              withoutRecordCodes(item.contact?.name || item.company?.name || "Open vendor"),
             );
             assert.deepEqual(
               await row.locator("[data-meeting-office]").allTextContents(),
@@ -181,7 +181,7 @@ export async function prove({
             );
             assert.deepEqual(
               await row.locator("[data-meeting-reason]").allTextContents(),
-              item.reason ? [nameWithoutReferences(item.reason)] : [],
+              item.reason ? [withoutRecordCodes(item.reason)] : [],
             );
             assert.deepEqual(
               await row.locator('[aria-label="Research needed"] > li').allTextContents(),
@@ -189,7 +189,7 @@ export async function prove({
             );
             const phone = item.contact?.phone || item.contact?.cell;
             for (const value of [
-              item.contact && item.company && nameWithoutReferences(item.company.name),
+              item.contact && item.company && withoutRecordCodes(item.company.name),
               item.contact?.email,
             ].filter(Boolean))
               assert.equal(await row.getByText(String(value), { exact: true }).count(), 1);

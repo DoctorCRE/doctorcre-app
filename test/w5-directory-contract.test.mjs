@@ -127,7 +127,7 @@ for (const dataset of ['clients', 'vendors']) {
 
 test('Vendors show recorded facts and keep names, phones and notes readable', () => {
   const { document, app, row, payload } = setup('vendors');
-  row.name = payload.record.name = '(TBD: intake contact) (V-DEMO-123)';
+  row.name = payload.record.name = '(TBD: intake contact) (V-SUP-901)';
   row.owner_label = 'Example Owner';
   Object.assign(row.relationship, { computed_tier: 'Trial', win_rate: null, last_contact_note: 'Recovered from CARR calendar history' });
   Object.assign(payload.record, { phone: '+15550102000', intro_notes: row.relationship.last_contact_note });
@@ -143,4 +143,40 @@ test('Vendors show recorded facts and keep names, phones and notes readable', ()
   assert.equal(document.querySelector('#recordTitle').textContent, '(TBD: intake contact)');
   assert.match(document.querySelector('#recordBody').textContent, /\(555\) 010-2000/);
   assert.doesNotMatch(document.querySelector('#recordBody').textContent, /CARR|Relationship level|Proven/);
+});
+
+test('Vendor contact dates keep their calendar day while timestamps use Central', () => {
+  const { document, app, row, payload } = setup('vendors');
+  row.relationship.last_contacted_at = payload.record.relationship.last_contacted_at = '2026-03-08';
+  document.querySelector('#recordList').innerHTML = app.rowHtml('vendors', row, row.id);
+  assert.equal(document.querySelector('.row-last-contact .fact-value').textContent, 'Mar 8, 2026');
+  app.view.recordId = payload.record.id;
+  app.view.record = { status: 'ready', payload };
+  app.renderRecordPanel();
+  assert.equal(document.querySelector('.relationship-metric:last-child strong').textContent, 'Mar 8, 2026');
+  assert.match(app.formatMoment('2026-03-08T00:00:00Z'), /^Mar 7, 2026.*6:00 PM$/);
+});
+
+test('Vendor badges distinguish unknown workability from recorded false', () => {
+  const { document, app, row } = setup('vendors');
+  const list = document.querySelector('#recordList');
+  row.recorded_disposition_workable = null;
+  list.innerHTML = app.rowHtml('vendors', row, row.id);
+  assert.equal(list.querySelector('.tone'), null);
+  row.recorded_disposition_workable = false;
+  list.innerHTML = app.rowHtml('vendors', row, row.id);
+  assert.equal(list.querySelector('.tone').textContent, 'Not workable');
+});
+
+test('An undated vendor conversation shows the note without a time', () => {
+  const { document, app, payload } = setup('vendors');
+  const [entry] = payload.record.relationship.recent_entries;
+  entry.when = null;
+  assert.ok(model.validRecordPayload(payload, 'vendors'));
+  app.view.recordId = payload.record.id;
+  app.view.record = { status: 'ready', payload };
+  app.renderRecordPanel();
+  const conversation = document.querySelector('.record-section:has([data-details-key="entry-demo-entry"])');
+  assert.equal(conversation.querySelector('.note-summary').textContent, entry.summary);
+  assert.equal(conversation.querySelector('time'), null);
 });
