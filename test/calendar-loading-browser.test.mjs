@@ -35,6 +35,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
       });
       return route.fulfill({ response });
     });
+    await page.route('**/api/engine/calendar/critical-dates', route => route.fulfill({ status: 404 }));
     let release;
     const held = new Promise(resolve => { release = resolve; });
     let releaseLate;
@@ -57,21 +58,26 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
       }
       return answer(route, { deal_id: args.deal, critical_dates: [{
         id: args.deal, kind: 'loi_expiry', due_on: '2026-10-20', status: 'open', note: `Synthetic ${args.deal} date`,
-      }] });
+      }, ...(args.deal === 'fast' ? [{
+        id: 'done', kind: 'rent_start', due_on: '2026-10-20', status: 'done', note: 'Synthetic finished date',
+      }] : [])] });
     });
     try {
       await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `calendar-${status}`, reset: true } });
-      await page.goto('https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev/calendar');
+      await page.goto('https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev/calendar?d=2026-10-01');
       const agenda = page.locator('.cal-agenda-item');
       await expect(agenda).toHaveCount(1);
+      await expect(page.locator('#calGrid .cal-chip')).toHaveCount(1);
       await expect(page.locator('#calAgenda')).toHaveAttribute('aria-busy', 'true');
       await expect(page.locator('#calStatusLabel')).toHaveText(`Reading 1 of ${status === 401 ? 3 : 2} deals…`);
       await agenda.click();
       await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
+      await expect(page.locator('#dayPanelBody')).not.toContainText('Synthetic finished date');
       await mkdir(join(root, 'test-artifacts/calendar-loading'), { recursive: true });
       await page.screenshot({ path: join(root, `test-artifacts/calendar-loading/pending-${status}.png`), fullPage: true });
       release();
       if (status === 200) {
+        await expect(page.locator('#calCount')).toHaveText('2 critical dates');
         await expect(agenda).toHaveCount(2);
         await expect(page.locator('#calAgenda')).toHaveAttribute('aria-busy', 'false');
         await expect(page.locator('#calStatusLabel')).toHaveText('Current');

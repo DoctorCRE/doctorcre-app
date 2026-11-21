@@ -915,9 +915,9 @@ async function handleRequest(request, env) {
     if (website?.[1] && (shareOrigin?.protocol !== 'https:' || shareOrigin.href !== `${shareOrigin.origin}/`))
       return json({ error: 'client_website_origin_unconfigured' }, 503);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
-    const marketDealRead = pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
+    const dealRead = pathname === '/api/engine/calendar/critical-dates' || pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
     if ((weeklyReview && !await switchedOn(env, NEXT_DEAL_SAVES))
-        || ((weeklyReview || marketDealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
+        || ((weeklyReview || dealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     const dealClientLookup = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
       || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname);

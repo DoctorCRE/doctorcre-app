@@ -22,7 +22,7 @@ import { readFile } from "node:fs/promises";
 import {
   CALENDAR_VIEWS, addDays, addMonths, approach, calendarHref, calendarPhase,
   criticalDateEntries, daysBetween, entriesByDay, localToday, monthGrid, motionDirection,
-  parseCalendarState, readCalendar, stepAnchor, toDay, upcomingEntries, weekStrip,
+  parseCalendarState, readCalendar, stepAnchor, toDay, weekStrip,
 } from "../js/calendar-model.js";
 import { carrInterface } from "./carr-contract.mjs";
 
@@ -181,18 +181,6 @@ test("entriesByDay groups by day and orders open before settled, then by label",
   assert.equal(map.get("2026-10-03").length, 1);
 });
 
-test("the upcoming agenda is the open dates from today forward, nearest first, overdue ones ahead of them", () => {
-  const today = "2026-09-24";
-  const rows = [
-    { key: "later", day: "2026-11-01", label: "L", settled: false },
-    { key: "soon", day: "2026-09-26", label: "S", settled: false },
-    { key: "late", day: "2026-09-20", label: "O", settled: false },
-    { key: "done", day: "2026-09-25", label: "D", settled: true },
-  ];
-  assert.deepEqual(upcomingEntries(rows, today, 10).map((row) => row.key), ["late", "soon", "later"]);
-  assert.deepEqual(upcomingEntries(rows, today, 2).map((row) => row.key), ["late", "soon"]);
-});
-
 /* ------------------------------------------------------------------ the read */
 
 function stubClient({ board, details = {}, boardError = null, detailErrors = {} } = {}) {
@@ -231,6 +219,15 @@ test("readCalendar reads the board once and every deal's own record, and reports
   assert.deepEqual(client.calls[0], ["getBoard", { workspace: "all" }]);
   assert.deepEqual(client.calls.slice(1).map((call) => call[1]).sort(), ["d1", "d2"]);
   assert.equal(calendarPhase(result), "ready");
+});
+
+test("Calendar uses individual deal reads only when the engine read is missing", async () => {
+  for (const [status, expected] of [[404, "empty"], [401, "unauthorized"], [403, "unauthorized"], [429, "unavailable"], [503, "unavailable"]]) {
+    const client = stubClient({ board: { deals: [deal] }, details: { d1: { critical_dates: [] } } });
+    client.getCalendarDates = async () => { throw httpError(status); };
+    assert.equal(calendarPhase(await readCalendar(client)), expected);
+    assert.deepEqual(client.calls.map(([method]) => method), status === 404 ? ["getBoard", "getDeal"] : []);
+  }
 });
 
 test("a deal whose record cannot be read makes the page PARTIAL and names it; its dates are not guessed", async () => {
@@ -346,7 +343,7 @@ test("the Calendar page carries the shared shell, an accessible grid and an agen
   assert.match(html, /id="calToday"/);
   assert.match(html, /id="calNext"/);
   assert.match(html, /id="calPeriod"[^>]*aria-live="polite"/);
-  assert.match(html, /id="calAgenda"/, "a plain list carries every upcoming date for a reader who never touches the grid");
+  assert.match(html, /id="calAgenda"/, "a plain list carries the period dates for a reader who never touches the grid");
   assert.match(html, /id="calUndated"/, "undated rows have a place, so missing is not shown as empty");
   assert.match(html, /id="dayPanel"/);
   assert.match(html, /<script type="module" src="\/js\/calendar\.js"><\/script>/);

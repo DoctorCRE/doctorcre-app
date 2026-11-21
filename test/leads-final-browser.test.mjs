@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium, settles } from './browser-harness.mjs';
 import { routeLeads } from './leads-browser-fixture.mjs';
@@ -196,6 +197,7 @@ test('Quiet leads, Owner and Market narrow the same board and count', async t =>
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 390, height: 900 } });
+  await page.clock.setFixedTime(new Date('2026-10-01T16:00:00Z'));
   const board = { ...workspace(), leads: [lead(1, { registry_ref: null }), lead(2, { owner: 'dell', stage: 'engaged', city: 'Mobile', state: 'AL' }), lead(3)] };
   const quiet = (n, days) => ({
     subject_type: 'lead', subject_id: id(n), ref: `L-${n}`, name: `Dr. Example ${n}`,
@@ -203,6 +205,7 @@ test('Quiet leads, Owner and Market narrow the same board and count', async t =>
   });
   await routeLeads(page, {
     getBoard: () => board,
+    getDetail: row => ({ ...detail(row), notes: 'Interested in a second location.' }),
     getQuiet: () => ({ ...emptyQuietFollowUps(), proposals: [
       { ...quiet(1, 16), ref: null }, { ...quiet(2, 0), subject_id: id(202), basis: 'last_contact' }, { ...quiet(3, 16), subject_type: 'vendor' },
     ] }),
@@ -219,6 +222,7 @@ test('Quiet leads, Owner and Market narrow the same board and count', async t =>
   await page.getByRole('button', { name: 'Dr. Example 2', exact: true }).click();
   await page.locator('#detailStage').waitFor();
   assert.equal(await page.getByText('Last contact Aug 1. Follow-up due Sep 15.', { exact: true }).count(), 1);
+  assert.equal(await page.getByText('Interested in a second location.', { exact: true }).count(), 1);
   await page.locator('#closeDetail').click();
   await page.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
   await page.locator('#detailStage').waitFor();
@@ -233,3 +237,121 @@ test('Quiet leads, Owner and Market narrow the same board and count', async t =>
   assert.equal(await page.locator('#leadCount').innerText(), '3 leads');
   assert.equal(await page.locator('#mapLeadMembers, #quietFollowUps').count(), 0);
 });
+
+const evidence = `test-artifacts/lead-drawer-words-${randomUUID()}`;
+const added = '2020-08-01T12:00:00Z';
+const timing = { contract: 'lead-opportunity-timing.v1', status: 'unknown', events: [], record_added_at: added };
+const notes = '[Web sweep 7/25 · finder conf LOW · verify: UNVERIFIED (present anyway, flag)] Planning a dental relocation.\n\nNeeds two treatment rooms.';
+const research = { state: 'needs_research', next_step: 'Check the practice website, professional registry and public filings. Save what you find.', evidence: [], coverage: 'recorded_findings_only', external_search_performed: false };
+const due = (n, basis) => ({
+  subject_type: 'lead', subject_id: id(n), ref: null, name: `Dr. Example ${n}`,
+  basis, anchor_on: '2020-08-01', due_on: '2020-09-15', days_overdue: 25,
+});
+
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+  test(`lead details and quiet results at ${width} in ${theme}`, async t => {
+    const browser = await chromium.launch();
+    t.after(() => browser.close());
+    const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme: theme });
+    await page.clock.setFixedTime(new Date('2026-10-01T16:00:00Z'));
+    await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
+
+    const name = 'Dr. Example 1';
+    const unclaimed = lead(1, { possible_clients: [{ client_id: id(901), name }], created_at: added, opportunity_timing: timing });
+    const claimed = lead(2, { owner: 'dell', owner_label: 'Example Partner', created_at: added });
+    const archived = lead(3, { stage: 'archived', owner: 'dell' });
+    const filler = Array.from({ length: 221 }, (_, i) => lead(i + 1000));
+    const reads = [];
+    page.on('request', request => {
+      if (new URL(request.url()).pathname === '/mcp') reads.push(request.postDataJSON()?.params.name);
+    });
+    await routeLeads(page, {
+      getBoard: () => ({ ...workspace(), leads: [unclaimed, claimed, archived, ...filler] }),
+      getQuiet: () => ({ ...emptyQuietFollowUps(), proposals: [
+        { ...due(1, 'created_at'), last_contact_on: null },
+        { ...due(2, 'created_at'), last_contact_on: '2020-07-31' },
+      ] }),
+      getDetail: row => ({
+        ...detail(row), research, phone: '+18505550100 x123', notes,
+        plans: 'Planning a dental relocation.\n\nNeeds two treatment rooms.',
+        est_lease_event: '2028-12-01', handling_advice: null,
+        strategy: { basis: 'stage_based_guidance', hold: row === archived ? { reason: 'contact_ineligible' } : null },
+        correspondence: row === unclaimed ? [] : [{ id: id(600), kind: 'call', occurred_at: '2020-07-31T12:00:00Z', summary: 'Discussed a relocation.' }],
+        correspondence_page: { total: row === unclaimed ? 0 : 1, has_more: false, next_cursor: null },
+        stage_history: row === archived ? [
+          { event_id: id(500), prior_stage: 'engaged', stage: 'archived', occurred_at: added, reason: 'became a deal in the old system' },
+        ] : [],
+        stage_history_page: { total: row === archived ? 1 : 0, has_more: false, next_cursor: null },
+      }),
+    });
+    await page.goto('http://localhost/leads');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+    await page.getByRole('button', { name: 'Show all 223 New leads', exact: true }).click();
+    assert.equal(await page.locator('.lead-card').count(), 223);
+    const filter = page.getByRole('button', { name: 'Quiet leads', exact: true });
+    const before = reads.length;
+    const elapsed = await filter.evaluate(button => {
+      const started = performance.now();
+      button.click();
+      return performance.now() - started;
+    });
+    t.diagnostic(`Quiet filter with 223 expanded cards in local Chromium took ${elapsed.toFixed(1)} ms in the click handler`);
+    assert.equal(reads.length, before);
+    assert.doesNotMatch(await page.locator('#leadCount').innerText(), /Loading leads/);
+    assert.equal(await page.locator('.lead-card').count(), 2);
+    await mkdir(evidence, { recursive: true });
+    await page.screenshot({ path: `${evidence}/quiet-${width}-${theme}.png` });
+    const quietStatus = await page.locator('#quietStatus').innerText();
+
+    const drawer = page.locator('#leadDetail');
+    await page.getByRole('button', { name, exact: true }).click();
+    await drawer.getByRole('heading', { name: 'Sourced research' }).waitFor();
+    const unclaimedText = await drawer.innerText();
+    const link = drawer.locator('[data-link]');
+    const details = drawer.getByText('More about these plans', { exact: true });
+    await details.click();
+    assert.ok(await details.evaluate(el => el.getBoundingClientRect().height >= 44));
+    const detailsText = await drawer.innerText();
+    const phone = drawer.getByRole('link', { name: /555/ });
+    assert.deepEqual({
+      quietStatus,
+      claim: await drawer.getByRole('button', { name: 'Claim', exact: true }).count(),
+      owner: /Owner\s+Unclaimed/.test(unclaimedText),
+      link: await link.innerText(),
+      phone: await phone.innerText(),
+      dialing: await phone.getAttribute('href'),
+      lease: /Estimated lease date\s+Dec 1, 2028/.test(unclaimedText),
+      contradictsLease: unclaimedText.includes('Opportunity timing unknown'),
+      boilerplate: unclaimedText.includes('Handling advice'),
+      sourceGuidance: unclaimedText.includes(research.next_step),
+      rawTag: detailsText.includes('Web sweep'),
+      details: detailsText.includes('Needs two treatment rooms.'),
+      anchor: /No contact recorded\. Added Aug 1, 2020\. Follow-up due Sep 15, 2020\./.test(unclaimedText),
+    }, {
+      quietStatus: 'Showing 2 quiet leads', claim: 1, owner: true, link: `Link to client ${name}`,
+      phone: '(850) 555-0100 x123', dialing: 'tel:+18505550100 x123', lease: true,
+      contradictsLease: false, boilerplate: false, sourceGuidance: true, rawTag: false, details: true, anchor: true,
+    });
+    assert.equal(await drawer.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+    await drawer.screenshot({ path: `${evidence}/drawer-${width}-${theme}.png` });
+    await page.locator('#closeDetail').click();
+    await page.getByRole('button', { name: 'Dr. Example 2', exact: true }).click();
+    await drawer.getByRole('heading', { name: 'Sourced research' }).waitFor();
+    assert.match(await drawer.innerText(), /Owner\s+Example Partner/);
+    assert.match(await drawer.innerText(), /Last contact Jul 31, 2020\. Follow-up due Sep 15, 2020\./);
+    assert.match(await drawer.locator('.correspondence time').innerText(), /2020/);
+    assert.equal(await drawer.getByRole('button', { name: 'Claim', exact: true }).count(), 0);
+    await page.locator('#closeDetail').click();
+
+    await filter.click();
+    assert.equal(await page.locator('#quietStatus').isVisible(), false);
+    await page.locator('#stageFilter').selectOption('archived');
+    await page.getByRole('button', { name: 'Dr. Example 3', exact: true }).click();
+    await drawer.getByRole('heading', { name: 'Sourced research' }).waitFor();
+    assert.equal(await drawer.getByText('Became a deal.', { exact: true }).count(), 1);
+    assert.doesNotMatch(await drawer.innerText(), /Contact restriction/);
+    assert.equal(await drawer.getByRole('button', { name: 'Claim', exact: true }).count(), 0);
+    assert.match(await drawer.locator('.history time').innerText(), /2020/);
+    await drawer.screenshot({ path: `${evidence}/archived-${width}-${theme}.png` });
+  });
+}

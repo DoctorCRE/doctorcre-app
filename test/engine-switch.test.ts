@@ -54,6 +54,24 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
   return { env, send, engine, carr, kv };
 }
 
+test("Calendar uses the Deals switch and preserves the engine response", async () => {
+  const request = new Request(`${origin}/api/engine/calendar/critical-dates`, {
+    headers: { cookie: "session=synthetic" },
+  });
+  for (const status of [200, 404, 503]) {
+    const { env, engine, carr } = fixture(dealsReadOn, async () => new Response(payload, { status }));
+    assert.equal((await worker.fetch(request, env)).status, status);
+    assert.equal(engine.length, 1);
+    assert.equal(engine[0]?.url, request.url);
+    assert.equal(engine[0]?.headers.get("cookie"), "session=synthetic");
+    assert.deepEqual(carr, []);
+  }
+  const { env, engine, carr } = fixture(new Map());
+  assert.equal((await worker.fetch(request, env)).status, 404);
+  assert.deepEqual(engine, []);
+  assert.deepEqual(carr, []);
+});
+
 test("Leads saves use the board UUID and preserve the legacy request before cutover", async () => {
   const leadId = "00000000-0000-4000-8000-000000000010";
   const clientId = "00000000-0000-4000-8000-000000000011";

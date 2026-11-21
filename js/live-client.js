@@ -308,6 +308,15 @@ export function createLiveClient(opts = {}) {
       }
     },
 
+    async getCalendarDates() {
+      const response = await fetchReadImpl('/api/engine/calendar/critical-dates');
+      if (!response.ok) throw Object.assign(new Error('Calendar dates could not be read.'), { status: response.status });
+      const data = await response.json();
+      if (data?.schema_version !== 'calendar-critical-dates.v1' || !Array.isArray(data.critical_dates))
+        throw new Error('Calendar dates could not be read.');
+      return data.critical_dates;
+    },
+
     async getBoard(options = {}) {
       const board = await rpc('deal-room-board', {
         workspace: options.workspace || 'all',

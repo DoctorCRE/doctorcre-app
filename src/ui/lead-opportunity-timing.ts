@@ -82,7 +82,7 @@ const businessInstant = (v: string) =>
     timeZoneName: "short",
   });
 const time = (v: string, label: string) => `<time datetime="${escapeText(v)}">${escapeText(label)}</time>`;
-export function timingMarkup(value: Timing | undefined, detail = false): string {
+export function timingMarkup(value: Timing | undefined, detail = false, hasLeaseEstimate = false): string {
   const added = value
     ? `Added ${time(value.record_added_at, businessInstant(value.record_added_at))}`
     : "Added unavailable";
@@ -94,7 +94,9 @@ export function timingMarkup(value: Timing | undefined, detail = false): string 
             `<span data-timing-event="${escapeText(e.record_key)}">${escapeText(e.meaning)} ${time(e.date, sourceDay(e.date))}</span>`,
         )
         .join(" · ")
-    : "Opportunity timing unknown";
+    : hasLeaseEstimate
+      ? "No sourced timing evidence"
+      : "Opportunity timing unknown";
   const full =
     detail && value?.status === "supported"
       ? `<details data-entry-key="opportunity-evidence"><summary>Opportunity evidence details</summary><ul>${value.events

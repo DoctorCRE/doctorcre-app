@@ -22,7 +22,7 @@ import { formatCalendarDate } from "./visual-system.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import {
   addDays, approach, calendarHref, calendarPhase, entriesByDay, localToday, monthGrid, motionDirection,
-  parseCalendarState, readCalendar, stepAnchor, upcomingEntries, weekStrip,
+  parseCalendarState, readCalendar, stepAnchor, weekStrip,
 } from "./calendar-model.js";
 
 const $ = (id) => document.getElementById(id);
@@ -77,9 +77,11 @@ function chipHtml(entry, { withDeal }) {
     + "</button></li>";
 }
 
+const calendarLayout = ({ view, anchor }) => view === "week" ? weekStrip(anchor) : monthGrid(anchor);
+
 function dayHtml(cell, index) {
   const state = view.state;
-  const rows = view.byDay.get(cell.day) || [];
+  const rows = cell.inMonth ? view.byDay.get(cell.day) || [] : [];
   const week = state.view === "week";
   const shown = week ? rows : rows.slice(0, MONTH_CHIP_LIMIT);
   const more = rows.length - shown.length;
@@ -98,11 +100,10 @@ function dayHtml(cell, index) {
     + "</div>";
 }
 
-function paintGrid() {
+function paintGrid(layout) {
   const grid = $("calGrid");
   if (!grid) return;
   const state = view.state;
-  const layout = state.view === "week" ? weekStrip(state.anchor) : monthGrid(state.anchor);
   const header = `<div class="cal-week" role="row">${WEEKDAYS.map((name) => `<div class="cal-weekday" role="columnheader">${name}</div>`).join("")}</div>`;
   const weeks = [];
   // eslint-disable-next-line no-restricted-syntax -- Calendar rendering advances seven days per iteration and will stop at layout.days.length; 0 reads.
@@ -133,13 +134,15 @@ function paintGrid() {
 /** Selecting a day moves nothing: only the selection and the panel change. */
 function paintSelection() {
   const grid = $("calGrid");
+  let selectedDay = null;
   grid?.querySelectorAll(".cal-day").forEach((cell) => {
-    const selected = cell.dataset.day === view.state.day;
+    const selected = cell.dataset.outMonth === "false" && cell.dataset.day === view.state.day;
+    if (selected) selectedDay = cell.dataset.day;
     cell.setAttribute("aria-selected", String(selected));
     const open = cell.querySelector(".cal-day-open");
     if (open) open.tabIndex = selected ? 0 : -1;
   });
-  paintDayPanel();
+  paintDayPanel(selectedDay);
 }
 
 function detailRow(label, value) {
@@ -154,11 +157,10 @@ function dealLink(entry) {
     : escapeHtml(entry.deal_name);
 }
 
-function paintDayPanel() {
+function paintDayPanel(day) {
   const title = $("dayPanelTitle");
   const body = $("dayPanelBody");
   if (!title || !body) return;
-  const day = view.state?.day;
   if (!day) {
     title.textContent = "Choose a day";
     body.innerHTML = '<p class="small">Select a day or a date to see what falls on it.</p>';
@@ -184,29 +186,29 @@ function paintDayPanel() {
     body.innerHTML = `<p class="small">No critical date is recorded on this day.${escapeHtml(partial)}</p>`;
     return;
   }
-  body.innerHTML = `<ol class="cal-day-entries">${rows.map((entry, index) => {
+  body.innerHTML = `<ol class="cal-day-entries">${rows.map((entry) => {
     const near = approach(entry, view.today);
     return `<li class="cal-day-entry" data-band="${near.band}" data-focus="${entry.key === view.focusEntry}">`
       + `<h3><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span>${escapeHtml(entry.label)}</h3>`
-      + `<dl><dt>Deal</dt><dd>${dealLink(entry)}</dd>${detailRow("When", near.label)}${detailRow("Kind", entry.kind_label)}${detailRow("Reference", entry.source)}${detailRow("Status", entry.status)}</dl>`
+      + `<dl><dt>Deal</dt><dd>${dealLink(entry)}</dd>${detailRow("When", near.label)}${entry.kind_label && entry.kind_label !== entry.label ? detailRow("Kind", entry.kind_label) : ""}${entry.source ? detailRow("Reference", entry.source) : ""}${detailRow("Status", entry.status)}</dl>`
       + "</li>";
   }).join("")}</ol>`;
 }
 
-function paintAgenda() {
+function paintAgenda(phase, rows) {
   const list = $("calAgenda");
   if (!list) return;
-  const phase = calendarPhase(view.result);
+  const unit = view.state.view;
+  $("agendaTitle").textContent = unit === "week" ? "Dates this week" : "Dates this month";
   list.setAttribute("aria-busy", String(phase === "loading" || phase === "reading"));
   if (phase === "loading" || phase === "unauthorized" || phase === "unavailable") {
     list.innerHTML = "";
   } else {
-    const rows = upcomingEntries(view.result.entries, view.today);
     list.innerHTML = rows.length === 0 && phase === "reading"
       ? '<li class="cal-agenda-empty">Still reading critical dates…</li>'
       : rows.length === 0
-      ? '<li class="cal-agenda-empty">No open critical date is recorded. Settled and past dates stay on the grid.</li>'
-      : rows.map((entry, index) => {
+      ? `<li class="cal-agenda-empty">${phase === "partial" ? "No dates found in the deals we could read." : `No critical dates this ${unit}.`}</li>`
+      : rows.map((entry) => {
         const near = approach(entry, view.today);
         return `<li><button class="cal-agenda-item" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${entry.day}" data-band="${near.band}">`
           + `<span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span>`
@@ -226,7 +228,7 @@ function paintAgenda() {
 }
 
 const STATE_COPY = {
-  loading: "Reading every deal's critical dates…",
+  loading: "Reading critical dates…",
   reading: "Reading critical dates. More dates may still arrive…",
   unauthorized: "Your session has ended. Sign in again to read the calendar; nothing is shown from an ended session.",
   unavailable: "Calendar temporarily unavailable.",
@@ -281,23 +283,26 @@ function render() {
   view.byDay = ["ready", "partial", "reading"].includes(phase) ? entriesByDay(view.result.entries) : new Map();
   paintState(phase);
   paintNotices(phase);
+  const layout = calendarLayout(view.state);
+  const periodRows = layout.days.flatMap(cell => cell.inMonth ? view.byDay.get(cell.day) || [] : []);
+  $("calCount").textContent = ["ready", "partial", "empty"].includes(phase)
+    ? `${periodRows.length} critical date${periodRows.length === 1 ? "" : "s"}`
+    : "";
   const gridNode = $("calGrid");
   if (phase === "unauthorized" || phase === "unavailable") {
     if (gridNode) gridNode.innerHTML = "";
     view.painted = null;
   } else {
-    paintGrid();
+    paintGrid(layout);
   }
   paintSelection();
-  paintAgenda();
+  paintAgenda(phase, periodRows);
   if (focusScope && focusSelector) focusScope.querySelector(focusSelector)?.focus({ preventScroll: true });
 
   const asOf = $("calAsOf");
   if (asOf && view.result.status === "ready") {
     asOf.textContent = updatedLabel(view.updatedAt);
   } else if (asOf) asOf.textContent = "";
-  const source = $("calSource");
-  if (source) source.textContent = "";
 }
 
 /* -------------------------------------------------------------- navigation */
@@ -324,8 +329,7 @@ function selectDay(day, { entry = null, focus = false } = {}) {
   selectDocRecord(currentEntry ? "deal" : null, currentEntry?.deal_id);
   if(currentEntry) void client.getDeal(currentEntry.deal_id).catch(() => {});
   const state = view.state;
-  const layout = state.view === "week" ? weekStrip(state.anchor) : monthGrid(state.anchor);
-  const inView = layout.days.some((cell) => cell.day === day && (state.view === "week" || cell.inMonth));
+  const inView = calendarLayout(state).days.some(cell => cell.inMonth && cell.day === day);
   const next = { ...state, day, anchor: inView ? state.anchor : day };
   go(next, { push: !inView });
   if (focus) {
@@ -343,7 +347,8 @@ function wire() {
   $("calViewSwitch")?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-view]");
     if (!button || button.dataset.view === view.state.view) return;
-    go({ ...view.state, view: button.dataset.view, anchor: view.state.day || view.state.anchor });
+    const selected = $("calGrid")?.querySelector('[aria-selected="true"][data-out-month="false"]');
+    go({ ...view.state, view: button.dataset.view, anchor: selected?.dataset.day || view.state.anchor });
   });
   $("calPrev")?.addEventListener("click", () => go(stepAnchor(view.state, -1)));
   $("calNext")?.addEventListener("click", () => go(stepAnchor(view.state, 1)));
@@ -405,7 +410,7 @@ async function load({ failClosed = false } = {}) {
   render();
   const phase = calendarPhase(result);
   if (phase === "ready" || phase === "partial") {
-    announce(`${result.entries.length} critical dates`);
+    announce($("calCount").textContent);
   } else {
     announce(STATE_COPY[phase] || "");
   }

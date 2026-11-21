@@ -7,6 +7,7 @@ export type QuietProposal = {
   name: string;
   basis: "created_at" | "last_contact";
   anchor_on: string;
+  last_contact_on?: string | null;
   due_on: string;
   days_overdue: number;
   owner?: string | null;
