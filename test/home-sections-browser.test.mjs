@@ -206,7 +206,6 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     assert.equal(new URL(page.url()).hash, '');
     assert.equal(await inbox.getByRole('navigation', { name: 'Review workflows' }).count(), 0);
   }
-  if (enabled) await inbox.getByRole('region', { name: 'Reminders', exact: true }).getByRole('button', { name: 'See all 4', exact: true }).click();
   if (enabled) {
     const held = waiting.locator('[data-inbox-row]');
     await held.getByText(/On hold until Nov 5, 2026/).waitFor();
@@ -383,8 +382,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       happened_at: '2026-01-08T12:00:00Z', subject: null, body: null, summary: null } });
   await page.clock.fastForward(60_000);
   const cardFor = name => inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name }) });
-  const seeAll = today.getByRole('button', { name: /^See all/ });
-  if (await seeAll.isVisible()) await seeAll.click();
+  await today.getByRole('button', { name: 'See all 8', exact: true }).click();
   const leadCard = inbox.locator(`[data-inbox-row="suggestion:${lead}"]`);
   await leadCard.getByRole('button', { name: 'Open', exact: true }).click();
   await leadCard.getByRole('heading', { name: 'Possible lead · New Example' }).waitFor();
@@ -770,7 +768,6 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   await button(reminder).click();
   await page.getByRole('dialog', { name: 'Review lease clauses', exact: true }).waitFor();
   await open('/?mode=live');
-  await section('Reminders').getByRole('button', { name: /^See all/ }).click();
   await button(requirement).click();
   await page.getByText('Example attorney memo', { exact: true }).waitFor();
   await open(`${stepUrl(step)}&mode=live`);
@@ -1396,6 +1393,13 @@ for (const width of [390, 1440]) {
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home dashboard at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
+  const extra = [step(10, 'Review the draft site plan'), step(11, 'Confirm the tour address')];
+  state.items.push(...extra);
+  let meetingItems = [scheduledMeeting];
+  await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
+    ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe',
+    meetings: { state: meetingItems.length ? 'ready' : 'empty', items: meetingItems },
+  } }));
   await page.clock.install({ time: now });
   await open('/?mode=live');
   const heading = page.getByRole('heading', { name: 'Home', level: 1, exact: true });
@@ -1406,8 +1410,17 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   }), ['absolute', '1px', '1px', 'hidden']);
   const tile = name => page.getByRole('region', { name, exact: true });
   const reminders = tile('Reminders'), waiting = tile('In motion and waiting');
-  await reminders.getByRole('heading', { name: 'Reminders 4' }).waitFor();
+  const meetings = tile("Today's meetings");
+  await reminders.getByRole('heading', { name: 'Reminders 6' }).waitFor();
   await waiting.getByRole('heading', { name: 'In motion and waiting 1' }).waitFor();
+  await meetings.getByRole('heading', { name: "Today's meetings 1" }).waitFor();
+  if (process.env.HOME_GRID_SCREENSHOTS) {
+    await mkdir(process.env.HOME_GRID_SCREENSHOTS, { recursive: true });
+    const viewport = page.viewportSize();
+    if (width === 390) await page.setViewportSize({ width, height: 1400 });
+    await page.screenshot({ path: join(process.env.HOME_GRID_SCREENSHOTS, `home-${width}-${theme}.png`), fullPage: true });
+    if (width === 390) await page.setViewportSize(viewport);
+  }
   for (const name of ['Today', 'Needs your attention', 'Done today', 'Earlier and undated completions', 'Mail priorities']) {
     assert.equal(await tile(name).count(), 0, name);
   }
@@ -1420,13 +1433,17 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(await page.locator('.app-shell-search').count(), 1);
   assert.equal(await page.getByRole('button', { name: 'Search and quick switcher' }).isVisible(), true);
   assert.equal(await page.locator('.app-layout-status').count(), 0);
-  const [first, second] = await Promise.all([reminders.boundingBox(), waiting.boundingBox()]);
+  const [first, second, third] = await Promise.all([reminders, waiting, meetings].map(tile => tile.boundingBox()));
   if (width === 390) {
     assert.equal(first.x, second.x);
     assert.ok(second.y >= first.y + first.height);
+    assert.equal(third.x, second.x);
+    assert.ok(third.y >= second.y + second.height);
   } else {
     assert.equal(first.y, second.y);
     assert.ok(second.x >= first.x + first.width);
+    assert.equal(third.y, second.y);
+    assert.ok(third.x >= second.x + second.width);
   }
   await reminders.getByRole('heading', { name: 'Late', exact: true }).waitFor();
   await reminders.getByText(/3 days late/).waitFor();
@@ -1436,26 +1453,31 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await waiting.getByText(/Snoozed until/).waitFor();
   const lease = reminders.getByRole('link', { name: 'Send the signed lease' });
   assert.match(await lease.getAttribute('href'), /focus=next-step&step=/);
-  await reminders.getByRole('button', { name: /^See all/ }).click();
-  await reminders.getByRole('link', { name: 'Send the sample floor plan' }).waitFor();
+  const preview = reminders.locator('[data-inbox-row]');
+  const sixth = reminders.getByRole('link', { name: extra[1].title });
+  assert.equal(await preview.count(), 5);
+  assert.equal(await sixth.count(), 0);
+  await reminders.getByRole('button', { name: 'See all 6' }).click();
+  assert.equal(await preview.count(), 6);
+  await sixth.waitFor();
   await reminders.getByRole('button', { name: 'Show less' }).click();
-  if (process.env.HOME_GRID_SCREENSHOTS) {
-    await mkdir(process.env.HOME_GRID_SCREENSHOTS, { recursive: true });
-    await page.screenshot({ path: join(process.env.HOME_GRID_SCREENSHOTS, `home-${width}-${theme}.png`), fullPage: true });
-  }
+  await sixth.waitFor({ state: 'detached' });
   await reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: 'Send the signed lease' }) }).getByRole('button', { name: 'Mark done' }).click();
   await lease.waitFor({ state: 'detached' });
   await reminders.getByRole('heading', { name: 'Late', exact: true }).waitFor({ state: 'detached' });
-  await reminders.getByRole('heading', { name: 'Reminders 3' }).waitFor();
+  await reminders.getByRole('heading', { name: 'Reminders 5' }).waitFor();
+  assert.equal(await reminders.getByRole('button', { name: /^See all/ }).count(), 0);
   state.unavailable = true;
   await page.clock.fastForward(60_000);
   await page.getByText('Reminders and waiting items unavailable.', { exact: true }).waitFor();
-  assert.equal(await reminders.getByRole('heading', { name: 'Reminders 3' }).count(), 1);
+  assert.equal(await reminders.getByRole('heading', { name: 'Reminders 5' }).count(), 1);
   state.unavailable = false;
   state.items = [];
+  meetingItems = [];
   await page.clock.fastForward(60_000);
   await reminders.waitFor({ state: 'detached' });
   await waiting.waitFor({ state: 'detached' });
+  await meetings.waitFor({ state: 'detached' });
 });
 
 const draftCard = () => ({
@@ -1487,7 +1509,6 @@ for (const save of ['single', 'bulk', 'review']) test(`Home keeps grouped cards 
     assert.equal(await reminders.getByRole('link', { name: done.title }).count(), 0);
   }
   if (save === 'bulk') {
-    await reminders.getByRole('button', { name: 'See all 4' }).click();
     for (const task of [done, next])
       await reminders.locator('[data-inbox-row]').filter({ hasText: task.title }).getByRole('checkbox').check();
     await page.getByRole('button', { name: 'Snooze selected' }).click();
@@ -1526,6 +1547,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await draftTitle.click();
   const review = reminders.getByRole('region', { name: `Details for ${draft.title}` });
   await review.getByRole('button', { name: 'Edit', exact: true }).click();
+  const originalCard = await draftTitle.elementHandle();
   const message = review.getByRole('textbox', { name: 'Message', exact: true });
   await message.fill('Unsaved edit for the floor plan.');
   await message.scrollIntoViewIfNeeded();
@@ -1538,6 +1560,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await reminders.getByRole('link', { name: added.title }).waitFor();
   await reminders.getByRole('link', { name: tasks[0].title, exact: true }).waitFor({ state: 'detached' });
   assert.equal(state.dashboardReads, reads + 1);
+  assert.equal(await draftTitle.evaluate((node, original) => node === original, originalCard), true);
   assert.equal(await message.inputValue(), 'Unsaved edit for the floor plan.');
   assert.equal(await message.evaluate(node => node === document.activeElement), true);
   const after = await message.evaluate(node => ({ y: scrollY, top: node.getBoundingClientRect().top }));
@@ -1729,7 +1752,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const deal = { id: id(99), name: 'Example Dental', owner: 'joe' };
   const current = { key: 'aaaaaaaaaaaaaaaa', title: 'Tour Cedar Suite', start: '2026-11-03T13:30:00Z', end: '2026-11-03T14:30:00Z',
     context_label: deal.name, attendees: [{ name: 'Pat Example' }], open_url: `/deals?deal=${deal.id}` };
-  const later = ['Review sample terms', 'Visit Elm Suite', 'Tour Pine Suite'].map((title, index) => ({
+  const later = ['Review sample terms', 'Visit Elm Suite', 'Tour Pine Suite', 'Tour Oak Suite', 'Discuss lease dates'].map((title, index) => ({
     title, start: `2026-11-03T${18 + index}:00:00Z`, end: `2026-11-03T${19 + index}:00:00Z`,
   }));
   const laterDay = { ...current, title: 'Tour tomorrow', start: '2026-11-04T18:00:00Z', end: '2026-11-04T19:00:00Z' };
@@ -1766,16 +1789,19 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await open('/?mode=live');
   const meetings = page.getByRole('region', { name: "Today's meetings", exact: true });
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
-  await meetings.getByRole('heading', { name: "Today's meetings 4" }).waitFor();
+  await meetings.getByRole('heading', { name: "Today's meetings 6" }).waitFor();
   await reminders.getByRole('heading', { name: 'Reminders 5' }).waitFor();
   await meetings.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
   assert.equal(await meetings.getByText(current.title, { exact: true }).count(), 1);
   assert.equal(await meetings.getByText(laterDay.title, { exact: true }).count(), 0);
-  assert.equal(await meetings.locator('summary').count(), 3);
+  assert.equal(await meetings.locator('summary').count(), 5);
   assert.equal(await meetings.getByText('7:30 AM', { exact: true }).count(), 1);
-  await meetings.getByRole('button', { name: 'See all 4' }).click();
-  await meetings.getByText(later[2].title, { exact: true }).waitFor();
+  const sixth = meetings.getByText(later[4].title, { exact: true });
+  assert.equal(await sixth.count(), 0);
+  await meetings.getByRole('button', { name: 'See all 6' }).click();
+  await sixth.waitFor();
   await meetings.getByRole('button', { name: 'Show less' }).click();
+  await sixth.waitFor({ state: 'detached' });
   assert.equal(await meetings.getByText(earlier.title, { exact: true }).count(), 0);
   assert.equal(await page.locator('#appToday').isVisible(), false);
   assert.equal(await page.locator('.app-shell-search').count(), 1);
@@ -1809,7 +1835,6 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(writes[0].calendar_review_key, completed.key);
   assert.deepEqual(writes[0].about, [{ deal_id: deal.id }]);
 
-  await reminders.getByRole('button', { name: 'See all 5' }).click();
   const earlierReview = reminders.locator(`[data-review="${earlier.key}"]`);
   await earlierReview.getByRole('heading', { name: /Yesterday’s site visit/ }).waitFor();
   await earlierReview.getByRole('button', { name: /Confirm Yesterday’s site visit/ }).press('Enter');

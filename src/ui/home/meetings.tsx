@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { object } from "./inbox";
-import { day, HomeTile } from "./sections";
+import { day, HomeTile, tilePreviewCount } from "./sections";
 
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 const central = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" });
@@ -208,7 +208,7 @@ export function MeetingTile({
       )
     );
 
-  const shown = expanded ? events : events.filter(({ id }, index) => index < 3 || open.has(id));
+  const shown = expanded ? events : events.filter(({ id }, index) => index < tilePreviewCount || open.has(id));
   return (
     <HomeTile title="Today's meetings" count={events.length} expanded={expanded} setExpanded={setExpanded}>
       {lastSync && <p className="home-tile-status">{lastSync}</p>}
