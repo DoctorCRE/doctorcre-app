@@ -82,6 +82,7 @@ export function ReviewCard({
   const host = useRef<HTMLElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const draftSubject = useRef<HTMLInputElement>(null);
+  const focusDraftSubject = useRef(false);
   const anchor = useRef(item);
   const reconcileFacts = useCallback((detail: Review) => {
     if (detail.kind !== "fact_review") return;
@@ -159,8 +160,14 @@ export function ReviewCard({
   function editDraft({ subject, body }: Pick<DraftEdit, "subject" | "body">) {
     if (savedDraft) updateDraftEdits({ subject, body, baseVersion: savedDraft.reference.source_version });
   }
+  function beginDraftEdit(draft: Pick<DraftEdit, "subject" | "body">) {
+    focusDraftSubject.current = true;
+    editDraft(draft);
+  }
   useLayoutEffect(() => {
-    if (editingDraft) draftSubject.current?.focus();
+    if (!editingDraft || !focusDraftSubject.current) return;
+    focusDraftSubject.current = false;
+    draftSubject.current?.focus();
   }, [editingDraft]);
   const canDeclineDraft = operations?.some((op) => op.verb === "dismiss-email-proposal");
   const editable =
@@ -603,7 +610,7 @@ export function ReviewCard({
                         <p>{staleEdit.body}</p>
                         <div className="inbox-actions">
                           {canSaveDraft && (
-                            <button type="button" onClick={() => editDraft(staleEdit)}>
+                            <button type="button" onClick={() => beginDraftEdit(staleEdit)}>
                               Use my edit
                             </button>
                           )}
@@ -772,7 +779,7 @@ export function ReviewCard({
                       (review.kind !== "fact_review" || !availableDecisions(op, review).includes(decision)))
                   }
                   onClick={(event) => {
-                    if (startDraftEdit && draft) editDraft(draft);
+                    if (startDraftEdit && draft) beginDraftEdit(draft);
                     else if (item.engine_marks && op.verb === "dismiss-email-proposal")
                       setDrop({ title: "draft", opener: event.currentTarget, confirm: (reason) => choose(op, reason) });
                     else choose(op);
