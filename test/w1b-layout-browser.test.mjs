@@ -79,8 +79,8 @@ const fits=async(page,label)=>assert.equal(await page.evaluate(()=>document.docu
 test('five regions, rail destinations, Leads filters and per-page sidebar memory',async t=>{
  const{page,goto,errors}=await open(t);
  await goto('/leads');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'closed');
- assert.deepEqual(await page.locator('.app-shell-navigation > a').evaluateAll(nodes=>nodes.map(n=>n.title)),['Local Deals','Home','Leads','Clients','Calendar','Tours','Vendors']);
- assert.equal(await page.locator('#appMainSlot #leadSearch').count(),1);assert.equal(await page.locator('#appStatusSlot #boardUpdated').count(),1);
+ assert.deepEqual(await page.locator('.app-shell-navigation > a').evaluateAll(nodes=>nodes.map(n=>n.title)),['Home','Deals','Leads','Vendors']);
+ assert.equal(await page.locator('#appMainSlot #leadSearch').count(),1);assert.equal(await page.locator('#appMainSlot .page-heading #boardUpdated').count(),1);
  await page.locator('#appSidebarToggle').click();await page.locator('#leadSearch').fill('Example 3');assert.equal(await page.locator('.lead-card').count(),1);
  await goto('/deals?view=board');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'closed');
  await goto('/leads');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'open');
@@ -197,11 +197,11 @@ for (const width of [1440,390]) for (const theme of ['light','dark']) test(`Toda
  for(const source of ['deal-room-board','today-triage','morning-brief','feed']){
   const before=await page.locator('#appSyncTime').getAttribute('datetime');
   failed=source;await page.clock.fastForward(15*60_000);
-  await page.waitForFunction(()=>document.querySelector('#appConnection').getAttribute('aria-label')==='Connection unavailable');
+  await page.waitForFunction(()=>!document.querySelector('#appConnection').hidden);
   assert.deepEqual(await rows(),good,source+' must retain successful rows');
   await retry.waitFor();
   assert.equal(await page.locator('#appSyncTime').getAttribute('datetime'),before);
-  assert.equal(await page.locator('#appConnection').getAttribute('aria-label'),'Connection unavailable');
+  assert.match(await page.locator('#appConnection').textContent(), /Connection unavailable/);
   assert.match(await page.locator('#appToday').textContent(),/Showing last update/);
   const retryBox=await retry.boundingBox();assert.ok(retryBox.width>=44 && retryBox.height>=44);
   if(source==='deal-room-board'){
@@ -212,7 +212,7 @@ for (const width of [1440,390]) for (const theme of ['light','dark']) test(`Toda
   await retry.waitFor({state:'hidden'});
   assert.deepEqual(await rows(),good);
   assert.notEqual(await page.locator('#appSyncTime').getAttribute('datetime'),before);
-  assert.equal(await page.locator('#appConnection').getAttribute('aria-label'),'Connection available');
+  assert.equal(await page.locator('#appConnection').isHidden(),true);
   assert.equal(await page.locator('#appTodayReadStatus').isVisible(),false);
  }
  assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);
@@ -225,7 +225,7 @@ for(const today of [undefined,{state:'unavailable',items:[]}]) test(`Today retai
  await goto('/leads?mode=live');
  const before=await page.locator('#appTodayNeeds [data-layout-deal]').allTextContents();assert.ok(before.length);
  unavailable=true;await page.clock.fastForward(61_000);
- await page.waitForFunction(()=>document.querySelector('#appConnection').getAttribute('aria-label')==='Connection unavailable');
+ await page.waitForFunction(()=>!document.querySelector('#appConnection').hidden);
  assert.deepEqual(await page.locator('#appTodayNeeds [data-layout-deal]').allTextContents(),before);
  await page.getByRole('button',{name:'Retry Today',exact:true}).waitFor();
  assert.deepEqual(errors,[]);
@@ -242,7 +242,7 @@ for(const actor of ['joe','dell']) test(`Today discards retained priorities when
  });
  await goto('/leads?mode=live');assert.ok(await page.locator('#appTodayNeeds [data-layout-deal]').count());
  narrowed=true;await page.clock.fastForward(61_000);
- await page.waitForFunction(()=>document.querySelector('#appConnection').getAttribute('aria-label')==='Connection unavailable');
+ await page.waitForFunction(()=>!document.querySelector('#appConnection').hidden);
  assert.equal(await page.locator('#appTodayNext [data-layout-deal],#appTodayNeeds [data-layout-deal]').count(),0);
 });
 
@@ -310,7 +310,7 @@ test('Today retains offline rows but clears them before resume revalidation',asy
  await goto('/leads?mode=live');await page.waitForFunction(()=>document.querySelector('#appTodayMoves').textContent.includes('Demo Specialty Clinic'));
  const before=await page.locator('#appToday [data-layout-deal]').allTextContents();assert.ok(before.length);
  await page.context().setOffline(true);
- await page.waitForFunction(()=>document.querySelector('#appConnection').getAttribute('aria-label')==='Connection unavailable');
+ await page.waitForFunction(()=>!document.querySelector('#appConnection').hidden);
  assert.deepEqual(await page.locator('#appToday [data-layout-deal]').allTextContents(),before);
  hold=true;await page.context().setOffline(false);
  await page.waitForFunction(()=>!document.querySelector('#appToday [data-layout-deal]'));
@@ -372,6 +372,7 @@ test('Home Today shows loading on first read and tab resume, and keeps rows quie
   assert.ok(reads>before);
  }
  hold();const synced=await page.locator('#appSyncTime').getAttribute('datetime');
+ await page.locator('#selfAvatar').click();
  await page.locator('#appSyncRefresh').click();
  await page.evaluate(async()=>{
   const {meetingPreparationLifetime}=await import('/js/ui-meeting-preparation-lifetime.generated.js');
@@ -485,7 +486,7 @@ for (const section of ['board','triage']) test(`R4 malformed ${section} rows ret
  });
  await goto('/leads?mode=live');const before=await page.locator('#appSyncTime').getAttribute('datetime');
  const beforeRows=await page.locator((section==='board'?'#appTodayNeeds':'#appTodayNext')+' [data-layout-deal]').allTextContents();
- malformed=true;await page.clock.fastForward(61_000);await page.waitForFunction(()=>document.querySelector('#appConnection').getAttribute('aria-label')==='Connection unavailable');
+ malformed=true;await page.clock.fastForward(61_000);await page.waitForFunction(()=>!document.querySelector('#appConnection').hidden);
  const target=section==='board'?'#appTodayNeeds':'#appTodayNext';
  await page.getByRole('button',{name:'Retry Today',exact:true}).waitFor();
  assert.deepEqual(await page.locator(target+' [data-layout-deal]').allTextContents(),beforeRows);
@@ -497,7 +498,7 @@ test('R8 page environment capture and freshness feedback stays visible in the st
   await page.setViewportSize({width,height:960});await goto('/deals?mode=fixture');await page.waitForFunction(()=>document.querySelector('#deploymentBadge').dataset.mode==='fixture');
   assert.equal(await page.locator('#deploymentBadge').isVisible(),true);assert.equal(await page.locator('#syncStatus').isVisible(),true);
   await page.evaluate(()=>{const n=document.querySelector('#captureStatus');n.hidden=false;n.textContent='Capture active';});assert.equal(await page.locator('#captureStatus').isVisible(),true);
-  const badge=await page.locator('#deploymentBadge').boundingBox(),bar=await page.locator('.app-layout-status').boundingBox();assert.ok(badge.y>=bar.y && badge.y+badge.height<=bar.y+bar.height,JSON.stringify({width,badge,bar}));
+  assert.match(await page.locator('.dealroom-heading').textContent(), /Updated /);
   await page.screenshot({animations:'disabled',path:new URL(`out/test-artifacts/w1b/environment-${width}.png`,root).pathname});
   await goto('/review-workflows');assert.equal(await page.locator('#observedAt').isVisible(),true);
  }
@@ -573,7 +574,7 @@ for(const width of [1440,390]) test(`PR129 #3 sync failure is visibly distinct f
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');state.client.getChanges=async()=>{throw new Error('Synthetic feed failure')};await state.boardSync.pollChanges({force:true});});
  await page.waitForFunction(()=>document.querySelector('#boardStatusLabel').textContent==='Reconnecting');
  const visible=await page.locator('#boardStatus').evaluate(n=>{const r=n.getBoundingClientRect(),s=getComputedStyle(n);return r.width>20&&r.height>10&&s.clipPath==='none'});
- assert.equal(visible,true);assert.equal(await page.locator('#appConnection').getAttribute('aria-label'),'Connection available');
+ assert.equal(visible,true);assert.equal(await page.locator('#appConnection').isHidden(),true);
  await page.evaluate(()=>{const n=document.querySelector('#captureStatus');n.hidden=false;n.textContent='Capture: failed';});assert.equal(await page.locator('#captureStatus').isVisible(),true);
 });
 
@@ -587,9 +588,11 @@ test('PR129 #2 account transition removes prior receipts before a delayed feed a
  assert.doesNotMatch(await page.locator('#appTodayMoves').textContent(),/Synthetic private value|Demo Specialty Clinic/);release();
 });
 
-for(const width of [1440,390]) test(`PR129 #3 Leads freshness feedback fits the visible status bar at ${width}`,async t=>{
+for(const width of [1440,390]) test(`PR129 #3 Leads freshness appears beside the page title at ${width}`,async t=>{
  const {page,goto}=await open(t,{width});await goto('/leads');
- const item=await page.locator('#boardUpdated').boundingBox(),bar=await page.locator('.app-layout-status').boundingBox();assert.ok(item.y>=bar.y && item.y+item.height<=bar.y+bar.height,JSON.stringify({item,bar}));
+ const freshness=page.locator('.page-heading #boardUpdated');
+ assert.equal(await freshness.isVisible(),true);
+ assert.match(await freshness.textContent(), /^Updated /);
 });
 
 

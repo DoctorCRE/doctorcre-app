@@ -25,11 +25,10 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .deployment-badge { flex: 0 0 auto; padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-round); color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
 .deployment-badge[data-mode="live"] { border-color: var(--status-ok); color: var(--status-ok-ink); }
 .deployment-badge[data-mode="fixture"] { border-color: var(--status-warn); color: var(--status-warn-ink); }
-.top-actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
-.sync, .capture { padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-round); color: var(--fg-muted); font-size: var(--font-size-1); }
-.sync::before { display: inline-block; width: 8px; height: 8px; margin-right: var(--space-2); border-radius: 50%; background: var(--status-ok); content: ""; }
-.sync.offline::before { background: transparent; border: 2px dashed var(--status-warn); }
-.capture { color: var(--fg); }
+.top-actions { display: flex; align-items: center; gap: var(--space-2); }
+.sync { color: var(--fg-muted); font-size: var(--font-size-1); }
+.sync.offline { position: static; padding: 0; border: 0; background: transparent; }
+.capture { color: var(--fg); font-size: var(--font-size-1); }
 .icon-button { display: grid; place-items: center; min-width: var(--touch); min-height: var(--touch); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: transparent; color: inherit; font-size: var(--font-size-3); line-height: 1; }
 .icon-button:hover { border-color: var(--hairline-strong); background: var(--surface-2); }
 .offline { position: sticky; top: 0; z-index: 45; padding: var(--space-2) var(--space-4); border-bottom: var(--hairline-width) solid var(--status-warn); background: var(--surface-1); color: var(--status-warn-ink); font-size: var(--font-size-1); text-align: center; }
@@ -369,7 +368,6 @@ body.has-app-layout:has(#confirmDock:not([hidden])) .toast { bottom: calc(var(--
 }
 @media (max-width: 680px) {
   html, body { max-width: 100%; overflow-x: clip; }
-  .sync { display: none; }
   .shell { padding: var(--space-4) var(--space-4) 84px; }
   .hero { flex-direction: column; align-items: stretch; }
   .hero-actions { display: grid; grid-template-columns: 1fr 1fr; }

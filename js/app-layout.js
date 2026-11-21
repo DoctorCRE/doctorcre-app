@@ -27,13 +27,10 @@ export function createAppLayout(root, title = '', engineToday = false) {
   layout.id = 'appLayout';
   layout.className = 'app-layout';
   layout.innerHTML = `<aside id="appSidebar" class="app-layout-sidebar" aria-label="${escape(title)} workspace"><div class="app-layout-sidebar-head"><h2>${escape(title)}</h2><button type="button" data-layout-close="sidebar" aria-label="Close workspace">‹</button></div><div id="appCalendarSlot"></div></aside>
-    <div class="app-layout-center"><div class="app-layout-tabbar" role="navigation" aria-label="Page controls"><button type="button" id="appSidebarToggle" aria-label="Workspace sidebar" aria-controls="appSidebar" aria-expanded="false" title="Workspace sidebar">☷</button><div id="appTabsSlot" class="app-layout-tabs" role="group" aria-label="${escape(title)} views"></div><button type="button" id="appTodayToggle" aria-label="Today sidebar" aria-controls="appToday" aria-expanded="true" title="Today">◷</button></div><div id="appMainSlot" class="app-layout-main"></div><details class="app-layout-page-tools"><summary>Page tools</summary><div id="appSidebarSlot"></div><section class="app-layout-working"><h3>Overdue</h3><div id="appWorkingList">Updating…</div></section></details></div>
-    <aside id="appToday" class="app-layout-today" aria-labelledby="appTodayTitle"><div class="app-layout-sidebar-head"><h2 id="appTodayTitle">Today</h2><button type="button" data-layout-close="today" aria-label="Close Today">›</button></div>${todayContent}</aside>
+    <div class="app-layout-center"><div id="appTopbar" class="app-layout-topbar" role="region" aria-label="App controls"></div><div class="app-layout-tabbar" role="navigation" aria-label="Page controls"><button type="button" id="appSidebarToggle" aria-label="Workspace sidebar" aria-controls="appSidebar" aria-expanded="false" title="Workspace sidebar">☷</button><div id="appTabsSlot" class="app-layout-tabs" role="group" aria-label="${escape(title)} views"></div><button type="button" id="appTodayToggle" aria-label="Today sidebar" aria-controls="appToday" aria-expanded="true" title="Today">◷</button></div><div id="appMainSlot" class="app-layout-main"></div><details class="app-layout-page-tools"><summary>Page tools</summary><div id="appSidebarSlot"></div><section class="app-layout-working"><h3>Overdue</h3><div id="appWorkingList">Updating…</div></section></details></div>
+    <aside id="appToday" class="app-layout-today" aria-labelledby="appTodayTitle"><div class="app-layout-sidebar-head"><h2 id="appTodayTitle">Today</h2><time id="appSyncTime" hidden></time><button type="button" data-layout-close="today" aria-label="Close Today">›</button></div><p id="appConnection" role="status" hidden></p>${todayContent}</aside>
     <button class="app-layout-scrim" id="appDrawerScrim" type="button" aria-label="Close sidebar" hidden></button>`;
-  const status = root.createElement('footer');
-  status.className = 'app-layout-status';
-  status.innerHTML = '<span><time id="appSyncTime" title="Last sync">—</time><button type="button" id="appSyncRefresh" aria-label="Refresh workspace" title="Refresh">↻</button></span><span title="Last new-lead search">⌕ <time id="appLeadSearchTime">—</time></span><span id="appConnection" class="app-layout-health" data-state="unknown" role="img" aria-label="Connection unknown" title="Connection unknown"></span><div id="appStatusSlot"></div>';
-  return { layout, status };
+  return layout;
 }
 
 // Slots contain the page's original nodes, not copies. IDs, listeners, drafts and
@@ -48,40 +45,42 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const progressPage = pathname === '/control-room/progress' || pathname.startsWith('/control-room/progress/board/');
   const title = pathname === '/' ? 'Home' : progressPage ? 'Progress' : pathname.startsWith('/control-room') ? 'Control Room' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .room-wordmark, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
   const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine');
-  const { layout, status } = createAppLayout(root, title, engineToday);
+  const layout = createAppLayout(root, title, engineToday);
   const hasWorkingList = !vendorDirectory && pathname !== '/';
   if (!hasWorkingList) layout.querySelector('.app-layout-working').remove();
   else if (homeOrInbox || engineToday) layout.querySelector('.app-layout-working').hidden = true;
-  host.after(layout, status);
+  host.after(layout);
   const skip = root.querySelector('.skip');
   if (skip) host.querySelector('header')?.prepend(skip);
   const main = layout.querySelector('#appMainSlot');
-  main.append(layout.querySelector('.app-layout-page-tools'));
-  const pageTools = main.firstElementChild;
+  const pageTools = layout.querySelector('.app-layout-page-tools');
+  main.append(pageTools);
   // Modals and fixed feedback belong to the viewport, outside page regions.
   root.querySelectorAll('.record-backdrop, aside.record-panel, .room-toast').forEach(node => root.body.append(node));
   // Lift declarative page slots before putting the remaining page into main.
+  const pageViews = layout.querySelector('#appTabsSlot');
+  const slots = {
+    tabs: pageViews,
+    actions: pageViews,
+    sidebar: layout.querySelector('#appSidebarSlot'),
+    moves: layout.querySelector('#appTodayMoves'),
+  };
   for (const node of [...root.querySelectorAll('[data-layout-slot]')]) {
     const slot = node.dataset.layoutSlot;
-    const target = slot === 'tabs' ? layout.querySelector('#appTabsSlot') : slot === 'sidebar' ? layout.querySelector('#appSidebarSlot') : slot === 'moves' ? layout.querySelector('#appTodayMoves') : status.querySelector('#appStatusSlot');
-    if (slot === 'moves') {
-      if (!target) continue;
-      target.replaceChildren();
-    }
+    const target = slots[slot];
+    if (!target) continue;
+    if (slot === 'moves') target.replaceChildren();
     target.append(node);
   }
   for (const node of [...root.body.children]) {
-    if (node === host || node === layout || node === status || ['SCRIPT','DIALOG'].includes(node.tagName) || node.matches('.app-shell-account-menu, .skip, .toast, .receipt-dock, .record-backdrop, aside.record-panel, .room-toast')) continue;
-    if (node.matches('footer')) status.querySelector('#appStatusSlot').append(node);
-    else main.insertBefore(node, pageTools);
+    if (node === host || node === layout || ['SCRIPT','DIALOG'].includes(node.tagName) || node.matches('.app-shell-account-menu, .skip, .toast, .receipt-dock, .record-backdrop, aside.record-panel, .room-toast')) continue;
+    main.insertBefore(node, pageTools);
   }
   const hasPageTools = Boolean(layout.querySelector('#appSidebarSlot').childElementCount);
   pageTools.open = !vendorDirectory && hasPageTools;
   pageTools.hidden = !hasPageTools && !layout.querySelector('.app-layout-working:not([hidden])');
   root.body.classList.add('has-app-layout');
-  // A page that brings its own freshness and refresh owns the band's one clock and one refresh.
-  const pageRefresh = status.querySelector('#appStatusSlot [data-layout-refresh]');
-  status.toggleAttribute('data-page-freshness', Boolean(pageRefresh));
+  const pageRefresh = main.querySelector('[data-layout-slot="status"] [data-layout-refresh]');
   const pageMoves = layout.querySelector('[data-layout-slot="moves"]');
   const pageOwnsMoves = Boolean(pageMoves);
   const canReadMoves = () => !pageOwnsMoves && !root.documentElement.hasAttribute('data-deals-from-engine');
@@ -259,8 +258,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     && (!i.due_on || toDay(i.due_on)));
   const connection = connected => {
     connected = connected && win.navigator.onLine !== false;
-    const dot = root.getElementById('appConnection'); dot.dataset.state = connected ? 'healthy' : 'unknown';
-    dot.setAttribute('aria-label', connected ? 'Connection available' : 'Connection unavailable'); dot.title = dot.getAttribute('aria-label');
+    const notice = layout.querySelector('#appConnection');
+    notice.hidden = connected;
+    const message = connected ? '' : 'Connection unavailable';
+    if (notice.textContent !== message) notice.textContent = message;
   };
   const renderReadStatus = () => {
     const notice = layout.querySelector('#appTodayReadStatus');
@@ -269,7 +270,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     notice.hidden = !failedReads.length && !loading;
     notice.textContent = failedReads.length ? `${kept ? 'Showing last update. ' : ''}${failedReads.join(', ')} unavailable. Retry Today to update.` : loading ? 'Loading Today…' : '';
     layout.querySelector('#appTodayRetry').hidden = !failedReads.length;
-    connection(!failedReads.length);
+    if (!loading || failedReads.length) connection(!failedReads.length);
   };
   const failedRead = () => {
     if (homeToday) {
@@ -294,6 +295,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     failedRead();
   };
   const loadingRead = () => {
+    connection(true);
     if (homeToday) { void homeToday.then(panel => panel?.clear('loading')); return; }
     todayItems = null; todayNeeds = null; failedReads = [];
     todayReadState = 'loading';
@@ -304,8 +306,10 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   };
   const stampSyncTime = () => {
     const observed = new Date().toISOString();
-    status.querySelector('#appSyncTime').textContent = time(observed);
-    status.querySelector('#appSyncTime').dateTime = observed;
+    const stamp = layout.querySelector('#appSyncTime');
+    stamp.textContent = `Updated ${time(observed)}`;
+    stamp.dateTime = observed;
+    stamp.hidden = false;
   };
   const refresh = async ({ signal } = {}) => {
     signal = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
@@ -421,7 +425,13 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const auto = mountAutoRefresh({ document:root, window:win, refresh, onResume:loadingRead, onError:failedRead });
   layout.querySelector('#appTodayRetry').onclick = () => auto.refresh();
   let fanOut = false;
-  status.querySelector('#appSyncRefresh').onclick = () => {
+  const refreshButton = root.createElement('button');
+  refreshButton.id = 'appSyncRefresh';
+  refreshButton.type = 'button';
+  refreshButton.setAttribute('aria-label', 'Refresh workspace');
+  refreshButton.textContent = '↻';
+  (root.getElementById('accountWorkspaceControls') || layout.querySelector('.app-layout-sidebar-head')).append(refreshButton);
+  refreshButton.onclick = () => {
     auto.refresh(); fanOut = true;
     try { root.querySelectorAll('[data-layout-refresh]').forEach(button => button.click()); } finally { fanOut = false; }
   };

@@ -671,6 +671,12 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       selectDocRecord("lead", null);
       pageDocContext?.release("getLeadDetail");
       if (doc.activeElement === doc.body || $(id).contains(doc.activeElement)) restoreFocus(state.trigger);
+      const stage = id === "leadDetail" && doc.activeElement?.closest(".lead-card")?.closest('.stage-column[data-expanded="true"]');
+      const heading = stage && stage.querySelector(".stage-head");
+      const headerBottom = doc.querySelector(".app-layout-tabbar")?.getBoundingClientRect().bottom ?? 0;
+      if (heading && heading.getBoundingClientRect().top < headerBottom) {
+        stage.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
+      }
     }
   });
   $("stageForm").addEventListener("submit", event => {

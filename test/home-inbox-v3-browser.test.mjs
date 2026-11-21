@@ -325,7 +325,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
 
   if (!(await today.isVisible())) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
   await today.getByText('Example walkthrough', { exact: true }).waitFor();
-  await page.locator('#appConnection[data-state="healthy"]').waitFor({ state: 'attached' });
+  await page.locator('#appSyncTime[datetime]').waitFor({ state: 'attached' });
   todayFailure = 'meetings';
   await page.locator('#appSyncRefresh').evaluate(button => button.click());
   await today.getByRole('region', { name: 'Meetings', exact: true }).getByText("Today's meetings could not be loaded.", { exact: true }).waitFor();

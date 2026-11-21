@@ -197,7 +197,7 @@ test("National Accounts loads pending captures even with the legacy feed down", 
 });
 
 for (const width of [1440, 390]) {
-  test(`Deals footers show the last update at ${width}px`, async ({ page }, testInfo) => {
+  test(`Deals shows the last update inline at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await mockReads(page);
     for (const [path, footer] of [
@@ -205,10 +205,9 @@ for (const width of [1440, 390]) {
       [national, "#syncStatus"],
     ] as const) {
       await page.goto(server.url + path);
-      const band = page.locator(".app-layout-status");
-      await expect(band.locator(footer)).toBeVisible();
-      await expect(band.locator(footer)).toHaveText(updated);
-      await expect(band).not.toContainText(/Reconnecting|unavailable/i);
+      const stamp = page.locator(`#appMainSlot ${footer}`);
+      await expect(stamp).toBeVisible();
+      await expect(stamp).toHaveText(updated);
       if (process.env.DEALS_REFRESH_SCREENSHOTS) {
         await page.screenshot({ path: testInfo.outputPath(`${footer.slice(1)}-${width}.png`) });
       }
@@ -249,7 +248,7 @@ for (const trigger of ["focus", "visibility", "interval", "save"]) {
 test("switch off keeps the legacy feed and its capture queue", async ({ page }) => {
   const requests = await mockReads(page, { engine: false });
   await page.goto(server.url + national);
-  await expect(page.locator("#syncStatus")).toHaveText("Current");
+  await expect(page.locator("#syncStatus")).toHaveText(/^Updated /);
   await expect(page.locator("#confirmDock")).toContainText("Demo Capture");
   expect(requests.feed).toBeGreaterThan(0);
 });

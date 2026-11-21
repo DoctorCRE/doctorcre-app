@@ -33,7 +33,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
       await page.getByRole('button', { name: 'Close workspace', exact: true }).click();
     } else {
       const completeRows = await page.locator('.record-row').evaluateAll(rows => {
-        const bottom = document.querySelector('.app-layout-status').getBoundingClientRect().top;
+        const bottom = innerHeight;
         return rows.filter(row => { const rect = row.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= bottom; }).length;
       });
       expect.soft(completeRows).toBeGreaterThanOrEqual(3);

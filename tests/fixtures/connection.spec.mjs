@@ -29,12 +29,13 @@ test('going offline clears health during a pending refresh and reconnect reads a
   const feedRead = page.waitForRequest(request => new URL(request.url()).pathname === '/pipeline/changes');
   await page.goto('http://localhost/connection-fixture?mode=live');
   const connection = page.locator('#appConnection');
-  await expect(connection).toHaveAttribute('aria-label', 'Connection available');
+  await expect(connection).toBeHidden();
   await feedRead;
   try {
     await context.setOffline(true);
     await page.getByRole('button', { name: 'Refresh workspace' }).click();
-    await expect(connection).toHaveAttribute('aria-label', 'Connection unavailable');
+    await expect(connection).toBeVisible();
+    await expect(connection).toHaveText('Connection unavailable');
     await expect(page.locator('#appTodayNeeds')).toHaveText('—');
     await expect(page.getByRole('button', { name: 'Retry Today', exact: true })).toBeVisible();
     await expect(page.locator('#appTodayReadStatus')).toContainText('Showing last update');
@@ -42,12 +43,13 @@ test('going offline clears health during a pending refresh and reconnect reads a
     const feedResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/pipeline/changes');
     releaseFeed();
     await (await feedResponse).finished();
-    await expect(connection).toHaveAttribute('aria-label', 'Connection unavailable');
+    await expect(connection).toBeVisible();
+    await expect(connection).toHaveText('Connection unavailable');
     await expect(page.locator('#appTodayMoves')).toHaveText('Unavailable');
   } finally {
     releaseFeed();
     await context.setOffline(false);
   }
   await expect.poll(() => boardReads).toBe(2);
-  await expect(connection).toHaveAttribute('aria-label', 'Connection available');
+  await expect(connection).toBeHidden();
 });

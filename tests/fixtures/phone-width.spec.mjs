@@ -65,3 +65,45 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await expect(page.locator('#boardView')).toHaveAttribute('aria-pressed', 'true');
   });
 }
+
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+  test.describe(`Shared shell at ${width} in ${theme}`, () => {
+    test.use({ viewport: { width, height: 900 } });
+    test.beforeEach(async ({ page }) => {
+      await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
+    });
+
+    test('page tabs have their own row', async ({ page }) => {
+      await page.goto(`${server.url}/deals`);
+      const views = page.getByRole('navigation', { name: 'Page controls' });
+      const search = page.getByRole('button', { name: /Search and quick switcher/ });
+      await expect(search).toBeVisible();
+      await expect(page.locator('#boardChips button').first()).toBeVisible();
+      const [viewBox, searchBox] = await Promise.all([views.boundingBox(), search.boundingBox()]);
+      expect(searchBox.y + searchBox.height, 'Search fits above the page tabs').toBeLessThanOrEqual(viewBox.y);
+      if (width === 390) expect(viewBox.height, 'Deals tabs stay compact').toBeLessThanOrEqual(170);
+    });
+
+    test('only phone navigation reserves space at the bottom', async ({ page }) => {
+      await page.goto(`${server.url}/deals`);
+      await expect(page.locator('#boardAsOf')).toBeVisible();
+      await expect(page.locator('#boardAsOf')).toHaveText(/^Updated /);
+      expect(await page.locator('body').evaluate(body => parseFloat(getComputedStyle(body).paddingBottom))).toBe(width === 390 ? 56 : 0);
+    });
+
+    test('Search and display settings work on the Orchestrator board', async ({ page }) => {
+      await page.goto(`${server.url}/control-room/progress/board/orchestrator`);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      const search = page.getByRole('button', { name: /Search and quick switcher/ });
+      await expect(search).toBeVisible();
+      await search.click();
+      await expect(page.getByRole('dialog', { name: 'Quick switcher' })).toBeVisible();
+      await page.keyboard.press('Escape');
+      if (width === 390) await page.getByRole('button', { name: /account and settings/i }).click();
+      await page.getByRole('button', { name: 'Color assist', exact: true }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-color-assist', 'on');
+      await page.getByRole('button', { name: 'Dark mode', exact: true }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme === 'light' ? 'dark' : 'light');
+    });
+  });
+}
