@@ -136,12 +136,8 @@ for (const viewport of [
         await expect(browser.locator(failure)).toContainText(surface.settled);
         await expect(browser.locator(surface.freshness)).toContainText(/unavailable/i);
         if (surface.name === "Tours") await proveVisibleFailure(browser, failure);
-        // These local interactions repaint the settled failed read.
-        if (surface.name === "Leads") {
-          await browser.locator("#appSidebarToggle").tap();
-          await browser.locator("#leadSearch").fill("Demo");
-          await browser.locator('[data-layout-close="sidebar"]').tap();
-        }
+        if (surface.name === "Leads") await expect(browser.locator("#leadSearch")).toBeHidden();
+        // Switching to the list repaints the settled failed deal read.
         if (surface.name === "Deals") await browser.locator("#listView").tap();
         await expect(browser.locator(surface.freshness)).toContainText(/unavailable/i);
         // The fixture server does not implement Tours' legacy library transport;
@@ -155,9 +151,11 @@ for (const viewport of [
         if (viewport.width < 760) await browser.keyboard.press("Escape");
         await expect(browser.locator(surface.freshness)).toContainText(/Updated/i);
         if (surface.name === "Leads") {
-          await browser.locator("#appSidebarToggle").tap();
-          await browser.locator("#leadSearch").fill("");
-          await browser.locator('[data-layout-close="sidebar"]').tap();
+          const search = browser.locator("#leadSearch");
+          await expect(search).toBeVisible();
+          await search.fill("Demo");
+          await expect(browser.locator(surface.freshness)).toContainText(/Updated/i);
+          await search.fill("");
         }
         if (surface.name === "Deals") await browser.locator("#boardView").tap();
         await expect(browser.locator(surface.freshness)).toContainText(/Updated/i);

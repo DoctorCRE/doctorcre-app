@@ -338,7 +338,8 @@ for(const width of [1440,390]) test(`vendor Conversations show newest notes firs
  assert.deepEqual(await conversations.locator('.note-summary').allTextContents(),['Synthetic latest conversation','Synthetic earlier conversation','Synthetic undated conversation']);
  await conversations.locator('[data-details-key="entry-latest"] summary').click();
  assert.equal(await conversations.locator('.entry-detail').first().textContent(),'Synthetic latest original');
- assert.equal(await conversations.locator('li').last().locator('time').textContent(),'an unknown time');
+ assert.equal(await conversations.locator('li').last().locator('time').count(),0);
+ assert.equal(await conversations.locator('time').count(),2);
  assert.equal(h.writes,0);
  assert.deepEqual(h.errors,[]);
 });
