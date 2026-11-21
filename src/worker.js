@@ -265,7 +265,6 @@ const ENGINE_READS = new Map([
     args: { workspace: isString, lead_id: isString, correspondence_cursor: isObject, stage_history_cursor: isString } }],
   ['quiet-follow-ups', { key: LEADS, path: '/api/engine/quiet-follow-ups', args: { lead_days: Number.isFinite, vendor_days: Number.isFinite, owner_slug: isString } }],
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
-  ['territory-state-board', { key: LEADS, path: '/api/engine/territory-state-board', args: { vertical: isString, city: isString, state: isString } }],
   [HOME_TODAY, { key: HOME, path: HOME_TODAY, engineOnly: true }],
   ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {} }],
   ['/api/v1/intelligence/mail-needs-partner', { key: HOME, path: '/api/engine/home/mail-priorities', forwardQuery: false, engineOnly: true }],
