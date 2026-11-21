@@ -131,10 +131,12 @@ environment until the old gate is removed. See the
 [partner sign-in cutover plan](https://github.com/DoctorCRE/doctorcre-engine/blob/main/docs/sign-in.md#switch-after-hours-with-advance-notice).
 
 In engine sign-in mode, PartnerApp serves the Deals board, deal detail, deal
-saves, and the board polling feed regardless of the Deals read and save switch
-values. The app forwards only the engine session cookie on session checks and
-engine API requests. The board stops polling after its first engine-backed load.
-Show deal attribution remains on CARR until the engine reader is available.
+saves, board polling, client and vendor context, the national capture queue, and
+call recorder context regardless of the legacy routing switches. The app blocks
+the CARR forwarder in engine mode. PartnerApp receives only the engine session
+cookie, with the engine's short-lived OAuth state cookie allowed on the Google
+callback. The board stops polling after its first engine-backed load. Deal watch
+settings, Tours, Compare terms, and deal attribution show “Not available yet” until their engine endpoints are available.
 
 `npm run release:production` consumes the prepared artifact, replaces `dist/site`
 from its verified source bytes, and runs only provider upload, promotion and

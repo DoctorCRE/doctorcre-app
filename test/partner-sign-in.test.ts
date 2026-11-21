@@ -116,30 +116,40 @@ test("the workspace release flag still refuses its feature pages in engine mode"
   assert.equal((await send("/leads", { headers: { cookie } })).status, 200);
 });
 
-test("auth forwards the app URL and preserves Google redirects and individual cookies", async () => {
+test("auth forwards the app URL and preserves Google redirects and individual cookies", async (t) => {
   const { send, calls } = fixture((input) => {
     const headers = new Headers({ location: "/leads?owner=partner", "cache-control": "public" });
     for (const value of cookies) headers.append("set-cookie", value);
     return new Response(null, { status: new URL(input.url).pathname === "/auth/signout" ? 303 : 302, headers });
   });
+  const oauthState = "__Host-doctorcre_oauth_state=synthetic-state";
   for (const path of [
     "/auth/login?return_to=%2Fleads",
     "/auth/callback/google?state=fixture&code=fixture",
     "/auth/reauth?return_to=%2Fdeals",
     "/auth/signout",
   ]) {
-    const init = { method: path === "/auth/signout" ? "POST" : "GET", headers: proofs };
-    const response = await send(path, init);
-    assert.equal(response.status, init.method === "POST" ? 303 : 302);
-    assert.equal(response.headers.get("cache-control"), "no-store");
-    assert.equal(response.headers.get("location"), "/leads?owner=partner");
-    assert.deepEqual(response.headers.getSetCookie(), cookies);
-    const forwarded = calls.partner.at(-1);
-    assert.ok(forwarded);
-    assert.equal(forwarded.url, staging + path);
-    assert.equal(forwarded.method, init.method);
-    assert.equal(forwarded.redirect, "manual");
-    for (const [name, value] of Object.entries(proofs)) assert.equal(forwarded.headers.get(name), value);
+    await t.test(path, async () => {
+      const init = {
+        method: path === "/auth/signout" ? "POST" : "GET",
+        headers: { ...proofs, cookie: mixedCookies + "; " + oauthState },
+      };
+      const response = await send(path, init);
+      assert.equal(response.status, init.method === "POST" ? 303 : 302);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(response.headers.get("location"), "/leads?owner=partner");
+      assert.deepEqual(response.headers.getSetCookie(), cookies);
+      const forwarded = calls.partner.at(-1);
+      assert.ok(forwarded);
+      assert.equal(forwarded.url, staging + path);
+      assert.equal(forwarded.method, init.method);
+      assert.equal(forwarded.redirect, "manual");
+      for (const [name, value] of Object.entries(proofs)) {
+        const expected =
+          name === "cookie" && path.startsWith("/auth/callback/google?") ? cookie + "; " + oauthState : value;
+        assert.equal(forwarded.headers.get(name), expected, path);
+      }
+    });
   }
   assert.equal(calls.carr.length, 0);
 });
@@ -391,6 +401,69 @@ test("PartnerApp serves the board polling feed across Deals read switch settings
   }
 });
 
+test("existing Deals context and capture reads use PartnerApp with their routing switches off", async (t) => {
+  const cases = [
+    ["client context", `/api/v1/business/clients/${deal}`, `/api/engine/clients/${deal}`, { method: "GET" }],
+    [
+      "vendor context",
+      "/api/v1/business/relationships?contract=relationship-network.v1",
+      "/api/engine/relationships?contract=relationship-network.v1",
+      { method: "GET" },
+    ],
+    ["national Deals capture queue", "/mcp", "/api/engine/capture-queue", toolsCall("capture-queue", {})],
+    [
+      "call recorder context",
+      "/mcp",
+      `/api/engine/call-context?deal_id=${deal}&deal_id=${key}`,
+      toolsCall("get-call-context", { deal_ids: [deal, key] }),
+    ],
+  ] as const;
+  for (const [name, path, enginePath, init] of cases) {
+    await t.test(name, async () => {
+      const { send, calls } = fixture(() => Response.json({ count: 0 }), {
+        ENGINE_ROUTING: dealsRouting("off", "off"),
+      });
+      const response = await send(path, { ...init, headers: { ...proofs, cookie: mixedCookies } });
+      assert.equal(response.status, 200);
+      assert.deepEqual(
+        calls.partner.map((input) => [input.url, input.headers.get("cookie")]),
+        [[staging + enginePath, cookie]],
+      );
+      assert.equal(calls.carr.length + calls.engine.length, 0);
+    });
+  }
+});
+
+test("legacy deal features use CARR only with CARR sign-in", async (t) => {
+  const routes = [
+    ["watch settings", "/mcp", toolsCall("read-subject-watch-v2", { subject_type: "deal", subject_id: deal })],
+    ["tours", "/api/tours/library", { method: "GET" }],
+    ["tour property", "/api/tours/property-evidence/v1?property_id=" + deal, { method: "GET" }],
+    ["compare terms", "/api/v1/market-terms/read", { method: "POST", body: "{}" }],
+    ["deal attribution", "/mcp", toolsCall("read-activity-deal-attribution", { activity_id: key })],
+    ["direct staging proxy", "/api/share/fixture", { method: "GET" }],
+  ] as const;
+  for (const mode of ["engine", "carr"]) {
+    const { send, calls } = fixture(null, { PARTNER_SIGN_IN: mode, ENGINE_ROUTING: dealsRouting("on", "on") });
+    for (const [name, path, init] of routes) {
+      await t.test(`${mode} ${name}`, async () => {
+        const before = calls.carr.length;
+        const response = await send(path, { ...init, headers: { ...proofs, cookie: mixedCookies } });
+        if (mode === "engine") {
+          assert.equal(calls.carr.length, before);
+          assert.equal(response.status, 404);
+          assert.deepEqual(await response.json(), { error: "not_available_yet" });
+        } else {
+          assert.equal(response.status, 503);
+          assert.equal(calls.carr.length, before + 1);
+          assert.equal(calls.carr.at(-1)?.headers.get("cookie"), mixedCookies);
+        }
+        assert.equal(calls.partner.length + calls.engine.length, 0);
+      });
+    }
+  }
+});
+
 test("the saved Deals page checks only the engine session cookie", async () => {
   const { send, calls } = fixture(status);
   const path = "/deals?deal=11111111-1111-4111-8111-111111111111";
@@ -493,11 +566,13 @@ test("CARR sign-in preserves Deals destinations and save guards for all switch c
         if (reads) assert.equal(result.activity_id, key);
         else assert.equal(result.error, "version_conflict");
       } else assert.equal(answer.source, "carr");
+      const context = await send("/mcp", { ...toolsCall("get-call-context", { deal_ids: [deal] }), headers });
+      assert.deepEqual(await context.json(), { source: "carr" });
       const feed = await send("/pipeline/changes", { headers });
       if (reads) assert.equal(feed.status, 204);
       else assert.deepEqual(await feed.json(), { source: "carr" });
       assert.equal(calls.partner.length, 0);
-      assert.equal(oldCalls.length, (reads ? 0 : 3) + (saves ? 0 : 1));
+      assert.equal(oldCalls.length, (reads ? 0 : 3) + (saves ? 0 : 1) + 1);
       assert.equal(newCalls.length, reads ? (saves ? 3 : 2) : 0);
       for (const input of [...oldCalls, ...newCalls]) assert.equal(input.headers.get("cookie"), legacyCookie);
     }

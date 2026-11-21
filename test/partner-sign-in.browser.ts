@@ -12,6 +12,9 @@ const partners = new Map([
 ]);
 const deepLink = "/leads?mode=live&filter=open";
 const docLink = "/api/engine/doc/link";
+const dealId = "11111111-1111-4111-8111-111111111111";
+const dealName = "Demo deal on engine sign-in";
+const activityId = "22222222-2222-4222-8222-222222222222";
 const pages = [
   "/invoices?mode=live",
   "/control-room/progress?mode=live",
@@ -112,6 +115,22 @@ async function app(
         if (path === `${docLink}/revoke` && input.method === "POST") {
           links.delete(token);
           return new Response(null, { status: 204 });
+        }
+        if (path === "/api/engine/deals") {
+          return Response.json({
+            schema_version: "local-deals-board.v2",
+            deals: [{ id: dealId, name: dealName, phase: "research", owner: "joe", operating_state: "active" }],
+          });
+        }
+        if (path === `/api/engine/deals/${dealId}`) {
+          return Response.json({
+            deal_id: dealId,
+            name: dealName,
+            phase: "research",
+            owner: "joe",
+            email_follow_ups: [],
+            activities: [{ id: activityId, kind: "note", summary: "Confirm the demo showing" }],
+          });
         }
         if (path === "/api/engine/leads") {
           if (input.method === "POST") writes++;
@@ -269,6 +288,38 @@ test("Doc link settings are available only with engine sign-in", async (t) => {
       assert.equal(await settings.count(), 0);
     }
   }
+});
+
+test("a signed-in deal explains unavailable features without requesting them", async (t) => {
+  const { server, context } = await app(t);
+  const page = await context.newPage();
+  const legacyRequests: string[] = [];
+  page.on("request", (request) => {
+    const { pathname } = new URL(request.url());
+    if (
+      pathname.startsWith("/api/tours/") ||
+      pathname === "/api/v1/market-terms/read" ||
+      (pathname === "/mcp" && /read-subject-watch-v2|read-activity-deal-attribution/.test(request.postData() ?? ""))
+    )
+      legacyRequests.push(pathname);
+  });
+  await page.goto(`${server.origin}/deals?mode=live&deal=${dealId}`);
+  const room = page.getByRole("main", { name: "Deal Workspace" });
+  await room.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
+  await room
+    .getByRole("region", { name: "Deal watch settings" })
+    .getByText("Not available yet", { exact: true })
+    .waitFor({ timeout: 4000 });
+  await room.locator(".updates-history summary").click();
+  await room.getByText("Deal attribution · Not available yet", { exact: true }).waitFor({ timeout: 4000 });
+  for (const name of ["Compare terms", "Tours"]) {
+    await room.getByRole("tab", { name, exact: true }).click();
+    await room
+      .getByRole("tabpanel", { name })
+      .getByText("Not available yet", { exact: true })
+      .waitFor({ timeout: 4000 });
+  }
+  assert.deepEqual(legacyRequests, []);
 });
 
 for (const width of [390, 1440])
