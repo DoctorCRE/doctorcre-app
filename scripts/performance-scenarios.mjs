@@ -4,8 +4,6 @@ export const profile = Object.freeze({ viewport: { width: 390, height: 844 }, de
   samples: 3, aggregation: 'median', interaction: 'pointerdown timestamp to verified state plus two animation frames' });
 
 export async function applyPhoneProfile(context, page) {
-  // Home's dated fixture tasks must stay outside Today; keep timers and performance.now real.
-  await page.clock.setFixedTime(new Date('2026-11-04T18:00:00Z'));
   const cdp = await context.newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: profile.cpuSlowdown });
   await cdp.send('Network.enable');
@@ -16,7 +14,7 @@ export async function applyPhoneProfile(context, page) {
 }
 
 export const screens = [
-  { id: 'home', route: '/', ready: '.home-slice [data-inbox-row]', tap: '.home-slice[aria-label="Needs your attention"] header button', complete: () => document.querySelector('.home-slice[aria-label="Needs your attention"] header button')?.getAttribute('aria-expanded') === 'true' },
+  { id: 'home', route: '/', ready: '.home-slice [data-inbox-row] h3 a:visible', tap: '.home-slice [data-inbox-row] h3 a:visible', complete: () => Boolean(document.querySelector('.home-inline-review')) },
   { id: 'deals', route: '/deals', ready: '.kanban-card[data-id="d23"]', tap: '.kanban-card[data-id="d23"]', complete: () => document.querySelector('#detailUpdateForm')?.getClientRects().length > 0 },
   { id: 'vendors', route: '/vendors', ready: '.record-row', tap: '.record-row', complete: () => document.querySelector('#recordPanel')?.getClientRects().length > 0 },
   { id: 'tours', route: '/tours', ready: '#tour-filter', tap: '#planner-refresh', complete: () => document.querySelector('#planner-updated')?.textContent !== 'Updating…' },

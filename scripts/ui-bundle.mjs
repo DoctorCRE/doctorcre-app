@@ -66,8 +66,6 @@ export const UI_ENTRIES = {
   'ui-deal-tours': 'deal-tours',
   'ui-inbox': 'inbox-entry',
   'ui-home-today': 'home/today-panel',
-  'ui-home-mail-start': 'home/mail-priorities-start',
-  'ui-mail-priorities': 'home/mail-priorities',
   'ui-next-step': 'home/missing-next-step',
   'ui-task-done': 'home/task-done',
   'ui-deal-reviews': 'home/deal-update-reviews',

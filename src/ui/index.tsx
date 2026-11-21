@@ -1,45 +1,31 @@
 // Aggregate exports for self-contained Node test bundles. Browser entries are
 // selected separately in scripts/ui-bundle.mjs.
+
+export { mountActionLink } from "./action-link";
+export { mountActivityAttributionView, parseActivityDealAttribution } from "./activity-attribution";
+export { disposeAnswerBlocks, mountAnswerBlocks } from "./answer-blocks";
+export { briefQueueIdentity, briefQueueLabels, briefQueueTitle, createBriefQueueView } from "./brief-queues";
+export { mountCallReview, mountCallReviewDialog } from "./call-review";
+export { mountClientAnniversaries } from "./client-anniversaries";
+export { createContactReasonsView } from "./contact-reasons";
+export { mountDealChecklist } from "./deal-checklist";
+export { mountDealDocuments } from "./deal-documents";
+export { mountDealRoomAgenda } from "./deal-room-agenda";
+export { mountDealRoomBoard } from "./deal-room-board";
+export { mountDealTours } from "./deal-tours";
+export { mountFactReview } from "./fact-review";
+export { mountDealUpdateReviews } from "./home/deal-update-reviews";
+export { mountMissingNextStep } from "./home/missing-next-step";
+export * as homeTaskDone from "./home/task-done";
+export { homeListLimit } from "./home-list-limit";
 export { hostNode } from "./host-node";
-export { mountAnswerBlocks, disposeAnswerBlocks } from './answer-blocks';
+
+export { mountIdealClientProfile } from "./ideal-client-profile";
+export { mountLeadGuidance } from "./lead-guidance";
+export { mountLeadResearch } from "./lead-research";
+export { mountMarketTerms } from "./market-terms";
+export { mountMarketStudy, mountPortal } from "./portal/shell-home-sources";
+export { mountRelationshipKindFilter, relationshipKind } from "./relationship-kind-filter";
+export { mountTerritoryEvidence } from "./territory-evidence";
 export { mountWorkspace } from "./workspace-shell";
 export { mountZoomableWorkspace } from "./workspace-zoom";
-
-export { mountFactReview } from "./fact-review";
-
-export { mountMarketTerms } from "./market-terms";
-
-export { homeListLimit } from './home-list-limit';
-export { createContactReasonsView } from './contact-reasons';
-export { briefQueueIdentity, briefQueueLabels, briefQueueTitle, createBriefQueueView } from './brief-queues';
-
-export { mountActionLink } from './action-link';
-
-export { mountMissingNextStep } from "./home/missing-next-step";
-
-export * as homeTaskDone from './home/task-done';
-
-export { mountDealUpdateReviews } from './home/deal-update-reviews';
-
-export { mountCallReview, mountCallReviewDialog } from './call-review';
-
-export { mountDealRoomBoard } from './deal-room-board';
-
-export { mountDealRoomAgenda } from './deal-room-agenda';
-
-export { mountLeadGuidance } from "./lead-guidance";
-export { mountTerritoryEvidence } from './territory-evidence';
-
-export { mountIdealClientProfile } from './ideal-client-profile';
-export { mountDealTours } from './deal-tours';
-export { mountDealDocuments } from './deal-documents';
-
-export { mountMarketStudy, mountPortal } from './portal/shell-home-sources';
-
-export { mountClientAnniversaries } from './client-anniversaries';
-export { mountLeadResearch } from './lead-research';
-export { mountMailPriorities } from './home/mail-priorities';
-export { mountActivityAttributionView, parseActivityDealAttribution } from './activity-attribution';
-
-export { mountDealChecklist } from './deal-checklist';
-export { mountRelationshipKindFilter, relationshipKind } from './relationship-kind-filter';

@@ -10,9 +10,11 @@ test.beforeAll(async () => { outDir = await temporaryDirectory('doctorcre-inbox-
 test.afterAll(async () => { await server?.stop(); if (outDir) await rm(outDir, { recursive: true, force: true }); });
 
 test('Sectioned Home opens a card in the full inbox', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-11-05T18:00:00Z'));
   await page.goto(`${server.url}/`);
-  await expect(page.getByRole('heading', { name: 'Welcome home.' })).toBeVisible();
-  const href = await page.locator('[data-inbox-row] h3 a').first().getAttribute('href');
+  const card = page.getByRole('region', { name: 'Reminders', exact: true }).locator('[data-inbox-row] h3 a').first();
+  await expect(card).toBeVisible();
+  const href = await card.getAttribute('href');
   await page.goto(new URL(href, server.url).href);
   await expect(page).toHaveURL(/\/inbox\/card\//);
   await expect(page.getByRole('heading', { name: 'Inbox', level: 1 })).toBeVisible();
