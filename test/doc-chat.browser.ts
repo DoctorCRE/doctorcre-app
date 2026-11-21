@@ -3,7 +3,7 @@ import test, { type TestContext } from "node:test";
 import { expect } from "@playwright/test";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
-import { chromium } from "./browser-harness.mjs";
+import { chromium, pausedClock } from "./browser-harness.mjs";
 
 const id = "00000000-0000-4000-8000-000000000001";
 const question = "Which example deals are open?";
@@ -171,6 +171,7 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
     },
     () => actor,
   );
+  await page.clock.install();
   const evalViolations: string[] = [];
   await page.addInitScript(() => {
     document.addEventListener("securitypolicyviolation", (event) => {
@@ -205,7 +206,7 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
   await expect(page.getByText("Doc isn't set up on your Mac yet.")).toBeVisible();
   assert.deepEqual(payloads[1], payloads[0]);
   state = "answered";
-  await page.getByRole("button", { name: "Check for answer" }).click();
+  await page.clock.fastForward(5_000);
   await expect(page.getByText("One example deal is open.")).toBeVisible();
   await composer.fill("Any follow-ups?");
   await page.getByRole("button", { name: "Send", exact: true }).click();
@@ -216,7 +217,8 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
     conversation_id: id,
   });
   actor = "dell";
-  await page.getByRole("button", { name: "Check for answer" }).click();
+  await page.clock.fastForward(5_000);
+  await expect(page.getByRole("link", { name: "Sign in again" })).toBeVisible();
   await expect(page.getByText("One example deal is open.")).toHaveCount(0);
   const foreign = await page.request.get(`${origin}/api/engine/doc/conversations/${id}`);
   assert.equal(foreign.status(), 404);
@@ -247,4 +249,131 @@ test("Doc accepts engine IDs without RFC version or variant bits", async (t) => 
   await page.getByLabel("Question for Doc").fill(question);
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+});
+
+test("A reopened Doc question keeps its place and lets the partner draft a follow-up as it refreshes", async (t) => {
+  const waitingLines = [
+    "Doc answers when your Mac is on.",
+    "Doc is paused until your Claude plan resets.",
+    "Sign in to Claude Code on your Mac.",
+    "Doc is waiting for a free slot on your Mac.",
+  ] as const;
+  const saved = { ...answeredTurn, idempotency_key: id };
+  let state = "queued";
+  let waitingReason: string | null = waitingLines[0];
+  const detailPath = `/api/engine/doc/conversations/${id}`;
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/engine/doc/conversations")
+      return Response.json({ conversations: [conversation], next_before: null });
+    if (path === detailPath)
+      return Response.json({
+        conversation,
+        turns: [{ ...saved, state, waiting_reason: waitingReason, answer: state === "answered" ? saved.answer : null }],
+      });
+    return Response.json({}, { status: 404 });
+  });
+  const docReads: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith("/api/engine/doc/")) docReads.push(path);
+  });
+  await pausedClock(page, new Date(created_at));
+  const url = `${origin}/doc-chats?mode=live&chat=${id}`;
+  await page.goto(url);
+  await expect(page.getByText(waitingLines[0], { exact: true })).toBeVisible();
+  const composer = page.getByLabel("Question for Doc");
+  const send = page.getByRole("button", { name: "Send", exact: true });
+  await composer.fill("Any follow-ups?");
+  await expect(send).toBeDisabled();
+
+  for (const waiting_reason of waitingLines.slice(1)) {
+    waitingReason = waiting_reason;
+    await page.clock.runFor(5_000);
+    await expect(page.getByText(waiting_reason, { exact: true })).toBeVisible();
+  }
+  state = "working";
+  waitingReason = null;
+  await page.clock.runFor(5_000);
+  await expect(page.getByText("Doc is working.")).toBeVisible();
+
+  state = "answered";
+  await page.clock.runFor(5_000);
+  await expect(page.getByText(saved.answer.text)).toBeVisible();
+  await expect(page.getByText(question, { exact: true }).and(page.locator("p"))).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /Check for answer|Refresh chat/ })).toHaveCount(0);
+  await expect(page).toHaveURL(url);
+  await expect(composer).toHaveValue("Any follow-ups?");
+  await expect(composer).toBeFocused();
+  await expect(send).toBeEnabled();
+
+  await page.clock.runFor(15_000);
+  assert.deepEqual(docReads, ["/api/engine/doc/conversations", ...Array(6).fill(detailPath)]);
+});
+
+test("Doc links to app records and renders other source labels as text", async (t) => {
+  const ref = { kind: "deal", id };
+  const href = `/deals?deal=${id}`;
+  const unsafe = [
+    { ref, label: "Script source", href: "javascript:void(0)" },
+    { ref, label: "External source", href: "https://example.test/deal" },
+    { ref, label: "Network-path source", href: "//example.test/deal" },
+    { ref, label: "Backslash source", href: "/\\example.test/deal" },
+    { ref, label: "Data source", href: "data:text/plain,example" },
+  ];
+  const turn = {
+    ...answeredTurn,
+    idempotency_key: id,
+    answer: {
+      ...answeredTurn.answer,
+      sources: [{ ref, label: "Example deal record", href }, ...unsafe],
+    },
+  };
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/engine/doc/conversations")
+      return Response.json({ conversations: [conversation], next_before: null });
+    if (path === `/api/engine/doc/conversations/${id}`) return Response.json({ conversation, turns: [turn] });
+    return Response.json({}, { status: 404 });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByRole("link", { name: "Example deal record" })).toHaveAttribute("href", href);
+  for (const { label } of unsafe) {
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: label })).toHaveCount(0);
+  }
+});
+
+test("Session invalidation aborts an in-flight Doc refresh and clears the chat", async (t) => {
+  const waiting = "Doc answers when your Mac is on.";
+  const turn = { ...answeredTurn, idempotency_key: id, state: "queued", answer: null, waiting_reason: waiting };
+  const detailPath = `/api/engine/doc/conversations/${id}`;
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/engine/doc/conversations")
+      return Response.json({ conversations: [conversation], next_before: null });
+    if (path === detailPath) return Response.json({ conversation, turns: [turn] });
+    return Response.json({}, { status: 404 });
+  });
+  await pausedClock(page, new Date(created_at));
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByText(waiting, { exact: true })).toBeVisible();
+  const composer = page.getByLabel("Question for Doc");
+  await composer.fill("Any follow-ups?");
+
+  let requests = 0;
+  await page.route(`${origin}${detailPath}`, () => {
+    requests++;
+  });
+  const started = page.waitForRequest(`${origin}${detailPath}`);
+  await page.clock.runFor(5_000);
+  const request = await started;
+  const aborted = page.waitForEvent("requestfailed", (failed) => failed === request);
+  await page.evaluate(() => window.dispatchEvent(new Event("doctorcre-session-invalidated")));
+  await aborted;
+  await expect(page.getByRole("status")).toHaveText("Sign in again to open your chats.");
+  await expect(page.getByText(question, { exact: true })).toHaveCount(0);
+  await expect(composer).toHaveValue("");
+  await page.clock.runFor(15_000);
+  assert.equal(requests, 1);
 });

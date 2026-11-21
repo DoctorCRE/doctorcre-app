@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
+import { refreshWhileVisible } from "./visible-refresh";
 
 // The app's Content Security Policy blocks dynamic code evaluation.
 z.config({ jitless: true });
@@ -91,23 +92,39 @@ function chatHref(id: string | null) {
   return location.pathname + (query.size ? `?${query}` : "");
 }
 
+function conversationPath(id: string) {
+  return `/conversations/${encodeURIComponent(id)}`;
+}
+
+function recordHref(href: string) {
+  return href.startsWith("/") && !href.startsWith("//") && !/[\\\s]/.test(href) ? href : undefined;
+}
+
 class ConversationUnavailable extends Error {}
 
-async function docFetch<T>(path: string, schema: z.ZodType<T>, ask?: Ask): Promise<T> {
+async function docFetch<T>(
+  path: string,
+  schema: z.ZodType<T>,
+  { ask, signal }: { ask?: Ask; signal?: AbortSignal } = {},
+): Promise<T> {
   const { privateSession }: { privateSession: () => Session | null } = await import(
     new URL("./private-session.js", import.meta.url).href
   );
   const session = privateSession();
   if (!session) throw Error(statusText.signIn);
+  signal?.throwIfAborted();
   await session.verify({ fresh: true });
+  signal?.throwIfAborted();
+  const timeout = AbortSignal.timeout(12000);
   const response = await session.fetch(api + path, {
-    signal: AbortSignal.timeout(12000),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     ...(ask && {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(ask),
     }),
   });
+  signal?.throwIfAborted();
   await session.verify({ fresh: true });
   if (response.status === 404 && path.startsWith("/conversations/")) throw new ConversationUnavailable();
   if (!response.ok) throw Error(`Doc request failed with status ${response.status}`);
@@ -129,6 +146,7 @@ function DocChat() {
   const active = useRef(false);
   const latest = turns.at(-1);
   const waiting = latest?.state === "queued" || latest?.state === "working";
+  const waitingTurnId = waiting ? latest.id : undefined;
   const retry =
     pendingAsk ??
     (latest?.state === "failed"
@@ -151,27 +169,34 @@ function DocChat() {
     [...text].length <= 4000 &&
     !text.includes("\0");
 
-  const run = useCallback(async (operation: "load" | "send", work: () => Promise<void>) => {
-    if (active.current || retired.current) return;
-    active.current = true;
-    setBusy(true);
-    setStatus(null);
-    try {
-      await work();
-    } catch (error) {
-      if (retired.current) return;
-      if (error instanceof ConversationUnavailable) {
-        setTurns([]);
-        setReady(false);
-        setStatus("unavailable");
-      } else {
-        setStatus(operation === "load" ? "loadFailed" : "sendFailed");
-      }
-    } finally {
-      active.current = false;
-      if (!retired.current) setBusy(false);
-    }
+  const showUnavailable = useCallback(() => {
+    setTurns([]);
+    setReady(false);
+    setStatus("unavailable");
   }, []);
+
+  const run = useCallback(
+    async (operation: "load" | "send", work: () => Promise<void>) => {
+      if (active.current || retired.current) return;
+      active.current = true;
+      setBusy(true);
+      setStatus(null);
+      try {
+        await work();
+      } catch (error) {
+        if (retired.current) return;
+        if (error instanceof ConversationUnavailable) {
+          showUnavailable();
+        } else {
+          setStatus(operation === "load" ? "loadFailed" : "sendFailed");
+        }
+      } finally {
+        active.current = false;
+        if (!retired.current) setBusy(false);
+      }
+    },
+    [showUnavailable],
+  );
 
   const load = useCallback(
     async (chatId: string | null) => {
@@ -180,7 +205,7 @@ function DocChat() {
         if (retired.current) return;
         setRecent(conversations);
         if (chatId) {
-          const { turns: saved } = await docFetch(`/conversations/${encodeURIComponent(chatId)}`, conversationDetail);
+          const { turns: saved } = await docFetch(conversationPath(chatId), conversationDetail);
           if (retired.current) return;
           setTurns(saved);
         }
@@ -193,6 +218,7 @@ function DocChat() {
   useEffect(() => {
     function clear() {
       retired.current = true;
+      setId(null);
       setRecent([]);
       setTurns([]);
       setQuestion("");
@@ -206,10 +232,32 @@ function DocChat() {
     return () => window.removeEventListener("doctorcre-session-invalidated", clear);
   }, [load]);
 
+  useEffect(() => {
+    if (!id || !waitingTurnId || retired.current) return;
+    const stop = refreshWhileVisible(
+      async (signal) => {
+        try {
+          const { turns: saved } = await docFetch(conversationPath(id), conversationDetail, { signal });
+          if (signal.aborted || retired.current) return;
+          const turn = saved.find((row) => row.id === waitingTurnId);
+          if (turn) setTurns((rows) => rows.map((row) => (row.id === turn.id ? turn : row)));
+        } catch (error) {
+          if (!signal.aborted && !retired.current && error instanceof ConversationUnavailable) showUnavailable();
+        }
+      },
+      { immediate: false },
+    );
+    window.addEventListener("doctorcre-session-invalidated", stop, { once: true });
+    return () => {
+      window.removeEventListener("doctorcre-session-invalidated", stop);
+      stop();
+    };
+  }, [id, waitingTurnId, showUnavailable]);
+
   function send(ask: Ask) {
     void run("send", async () => {
       setPendingAsk(ask);
-      const { conversation_id, turn } = await docFetch("/turns", sendResponse, ask);
+      const { conversation_id, turn } = await docFetch("/turns", sendResponse, { ask });
       if (retired.current) return;
       if (id !== conversation_id) {
         history.replaceState(history.state, "", chatHref(conversation_id));
@@ -249,20 +297,33 @@ function DocChat() {
         </aside>
         <section aria-label="Conversation">
           <ol className="doc-chat__turns" aria-live="polite">
-            {turns.map((turn) => (
-              <li key={turn.id}>
-                <p className="doc-chat__question">{turn.question}</p>
-                <p className="doc-chat__reply">{turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}</p>
-              </li>
-            ))}
+            {turns.map((turn) => {
+              const sources = turn.answer?.sources ?? [];
+              return (
+                <li key={turn.id}>
+                  <p className="doc-chat__question">{turn.question}</p>
+                  <p className="doc-chat__reply">{turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}</p>
+                  {sources.length > 0 && (
+                    <ul className="doc-chat__sources" aria-label="Sources">
+                      {sources.map(({ ref, label, href }) => {
+                        const path = recordHref(href);
+                        return (
+                          <li key={`${ref.kind}:${ref.id}${href}`}>{path ? <a href={path}>{label}</a> : label}</li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
           </ol>
           <p role="status">
             {busy ? (pendingAsk ? "Sending question…" : "Loading chats…") : status && statusText[status]}
           </p>
           <div className="doc-chat__actions">
-            {!pendingAsk && (status === "loadFailed" || (id && ready)) && (
+            {!pendingAsk && status === "loadFailed" && (
               <button className="btn" type="button" disabled={busy} onClick={() => void load(id)}>
-                {status === "loadFailed" ? "Retry loading" : waiting ? "Check for answer" : "Refresh chat"}
+                Retry loading
               </button>
             )}
             {retry && status !== "loadFailed" && (
