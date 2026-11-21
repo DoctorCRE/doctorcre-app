@@ -85,7 +85,8 @@ async function engineFetch(request, env) {
     const value = request.headers.get(key);
     if (value !== null) headers.set(key, value);
   }
-  if (new URL(request.url).pathname === '/api/engine/find' && request.headers.get('x-doctorcre-search') === 'search.v1')
+  if ((request.method === 'GET' || request.method === 'HEAD') && new URL(request.url).pathname === '/api/engine/find' &&
+      request.headers.get('x-doctorcre-search') === 'search.v1')
     headers.set('x-doctorcre-search', 'search.v1');
   return noStore(await env.PARTNER_APP.fetch(new Request(request, { headers, redirect: 'manual' })));
 }
