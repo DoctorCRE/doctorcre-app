@@ -63,7 +63,7 @@ function DealFilingPicker({ file, refusal }: { file: FileEmail; refusal: FilingR
             ref={reasonInput}
             value={reason}
             onChange={(event) => setReason(event.currentTarget.value)}
-            required={needsReason}
+            aria-required={needsReason || undefined}
             aria-invalid={(needsReason && !reason.trim()) || undefined}
             aria-describedby={needsReason ? errorId : undefined}
           />

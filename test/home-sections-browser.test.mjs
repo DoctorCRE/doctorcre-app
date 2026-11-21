@@ -1171,14 +1171,14 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, filterDeals } o
       if (kind === 'deal') {
         if (reasonRefused) {
           const reason = filing.getByRole('textbox', { name: /Reason/ });
-          assert.equal(await reason.getAttribute('required'), null);
+          assert.equal(await reason.getAttribute('aria-required'), null);
           await file.click();
           const refusal = filing.getByRole('alert');
           await refusal.waitFor();
           assert.equal(await refusal.textContent(),
             "This email isn't linked to that deal yet. Add a short reason to file it there.");
           await page.waitForFunction(() => document.activeElement?.getAttribute('aria-invalid') === 'true');
-          assert.equal(await reason.getAttribute('required'), '');
+          assert.equal(await reason.getAttribute('aria-required'), 'true');
           assert.equal(await file.isDisabled(), true);
           assert.equal(await destination.inputValue(), id(61));
           const [{ idempotency_key, ...first }] = state.filingWrites;
