@@ -142,11 +142,16 @@ test("Notifications hides Who did what once old activity is retired", async ({ p
   await expect(page.getByRole("heading", { name: "Who did what" })).toBeHidden();
 });
 
-test("Updates omits old activity when Deals saves switch on by themselves", async ({ page }) => {
+test("Updates reads Who did what from the engine when Deals saves switch on by themselves", async ({ page }) => {
   await mockReads(page, { engine: false, savesFromEngine: true });
+  let reads = 0;
+  await page.route("**/api/engine/updates/changes", (route) => {
+    reads++;
+    return route.fulfill({ json: { changes: [], next_before: null } });
+  });
   await page.goto(server.url + "/updates?mode=live");
-  await expect(page.locator("#feedState")).toHaveAttribute("data-state", /^(?!loading$)/);
-  await expect(page.getByRole("heading", { name: "Who did what" })).toBeHidden();
+  await expect(page.getByText("No recent activity", { exact: true })).toBeVisible();
+  expect(reads).toBeGreaterThan(0);
 });
 
 test("an open Notifications tab stops reaching CARR after the switch flips", async ({ page }) => {

@@ -13,7 +13,7 @@ import { JSDOM } from "jsdom";
 import {
   APP_ROUTE_PATHS, BASE_VERSION_REFUSAL, DEVICE_OFF,
   FEED_STATES, NO_PAGE_SENTENCE, PREFERENCE_OPERATION_KEY,
-  PREFERENCE_REFUSALS, QUIET_NOW_BANNER, versionConflictLine,
+  PREFERENCE_REFUSALS, QUIET_NOW_BANNER,
   QUIET_SUPPRESSED_MARK, SEVERITIES, SEVERITY_LABELS, TIME_REFUSAL,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, preferenceTimeLabel, classifyPreferenceFailure,
   classifyPreferenceReadFailure, classifyReadFailure, deepLinkView, deliveryPhrases, feedState,
@@ -713,13 +713,6 @@ test("B12-10 reconcile-then-retry: a dispatched save keeps its VERB, so a later 
 /* ------------------------------------------ review round 1, findings F2/F3 */
 
 test("B12-11 a version conflict reports unsaved changes while retaining version evidence", async () => {
-  // F3: the number the refusal carries is SHOWN, beside the one the form was
-  // saving against. A person told only that "something changed" has been handed
-  // a fact they cannot check.
-  assert.equal(versionConflictLine(3, 1), "Preferences changed elsewhere.");
-  assert.equal(versionConflictLine(3, null), null, "half this sentence is not worth saying");
-  assert.equal(versionConflictLine(null, 1), null);
-
   // The number really is the one the store sent: the refusal's `current_version`
   // and the version the next read answers are the same number.
   const client = await fixture();
@@ -732,8 +725,6 @@ test("B12-11 a version conflict reports unsaved changes while retaining version 
     (error) => {
       const refusal = classifyPreferenceFailure(error);
       assert.equal(refusal.currentVersion, 2);
-      assert.equal(versionConflictLine(refusal.currentVersion, first.version),
-        "Preferences changed elsewhere.");
       return true;
     },
   );

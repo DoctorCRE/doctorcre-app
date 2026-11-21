@@ -55,7 +55,10 @@
         <h2 id="quietHoursTitle">Your notification preferences</h2>
         <span class="as-of" id="prefAsOf"></span>
       </div>
-      <div class="state-block" id="prefState" data-state="loading"><h3 id="prefStateTitle">Reading your preferences…</h3></div>
+      <div class="state-block" id="prefState" data-state="loading">
+        <h3 id="prefStateTitle">Reading your preferences…</h3>
+        <button class="btn" type="button" id="retryPreference" hidden>Retry</button>
+      </div>
       <form class="pref-form" id="prefForm" novalidate hidden>
         <div class="switch-field">
           <input id="deviceOptIn" type="checkbox">
@@ -72,8 +75,8 @@
           <button class="btn btn-primary" type="submit" id="prefSave">Save preferences</button>
           <button class="btn" type="button" id="prefClear">Clear quiet hours</button>
         </div>
-        <p class="caption pref-message" id="prefMessage" role="status" aria-live="polite" aria-atomic="true"></p>
       </form>
+      <p class="caption pref-message" id="prefMessage" role="status" aria-live="polite" aria-atomic="true"></p>
     </section>
 
     <section class="card glass" data-section="activity" id="activityBlock" aria-labelledby="activityTitle" hidden>
@@ -82,6 +85,7 @@
         <span class="as-of" id="activityAsOf"></span>
       </div>
       <ul class="work-list" id="activityList"></ul>
+      <div class="pref-act"><button class="btn" type="button" id="activityMore" hidden>Show more</button><p class="caption" id="activityMoreState" role="status" aria-live="polite"></p></div>
       <div class="state-block" id="activityState" data-state="unavailable" hidden><h3>Recent activity is unavailable</h3></div>
     </section>
 
