@@ -1261,22 +1261,19 @@ for (const width of [390, 1440]) {
     const { page, open, state } = await dashboard(t, width, 'light');
     state.oldEngine = true;
     state.legacy = true;
-    const failed = step(1, 'Send the floor plan', { source_state: 'failed' });
-    const explained = step(2, 'Failed to save the floor plan', { source_state: 'failed' });
-    state.items = [failed, explained];
+    state.items = ['Floor plan failed to send', 'Failed to save the floor plan']
+      .map((title, index) => step(index + 1, title, { source_state: 'failed' }));
     await open('/?mode=live');
-    const title = page.getByRole('heading', { level: 3, name: failed.title, exact: true });
-    await title.waitFor();
-    const card = page.locator('[data-inbox-row]').filter({ has: title });
-    assert.deepEqual({
-      cue: await card.getByText("Didn't go through", { exact: true }).isVisible(),
-      detail: await card.getByText('Open the card to review the failed action.', { exact: true }).isVisible(),
-      genericDetail: await card.getByText('Ready for your attention', { exact: true }).isVisible(),
-    }, { cue: true, detail: true, genericDetail: false });
-    const explainedTitle = page.getByRole('heading', { level: 3, name: explained.title, exact: true });
-    await explainedTitle.waitFor();
-    const explainedCard = page.locator('[data-inbox-row]').filter({ has: explainedTitle });
-    assert.equal(await explainedCard.getByText("Didn't go through", { exact: true }).isVisible(), false);
+    for (const item of state.items) {
+      const title = page.getByRole('heading', { level: 3, name: item.title, exact: true });
+      await title.waitFor();
+      const card = page.locator('[data-inbox-row]').filter({ has: title });
+      assert.deepEqual({
+        cue: await card.getByText("Didn't go through", { exact: true }).isVisible(),
+        detail: await card.getByText('Open the card to review the failed action.', { exact: true }).isVisible(),
+        genericDetail: await card.getByText('Ready for your attention', { exact: true }).isVisible(),
+      }, { cue: true, detail: true, genericDetail: false }, item.title);
+    }
   });
 
   test(`Home identifies a subject-only legacy reply as a draft at ${width}px`, async t => {
@@ -1295,7 +1292,7 @@ for (const width of [390, 1440]) {
     assert.equal(await card.getByText('Draft ready', { exact: true }).isVisible(), true);
   });
 
-  test(`Home omits the draft cue when the title already asks for reply review at ${width}px`, async t => {
+  test(`Home shows the draft cue when the title asks for reply review at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
     state.dashboard = true;
     const draft = { ...draftCard(), title: 'Review the reply to the practice manager', primary_action: 'Review reply' };
@@ -1304,10 +1301,10 @@ for (const width of [390, 1440]) {
     const title = page.getByRole('heading', { level: 3, name: draft.title, exact: true });
     await title.waitFor();
     const card = page.locator('[data-inbox-row]').filter({ has: title });
-    assert.equal(await card.getByText('Draft ready', { exact: true }).isVisible(), false);
+    assert.equal(await card.getByText('Draft ready', { exact: true }).isVisible(), true);
   });
 
-  test(`Home leaves the type label off an action card at ${width}px`, async t => {
+  test(`Home leaves the type label and cues off an ordinary action card at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
     state.dashboard = true;
     state.items = [{ ...mailCard, primary_action: 'Review suggestions' }];
@@ -1316,6 +1313,7 @@ for (const width of [390, 1440]) {
     await action.waitFor();
     const card = page.locator('[data-inbox-row]').filter({ has: action });
     assert.equal(await card.getByText(mailCard.kind_label, { exact: true }).isVisible(), false);
+    assert.equal(await card.getByText(/^(?:Draft ready|Didn't go through)$/).count(), 0);
   });
 }
 

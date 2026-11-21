@@ -59,12 +59,8 @@ const isDoneStep = (item: InboxItem) =>
   item.engine_marks && item.section === "done" && item.source_state === "done" && item.action_id !== null;
 const canSnooze = (item: InboxItem) => !item.engine_marks || (item.section === "inbox" && markTarget(item.item_id));
 function homeCardCue(item: InboxItem) {
-  if (item.source_state === "failed")
-    return /^(?:didn['’]t\s+go\s+through|failed\s+to|review\s+reply\s+delivery)\b/i.test(item.title)
-      ? null
-      : "Didn't go through";
-  if (item.source_state === "needs_attention" && item.kind_label === "Reply draft")
-    return /^(?:review (?:the )?reply|reply to|reply draft|draft ready)\b/i.test(item.title) ? null : "Draft ready";
+  if (item.source_state === "failed") return "Didn't go through";
+  if (item.source_state === "needs_attention" && item.kind_label === "Reply draft") return "Draft ready";
   return null;
 }
 export function inboxRefusal(code: unknown): string {
