@@ -16,7 +16,7 @@ import {
   PREFERENCE_REFUSALS, QUIET_NOW_BANNER,
   QUIET_SUPPRESSED_MARK, SEVERITIES, SEVERITY_LABELS, TIME_REFUSAL,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, preferenceTimeLabel, classifyPreferenceFailure,
-  classifyPreferenceReadFailure, classifyReadFailure, deepLinkView, deliveryPhrases, feedState,
+  classifyPreferenceReadFailure, classifyReadFailure, changeRows, deepLinkView, deliveryPhrases, feedState,
   notificationCards, preferenceState, preferenceSummary,
   preferenceView, quietNowBanner, setPreferenceArgs, toInputTime, unreadLine,
   validFeedPayload, validPreferencePayload,
@@ -344,7 +344,7 @@ test("the page is the shared shell, the activity panel is its own thing, and 44p
   ]);
   assert.equal(rows.length, 2);
   assert.equal(rows[0].actor, "Unattributed", "the newest event is not first");
-  assert.equal(rows[1].clock, "2:20 PM");
+  assert.equal(rows[1].clock, "8:20 AM CST");
   assert.equal(rows[1].subject, "Deal");
 
   // Mobile first: one column, a full-width target, and the 44px floor.
@@ -737,7 +737,7 @@ test("B12-11 a version conflict reports unsaved changes while retaining version 
 
 });
 
-test("Updates house grammar: preference summaries use AM/PM and keep versions in Details", () => {
+test("Updates house grammar: preference summaries use AM/PM", () => {
   const model = preferenceView({ ok: true, exists: true, version: 7, device_opt_in: true,
     quiet_hours_start: "22:00:00", quiet_hours_end: "07:30:00", timezone: "UTC" });
   assert.equal(preferenceSummary(model), "Quiet hours 10:00 PM to 7:30 AM UTC · device push on");
@@ -793,4 +793,10 @@ test('device delivery evidence distinguishes absence from unavailable without lo
   assert.deepEqual(deliveryPhrases([{ channel: 'in_app', state: 'delivered' }, { channel: 'device', state: null }])[0], readable);
   assert.ok(!deliveryPhrases([{ channel: 'in_app', state: 'future' }]).some(row => row.phrase === DEVICE_OFF));
   assert.equal(deliveryPhrases([{ channel: 'device', state: 'constructor' }])[0].phrase, 'Delivery status unavailable');
+});
+
+test('update times use the saved zone and default to Central', () => {
+  const row = { who: 'Partner', what: 'Updated', changed_at: '2026-01-15T18:30:00Z' };
+  assert.equal(changeRows([row])[0].clock, '12:30 PM CST');
+  assert.equal(changeRows([row], 'America/New_York')[0].clock, '1:30 PM EST');
 });
