@@ -70,7 +70,6 @@ export function createLeadBoardClient(options = {}) {
     }, { timeoutMs: options.timeoutMs || 10_000 }),
     getLeadBoard: (options = {}) => rpc("lead-board", {}, false, options),
     getIdealClientProfile: (filters = {}, options = {}) => rpc('ideal-client-profile', filters, false, options),
-    getTerritoryStateBoard: (filters = {}) => rpc('territory-state-board', filters),
     listPracticeOrigination: ({signal, ...args} = {}) => rpc('list-practice-origination', args, false, {signal}),
     getWorkspace: async () => validateLeadWorkspace(await rpc("lead-board", { workspace: "leads" })),
     getLeadDetail: async (lead, { correspondence_cursor, stage_history_cursor } = {}) => {

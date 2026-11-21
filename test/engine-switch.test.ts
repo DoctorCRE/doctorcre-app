@@ -587,11 +587,6 @@ for (const [name, args, path] of [
     "/api/engine/quiet-follow-ups?lead_days=45&vendor_days=90&owner_slug=example-partner",
   ],
   ["list-practice-origination", { limit: 25, before_id: "7" }, "/api/engine/reasons-to-reach-out?limit=25&before_id=7"],
-  [
-    "territory-state-board",
-    { vertical: "dental", city: "Example City", state: "EX" },
-    "/api/engine/territory-state-board?vertical=dental&city=Example+City&state=EX",
-  ],
 ] as const) {
   test(`leads switch routes ${name} ${JSON.stringify(args)} to its engine read`, async () => {
     const f = fixture(leadsOn);
@@ -635,7 +630,6 @@ for (const body of [
   call("list-practice-origination", { limit: "25" }),
   call("list-practice-origination", { limit: 25, extra: "x" }),
   call("quiet-follow-ups", { lead_days: "45" }),
-  call("territory-state-board", { state: 5 }),
   call("quiet-follow-ups", { constructor: "x" }),
   call("quiet-follow-ups", JSON.parse('{"__proto__": "x"}')),
 ]) {

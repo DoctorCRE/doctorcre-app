@@ -3,7 +3,6 @@ import { dealsSaveToEngine } from "./boot-mode.js";
 import { parseOpportunityTiming, timingMarkup } from './ui-lead-opportunity-timing.generated.js';
 import { parseReachability } from './ui-lead-reachability.generated.js';
 import { mountLeadResearch } from './ui-lead-research.generated.js';
-import { mountTerritoryEvidence } from './ui-territory-evidence.generated.js';
 import { mountLeadGuidance } from './ui-lead.generated.js';
 import { createPageBudget } from './read-budget.mjs';
 import { mountContactReasons } from './contact-reasons.mjs';
@@ -44,7 +43,6 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   const quietFilter = $("quietFilter");
   quietFilter.hidden = typeof client.getQuietFollowUps !== "function";
   const reasons = $("contactReasons") && client.listPracticeOrigination ? mountContactReasons({host:$("contactReasons"),window:win,client}) : null;
-  const territory = $("territoryEvidence") && client.getTerritoryStateBoard ? mountTerritoryEvidence($("territoryEvidence"), client, authorizationFailure) : null;
   const engagement = engagementWriterFor(client, engagementStorage(win));
   let researchView = null, researchSubject = null, researchKind = '', researchAttention = '';
   function clearResearch() { researchView?.dispose(); researchView = null; researchSubject = null; researchKind = ''; researchAttention = ''; }
@@ -249,7 +247,6 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     emailAcknowledgements.clear();
     clearGuidance();
     clearQuiet();
-    territory?.clear();
     expandedStages.clear();
     pageDocContext?.clear();
     state.historyRequest = null; state.historyError = null;
@@ -729,7 +726,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   });
   $("clearMarket").addEventListener("click", () => { state.filters.market = ""; render(); });
   $("marketCounts").addEventListener("click", event => { const button = event.target.closest("[data-market]"); if (button) selectMarket(button.dataset.market); });
-  $("refreshBoard").addEventListener("click", () => { territory?.refresh(); refresh(); });
+  $("refreshBoard").addEventListener("click", refresh);
   $("checkDetailPending").addEventListener("click", executePending);
   $("closeDetail").addEventListener("click", () => $("leadDetail").close());
   $("closeStage").addEventListener("click", () => $("stageDialog").close());
@@ -832,9 +829,6 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   });
   board.addEventListener("pointercancel", stopTouch);
   board.addEventListener("lostpointercapture", stopTouch);
-  const clearTerritory = () => territory?.clear();
-  win.addEventListener("pagehide", clearTerritory);
-  win.addEventListener("doctorcre-session-invalidated", clearTerritory);
   const retireDetail = () => { clearGuidance(); ++state.detailEpoch; };
   win.addEventListener("pagehide", retireDetail);
   render();
@@ -858,7 +852,6 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   function suspendPrivateView() {
     emailAcknowledgements.clear();
     clearQuiet();
-    territory?.clear();
     pageDocContext?.clear();
     if (state.reviewTarget && $("stageDialog").open) state.resumeReview = captureReviewDraft();
     if (state.detailId && $("leadDetail").open && !state.resumeDetail) state.resumeDetail = {
@@ -880,6 +873,6 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   // eslint-disable-next-line no-restricted-syntax -- Hidden-state events only clear lead identity, document context, and drag state; they perform no HTTP reads.
   doc.addEventListener("visibilitychange", resume);
   auto.refresh();
-  return { state, refresh, openReview, readDetail, dispose() { if (disposed) return; disposed = true; suspendPrivateView(); territory?.dispose(); reasons?.dispose(); auto.dispose(); win.removeEventListener("doctorcre-session-invalidated", suspendPrivateView); win.removeEventListener("pagehide", clearTerritory); win.removeEventListener("doctorcre-session-invalidated", clearTerritory); state.map?.dispose(); win.removeEventListener("pagehide", retireDetail); doc.removeEventListener("visibilitychange", resume); } };
+  return { state, refresh, openReview, readDetail, dispose() { if (disposed) return; disposed = true; suspendPrivateView(); reasons?.dispose(); auto.dispose(); win.removeEventListener("doctorcre-session-invalidated", suspendPrivateView); state.map?.dispose(); win.removeEventListener("pagehide", retireDetail); doc.removeEventListener("visibilitychange", resume); } };
 }
 if (typeof document !== "undefined" && document.getElementById("leadBoard")) mountLeadsWorkspace();
