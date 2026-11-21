@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import { activityFilters, activityRows, undoArgs } from '../js/doc-activity-model.js';
 import { createDocActivityFixture } from '../js/doc-activity-fixture.js';
 import { createLiveClient } from '../js/live-client.js';
-import { JSDOM } from 'jsdom';
-import { mountDocPresence } from '../js/doc-presence.js';
 import { carrInterface } from "./carr-contract.mjs";
 
 test('activity filters have inclusive local calendar days and no caller identity', () => {
@@ -48,40 +46,6 @@ test('live read uses pinned scoped verb, cancellation and stable undo request', 
   assert.ok(contract.mcp_operations.includes('read-doc-activity'));
 });
 
-test('Doc detail exposes one activity destination when mounted repeatedly', t => {
-  const dom = new JSDOM('<main id="appMainSlot"></main>');
-  const snapshot = { state:'updating', ready:false, page:'home', epoch:0, label:'Home', records:[], observedAt:null };
-  const context = { snapshot:() => snapshot, subscribe:() => () => {}, tick() {}, clear() {} };
-  const client = { listDocSuggestions:() => new Promise(() => {}) };
-  const options = { document:dom.window.document, window:dom.window, context, client };
-  const first = mountDocPresence(options), second = mountDocPresence(options);
-  t.after(() => { first.dispose(); dom.window.close(); });
-  assert.equal(second, null);
-  const links = dom.window.document.querySelectorAll('#docDetail [data-doc-activity-link]');
-  assert.equal(links.length, 1); assert.equal(links[0].getAttribute('href'), '/doc-activity');
-});
-
-test('disposing Doc cancels a pending refresh before its owner replaces the body', async t => {
-  const dom = new JSDOM('<!doctype html><html><head></head><body><main id="appMainSlot"></main></body></html>');
-  let release, startedResolve, unsubscribed = false;
-  const started = new Promise(resolve => { startedResolve = resolve; });
-  const answer = new Promise(resolve => { release = resolve; });
-  const snapshot = { state:'updating', ready:false, page:'home', epoch:0, label:'Home', records:[], observedAt:null };
-  const context = { snapshot:() => snapshot, subscribe:() => () => { unsubscribed = true; }, tick() {}, clear() {} };
-  const client = { listDocSuggestions:() => { startedResolve(); return answer; }, listFeatureSwitches:async() => ({}) };
-  const presence = mountDocPresence({ document:dom.window.document, window:dom.window, context, client });
-  t.after(() => { presence.dispose(); dom.window.close(); });
-  dom.window.document.querySelector('#docDetail').showModal = function () { this.open = true; };
-  presence.open();
-  await started;
-  presence.dispose();
-  dom.window.document.body.replaceChildren(dom.window.document.createElement('main'));
-  release({ ok:true, suggestions:[] });
-  await presence.refresh();
-  assert.equal(unsubscribed, true);
-  assert.equal(dom.window.document.body.querySelector('main')?.id, '');
-});
-
 test('malformed or partial feed rows are unavailable rather than verified empty; incompatible inverses cannot execute',async()=>{
   const answer=await createDocActivityFixture().read(),row=answer.entries[0];
   for(const broken of [{...row,id:null},{...row,record:{...row.record,name:null}},{...row,what:null},{...row,before:{}},{...row,undo:null},{...row,evidence:{kind:'entry',summary:[]}}]){
@@ -98,24 +62,6 @@ test('Doc activity registers its route, gate and deployed files alongside the ma
   assert.equal(contract.routes['/doc-activity'], 'activity.html');
   assert.equal(contract.gatePaths['/doc-activity'], '/control-room');
   for (const route of ['/deals', '/leads', '/relationships', '/invoices', '/control-room/progress']) assert.ok(contract.routes[route], `main route survives: ${route}`);
-});
-
-test('Doc does not fetch suggestions for a queued context that was superseded before its read', async t => {
-  const dom = new JSDOM('<main id="appMainSlot"></main>');
-  let snapshot = { state:'updating', ready:false, page:'leads', epoch:0, label:'Leads', records:[], observedAt:null };
-  let listener, reads = 0;
-  const context = { snapshot:() => snapshot, subscribe(fn) { listener = fn; fn(snapshot); return () => {}; }, tick() {}, clear() {} };
-  const client = { listDocSuggestions:async() => { reads++; return {ok:true,suggestions:[]}; }, listFeatureSwitches:async() => ({}) };
-  const presence = mountDocPresence({document:dom.window.document,window:dom.window,context,client});
-  t.after(() => { presence.dispose(); dom.window.close(); });
-  dom.window.document.querySelector('#docDetail').showModal = function () { this.open = true; };
-  presence.open();
-  await presence.refresh();
-  reads = 0;
-  snapshot = {...snapshot,ready:true,state:'ready'}; listener(snapshot);
-  snapshot = {...snapshot,epoch:1,ready:false,state:'updating'}; listener(snapshot);
-  await new Promise(resolve => setTimeout(resolve,20));
-  assert.equal(reads,0);
 });
 
 test('activity feed orders precise instants before using descending IDs and preserves source rows', async () => {

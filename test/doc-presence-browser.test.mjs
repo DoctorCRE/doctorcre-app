@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdir } from 'node:fs/promises';
-import { chromium, webkit, pausedClock, settles } from './browser-harness.mjs';
+import { readFile } from 'node:fs/promises';
+import { chromium, pausedClock, settles } from './browser-harness.mjs';
 import { directoryFixture } from './fixtures/vendor-directory.synthetic.mjs';
 import { workspace, detail, emptyQuietFollowUps } from './leads-workspace-fixture.mjs';
 import { createFixtureClient } from '../js/fixture-client.js';
@@ -36,138 +36,9 @@ async function setup(t,{width=1440,motion='no-preference',onRoute,engine=chromiu
   const file=contract.routes[url.pathname]||url.pathname.slice(1);
   try{return route.fulfill({body:await readFile(new URL(file,root)),contentType:/\.m?js$/.test(file)?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.json')?'application/json':'text/html'});}catch{return route.fulfill({status:404,body:''});}
  });
- const goto=async path=>{await page.goto('http://localhost'+path,{waitUntil:'domcontentloaded'});await page.locator('#docPresence').waitFor({state:'attached'});};
+ const goto=async path=>{await page.goto('http://localhost'+path,{waitUntil:'domcontentloaded'});await page.locator('#appMainSlot').waitFor({state:'attached'});};
  return{page,goto,calls,errors};
 }
-
-test('closed Doc skips suggestion reads and opens with fresh suggestions after context changes', async t => {
- let approvalLoads=0;
- const {page,goto,calls,errors}=await setup(t,{onRoute:async(route,{url})=>{
-  if(url.pathname==='/js/doc-approval.js')approvalLoads++;
-  return false;
- }});
- await page.clock.install();
- await goto('/deals?mode=live');
- await page.waitForFunction(()=>window.docContext?.snapshot().ready);
- await page.waitForLoadState('networkidle');
- assert.equal(calls.filter(call=>call.name==='list-doc-suggestions').length,0);
- assert.equal(calls.filter(call=>call.name==='list-feature-switches').length,0);
- assert.equal(approvalLoads,0);
- await page.locator('#docOpen').click();
- await page.locator('[data-doc-suggestion]').first().waitFor();
- assert.ok(calls.some(call=>call.name==='list-doc-suggestions'));
- assert.equal(approvalLoads,1);
- await page.keyboard.press('Escape');
- await page.waitForFunction(()=>!document.querySelector('#docDetail').open);
- const closedReads=calls.filter(call=>call.name==='list-doc-suggestions').length;
- const closedPermissions=calls.filter(call=>call.name==='list-feature-switches').length;
- await page.evaluate(()=>window.docContext.select('deal','d14'));
- await page.clock.fastForward(61_000);
- await page.waitForLoadState('networkidle');
- assert.equal(calls.filter(call=>call.name==='list-doc-suggestions').length,closedReads);
- assert.equal(calls.filter(call=>call.name==='list-feature-switches').length,closedPermissions);
- const reread=page.waitForResponse(response=>response.url().endsWith('/mcp')&&response.request().postDataJSON()?.params?.name==='list-doc-suggestions');
- await page.locator('#docOpen').click();
- await reread;
- assert.ok(calls.filter(call=>call.name==='list-doc-suggestions').length>closedReads);
- assert.deepEqual(errors,[]);
-});
-
-test('shared Doc presence appears on every authenticated route; narrow drawers never hide it',async t=>{
- const{page,goto,errors,calls}=await setup(t);
- for(const width of [1440,390]) { await page.setViewportSize({width,height:960});
- for(const path of ['/', '/deals', '/leads', '/tours', '/clients','/vendors','/calendar','/ideas-events','/control-room','/control-room/progress','/work-requests','/all-work','/incidents','/control-room/progress/work','/updates','/doc-chats','/doc-chats/work','/search','/status','/design-lab']){
-  try { await goto(path); } catch(error) { throw new Error(path+' '+JSON.stringify(errors)+' '+error.message); } assert.equal(await page.locator(width <= 760 ? '#accountWorkspaceControls > #docPresence' : '#appTopbar > #docPresence').count(),1,path);
-  if (width <= 760) await page.locator('#selfAvatar').click();
-  assert.equal(await page.locator('#docOpen').isVisible(),true,path);
-  assert.equal(await page.locator('#docChat:visible').count(),0,path);
-  await page.locator('#docOpen').click();assert.equal(await page.locator('#docDetail').evaluate(n=>n.open),true,path);await page.keyboard.press('Escape');
- }
- }
- assert.deepEqual(errors,[]);
- assert.deepEqual(calls.filter(call=>! /^(list-|read-|get-|deal-room-|morning-brief|today-triage|lead-board|quiet-follow-ups|claim-card|loop-board|incident-board|current-work-|notification-feed|correspondence-|doc-outcome-cards|unfinished-work|industry-events|resource-dashboard|schedule-board)/.test(call.name)).map(call=>call.name),[]);
-});
-
-test('page facts and exact selection, existing suggestions, one-tap approval, inert original entry and responsive renders',async t=>{
- const{page,goto,errors,calls}=await setup(t);
- await goto('/deals?mode=live&deal=d14');
- await page.locator('#recordPanel:not([hidden])').waitFor();
- await page.locator('#recordPanel #docPresence').waitFor();
- await page.waitForFunction(()=>document.querySelector('#recordPanel #docPresence')?.dataset.state==='ready');
- assert.equal(await page.getByRole('button',{name:'Deal outlook',exact:true}).count(),0);
- assert.doesNotMatch(await page.locator('#recordPanel').innerText(),/Jev|Read this deal|lint|leak check/);
- await mkdir(new URL('out/test-artifacts/w8/',root),{recursive:true});
- await page.screenshot({path:new URL('out/test-artifacts/w8/record-presence-desktop.png',root).pathname,animations:'disabled'});
- await page.setViewportSize({width:390,height:844});
- await page.screenshot({path:new URL('out/test-artifacts/w8/record-presence-phone.png',root).pathname,animations:'disabled'});
- const persistent=await page.locator('#recordPanel').evaluate(dialog=>{
-  dialog.scrollTop=500;
-  const presence=dialog.querySelector('#docPresence').getBoundingClientRect();
-  const visible=presence.top>=0 && presence.bottom<=window.innerHeight && presence.right<=window.innerWidth;
-  dialog.scrollTop=0;return visible;
- });assert.equal(persistent,true);
- await page.setViewportSize({width:1440,height:960});
- await page.locator('#recordPanel #docOpen').click();
- assert.equal(await page.locator('#docRecord').isDisabled(),true);
- assert.equal(await page.locator('#docRecord').inputValue(),'deal:d14');
- assert.match(await page.locator('#docFacts').innerText(),/Confirm fictional commencement/);
- await page.keyboard.press('Escape');
- assert.equal(await page.locator('#recordPanel #docOpen').evaluate(n=>n===document.activeElement),true);
- const detailReads=calls.filter(call=>call.name==='get-deal-room').length;
- const refreshed=page.waitForResponse(response=>response.url().endsWith('/mcp') && response.request().postDataJSON()?.params?.name==='get-deal-room');
- await page.evaluate(()=>window.dispatchEvent(new Event('online')));
- await refreshed;
- await page.waitForFunction(()=>document.querySelector('#recordPanel #docPresence')?.dataset.state==='ready' && window.docContext?.snapshot().active?.title==='Demo Surgical Practice');
- assert.ok(calls.filter(call=>call.name==='get-deal-room').length>detailReads);
- await page.locator('#recordPanel #docOpen').click();
- assert.equal(await page.locator('#docRecord').inputValue(),'deal:d14');
- await page.keyboard.press('Escape');
- await page.locator('#panelClose').click();
- await page.locator('#appTopbar > #docPresence').waitFor();
- await page.locator('#docOpen').click();
- await page.waitForFunction(()=>document.querySelector('#docSuggestions')?.textContent.includes('Confirm the survey'));
- await page.locator('#docRecord').selectOption('deal:d14');
- assert.match(await page.locator('#docFacts').innerText(),/Confirm fictional commencement/);
- await mkdir(new URL('out/test-artifacts/w8/',root),{recursive:true});
- await page.screenshot({path:new URL('out/test-artifacts/w8/staged-desktop.png',root).pathname,fullPage:page.viewportSize().width>760,animations:'disabled'});
- await page.setViewportSize({width:390,height:844});
- await page.screenshot({path:new URL('out/test-artifacts/w8/staged-phone.png',root).pathname,fullPage:page.viewportSize().width>760,animations:'disabled'});
- await page.setViewportSize({width:1440,height:960});
- await page.locator('[data-doc-approve]').click();await page.waitForFunction(()=>document.querySelector('#docApprovalStatus')?.textContent==='Discussion approved');
- assert.equal(calls.filter(call=>call.name==='decide-doc-suggestion').length,1);
- const decision=calls.find(call=>call.name==='decide-doc-suggestion');assert.equal(decision.args.choice,'discuss');assert.equal(decision.args.base_version,1);
- assert.equal(await page.locator('[data-doc-approve]').count(),0);
- assert.ok(await page.locator('#docDetail').evaluate(n=>n.getBoundingClientRect().width)>900);
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
- await mkdir(new URL('out/test-artifacts/w8/',root),{recursive:true});
- await page.screenshot({path:new URL('out/test-artifacts/w8/doc-desktop.png',root).pathname,fullPage:page.viewportSize().width>760,animations:'disabled'});
- await page.keyboard.press('Escape');await page.screenshot({path:new URL('out/test-artifacts/w8/presence-desktop.png',root).pathname,fullPage:page.viewportSize().width>760,animations:'disabled'});
- await page.setViewportSize({width:390,height:844});await page.locator('#selfAvatar').click();await page.locator('#docOpen').click();
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
- assert.equal(await page.locator('#docDetail').evaluate(n=>n.scrollWidth<=n.clientWidth),true);
- await page.screenshot({path:new URL('out/test-artifacts/w8/doc-phone.png',root).pathname,fullPage:page.viewportSize().width>760,animations:'disabled'});
- await page.keyboard.press('Escape');await page.screenshot({path:new URL('out/test-artifacts/w8/presence-phone.png',root).pathname,fullPage:page.viewportSize().width>760,animations:'disabled'});
- await page.emulateMedia({reducedMotion:'reduce'});
- assert.equal(await page.locator('.doc-presence .doc-orb').evaluate(n=>getComputedStyle(n).animationName),'none');
- await page.locator('#selfAvatar').click();await page.locator('#docOpen').focus();await page.keyboard.press('Enter');await page.keyboard.press('Escape');
- assert.equal(await page.locator('#selfAvatar').evaluate(n=>n===document.activeElement),true);
- assert.deepEqual(errors,[]);
-});
-
-test('selection/filter changes cancel context, auto-refresh recovers and no write happens without a click',async t=>{
- const{page,goto,calls}=await setup(t);await page.clock.install();
- await goto('/deals?mode=live');
- await page.locator('#docOpen').click();
- await page.waitForFunction(()=>document.querySelector('#docSuggestions')?.textContent.includes('Confirm the survey'));
- const result=await page.evaluate(async()=>{
-  const {pageDocContext}=await import('/js/doc-context.js');
-  const ticket=pageDocContext.begin('getBoard');pageDocContext.fail(ticket,{status:401});return pageDocContext.snapshot();
- });assert.equal(result.ready,false);
- assert.match(await page.locator('#docSuggestions').innerText(),/Unavailable/);
- await page.clock.fastForward(61_000);
- await page.waitForFunction(()=>document.querySelector('#docSuggestions')?.textContent.includes('Confirm the survey'));
- assert.equal(calls.filter(call=>call.name==='decide-doc-suggestion').length,0);
-});
 
 const readContext=page=>page.evaluate(async()=> (await import('/js/doc-context.js')).pageDocContext.snapshot());
 // Native close is queued separately from the key press. Wait for the product
@@ -284,7 +155,7 @@ test('R14/R15/R16 Ideas searches, Escape and tab return keep correctly scoped ob
  await escapeRecord(page,'#ideaDialog');assert.equal((await readContext(page)).selected,null);
  const before=await readContext(page);await page.locator('#ideaSearch').fill('no match');await page.waitForFunction(()=>document.querySelectorAll('.idea-tile').length===0);
  const filtered=await readContext(page);assert.equal(filtered.records.length,0);assert.equal(filtered.filters.query,'no match');assert.equal(filtered.observedAt,before.observedAt);
- await page.locator('#tabEvents').click();await page.waitForFunction(()=>document.querySelector('#docPresence').dataset.state==='ready');await page.locator('#tabIdeas').click();await page.waitForFunction(()=>document.querySelector('#docPresence').dataset.state==='ready');assert.equal((await readContext(page)).ready,true);
+ await page.locator('#tabEvents').click();await page.waitForFunction(()=>window.docContext?.snapshot().ready);await page.locator('#tabIdeas').click();await page.waitForFunction(()=>window.docContext?.snapshot().ready);assert.equal((await readContext(page)).ready,true);
 });
 test('R6/R14 Tour background failure clears eligibility; search constrains original observation',async t=>{
  let outage=false;const {page,goto}=await setup(t,{onRoute:async(route,env)=>{
@@ -302,15 +173,6 @@ for(const path of ['/api/tours/library','/api/tours/detail'])test(`R6 Tour autho
  }});await goto('/tours');await page.locator('.tour-button').first().click();await page.waitForFunction(()=>document.querySelector('#detail-title').textContent==='Sample Tour');
  denied=true;await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForFunction(()=>document.querySelector('#tour-library-state').textContent.includes('Sign in'));
  const c=await readContext(page);assert.equal(c.ready,false);assert.equal(c.records.length,0);
-});
-test('R8 delayed approval receipt cannot appear under a different record',async t=>{
- let release,started;const wait=new Promise(r=>release=r),entered=new Promise(r=>started=r);t.after(()=>release());
- const {page,goto,calls}=await setup(t,{onRoute:async(route,{url})=>{
-  if(url.pathname==='/mcp'&&route.request().postDataJSON().params.name==='decide-doc-suggestion'){started();await wait;const args=route.request().postDataJSON().params.arguments;await rpc(route,{ok:true,suggestion_id:args.suggestion_id,choice:'discuss',version:args.base_version+1});return true;}
-  return false;
- }});await goto('/deals?mode=live');await page.locator('#docOpen').click();await page.waitForFunction(()=>document.querySelector('[data-doc-suggestion]'));await page.locator('[data-doc-approve]').click();await entered;
- await page.keyboard.press('Escape');await page.evaluate(async()=>{const c=(await import('/js/doc-context.js')).pageDocContext;c.select('deal','d1');});await page.locator('#docOpen').click();release();
- await page.waitForTimeout(100);assert.equal(await page.locator('#docApprovalStatus').textContent(),'');
 });
 const queuePayload=(status='running',at=new Date().toISOString())=>({live:true,projected_at:new Date().toISOString(),events:[{task_id:'t_sample',summary:'Sample task',projected_at:new Date().toISOString(),card:{title:'Sample task',status,priority:'normal',target:'sol',updated_at:at}}]});
 test('R3 retained Taskboard card navigation opens its own recorded work scope',async t=>{
@@ -383,7 +245,7 @@ test('R15/R16 browser Back restores the Ideas tab scope and pagehide clears sele
 for(const verb of ['loop-board','list-industry-events'])test(`R1/R16 Ideas tab cache cannot recover after ${verb} authorization loss`,async t=>{
  let denied=false,authLost=false;const {page}=await setup(t,{onRoute:async(route,env)=>{
   if(env.url.pathname==='/mcp'&&(authLost||(denied&&route.request().postDataJSON().params.name===verb))){authLost=true;await route.fulfill({status:401,json:{}});return true;}return producerRoute(route,env);
- }});await page.goto('https://app.doctorcre.com/ideas-events');await page.locator('.idea-tile').first().waitFor();await page.locator('#tabEvents').click();await page.waitForFunction(()=>document.querySelector('#docPresence').dataset.state==='ready');await page.locator('#tabIdeas').click();
+ }});await page.goto('https://app.doctorcre.com/ideas-events');await page.locator('.idea-tile').first().waitFor();await page.locator('#tabEvents').click();await page.waitForFunction(()=>window.docContext?.snapshot().ready);await page.locator('#tabIdeas').click();
  denied=true;await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForURL('**/public-shell/session-ended.html');
  assert.equal(await page.locator('#tabEvents,#docPresence,.idea-tile').count(),0);
 });
@@ -400,7 +262,7 @@ test('R14 Tour closed detail cannot survive a no-match library filter',async t=>
  await escapeRecord(page,'#tour-dialog');await page.locator('#tour-filter').fill('no match');assert.equal((await readContext(page)).records.length,0);
 });
 
-test('R13/R18 incomplete conversation reports unknown recent activity in the answer and visible Doc',async t=>{
+test('R13/R18 incomplete conversation reports unknown recent activity in the retained context',async t=>{
  const id='0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c01';
  const {page,goto}=await setup(t,{onRoute:async(route,{url,fixture})=>{
   if(url.pathname!=='/mcp'||route.request().postDataJSON().params.name!=='read-doc-conversation')return false;
@@ -410,10 +272,6 @@ test('R13/R18 incomplete conversation reports unknown recent activity in the ans
  }});
  await goto('/doc-chats?mode=live&id='+id);
  await page.waitForFunction(()=> {const c=window.docContext?.snapshot();return c?.ready&&c.active?.activityComplete===false;});
- await page.locator('#docOpen').click();
- assert.equal(await page.locator('#docActivity').innerText(),'Recent activity unavailable.');
- assert.doesNotMatch(await page.locator('#docActivity').innerText(),/read|source|incomplete/i);
- assert.equal(await page.locator('#docActivity article').count(),0);
  const answer=await page.evaluate(async id=>{
   const c=(await import('/js/doc-context.js')).pageDocContext;
   return (await import('/js/doc-context-model.js')).docAnswer(c.snapshot(),{kind:'conversation',recordId:id,question:'Recent activity'});
@@ -463,71 +321,6 @@ test('R18 a held Search response cannot publish under a later query scope',async
  const c=await readContext(page);assert.equal(c.filters.query,'');assert.deepEqual(c.records,[]);assert.equal(c.ready,false);
 });
 
-
-for (const [name,engine] of [['chromium',chromium],['webkit',webkit]]) test(`W11 ${name} command bar shortcuts, keyboard results, refresh and responsive motion`,{skip:engine.skip},async t=>{
- for(const width of [1440,390,320]) await t.test(String(width),async t=>{
-  const {page,goto,calls,errors}=await setup(t,{width,motion:'reduce',engine,onRoute:async(route,{url})=>{if(url.pathname==='/api/tours/library'){await route.fulfill({json:{data:{tours:[{id:tourId,name:'Demo Tour'}]}}});return true;}return false;}});
-  await goto('/deals?mode=live');
-  const key=name==='webkit'?'Meta':'Control';
-  await page.locator('#docOpen').focus();await page.keyboard.press(`${key}+d`);
-  assert.equal(await page.locator('#docDetail').evaluate(n=>n.open),true);
-  assert.equal(await page.locator('#docCommandInput').evaluate(n=>n===document.activeElement),true);
-  await page.keyboard.press('Escape');await page.keyboard.press(`${key}+d`);
-  await page.locator('#docCommandInput').fill('Demo');
-  await page.waitForFunction(()=>document.querySelectorAll('#docCommandResults [data-doc-result]').length>0);
-  await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
-  assert.equal(await page.locator('#docCommandDetail').isVisible(),true);
-  assert.equal(await page.locator('.doc-context-tools').isVisible(),false);
-  assert.equal(await page.locator('#docDetail').evaluate(n=>getComputedStyle(n).animationName),'none');
-  assert.ok(await page.locator('#docDetail').evaluate(n=>n.getBoundingClientRect().width<=innerWidth));
-  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  await mkdir(new URL('out/test-artifacts/w11/',root),{recursive:true});
-  await page.screenshot({path:new URL(`out/test-artifacts/w11/${name}-${width}.png`,root).pathname,animations:'disabled'});
-  await page.locator('#docCommandRefresh').click();assert.equal(await page.locator('#docCommandInput').inputValue(),'Demo');
-  assert.deepEqual(errors,[]);
-  assert.equal(calls.some(row=>! /^(calendar-meeting-prep$|find$|deal-room-|list-|read-|get-|morning-brief|today-triage|notification-feed|lead-board|claim-card|loop-board|incident-board|current-work-)/.test(row.name)),false);
- });
-});
-
-test('R1 Doc search consumes and validates the live wrapped tour library',async t=>{
- const {page,goto}=await setup(t,{onRoute:async(route,{url})=>{if(url.pathname==='/api/tours/library'){await route.fulfill({json:{data:{tours:[{id:tourId,name:'Library Sample'}]}}});return true;}return false;}});
- const scripts=[];page.on('request',request=>{if(request.resourceType()==='script')scripts.push(new URL(request.url()).pathname);});
- await goto('/deals?mode=live');assert.equal(scripts.includes('/tours/planner-client.js'),false);
- await page.locator('#docOpen').click();await page.locator('#docCommandInput').fill('Library Sample');
- await page.getByRole('option',{name:/Library Sample/}).waitFor();assert.equal(scripts.includes('/tours/planner-client.js'),true);await page.getByRole('option',{name:/Library Sample/}).click();
- assert.equal(await page.locator('#docCommandDetail a').getAttribute('href'),`/tours?tour=${tourId}`);
-});
-for(const [name,engine] of [['chromium',chromium],['webkit',webkit]])test(`R8 ${name} long detail title fits inside the 320px Doc dialog`,{skip:engine.skip},async t=>{
- const title='Demo'+ 'x'.repeat(180);
- const {page,goto}=await setup(t,{width:320,engine,onRoute:async(route,{url})=>{if(url.pathname==='/mcp'&&route.request().postDataJSON().params.name==='find'){await rpc(route,{parties:[{ref:'C-SAMPLE',kind:'client',name:title,merged:false}],deals:[],connections:[],organizations:[],lead_client_links:[],deals_via_link:[],note:'Synthetic'});return true;}return false;}});
- await goto('/deals?mode=live');await page.locator('#selfAvatar').click();await page.locator('#docOpen').click();await page.locator('#docCommandInput').fill('Demo');await page.getByRole('option',{name:new RegExp(title)}).click();
- assert.equal(await page.locator('#docDetail').evaluate(n=>n.scrollWidth<=n.clientWidth),true);
- assert.ok(await page.locator('#docCommandBack').evaluate(n=>n.getBoundingClientRect().width)>=44);
-});
-
-test('Doc suggestion control follows server switch flips and stale clicks cannot write',async t=>{
- let available=false;
- const {page,goto,calls,errors}=await setup(t,{onRoute:async(route,{url})=>{
-  if(url.pathname==='/mcp' && route.request().postDataJSON()?.params?.name==='list-feature-switches'){
-   await rpc(route,{ok:true,schema:'feature-switches.v1',switches:[{name:'doc-suggestion-actions',available}]});return true;
-  }
- }});
- await goto('/deals?mode=live');
- await page.locator('#docOpen').click();
- await page.waitForFunction(()=>document.querySelector('[data-doc-approve]'));
- const action=page.locator('[data-doc-approve]').first();
- assert.equal(await action.isVisible(),false);
- await action.evaluate(node=>{node.hidden=false;node.click();});
- assert.equal(calls.filter(call=>call.name==='decide-doc-suggestion').length,0);
- available=true;
- await page.evaluate(()=>window.dispatchEvent(new Event('online')));
- await action.waitFor({state:'visible'});
- available=false;
- await page.evaluate(()=>window.dispatchEvent(new Event('online')));
- await action.waitFor({state:'hidden'});
- assert.equal(calls.filter(call=>call.name==='decide-doc-suggestion').length,0);
- assert.deepEqual(errors,[]);
-});
 
 // The dock can resend a retained suggestion request long after its card was
 // clicked. Both its retry and its reconcile must honour the switch.
@@ -591,72 +384,6 @@ test('Dr. CRE suggestion dock retry and reconcile hold while the switch is off a
  assert.deepEqual(errors,[]);
 });
 
-test('Dr. CRE approval: a switch-off during its fresh read sends nothing, a feature_disabled refusal settles, and a later tap sends again',async t=>{
- let available=true,holdReads=false,refuse=false;const held=[];
- const writes=[];
- const {page,goto,errors}=await setup(t,{onRoute:async(route,{url,fixture})=>{
-  if(url.pathname!=='/mcp')return false;
-  const {name,arguments:args}=route.request().postDataJSON().params;
-  if(name==='list-feature-switches'){await rpc(route,{ok:true,schema:'feature-switches.v1',switches:[{name:'doc-suggestion-actions',available}]});return true;}
-  if(name==='list-doc-suggestions'&&holdReads){await new Promise(resolve=>held.push(resolve));await rpc(route,await fixture.listDocSuggestions(args));return true;}
-  if(name!=='decide-doc-suggestion')return false;
-  writes.push(args.idempotency_key);
-  if(refuse){await route.fulfill({contentType:'application/json',body:JSON.stringify({result:{isError:true,content:[{type:'text',text:JSON.stringify({error:'feature_disabled',switch:'doc-suggestion-actions',hint:'doc-suggestion-actions is switched off for you.'})}]}})});return true;}
-  await rpc(route,await fixture.decideDocSuggestion(args));return true;
- }});
- // Advance the capped backoff between reconnects; lifecycle events cannot bypass it.
- await pausedClock(page,Date.parse('2026-10-12T15:00:00Z'));
- await goto('/deals?mode=live');
- await page.locator('#docOpen').click();
- const action=page.locator('[data-doc-approve]').first();
- await action.waitFor({state:'visible'});
- const status=page.locator('#docApprovalStatus');
-
- // 1. The switch turns off while the approval's fresh read is in flight.
- holdReads=true;
- await action.click();
- await page.waitForFunction(()=>document.querySelector('#docApprovalStatus')?.textContent==='Confirming…');
- available=false;
- await page.evaluate(()=>window.dispatchEvent(new Event('online')));
- await action.waitFor({state:'hidden'});
- holdReads=false;held.splice(0).forEach(resolve=>resolve());
- await page.waitForFunction(()=>/switched off/.test(document.querySelector('#docApprovalStatus')?.textContent||''));
- assert.equal(writes.length,0,'nothing is sent once the switch is off');
-
- // 2. The page still reads on, but CARR switched it off after the last poll.
- await page.waitForLoadState('networkidle');
- available=true;
- await page.clock.setSystemTime(new Date(await page.evaluate(()=>Date.now())+15*60_000));
- await page.locator('#docRefresh').click();
- await page.waitForLoadState('networkidle');
- await page.evaluate(()=>window.dispatchEvent(new Event('online')));
- await action.waitFor({state:'visible'});
- available=false;refuse=true;
- await action.click();
- await settles(()=>assert.equal(writes.length,1));
- assert.equal(writes.length,1);
- // The refusal itself prompts a fresh switch read, which hides the control.
- await page.waitForFunction(()=>document.querySelector('[data-doc-approve]')?.hidden===true);
- assert.match(await status.textContent(),/switched off/);
-
- available=true;
-
- // 3. Switched back on: the same suggestion version can be approved again.
- await page.waitForLoadState('networkidle');
- refuse=false;
- await page.clock.setSystemTime(new Date(await page.evaluate(()=>Date.now())+15*60_000));
- await page.locator('#docRefresh').click();
- await page.waitForLoadState('networkidle');
- await page.evaluate(()=>window.dispatchEvent(new Event('online')));
- await action.waitFor({state:'visible'});
- await action.click();
- await page.waitForFunction(()=>document.querySelector('#docApprovalStatus')?.textContent==='Discussion approved');
- assert.equal(writes.length,2);
- assert.notEqual(writes[1],writes[0],'the refused intent is retired; the fresh tap carries a new key');
- assert.match(await status.textContent(),/approved/);
- assert.deepEqual(errors,[]);
-});
-
 test('Dr. CRE suggestion page: a feature_disabled refusal re-reads the switch and hides the controls at once',async t=>{
  let available=true;const writes=[];
  const {page,goto,errors}=await setup(t,{onRoute:async(route,{url})=>{
@@ -682,7 +409,7 @@ test('Dr. CRE suggestion page: a feature_disabled refusal re-reads the switch an
 for(const trigger of ['resume','identity-failure']) test(`F9 Leads ${trigger} clears Doc while identity is delayed and only fresh workspace restores it`,async t=>{
  let hold=false,release;const held=new Promise(resolve=>release=resolve);t.after(()=>release());
  const {page,goto,errors}=await setup(t,{onRoute:async(route,env)=>{
-  if(hold && env.url.pathname==='/api/system-work/session'){await held;if(trigger==='identity-failure'){await route.fulfill({status:503,body:''});return true;}}
+  if(hold && env.url.pathname==='/auth/session'){await held;if(trigger==='identity-failure'){await route.fulfill({status:503,body:''});return true;}}
   return producerRoute(route,env);
  }});
  await goto('/leads?mode=live');await page.locator('.lead-card').first().click();
@@ -694,10 +421,8 @@ for(const trigger of ['resume','identity-failure']) test(`F9 Leads ${trigger} cl
  },trigger);
  if(trigger==='resume'){assert.equal(suspended.cards,0);assert.equal(suspended.detail,false);}
  assert.equal(suspended.context.ready,false);assert.deepEqual(suspended.context.records,[]);
- await page.locator('#docOpen').click();
- assert.doesNotMatch(await page.locator('#docDetail').innerText(),/Dr. Example/);
  release();
- if(trigger==='identity-failure'){await page.waitForFunction(()=>document.querySelectorAll('.lead-card').length===0);assert.deepEqual((await readContext(page)).records,[]);hold=false;await page.locator('#docClose').click();await page.locator('#refreshBoard').click();}
+ if(trigger==='identity-failure'){await page.waitForFunction(()=>document.querySelectorAll('.lead-card').length===0);assert.deepEqual((await readContext(page)).records,[]);hold=false;await page.locator('#refreshBoard').click();}
  await page.waitForFunction(()=>window.docContext?.snapshot().ready);
  assert.ok((await readContext(page)).records.length>0);assert.deepEqual(errors,[]);
 });

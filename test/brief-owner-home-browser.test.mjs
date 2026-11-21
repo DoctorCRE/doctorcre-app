@@ -34,7 +34,8 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
       return { surface: 'Today', label: node.textContent, width, height };
     }));
     if (width === 390) await page.getByRole('button', { name: 'Close Today', exact: true }).click();
-    await page.keyboard.press('Control+d');
+    if (width === 390) await page.getByRole('button', { name: /account and settings/i }).click();
+    await page.getByRole('button', { name: 'Open morning brief options', exact: true }).click();
     await page.getByRole('button', { name: /^Morning brief/ }).click();
     await page.locator('#morningOwners .chip').first().waitFor();
     await animationsSettled(page);

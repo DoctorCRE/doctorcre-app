@@ -32,7 +32,7 @@ test('Inbox uses one phone shell row and grouped controls in both themes', async
     await expect(accountMenu.getByRole('button', { name: 'Color assist' })).toBeVisible();
     const session = await page.context().newCDPSession(page);
     const { documents, strings } = await session.send('DOMSnapshot.captureSnapshot', { computedStyles: [] });
-    const labels = ['Open Doc', 'Refresh workspace'];
+    const labels = ['Morning brief', 'Refresh workspace'];
     const { layout } = documents[0];
     const positions = labels.map(label => {
       const index = layout.text.findIndex(text => strings[text] === label);
@@ -51,7 +51,7 @@ test('Inbox uses one phone shell row and grouped controls in both themes', async
     await page.keyboard.press('Escape');
   }
   await page.locator('#selfAvatar').click();
-  await page.getByRole('button', { name: 'Open Doc', exact: true }).click();
+  await page.getByRole('button', { name: 'Open morning brief options', exact: true }).click();
   await expect(page.locator('#docDetail')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator('#selfAvatar')).toBeFocused();
