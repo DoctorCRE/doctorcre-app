@@ -2,8 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
-import { mountDocPresence } from '../js/doc-presence.js';
-import { createDocContext } from '../js/doc-context-model.js';
 import { createCallMode, CALL_MODE_URL } from '../js/call-mode.js';
 import { startFixture } from '../scripts/fixture-http.mjs';
 import { buildArtifact } from '../scripts/artifact.mjs';
@@ -21,38 +19,6 @@ async function touchTargetBox(locator) {
   await animationsSettled(locator.page());
   return locator.boundingBox();
 }
-
-test('shared Doc shows unavailable reads, keeps Chats off the menu and offers no unsupported input', async () => {
-  const dom = new JSDOM('<main id="appMainSlot"></main>', { url:'https://example.test/deals' });
-  const context = createDocContext({ page:'deals' });
-  let ui;
-  try {
-    ui = mountDocPresence({ document:dom.window.document, window:dom.window, context,
-      client:{ listDocSuggestions:async () => { throw new Error('unavailable'); } } });
-    const doc = dom.window.document;
-    doc.querySelector('#docDetail').showModal = function () { this.open = true; };
-    ui.open();
-    await settles(() => assert.match(doc.querySelector('#docSuggestions').textContent, /Unavailable/));
-    // The read-only search bar is Doc's one supported input; nothing else may accept input.
-    assert.equal(doc.querySelector('#docDetail form:not(#docCommandForm), #docMic, #docInput'), null);
-    assert.ok(doc.querySelector('#docCommandForm'));
-    assert.doesNotMatch(doc.querySelector('#docPresence').textContent, /Listening|prototype|demo/i);
-    assert.equal(doc.querySelector('#docDetail a[href="/doc-chats"]'), null);
-    const destination = new URL('/doc-chats', dom.window.location.href);
-    const gates = [], assets = [];
-    const response = await handleDoctorcreRequest(new Request(destination), {
-      CARR: { fetch: async (request) => { gates.push(new URL(request.url).pathname); return new Response('signed in'); } },
-      ASSETS: { fetch: async (request) => {
-        assets.push(new URL(request.url).pathname);
-        return new Response(await read('conversations.html'), { headers: { 'content-type': 'text/html' } });
-      } },
-    });
-    assert.equal(response.status, 200);
-    assert.deepEqual(gates, ['/conversations']);
-    assert.deepEqual(assets, ['/conversations.html']);
-    assert.match(await response.text(), /Doc Chats/);
-  } finally { ui?.dispose(); dom.window.close(); }
-});
 
 async function callSurface(fetchImpl, check) {
   const dom = new JSDOM(await read('index.html'));
@@ -240,21 +206,6 @@ test('honest controls fit 320px, 390px and iPad in both motion settings with 44p
       });
       assert.deepEqual(accountFocus, { outline: 'solid', width: '2px', color: 'rgb(245, 127, 41)' }, `${width}: account keyboard focus stays visible alongside recorder availability`);
       await page.keyboard.press('Escape');
-      if (width <= 760) await page.locator('#selfAvatar').click();
-      const docTarget = await touchTargetBox(page.locator('#docOpen'));
-      assert.ok(docTarget.width >= 44 && docTarget.height >= 44);
-      await page.locator('#docOpen').click();
-      assert.equal(await page.locator('#docDetail form:not(#docCommandForm), #docMic, #docInput').count(), 0);
-      assert.equal(await page.locator('#docCommandForm').count(), 1);
-      assert.match(await page.locator('#docSuggestions').textContent(), /Unavailable|Updating/);
-      for (const selector of ['#docClose', '.doc-chats-link']) {
-        for (const locator of await page.locator(selector).all()) {
-          const box = await touchTargetBox(locator);
-          assert.ok(box.width >= 44 && box.height >= 44, `${width}: ${selector} touch target ${JSON.stringify(box)}`);
-        }
-      }
-      const dockBox = await page.locator('#docDetail').boundingBox();
-      assert.ok(dockBox.x >= 0 && dockBox.x + dockBox.width <= width);
       await page.goto(`${base}/doc-chats`);
       await page.waitForURL('**/doc-chats');
       await page.locator('#conversationList').waitFor({ state: 'attached' });

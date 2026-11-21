@@ -65,3 +65,38 @@
 .morning-sections > details { margin-top: var(--space-3); padding: var(--space-3) var(--space-4); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: var(--surface-2); }
 .morning-sections summary { min-height: var(--touch); align-content: center; cursor: pointer; }
 .morning-sections li { margin-bottom: var(--space-3); }
+
+.doc-presence { margin: 0; padding: 0; color: var(--fg); font-family: var(--font-text); }
+body > .doc-presence { position: fixed; z-index: 1160; right: var(--space-4); bottom: var(--space-4); }
+
+.doc-presence button, .doc-detail button { cursor: pointer; min-height: var(--touch); min-width: var(--touch); padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: var(--surface-2); color: inherit; font: inherit; transition: background-color var(--duration-hover) var(--ease-out), border-color var(--duration-hover) var(--ease-out); }
+@media (hover: hover) { .doc-presence button:hover, .doc-detail button:hover { background: var(--surface-3); border-color: var(--hairline-strong); } }
+.doc-presence button:active, .doc-detail button:active { transform: scale(var(--press-scale)); transition-duration: var(--duration-press); }
+.doc-presence button:focus-visible, .doc-detail button:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
+.doc-identity { display: grid; place-items: center; width: var(--touch); height: var(--touch); padding: 0 !important; border-radius: var(--radius-round) !important; background: var(--surface-1) !important; box-shadow: var(--shadow-raised); }
+.doc-identity[data-brief-unseen] { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.doc-orb { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-round); color: var(--accent-ink); font-size: var(--font-size-3); line-height: 1; transition: opacity var(--duration-panel) var(--ease-out); }
+.doc-detail { box-sizing: border-box; overflow: auto; width: min(1120px, calc(100vw - 32px)); max-width: 1120px; max-height: calc(100dvh - 40px); padding: var(--space-5); border: var(--hairline-width) solid var(--hairline); border-radius: var(--panel-radius); background: var(--surface-1); color: var(--fg); box-shadow: var(--shadow-overlay); font: var(--font-size-2) / var(--line-height-body) var(--font-text); }
+.doc-detail[open] { animation: none; }
+.doc-detail::backdrop { background: var(--scrim); }
+.doc-detail > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
+.doc-detail h2 { margin: 0; font: var(--font-weight-strong) var(--font-size-4) / var(--line-height-heading) var(--font-text); }
+/* Popup controls keep their own row and stay reachable while the record scrolls. */
+:is(dialog[open], aside#recordPanel:not([hidden])) > .doc-presence { position: sticky; top: 0; right: auto; bottom: auto; display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); }
+.job-dialog > .doc-popup-controls { position: sticky; top: calc(-1 * var(--popup-padding)); z-index: 1; align-items: center; margin: calc(-1 * var(--popup-padding)) calc(-1 * var(--popup-padding)) var(--space-4); padding: var(--space-3) var(--popup-padding); background: var(--surface-1); border-bottom: var(--hairline-width) solid var(--hairline); }
+.doc-popup-controls > .doc-presence { position: static; margin: 0; }
+.doc-popup-controls > button { margin-left: auto; }
+
+@media(max-width:760px),(hover:none) and (pointer:coarse) and (max-width:1023px){
+  .app-shell-workspace-group > .doc-presence { position: static; }
+  .app-shell-workspace-group .doc-identity { width: 100%; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) !important; border: 0; border-radius: var(--radius-2) !important; box-shadow: none; background: transparent !important; font-size: var(--font-size-1); }
+  .app-shell-workspace-group .doc-identity::after { content: "Morning brief"; }
+  .doc-detail { width: calc(100vw - 20px); max-height: calc(100dvh - 24px); padding: var(--space-4); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-orb, .doc-presence button, .doc-detail button { transition: none; }
+  .doc-presence button:active, .doc-detail button:active { transform: none; }
+}
+:root[data-motion="reduced"] :is(.doc-orb, .doc-presence button, .doc-detail button) { transition: none; }
+:root[data-motion="reduced"] :is(.doc-presence button:active, .doc-detail button:active) { transform: none; }

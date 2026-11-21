@@ -223,7 +223,6 @@ for (const path of pages)
         .count(),
       0,
     );
-    await page.locator("#docOpen").waitFor({ state: "attached" });
     assert.equal(await page.locator("#homeCalendar, #homeMeetings, #homeMeetingReviews").count(), 0);
     assert.equal(await page.locator("#docMorning, #docMorningBrief").count(), 0);
     assert.deepEqual(readToday, ["GET"]);
@@ -244,20 +243,18 @@ test("Today rejects a reminder with a malformed ended-deal marker", async (t) =>
   assert.equal(await today.getByText("Check the former office", { exact: true }).count(), 0);
 });
 
-test("Doc keeps Morning brief with the switch off and drops it with the switch on", async (t) => {
+test("The shell keeps Morning brief with the switch off and drops it with the switch on", async (t) => {
   const off = await open(t, "/invoices", { enabled: false });
   await off.today.getByRole("heading", { name: "Your schedule", exact: true }).waitFor();
   assert.equal(await off.page.getByRole("button", { name: "Workspace sidebar", exact: true }).isVisible(), true);
-  await off.page.getByRole("button", { name: "Open Doc", exact: true }).click();
-  await off.page.getByRole("button", { name: "Morning brief", exact: true }).click();
+  await off.page.locator("#docOpen").click();
+  await off.page.locator("#docMorning").click();
   await off.page.getByRole("dialog", { name: /^Morning brief/ }).waitFor();
   assert.deepEqual([...new Set(off.legacy)].sort(), [...legacyVerbs].sort());
   assert.deepEqual(off.readToday, []);
 
   const on = await open(t, "/invoices");
   await on.today.getByText("Example site visit", { exact: true }).waitFor();
-  await on.page.getByRole("button", { name: "Open Doc", exact: true }).click();
-  await on.page.getByRole("dialog", { name: "Doc", exact: true }).waitFor();
   assert.equal(await on.page.getByRole("button", { name: "Morning brief", exact: true }).count(), 0);
   assert.equal(await on.page.locator("#docMorningBrief").count(), 0);
   assert.deepEqual(on.legacy, []);

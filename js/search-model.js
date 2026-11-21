@@ -28,7 +28,7 @@ import { isCalendarDay } from './calendar-model.js';
 /* -------------------------------------------------- the producer's own numbers */
 
 /** `FIND_CATCH_UP_QUERY_MAX` (tools.js:2059) — the input's maxlength, too. */
-export const FIND_QUERY_MAX = 200;
+const FIND_QUERY_MAX = 200;
 /** `FIND_CATCH_UP_LIMIT_MAX` (tools.js:2060). */
 const FIND_CATCH_UP_LIMIT_MAX = 50;
 const FIND_CATCH_UP_LIMIT_DEFAULT = 20;
