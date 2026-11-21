@@ -6,7 +6,7 @@ import { createMcpRequests } from "../js/mcp-requests.mjs";
 import { prepareClientGrant, grantReceipt, renderClientGrants } from '../js/ui-tour-client-grants.generated.js';
 import { generatedSheet, sheetHistory, appendSheetSections } from "../js/ui-broker-cheat-sheet.generated.js";
 import { createPageBudget } from '../js/read-budget.mjs';
-import { sessionFetch } from '../js/private-session.js';
+import { fetchPartnerIdentity, sessionFetch } from '../js/private-session.js';
 import { observeDocRead, selectDocRecord } from '../js/doc-context.js';
 import { mountAutoRefresh } from "../js/auto-refresh.mjs";
 import { mountAcceptedItinerary, acceptedRouteFromDetail } from "./itinerary-map.js";
@@ -96,7 +96,8 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     try {
       result = await Promise.race([
         (async () => {
-          const response = await sessionFetch(path, { credentials: "same-origin", cache: "no-store", ...options, signal: controller.signal });
+          const init = { credentials: "same-origin", cache: "no-store", ...options, signal: controller.signal };
+          const response = await (path === '/auth/session' ? fetchPartnerIdentity(init) : sessionFetch(path, init));
           let payload = null; try { payload = await response.json(); } catch { if (response.ok) throw new Error("read_invalid"); }
           return { response, payload };
         })(),
@@ -979,7 +980,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     else void renderCoordinateReview();
   }
   async function loadLibrary() {
-    try { await request('/api/system-work/session'); } catch { state.userRef = null; }
+    try { await request('/auth/session'); } catch { state.userRef = null; }
     if (state.sessionInvalidated) return;
     status("Loading tours…");
     let data;

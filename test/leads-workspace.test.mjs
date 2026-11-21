@@ -388,6 +388,7 @@ test('blocking 2: shared transport clears private workspace on authorization hea
  for (const status of [401, 403]) for (const surface of ['actor', 'workspace', 'detail', 'review', 'mutation']) {
   const board = workspace(); let deny = false, bodyReads = 0;
   const client = createLeadBoardClient({ timeoutMs: 20, fetchImpl: async (_path, init) => {
+   if (_path === '/auth/session') return Response.json({ actor: { slug: 'example-partner' } });
    const session = _path === '/api/system-work/session';
    const { name, arguments: args } = session ? { name: 'session', arguments: {} } : JSON.parse(init.body).params;
    const denied = deny && (surface === 'mutation' ? name === 'update-lead' : surface === 'actor' ? session :
@@ -763,7 +764,7 @@ for (const failure of ['internal_error','unclassified_error']) test(`Leads activ
  Object.assign(row,{client_id:'synthetic-client',is_client:true,is_deal:true,prospect_client_id:'synthetic-client',
   prospect_client_version:7,prospect_engagement_status:'inactive'});
  const client=createLeadBoardClient({docContext:false,fetchImpl:async(_path,init)=>{
-  if (_path === '/api/system-work/session') return Response.json({actor:{slug:'example-partner'}});
+  if (['/auth/session', '/api/system-work/session'].includes(_path)) return Response.json({actor:{slug:'example-partner'}});
   const {name,arguments:args}=JSON.parse(init.body).params;
   let payload,isError=false;
   if(name==='set-prospect-engagement-status'){
@@ -853,7 +854,7 @@ test('authenticated session controls claim identity and clears owner scope acros
  let actor = 'example-partner';
  const board = { ...workspace(), actor: 'untrusted-board-actor' }, calls = [];
  const client = createLeadBoardClient({ docContext: false, fetchImpl: async (path, init) => {
-  if (path === '/api/system-work/session') return Response.json({ actor: { slug: actor } });
+  if (['/auth/session', '/api/system-work/session'].includes(path)) return Response.json({ actor: { slug: actor } });
   const request = JSON.parse(init.body).params;
   calls.push(request);
   assert.notEqual(request.name, 'deal-room-board');

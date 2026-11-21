@@ -232,6 +232,45 @@ const toolsCall = (name: string, args: Record<string, unknown>) => ({
   body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
 });
 
+test("Search returns versioned results through PartnerApp with only the engine cookie", async () => {
+  const results = { schema_version: "search.v1", parties: [], deals: [] };
+  const { send, calls } = fixture(
+    (input) => {
+      assert.equal(input.headers.get("cookie"), cookie);
+      const url = new URL(input.url);
+      assert.equal(url.pathname, "/api/engine/find");
+      assert.equal(url.searchParams.get("query"), " Example & Clinic ");
+      return Response.json(input.headers.get("x-doctorcre-search") === "search.v1" ? results : { clients: [] });
+    },
+    { ENGINE_ROUTING: { get: async (key: string) => (key === "search-from-engine" ? "on" : null) } },
+  );
+  const call = toolsCall("find", { query: " Example & Clinic " });
+  const response = await send("/mcp", { ...call, headers: { ...proofs, "x-doctorcre-search": "search.v1" } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse((await response.json()).result.content[0].text), results);
+  assert.deepEqual(calls.carr, []);
+  assert.deepEqual(calls.engine, []);
+});
+
+test("PartnerApp receives the Search version header only for supported Search requests", async (t) => {
+  const header = "x-doctorcre-search";
+  const cases = [
+    { path: "/api/engine/find?query=clinic", value: "search.v1", expected: "search.v1" },
+    { path: "/api/engine/find?query=clinic", value: "search.v2", expected: null },
+    { path: "/api/engine/find?query=clinic", method: "POST", value: "search.v1", expected: null },
+    { path: "/auth/session", value: "search.v1", expected: null },
+    { path: "/auth/session", value: "search.v2", expected: null },
+  ];
+  for (const { path, method = "GET", value, expected } of cases) {
+    await t.test(`${method} ${path} with ${value}`, async () => {
+      const { send, calls } = fixture(status);
+      assert.equal((await send(path, { method, headers: { cookie, [header]: value } })).status, 200);
+      assert.equal(calls.partner.length, 1);
+      assert.equal(calls.partner[0]?.headers.get(header), expected);
+    });
+  }
+});
+
 test("engine browser reads and writes stay on PartnerApp with CARR down", async () => {
   const { send, calls } = fixture(
     async (input: Request) => {
