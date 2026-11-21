@@ -10,8 +10,8 @@
   "routes": [],
   "assets": { "directory": "./dist/site", "binding": "ASSETS", "run_worker_first": true },
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
-  "vars": { "APP_ENV": "production", "CLIENT_WEBSITE_ORIGIN": "https://share.doctorcre.com" },
-  "services": [{ "binding": "CARR", "service": "carr-mcp" }, { "binding": "ENGINE", "service": "doctorcre-engine" }],
+  "vars": { "APP_ENV": "production", "PARTNER_SIGN_IN": "carr", "WORKSPACE_COMMAND_CENTER_READ_ENABLED": "true", "CLIENT_WEBSITE_ORIGIN": "https://share.doctorcre.com" },
+  "services": [{ "binding": "CARR", "service": "carr-mcp" }, { "binding": "ENGINE", "service": "doctorcre-engine" }, { "binding": "PARTNER_APP", "service": "doctorcre-engine", "entrypoint": "PartnerApp" }],
   "kv_namespaces": [{ "binding": "ENGINE_ROUTING", "id": "1b69f9569abb4f33b22356bd621349d4" }],
   "observability": { "enabled": true, "head_sampling_rate": 0.1 },
   "limits": { "cpu_ms": 200 },
@@ -24,8 +24,8 @@
       "routes": [],
       "assets": { "directory": "./dist/site", "binding": "ASSETS", "run_worker_first": true },
       "version_metadata": { "binding": "CF_VERSION_METADATA" },
-      "vars": { "APP_ENV": "staging", "CLIENT_WEBSITE_ORIGIN": "https://carr-share-staging.joe-bookout-carr-us.workers.dev" },
-      "services": [{ "binding": "CARR", "service": "carr-mcp-staging" }, { "binding": "ENGINE", "service": "doctorcre-engine-staging" }],
+      "vars": { "APP_ENV": "staging", "PARTNER_SIGN_IN": "carr", "WORKSPACE_COMMAND_CENTER_READ_ENABLED": "true", "CLIENT_WEBSITE_ORIGIN": "https://carr-share-staging.joe-bookout-carr-us.workers.dev" },
+      "services": [{ "binding": "CARR", "service": "carr-mcp-staging" }, { "binding": "ENGINE", "service": "doctorcre-engine-staging" }, { "binding": "PARTNER_APP", "service": "doctorcre-engine-staging", "entrypoint": "PartnerApp" }],
       "kv_namespaces": [{ "binding": "ENGINE_ROUTING", "id": "fc20a119f7644a268fc5878248a07bf7" }]
     }
   }

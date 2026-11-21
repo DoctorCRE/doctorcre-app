@@ -3,14 +3,14 @@
 DoctorCRE is the independently built human application for CARR. CARR remains
 the authority for business records, domain behavior, control, and assurance.
 
-The application reads and changes real business data only through authenticated,
-versioned CARR HTTP and MCP interfaces. It never connects to the CARR database.
+The application reads and changes real business data through authenticated
+CARR and engine interfaces. It never connects to the database directly.
 `data/board-seed.json` is a visibly fictional fixture for local development and
 tests; it cannot become production state.
 
 The product remains a no-framework static application. Its small edge Worker
-serves the immutable static build and forwards only reviewed authenticated CARR
-routes through a private Cloudflare service binding.
+serves the immutable static build and uses private Cloudflare service bindings
+for the reviewed CARR and engine routes.
 
 Local development and the e2e runner require Node.js 22.22.3 or newer on Node 22, or 24.8.0 or newer.
 
@@ -118,9 +118,17 @@ validates without deploying or commenting. When PRs close or merge,
 `npm run preview:clean` deletes Workers with live preview comments
 (`-- <PR#>` targets one closed PR; `--dry-run` previews removal).
 
-The production Worker configuration deliberately has no route. It binds only to
-the production `carr-mcp` service. Run
-`npm run deployment:check:production` to validate that configuration locally.
+The production Worker configuration deliberately declares no public route.
+Run `npm run deployment:check:production` to validate it locally.
+
+`PARTNER_SIGN_IN` defaults to `carr` in both app environments. Set it to
+`engine` in a release to switch auth routes, protected page gates and engine
+partner calls together. The app binds `PARTNER_APP` to the matching engine
+environment's `PartnerApp` entrypoint. That entrypoint must be deployed before
+the app release adds the binding. In engine mode, keep
+`WORKSPACE_COMMAND_CENTER_READ_ENABLED` aligned with the corresponding CARR
+environment until the old gate is removed. See the
+[partner sign-in cutover plan](https://github.com/DoctorCRE/doctorcre-engine/blob/main/docs/sign-in.md#switch-after-hours-with-advance-notice).
 `npm run release:production` consumes the prepared artifact, replaces `dist/site`
 from its verified source bytes, and runs only provider upload, promotion and
 readback commands. It refuses a missing `CLOUDFLARE_API_TOKEN`. Run publication from a clean
