@@ -32,7 +32,8 @@ import { mountAutoRefresh } from "./auto-refresh.mjs";
 import { createLiveClient } from "./live-client.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountPrefs, renderNotificationBadge } from "./shell.js";
-import { formatBusinessClock } from "./business-date.js";
+import { meetingTime } from "./home-week.js";
+import { BUSINESS_TIME_ZONE } from "./business-date.js";
 import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, changeRows, classifyPreferenceFailure,
@@ -109,8 +110,9 @@ function showPreferenceMessage(text) {
   if (message.textContent !== text) message.textContent = text;
 }
 
+const savedZone = () => preferenceView(view.preference.payload)?.timezone || BUSINESS_TIME_ZONE;
 const asOf = (read) => {
-  const clock = read.state === "read" ? formatBusinessClock(read.observed_at) : "";
+  const clock = read.state === "read" && Number.isFinite(Date.parse(read.observed_at)) ? meetingTime(read.observed_at, savedZone()) : "";
   return clock ? `As of ${clock}` : "";
 };
 
@@ -173,7 +175,7 @@ function renderFeed() {
   const unread = unreadLine(payload);
   $("unreadLine").textContent = unread;
   announceFeed(state.sentence || unread);
-  $("feedList").innerHTML = notificationCards(payload).map(cardHtml).join("");
+  $("feedList").innerHTML = notificationCards(payload, undefined, savedZone()).map(cardHtml).join("");
   const banner = $("quietNowBanner");
   const sentence = quietNowBanner(payload, view.preference.payload);
   banner.textContent = sentence || "";
@@ -200,8 +202,6 @@ function renderPreference() {
   const model = state.state === "ready" ? preferenceView(read.payload) : null;
   $("prefSummary").textContent = preferenceSummary(model);
   $("prefSummary").hidden = !model;
-  $("prefVersion").textContent = model ? `Version ${model.version}` : "";
-  $("prefVersion").closest("details").hidden = !model;
   const form = $("prefForm");
   form.hidden = !model && !dirty;
   form.setAttribute("data-disabled", String(saving));
@@ -225,7 +225,7 @@ function renderActivity() {
   $("activityBlock").hidden = read.state === "retired" || read.state === "pending";
   $("activityAsOf").textContent = asOf(read);
   const payload = read.state === "read" ? read.payload : null;
-  const rows = payload?.changes ? changeRows(payload.changes) : activityRows(payload?.events);
+  const rows = payload?.changes ? changeRows(payload.changes, savedZone()) : activityRows(payload?.events, savedZone());
   $("activityState").hidden = read.state === "pending" || Boolean(payload);
   const more = $("activityMore");
   more.hidden = !payload?.next_before;

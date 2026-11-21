@@ -28,7 +28,6 @@ async function open(t, { width = 390, theme = 'light', mixed = true, stale = fal
   });
   await page.goto(`${server.origin}/?mode=live`);
   await page.getByRole('checkbox', { name: `Select ${items[0].title}`, exact: true }).waitFor();
-  await page.getByRole('button', { name: 'See all 4', exact: true }).click();
   for (const item of items) await page.getByRole('checkbox', { name: `Select ${item.title}`, exact: true }).check();
   return { page, fake };
 }

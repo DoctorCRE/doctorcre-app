@@ -174,7 +174,7 @@ for (const width of viewports)
       await page.clock.setFixedTime(new Date("2026-07-01T12:27:00Z"));
       await page.goto(updates);
       await page.getByRole("heading", { name: "No updates", exact: true }).waitFor({ timeout: 2500 });
-      assert.equal(await page.locator("#feedAsOf").textContent(), "As of 7:27 AM");
+      assert.equal(await page.locator("#feedAsOf").textContent(), "As of 7:27 AM CDT");
       assert.equal(await page.getByText("Nothing unread", { exact: true }).count(), 1);
       assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
       assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /\bunknown\b/i);
@@ -295,8 +295,8 @@ test("Updates lists the partner's engine updates with the unread count", async (
   assert.equal(await open_.getAttribute("href"), unread.open_url);
   assert.equal(await page.getByRole("heading", { name: seen.title }).count(), 1);
   const unreadCard = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: unread.title }) });
-  assert.equal(await unreadCard.getByText("9:00 AM", { exact: true }).count(), 1);
-  assert.equal(await page.getByText("Acknowledged at 10:00 AM", { exact: true }).count(), 1);
+  assert.equal(await unreadCard.getByText("9:00 AM CST", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("Acknowledged at 10:00 AM CST", { exact: true }).count(), 1);
   assert.equal(await page.getByRole("button", { name: "Acknowledge this notification" }).count(), 1);
   assert.equal(verbs.filter((verb) => /notification/.test(verb)).length, 0);
 });
@@ -398,7 +398,13 @@ test("a settings save that crossed another change reloads and says so", async (t
     .getByText(/^Preferences changed elsewhere\. Your changes were not saved\./)
     .waitFor();
   await page.locator("#prefSummary").getByText("No quiet hours set · America/Chicago · device push on").waitFor();
-  assert.equal(await page.locator("#prefVersion").textContent(), "Version 9");
+  assert.equal(
+    await page
+      .locator("#prefForm")
+      .getByText(/Version 9/)
+      .count(),
+    0,
+  );
 });
 
 test("Who did what shows the engine's first page and Show more follows next_before", async (t) => {
@@ -412,7 +418,10 @@ test("Who did what shows the engine's first page and Show more follows next_befo
   });
   await page.goto(updatesPath);
   await page.getByRole("heading", { name: "Alex Example · moved the deal to LOI" }).waitFor();
-  assert.equal(await page.locator("#activityList").getByText("Example Dental · 9:00 AM", { exact: true }).count(), 1);
+  assert.equal(
+    await page.locator("#activityList").getByText("Example Dental · 9:00 AM CST", { exact: true }).count(),
+    1,
+  );
   assert.equal(
     await page.locator("#activityList").getByRole("link", { name: "Open deal" }).getAttribute("href"),
     `/deals?deal=${deal}`,

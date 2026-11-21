@@ -67,10 +67,9 @@
         <div class="pref-grid">
           <div class="field"><label for="quietStart">Quiet hours start</label><input id="quietStart" type="text" autocomplete="off" placeholder="10:00 PM"></div>
           <div class="field"><label for="quietEnd">Quiet hours end</label><input id="quietEnd" type="text" autocomplete="off" placeholder="7:00 AM"></div>
-          <div class="field"><label for="quietTimezone">Timezone</label><input id="quietTimezone" type="text" list="timezoneNames" autocomplete="off" spellcheck="false" placeholder="UTC"><datalist id="timezoneNames"></datalist></div>
+          <div class="field"><label for="quietTimezone">Timezone</label><input id="quietTimezone" type="text" list="timezoneNames" autocomplete="off" spellcheck="false" placeholder="America/Chicago"><datalist id="timezoneNames"></datalist></div>
         </div>
         <p class="caption pref-summary" id="prefSummary"></p>
-        <details class="record-details"><summary>Details</summary><p class="caption" id="prefVersion"></p></details>
         <div class="pref-act">
           <button class="btn btn-primary" type="submit" id="prefSave">Save preferences</button>
           <button class="btn" type="button" id="prefClear">Clear quiet hours</button>

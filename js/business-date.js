@@ -15,12 +15,3 @@ export function overnightCutoff(now = new Date()) {
   const wall = Date.parse(`${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}:${values.second}Z`);
   return new Date(target.valueOf() + target.valueOf() - wall).toISOString();
 }
-
-const businessClock = new Intl.DateTimeFormat('en-US', {
-  timeZone: BUSINESS_TIME_ZONE, hour: 'numeric', minute: '2-digit', hour12: true,
-});
-
-export function formatBusinessClock(value) {
-  const instant = new Date(value || NaN);
-  return Number.isFinite(instant.valueOf()) ? businessClock.format(instant) : null;
-}

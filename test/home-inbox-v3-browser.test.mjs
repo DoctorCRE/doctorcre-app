@@ -135,7 +135,6 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
       open_url: `/relationships?node=party:${id}` };
   }));
   await page.clock.fastForward(60_000);
-  await late.getByRole('button', { name: /^See all/ }).click();
   for (const name of names) {
     const card = late.locator('[data-inbox-row]').filter({ hasText: name });
     await card.getByRole('link', { name: 'Review the site plan', exact: true }).waitFor();

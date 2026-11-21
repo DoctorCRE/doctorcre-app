@@ -494,7 +494,7 @@ export function ReviewCard({
                   <time dateTime={occurredAt}>{threadDate.format(new Date(occurredAt))}</time>
                 </h5>
                 <p>{sourceExcerptText(body)}</p>
-                {folded && <EarlierText text={folded} />}
+                {folded !== null && <EarlierText text={folded} />}
               </article>
             ))}
           </section>

@@ -28,7 +28,7 @@ export function completionLabel(item: InboxItem) {
   return `${label} ${completionFormat.format(new Date(item.completed_at))}`;
 }
 
-const previewCount = 3;
+export const tilePreviewCount = 5;
 export const cardKey = (item: InboxItem) => item.card_id ?? item.item_id;
 
 export function dashboardCards(items: readonly InboxItem[], today = day(new Date())) {
@@ -79,7 +79,7 @@ export function HomeTile({
         <h2 tabIndex={-1}>
           {title} <span>{count}</span>
         </h2>
-        {count > previewCount && (
+        {count > tilePreviewCount && (
           <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
             {expanded ? "Show less" : `See all ${count}`}
           </button>
@@ -129,7 +129,7 @@ export function CardTile({
     ? visible
     : visible.filter(
         (item, index) =>
-          index < previewCount || item.item_id === current || (pinned && cardKey(item) === cardKey(pinned)),
+          index < tilePreviewCount || item.item_id === current || (pinned && cardKey(item) === cardKey(pinned)),
       );
   const firstLate = title === "Reminders" ? shown.find((item) => isLate(item, day(new Date()))) : undefined;
   return (
@@ -140,7 +140,7 @@ export function CardTile({
           {row(item)}
         </Fragment>
       ))}
-      {expanded ? after : after.slice(0, Math.max(0, previewCount - items.length))}
+      {expanded ? after : after.slice(0, Math.max(0, tilePreviewCount - items.length))}
     </HomeTile>
   );
 }
