@@ -30,11 +30,11 @@ async function open(t, { preparationResponse, calendarPanelsGate, actionCompleti
     if (!localStorage.getItem('doctorcre:morning:joe')) localStorage.setItem('doctorcre:morning:joe', JSON.stringify({ day: '2026-10-01', lastShownAt: '2026-10-01T14:00:00Z', since: '2026-09-30T17:00:00Z' }));
   });
   const resources = []; page.on('request', request => resources.push(new URL(request.url()).pathname));
-  const errors = [], calls = [], liveLeads = structuredClone(leadRows); let boardReads = 0, feedReads = 0, failBoard = false, detailFailure = initialDetailFailure, leadFailure = null;
+  const errors = [], calls = [], liveLeads = structuredClone(leadRows); let boardReads = 0, failBoard = false, detailFailure = initialDetailFailure, leadFailure = null;
   const responses = new Map();
   if (preparationResponse) responses.set('calendar-meeting-prep', preparationResponse);
   let boardMalformed = malformedBoard, briefFailure = initialBriefFailure;
-  let releaseInitialFeed;
+  let releaseInitialFeed, feedResponses = 0;
   const initialFeed = new Promise(resolve => { releaseInitialFeed = resolve; });
   t.after(async () => {
     releaseInitialFeed();
@@ -92,9 +92,8 @@ async function open(t, { preparationResponse, calendarPanelsGate, actionCompleti
     if (url.pathname === '/api/v1/business/relationships') return route.fulfill({ json: relationshipNetworkFixture(NOW.toISOString()) });
     if (url.pathname === '/api/system-work/current') { calls.push('current-work-requests'); return route.fulfill({ json: { ok: true, data: await client.currentWorkRequests() } }); }
     if (url.pathname === '/pipeline/changes') {
-      feedReads++;
       if (delayInitialFeed) await initialFeed;
-      return route.fulfill({ json: { events: [], cursor: null } });
+      return route.fulfill({ json: { events: [], cursor: delayInitialFeed ? `demo-feed-${++feedResponses}` : null } });
     }
     if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({ json: { actor: { slug: 'joe', label: 'Demo partner' }, csrf_token: 'synthetic' } });
     if (url.pathname.startsWith('/api/') || url.pathname === '/app-release') return route.fulfill({ status: 503, json: {} });
@@ -108,7 +107,7 @@ async function open(t, { preparationResponse, calendarPanelsGate, actionCompleti
   await page.goto(`${origin}/review-workflows?mode=live`);
   if (!hangDetails) await page.waitForFunction(() => /Active deals: \d/.test(document.querySelector('#dealCounts')?.textContent || '') || /unavailable/i.test(document.querySelector('#observedAt')?.textContent || ''));
   if (firstOpen) { await page.locator('#docOpen[data-brief-unseen]').waitFor(); await page.locator('#docOpen').click(); await page.locator('#docMorning').click(); await page.locator('#docMorningBrief[open]').waitFor(); await page.waitForFunction(() => document.getElementById('morningUpdated').hasAttribute('datetime')); await page.locator('#morningClose').click(); }
-  return { page, client, errors, calls, resources, completionRequests, releaseInitialFeed, responses, blockUi(value) { blockUi = value; }, failBrief(value) { briefFailure = value; }, get boardReads() { return boardReads; }, get feedReads() { return feedReads; }, malformBoard(value) { boardMalformed = value; }, failLeads(value) { leadFailure = value; }, failDetails(value) { detailFailure = value; }, failBoard(value) { failBoard = value; }, updateLead(id, score) { liveLeads.find(row => row.id === id).score = score; } };
+  return { page, client, errors, calls, resources, completionRequests, releaseInitialFeed, responses, blockUi(value) { blockUi = value; }, failBrief(value) { briefFailure = value; }, get boardReads() { return boardReads; }, malformBoard(value) { boardMalformed = value; }, failLeads(value) { leadFailure = value; }, failDetails(value) { detailFailure = value; }, failBoard(value) { failBoard = value; }, updateLead(id, score) { liveLeads.find(row => row.id === id).score = score; } };
 }
 
 test('PR123 R1: Home models the daily morning brief and rejects unknown operations', async t => {
@@ -442,11 +441,13 @@ test('R7 linked Deals detail refusal or timeout cannot prevent board and feed po
     const { page } = state;
     await page.waitForFunction(() => document.querySelector('#refreshHome').getAttribute('aria-busy') === 'false');
     state.failDetails(failure);
-    const firstFeed = page.waitForRequest(request => new URL(request.url()).pathname === '/pipeline/changes'
-      && new URL(request.frame().url()).pathname === '/deals');
-    const detailRead = page.waitForRequest(request => new URL(request.url()).pathname === '/mcp'
-      && request.postDataJSON()?.params?.name === 'get-deal-room'
-      && new URL(request.frame().url()).pathname === '/deals');
+    const fromDeals = request => request.frame() === page.mainFrame()
+      && new URL(request.frame().url()).pathname === '/deals';
+    const firstFeed = page.waitForRequest(request => fromDeals(request)
+      && new URL(request.url()).pathname === '/pipeline/changes');
+    const detailRead = page.waitForRequest(request => fromDeals(request)
+      && new URL(request.url()).pathname === '/mcp'
+      && request.postDataJSON()?.params?.name === 'get-deal-room');
     await page.goto('http://localhost/deals?mode=live&deal=d01');
     await page.locator('.kanban-card').first().waitFor({state:'attached'});
     await firstFeed;
@@ -459,15 +460,24 @@ test('R7 linked Deals detail refusal or timeout cannot prevent board and feed po
     await page.locator('#panelBody').getByText('Updates temporarily unavailable',{exact:true}).waitFor();
     assert.match(await page.locator('#panelBody').textContent(), /Updates temporarily unavailable/);
     assert.equal(await page.locator('#recordPanel').getByRole('button', { name: 'Back to deals', exact: true }).isVisible(), true);
-    const before = [state.boardReads, state.feedReads];
-    const nextBoard = page.waitForResponse(response => new URL(response.url()).pathname === '/mcp'
-      && response.request().postDataJSON()?.params?.name === 'deal-room-board');
-    const nextFeed = page.waitForResponse(response => new URL(response.url()).pathname === '/pipeline/changes');
+    // Each caller receives its own cursor, so a shared-layout read cannot satisfy this wait.
+    const cursor = await page.evaluate(async () =>
+      (await import('/js/pipeline.js')).state.boardSync.status().cursor);
+    assert.ok(cursor, 'the Deals feed has applied its initial cursor');
+    const nextBoard = page.waitForRequest(request => {
+      if (!fromDeals(request) || new URL(request.url()).pathname !== '/mcp') return false;
+      const { name, arguments: args } = request.postDataJSON().params;
+      return name === 'deal-room-board' && args.workspace === 'team';
+    });
+    const nextFeed = page.waitForRequest(request => {
+      const url = new URL(request.url());
+      return fromDeals(request) && url.pathname === '/pipeline/changes' && url.searchParams.get('cursor') === cursor;
+    });
     // Stop at the poll so its reads can finish before their deadlines tick.
     await page.clock.runFor(60_000 - elapsed);
-    await Promise.all([nextBoard, nextFeed]);
-    assert.ok(state.boardReads > before[0], 'board refresh continues');
-    assert.ok(state.feedReads > before[1], 'feed polling continues');
+    const [board, feed] = await Promise.all([nextBoard, nextFeed]);
+    assert.ok((await board.response())?.ok(), 'board refresh continues');
+    assert.ok((await feed.response())?.ok(), 'feed polling continues');
   });
 });
 
