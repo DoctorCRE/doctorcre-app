@@ -1,5 +1,4 @@
 import { compareInstants } from './change-receipts.mjs';
-import { validCatchUpPayload } from './search-model.js';
 // App-owned, ephemeral context. Values come from the same authorized responses
 // as the page; names and screen text never resolve an identity or authorize work.
 const text = value => typeof value === 'string' && value.trim() ? value : null;
@@ -25,7 +24,7 @@ export const DOC_PAGES = Object.freeze({
   updates: { label: 'Updates', reads: ['notificationFeed'] },
   chats: { label: 'Doc Chats', reads: ['listDocConversations', 'readDocConversation', 'docOutcomeCards'] },
   tasks: { label: 'Work', reads: ['loopBoard', 'readLoop'] },
-  search: { label: 'Search', reads: ['find', 'findAndCatchUp'] },
+  search: { label: 'Search', reads: ['find'] },
   charts: { label: 'Charts', reads: ['getBoard'] },
   status: { label: 'Status', reads: ['readAssuranceHealth', 'incidentBoard', 'currentWorkItem'] },
   design: { label: 'Design Lab', reads: [] },
@@ -163,18 +162,9 @@ export function normalizeDocRead(method, payload, args = []) {
       [field('Status', row.status), field('Date', row.scheduled_at || row.tour_date), field('Client', row.client_name)]); break;
     case 'tourProperties': rows = payload.items || payload.properties; map = row => record('property', row, row.id || row.property_id, row.name || row.display_name,
       [field('Size', row.area_sf), field('Rent', row.asking_rent), field('Address', row.address)]); break;
-    case 'find': rows = payload.parties; map = row => record('party', row, row.ref, row.name,
+    case 'find': rows = payload.parties; map = row => record('party', row, row.id || row.ref, row.name,
       [field('Market', row.city), field('Specialty', row.specialty)]); break;
-    case 'findAndCatchUp': {
-      if (!validCatchUpPayload(payload)) return null;
-      if (payload.state !== 'completed') return [];
-      if (!Array.isArray(payload.catch_up.timeline)) return null;
-      const activity = payload.catch_up.timeline.map(item => ({text:item.what || item.summary || item.description, at:item.when || item.occurred_at}));
-      const row = record('catch-up', payload.catch_up, payload.match.target, payload.match.name || payload.match.target,
-        [field('Kind', payload.match.kind)], activity);
-      if (!row) return null;
-      sortActivity(row); return [row];
-    }
+
     case 'readAssuranceHealth': rows = [payload]; map = row => record('workflow', row, row.scope?.workflow_key, row.scope?.workflow_key,
       [field('Status', row.state), field('Capability', row.capability_stage)]); break;
     default: return null;

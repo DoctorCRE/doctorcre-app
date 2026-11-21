@@ -257,6 +257,8 @@ async function engineResponse(request, env) {
     const value = request.headers.get(key);
     if (value !== null) headers.set(key, value);
   }
+  if (call?.params.name === 'find' && request.headers.get('x-doctorcre-search') === 'search.v1')
+    headers.set('x-doctorcre-search', 'search.v1');
   const controller = new AbortController();
   let timer;
   let reader;

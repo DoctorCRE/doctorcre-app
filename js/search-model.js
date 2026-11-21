@@ -31,9 +31,7 @@ import { isCalendarDay } from './calendar-model.js';
 export const FIND_QUERY_MAX = 200;
 /** `FIND_CATCH_UP_LIMIT_MAX` (tools.js:2060). */
 const FIND_CATCH_UP_LIMIT_MAX = 50;
-export const FIND_CATCH_UP_LIMIT_DEFAULT = 20;
-/** `FIND_CATCH_UP_CANDIDATE_CAP` (tools.js:2061). */
-const FIND_CATCH_UP_CANDIDATE_CAP = 25;
+const FIND_CATCH_UP_LIMIT_DEFAULT = 20;
 
 
 /* --------------------------------------------------------- the frozen sentences */
@@ -57,9 +55,6 @@ export const SCOPE_CHIP_SENTENCE =
 /** §4.4 — most result kinds have no address to open into, and this says so. */
 const NO_PAGE_SENTENCE = "This record has no page that opens by address yet.";
 
-export const EXPOSURE_STATEMENT =
-  "";
-
 /* ------------------------------------------------------------------ validation */
 
 /** All seven keys, always, in every captured response. */
@@ -70,9 +65,6 @@ const SEARCH_PAYLOAD_KEYS = Object.freeze([
 const PARTY_KEYS = ["name", "city", "specialty", "org_name", "ref", "kind", "merged"];
 const ORGANIZATION_KEYS = ["name", "live_rows", "refs", "retired_aliases", "retired_refs", "retired_refs_truncated", "live_as_role", "role_refs", "all_retired"];
 const DEAL_KEYS = ["name", "phase", "owner", "client_ref", "invoiced_on", "closed_on", "lane", "outcome"];
-
-/** `kindFromRef` (tools.js:2065-2071) — the six words a candidate kind can be. */
-const CANDIDATE_KINDS = Object.freeze(["deal", "lead", "client", "vendor", "party", "record"]);
 
 function nonEmptyString(value) {
   return typeof value === "string" && value.length > 0;
@@ -166,27 +158,6 @@ export function validSearchPayload(payload) {
   return nonEmptyString(payload.note);
 }
 
-/** The three `find-and-catch-up` states, each checked for the keys it carries. */
-export function validCatchUpPayload(payload) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
-  if (payload.state === "completed") {
-    return Boolean(payload.match) && typeof payload.match === "object" &&
-      nonEmptyString(payload.match.kind) && nonEmptyString(payload.match.target) &&
-      Boolean(payload.catch_up) && typeof payload.catch_up === "object";
-  }
-  if (payload.state === "needs_disambiguation") {
-    if (!Array.isArray(payload.candidates) || !wholeNumber(payload.candidate_count)) return false;
-    if (typeof payload.candidates_truncated !== "boolean") return false;
-    if (!nonEmptyString(payload.hint)) return false;
-    return payload.candidates.every((row) => Boolean(row) && CANDIDATE_KINDS.includes(row.kind) &&
-      nonEmptyString(row.name) && nonEmptyString(row.target));
-  }
-  if (payload.state === "not_found") {
-    return Array.isArray(payload.candidates) && wholeNumber(payload.retired_matches) && nonEmptyString(payload.hint);
-  }
-  return false;
-}
-
 /* -------------------------------------------------------------------- requests */
 
 /**
@@ -233,10 +204,10 @@ const SEARCH_GROUPS = Object.freeze([
 export const SEARCH_GROUP_IDS = Object.freeze(SEARCH_GROUPS.map((group) => group.id));
 const isScope = id => id === "none" || SEARCH_GROUP_IDS.includes(id);
 
-export function toggleSearchScope(kinds, id) {
-  const selected = kinds.length === 0 ? [...SEARCH_GROUP_IDS] : kinds.filter(kind => kind !== "none");
+export function toggleSearchScope(kinds, id, available = SEARCH_GROUP_IDS) {
+  const selected = kinds.length === 0 ? [...available] : kinds.filter(kind => available.includes(kind));
   const next = selected.includes(id) ? selected.filter(kind => kind !== id) : [...selected, id];
-  return next.length === 0 ? ["none"] : next.length === SEARCH_GROUP_IDS.length ? [] : next;
+  return next.length === 0 ? ["none"] : next.length === available.length ? [] : next;
 }
 
 /** Non-null, non-empty strings only. An array of refs is not an array of links. */
@@ -351,6 +322,62 @@ export function groupSearchResults(payload) {
   }).filter((group) => group.count > 0));
 }
 
+const roleLabels = { client: "Client", lead: "Lead", vendor: "Vendor" };
+const roleGroups = { client: "clients", lead: "leads", vendor: "vendors" };
+const isSearchRole = role => typeof role === "string" && Object.hasOwn(roleLabels, role);
+const recordLink = (page, key, id) => `/${page}?${new URLSearchParams({ [key]: id })}`;
+const isDealLink = row => nonEmptyString(row?.id) && nonEmptyString(row?.name);
+
+export function validSearchRecords(payload) {
+  return payload?.schema_version === "search.v1"
+    && Array.isArray(payload.deals) && payload.deals.every(row => isDealLink(row)
+      && nullableString(row.phase) && nonEmptyString(row.owner))
+    && Array.isArray(payload.parties) && payload.parties.every(row => isDealLink(row)
+      && ["person", "company"].includes(row.kind) && nullableString(row.city) && nullableString(row.lead_id)
+      && Array.isArray(row.roles) && row.roles.every(isSearchRole)
+      && Array.isArray(row.deals) && row.deals.every(isDealLink));
+}
+
+function partyLink(row) {
+  if (row.roles.includes("client")) return recordLink("clients", "record", row.id);
+  if (row.roles.includes("vendor")) return recordLink("vendors", "record", row.id);
+  if (row.lead_id) return recordLink("leads", "lead", row.lead_id);
+  return recordLink("relationships", "node", `party:${row.id}`);
+}
+
+export function displaySearchGroups(payload) {
+  if (payload?.schema_version !== "search.v1") {
+    return groupSearchResults(payload).flatMap(group => {
+      if (["connections", "lead_client_links"].includes(group.id)) return [];
+      const rows = group.rows.filter(row => !row.retired && !row.allRetired).map(row => ({
+        ...row,
+        ...(group.id === "leads" && row.refs[0] && { link: recordLink("leads", "lead", row.refs[0]) }),
+        ...(group.id === "organizations" && { link: recordLink("relationships", "q", row.name) }),
+      }));
+      return rows.length ? [{ ...group, rows, count: rows.length }] : [];
+    });
+  }
+  const parties = payload.parties.map(row => {
+    const scopes = row.roles.map(role => roleGroups[role]);
+    if (!scopes.length) scopes.push(row.kind === "company" ? "organizations" : "people");
+    return {
+      name: row.name,
+      scopes,
+      group: roleGroups[row.roles.find(role => role !== "lead") || row.roles[0]] || scopes[0],
+      meta: [...(row.roles.length ? row.roles.map(role => roleLabels[role]) : [row.kind === "person" ? "Person" : "Company"]), row.city].filter(Boolean),
+      link: partyLink(row),
+      deals: row.deals.map(deal => ({ name: deal.name, link: recordLink("deals", "deal", deal.id) })),
+    };
+  });
+  const deals = payload.deals.map(row => ({
+    ...row, group: "deals", link: recordLink("deals", "deal", row.id),
+  }));
+  return SEARCH_GROUPS.flatMap(({ id, label }) => {
+    const rows = [...parties, ...deals].filter(row => row.group === id);
+    return rows.length ? [{ id, label, rows, count: rows.length }] : [];
+  });
+}
+
 /**
  * The chips. One per group actually present, carrying that group's own count —
  * a number read from the answer, never one this page computed over anything
@@ -358,17 +385,23 @@ export function groupSearchResults(payload) {
  */
 export function scopeChips(groups, kinds = []) {
   const chosen = new Set((Array.isArray(kinds) ? kinds : []).filter((id) => isScope(id)));
-  return Object.freeze((Array.isArray(groups) ? groups : []).map((group) => Object.freeze({
-    id: group.id, label: group.label, count: group.count,
-    selected: chosen.size === 0 || chosen.has(group.id),
-  })));
+  const counts = new Map();
+  for (const group of groups) for (const row of group.rows) {
+    for (const id of row.scopes || [group.id]) counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  return SEARCH_GROUPS.filter(group => counts.has(group.id)).map(({ id, label }) => ({
+    id, label, count: counts.get(id), selected: chosen.size === 0 || chosen.has(id),
+  }));
 }
 
 /** A chip hides rows from the answer already in hand. It asks nothing new. */
 export function applyScope(groups, kinds = []) {
   const chosen = new Set((Array.isArray(kinds) ? kinds : []).filter((id) => isScope(id)));
   if (chosen.size === 0) return Object.freeze([...(Array.isArray(groups) ? groups : [])]);
-  return Object.freeze((Array.isArray(groups) ? groups : []).filter((group) => chosen.has(group.id)));
+  return groups.flatMap(group => {
+    const rows = group.rows.filter(row => (row.scopes || [group.id]).some(id => chosen.has(id)));
+    return rows.length ? [{ ...group, rows, count: rows.length }] : [];
+  });
 }
 
 /** The total the page may print, which is the sum of what it is showing. */

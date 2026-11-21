@@ -76,8 +76,8 @@ export function createLiveClient(opts = {}) {
     'undo-call-change', 'review-call-outcome', 'review-deal-update', 'confirm-email-filing', 'confirm-email-next-step', 'confirm-email-deal-progress', 'dismiss-email-proposal', 'snooze-email-proposal', 'handle-email-proposal', 'edit-email-draft', 'submit-email-draft', 'register-client-portal', 'record-human-fact', 'resolve-fact-review', 'decide-engine-deal-email']);
 
   const readTimeoutMs = opts.readTimeoutMs || 10_000;
-  const rpc = (verb, args = {}, signal) => {
-    if (!SHARED_READ_VERBS.has(verb)) return rawRpc(verb, args, signal, readTimeoutMs);
+  const rpc = (verb, args = {}, signal, headers) => {
+    if (!SHARED_READ_VERBS.has(verb)) return rawRpc(verb, args, signal, readTimeoutMs, headers);
     if (signal?.aborted) return readWithDeadline(() => null, { signal, timeoutMs: readTimeoutMs });
     const transport = opts.fetchImpl || sessionFetch;
     if (!sharedReads.has(transport)) sharedReads.set(transport, new Map());
@@ -916,7 +916,9 @@ export function createLiveClient(opts = {}) {
     // under additionalProperties:false, so a third argument is refused by the
     // gateway with `unregistered_operation_fields` before the handler runs.
     // They go through `rpc` because they carry no idempotency key.
-    async find(args = {}, { signal } = {}) { return rpc('find', args, signal); },
+    async find(args = {}, { signal, searchRecords = false } = {}) {
+      return rpc('find', args, signal, searchRecords ? { 'x-doctorcre-search': 'search.v1' } : undefined);
+    },
     async findAndCatchUp(args = {}, { signal } = {}) { return rpc('find-and-catch-up', args, signal); },
 
     setProspectEngagementStatus: createEngagementWriter(args => write('set-prospect-engagement-status', args, opts.writeTimeoutMs || 10_000)),

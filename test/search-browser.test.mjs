@@ -25,7 +25,7 @@ test('S2 saved search stays under the keyboard while its results update', async 
         localStorage.setItem(key, JSON.stringify([{ name, query: 'Demo Dental', kinds: [] }]));
       }, { theme, key: scopedViewsKey, name });
       await page.route('**/api/**', route => route.fulfill({ json: {} }));
-      await page.goto(`${server.origin}/search?mode=fixture`);
+      await page.goto(`${server.origin}/search?mode=fixture&q=Demo`);
       const saved = page.getByRole('link', { name, exact: true });
       await saved.waitFor({ state: 'visible' });
       await saved.focus();
@@ -64,7 +64,7 @@ for (const answer of ['Demo renamed', null]) {
       {name: 'Other saved search', query: 'Demo', kinds: []},
     ])), scopedViewsKey);
     await page.route('**/api/**', route => route.fulfill({json: {}}));
-    await page.goto(`${server.origin}/search?mode=fixture`);
+    await page.goto(`${server.origin}/search?mode=fixture&q=Demo`);
     const rename = page.locator('[data-rename="Demo saved search"]');
     await rename.focus();
     page.once('dialog', dialog => answer === null ? dialog.dismiss() : dialog.accept(answer));
@@ -86,7 +86,7 @@ test('Search Rename keeps duplicate names and queries consistent without replaci
     {name: 'Second', query: 'Second query', kinds: []},
   ])), scopedViewsKey);
   await page.route('**/api/**', route => route.fulfill({json: {}}));
-  await page.goto(`${server.origin}/search?mode=fixture`);
+  await page.goto(`${server.origin}/search?mode=fixture&q=Demo`);
   for (const name of ['Second', `Shared 'name' <&>`]) {
     page.once('dialog', dialog => dialog.accept(name));
     await page.locator('[data-rename]').first().focus();
@@ -99,4 +99,70 @@ test('Search Rename keeps duplicate names and queries consistent without replaci
     {name: `Shared 'name' <&>`, text: `Shared 'name' <&>`, query: 'Second query'},
   ]);
   assert.equal(await page.evaluate(() => document.activeElement.dataset.rename), `Shared 'name' <&>`);
+});
+
+test('Global Search shows openable records with one count in both themes', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const artifacts = new URL('../out/test-artifacts/global-search/', import.meta.url);
+  await mkdir(artifacts, { recursive: true });
+  const id = n => `00000000-0000-4000-8000-00000000000${n}`;
+  const deal = { id: id(1), name: 'Demo Lease', phase: 'site_selection', owner: 'joe' };
+  const record = (n, name, roles, kind = 'person') => ({ id: id(n), name, roles, kind, city: null, lead_id: roles.includes("lead") ? id(n) : null, deals: [] });
+  const parties = [
+    { ...record(2, 'Demo Person', ['client', 'lead']), deals: [{ id: deal.id, name: deal.name }] },
+    record(3, 'Demo Prospect', ['lead']),
+    record(4, 'Demo Company', [], 'company'),
+    record(5, 'Demo Vendor', ['vendor'], 'company'),
+  ];
+  for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+    await t.test(`${width} ${theme}`, async t => {
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      page.setDefaultTimeout(4000);
+      t.after(() => page.close());
+      await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
+      const reads = [];
+      await page.route('**/mcp', route => {
+        const { id, params } = route.request().postDataJSON();
+        if (params.name === 'find') assert.equal(route.request().headers()['x-doctorcre-search'], 'search.v1');
+        if (['find', 'find-and-catch-up'].includes(params.name)) reads.push(params.name);
+        const payload = params.name === 'find' ? { schema_version: 'search.v1', parties, deals: [deal] } : {};
+        return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
+      });
+      await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+      await page.goto(`${server.origin}/search?mode=live`);
+      assert.deepEqual(reads, []);
+      for (const label of ['Search by name', 'Scope', 'Saved views', 'Search coverage']) {
+        assert.equal(await page.getByText(label, { exact: true }).isVisible(), false);
+      }
+      await page.locator('#searchQuery').fill('practice.example');
+      await page.locator('#searchQuery').press('Enter');
+      try {
+        await page.locator('#searchCount').filter({ hasText: /^5 results$/ }).waitFor();
+      } catch (error) {
+        throw new Error(JSON.stringify({reads, screen: await page.locator('main').innerText()}), { cause: error });
+      }
+      assert.deepEqual(reads, ['find']);
+      assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+      assert.equal(await page.getByRole('link', { name: 'Demo Person', exact: true }).count(), 1);
+      assert.match(await page.locator('#searchResults').innerText(), /Client · Lead/);
+      assert.match(await page.locator('#searchResults').innerText(), /Site Selection · Joe/);
+      assert.doesNotMatch(await page.locator('main').innerText(), /Ref |00000000|site_selection|Multiple matches|retired aliases/);
+      const links = [
+        ['Demo Person', `/clients?record=${id(2)}`],
+        ['Demo Prospect', `/leads?lead=${id(3)}`],
+        ['Demo Company', `/relationships?node=party%3A${id(4)}`],
+        ['Demo Vendor', `/vendors?record=${id(5)}`],
+        ['Demo Lease', `/deals?deal=${id(1)}`],
+      ];
+      for (const [name, href] of links) {
+        assert.equal(await page.getByRole('heading', { name, exact: true }).getByRole('link').getAttribute('href'), href);
+      }
+      await page.screenshot({ path: new URL(`search-${width}-${theme}.png`, artifacts).pathname, fullPage: true });
+      await page.goto(`${server.origin}/relationships?node=party%3Ademo-client`);
+      await page.getByRole('dialog').getByRole('heading', { name: 'Demo Coastal Dental' }).waitFor();
+    });
+  }
 });
