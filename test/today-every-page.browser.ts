@@ -55,7 +55,7 @@ async function open(
     reducedMotion: "reduce",
   });
   if (recentChanges) {
-    await page.clock.install({ time: new Date("2026-11-19T17:00:00Z") });
+    await page.clock.setFixedTime(new Date("2026-11-19T17:00:00Z"));
     await page.route("**/pipeline/changes*", (route) =>
       route.fulfill({
         json: {
@@ -94,7 +94,9 @@ async function open(
         ? { actor: "joe", deals: recentChanges ? [{ id, name: "Example Deal", phase: "pending", owner: "joe" }] : [] }
         : name === "calendar-meeting-prep"
           ? { state: "empty", items: [] }
-          : { items: [] };
+          : name === "capture-queue" && recentChanges
+            ? { candidates: [{ id: "example-capture", kind: "meeting_record" }] }
+            : { items: [] };
     return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
   });
   await page.route("**/api/engine/home/inbox?view=dashboard", (route) =>
@@ -185,14 +187,10 @@ async function open(
     const response = await route.fetch();
     return route.fulfill({ response, body: withHomeSwitch(await response.text()) });
   });
-  const captureQueue = recentChanges
-    ? page.waitForResponse(
-        (response) =>
-          response.url().endsWith("/mcp") && response.request().postDataJSON()?.params?.name === "capture-queue",
-      )
-    : null;
   const navigation = await page.goto(url.href, { waitUntil: "domcontentloaded" });
-  await (await captureQueue)?.finished();
+  // The rendered suggestion confirms the initial feed read finished before reconnecting.
+  if (recentChanges)
+    await page.locator('#confirmDock [data-proposal="example-capture"]').waitFor({ state: "attached" });
   assert.equal(navigation?.status(), 200);
   return { page, today: page.getByRole("complementary", { name: "Today", exact: true }), legacy, readToday };
 }
@@ -319,7 +317,7 @@ for (const width of [1440, 390])
 for (const width of [1440, 390]) {
   test(`National Recent changes stays visible with Home on and Deals off at ${width}px`, async (t) => {
     const { page } = await open(t, "/deals?view=national", { width, recentChanges: true });
-    await page.clock.runFor(120_000);
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
     const jump = page.getByRole("button", { name: /Go to recent changes/ });
     await jump.click({ timeout: 10000 });
     const receipts = page.getByRole("region", { name: "Recent changes", exact: true });
