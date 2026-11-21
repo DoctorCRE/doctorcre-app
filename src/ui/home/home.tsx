@@ -58,6 +58,15 @@ const isEngineStep = (item: InboxItem) => item.engine_marks && item.source_type 
 const isDoneStep = (item: InboxItem) =>
   item.engine_marks && item.section === "done" && item.source_state === "done" && item.action_id !== null;
 const canSnooze = (item: InboxItem) => !item.engine_marks || (item.section === "inbox" && markTarget(item.item_id));
+function homeCardCue(item: InboxItem) {
+  if (item.source_state === "failed")
+    return /^(?:didn['’]t\s+go\s+through|failed\s+to|review\s+reply\s+delivery)\b/i.test(item.title)
+      ? null
+      : "Didn't go through";
+  if (item.source_state === "needs_attention" && item.kind_label === "Reply draft")
+    return /^(?:review (?:the )?reply|reply to|reply draft|draft ready)\b/i.test(item.title) ? null : "Draft ready";
+  return null;
+}
 export function inboxRefusal(code: unknown): string {
   switch (code) {
     case "version_conflict":
@@ -543,6 +552,9 @@ function Inbox({ client }: { client: InboxClient }) {
         ? (item.days_late ?? lateDays(item.due_on))
         : 0;
     const dueCaption = daysLate ? `${daysLate} day${daysLate === 1 ? "" : "s"} late` : due && <>Due {due}</>;
+    const cue = home ? homeCardCue(item) : null;
+    const legacyFailedReply =
+      !item.engine_marks && item.source_type === "email_proposal" && item.source_state === "failed";
     const detail =
       item.disposition === "snoozed" && item.snoozed_until
         ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
@@ -555,7 +567,9 @@ function Inbox({ client }: { client: InboxClient }) {
                 ? "Dr. CRE is working. You can come back to this."
                 : item.source_state === "done"
                   ? completionLabel(item)
-                  : !item.engine_marks && "Ready for your attention");
+                  : item.source_state === "failed"
+                    ? home && !presentation && !legacyFailedReply && "Open the card to review the failed action."
+                    : !item.engine_marks && "Ready for your attention");
     const waitingOn =
       item.waiting_reason ??
       (item.waiting_on &&
@@ -670,6 +684,11 @@ function Inbox({ client }: { client: InboxClient }) {
               item.title
             )}
           </h3>
+          {cue && (
+            <p className="inbox-detail">
+              <strong>{cue}</strong>
+            </p>
+          )}
           {presentation && <p className="inbox-why">{presentation.why}</p>}
           {(item.context_label || due) && (
             <p className="inbox-context">
@@ -762,7 +781,7 @@ function Inbox({ client }: { client: InboxClient }) {
                 {tourDone ? "Done" : "Mark done"}
               </button>
             )}
-            {!item.engine_marks && item.source_type === "email_proposal" && item.source_state === "failed" && (
+            {legacyFailedReply && (
               <p className="inbox-detail inbox-guidance">
                 {home
                   ? "This reply didn't send. Send it from your email."

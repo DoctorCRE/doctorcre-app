@@ -951,9 +951,10 @@ const dashboardAnswer = (reminders, waiting) => {
     reminders: group(reminders), waiting: group(waiting),
   };
 };
-const snapshot = items => ({
-  ok: true, schema_version: 'home-inbox.v5', engine_marks: true, truncated: false,
-  limit: 1000, working_collapsed: true, items,
+const snapshot = (items, legacy = false) => ({
+  ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true,
+  ...(legacy ? { auto_settle_enabled: true } : { engine_marks: true }),
+  items: legacy ? items.map(item => ({ ...item, explicit_unsettle: false, auto_settled: false })) : items,
 });
 async function dashboard(t, width, theme) {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now, page: { viewport: { width, height: 760 } } });
@@ -980,6 +981,7 @@ async function dashboard(t, width, theme) {
     ],
     dashboard: false,
     oldEngine: false,
+    legacy: false,
     dashboardReads: 0,
     draft: { draft_id: id(20), version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.' },
     thread: mailThread,
@@ -1008,7 +1010,7 @@ async function dashboard(t, width, theme) {
     const request = route.request().postDataJSON();
     const { name, arguments: args } = request.params;
     let result = { ok: true, items: [], deals: [] };
-    if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item));
+    if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item), state.legacy);
     if (name === 'read-engine-home-proposal') result = {
       proposal_id: args.id, kind: args.id === id(41) ? 'file_to_deal' : 'next_step',
       target_name: 'Example Dental',
@@ -1253,6 +1255,56 @@ for (const width of [390, 1440]) {
       const textFits = node.scrollHeight <= node.clientHeight && node.scrollWidth <= node.clientWidth;
       return { lineClamp: style.webkitLineClamp, textOverflow: style.textOverflow, textFits };
     }), { lineClamp: 'none', textOverflow: 'clip', textFits: true });
+  });
+
+  test(`Home explains when a legacy next step failed at ${width}px`, async t => {
+    const { page, open, state } = await dashboard(t, width, 'light');
+    state.oldEngine = true;
+    state.legacy = true;
+    const failed = step(1, 'Send the floor plan', { source_state: 'failed' });
+    const explained = step(2, 'Failed to save the floor plan', { source_state: 'failed' });
+    state.items = [failed, explained];
+    await open('/?mode=live');
+    const title = page.getByRole('heading', { level: 3, name: failed.title, exact: true });
+    await title.waitFor();
+    const card = page.locator('[data-inbox-row]').filter({ has: title });
+    assert.deepEqual({
+      cue: await card.getByText("Didn't go through", { exact: true }).isVisible(),
+      detail: await card.getByText('Open the card to review the failed action.', { exact: true }).isVisible(),
+      genericDetail: await card.getByText('Ready for your attention', { exact: true }).isVisible(),
+    }, { cue: true, detail: true, genericDetail: false });
+    const explainedTitle = page.getByRole('heading', { level: 3, name: explained.title, exact: true });
+    await explainedTitle.waitFor();
+    const explainedCard = page.locator('[data-inbox-row]').filter({ has: explainedTitle });
+    assert.equal(await explainedCard.getByText("Didn't go through", { exact: true }).isVisible(), false);
+  });
+
+  test(`Home identifies a subject-only legacy reply as a draft at ${width}px`, async t => {
+    const { page, open, state } = await dashboard(t, width, 'light');
+    state.oldEngine = true;
+    state.legacy = true;
+    const draft = step(20, 'Floor plan', {
+      item_id: `email_proposal:${id(20)}`, source_type: 'email_proposal', kind_label: 'Reply draft',
+      action_id: null, action_version: null, open_url: null, deal_id: null,
+    });
+    state.items = [draft];
+    await open('/?mode=live');
+    const title = page.getByRole('heading', { level: 3, name: draft.title, exact: true });
+    await title.waitFor();
+    const card = page.locator('[data-inbox-row]').filter({ has: title });
+    assert.equal(await card.getByText('Draft ready', { exact: true }).isVisible(), true);
+  });
+
+  test(`Home omits the draft cue when the title already asks for reply review at ${width}px`, async t => {
+    const { page, open, state } = await dashboard(t, width, 'light');
+    state.dashboard = true;
+    const draft = { ...draftCard(), title: 'Review the reply to the practice manager', primary_action: 'Review reply' };
+    state.items = [draft];
+    await open('/?mode=live');
+    const title = page.getByRole('heading', { level: 3, name: draft.title, exact: true });
+    await title.waitFor();
+    const card = page.locator('[data-inbox-row]').filter({ has: title });
+    assert.equal(await card.getByText('Draft ready', { exact: true }).isVisible(), false);
   });
 
   test(`Home leaves the type label off an action card at ${width}px`, async t => {
