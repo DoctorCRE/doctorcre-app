@@ -55,6 +55,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   const engagementChecks = new Set();
   const expandedStages = new Set();
   let renderedQuiet;
+  let drawerEmailAttempted = false;
+  const emailAcknowledgements = new Map();
   const state = { board: null, readFailed: false, actor: null, epoch: 0, detailEpoch: 0, reviewEpoch: 0, quietEpoch: 0, quiet: null, openedRequestedLead: false, showEmptyStages: false, filters: { quiet: false, reachability: "", search: "", owner: "", stage: "", market: "", specialty: "" },
     historyRequest: null, historyError: null, selectedId: null, detail: null, detailId: null, resumeDetail: null, resumeReview: null, commandFeedback: null, connectionFeedback: null, proposal: null, reviewTarget: null, pending: null, writing: false, identityReady: false, trigger: null, drag: null, map: null };
   const leadById = id => state.board?.leads.find(lead => lead.id === id && eligibleLead(lead));
@@ -80,6 +82,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       title: `<span class="drag-handle" data-drag-handle aria-hidden="true"></span><button class="lead-open" data-open="${esc(lead.id)}" aria-pressed="${lead.id === state.selectedId}">${esc(leadTitle(lead))}</button>`,
       meta: esc(ownerName(lead.owner)),
       status: followUp(lead)?.days_overdue > 0 ? "Follow-up late" : "",
+      body: lead.new_from_email && emailAcknowledgements.get(lead.id) !== "cleared"
+        ? '<span class="lead-email-badge">New from email</span>' : "",
       actions: claimButton(lead) });
   }
   function focusIdentity(node) {
@@ -221,6 +225,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     }
   }
   function clearPrivateView() {
+    emailAcknowledgements.clear();
     clearGuidance();
     clearQuiet();
     territory?.clear();
@@ -378,6 +383,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const lastArchive = detail.stage_history.find(entry => entry.stage === "archived");
     const becameDeal = normalizedStage(detail) === "archived" && lastArchive?.reason === "became a deal in the old system";
     const move = automaticMove(detail), undo = undoReview(detail);
+    const source = detail.source_email;
+    const sourceExcerpt = source && summary(source.detail?.trim() || source.summary?.trim());
     const selectedKind = researchSubject === detail.id ? researchKind : '';
     const selectedAttention = researchSubject === detail.id ? researchAttention : '';
     clearGuidance();
@@ -390,6 +397,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       <div class="detail-overview"><section class="detail-panel"><h3>Contact</h3><dl><dt>Owner</dt><dd>${esc(detail.owner_label || ownerName(detail.owner))}</dd><dt>Phone</dt><dd>${contact("Phone", detail.phone)}</dd><dt>Email</dt><dd>${contact("Email", detail.email)}</dd><dt>Market</dt><dd>${esc(marketKey(detail))}</dd><dt>Vertical</dt><dd>${esc(detail.specialty || detail.vertical || "—")}</dd></dl></section>
       <section class="detail-panel"><h3>Plans</h3><p>${esc(plan || "No plans recorded.")}</p>${planDetails.length ? `<details class="plan-details" data-entry-key="plans"><summary>More about these plans</summary><div class="original-entry">${esc(planDetails.join("\n\n"))}</div></details>` : ""}${leaseDate ? `<dl class="plan-window"><dt>Estimated lease date</dt><dd><time datetime="${esc(leaseDate)}">${esc(shortDate(leaseDate, true))}</time></dd></dl>` : ""}</section>
       </div>
+      ${source ? `<section class="detail-panel"><h3>Source email</h3><time>${stamp(source.occurred_at)}</time>${sourceExcerpt ? `<p>${esc(sourceExcerpt)}</p>` : ""}</section>` : ""}
       ${timingMarkup(detail.opportunity_timing, true, !!leaseDate)}
       <div id="leadGuidance"></div>
       <div id="leadResearch"></div>
@@ -450,10 +458,29 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       }
     }
   }
+  function clearEmailBadge(id) {
+    emailAcknowledgements.set(id, "cleared");
+    if (!state.drag && !touch) render();
+  }
+  async function acknowledgeDrawerEmail(lead, actor) {
+    if (!lead.new_from_email || drawerEmailAttempted || emailAcknowledgements.has(lead.id)) return;
+    drawerEmailAttempted = true;
+    const attempt = Symbol();
+    emailAcknowledgements.set(lead.id, attempt);
+    try {
+      const saved = await client.acknowledgeLeadEmail(lead, crypto.randomUUID(), actor);
+      if (saved.lead_id === lead.id && emailAcknowledgements.get(lead.id) === attempt) clearEmailBadge(lead.id);
+    } catch {
+      // Keep the badge until a confirmed save or a later read clears it.
+    } finally {
+      if (emailAcknowledgements.get(lead.id) === attempt) emailAcknowledgements.delete(lead.id);
+    }
+  }
   async function readDetail(id, open = true, intent = null) {
     const lead = leadById(id), epoch = ++state.detailEpoch, actor = state.actor;
     state.historyRequest = null; state.historyError = null;
     if (!lead || !state.identityReady) return;
+    if (open && !intent) drawerEmailAttempted = false;
     if (open) { clearGuidance(); state.resumeDetail = intent; state.selectedId = id; render(); selectDocRecord("lead", id); state.detailId = id; state.detail = null; paintDetailFollowUp(); state.trigger = focusIdentity(doc.activeElement); $("detailTitle").textContent = leadTitle(lead); $("detailBody").innerHTML = '<p class="empty">Updating…</p>'; $("leadDetail").showModal(); }
     try {
       const response = await client.getLeadDetail(lead);
@@ -478,6 +505,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       const unchanged = JSON.stringify(state.detail) === JSON.stringify(response.detail);
       state.detail = response.detail; if (!unchanged || !researchView) paintDetail(response.detail, intent);
       state.resumeDetail = null;
+      if ($("leadDetail").open && state.identityReady) void acknowledgeDrawerEmail(state.detail, actor);
     } catch (error) { if (epoch !== state.detailEpoch || authorizationFailure(error)) return; clearGuidance(); state.detail = null; const unreachable = error?.code === "network_error" || error?.code === "read_timeout"; $("detailBody").innerHTML = `<p class="empty" role="alert">${unreachable ? "Connection interrupted · reconnecting…" : "Lead details were refused."}</p>`; }
   }
   async function openReview(id, target, { updating = false, undoEventId = null, draft = null } = {}) {
@@ -617,10 +645,12 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
         pending.attempted = true;
       }
       mutationAttempted = true;
+      let claim;
       if (pending.kind === "link") await client.linkClient(pending.lead, pending.clientId, pending.key, pending.actor);
-      else if (pending.kind === "claim") await client.claimLead(pending.lead, pending.key, pending.actor);
+      else if (pending.kind === "claim") claim = await client.claimLead(pending.lead, pending.key, pending.actor);
       else await client.recordStage(pending.lead, pending.stage, pending.review, pending.key, pending.actor);
       if (state.pending !== pending || state.actor !== actor) return;
+      if (claim?.lead_id === pending.lead.id && leadById(pending.lead.id)?.new_from_email) clearEmailBadge(pending.lead.id);
       state.pending = null; state.commandFeedback = null; $("stageDialog").close();
       $("moveAnnouncement").textContent = pending.kind === "link" ? "Client linked" : pending.kind === "claim" ? "Lead claimed" : pending.review.undo_event_id ? "Stage restored" : `Moved to ${stageLabel(pending.stage)}`;
       await refresh();
@@ -782,6 +812,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     }
   }, { once: true });
   function suspendPrivateView() {
+    emailAcknowledgements.clear();
     clearQuiet();
     territory?.clear();
     pageDocContext?.clear();

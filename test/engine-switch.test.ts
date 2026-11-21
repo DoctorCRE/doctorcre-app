@@ -140,6 +140,41 @@ test("Leads saves use the board UUID and preserve the legacy request before cuto
   assert.deepEqual(frozen.carr, []);
 });
 
+test("Lead email acknowledgement uses only the engine changes route", async () => {
+  const lead_id = "00000000-0000-4000-8000-000000000010";
+  const args = { lead_id, base_version: 42, expected_actor: "joe", idempotency_key: lead_id };
+  const command = call("acknowledge-lead-email", args);
+  const switches = new Map([
+    ["leads-from-engine", "on"],
+    ["deals-saves-from-engine", "on"],
+  ]);
+  const enabled = fixture(switches, async () => Response.json({ ok: true, lead_id }));
+  const reply = await (await enabled.send(command)).json();
+  assert.deepEqual(JSON.parse(reply.result.content[0].text), { ok: true, lead_id });
+  const request = enabled.engine[0];
+  assert.ok(request);
+  assert.equal(request.url, `${origin}/api/engine/leads/${lead_id}/changes`);
+  const { lead_id: _, ...body } = args;
+  assert.deepEqual(await request.json(), { ...body, action: "acknowledge_email" });
+  assert.deepEqual(enabled.carr, []);
+
+  const unavailable = fixture(switches, async () => Response.json({ error: "database_unavailable" }, { status: 503 }));
+  assert.equal((await unavailable.send(command)).status, 503);
+  assert.deepEqual(unavailable.carr, []);
+
+  for (const switchesOff of [
+    new Map(),
+    new Map([["leads-from-engine", "on"]]),
+    new Map([["deals-saves-from-engine", "on"]]),
+  ]) {
+    const disabled = fixture(switchesOff);
+    const response = await (await disabled.send(command)).json();
+    assert.equal(response.result.isError, true);
+    assert.deepEqual(disabled.engine, []);
+    assert.deepEqual(disabled.carr, []);
+  }
+});
+
 test("retiring the feed stops forwarding its cursor without changing the legacy response", async () => {
   const switches = new Map([["deals-from-engine", "off"]]);
   const { env, carr } = fixture(switches);

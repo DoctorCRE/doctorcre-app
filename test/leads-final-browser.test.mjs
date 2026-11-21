@@ -355,3 +355,176 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await drawer.screenshot({ path: `${evidence}/archived-${width}-${theme}.png` });
   });
 }
+
+test('Opening a lead shows its exact source and clears the badge for both partners', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const joe = await browser.newPage();
+  const dell = await browser.newPage();
+  const emailLead = lead(1, { new_from_email: true });
+  const ordinaryLead = lead(2);
+  const source = { id: id(800), kind: 'email', occurred_at: '2026-10-01T10:00:00Z', summary: 'Original request for dental space', detail: 'Please help me find a new clinic.' };
+  const writes = [];
+  const opening = Promise.withResolvers();
+  t.after(() => opening.resolve());
+  await routeLeads(joe, {
+    actor: 'joe',
+    getBoard: () => ({ ...workspace(), leads: [emailLead, ordinaryLead] }),
+    getDetail: async row => {
+      if (row.id === emailLead.id) await opening.promise;
+      return { ...detail(row), source_email: row.id === emailLead.id ? source : null };
+    },
+    saveLead: (lead_id, args) => {
+      writes.push({ lead_id, ...args });
+      emailLead.new_from_email = false;
+      return Response.json({ ok: true, lead_id });
+    },
+  });
+  await routeLeads(dell, {
+    actor: 'dell',
+    getBoard: () => ({ ...workspace(), leads: [emailLead, ordinaryLead] }),
+    saveLead: () => assert.fail('Reading a lead with a cleared badge must not write'),
+  });
+  await Promise.all([joe.goto('http://localhost/leads'), dell.goto('http://localhost/leads')]);
+  const badge = page => page.locator('#leadBoard').getByText('New from email', { exact: true });
+  await Promise.all([badge(joe).waitFor({ timeout: 4000 }), badge(dell).waitFor({ timeout: 4000 })]);
+
+  await joe.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
+  await joe.locator('#detailBody').getByText('Updating…', { exact: true }).waitFor();
+  assert.deepEqual(writes, []);
+  opening.resolve();
+  const drawer = joe.locator('#leadDetail');
+  await drawer.getByRole('heading', { name: 'Source email', exact: true }).waitFor();
+  assert.equal(await drawer.getByText('Please help me find a new clinic.', { exact: true }).isVisible(), true);
+  await badge(joe).waitFor({ state: 'hidden' });
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].action, 'acknowledge_email');
+  assert.equal(writes[0].lead_id, emailLead.id);
+  assert.equal(writes[0].expected_actor, 'joe');
+
+  await dell.locator('#refreshBoard').click();
+  await badge(dell).waitFor({ state: 'hidden' });
+  await joe.locator('#closeDetail').click();
+  for (const page of [joe, dell]) {
+    await page.locator('#ownerFilter').selectOption('unclaimed');
+    assert.equal(await page.locator('#leadCount').innerText(), '2 leads');
+  }
+  await joe.getByRole('button', { name: 'Dr. Example 2', exact: true }).click();
+  await drawer.getByRole('heading', { name: 'Captured correspondence', exact: true }).waitFor();
+  assert.equal(await drawer.getByRole('heading', { name: 'Source email', exact: true }).count(), 0);
+  await joe.locator('#closeDetail').click();
+  await dell.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
+  await dell.locator('#detailStage').waitFor();
+  assert.equal(await dell.getByRole('heading', { name: 'Source email', exact: true }).count(), 0);
+  assert.equal(writes.length, 1);
+});
+
+test('Malformed source email leaves the drawer and Claim available', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const row = lead(1);
+  const writes = [];
+  await routeLeads(page, {
+    actor: 'joe',
+    getBoard: () => ({ ...workspace(), leads: [row] }),
+    getDetail: row => ({
+      ...detail(row),
+      source_email: { id: id(800), kind: 'email', occurred_at: '2026-10-01T10:00:00Z', summary: 'Original request', detail: 17 },
+    }),
+    saveLead: (lead_id, { action, expected_actor }) => {
+      writes.push({ lead_id, action, expected_actor });
+      row.owner = expected_actor;
+      return Response.json({ ok: true, lead_id });
+    },
+  });
+  await page.goto('http://localhost/leads');
+  await page.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
+  const drawer = page.locator('#leadDetail');
+  const contact = drawer.getByRole('heading', { name: 'Contact', exact: true });
+  const refusal = drawer.getByText('Lead details were refused.', { exact: true });
+  await contact.or(refusal).waitFor();
+  assert.equal(await refusal.isVisible(), false, 'A malformed source email refused the drawer');
+  assert.equal(await drawer.getByRole('heading', { name: 'Source email', exact: true }).count(), 0);
+  await drawer.getByRole('button', { name: 'Claim', exact: true }).click();
+  await page.getByText('Lead claimed', { exact: true }).waitFor();
+  assert.deepEqual(writes, [{ lead_id: row.id, action: 'claim', expected_actor: 'joe' }]);
+});
+
+test('A failed drawer read does not acknowledge and a 503 retries only on reopening', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const emailLead = lead(1, { new_from_email: true });
+  let detailReads = 0;
+  let acknowledgements = 0;
+  await routeLeads(page, {
+    getBoard: () => ({ ...workspace(), leads: [emailLead] }),
+    getDetail: row => {
+      detailReads += 1;
+      return {
+        ...detail(row),
+        ...(detailReads === 1 ? { base_version: null } : {}),
+        notes: `Synthetic drawer read ${detailReads}`,
+      };
+    },
+    saveLead: lead_id => {
+      if (++acknowledgements === 1) return Response.json({ error: 'database_unavailable' }, { status: 503 });
+      emailLead.new_from_email = false;
+      return Response.json({ ok: true, lead_id });
+    },
+  });
+  await page.goto('http://localhost/leads');
+  const open = page.getByRole('button', { name: 'Dr. Example 1', exact: true });
+  const badge = page.locator('#leadBoard').getByText('New from email', { exact: true });
+  await open.click();
+  await page.getByText('Lead details were refused.', { exact: true }).waitFor();
+  assert.equal(acknowledgements, 0);
+  await page.locator('#closeDetail').click();
+
+  const response = page.waitForResponse(res => res.status() === 503 && res.request().postDataJSON()?.params?.name === 'acknowledge-lead-email', { timeout: 4000 });
+  await open.click();
+  await response;
+  assert.equal(await badge.count(), 1);
+  assert.equal(await page.locator('#leadDetail [role="alert"]:visible, #leadBoardError:visible').count(), 0);
+  await page.locator('#refreshBoard').evaluate(button => button.click());
+  await page.getByText('Synthetic drawer read 3', { exact: true }).waitFor();
+  assert.equal(await badge.count(), 1);
+  assert.equal(acknowledgements, 1);
+  await page.locator('#closeDetail').click();
+  await open.click();
+  await badge.waitFor({ state: 'hidden' });
+  assert.equal(acknowledgements, 2);
+});
+
+test('Claim removes the email badge before the refreshed board arrives', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const emailLead = lead(1, { new_from_email: true });
+  const refresh = Promise.withResolvers();
+  t.after(() => refresh.resolve());
+  let claimed = false;
+  await routeLeads(page, {
+    actor: 'joe',
+    getBoard: async () => {
+      if (claimed) await refresh.promise;
+      return { ...workspace(), leads: [claimed ? { ...emailLead, new_from_email: false, owner: 'joe' } : emailLead] };
+    },
+    saveLead: (lead_id, { action }) => {
+      assert.equal(action, 'claim');
+      claimed = true;
+      return Response.json({ ok: true, lead_id });
+    },
+  });
+  await page.goto('http://localhost/leads');
+  const board = page.locator('#leadBoard');
+  const badge = board.getByText('New from email', { exact: true });
+  await badge.waitFor({ timeout: 4000 });
+  await page.locator('#ownerFilter').selectOption('unclaimed');
+  await board.getByRole('button', { name: 'Claim', exact: true }).click();
+  await badge.waitFor({ state: 'hidden', timeout: 4000 });
+  assert.equal(claimed, true);
+  refresh.resolve();
+  await settles(async () => assert.equal(await page.locator('#leadCount').innerText(), '0 leads'));
+});

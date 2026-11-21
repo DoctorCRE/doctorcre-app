@@ -77,6 +77,10 @@ export function createLeadBoardClient(options = {}) {
     // The server owns the 45/90-day cadence and who counts as a lead. Send no interval.
     getQuietFollowUps: async () => validateQuietFollowUps(await rpc("quiet-follow-ups", {})),
     setProspectEngagementStatus: createEngagementWriter(args => rpc("set-prospect-engagement-status", args, true)),
+    acknowledgeLeadEmail(lead, key, actor) {
+      return rpc("acknowledge-lead-email", { lead_id: lead.id, base_version: lead.base_version,
+        expected_actor: actor, idempotency_key: key }, true);
+    },
     claimLead(lead, key, actor) {
       return rpc("claim-lead", { lead: lead.registry_ref || lead.id, lead_id: lead.id, base_version: lead.base_version,
         expected_actor: actor, idempotency_key: key }, true);
@@ -101,7 +105,7 @@ function projection(condition) {
 function validateLead(lead, parseTiming) {
   projection(object(lead) && text(lead.id) && Number.isSafeInteger(lead.base_version) && lead.base_version > 0 && text(lead.stage) && typeof lead.suppressed === "boolean");
   for (const key of ["registry_ref", "party_id", "doctor_name", "practice_name", "entity_name", "name", "owner", "city", "state", "market", "specialty", "vertical", "plan_type"]) projection(optionalText(lead[key]));
-  for (const key of ["is_client", "linked_client", "is_past_client", "is_deal", "do_not_contact"]) projection(lead[key] == null || typeof lead[key] === "boolean");
+  for (const key of ["is_client", "linked_client", "is_past_client", "is_deal", "do_not_contact", "new_from_email"]) projection(lead[key] == null || typeof lead[key] === "boolean");
   projection(lead.score == null || (["string", "number"].includes(typeof lead.score) && Number.isFinite(Number(lead.score))));
   projection(Array.isArray(lead.possible_clients) && lead.possible_clients.every(match => object(match) && text(match.client_id) && text(match.name)));
   projection(lead.last_stage_move == null || object(lead.last_stage_move));
@@ -114,10 +118,13 @@ export function validateLeadWorkspace(payload, parseTiming) {
   projection(new Set(payload.leads.map(lead => lead.id)).size === payload.leads.length);
   return payload;
 }
+const validCorrespondence = entry => object(entry) && text(entry.id) && text(entry.kind) &&
+  leadTimestamp(entry.occurred_at) !== null && optionalText(entry.summary) && optionalText(entry.detail);
+
 export function validateLeadDetail(detail, id, parseTiming) {
   validateLead(detail, parseTiming); projection(detail.id === id);
   for (const key of ["phone", "email", "notes", "plans", "est_lease_event"]) projection(optionalText(detail[key]));
-  projection(Array.isArray(detail.correspondence) && detail.correspondence.every(entry => object(entry) && text(entry.id) && text(entry.kind) && leadTimestamp(entry.occurred_at) !== null && optionalText(entry.summary) && optionalText(entry.detail)));
+  projection(Array.isArray(detail.correspondence) && detail.correspondence.every(validCorrespondence));
   projection(Array.isArray(detail.stage_history) && detail.stage_history.every(entry => object(entry) && text(entry.event_id) && leadTimestamp(entry.occurred_at) !== null && optionalText(entry.prior_stage) && optionalText(entry.stage) && optionalText(entry.reason)));
   for (const kind of ["correspondence", "stage_history"]) {
     const page = detail[`${kind}_page`];
@@ -128,6 +135,7 @@ export function validateLeadDetail(detail, id, parseTiming) {
     else projection(typeof page.next_cursor === "string" && /^[0-9]+$/.test(page.next_cursor));
   }
   if (detail.research !== undefined) validateResearch(detail.research);
+  if (detail.source_email != null && !validCorrespondence(detail.source_email)) detail.source_email = null;
   return detail;
 }
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
