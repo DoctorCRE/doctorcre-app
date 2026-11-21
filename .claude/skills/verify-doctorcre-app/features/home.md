@@ -2,7 +2,7 @@
 
 Home at `/` shows **Reminders** and **In motion and waiting** in a responsive grid. Open a card by its title. **See all** expands the tile's remaining work. Empty tiles and finished work stay off Home.
 
-Run `node --test test/home-sections-browser.test.mjs` against synthetic data at 390px and 1440px in both themes. Check that a scheduled refresh adds and removes cards while retaining the scroll position, active control, and unsaved review text. Set `HOME_GRID_SCREENSHOTS` to retain the four captures.
+Run `node --test test/home-sections-browser.test.mjs` against synthetic data at 390px and 1440px in both themes. Check that a 90-character action title appears in full on the first card view, with no type label above it. Check that a scheduled refresh adds and removes cards while retaining the scroll position, active control, and unsaved review text. Set `HOME_GRID_SCREENSHOTS` to retain the four captures.
 
 ## Review workflows
 

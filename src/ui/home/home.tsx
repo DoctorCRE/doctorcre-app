@@ -637,12 +637,16 @@ function Inbox({ client }: { client: InboxClient }) {
           />
         </label>
         <div className="inbox-copy">
-          <p className="inbox-meta">
-            <span>{item.kind_label}</span>
-            {!item.engine_marks && (
-              <span className={`inbox-badge inbox-${item.source_state}`}>{item.source_state.replaceAll("_", " ")}</span>
-            )}
-          </p>
+          {!home && (
+            <p className="inbox-meta">
+              <span>{item.kind_label}</span>
+              {!item.engine_marks && (
+                <span className={`inbox-badge inbox-${item.source_state}`}>
+                  {item.source_state.replaceAll("_", " ")}
+                </span>
+              )}
+            </p>
+          )}
           <h3
             className={presentation || open || item_id === item.item_id ? "inbox-title-expanded" : undefined}
             tabIndex={canOpen ? undefined : -1}

@@ -215,9 +215,8 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     assert.equal(await held.getByRole('link', { name: /^Wait for sample terms/ }).getAttribute('href'), tasks[0].path);
   }
   assert.equal(await inbox.locator('[data-inbox-row]').count(), state.items.length);
-  for (const copy of ['needs attention', 'Ready for your attention']) {
-    assert.equal(await inbox.getByText(copy, { exact: true }).count(), enabled ? 0 : tasks.length);
-  }
+  assert.equal(await inbox.getByText('needs attention', { exact: true }).count(), 0);
+  assert.equal(await inbox.getByText('Ready for your attention', { exact: true }).count(), enabled ? 0 : tasks.length);
   for (const task of tasks) {
     const title = `${task.title} (${reader})`;
     const link = inbox.getByRole('link', { name: title, exact: true });
@@ -470,7 +469,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
   await email.getByRole('link', { name: /Sample Sender · Floor plan/ }).press('Enter');
   await reply.getByRole('region', { name: /Details for Reply to the sample email/ }).waitFor({ state: 'detached' });
-  await email.getByText('Suggestion', { exact: true }).waitFor();
+  assert.equal(await email.getByText('Suggestion', { exact: true }).count(), 0);
   assert.equal(await email.getByText(/days late/).count(), 0);
   assert.equal(await email.getByRole('button', { name: 'Mark done', exact: true }).count(), 0);
   const possibleDeal = email.getByRole('region', { name: 'Possible new deal', exact: true });
@@ -1238,6 +1237,35 @@ test('Home uses the flat inbox when the older engine refuses the dashboard view'
   await open('/?mode=live');
   await page.getByRole('region', { name: 'Reminders', exact: true }).getByRole('link', { name: 'Send the signed lease' }).waitFor();
 });
+
+for (const width of [390, 1440]) {
+  test(`Home shows all 90 characters of an action on the first card view at ${width}px`, async t => {
+    const { page, open, state } = await dashboard(t, width, 'light');
+    const title = 'Send the revised floor plan to the practice manager before the lease review next Thursday.';
+    state.oldEngine = true;
+    state.items[0] = step(1, title);
+    await open('/?mode=live');
+    const heading = page.getByRole('region', { name: 'Reminders', exact: true })
+      .getByRole('heading', { level: 3, name: title, exact: true });
+    await heading.waitFor();
+    assert.deepEqual(await heading.evaluate(node => {
+      const style = getComputedStyle(node);
+      const textFits = node.scrollHeight <= node.clientHeight && node.scrollWidth <= node.clientWidth;
+      return { lineClamp: style.webkitLineClamp, textOverflow: style.textOverflow, textFits };
+    }), { lineClamp: 'none', textOverflow: 'clip', textFits: true });
+  });
+
+  test(`Home leaves the type label off an action card at ${width}px`, async t => {
+    const { page, open, state } = await dashboard(t, width, 'light');
+    state.dashboard = true;
+    state.items = [{ ...mailCard, primary_action: 'Review suggestions' }];
+    await open('/?mode=live');
+    const action = page.getByRole('heading', { level: 3, name: mailCard.title, exact: true });
+    await action.waitFor();
+    const card = page.locator('[data-inbox-row]').filter({ has: action });
+    assert.equal(await card.getByText(mailCard.kind_label, { exact: true }).isVisible(), false);
+  });
+}
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home dashboard at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
