@@ -409,11 +409,11 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       summary: 'Email from Example Sender <sender@example.test>: (no subject)' };
     let email_follow_ups = [
       { proposal_id: first, kind: 'next_step', what: 'Send the plan (no subject)', owner: 'dell', due_on: '2026-11-02', email: filedEmail,
-        evidence: 'From: Example Sender <sender@example.test>\nTo: Team <team@example.test>\nSubject: (no subject)\n\nThe plan is ready for review this week. Please send comments to <team@example.test> by Friday so we can revise the drawings.' },
+        evidence: 'Email from the surveyor: the new plan is ready.\nMorgan <team@example.test> and "Example Sender" <sender@example.test> will review it with Casey casey@example.test on Friday and send their comments.' },
       { proposal_id: crypto.randomUUID(), kind: 'file_to_deal', email: filedEmail },
-      { proposal_id: second, kind: 'file_to_deal', evidence: 'The letter is attached.',
-        email: { subject: 'Letter attached', sender: 'Morgan Example <sender@example.test>',
-          happened_at: '2026-11-02T15:00:00Z', summary: 'Email from Morgan Example <sender@example.test>: Letter attached' } },
+      { proposal_id: second, kind: 'file_to_deal',
+        email: { subject: 'Letter attached for "Morgan Example" <morgan@example.test> and Casey <casey@example.test> with Alex alex@example.test and Plan Desk "plans@west"@example.test copied',
+          sender: 'Morgan Example <sender@example.test>', happened_at: '2026-11-02T15:00:00Z', summary: 'The letter is attached.' } },
       ...refusals.map(({ kind, id, subject }) => ({
         proposal_id: id, kind, what: 'Review the example', to_phase: 'legal', email: { subject, sender: 'sender@example.test' },
       })),
@@ -518,7 +518,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     const followups = page.getByRole('region', { name: 'Email follow-ups' });
     await followups.getByText(readsOn ? 'From Example, Nov 1' : 'No email follow-ups.', { exact: true }).waitFor({ timeout: 5000 });
     if (readsOn) {
-      const planCard = followups.getByRole('article').filter({ has: page.getByRole('heading', { name: /^The plan is ready for review this week/ }) });
+      const planCard = followups.getByRole('article').filter({ hasText: 'Send the plan' });
       const letterCard = followups.getByRole('article').filter({ hasText: 'Letter attached' });
       assert.equal(await planCard.count(), 1);
       assert.equal(await planCard.getByText('From Example, Nov 1', { exact: true }).count(), 1);
@@ -526,9 +526,19 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       assert.match(await letterCard.innerText(), /File email to this deal/);
       assert.equal((await letterCard.innerText()).match(/Letter attached/g)?.length, 1);
       assert.equal(await letterCard.getByText('From Morgan, Nov 2', { exact: true }).count(), 1);
-      assert.doesNotMatch(await followups.innerText(), /Email from |@example\.test/);
       await planCard.getByText('Read email excerpt').click();
-      assert.doesNotMatch(await planCard.innerText(), /(?:From|To|Subject):|@example\.test/);
+      assert.deepEqual({
+        opening: (await planCard.getByRole('heading').innerText()).slice(0, 47),
+        excerpt: await planCard.locator('q').innerText(),
+        subject: await letterCard.getByRole('heading').innerText(),
+        summary: await letterCard.getByText('The letter is attached.', { exact: true }).count(),
+      }, {
+        opening: 'Email from the surveyor: the new plan is ready.',
+        excerpt: 'Email from the surveyor: the new plan is ready. Morgan and Example Sender will review it with Casey on Friday and send their comments.',
+        subject: 'Letter attached for Morgan Example and Casey with Alex and Plan Desk copied',
+        summary: 1,
+      });
+      assert.doesNotMatch(await followups.innerText(), /@example\.test/);
       assert.match(await followups.innerText(), /Send the plan \(No subject\).*Dell.*16 days late/);
       assert.doesNotMatch(await planCard.innerText(), /\(no subject\)/);
       assert.doesNotMatch(await followups.innerText(), /2026-11-01T|file_to_deal/);
@@ -3082,11 +3092,15 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
   const steps = snapshot.getByRole('region', { name: 'Next steps' });
   const stepRows = steps.getByRole('listitem');
+  const ownRow = stepRows.filter({ hasText: 'Set by Example Partner' });
+  const otherRow = stepRows.filter({ hasText: 'Set Oct 30' });
   await steps.getByText(own.description, { exact: true }).first().waitFor();
-  assert.equal(await stepRows.count(), 1);
-  assert.equal(await steps.getByText(own.description, { exact: true }).count(), 1);
-  await stepRows.first().getByText('Set by Example Partner · Oct 29, 8:51 AM CDT', { exact: true }).waitFor();
-  await stepRows.first().getByText('Set Oct 30, 9:30 AM CDT', { exact: true }).waitFor();
+  assert.equal(await stepRows.count(), 2);
+  assert.equal(await steps.getByText(own.description, { exact: true }).count(), 2);
+  await ownRow.getByText(/^Joe · Due/).waitFor();
+  await ownRow.getByText('Set by Example Partner · Oct 29, 8:51 AM CDT', { exact: true }).waitFor();
+  await otherRow.getByText(/^Dell · Due/).waitFor();
+  await otherRow.getByText('Set Oct 30, 9:30 AM CDT', { exact: true }).waitFor();
   const capture = (region, stage) => region.screenshot({ path: join(evidence, `deal-step-${stage}-${width}-${theme}.png`), animations: 'disabled' });
   await capture(snapshot, 'open');
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
@@ -3106,9 +3120,10 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
     }), 'Done has an unobstructed 44 px touch target');
   }
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await done.first().focus();
+  const otherDone = otherRow.getByRole('button', { name: 'Done', exact: true });
+  await ownRow.getByRole('button', { name: 'Done', exact: true }).focus();
   await page.keyboard.press('Tab');
-  assert.ok(await done.last().evaluate(el => {
+  assert.ok(await otherDone.evaluate(el => {
     const { outlineStyle, outlineWidth } = getComputedStyle(el);
     return el.matches(':focus-visible') && outlineStyle === 'solid' && parseFloat(outlineWidth) > 0;
   }), 'Tab reaches Done and shows a focus ring');
@@ -3116,15 +3131,16 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
 
   other.description = 'Check the revised sample lease';
   other.change_id = 15;
-  await done.last().focus();
+  await otherDone.focus();
   await page.keyboard.press('Enter');
   await page.getByText('This step changed. Review the latest version.', { exact: true }).waitFor();
   await snapshot.getByText(other.description, { exact: true }).waitFor();
   assert.equal(other.status, 'open');
-  assert.ok(await done.last().evaluate(button => document.activeElement === button));
+  assert.ok(await otherDone.evaluate(button => document.activeElement === button));
 
   await page.keyboard.press('Enter');
   await snapshot.getByText(other.description, { exact: true }).waitFor({ state: 'hidden' });
+  assert.equal(await ownRow.getByText(own.description, { exact: true }).count(), 1);
   await page.getByRole('tab', { name: 'Timeline' }).click();
   const timeline = page.getByRole('tabpanel', { name: 'Timeline' });
   const completed = timeline.getByRole('listitem').filter({ hasText: `${other.description} · Done` });
