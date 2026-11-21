@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
+import { refreshWhileVisible } from "./visible-refresh";
 
 // The app's Content Security Policy blocks dynamic code evaluation.
 z.config({ jitless: true });
@@ -34,6 +35,8 @@ const conversation = z.object({
   title: z.string(),
   created_at: z.iso.datetime({ offset: true }),
 });
+const macOffline = "Doc answers when your Mac is on.";
+const planPaused = "Doc is paused until your Claude plan resets.";
 const chatTurn = z.object({
   id: z.guid(),
   position: z.int().positive(),
@@ -47,9 +50,9 @@ const chatTurn = z.object({
   waiting_reason: z
     .enum([
       "Doc isn't set up on your Mac yet.",
-      "Doc answers when your Mac is on.",
+      macOffline,
       "Sign in to Claude Code on your Mac.",
-      "Doc is paused until your Claude plan resets.",
+      planPaused,
       "Doc is waiting for a free slot on your Mac.",
     ])
     .nullable(),
@@ -65,9 +68,18 @@ type Ask = Pick<Turn, "question" | "idempotency_key"> & {
   context?: z.infer<typeof recordRef>;
 };
 type Session = {
-  verify(options: { fresh: boolean }): Promise<unknown>;
-  fetch(path: string, init: RequestInit): Promise<Response>;
+  verify(options: { fresh: boolean; waitForBudget?: boolean }): Promise<{ actor: { slug: string } }>;
+  fetch(path: string, init: RequestInit, options: { boundRead: boolean; waitForBudget: boolean }): Promise<Response>;
 };
+
+type QuestionDraft = { read(): string; write(text: string): void };
+
+function sessionModule(): Promise<{
+  privateSession(): Session | null;
+  privateTextDraft(window: Window, actor: string, field: "doc-question", chatId: string | null): QuestionDraft;
+}> {
+  return import(new URL("./private-session.js", import.meta.url).href);
+}
 
 const api = "/api/engine/doc";
 const initialId = new URLSearchParams(location.search).get("chat");
@@ -91,25 +103,46 @@ function chatHref(id: string | null) {
   return location.pathname + (query.size ? `?${query}` : "");
 }
 
+function conversationPath(id: string) {
+  return `/conversations/${encodeURIComponent(id)}`;
+}
+
+function recordHref(href: string) {
+  return href.startsWith("/") && !href.startsWith("//") && !/[\\\s]/.test(href) ? href : undefined;
+}
+
 class ConversationUnavailable extends Error {}
 
-async function docFetch<T>(path: string, schema: z.ZodType<T>, ask?: Ask): Promise<T> {
-  const { privateSession }: { privateSession: () => Session | null } = await import(
-    new URL("./private-session.js", import.meta.url).href
-  );
+async function docFetch<T>(
+  path: string,
+  schema: z.ZodType<T>,
+  { ask, signal, boundRead = false }: { ask?: Ask; signal?: AbortSignal; boundRead?: boolean } = {},
+): Promise<T> {
+  const { privateSession } = await sessionModule();
   const session = privateSession();
   if (!session) throw Error(statusText.signIn);
-  await session.verify({ fresh: true });
-  const response = await session.fetch(api + path, {
-    signal: AbortSignal.timeout(12000),
-    ...(ask && {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(ask),
-    }),
-  });
-  await session.verify({ fresh: true });
-  if (response.status === 404 && path.startsWith("/conversations/")) throw new ConversationUnavailable();
+  signal?.throwIfAborted();
+  const waitForBudget = Boolean(ask);
+  if (!boundRead) await session.verify({ fresh: true, waitForBudget });
+  signal?.throwIfAborted();
+  const timeout = AbortSignal.timeout(12000);
+  const response = await session.fetch(
+    api + path,
+    {
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      ...(ask && {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(ask),
+      }),
+    },
+    { boundRead, waitForBudget },
+  );
+  signal?.throwIfAborted();
+  const unavailable = response.status === 404 && path.startsWith("/conversations/");
+  if (!boundRead || unavailable) await session.verify({ fresh: true, waitForBudget });
+  signal?.throwIfAborted();
+  if (unavailable) throw new ConversationUnavailable();
   if (!response.ok) throw Error(`Doc request failed with status ${response.status}`);
   const result = schema.safeParse(await response.json());
   if (!result.success) throw Error("Invalid Doc response");
@@ -121,6 +154,7 @@ function DocChat() {
   const [recent, setRecent] = useState<Conversation[]>([]);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [question, setQuestion] = useState("");
+  const questionDraft = useRef<((chatId: string | null) => QuestionDraft) | null>(null);
   const [pendingAsk, setPendingAsk] = useState<Ask | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -129,6 +163,8 @@ function DocChat() {
   const active = useRef(false);
   const latest = turns.at(-1);
   const waiting = latest?.state === "queued" || latest?.state === "working";
+  const waitingTurnId = waiting ? latest.id : undefined;
+  const getWaitingReason = useEffectEvent(() => latest?.waiting_reason);
   const retry =
     pendingAsk ??
     (latest?.state === "failed"
@@ -151,27 +187,34 @@ function DocChat() {
     [...text].length <= 4000 &&
     !text.includes("\0");
 
-  const run = useCallback(async (operation: "load" | "send", work: () => Promise<void>) => {
-    if (active.current || retired.current) return;
-    active.current = true;
-    setBusy(true);
-    setStatus(null);
-    try {
-      await work();
-    } catch (error) {
-      if (retired.current) return;
-      if (error instanceof ConversationUnavailable) {
-        setTurns([]);
-        setReady(false);
-        setStatus("unavailable");
-      } else {
-        setStatus(operation === "load" ? "loadFailed" : "sendFailed");
-      }
-    } finally {
-      active.current = false;
-      if (!retired.current) setBusy(false);
-    }
+  const showUnavailable = useCallback(() => {
+    setTurns([]);
+    setReady(false);
+    setStatus("unavailable");
   }, []);
+
+  const run = useCallback(
+    async (operation: "load" | "send", work: () => Promise<void>) => {
+      if (active.current || retired.current) return;
+      active.current = true;
+      setBusy(true);
+      setStatus(null);
+      try {
+        await work();
+      } catch (error) {
+        if (retired.current) return;
+        if (error instanceof ConversationUnavailable) {
+          showUnavailable();
+        } else {
+          setStatus(operation === "load" ? "loadFailed" : "sendFailed");
+        }
+      } finally {
+        active.current = false;
+        if (!retired.current) setBusy(false);
+      }
+    },
+    [showUnavailable],
+  );
 
   const load = useCallback(
     async (chatId: string | null) => {
@@ -180,10 +223,16 @@ function DocChat() {
         if (retired.current) return;
         setRecent(conversations);
         if (chatId) {
-          const { turns: saved } = await docFetch(`/conversations/${encodeURIComponent(chatId)}`, conversationDetail);
+          const { turns: saved } = await docFetch(conversationPath(chatId), conversationDetail);
           if (retired.current) return;
           setTurns(saved);
         }
+        const { privateSession, privateTextDraft } = await sessionModule();
+        const session = await privateSession()?.verify({ fresh: false });
+        if (retired.current || !session) return;
+        const actor = session.actor.slug;
+        questionDraft.current = (chatId) => privateTextDraft(window, actor, "doc-question", chatId);
+        setQuestion(questionDraft.current(chatId).read());
         setReady(true);
       });
     },
@@ -193,6 +242,8 @@ function DocChat() {
   useEffect(() => {
     function clear() {
       retired.current = true;
+      questionDraft.current = null;
+      setId(null);
       setRecent([]);
       setTurns([]);
       setQuestion("");
@@ -206,10 +257,47 @@ function DocChat() {
     return () => window.removeEventListener("doctorcre-session-invalidated", clear);
   }, [load]);
 
+  useEffect(() => {
+    if (!id || !waitingTurnId || retired.current) return;
+    let waitingReason = getWaitingReason();
+    const stop = refreshWhileVisible(
+      async (signal) => {
+        try {
+          const { turns: saved } = await docFetch(conversationPath(id), conversationDetail, {
+            signal,
+            boundRead: true,
+          });
+          if (signal.aborted || retired.current) return;
+          const turn = saved.find((row) => row.id === waitingTurnId);
+          if (!turn) return;
+          waitingReason = turn.waiting_reason;
+          setTurns((rows) => rows.map((row) => (row.id === turn.id ? turn : row)));
+          if (turn.state !== "queued" && turn.state !== "working") return "stop";
+        } catch (error) {
+          if (!(error instanceof ConversationUnavailable) || signal.aborted || retired.current) return;
+          showUnavailable();
+          return "stop";
+        }
+      },
+      {
+        immediate: false,
+        delay(visibleMs) {
+          if (visibleMs < 60_000) return 5_000;
+          return waitingReason === macOffline || waitingReason === planPaused ? 120_000 : 30_000;
+        },
+      },
+    );
+    window.addEventListener("doctorcre-session-invalidated", stop, { once: true });
+    return () => {
+      window.removeEventListener("doctorcre-session-invalidated", stop);
+      stop();
+    };
+  }, [id, waitingTurnId, showUnavailable]);
+
   function send(ask: Ask) {
     void run("send", async () => {
       setPendingAsk(ask);
-      const { conversation_id, turn } = await docFetch("/turns", sendResponse, ask);
+      const { conversation_id, turn } = await docFetch("/turns", sendResponse, { ask });
       if (retired.current) return;
       if (id !== conversation_id) {
         history.replaceState(history.state, "", chatHref(conversation_id));
@@ -218,7 +306,10 @@ function DocChat() {
       }
       setTurns((rows) => [...rows.filter((row) => row.id !== turn.id), turn]);
       setPendingAsk(null);
-      if (latest?.idempotency_key !== ask.idempotency_key) setQuestion("");
+      if (latest?.idempotency_key !== ask.idempotency_key) {
+        questionDraft.current?.(id).write("");
+        setQuestion("");
+      }
     });
   }
 
@@ -228,7 +319,7 @@ function DocChat() {
         <h1>Ask Doc</h1>
         <nav className="doc-chat__actions" aria-label="Chat navigation">
           <a href="/">Home</a>
-          <a className="btn" href={chatHref(null)}>
+          <a className="btn" href={chatHref(null)} onClick={() => questionDraft.current?.(null).write("")}>
             New chat
           </a>
         </nav>
@@ -249,20 +340,33 @@ function DocChat() {
         </aside>
         <section aria-label="Conversation">
           <ol className="doc-chat__turns" aria-live="polite">
-            {turns.map((turn) => (
-              <li key={turn.id}>
-                <p className="doc-chat__question">{turn.question}</p>
-                <p className="doc-chat__reply">{turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}</p>
-              </li>
-            ))}
+            {turns.map((turn) => {
+              const sources = turn.answer?.sources ?? [];
+              return (
+                <li key={turn.id}>
+                  <p className="doc-chat__question">{turn.question}</p>
+                  <p className="doc-chat__reply">{turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}</p>
+                  {sources.length > 0 && (
+                    <ul className="doc-chat__sources" aria-label="Sources">
+                      {sources.map(({ ref, label, href }) => {
+                        const path = recordHref(href);
+                        return (
+                          <li key={`${ref.kind}:${ref.id}${href}`}>{path ? <a href={path}>{label}</a> : label}</li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
           </ol>
           <p role="status">
             {busy ? (pendingAsk ? "Sending question…" : "Loading chats…") : status && statusText[status]}
           </p>
           <div className="doc-chat__actions">
-            {!pendingAsk && (status === "loadFailed" || (id && ready)) && (
+            {!pendingAsk && status === "loadFailed" && (
               <button className="btn" type="button" disabled={busy} onClick={() => void load(id)}>
-                {status === "loadFailed" ? "Retry loading" : waiting ? "Check for answer" : "Refresh chat"}
+                Retry loading
               </button>
             )}
             {retry && status !== "loadFailed" && (
@@ -287,8 +391,13 @@ function DocChat() {
               id="docQuestion"
               rows={3}
               value={question}
-              disabled={!ready || !!pendingAsk}
-              onChange={(event) => setQuestion(event.currentTarget.value)}
+              disabled={(!ready && status !== "unavailable") || !!pendingAsk}
+              readOnly={status === "unavailable"}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                questionDraft.current?.(id).write(value);
+                setQuestion(value);
+              }}
             />
             <div className="doc-chat__actions">
               <button className="btn btn-primary" type="submit" disabled={!canSend}>

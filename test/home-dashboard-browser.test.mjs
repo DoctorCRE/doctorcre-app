@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { chromium, settles } from './browser-harness.mjs';
+import { chromium, settles, returnToTab } from './browser-harness.mjs';
 import { relationshipNetworkFixture } from '../js/relationship-network-fixture.js';
 import { createFixtureClient } from '../js/fixture-client.js';
 import axe from 'axe-core';
@@ -309,7 +309,7 @@ test('no eligible leads means hidden widget; failed Home retains unavailable cal
   await page.waitForFunction(() => document.querySelector('#refreshHome').getAttribute('aria-busy') === 'false');
   const before = state.boardReads;
   const resumed = page.waitForResponse(response => response.url().endsWith('/mcp') && response.request().postDataJSON()?.params.name === 'read-home-agenda');
-  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await returnToTab(page);
   await page.waitForFunction(() => /Active deals: \d/.test(document.querySelector('#dealCounts').textContent));
   await resumed; assert.ok(state.boardReads > before);
   assert.deepEqual(state.errors, []);

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openTasks, waitForTasks } from './task-page-fixture.mjs';
+import { returnToTab } from './browser-harness.mjs';
 
 test('Tasks rereads on return without filing or replacing the current Quick Add draft', async t => {
   const { page, errors } = await openTasks(t, `window.taskReads ??=0; window.taskWrites ??=0;
@@ -11,7 +12,7 @@ test('Tasks rereads on return without filing or replacing the current Quick Add 
   await page.locator('#quickAddDate').fill('2026-12-01');
   const before = await page.evaluate(() => ({ reads: window.taskReads, rows: document.querySelector('#taskList').textContent,
     draft: document.querySelector('#quickAddInput').value, date: document.querySelector('#quickAddDate').value }));
-  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await returnToTab(page);
   await page.waitForFunction(reads => window.taskReads > reads && document.querySelector('#quickAddForm')?.hidden === false, before.reads);
   const after = await page.evaluate(() => ({ reads: window.taskReads, rows: document.querySelector('#taskList').textContent,
     draft: document.querySelector('#quickAddInput').value, date: document.querySelector('#quickAddDate').value }));

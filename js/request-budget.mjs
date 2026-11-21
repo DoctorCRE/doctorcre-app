@@ -1,22 +1,42 @@
-import { listenForHumanInput } from './visibility-poll.mjs';
-
 export const TAB_REQUEST_LIMIT = 600;
-export const INITIAL_ASSET_REQUEST_LIMIT = 400;
-export const QUIET_TAB_REQUEST_LIMIT = TAB_REQUEST_LIMIT + INITIAL_ASSET_REQUEST_LIMIT;
 
-// This counter belongs to the document, not a controller or a visibility
-// period. Count auth checks and failed transports as actual HTTP attempts.
-// eslint-disable-next-line no-restricted-syntax -- Defines the document guard: TAB_REQUEST_LIMIT is 600 HTTP attempts; only trusted human input resets used.
-export function createRequestBudget({ fetchImpl, document }) {
-  let used = 0;
-  const stopInput = listenForHumanInput(document, () => { used = 0; });
-  return {
-    get used() { return used; },
-    async fetch(path, init) {
-      if (used >= TAB_REQUEST_LIMIT) throw Object.assign(new Error('Automatic reads paused. Interact with this page to continue.'), { code: 'request_budget_exhausted' });
-      used++;
-      return fetchImpl(path, { ...init, redirect: 'error' });
-    },
-    dispose: stopInput,
-  };
+const refillMs = 1_000;
+const capacity = TAB_REQUEST_LIMIT * refillMs;
+const pauseMessage = 'Updates paused. Trying again shortly.';
+
+// eslint-disable-next-line no-restricted-syntax -- Cap the document burst at 600 attempts and refill one request per second.
+export function createRequestBudget({ fetchImpl, onPauseChange = () => {} }) {
+  let credit = capacity, refilledAt = performance.now();
+  let paused = false;
+
+  async function fetch(path, init, { waitForBudget = false } = {}) {
+    const signal = init?.signal;
+    // eslint-disable-next-line no-restricted-syntax -- Only deadline-bound callers wait, one timeout per request until a token refills.
+    while (true) {
+      signal?.throwIfAborted();
+      const now = performance.now();
+      const elapsed = Math.min(capacity, Math.max(0, now - refilledAt));
+      credit = Math.min(capacity, credit + elapsed);
+      refilledAt = now;
+      if (credit >= refillMs) {
+        credit -= refillMs;
+        break;
+      }
+      if (!paused) {
+        paused = true;
+        onPauseChange(pauseMessage);
+      }
+      if (!waitForBudget || !signal) throw Object.assign(new Error(pauseMessage), { code: 'request_budget_exhausted' });
+      // eslint-disable-next-line no-restricted-syntax -- Wait at most one second per timeout and check the caller's abort signal before sending.
+      await new Promise(resolve => setTimeout(resolve, refillMs - credit));
+    }
+
+    const response = await fetchImpl(path, { ...init, redirect: 'error' });
+    if (paused && (response.ok || response.status === 304) && ['GET', 'HEAD'].includes(init?.method?.toUpperCase() ?? 'GET')) {
+      paused = false;
+      onPauseChange(null);
+    }
+    return response;
+  }
+  return { fetch };
 }

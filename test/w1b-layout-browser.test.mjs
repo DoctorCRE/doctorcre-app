@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
-import { animationsSettled, chromium, waitForAsync, settles, WAIT_MS } from './browser-harness.mjs';
+import { animationsSettled, chromium, waitForAsync, settles, WAIT_MS, returnToTab } from './browser-harness.mjs';
 import { createFixtureClient } from '../js/fixture-client.js';
 import { workspace, detail, id, emptyQuietFollowUps } from './leads-workspace-fixture.mjs';
 import { atlasFixtureResponse } from '../scripts/atlas-fixture.mjs';
@@ -464,7 +464,7 @@ test('R1 Lead detail clears immediately while resume revalidation is delayed',as
  let release;const pending=new Promise(resolve=>release=resolve);t.after(()=>release());
  const requested=page.waitForRequest(r=>r.url().endsWith('/api/system-work/session'));
  await page.route('**/api/system-work/session',async route=>{await pending;await route.fulfill({json:{actor:{slug:'dell'}}});});
- await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
+ await returnToTab(page);
  await page.waitForFunction(()=>document.querySelectorAll('.lead-card').length===0);
  assert.equal(await page.locator('#leadDetail').evaluate(n=>n.open),false);assert.equal(await page.locator('#detailBody').textContent(),'');await requested;release();
 });

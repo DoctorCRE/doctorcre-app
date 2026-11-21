@@ -50,7 +50,8 @@ export function offlineTourSession(window) {
       if (shared) {
         try { window.localStorage.setItem(SESSION_EPOCH_KEY, window.crypto.randomUUID()); } catch { /* Offline restore requires storage. */ }
       }
-      try { clear(); } finally { window.dispatchEvent(new window.Event('doctorcre-offline-session-revoked')); }
+      try { clear(); } catch { /* Private storage may be blocked. */ }
+      window.dispatchEvent(new window.Event('doctorcre-offline-session-revoked'));
       await clearPrivateStorage(window, { shared });
     },
   };

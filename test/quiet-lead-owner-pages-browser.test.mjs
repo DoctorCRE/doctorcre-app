@@ -152,7 +152,7 @@ test('quiet badges and research clear on hidden, reject delayed reads, resume an
   for (const kind of ['board', 'detail', 'quiet']) assert.ok(afterResume[kind] > beforeResume[kind], `visible return reads fresh ${kind}`);
   await holdReads();
   await page.evaluate(() => {
-    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+    window.dispatchEvent(new PageTransitionEvent('pagehide'));
     app.dispose();
     app.dispose();
   });
