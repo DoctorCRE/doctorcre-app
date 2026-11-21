@@ -83,15 +83,29 @@ async function open(t, { width = 390, reducedMotion = "reduce", denied = false, 
   await page.waitForFunction(() => !document.querySelector("#day-record").disabled);
   return { page, context, requests, errors, current, origin, setActor(value) { actor = value; }, refuse() { refuse = true; }, failConnection(session, shell) { sessionFailure = session; shellFailure = shell; } };
 }
-const record = async page => {
+async function startRecording(page) {
   await page.locator("#day-record").click();
-  await page.waitForFunction(() => document.querySelector("#day-record").hasAttribute("data-recording")).catch(async error => { throw new Error(JSON.stringify(await page.evaluate(() => ({ status: document.querySelector('#day-status').textContent, visibility: document.visibilityState, text: document.querySelector('#day-record').textContent, states: window.syntheticRecorders.map(r => r.state), errors: window.syntheticRecordingErrors, mic: window.syntheticMicEvents }))) + ' ' + error.message); });
-  await page.waitForFunction(() => window.syntheticRecorders.some(r => r.state === "recording")).catch(async error => { throw new Error(JSON.stringify(await page.evaluate(() => ({ errors: window.syntheticRecordingErrors, mic: window.syntheticMicEvents, count: window.syntheticRecorders.length, status: document.querySelector("#day-status").textContent, recording: document.querySelector("#day-record").hasAttribute("data-recording") }))) + error.message); });
-  await page.waitForTimeout(1300);
-  await page.locator("#day-record").click();
-  await page.waitForFunction(() => !document.querySelector("#day-record").hasAttribute("data-recording"));
-  await page.waitForFunction(() => document.querySelector(".note-card")?.textContent.includes("Saved on phone")).catch(async error => { throw new Error(await page.locator("#tour-day").textContent() + error.message); });
-};
+  // Chromium can emit MP4 headers before it emits playable audio.
+  await page.waitForFunction(() => window.syntheticChunks.some(chunk => chunk.size > 1024)).catch(async error => {
+    const recording = await page.evaluate(() => ({
+      status: document.querySelector("#day-status").textContent,
+      states: window.syntheticRecorders.map(recorder => recorder.state),
+      errors: window.syntheticRecordingErrors,
+      mic: window.syntheticMicEvents,
+    }));
+    throw new Error(JSON.stringify(recording) + " " + error.message);
+  });
+}
+
+function waitForSavedNote(page) {
+  return page.locator(".note-card .note-state").filter({ hasText: "Saved on phone" }).waitFor();
+}
+
+async function record(page) {
+  await startRecording(page);
+  await page.locator("#day-record[data-recording]").click();
+  await waitForSavedNote(page);
+}
 
 test("W16 desktop and phone renders: reachable capture, wide Details, full width and reduced motion", async t => {
   await mkdir(new URL("out/test-artifacts/w16/", root), { recursive: true });
@@ -197,14 +211,13 @@ test('R2: shared shell sign-out revokes the offline account binding', async t =>
 
 test('R6: another tab cannot finalize a live owner recording', async t => {
   const { page, context, origin } = await open(t);
-  await page.locator('#day-record').click(); await page.waitForFunction(() => window.syntheticRecorders[0]?.state === 'recording');
-  await page.waitForTimeout(1300);
+  await startRecording(page);
   const second = await context.newPage(); await second.goto(`${origin}/tours/day.html?tour=${tourId}`); await second.waitForSelector('.note-card');
   assert.equal(await page.evaluate(() => window.syntheticRecorders[0].state), 'recording');
   assert.match(await second.locator('.note-card').textContent(), /Recording/);
   assert.doesNotMatch(await second.locator('.note-card').textContent(), /Saved on phone/);
-  await page.locator('#day-record').click(); await page.waitForFunction(() => document.querySelector('.note-card')?.textContent.includes('Saved on phone'));
-  await second.locator('#day-refresh').click(); await second.waitForFunction(() => document.querySelector('.note-card')?.textContent.includes('Saved on phone'));
+  await page.locator('#day-record[data-recording]').click(); await waitForSavedNote(page);
+  await second.locator('#day-refresh').click(); await waitForSavedNote(second);
 });
 
 test('R10: ordered list and dock share one restored selection', async t => {
