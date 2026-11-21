@@ -726,7 +726,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   });
   $("clearMarket").addEventListener("click", () => { state.filters.market = ""; render(); });
   $("marketCounts").addEventListener("click", event => { const button = event.target.closest("[data-market]"); if (button) selectMarket(button.dataset.market); });
-  $("refreshBoard").addEventListener("click", refresh);
+  $("refreshBoard").addEventListener("click", () => { refresh(); });
   $("checkDetailPending").addEventListener("click", executePending);
   $("closeDetail").addEventListener("click", () => $("leadDetail").close());
   $("closeStage").addEventListener("click", () => $("stageDialog").close());
