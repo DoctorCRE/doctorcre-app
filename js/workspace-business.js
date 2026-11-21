@@ -866,11 +866,11 @@ function renderRecordPanel() {
 function clientActivityList(rows) {
   return `<ol class="activity-list client-activity">${rows.map((row, index) => {
     const text = escapeHtml(row.what);
-    const entry = row.dealId
-      ? `<a href="${dealHref(row.dealId)}">${text}</a>`
-      : row.email
-        ? `<details data-details-key="email-${escapeHtml(row.when)}-${index}"><summary>${text}</summary><p class="entry-detail">${escapeHtml(row.email)}</p></details>`
-        : text;
+    const link = row.dealId ? `<a href="${dealHref(row.dealId)}">${text}</a>` : "";
+    const disclosure = row.email
+      ? `<details data-details-key="email-${escapeHtml(row.when)}-${index}"><summary>${link ? "Read email" : text}</summary><p class="entry-detail">${escapeHtml(row.email)}</p></details>`
+      : "";
+    const entry = link + disclosure || text;
     return `<li class="activity-row"><span class="activity-dot" aria-hidden="true"></span><div class="activity-what">${entry}</div>${row.when ? `<time class="activity-when">${escapeHtml(formatMoment(row.when))}${row.source ? ` · ${escapeHtml(row.source)}` : ""}</time>` : ""}</li>`;
   }).join("")}</ol>`;
 }

@@ -403,8 +403,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
       const { name, arguments: args } = route.request().postDataJSON().params;
       if (name !== 'find-and-catch-up') return route.fallback();
       const entries = [
-        { verb: 'email', email_subject: 'Lease update', summary: 'Email to demo@example.test: Lease update', deal_id: deal.id },
-        { verb: 'email', email_subject: '', summary: 'Email from demo@example.test: (no subject)', detail: 'The saved email body.' },
+        { verb: 'email', email_subject: 'Lease update', summary: 'Email to demo@example.test: Lease update', deal_id: deal.id, detail: 'The updated lease is ready.' },
+        { verb: 'email', summary: 'Email from demo@example.test: (no subject)', detail: 'The saved email body.' },
         { verb: 'call', summary: 'Called about timing', actor: 'agent' },
         { verb: 'note', summary: 'Earlier note' },
       ];
@@ -434,7 +434,13 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await panel.getByText('More', { exact: true }).click();
     assert.match(await panel.innerText(), /The last sentence stays whole\./);
     const activity = panel.getByRole('region', { name: 'Recent activity' });
-    assert.equal(await activity.getByRole('link', { name: 'Email · Lease update' }).getAttribute('href'), url);
+    const linkedEmail = activity.getByRole('listitem').filter({ hasText: 'Email · Lease update' });
+    assert.equal(await linkedEmail.getByRole('link', { name: 'Email · Lease update' }).getAttribute('href'), url);
+    assert.equal(await linkedEmail.getByText('The updated lease is ready.').isVisible(), false);
+    const readEmail = linkedEmail.getByText('Read email', { exact: true });
+    assert.equal(await readEmail.isVisible(), true);
+    await readEmail.click();
+    assert.equal(await linkedEmail.getByText('The updated lease is ready.').isVisible(), true);
     const recent = await activity.innerText();
     assert.doesNotMatch(recent, /demo@example\.test|old_system|· agent|\(no subject\)/);
     assert.match(recent, /Old system/);
