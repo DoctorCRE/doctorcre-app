@@ -25,6 +25,7 @@ const pages = [
   ...Object.keys(routeContract.routes)
     .filter((path) => !["/", "/share", "/client-portal"].includes(path))
     .map((path) => path.replace(":boardId", "carr-v5").replace(/:\w+/g, id)),
+  "/?view=charts",
   "/deals?view=national",
   "/deals?view=review",
   "/deals?view=dropped-prospect",
@@ -96,6 +97,18 @@ async function open(
           : { items: [] };
     return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
   });
+  await page.route("**/api/engine/home/inbox?view=dashboard", (route) =>
+    route.fulfill({
+      json: {
+        ok: true,
+        schema_version: "home-inbox.v5",
+        home_mark_drop: true,
+        home_proposal_drop: true,
+        reminders: { count: 1, items: [{ item_id: "example-reminder", card_id: "example-reminder" }] },
+        waiting: { count: 0, items: [] },
+      },
+    }),
+  );
   await page.route("**/api/engine/home/today", (route) => {
     readToday.push(route.request().method());
     return route.fulfill({
@@ -142,6 +155,14 @@ async function open(
             {
               kind: "step",
               owner: "joe",
+              title: "Call the example lead",
+              due_on: "2026-11-16",
+              home_item_id: "example-lead-step",
+              open_url: "/leads?lead=example",
+            },
+            {
+              kind: "step",
+              owner: "joe",
               title: "Check the former office",
               due_on: "2026-11-15",
               days_late: 4,
@@ -175,6 +196,13 @@ async function open(
   assert.equal(navigation?.status(), 200);
   return { page, today: page.getByRole("complementary", { name: "Today", exact: true }), legacy, readToday };
 }
+
+test("Today links a reminder missing from the Home grid to its record", async (t) => {
+  const { today } = await open(t, "/invoices");
+  const link = today.getByRole("link", { name: /Call the example lead/ });
+  await link.waitFor();
+  assert.equal(await link.getAttribute("href"), "/leads?lead=example");
+});
 
 for (const path of pages)
   test(`Engine Today on ${path}`, async (t) => {

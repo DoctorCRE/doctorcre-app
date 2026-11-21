@@ -182,7 +182,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (i + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
     items[next]?.focus();
   });
-  if (pathname === '/') {
+  if (pathname === '/' && new URLSearchParams(win.location.search).get('view') !== 'charts') {
     today = false;
     paint();
     todayToggle.remove();

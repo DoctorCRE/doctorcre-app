@@ -198,6 +198,7 @@ test('Home performance card opening survives calendar, month and Chicago DST bou
         await page.clock.setFixedTime(new Date(now));
         await applyPhoneProfile(context, page);
         await page.goto(server.url + home.route, { waitUntil: 'networkidle' });
+        assert.equal(await page.evaluate(() => new Date().toISOString()), new Date(now).toISOString());
         await page.locator(home.ready).first().waitFor();
         await page.locator(home.tap).first().tap();
         await page.waitForFunction(home.complete);

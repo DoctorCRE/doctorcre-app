@@ -58,7 +58,8 @@ async function open(t,{holdPipelineBoot=false,width=1440,height=960,hasTouch=fal
     const remaining=()=>Math.max(1,deadline-performance.now());
     try{
       await page.goto('http://localhost'+path,{timeout:remaining()});
-      await page.locator('#appSyncTime[datetime]').waitFor({state:'attached',timeout:remaining()});
+      const ready=path==='/'?'#homeRoot[data-home-ready]':'#appSyncTime[datetime]';
+      await page.locator(ready).waitFor({state:'attached',timeout:remaining()});
       if(path.startsWith('/leads')) await page.locator('.lead-card').first().waitFor({timeout:remaining()});
       if(path.startsWith('/deals?view=board')) await page.locator('.kanban-card[data-id="d14"]').waitFor({timeout:remaining()});
     }catch(error){
