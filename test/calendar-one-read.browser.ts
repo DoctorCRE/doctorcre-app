@@ -33,6 +33,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
         await page.clock.setFixedTime(new Date("2026-10-20T15:00:00Z"));
         await page.addInitScript((theme) => {
           localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme }));
+          localStorage.setItem("doctorcre:today", "closed");
         }, theme);
         await page.route("**/*", async (route) => {
           const request = route.request();
@@ -106,6 +107,12 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             data: request.postData() ?? undefined,
             headers: { "content-type": "application/json" },
           });
+          if (url.pathname === "/calendar") {
+            return route.fulfill({
+              response,
+              body: (await response.text()).replace("<html ", "<html data-home-today-from-engine "),
+            });
+          }
           return route.fulfill({ response });
         });
         try {
@@ -113,7 +120,23 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             data: { namespace: `calendar-one-read-${width}-${theme}`, reset: true },
           });
           await page.goto(`${app}/calendar?view=month&d=2026-10-01&day=2026-10-20`);
-          await expect(page.locator("#calStatusLabel")).toHaveText("Current");
+          await expect(page.locator("#calAsOf")).toContainText("Updated");
+          await expect(page.locator("#calStatus")).toHaveCount(0);
+          await expect(page.getByText("Critical dates from open deals")).toHaveCount(0);
+          await expect(page.getByRole("button", { name: "Close Today" })).toHaveCount(0);
+          await expect(page.getByRole("button", { name: "Today sidebar" })).toHaveCount(0);
+          const geometry = await page.evaluate(() => {
+            const box = (id: string) => document.getElementById(id)?.getBoundingClientRect();
+            return {
+              arrowsBracketTitle:
+                Number(box("calPrev")?.right) <= Number(box("calPeriod")?.left) &&
+                Number(box("calPeriod")?.right) <= Number(box("calNext")?.left),
+              panelBesideGrid: Number(box("dayPanel")?.left) >= Number(box("calGrid")?.right),
+              panelBelowGrid: Number(box("dayPanel")?.top) >= Number(box("calGrid")?.bottom),
+            };
+          });
+          assert.equal(geometry.arrowsBracketTitle, true);
+          assert.equal(width === 1440 ? geometry.panelBesideGrid : geometry.panelBelowGrid, true);
           const panel = page.locator("#dayPanelBody");
           const step = panel.locator(".cal-day-entry").filter({ hasText: "Send revised offer" });
           await expect(step).toContainText("Next step · Joe");
@@ -129,20 +152,39 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
           await expect(page.locator("#calCount")).toHaveText("5 next steps · 2 critical dates");
           await expect(page.locator("#calGrid .cal-chip")).toHaveCount(7);
-          await expect(page.locator("#calAgenda .cal-agenda-item")).toHaveCount(7);
+          await expect(page.locator("#calAgenda .cal-agenda-item")).toHaveCount(5);
           await expect(page.locator("#dayPanelBody .cal-day-entry")).toHaveCount(2);
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
           await page.screenshot({ path: join(evidence, `month-${width}-${theme}.png`), fullPage: true });
+          if (width === 390) {
+            await page.locator("#dayPanel").scrollIntoViewIfNeeded();
+            await page.screenshot({ path: join(evidence, `day-${width}-${theme}.png`) });
+          }
 
-          await page.getByRole("button", { name: "Week", exact: true }).click();
+          await page.getByRole("button", { name: "Oct 22 1 next step" }).click();
+          await expect(panel).toContainText("Confirm suite availability");
+          await expect(panel).toContainText("Next step · Dell");
+          await expect(panel.getByRole("link", { name: "Example clinic" })).toHaveAttribute(
+            "href",
+            "/relationships?node=party:example-clinic",
+          );
+          await page.getByRole("button", { name: "Jump to today" }).click();
+          await expect(step).toBeVisible();
+          const week = page.getByRole("button", { name: "Week", exact: true });
+          await expect(week).toHaveCSS("border-top-width", "0px");
+          const background = await week.evaluate((node) => getComputedStyle(node).backgroundColor);
+          await week.hover();
+          await expect(week).not.toHaveCSS("background-color", background);
+          await week.click();
+          await expect(week).toHaveAttribute("aria-pressed", "true");
           await expect(page.locator("#calCount")).toHaveText("3 next steps · 1 critical date");
-          await expect(page.locator("#calAgenda .cal-agenda-item")).toHaveCount(4);
+          await expect(page.locator("#calGrid .cal-chip")).toHaveCount(4);
           await page.getByRole("button", { name: "Month", exact: true }).click();
           await page.getByRole("button", { name: "Next month" }).click();
           await expect(page.locator("#calCount")).toHaveText("1 critical date");
           await page.getByRole("button", { name: "Next month" }).click();
           await expect(page.locator("#calCount")).toHaveText("0 items");
-          await expect(page.locator("#calAgenda")).toHaveText("No critical dates this month.");
+          await expect(page.locator("#calState")).toHaveText("No critical dates or next steps this month.");
           await expect(page.locator("#calGrid .cal-chip")).toHaveCount(0);
           assert.deepEqual(reads, [calendarRead]);
 

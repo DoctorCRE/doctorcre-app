@@ -42,6 +42,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   if (root.getElementById('appLayout')) return;
   const win = root.defaultView || globalThis.window;
   const pageKey = pathname === '/deals' ? '/deals' : pathname;
+  const calendarPanel = pathname === '/calendar' && root.getElementById('dayPanel');
   const boardPage = ['/leads','/deals','/pipeline'].includes(pathname);
   const vendorDirectory = pathname === '/vendors';
   const homeOrInbox = pathname === '/' || pathname === '/review-workflows' || pathname === '/inbox' || pathname === '/inbox.html' || pathname.startsWith('/inbox/card/');
@@ -99,6 +100,11 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   } catch {}
   const sidebarToggle = layout.querySelector('#appSidebarToggle'), todayToggle = layout.querySelector('#appTodayToggle');
   sidebarToggle.hidden = engineToday;
+  if (calendarPanel) {
+    today = false;
+    todayToggle.remove();
+    layout.querySelector('[data-layout-close="today"]').remove();
+  }
   const paint = () => {
     layout.dataset.sidebar = sidebar ? 'open' : 'closed'; layout.dataset.today = today ? 'open' : 'closed'; layout.dataset.drawer = drawer || '';
     const leftOpen = phone.matches ? drawer === 'sidebar' : sidebar;
@@ -160,7 +166,8 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   phone.addEventListener('change', () => { drawer = null; paint(); });
   paint();
   root.addEventListener('doctorcre:open-today', () => {
-    if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
+    if (calendarPanel) calendarPanel.scrollIntoView({ block: 'start' });
+    else if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
     else openRegion('today');
   });
   // Page tab controllers retain selection and lazy reads. Give groups without
@@ -183,6 +190,11 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (i + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length;
     items[next]?.focus();
   });
+  if (calendarPanel && engineToday) {
+    tabs.closest('.app-layout-tabbar').remove();
+    status.querySelector('#appSyncRefresh').onclick = () => root.getElementById('calRefresh').click();
+    return;
+  }
   const boot = resolveDealroomBoot(globalThis.location);
   const homeToday = engineToday
     ? import('./ui-home-today.generated.js').then(module => module.mountHomeTodayPanel(layout.querySelector('#appToday'), async signal => {

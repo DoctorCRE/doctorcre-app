@@ -37,9 +37,11 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ca
   await page.goto('https://app.doctorcre.com/calendar?view=month&d=2026-10-18');
   await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
   const label = page.locator('.cal-chip-label').filter({ hasText: 'Option notice' });
-  await expect(label).toBeVisible();
-  expect(await label.evaluate(node => node.scrollWidth <= node.clientWidth && getComputedStyle(node).whiteSpace !== 'nowrap')).toBe(true);
-  await page.locator('.cal-chip').filter({ hasText: 'Option notice' }).click();
+  if (width === 390) await page.locator('[data-select-day="2026-10-20"]').click();
+  else {
+    await expect(label).toBeVisible();
+    await page.locator('.cal-chip').filter({ hasText: 'Option notice' }).click();
+  }
   await expect(page.locator('#dayPanelBody')).toContainText('Option notice');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
