@@ -55,8 +55,8 @@ const snoozeDate = new Intl.DateTimeFormat("en-US", {
 const cardTitle = ":is(h3 a, h3[tabindex])";
 const visibleRow = (node: HTMLElement) => !node.closest("details:not([open])") && node.getClientRects().length > 0;
 const isEngineStep = (item: InboxItem) => item.engine_marks && item.source_type === "next_action";
-const isDoneDealStep = (item: InboxItem) =>
-  isEngineStep(item) && item.presentation?.primaryAction === "Open" && item.deal_id !== null;
+const isDoneStep = (item: InboxItem) =>
+  item.engine_marks && item.section === "done" && item.source_state === "done" && item.action_id !== null;
 const canSnooze = (item: InboxItem) => !item.engine_marks || (item.section === "inbox" && markTarget(item.item_id));
 export function inboxRefusal(code: unknown): string {
   switch (code) {
@@ -447,7 +447,7 @@ function Inbox({ client }: { client: InboxClient }) {
     const opener = root.current?.querySelector<HTMLElement>(`[data-current="true"] ${cardTitle}`);
     if (!opener) return;
     openedLink.current = route.key;
-    if (isEngineStep(item) && !isDoneDealStep(item)) {
+    if (isEngineStep(item) && !isDoneStep(item)) {
       opener.focus();
       opener.scrollIntoView({ block: "center" });
     } else {
@@ -503,13 +503,13 @@ function Inbox({ client }: { client: InboxClient }) {
     const deal = item.deal_id ? `/deals?deal=${encodeURIComponent(item.deal_id)}` : null;
     const recordedSource = recordRoutes.source(item);
     const checklistUrl = namedAction === "Open checklist item" ? recordRoutes.checklist(item) : null;
-    const directUrl = checklistUrl ?? (isEngineStep(item) && !isDoneDealStep(item) ? recordedSource : null);
-    const canOpen = Boolean(presentation) || !isEngineStep(item) || directUrl !== null;
+    const directUrl = checklistUrl ?? (isEngineStep(item) && !isDoneStep(item) ? recordedSource : null);
+    const canOpen = Boolean(presentation) || isDoneStep(item) || !isEngineStep(item) || directUrl !== null;
     function openDetails(opener: HTMLElement) {
       if (directUrl) location.assign(directUrl);
       else openCard(item, opener);
     }
-    const source = isDoneDealStep(item) ? deal : (recordedSource ?? deal);
+    const source = isDoneStep(item) && isEngineStep(item) && deal ? deal : (recordedSource ?? deal);
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
@@ -529,15 +529,24 @@ function Inbox({ client }: { client: InboxClient }) {
                   ? completionLabel(item)
                   : !item.engine_marks && "Ready for your attention");
     const hold = item.hold_until && `On hold until ${cardDate.format(new Date(item.hold_until))}`;
+    const propertyFeedback =
+      feedbackReview &&
+      source &&
+      sourcePage === "deal" &&
+      new URL(source, "https://doctorcre.invalid").searchParams.has("property");
     const linkedRecord = source && (
       <a className="inbox-source" href={source}>
-        {sourcePage === "call" ? "Call summary" : (namedRecord && item.context_label) || `Open ${sourcePage}`}
+        {propertyFeedback
+          ? "Open property"
+          : sourcePage === "call"
+            ? "Call summary"
+            : (namedRecord && item.context_label) || `Open ${sourcePage}`}
       </a>
     );
     return (
       <article
         key={item.item_id}
-        className={presentation ? "inbox-row inbox-row-explained" : "inbox-row"}
+        className={presentation || isDoneStep(item) ? "inbox-row inbox-row-explained" : "inbox-row"}
         data-inbox-row={item.item_id}
         data-current={item_id === item.item_id || undefined}
         onTouchStart={(event) => {
@@ -665,7 +674,7 @@ function Inbox({ client }: { client: InboxClient }) {
             {!presentation && !waitingCard && canOpen && (
               <button
                 type="button"
-                className={completable || tourDone || reviewLabel || reopenable ? undefined : "inbox-primary"}
+                className={completable || tourDone || reviewLabel ? undefined : "inbox-primary"}
                 aria-expanded={directUrl ? undefined : open}
                 disabled={openingLocked}
                 onClick={(event) => openDetails(event.currentTarget)}
@@ -687,7 +696,6 @@ function Inbox({ client }: { client: InboxClient }) {
             {reopenable && (
               <button
                 type="button"
-                className={presentation ? undefined : "inbox-primary"}
                 disabled={busy || !!pending || !!reviewing}
                 onClick={() => act("reopen", [item], undefined, true)}
               >
@@ -778,8 +786,8 @@ function Inbox({ client }: { client: InboxClient }) {
             }}
           >
             {!item.engine_marks && due && <p>Due {due}</p>}
-            {presentation && (feedbackReview || namedAction === "Open") && <p>{presentation.why}</p>}
-            {namedAction === "Open" && <p>{completionLabel(item)}</p>}
+            {presentation && (feedbackReview || isDoneStep(item)) && <p>{presentation.why}</p>}
+            {isDoneStep(item) && <p>{completionLabel(item)}</p>}
             {linkedRecord}
             {feedbackReview && tourDone && (
               <div className="inbox-actions">

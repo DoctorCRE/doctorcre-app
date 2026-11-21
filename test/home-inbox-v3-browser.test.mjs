@@ -271,11 +271,15 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   const question = title => today.locator('[data-review]').filter({ hasText: title });
   const log = question('Example site tour');
   await log.waitFor({ timeout: 5000 });
-  assert.equal(await page.getByText('Example site tour', { exact: true }).count(), 1);
+  await log.getByRole('heading', { name: 'Example site tour was scheduled — confirm it happened' }).waitFor();
+  assert.match(await log.locator('.work-card-meta').innerText(), /Scheduled for Nov 19/);
+  assert.equal(await log.getByRole('button', { name: 'It happened' }).count(), 0);
+  await log.getByRole('button', { name: 'Review meeting', exact: true }).click();
   await log.getByLabel('Deal').selectOption(deal.id);
   await page.screenshot({ path: `test-artifacts/inbox-v3/engine-today-${width}.png`, animations: 'disabled' });
   await log.getByRole('button', { name: 'It happened' }).click();
   await today.getByText('Meeting logged on Example Dental.').waitFor();
+  await question('Example financing call').getByRole('button', { name: 'Review meeting', exact: true }).click();
   await question('Example financing call').getByRole('button', { name: 'Dismiss' }).click();
   await today.getByText('Meeting dismissed.', { exact: true }).waitFor();
   assert.equal(await today.locator('[data-review]').count(), 0);
@@ -340,8 +344,10 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   todayFailure = null;
   await page.reload();
   if (!(await today.isVisible())) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
+  await log.getByRole('button', { name: 'Review meeting', exact: true }).click();
   await log.getByRole('button', { name: 'Dismiss' }).click();
   await today.getByText('Meeting already logged.', { exact: true }).waitFor();
+  await question('Example financing call').getByRole('button', { name: 'Review meeting', exact: true }).click();
   await question('Example financing call').getByRole('button', { name: 'Dismiss' }).click();
   await today.getByText('Meeting already dismissed.', { exact: true }).waitFor();
   assert.equal(await today.locator('[data-review]').count(), 0);
@@ -435,11 +441,19 @@ async function meetingAnswerFixture(t, { remindersUnavailable = false } = {}) {
   await page.goto(`${server.origin}/?mode=live`);
   const today = page.getByRole('complementary', { name: 'Today', exact: true });
   const question = index => today.locator(`[data-review="${reviews[index].key}"]`);
+  const openReview = async index => {
+    const review = question(index).getByRole('button', { name: 'Review meeting', exact: true });
+    if (await review.getAttribute('aria-expanded') !== 'true') await review.click();
+  };
   const log = async index => {
+    await openReview(index);
     await question(index).getByLabel('Deal').selectOption(deal.id);
     await question(index).getByRole('button', { name: 'It happened' }).click();
   };
-  const dismiss = index => question(index).getByRole('button', { name: 'Dismiss', exact: true }).click();
+  const dismiss = async index => {
+    await openReview(index);
+    await question(index).getByRole('button', { name: 'Dismiss', exact: true }).click();
+  };
   return { page, data, reviews, receipts, attempts, today, question, log, dismiss,
     refresh: () => page.locator('#appSyncRefresh').evaluate(button => button.click()) };
 }
@@ -468,7 +482,7 @@ test('an unconfirmed meeting log replays the original request after the title an
   reviews[0].title = 'Rescheduled example meeting';
   data.board = { deals: [] };
   await refresh();
-  await question(0).getByText(reviews[0].title, { exact: true }).waitFor();
+  await question(0).getByRole('heading', { name: `${reviews[0].title} was scheduled — confirm it happened` }).waitFor();
   assert.equal(await question(0).getByLabel('Deal').count(), 0);
   await check.click();
   await today.getByText('Meeting already logged.', { exact: true }).waitFor();
@@ -478,6 +492,7 @@ test('an unconfirmed meeting log replays the original request after the title an
 
 test('malformed meeting deal results report a load failure and leave Retry Today available', async t => {
   const { data, question, today, refresh } = await meetingAnswerFixture(t);
+  await question(0).getByRole('button', { name: 'Review meeting', exact: true }).click();
   await question(0).getByLabel('Deal').waitFor();
   data.board = { deals: null };
   await refresh();

@@ -656,7 +656,13 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   });
 
   const id = number => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
-  const deal = id(1), step = id(2), checklist = id(3), otherStep = id(4), reviewStep = id(5);
+  const deal = id(1), step = id(2), checklist = id(3), otherStep = id(4), reviewStep = id(5), property = id(14);
+  await page.route('**/api/tours/property-evidence/v1?*', route => {
+    const selected = new URL(route.request().url()).searchParams.get('property_id');
+    return route.fulfill({ json: { data: { schema: 'tour-property-evidence.v1', property_id: selected,
+      facts: { site_address: { status: 'reviewed', value: selected === property ? '100 Cedar Suite' : '200 Other Suite' } },
+    } } });
+  });
   const dealUrl = `/deals?deal=${deal}`;
   const stepUrl = id => `${dealUrl}&focus=next-step&step=${id}`;
   const row = (number, source_type, title, why, primary_action, fields = {}) => ({
@@ -687,10 +693,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   const requirement = row(18, 'notification', 'Checklist item due for Example Dental — read attorney comments',
     'The attorney comments are ready.', 'Open checklist item', { kind_label: 'Update', checklist_item_ref: 'attorney_comments' });
   const feedback = row(7, 'notification', 'Tour feedback on Cedar Suite — review feedback', 'The exam rooms are bright. Recorded Nov 3, 2026.',
-    'Review feedback', { kind: 'tour_feedback', kind_label: 'Tour feedback', open_url: `${dealUrl}&property=${id(14)}` });
+    'Review feedback', { kind: 'tour_feedback', kind_label: 'Tour feedback', open_url: `${dealUrl}&property=${property}` });
   const ownDone = row(15, 'next_action', 'Follow-up completed for Example Dental — send the brochure', 'Pat had asked for a brochure.', 'Open',
     { ...completed, action_id: id(15), action_version: 1, undo_completion: true, open_url: `${dealUrl}&focus=next-step` });
-  const otherDone = row(4, 'next_action', 'Follow-up completed for Example Dental — send the brochure cover', 'The cover was requested separately.', 'Open',
+  const otherDone = row(4, 'next_action', 'Follow-up completed for Example Dental — send the brochure cover', undefined, 'Open',
     { ...completed, action_id: otherStep, action_version: 1, undo_completion: false, open_url: `${dealUrl}&focus=next-step` });
   const legacy = row(16, 'email_proposal', 'Pat Example · Sample lease', undefined, undefined,
     { item_id: `suggestion:${id(16)}`, kind_label: 'Suggestion', deal_id: null, suggestions: [{ id: id(17) }] });
@@ -744,7 +750,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
     await page.screenshot({ path: join(process.env.HOME_CARD_SCREENSHOTS, `home-${width}-${theme}.png`), fullPage: true });
   }
 
-  for (const item of [task, followUp, reminder, requirement, completion, meeting, call, feedback, ownDone, otherDone]) {
+  for (const item of [task, followUp, reminder, requirement, completion, meeting, call, feedback, ownDone]) {
     const title = card(item).getByRole('heading', { name: item.title, exact: true });
     assert.equal(await title.evaluate(heading => heading.nextElementSibling?.textContent), item.why);
     const box = await button(item).boundingBox();
@@ -786,11 +792,19 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   await button(feedback).click();
   const feedbackReview = card(feedback).getByRole('region', { name: /Details for/ });
   await feedbackReview.getByText(feedback.why, { exact: true }).waitFor();
-  assert.equal(await feedbackReview.getByRole('link', { name: 'Example Dental', exact: true }).getAttribute('href'), feedback.open_url);
+  await feedbackReview.getByRole('link', { name: 'Open property', exact: true }).click();
+  const propertyView = page.getByRole('region', { name: 'Property from tour feedback' });
+  await propertyView.getByText('100 Cedar Suite', { exact: true }).waitFor();
+  assert.equal(await propertyView.getByText('200 Other Suite', { exact: true }).count(), 0);
+  await open('/?mode=live');
+  await section('Needs your attention').getByRole('button', { name: /^See all/ }).click();
+  await button(feedback).click();
   await feedbackReview.getByRole('button', { name: 'Done', exact: true }).click();
   await card(feedback).waitFor({ state: 'detached' });
   assert.deepEqual(writes.at(-1), ['save-engine-home-mark', feedback.item_id, 'done']);
   await button(task).click();
+  const doneToday = section('Done today');
+  if (!(await button(task, 'Open').isVisible())) await doneToday.getByRole('button', { name: /^See all/ }).click();
   await button(task, 'Open').waitFor();
   assert.deepEqual(writes.at(-1), ['end-engine-home-step', step, 'done']);
   await button(reminder).click();
@@ -803,7 +817,6 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   await section('Done today').getByRole('button', { name: 'See all 2', exact: true }).click();
   await button(otherDone).click();
   const doneDetail = card(otherDone).getByRole('region', { name: /Details for/ });
-  await doneDetail.getByText(otherDone.why, { exact: true }).waitFor();
   await doneDetail.getByText(/^Done Nov 3, 2026/).waitFor();
   assert.equal(await doneDetail.getByRole('link', { name: 'Example Dental', exact: true }).getAttribute('href'), dealUrl);
 });
@@ -882,6 +895,11 @@ for (const width of [390, 1440]) test(`Home opens the exact prospect and Relatio
       await today.getByRole('button', { name: 'See all 2' }).click();
     }
     await page.getByRole('link', { name: title, exact: true }).click();
+    if (id === completedStep) {
+      const completed = page.getByRole('region', { name: `Details for ${title}` });
+      await completed.getByText(/^Done Nov 3/).waitFor();
+      await completed.getByRole('link', { name: 'Example contact', exact: true }).click();
+    }
     const dialog = page.getByRole('dialog', { name: isProspect ? 'Example Practice' : 'Example Contact' });
     const step = dialog.locator(':focus');
     await step.getByText(/Set by Example Partner · Nov 3.*10:00 AM CST · From an? (email|meeting)/).waitFor();
