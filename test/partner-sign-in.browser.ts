@@ -11,6 +11,7 @@ const partners = new Map([
   ["second", "dell"],
 ]);
 const deepLink = "/leads?mode=live&filter=open";
+const docLink = "/api/engine/doc/link";
 const pages = [
   "/invoices?mode=live",
   "/control-room/progress?mode=live",
@@ -30,6 +31,9 @@ async function app(
   let carrChecks = 0;
   let writes = 0;
   const live = new Set<string>();
+  const links = new Map<string, string>();
+  let issueCount = 0;
+  let loseIssueResponse = false;
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
     PARTNER_SIGN_IN: "engine",
     WORKSPACE_COMMAND_CENTER_READ_ENABLED: "true",
@@ -77,6 +81,27 @@ async function app(
             "set-cookie": `${cookieName}=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`,
           });
         }
+        if (path === docLink) {
+          if (input.method === "POST") {
+            links.set(token, "mac_off");
+            const credential = String(++issueCount).padStart(43, "a");
+            if (loseIssueResponse) {
+              loseIssueResponse = false;
+              return new Response(null, { status: 503 });
+            }
+            return Response.json({ credential }, { status: 201 });
+          }
+          const status = links.get(token) ?? "not_set_up";
+          return Response.json({
+            connected: status !== "not_set_up" && status !== "mac_off",
+            issued_at: links.has(token) ? "2026-01-01T00:00:00Z" : null,
+            status,
+          });
+        }
+        if (path === `${docLink}/revoke` && input.method === "POST") {
+          links.delete(token);
+          return new Response(null, { status: 204 });
+        }
         if (path === "/api/engine/leads") {
           if (input.method === "POST") writes++;
           return Response.json({ count: 0 });
@@ -103,8 +128,67 @@ async function app(
     },
     carrChecks: () => carrChecks,
     writes: () => writes,
+    setDocStatus: (status: string) => links.set("first", status),
+    loseNextDocIssue: () => {
+      loseIssueResponse = true;
+    },
   };
 }
+
+test("Doc settings show each Mac status and keep link codes private", async (t) => {
+  const { server, context, setDocStatus, loseNextDocIssue } = await app(t, { width: 390 });
+  const first = await context.newPage();
+  await first.goto(server.origin + deepLink);
+  await first.locator('#selfAvatar[aria-label*="account and settings"]').click();
+  await first.getByRole("link", { name: "Doc link", exact: true }).click({ timeout: 4000 });
+  assert.equal(first.url(), server.origin + "/updates#docLinkSettings");
+  const target = "/updates?mode=live#docLinkSettings";
+  await first.goto(server.origin + target);
+  const settings = first.getByRole("region", { name: "Doc link" });
+  await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
+
+  loseNextDocIssue();
+  await settings.getByRole("button", { name: "Make link code" }).click();
+  await settings.getByText("The code could not be shown. Replace it to get a new one.").waitFor();
+  await settings.getByRole("button", { name: "Replace link code" }).click();
+  const replacement = "2".padStart(43, "a");
+  const code = settings.getByText(replacement, { exact: true });
+  await code.waitFor();
+  assert.equal(await code.count(), 1);
+  assert.equal(await first.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
+  const otherContext = await (await browser)?.newContext();
+  assert.ok(otherContext);
+  t.after(() => otherContext.close());
+  const other = await otherContext.newPage();
+  await other.goto(server.origin + "/auth/callback/google?fixture=second&return_to=" + encodeURIComponent(target));
+  await other.getByText("Doc isn't set up on your Mac yet.").waitFor();
+  assert.equal(await other.getByText(replacement, { exact: true }).count(), 0);
+  assert.equal(await other.getByRole("button", { name: "Revoke link code" }).count(), 0);
+  const otherRevoke = await other.evaluate(
+    async (path) => (await fetch(path, { method: "POST", headers: { "x-carr-csrf": "fixture-second" } })).status,
+    docLink + "/revoke",
+  );
+  assert.equal(otherRevoke, 204);
+  await code.waitFor();
+
+  await first.reload();
+  const refresh = settings.getByRole("button", { name: "Refresh Doc status" });
+  await settings.getByText("Doc answers when your Mac is on.").waitFor();
+  assert.equal(await code.count(), 0);
+  for (const [status, copy] of [
+    ["signed_out", "Sign in to Claude Code on your Mac."],
+    ["plan_limited", "Doc is paused until your Claude plan resets."],
+    ["ready", "Doc is ready on your Mac."],
+  ] as const) {
+    setDocStatus(status);
+    await refresh.click();
+    await settings.getByText(copy, { exact: true }).waitFor();
+  }
+
+  await settings.getByRole("button", { name: "Revoke link code" }).click();
+  await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
+});
 
 for (const width of [390, 1440])
   for (const theme of ["light", "dark"] as const) {

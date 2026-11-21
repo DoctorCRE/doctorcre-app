@@ -30,6 +30,7 @@ import { createCommandDock } from "./command-dock.js";
 import { performCommand } from "./command-feedback.mjs";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
 import { createLiveClient } from "./live-client.js";
+import { sessionFetch } from "./private-session.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountPrefs, renderNotificationBadge } from "./shell.js";
 import { formatClock } from "./visual-system.js";
@@ -626,6 +627,12 @@ async function boot() {
     if (target) acknowledge(target.getAttribute("data-ack"));
   });
   const boot_ = resolveDealroomBoot(location);
+  const docLink = $("docLinkSettings");
+  if (docLink && boot_.mode === "live") {
+    void import("./ui-doc-link-settings.generated.js").then(({ mountDocLinkSettings }) => {
+      mountDocLinkSettings(docLink, sessionFetch);
+    }).catch(() => { docLink.textContent = "Couldn't load Doc link settings."; });
+  }
   const outage = params.get("outage");
   if (document.documentElement.hasAttribute("data-deals-saves-from-engine")) source = sources.engine;
   client = boot_.mode === "live"
