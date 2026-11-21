@@ -61,14 +61,7 @@ export function createLeadBoardClient(options = {}) {
     getIdealClientProfile: (filters = {}, options = {}) => rpc('ideal-client-profile', filters, false, options),
     getTerritoryStateBoard: (filters = {}) => rpc('territory-state-board', filters),
     listPracticeOrigination: ({signal, ...args} = {}) => rpc('list-practice-origination', args, false, {signal}),
-    getWorkspace: async () => {
-      const payload = validateLeadWorkspace(await rpc("lead-board", { workspace: "leads" }));
-      if (payload.leads.some(lead => lead.reachability !== undefined)) {
-        const { parseReachability } = await import('./ui-lead-reachability.generated.js');
-        payload.leads.forEach(lead => parseReachability(lead.reachability));
-      }
-      return payload;
-    },
+    getWorkspace: async () => validateLeadWorkspace(await rpc("lead-board", { workspace: "leads" })),
     getLeadDetail: async (lead, { correspondence_cursor, stage_history_cursor } = {}) => {
       const payload = validateLeadWorkspace(await rpc("lead-board", { workspace: "leads", lead_id: lead.id, ...(correspondence_cursor ? { correspondence_cursor } : {}), ...(stage_history_cursor ? { stage_history_cursor } : {}) }));
       if (payload.detail !== null) validateLeadDetail(payload.detail, lead.id);

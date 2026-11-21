@@ -15,7 +15,7 @@ import { pageDocContext, publishDocRead, selectDocRecord, setDocFilters } from '
 import { createLeadBoardClient, validateLeadWorkspace as validateWorkspace, validateLeadDetail as validateDetail } from "./leads-client.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import { BOARD_STAGES, FILTER_STAGES, stageLabel, normalizedStage, eligibleLead, leadTitle, marketKey, specialtyKey,
-  visibleLeads, marketCounts, stageReview, automaticMove, undoReview, leadTimestamp } from "./leads-model.js";
+  visibleLeads, marketCounts, stageReview, automaticMove, undoReview, leadTimestamp, leadReachability } from "./leads-model.js";
 import { mountTerritoryMap } from "./leads-territory-map.js";
 
 const validateLeadWorkspace = value => validateWorkspace(value, parseOpportunityTiming);
@@ -123,10 +123,10 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     }
     paintDetailFollowUp();
     const contactCohort = visibleLeads(cohort, { ...state.filters, reachability: "" });
-    const reachable = contactCohort.filter(lead => lead.reachability?.classification === "reachable").length;
+    const hasReachability = classification => contactCohort.some(lead => leadReachability(lead) === classification);
     $("reachabilityFilter").value = state.filters.reachability;
     $("reachabilityFilter").parentElement.hidden = !state.filters.reachability &&
-      (reachable === 0 || reachable === contactCohort.length);
+      !(hasReachability("reachable") && hasReachability("research"));
     if (state.identityReady) {
       setDocFilters(state.filters);
       if (state.board) publishDocRead("getWorkspace", { ...state.board, leads: shown });
@@ -299,13 +299,20 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       const next = await client.getWorkspace();
       if (epoch !== state.epoch) return;
       validateLeadWorkspace(next);
-      next.leads.forEach(lead => parseReachability(lead.reachability));
+      const leads = next.leads.map(lead => {
+        try { parseReachability(lead.reachability); }
+        catch (error) {
+          if (error?.code !== "invalid_projection") throw error;
+          return { ...lead, reachability: null };
+        }
+        return lead;
+      });
       state.connectionFeedback = null;
-      state.readFailed = false; state.board = next;
-      for (const lead of next.leads) engagement.confirm({ client_id: lead.prospect_client_id,
+      state.readFailed = false; state.board = { ...next, leads };
+      for (const lead of leads) engagement.confirm({ client_id: lead.prospect_client_id,
         status: lead.prospect_engagement_status, version: lead.prospect_client_version }, state.actor);
       if (state.pending) {
-        const current = next.leads.find(l => l.id === state.pending.lead.id);
+        const current = leads.find(l => l.id === state.pending.lead.id);
         const move = current?.last_stage_move;
         if ((state.pending.kind === "link" && current?.client_id === state.pending.clientId) ||
             (state.pending.kind === "stage" && move?.idempotency_key === state.pending.key) ||
@@ -334,7 +341,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
           const dialog = $("leadDetail");
           if (dialog.open && detailFocus?.container === "detailBody" && detailFocus.value === state.detailId &&
               (doc.activeElement === doc.body || doc.activeElement === dialog)) restoreFocus(detailFocus);
-        } else if (next.leads.some(lead => lead.id === state.detailId)) { state.detail = null; $("leadDetail").close(); }
+        } else if (leads.some(lead => lead.id === state.detailId)) { state.detail = null; $("leadDetail").close(); }
         else { clearGuidance(); state.detail = null; ++state.detailEpoch; $("detailTitle").textContent = "Lead unavailable"; $("detailBody").innerHTML = '<p class="empty">Unavailable</p>'; }
       }
       openRequestedLead();
@@ -349,7 +356,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       ++state.detailEpoch; state.trigger = null;
       clearGuidance(); $("leadDetail").close(); $("detailTitle").textContent = ""; $("detailBody").replaceChildren();
       render();
-      state.connectionFeedback = error.code === "invalid_projection" ? `Source refused · invalid reachability response.${state.board ? " Previous snapshot is stale." : ""}` : state.board ? "Connection interrupted · Source stale · reconnecting…" : "Connection interrupted · reconnecting…";
+      state.connectionFeedback = error.code === "invalid_projection" ? `Source refused · invalid Leads board response.${state.board ? " Previous snapshot is stale." : ""}` : state.board ? "Connection interrupted · Source stale · reconnecting…" : "Connection interrupted · reconnecting…";
       paintCommandFeedback();
       return false;
     } finally {
