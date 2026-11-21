@@ -54,3 +54,36 @@ test('fact review preserves reference and operation binding', () => {
     assert.throws(() => parseReview({ ...response, reference: { ...response.reference, ...change } }, response.reference), /not supported safely/);
   }
 });
+
+const engineBundle = await (await import('esbuild')).build({
+  entryPoints: ['src/ui/home/engine-review.ts'], bundle: true, write: false, platform: 'node', format: 'esm',
+});
+const { loadEngineReview, saveEngineReview } = await import(
+  `data:text/javascript;base64,${Buffer.from(engineBundle.outputFiles[0].text).toString('base64')}`
+);
+const filingItem = { engine_marks: true, suggestions: [{ id: 'sample-proposal' }] };
+const filingProposal = { proposal_id: 'sample-proposal', kind: 'possible_new_deal', evidence: 'Sample email' };
+const deal = { kind: 'deal', label: 'Choose deal' };
+const vendor = { kind: 'vendor', label: 'Choose vendor' };
+test('Home keeps the exact filing choices from the proposal detail', async () => {
+  for (const choices of [[deal, vendor], [vendor], undefined]) {
+    const detail = await loadEngineReview(async () => ({
+      ...filingProposal, ...(choices && { filing_choices: choices }),
+    }), filingItem);
+    assert.deepEqual(detail.proposals[0].filingChoices, choices);
+  }
+});
+
+test('Home treats only a 409 already_decided response as a settled filing', async () => {
+  const request = { verb: 'decide-engine-home-proposal', args: {
+    id: 'sample-proposal', decision: 'accept', vendor_id: 'sample-vendor', idempotency_key: 'sample-key',
+  } };
+  const settle = (error, http_status) => saveEngineReview(async (verb, body) => {
+    assert.equal(verb, request.verb);
+    assert.deepEqual(body, request.args);
+    throw Object.assign(Error(error), { payload: { error, http_status } });
+  }, filingItem, request);
+  assert.equal(await settle('already_decided', 409), 'already_decided');
+  await assert.rejects(settle('invalid_field_value', 422), { message: 'invalid_field_value' });
+  await assert.rejects(settle('already_decided', 422), { message: 'home_review_resolved' });
+});

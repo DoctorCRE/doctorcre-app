@@ -19,6 +19,22 @@ export async function exercise(page: Page, asset: string) {
     const tick = async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     };
+    const waitForControls = (host: HTMLElement, ready: () => boolean, label: string) => {
+      if (ready()) return Promise.resolve();
+      return new Promise<void>((resolve, reject) => {
+        const observer = new MutationObserver(() => {
+          if (!ready()) return;
+          clearTimeout(deadline);
+          observer.disconnect();
+          resolve();
+        });
+        const deadline = setTimeout(() => {
+          observer.disconnect();
+          reject(Error(label));
+        }, 5_000);
+        observer.observe(host, { attributes: true, childList: true, subtree: true });
+      });
+    };
     const row = {
       id: "synthetic-proposal",
       version: 1,
@@ -30,6 +46,7 @@ export async function exercise(page: Page, asset: string) {
       deals: [
         { id: "d1", name: "Synthetic One" },
         { id: "d2", name: "Synthetic Two" },
+        { id: "d3", name: "Synthetic Three" },
       ],
     };
     const exact = (args: { deal: string }) => ({
@@ -182,11 +199,12 @@ export async function exercise(page: Page, asset: string) {
         },
       });
       m.click("file");
-      await tick();
-      check(
-        m.counts.denied === 0 && m.host.textContent.includes("Could not load deals"),
-        "network failure remains recoverable",
+      await waitForControls(
+        m.host,
+        () => m.host.textContent.includes("Could not load deals"),
+        "Missing deal loading error",
       );
+      check(m.counts.denied === 0, "network failure remains recoverable");
       m.click("cancel");
       m.click("new");
       m.fill("name", "Synthetic new");
@@ -255,13 +273,16 @@ export async function exercise(page: Page, asset: string) {
         },
       });
       m.click("file");
-      await tick();
-      const search = m.host.querySelector<HTMLInputElement>("[data-deal-search]");
-      if (!search) throw Error("Missing search");
-      search.value = "Two";
+      const search = m.host.querySelector<HTMLInputElement>('input[type="search"]');
+      const select = m.host.querySelector<HTMLSelectElement>('select[aria-label="Selected deal"]');
+      if (!search || !select) throw Error("Missing deal picker controls");
+      await waitForControls(m.host, () => !!select.querySelector("option[value=d3]"), "Missing initial deal options");
+      search.setRangeText("Two");
       search.dispatchEvent(new Event("input", { bubbles: true }));
-      check(m.host.querySelector("option[value=d2]")?.textContent === "Synthetic Two", "successful deal search");
-      m.fill("deal", "d2");
+      await waitForControls(m.host, () => !select.querySelector("option[value=d3]"), "Deal search did not filter");
+      check(select.querySelector("option[value=d2]")?.textContent === "Synthetic Two", "successful deal search");
+      select.value = "d2";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
       m.submit();
       await tick();
       const { request: previewRequest } = m.model.state;

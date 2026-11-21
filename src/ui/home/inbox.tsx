@@ -1,11 +1,13 @@
 import { type BatchRequest, type BatchResult, parseBatch } from "./batch.ts";
 import { cardKey, type MarkUndo, markArgs, markTarget } from "./engine-marks.ts";
 import {
+  type DealFilingReason,
   draftReference,
   type EmailThread,
   hasEngineReview,
   loadEngineReview,
   proposalIds,
+  readDealFilingReason,
   type Suggestion,
   saveEngineReview,
 } from "./engine-review.ts";
@@ -28,6 +30,7 @@ const primaryActions = [
   "Mark done",
   "Open",
   "Review completion",
+  "Review filing",
   "Review suggestions",
   "Open checklist item",
   "Review feedback",
@@ -338,7 +341,13 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   const reference = v3 ? parseReference(value.review_reference) : null;
   const { explicit_unsettle, auto_settled, undo_completion, why, primary_action, checklist_item_ref, ...fields } =
     value;
-  const primaryAction = engineMarks && primaryActions.find((action) => action === primary_action);
+  const actionLabel =
+    Array.isArray(value.filing_choices) &&
+    value.filing_choices.length > 0 &&
+    (primary_action === "Choose deal" || primary_action === "Choose vendor")
+      ? "Review filing"
+      : primary_action;
+  const primaryAction = engineMarks && primaryActions.find((action) => action === actionLabel);
   const presentation = primaryAction && text(why) ? { why, primaryAction } : undefined;
   // Version-specific checks above validate the item before normalized optional fields are added.
   return {
@@ -570,10 +579,17 @@ export type ReviewItem = Pick<
 export type ReviewClient<Item extends ReviewItem> = {
   current(item: Item): Promise<Item>;
   load(item: Item, signal?: AbortSignal): Promise<CardReview>;
+  checkFilingReason(id: string, dealId: string, signal: AbortSignal): Promise<DealFilingReason>;
   run(
     item: Item,
     request: ReviewRequest,
-  ): Promise<{ item: Item | null; receipt?: TaskReceipt; saved_version?: number; snapshot?: Snapshot }>;
+  ): Promise<{
+    item: Item | null;
+    receipt?: TaskReceipt;
+    saved_version?: number;
+    snapshot?: Snapshot;
+    alreadyResolved?: true;
+  }>;
 };
 
 export type LinkedReview =
@@ -716,11 +732,14 @@ export function createInboxClient(
       throw unavailable();
     return { state: "active", item };
   }
+  const checkFilingReason: ReviewClient<InboxItem>["checkFilingReason"] = (id, dealId, signal) =>
+    readDealFilingReason(rpc, id, dealId, signal);
   return {
     read,
     linkedReview: {
       read: readLinkedReview,
       client: {
+        checkFilingReason,
         async current(item) {
           const current = await readLinkedReview(item.item_id);
           if (current.state !== "active")
@@ -730,21 +749,23 @@ export function createInboxClient(
         load: (item, signal) => loadEngineReview(rpc, item, signal),
         async run(item, request) {
           if (navigator.onLine === false) throw Error("Offline. Nothing was sent.");
-          const version = await saveEngineReview(rpc, item, request);
+          const outcome = await saveEngineReview(rpc, item, request);
           if (request.verb === "decide-engine-home-proposal") {
+            const resolution = outcome === "already_decided" ? { alreadyResolved: true as const } : {};
             const draft = draftReference(item);
             const next = proposalIds(item).find((id) => id !== request.args.id);
-            if (!draft && !next) return { item: null };
+            if (!draft && !next) return { item: null, ...resolution };
             const current = await readLinkedReview(draft ? `reply_draft:${draft.id}` : `suggestion:${next}`);
-            return { item: current.state === "active" ? current.item : null };
+            return { item: current.state === "active" ? current.item : null, ...resolution };
           }
-          return request.verb === "edit-email-draft" && version !== undefined
-            ? { item: { ...item, source_version: String(version) }, saved_version: version }
+          return request.verb === "edit-email-draft" && typeof outcome === "number"
+            ? { item: { ...item, source_version: String(outcome) }, saved_version: outcome }
             : { item: null };
         },
       },
     },
     review: {
+      checkFilingReason,
       async current(item) {
         const current = (await read()).items.find((row) => row.item_id === item.item_id);
         if (!current)
@@ -777,12 +798,13 @@ export function createInboxClient(
       async run(item, request) {
         if (navigator.onLine === false) throw Error("Offline. Nothing was sent.");
         if (hasEngineReview(item)) {
-          const version = await saveEngineReview(rpc, item, request);
+          const outcome = await saveEngineReview(rpc, item, request);
           const snapshot = await read();
           return {
             item: snapshot.items.find((row) => row.item_id === item.item_id) ?? null,
             snapshot,
-            ...(version === undefined ? {} : { saved_version: version }),
+            ...(typeof outcome === "number" && { saved_version: outcome }),
+            ...(outcome === "already_decided" && { alreadyResolved: true as const }),
           };
         }
         const value = await rpc(request.verb, request.args);

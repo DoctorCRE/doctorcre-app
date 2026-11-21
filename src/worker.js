@@ -241,8 +241,8 @@ const HOME_WRITES = new Map([
   ['dismiss-engine-home-draft', ['reply-drafts', 'dismissal']],
   ['submit-engine-home-draft', ['reply-drafts', 'submission']],
 ]);
-const homeDetail = path => ({ key: HOME, path: '/api/engine/' + path, segment: 'id',
-  args: { id: value => isUuid(value) }, accepts: ({ id }) => isUuid(id) });
+const homeDetail = (path, query = {}) => ({ key: HOME, path: '/api/engine/' + path, segment: 'id',
+  args: { id: value => isUuid(value), ...query }, accepts: ({ id }) => isUuid(id) });
 const INVOICES = 'invoices-from-engine';
 const CHARTS = 'charts-from-engine';
 const NATIONAL_DEALS = 'national-deals-from-engine';
@@ -269,7 +269,7 @@ const ENGINE_READS = new Map([
   [HOME_TODAY, { key: HOME, path: HOME_TODAY, engineOnly: true }],
   ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {} }],
   ['/api/v1/intelligence/mail-needs-partner', { key: HOME, path: '/api/engine/home/mail-priorities', forwardQuery: false, engineOnly: true }],
-  ['read-engine-home-proposal', homeDetail('proposals')],
+  ['read-engine-home-proposal', homeDetail('proposals', { deal_id: value => isUuid(value) })],
   ['read-engine-home-draft', homeDetail('reply-drafts')],
   ['read-engine-home-card', { key: HOME, path: '/api/engine/home/cards', segment: 'item_id', engineOnly: true,
     args: { item_id: isHomeReviewId }, accepts: ({ item_id }) => isHomeReviewId(item_id) }],
