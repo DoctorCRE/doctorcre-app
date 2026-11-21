@@ -23,6 +23,7 @@ import {
   type TaskReceipt,
   taskCommand,
 } from "./inbox";
+import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
 import { type DraftEdit, ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays } from "./sections";
@@ -113,6 +114,19 @@ function Inbox({ client }: { client: InboxClient }) {
     refetchInterval: () =>
       navigator.onLine && document.visibilityState === "visible" && !inFlight.current ? 60_000 : false,
   });
+  const meetings = useQuery({
+    queryKey: ["home-meetings"],
+    queryFn: ({ signal }) => readMeetings(signal),
+    enabled: home && engineHome,
+    // eslint-disable-next-line no-restricted-syntax -- The calendar reads once a minute while visible and online.
+    refetchInterval: () => (navigator.onLine && document.visibilityState === "visible" ? 60_000 : false),
+  });
+  const [meetingDay, setMeetingDay] = useState(() => day(new Date()));
+  const [handledMeetings, setHandledMeetings] = useState<ReadonlySet<string>>(() => new Set());
+  const finishMeeting = useCallback((key: string, message: string) => {
+    setHandledMeetings((handled) => new Set([...handled, key]));
+    setNotice(message);
+  }, []);
   useEffect(() => {
     const host = document.getElementById("homeRoot");
     if (home && !query.isPending && host) markHomeReady(host);
@@ -177,6 +191,7 @@ function Inbox({ client }: { client: InboxClient }) {
     mounted.current = true;
     let lastRefresh = -Infinity;
     const refresh = () => {
+      if (home && engineHome) setMeetingDay(day(new Date()));
       if (
         !navigator.onLine ||
         document.visibilityState !== "visible" ||
@@ -187,6 +202,7 @@ function Inbox({ client }: { client: InboxClient }) {
         return;
       lastRefresh = Date.now();
       void query.refetch({ cancelRefetch: false });
+      if (home && engineHome) void meetings.refetch({ cancelRefetch: false });
     };
     const update = () => {
       setOnline(navigator.onLine);
@@ -206,7 +222,19 @@ function Inbox({ client }: { client: InboxClient }) {
       removeEventListener("online", update);
       removeEventListener("offline", update);
     };
-  }, [cache, query.refetch]);
+  }, [cache, engineHome, home, meetings.refetch, query.refetch]);
+  useEffect(() => {
+    if (!home || !engineHome) return;
+    let timer: number;
+    function updateDay() {
+      setMeetingDay(day(new Date()));
+      // Central midnight falls on a UTC minute boundary, even across DST.
+      // eslint-disable-next-line no-restricted-syntax -- One local clock timer, cleared on leaving Home.
+      timer = window.setTimeout(updateDay, 60_000 - (Date.now() % 60_000));
+    }
+    updateDay();
+    return () => window.clearTimeout(timer);
+  }, [engineHome, home]);
   const snoozeOpener = useRef<HTMLElement | null>(null);
   const [snoozeCancelled, setSnoozeCancelled] = useState(0);
   function openSnooze(items: readonly InboxItem[]) {
@@ -1040,12 +1068,15 @@ function Inbox({ client }: { client: InboxClient }) {
         </>
       )}
       {home && (
-        <HomeGrid snapshot={query.data}>
+        <HomeGrid snapshot={query.data} calendar={meetings.data}>
           <CardTile
             title="Reminders"
             items={tiles.reminders}
             pinned={pinnedTile === "reminders" ? reviewing : null}
             current={reviewing?.item_id || item_id}
+            after={earlierMeetingReviews(meetings.data, meetingDay, handledMeetings).map((review) => (
+              <MeetingReview key={review.key} data={meetings.data} review={review} finish={finishMeeting} />
+            ))}
             row={row}
           />
           <CardTile
@@ -1055,7 +1086,21 @@ function Inbox({ client }: { client: InboxClient }) {
             current={reviewing?.item_id || item_id}
             row={row}
           />
+          {meetings.data && (
+            <MeetingTile
+              data={meetings.data}
+              stale={meetings.isError}
+              today={meetingDay}
+              handled={handledMeetings}
+              finish={finishMeeting}
+            />
+          )}
         </HomeGrid>
+      )}
+      {home && meetings.isError && (
+        <p className="home-read-status" role="status">
+          Meetings unavailable.
+        </p>
       )}
       {home && ((query.isError && query.data) || !online) && (
         <p className="home-read-status" role="status">

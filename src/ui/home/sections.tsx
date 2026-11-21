@@ -60,7 +60,7 @@ function isLate(item: InboxItem, today: string) {
     : item.action_id !== null && item.due_on !== null && item.due_on < today;
 }
 
-function HomeTile({
+export function HomeTile({
   title,
   count,
   children,
@@ -108,21 +108,23 @@ export function CardTile({
   pinned,
   current,
   row,
+  after = [],
 }: {
   title: string;
   items: readonly InboxItem[];
   pinned?: InboxItem | null;
   current: string | undefined;
   row: (item: InboxItem) => ReactNode;
+  after?: ReactNode[];
 }) {
   const [expanded, setExpanded] = useState(false);
-  const count = items.length;
+  const count = items.length + after.length;
   const [order, setOrder] = useState({ incoming: items, pinned, cards: items });
   const changed = order.incoming !== items || order.pinned !== pinned;
   const preserve = pinned && !items.some((item) => cardKey(item) === cardKey(pinned));
   const visible = changed ? retainOrder(order.cards, preserve ? [...items, pinned] : items) : order.cards;
   if (changed) setOrder({ incoming: items, pinned, cards: visible });
-  if (!visible.length) return null;
+  if (!visible.length && !after.length) return null;
   const shown = expanded
     ? visible
     : visible.filter(
@@ -138,19 +140,21 @@ export function CardTile({
           {row(item)}
         </Fragment>
       ))}
+      {expanded ? after : after.slice(0, Math.max(0, previewCount - items.length))}
     </HomeTile>
   );
 }
 
 type Anchor = { node: Element; top: number };
-export class HomeGrid extends Component<{ children: ReactNode; snapshot: unknown }> {
+export class HomeGrid extends Component<{ children: ReactNode; snapshot: unknown; calendar?: unknown }> {
   private grid: HTMLDivElement | null = null;
 
   getSnapshotBeforeUpdate(previous: Readonly<typeof this.props>): Anchor[] | null {
-    if (!window.scrollY || this.props.snapshot === previous.snapshot) return null;
+    if (!window.scrollY || (this.props.snapshot === previous.snapshot && this.props.calendar === previous.calendar))
+      return null;
     const active = document.activeElement;
     if (active && this.grid?.contains(active)) return [{ node: active, top: active.getBoundingClientRect().top }];
-    return Array.from(this.grid?.querySelectorAll(".inbox-row") ?? []).flatMap((node) => {
+    return Array.from(this.grid?.querySelectorAll(".inbox-row, .home-meeting") ?? []).flatMap((node) => {
       const { top, bottom } = node.getBoundingClientRect();
       return bottom > 0 && top < window.innerHeight ? [{ node, top }] : [];
     });
