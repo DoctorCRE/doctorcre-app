@@ -441,8 +441,10 @@ export function ReviewCard({
             {!readOnly && !proposal.canAccept && (
               <p>This step changed after the suggestion. Mark it done from the step, or choose Not yet.</p>
             )}
-            {proposal.filingChoices && !readOnly && (
+            {proposal.filingChoices && !readOnly && client && (
               <FilingControls
+                proposalId={proposal.id}
+                checkReason={client.checkFilingReason}
                 choices={proposal.filingChoices}
                 refusal={state.phase === "proposal-refused" && state.id === proposal.id ? state.filing : null}
                 file={(destination, reason) => decideSuggestion(proposal, "accept", reason, destination)}

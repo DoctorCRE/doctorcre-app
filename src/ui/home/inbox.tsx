@@ -1,11 +1,13 @@
 import { type BatchRequest, type BatchResult, parseBatch } from "./batch.ts";
 import { cardKey, type MarkUndo, markArgs, markTarget } from "./engine-marks.ts";
 import {
+  type DealFilingReason,
   draftReference,
   type EmailThread,
   hasEngineReview,
   loadEngineReview,
   proposalIds,
+  readDealFilingReason,
   type Suggestion,
   saveEngineReview,
 } from "./engine-review.ts";
@@ -568,6 +570,7 @@ export type InboxClient = {
   review?: {
     current(item: InboxItem): Promise<InboxItem>;
     load(item: InboxItem, signal?: AbortSignal): Promise<CardReview>;
+    checkFilingReason(id: string, dealId: string, signal: AbortSignal): Promise<DealFilingReason>;
     run(
       item: InboxItem,
       request: ReviewRequest,
@@ -691,6 +694,7 @@ export function createInboxClient(
   return {
     read,
     review: {
+      checkFilingReason: (id, dealId, signal) => readDealFilingReason(rpc, id, dealId, signal),
       async current(item) {
         const current = (await read()).items.find((row) => row.item_id === item.item_id);
         if (!current)

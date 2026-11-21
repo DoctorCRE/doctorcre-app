@@ -156,6 +156,21 @@ export const openStepRefusal =
 
 export type FilingReasonRefusal = { dealId: string; message: string };
 
+export type DealFilingReason = { required: true; hint: string } | { required: false; hint: null };
+
+export async function readDealFilingReason(
+  rpc: Rpc,
+  id: string,
+  dealId: string,
+  signal: AbortSignal,
+): Promise<DealFilingReason> {
+  const value = await answer(rpc, "read-engine-home-proposal", { id, deal_id: dealId }, signal);
+  if (value.reason_required === true && typeof value.hint === "string" && value.hint.trim())
+    return { required: true, hint: value.hint };
+  if (value.reason_required === false && value.hint === null) return { required: false, hint: null };
+  throw unreadable();
+}
+
 export function filingReasonRefusal(error: unknown, dealId: string): FilingReasonRefusal | null {
   const payload = object(error) && object(error.payload) ? error.payload : null;
   return payload?.http_status === 422 &&

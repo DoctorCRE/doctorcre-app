@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { DealPicker } from "../deal-picker.tsx";
 import type { FilingChoice, FilingReasonRefusal } from "./engine-review.ts";
-import { object } from "./inbox.tsx";
+import { type InboxClient, object } from "./inbox.tsx";
 
 export type FilingDestination = { deal_id: string } | { vendor_id: string };
 type FileEmail = (destination: FilingDestination, reason?: string) => void;
+type CheckReason = NonNullable<InboxClient["review"]>["checkFilingReason"];
+type Selection = { id: string };
 type RecordOption = { id: string; name: string };
 type Targets = { rows: RecordOption[]; pages: number };
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
@@ -37,47 +39,85 @@ async function readVendors(query: string, page: number, signal: AbortSignal): Pr
   };
 }
 
-function DealFilingPicker({ file, refusal }: { file: FileEmail; refusal: FilingReasonRefusal | null }) {
-  const [selected, setSelected] = useState("");
+function DealFilingPicker({
+  proposalId,
+  checkReason,
+  file,
+  refusal,
+}: {
+  proposalId: string;
+  checkReason: CheckReason;
+  file: FileEmail;
+  refusal: FilingReasonRefusal | null;
+}) {
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [check, setCheck] = useState<{
+    selection: Selection;
+    result: Awaited<ReturnType<CheckReason>> | "unavailable";
+  } | null>(null);
   const [reason, setReason] = useState("");
   const reasonInput = useRef<HTMLInputElement>(null);
-  const errorId = useId();
-  const needsReason = refusal?.dealId === selected;
+  const hintId = useId();
+  const preview = check?.selection === selection ? check.result : undefined;
+  const checked = preview !== undefined && preview !== "unavailable";
+  const refusalHint = refusal?.dealId === selection?.id ? refusal?.message : undefined;
+  const hint = refusalHint || (checked ? preview.hint : null);
+  const needsReason = Boolean(refusalHint) || (checked && preview.required);
   useEffect(() => {
-    if (needsReason) reasonInput.current?.focus();
-  }, [needsReason]);
+    if (!selection) return;
+    const controller = new AbortController();
+    void checkReason(proposalId, selection.id, controller.signal)
+      .catch(() => "unavailable" as const)
+      .then((result) => {
+        if (!controller.signal.aborted) setCheck({ selection, result });
+      });
+    return () => controller.abort();
+  }, [selection, proposalId, checkReason]);
+  useEffect(() => {
+    if (refusalHint) reasonInput.current?.focus();
+  }, [refusalHint]);
 
   return (
     <div>
       <DealPicker
         readBoard={readDealBoard}
         onSelect={(deal) => {
-          setSelected(deal?.id ?? "");
+          setSelection(deal);
           setReason("");
         }}
       />
-      {selected && (
+      {selection && preview === undefined && <p role="status">Checking filing requirements…</p>}
+      {selection && preview === "unavailable" && (
+        <p role="status">
+          Could not check this deal.{" "}
+          <button type="button" onClick={() => setSelection({ id: selection.id })}>
+            Retry
+          </button>
+        </p>
+      )}
+      {checked && (
         <label>
           Reason for filing
           <input
             ref={reasonInput}
             value={reason}
             onChange={(event) => setReason(event.currentTarget.value)}
+            required={needsReason}
             aria-required={needsReason || undefined}
-            aria-invalid={(needsReason && !reason.trim()) || undefined}
-            aria-describedby={needsReason ? errorId : undefined}
+            aria-invalid={(Boolean(refusalHint) && !reason.trim()) || undefined}
+            aria-describedby={hint ? hintId : undefined}
           />
         </label>
       )}
-      {needsReason && (
-        <p id={errorId} role="alert">
-          {refusal?.message}
+      {hint && (
+        <p id={hintId} role={refusalHint ? "alert" : "status"}>
+          {hint}
         </p>
       )}
       <button
         type="button"
-        disabled={!selected || (needsReason && !reason.trim())}
-        onClick={() => file({ deal_id: selected }, reason.trim())}
+        disabled={!checked || (needsReason && !reason.trim())}
+        onClick={() => selection && file({ deal_id: selection.id }, reason.trim())}
       >
         File email
       </button>
@@ -175,11 +215,15 @@ function VendorPicker({ file }: { file: FileEmail }) {
 }
 
 export function FilingControls({
+  proposalId,
+  checkReason,
   choices,
   file,
   dismiss,
   refusal,
 }: {
+  proposalId: string;
+  checkReason: CheckReason;
   choices: FilingChoice[];
   file: FileEmail;
   dismiss(): void;
@@ -204,7 +248,9 @@ export function FilingControls({
           Dismiss
         </button>
       </div>
-      {active?.kind === "deal" && <DealFilingPicker file={file} refusal={refusal} />}
+      {active?.kind === "deal" && (
+        <DealFilingPicker proposalId={proposalId} checkReason={checkReason} file={file} refusal={refusal} />
+      )}
       {active?.kind === "vendor" && <VendorPicker file={file} />}
     </>
   );

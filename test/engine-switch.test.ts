@@ -2120,6 +2120,17 @@ test("the Home switch routes guarded step and review actions through signed-in e
   assert.deepEqual(f.carr, []);
 });
 
+test("the Home switch forwards the selected deal when previewing a filing", async () => {
+  const id = "00000000-0000-0000-0000-000000000001";
+  const deal_id = "00000000-0000-0000-0000-000000000002";
+  const f = fixture(new Map([["home-from-engine", "on"]]), async () =>
+    Response.json({ reason_required: false, hint: null }),
+  );
+  await f.send(call("read-engine-home-proposal", { id, deal_id }));
+  assert.equal(f.engine[0]?.url, `${origin}/api/engine/proposals/${id}?deal_id=${deal_id}`);
+  assert.deepEqual(f.carr, []);
+});
+
 test("switched Mail priorities use the engine's unfiltered read", async () => {
   const result = { ok: true, schema_version: "home-mail-priorities.v1", items: [], more: false };
   const f = fixture(new Map([["home-from-engine", "on"]]), async () => Response.json(result));

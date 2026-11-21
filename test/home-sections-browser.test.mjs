@@ -1010,12 +1010,19 @@ async function dashboard(t, width, theme, timezone) {
       cards.filter(item => item.section === 'inbox'), cards.filter(item => item.section === 'snoozed'),
     ) });
   });
-  await page.route('**/mcp', route => {
+  await page.route('**/mcp', async route => {
     const request = route.request().postDataJSON();
     const { name, arguments: args } = request.params;
     let result = { ok: true, items: [], deals: [] };
     if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item), state.legacy);
-    if (name === 'read-engine-home-proposal') result = {
+    if (name === 'read-engine-home-proposal' && args.deal_id) {
+      state.filingChecks.push(args);
+      await state.waitForFilingCheck;
+      result = {
+        reason_required: Boolean(state.filingReasonHint) || (state.failFirstFilingCheck === true && state.filingChecks.length === 1),
+        hint: state.filingReasonHint ?? null,
+      };
+    } else if (name === 'read-engine-home-proposal') result = {
       proposal_id: args.id, kind: args.id === id(41)
         ? (state.filingChoices ? 'possible_new_deal' : 'file_to_deal') : 'next_step',
       target_name: state.filingChoices && args.id === id(41) ? null : 'Example Dental',
@@ -1107,9 +1114,11 @@ for (const available of [true, false]) test(`Home email suggestions ${available 
 const dealChoice = { kind: 'deal', label: 'Choose deal' };
 const vendorChoice = { kind: 'vendor', label: 'Choose vendor' };
 
-for (const { name, choices, kind, focus, dismiss, reasonRefused, filterDeals } of [
+for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired, filterDeals, retryCheck } of [
   { name: 'mixed choices file to a deal', choices: [dealChoice, vendorChoice], kind: 'deal' },
   { name: 'the deal picker keeps the selected deal while searching', choices: [dealChoice], kind: 'deal', filterDeals: true },
+  { name: 'a required reason blocks the first save', choices: [dealChoice], kind: 'deal', reasonRequired: true },
+  { name: 'an unavailable check keeps the chosen deal and allows retry', choices: [dealChoice], kind: 'deal', retryCheck: true },
   { name: 'a reason refusal keeps the chosen deal and allows retry', choices: [dealChoice], kind: 'deal', reasonRefused: true },
   { name: 'vendor-only choices file to a vendor', choices: [vendorChoice], kind: 'vendor' },
   { name: 'an already decided filing focuses the next card', choices: [vendorChoice], kind: 'vendor', focus: 'next' },
@@ -1124,7 +1133,14 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, filterDeals } o
   }) }];
   state.filingChoices = choices;
   state.filingConflict = Boolean(focus);
-  state.filingReasonRequired = reasonRefused;
+  state.filingReasonRequired = reasonRequired || reasonRefused;
+  state.failFirstFilingCheck = retryCheck;
+  state.filingChecks = [];
+  let finishFilingCheck;
+  if (reasonRequired) {
+    state.filingReasonHint = 'This email is already filed to another deal. Explain why you are moving it.';
+    state.waitForFilingCheck = new Promise(resolve => { finishFilingCheck = resolve; });
+  }
   state.filingWrites = [];
   const previous = step(63, 'Review the sample project', { card_id: 'project:63' });
   const next = step(64, 'Check the sample space', { card_id: 'project:64' });
@@ -1166,6 +1182,19 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, filterDeals } o
       const file = filing.getByRole('button', { name: 'File email' });
       assert.deepEqual(state.filingWrites, []);
       if (kind === 'deal') {
+        if (reasonRequired) {
+          await filing.getByRole('status').getByText('Checking filing requirements…').waitFor();
+          assert.equal(await file.isDisabled(), true);
+          finishFilingCheck();
+        }
+        if (retryCheck) {
+          const retry = filing.getByRole('button', { name: 'Retry', exact: true });
+          await retry.waitFor();
+          assert.equal(await file.isDisabled(), true);
+          assert.equal(await destination.inputValue(), id(61));
+          assert.deepEqual(state.filingWrites, []);
+          await retry.click();
+        }
         if (reasonRefused) {
           const reason = filing.getByRole('textbox', { name: /Reason/ });
           assert.equal(await reason.getAttribute('aria-required'), null);
@@ -1183,7 +1212,15 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, filterDeals } o
         }
         const reason = filing.getByRole('textbox', { name: 'Reason for filing', exact: true });
         await reason.waitFor();
-        if (reasonRefused) {
+        const check = { id: id(41), deal_id: id(61) };
+        assert.deepEqual(state.filingChecks, retryCheck ? [check, check] : [check]);
+        assert.equal(await reason.getAttribute('aria-required'), reasonRequired || reasonRefused ? 'true' : null);
+        if (reasonRequired) {
+          await filing.getByText(state.filingReasonHint, { exact: true }).waitFor();
+          assert.equal(await file.isDisabled(), true);
+          assert.deepEqual(state.filingWrites, []);
+        }
+        if (reasonRequired || reasonRefused) {
           expected.reason = 'This email is about the sample clinic.';
           await reason.fill(expected.reason);
         }
