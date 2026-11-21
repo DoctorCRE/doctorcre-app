@@ -53,6 +53,8 @@ for (const width of [320, 390, 1280, 1440]) for (const theme of ['light', 'dark'
       }
       return;
     }
+    const next = card.getByText('Review the sample lease terms and confirm the remaining details with the lender before arranging the property tour', { exact: true });
+    assert.ok(await next.evaluate(el => el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth));
     const facts = card.locator('.deal-summary-facts').first();
     assert.match(await facts.innerText(), /Fri Oct 30 · Dell/);
     const spaced = await card.locator('.deal-summary-facts').evaluateAll(nodes => nodes.filter(node => node.textContent.includes('·')).map(node => {
@@ -77,7 +79,7 @@ for (const width of [320, 390, 1280, 1440]) for (const theme of ['light', 'dark'
       }
       return box.width > 0 && box.right <= innerWidth;
     }));
-    assert.equal(visible, true, 'summary facts are outside the clamped text');
+    assert.equal(visible, true, 'summary facts fit beside the step text');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     if ([390, 1440].includes(width)) {
       const dir = 'out/test-artifacts/deal-board-summary';

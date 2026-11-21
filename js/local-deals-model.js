@@ -88,7 +88,13 @@ export function prepareDealDetail(detail) {
     id: `action:${task.id}`, source: 'hold', holdUntil: task.hold_until, actor: task.owner, when: task.updated_at,
     summary: task.description, original: task.description }));
   const entries = newestFirst([...noteEntries({ activities, thread: detail.thread }), ...documents, ...holds], n => n.when);
-  return { ...detail, entries,
+  const steps = new Map(detail.next_actions?.map(step => [step.id, step]));
+  const items = (detail.items || detail.deal.items)?.map(item => {
+    const step = steps.get(item.id);
+    const instruction = step?.display_instruction ?? step?.description;
+    return step ? { ...item, title: step.display_title ?? item.title, instruction } : item;
+  });
+  return { ...detail, entries, items,
     thread: newestFirst(detail.thread || [], threadInstant),
     activities: newestFirst(activities, a => a.occurred_at || a.recorded_at) };
 }
