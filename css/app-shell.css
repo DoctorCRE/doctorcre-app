@@ -197,7 +197,7 @@ html[data-deals-from-engine] :is(.app-layout-today > section:has(> #appTodayMove
 #appMeetingReviews select { flex: 1; min-width: 0; }
 #appMeetingReviews button:disabled { opacity: .5; }
 #appRemindersTitle + #appTodayOwners { margin-bottom: var(--space-2); }
-.app-layout-item strong { font-weight: var(--font-weight-strong); }
+.app-layout-item strong { font-weight: var(--font-weight-strong); overflow-wrap: anywhere; }
 .app-layout-show-all, #appTodayRetry { min-width: var(--touch); min-height: var(--touch); }
 #appTodayOwners[hidden], .app-layout-item[hidden], .app-layout-empty[hidden] { display: none; }
 .app-layout-item span { font-size: var(--font-size-1); color: var(--fg-muted); overflow-wrap: anywhere; }

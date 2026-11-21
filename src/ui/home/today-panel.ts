@@ -199,14 +199,14 @@ export async function mountHomeTodayPanel(
       !Array.isArray(section.items) ||
       !section.items.every(meeting)
     ) {
-      paint(schedule, status("Check Outlook for today’s meetings."));
+      paint(schedule, status("Couldn't load meetings."));
       return false;
     }
     paint(
       schedule,
       section.items.length
         ? section.items.map(meetingRow).join("")
-        : status(section.state === "partial" ? "Check Outlook for today’s meetings." : "No meetings today."),
+        : status(section.state === "partial" ? "Couldn't load meetings." : "No meetings today."),
     );
     return true;
   };

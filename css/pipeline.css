@@ -101,7 +101,7 @@
 .stage-preview { display: grid; gap: var(--space-2); margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); overflow-wrap: anywhere; }
 .work-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; font-variant-numeric: tabular-nums; }
 .kanban-lane-label { display: none; }
-.next-line { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; white-space: normal; overflow: hidden; overflow-wrap: anywhere; margin: 0; font-size: var(--font-size-1); color: var(--fg-muted); }
+.next-line { white-space: normal; overflow-wrap: anywhere; margin: 0; font-size: var(--font-size-1); color: var(--fg-muted); }
 .auto-move button { justify-self: start; padding: 0 var(--space-2); min-height: var(--touch); }
 .kanban-card.work-card--tile .work-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); grid-column: 1 / -1; }
 .kanban-card.work-card--tile .card-open { width: 100%; overflow-wrap: anywhere; }

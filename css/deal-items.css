@@ -4,6 +4,7 @@
 .deal-items-label { margin: var(--space-3) 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); }
 .deal-items { margin: 0; padding-left: 1.5em; }
 .deal-items li { padding-left: var(--space-1); overflow-wrap: anywhere; }
+.deal-item-instruction { margin: 0; overflow-wrap: anywhere; }
 .deal-items a, .deal-items button { display: inline-flex; align-items: center; min-height: 44px; padding: var(--space-1) 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; text-decoration: underline; text-decoration-color: var(--hairline); text-underline-offset: 4px; cursor: pointer; }
 .deal-items a:hover, .deal-items button:hover { text-decoration-color: currentColor; }
 .deal-item-due { display: inline-block; margin-left: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -27,7 +28,7 @@
 
 .deal-summary-line { display: grid; grid-template-columns: auto minmax(0, max-content) auto; justify-content: start; align-items: baseline; margin: var(--space-2) 0 0; line-height: 1.4; min-width: 0; }
 .deal-summary-label { color: var(--fg-muted); padding-right: 0.3em; }
-.deal-summary-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; min-width: 0; }
+.deal-summary-text { overflow-wrap: anywhere; min-width: 0; }
 button.deal-summary-text { min-height: 44px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; text-decoration: underline; cursor: pointer; }
 .deal-summary-facts { white-space: pre; font-variant-numeric: tabular-nums; }
 .deal-summary-facts time[data-overdue="true"] { color: var(--status-warn-ink); }

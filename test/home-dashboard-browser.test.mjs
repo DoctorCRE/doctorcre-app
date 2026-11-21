@@ -1348,7 +1348,7 @@ test('Home Done remains hidden on the previous unversioned read', async t => {
 });
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
-  test(`Home Done fits shared cards at ${width} in ${theme}`, async t => {
+  test(`Home Done shows the full step at ${width} in ${theme}`, async t => {
     const rows = doneRows();
     rows[0].description = 'Demo follow-up with the practice team to review the updated property options, confirm tour availability with the listing contact and collect the revised floor plans before the next client meeting';
     const { page, errors } = await open(t, { width, theme, actionCompletion: {
@@ -1359,10 +1359,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await button.waitFor();
     await button.focus();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    for (const card of await page.locator('#homeBrief article').all()) {
-      const box = await card.boundingBox();
-      assert.ok(box.height <= 110, `brief card height ${box.height}`);
-    }
+    const title = page.locator('#homeBrief').getByRole('link', { name: rows[0].description, exact: true });
+    assert.ok(await title.evaluate(el => el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth));
     if (process.env.W2_SCREENSHOT_DIR) {
       await page.locator('#homeBrief').scrollIntoViewIfNeeded();
       await screenshot(page, `home-done-${width}-${theme}-detail`);

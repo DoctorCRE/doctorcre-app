@@ -14,6 +14,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const app = "https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev";
 const calendarRead = "/api/engine/calendar/critical-dates";
 const stepTitle = "Send revised offer for ExampleLeaseRenewalPackageRevision20261020";
+const upcomingTitle = "Confirm the proposed suite dimensions with the property manager and the tenant in writing.";
 const stepWhy = "The owner asked for an update on <Suite A> & parking.";
 
 test("Calendar reads once and shows dates and next steps in the visible period", async (t) => {
@@ -99,8 +100,8 @@ test("Calendar reads once and shows dates and next steps in the visible period",
                   },
                   ...["22", "24", "26", "30"].map((day) => ({
                     id: `step-${day}`,
-                    what: "Confirm suite availability",
-                    ...(day === "22" ? { why: "  CONFIRM SUITE AVAILABILITY  " } : {}),
+                    what: day === "30" ? upcomingTitle : "Confirm suite availability",
+                    ...(day === "22" ? { why: "Confirm suite availability" } : {}),
                     owner: "dell",
                     record_label: "Example clinic",
                     due_on: `2026-10-${day}`,
@@ -210,6 +211,11 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await expect(total).toHaveAttribute("aria-live", "polite");
           });
           await expect(page.locator("#calGrid .cal-chip")).toHaveCount(7);
+          if (width === 1440) {
+            const chip = page.getByRole("button", { name: new RegExp(upcomingTitle) }).locator(".cal-chip-label");
+            await expect(chip).toBeVisible();
+            assert.ok(await chip.evaluate((node) => node.scrollHeight <= node.clientHeight));
+          }
           await expect(page.locator("#calAgenda .cal-agenda-item")).toHaveCount(5);
           await expect(page.locator("#dayPanelBody .cal-day-entry")).toHaveCount(3);
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -232,8 +238,10 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             "href",
             "/relationships?node=party:example-clinic",
           );
-          await t.test("repeated and missing reasons add no copy", async () => {
-            await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
+          await t.test("the instruction appears even when it matches the title", async () => {
+            await expect(panel).toHaveText(
+              "Next step · Dell Confirm suite availability Confirm suite availability Example clinic",
+            );
             await comingUpPanel.getByRole("button", { name: /^Oct 24\b/ }).click();
             await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
           });
