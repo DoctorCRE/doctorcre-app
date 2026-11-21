@@ -11,7 +11,7 @@ type Ask = {
 type Turn = Pick<Ask, "question" | "idempotency_key"> & {
   id: string;
   position: number;
-  context: Ask["context"] | null;
+  context: NonNullable<Ask["context"]> | null;
   state: "queued" | "working" | "answered" | "failed";
   answer: { text: string } | null;
   waiting_reason: string | null;
@@ -23,8 +23,12 @@ type Session = {
 
 const api = "/api/engine/doc";
 const initialId = new URLSearchParams(location.search).get("chat");
-const signIn = "Sign in again to open your chats.";
-const loadError = "Chats couldn’t be loaded.";
+const statusText = {
+  signIn: "Sign in again to open your chats.",
+  loadFailed: "Chats couldn’t be loaded.",
+  sendFailed: "The question couldn’t be sent. Try again.",
+  unavailable: "Conversation unavailable",
+};
 const stateText = {
   queued: "Doc is waiting.",
   working: "Doc is working.",
@@ -39,53 +43,65 @@ function chatHref(id: string | null) {
   return location.pathname + (query.size ? `?${query}` : "");
 }
 
-function object(value: unknown): value is Record<string, unknown> {
+function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function conversation(value: unknown): value is Conversation {
-  return object(value) && typeof value.id === "string" && typeof value.title === "string";
+function isConversation(value: unknown): value is Conversation {
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.title === "string" &&
+    typeof value.created_at === "string"
+  );
 }
 
-function turn(value: unknown): value is Turn {
+function isTurn(value: unknown): value is Turn {
   return (
-    object(value) &&
+    isObject(value) &&
     typeof value.id === "string" &&
+    typeof value.created_at === "string" &&
     typeof value.position === "number" &&
+    Number.isInteger(value.position) &&
+    value.position > 0 &&
     typeof value.question === "string" &&
     typeof value.idempotency_key === "string" &&
     (value.state === "queued" || value.state === "working" || value.state === "answered" || value.state === "failed") &&
     (value.context === null ||
-      (object(value.context) && typeof value.context.kind === "string" && typeof value.context.id === "string")) &&
-    (value.answer === null || (object(value.answer) && typeof value.answer.text === "string")) &&
+      (isObject(value.context) && typeof value.context.kind === "string" && typeof value.context.id === "string")) &&
+    (value.answer === null || (isObject(value.answer) && typeof value.answer.text === "string")) &&
+    (value.confirmation === null || isObject(value.confirmation)) &&
     (value.waiting_reason === null || typeof value.waiting_reason === "string")
   );
 }
 
-async function parse<T>(response: Response, valid: (value: unknown) => value is T): Promise<T> {
-  const value: unknown = await response.json();
-  if (!valid(value)) throw Error();
-  return value;
+function isConversationList(value: unknown): value is { conversations: Conversation[] } {
+  return (
+    isObject(value) &&
+    Array.isArray(value.conversations) &&
+    value.conversations.every(isConversation) &&
+    (value.next_before === null || typeof value.next_before === "string")
+  );
 }
 
-function conversations(value: unknown): value is { conversations: Conversation[] } {
-  return object(value) && Array.isArray(value.conversations) && value.conversations.every(conversation);
+function isConversationDetail(value: unknown): value is { turns: Turn[] } {
+  return (
+    isObject(value) && isConversation(value.conversation) && Array.isArray(value.turns) && value.turns.every(isTurn)
+  );
 }
 
-function validDetail(value: unknown): value is { turns: Turn[] } {
-  return object(value) && Array.isArray(value.turns) && value.turns.every(turn);
+function isTurnResponse(value: unknown): value is { conversation_id: string; turn: Turn } {
+  return isObject(value) && typeof value.conversation_id === "string" && isTurn(value.turn);
 }
 
-function sent(value: unknown): value is { conversation_id: string; turn: Turn } {
-  return object(value) && typeof value.conversation_id === "string" && turn(value.turn);
-}
+class ConversationUnavailable extends Error {}
 
-async function docFetch(path: string, ask?: Ask) {
+async function docFetch<T>(path: string, isResponse: (value: unknown) => value is T, ask?: Ask): Promise<T> {
   const { privateSession }: { privateSession: () => Session | null } = await import(
     new URL("./private-session.js", import.meta.url).href
   );
   const session = privateSession();
-  if (!session) throw Error(signIn);
+  if (!session) throw Error(statusText.signIn);
   await session.verify({ fresh: true });
   const response = await session.fetch(api + path, {
     signal: AbortSignal.timeout(12000),
@@ -96,7 +112,11 @@ async function docFetch(path: string, ask?: Ask) {
     }),
   });
   await session.verify({ fresh: true });
-  return response;
+  if (response.status === 404 && path.startsWith("/conversations/")) throw new ConversationUnavailable();
+  if (!response.ok) throw Error(`Doc request failed with status ${response.status}`);
+  const value: unknown = await response.json();
+  if (!isResponse(value)) throw Error("Invalid Doc response");
+  return value;
 }
 
 function DocChat() {
@@ -107,7 +127,7 @@ function DocChat() {
   const [pendingAsk, setPendingAsk] = useState<Ask | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<keyof typeof statusText | null>(null);
   const retired = useRef(false);
   const active = useRef(false);
   const latest = turns.at(-1);
@@ -128,21 +148,28 @@ function DocChat() {
     ready &&
     !busy &&
     !waiting &&
-    status !== loadError &&
+    status !== "loadFailed" &&
     !pendingAsk &&
     text.length > 0 &&
     [...text].length <= 4000 &&
     !text.includes("\0");
 
-  const run = useCallback(async (work: () => Promise<void>, onError: () => void) => {
+  const run = useCallback(async (operation: "load" | "send", work: () => Promise<void>) => {
     if (active.current || retired.current) return;
     active.current = true;
     setBusy(true);
-    setStatus("");
+    setStatus(null);
     try {
       await work();
-    } catch {
-      if (!retired.current) onError();
+    } catch (error) {
+      if (retired.current) return;
+      if (error instanceof ConversationUnavailable) {
+        setTurns([]);
+        setReady(false);
+        setStatus("unavailable");
+      } else {
+        setStatus(operation === "load" ? "loadFailed" : "sendFailed");
+      }
     } finally {
       active.current = false;
       if (!retired.current) setBusy(false);
@@ -151,30 +178,17 @@ function DocChat() {
 
   const load = useCallback(
     async (chatId: string | null) => {
-      await run(
-        async () => {
-          const response = await docFetch("/conversations");
-          if (!response.ok) throw Error();
-          const data = await parse(response, conversations);
+      await run("load", async () => {
+        const { conversations } = await docFetch("/conversations", isConversationList);
+        if (retired.current) return;
+        setRecent(conversations);
+        if (chatId) {
+          const { turns: saved } = await docFetch(`/conversations/${encodeURIComponent(chatId)}`, isConversationDetail);
           if (retired.current) return;
-          setRecent(data.conversations);
-          if (chatId) {
-            const detail = await docFetch(`/conversations/${encodeURIComponent(chatId)}`);
-            if (detail.status === 404) {
-              setTurns([]);
-              setReady(false);
-              setStatus("Conversation unavailable");
-              return;
-            }
-            if (!detail.ok) throw Error();
-            const { turns: saved } = await parse(detail, validDetail);
-            if (retired.current) return;
-            setTurns(saved);
-          }
-          setReady(true);
-        },
-        () => setStatus(loadError),
-      );
+          setTurns(saved);
+        }
+        setReady(true);
+      });
     },
     [run],
   );
@@ -188,7 +202,7 @@ function DocChat() {
       setPendingAsk(null);
       setReady(false);
       setBusy(false);
-      setStatus(signIn);
+      setStatus("signIn");
     }
     window.addEventListener("doctorcre-session-invalidated", clear);
     void load(initialId);
@@ -196,29 +210,19 @@ function DocChat() {
   }, [load]);
 
   function send(ask: Ask) {
-    void run(
-      async () => {
-        setPendingAsk(ask);
-        const response = await docFetch("/turns", ask);
-        if (response.status >= 400 && response.status < 500) {
-          setPendingAsk(null);
-          setStatus("Doc couldn’t take that question. Check the chat and try again.");
-          return;
-        }
-        if (!response.ok) throw Error();
-        const { conversation_id, turn } = await parse(response, sent);
-        if (retired.current) return;
-        if (id !== conversation_id) {
-          history.replaceState(history.state, "", chatHref(conversation_id));
-          setId(conversation_id);
-          setRecent((rows) => [{ id: conversation_id, title: [...turn.question].slice(0, 80).join("") }, ...rows]);
-        }
-        setTurns((rows) => [...rows.filter((row) => row.id !== turn.id), turn]);
-        setPendingAsk(null);
-        if (latest?.idempotency_key !== ask.idempotency_key) setQuestion("");
-      },
-      () => setStatus("The question couldn’t be sent. Try again."),
-    );
+    void run("send", async () => {
+      setPendingAsk(ask);
+      const { conversation_id, turn } = await docFetch("/turns", isTurnResponse, ask);
+      if (retired.current) return;
+      if (id !== conversation_id) {
+        history.replaceState(history.state, "", chatHref(conversation_id));
+        setId(conversation_id);
+        setRecent((rows) => [{ id: conversation_id, title: [...turn.question].slice(0, 80).join("") }, ...rows]);
+      }
+      setTurns((rows) => [...rows.filter((row) => row.id !== turn.id), turn]);
+      setPendingAsk(null);
+      if (latest?.idempotency_key !== ask.idempotency_key) setQuestion("");
+    });
   }
 
   return (
@@ -255,14 +259,16 @@ function DocChat() {
               </li>
             ))}
           </ol>
-          <p role="status">{busy ? (pendingAsk ? "Sending question…" : "Loading chats…") : status}</p>
+          <p role="status">
+            {busy ? (pendingAsk ? "Sending question…" : "Loading chats…") : status && statusText[status]}
+          </p>
           <div className="doc-chat__actions">
-            {!pendingAsk && (status === loadError || (id && ready)) && (
+            {!pendingAsk && (status === "loadFailed" || (id && ready)) && (
               <button className="btn" type="button" disabled={busy} onClick={() => void load(id)}>
-                {status === loadError ? "Retry loading" : waiting ? "Check for answer" : "Refresh chat"}
+                {status === "loadFailed" ? "Retry loading" : waiting ? "Check for answer" : "Refresh chat"}
               </button>
             )}
-            {retry && (
+            {retry && status !== "loadFailed" && (
               <button className="btn" type="button" disabled={busy} onClick={() => send(retry)}>
                 Retry
               </button>
