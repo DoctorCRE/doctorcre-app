@@ -38,13 +38,14 @@ test("Suggested retains exact named people with unknown channels and unavailable
   await page.goto(`${server.url}/vendors`);
   const section = page.getByRole("region", { name: "People worth meeting" });
   await section.getByText("Ada Synthetic", { exact: true }).waitFor({ timeout: 5000 });
-  for (const text of [
-    "Email not recorded",
-    "Phone not recorded",
-    "1 Synthetic Plaza, Demo City, FL",
-    "Medical office purchase financing",
-    "Calendar unavailable. People and office details are still shown.",
-  ])
+  const list = await page.locator("#recordList").boundingBox();
+  const meetingsBox = await section.boundingBox();
+  assert.ok(list && meetingsBox && meetingsBox.y > list.y + list.height);
+  assert.doesNotMatch(
+    (await section.textContent()) ?? "",
+    /not recorded|Named people with|suggested people\.|Calendar unavailable/i,
+  );
+  for (const text of ["1 Synthetic Plaza, Demo City, FL", "Medical office purchase financing"])
     assert.equal(await section.getByText(text, { exact: true }).count(), 1);
 });
 
@@ -111,9 +112,7 @@ test("empty, failure and retry remain distinct", async (t) => {
   const { section, setMode } = await setup(t);
   setMode("empty");
   await section.getByRole("searchbox").fill("empty");
-  await section
-    .getByText("No suggested people match this search. Open Research to see what is missing.", { exact: true })
-    .waitFor();
+  await section.getByText("No suggested people", { exact: true }).waitFor();
   assert.equal(await section.getByRole("alert").count(), 0);
   setMode("fail");
   await section.getByRole("searchbox").fill("failure");
@@ -206,6 +205,9 @@ test("query changes retire successful and failed late reads even when the adapte
     const mounted = mountVendorMeetings(host, {
       load: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
       href: () => "/vendors",
+      nameLabel: (value: string) => value,
+      phoneLabel: (value: string) => value,
+      timeLabel: (value: string) => value,
       open: () => {},
     });
     const tick = () => new Promise((resolve) => setTimeout(resolve, 400));
@@ -251,16 +253,13 @@ for (const mode of ["ready", "empty", "fail"])
       setMode(mode);
       await section.getByRole("searchbox").fill(mode);
       if (mode === "fail") await section.getByRole("alert").waitFor();
-      else
-        await section
-          .getByText("No suggested people match this search. Open Research to see what is missing.", { exact: true })
-          .waitFor();
+      else await section.getByText("No suggested people", { exact: true }).waitFor();
     }
     await page.evaluate(() => window.dispatchEvent(new Event("doctorcre-session-invalidated")));
     assert.equal(await section.count(), 0);
   });
 
-test("possible meetings retain exact recorded details and partial-calendar warnings", async (t) => {
+test("possible meetings show Central times and a short partial-calendar warning", async (t) => {
   const { page, section } = await setup(t);
   const ready = JSON.parse(await readFile(new URL("./fixtures/vendor-meetings/ready.json", import.meta.url), "utf8"));
   await page.route("**/mcp", (route) => {
@@ -284,16 +283,13 @@ test("possible meetings retain exact recorded details and partial-calendar warni
   });
   await section.getByRole("searchbox").fill("meeting");
   await section.getByText("Synthetic office visit", { exact: false }).waitFor();
-  const meetings = ready.suggested.items[0].possible_meetings;
-  assert.deepEqual(
-    await section.locator("h3 + ul > li").allTextContents(),
-    meetings.map(
-      (m: { title: string; start: string; end: string; location: string | null }) =>
-        `${m.title} · ${m.start} to ${m.end}${m.location ? ` · ${m.location}` : ""}`,
-    ),
-  );
+  assert.deepEqual(await section.locator("h3 + ul time").allTextContents(), [
+    "Nov 10, 2026, 6:50 PM",
+    "Nov 10, 2026, 7:50 PM",
+  ]);
+  assert.equal(await section.getByText("Calendar incomplete", { exact: true }).count(), 1);
   for (const note of ready.suggested.calendar.notes)
-    assert.equal(await section.getByText(note, { exact: true }).count(), 1);
+    assert.equal(await section.getByText(note, { exact: true }).count(), 0);
 });
 
 test("phone disclosure restores directory and retains meeting view across close and reopen", async (t) => {

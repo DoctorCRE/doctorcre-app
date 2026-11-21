@@ -344,7 +344,7 @@ test("the page is the shared shell, the activity panel is its own thing, and 44p
   ]);
   assert.equal(rows.length, 2);
   assert.equal(rows[0].actor, "Unattributed", "the newest event is not first");
-  assert.equal(rows[1].clock, "2:20 PM");
+  assert.equal(rows[1].clock, "8:20 AM");
   assert.equal(rows[1].subject, "Deal");
 
   // Mobile first: one column, a full-width target, and the 44px floor.

@@ -190,7 +190,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.doesNotMatch(await age.innerText(), /—|\$/);
     assert.equal(await age.locator('.age-fill').getAttribute('width'), '0');
     assert.match(await rows.innerText(), /Dell/);
-    assert.match(await rows.innerText(), /Amount not recorded/);
+    assert.doesNotMatch(await rows.innerText(), /Amount not recorded/);
+    const pageTitle = await page.getByRole('heading', { level: 1, name: 'Invoices' }).boundingBox();
+    assert.ok(pageTitle.y < (await page.locator('#invoiceTabs').boundingBox()).y);
 
     const evidence = new URL('out/test-artifacts/w15/', root);
     await mkdir(evidence, { recursive: true });
@@ -198,9 +200,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await page.screenshot({ path: new URL(`amounts-${width}-${theme}.png`, evidence).pathname });
     await rows.click();
     await page.locator('#invoiceOriginal summary').click();
-    assert.match(await page.locator('#invoiceDetailFacts').innerText(), /Owed to DoctorCRE\s+Amount not recorded/);
+    assert.doesNotMatch(await page.locator('#invoiceDetailFacts').innerText(), /Owed to DoctorCRE|Amount not recorded/);
     assert.match(await page.locator('#invoiceOriginalFacts').innerText(), /Owner\s+Dell/);
-    assert.match(await page.locator('#invoiceOriginalFacts').innerText(), /Due date not recorded/);
+    assert.doesNotMatch(await page.locator('#invoiceOriginalFacts').innerText(), /Due|Paid|Commission|—/);
     const drawer = page.getByRole('dialog');
     const doc = drawer.getByRole('button', { name: 'Open Doc' });
     const close = drawer.getByRole('button', { name: 'Close invoice' });

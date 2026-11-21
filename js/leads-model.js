@@ -22,7 +22,8 @@ export function leadTitle(lead) {
   const named = [lead.doctor_name, lead.practice_name, lead.entity_name, lead.name].map(cleanTitle).find(Boolean);
   return named || `${lead.specialty || lead.vertical || "Practice"} ${lead.plan_type || "startup"}${lead.city ? ` in ${lead.city}` : ""}`;
 }
-export const marketKey = lead => lead.market || [lead.city, lead.state].filter(Boolean).join(", ") || "Market pending";
+export const leadMarket = lead => lead.market?.trim() || [lead.city, lead.state].filter(Boolean).join(", ");
+export const marketKey = lead => leadMarket(lead) || "Leads without a market";
 export const specialtyKey = lead => lead.specialty?.trim() || lead.vertical?.trim() || "Specialty pending";
 export function visibleLeads(leads, filters = {}) {
   const search = (filters.search || "").trim().toLowerCase();

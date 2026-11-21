@@ -50,7 +50,7 @@ async function open(t, width = 1440) {
       }
       if (mode === "route-text") payload.nodes[0].name = "Demo <em>Lending</em> & Partners";
       if (mode === "twins") {
-        payload.nodes[0].name = "Demo Healthcare Lending North Partners";
+        payload.nodes[0].name = "Demo Healthcare Lending North Partners (V-DEMO-123)";
         payload.nodes[3].name = "Demo Healthcare Lending South Partners";
       }
       return r.fulfill({ json: payload });
@@ -143,6 +143,8 @@ for (const width of [1440, 390])
     const h = await open(t, width),
       { page } = h;
     await page.goto("http://localhost/relationships?mode=live");
+    const title = await page.getByRole("heading", { level: 1, name: "Relationships" }).boundingBox();
+    assert.ok(title.y < (await page.getByRole("tab", { name: "Network" }).boundingBox()).y);
     await page.waitForSelector(width === 390 ? "#networkNodes button" : ".relationship-node");
     await page.waitForSelector("#appTabsSlot #graphTab");
     assert.equal(await page.locator("#appLayout").count(), 1);
@@ -230,7 +232,12 @@ for (const width of [1440, 320])
       nodes.map((node) => node.querySelector(".node-name").textContent));
     assert.equal(shown.filter((text) => text.startsWith("Demo Healthcare Lending")).length, 2, "both similar names remain present for accessible identification");
     for (const side of ["North", "South"])
-      assert.equal(await page.getByRole("button", { name: width === 1440 ? `Open vendor, Demo Healthcare Lending ${side} Partners, Demo Coast` : `Demo Healthcare Lending ${side} Partners vendor · Demo Coast`, exact: true }).count(), 1);
+      assert.equal(await page.getByRole("button", { name: width === 1440 ? `Open Vendor, Demo Healthcare Lending ${side} Partners, Demo Coast` : `Demo Healthcare Lending ${side} Partners Vendor · Demo Coast`, exact: true }).count(), 1);
+    const search = page.getByRole("searchbox", { name: "Find a relationship" });
+    await search.fill("Demo Healthcare Lending North Partners (V-DEMO-123)");
+    assert.equal(await page.locator('.relationship-node').count(), 1);
+    assert.doesNotMatch(await page.locator('#networkCanvas').textContent(), /V-DEMO-123/);
+    await search.fill("");
     await page.addScriptTag({ content: axe.source });
     const audit = await page.evaluate(() => window.axe.run(document.querySelector(innerWidth < 760 ? "#networkNodes" : "#networkCanvas"), { runOnly: ["label-content-name-mismatch"] }));
     assert.deepEqual(audit.violations, []);

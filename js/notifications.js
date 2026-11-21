@@ -32,7 +32,7 @@ import { mountAutoRefresh } from "./auto-refresh.mjs";
 import { createLiveClient } from "./live-client.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge, mountPrefs } from "./shell.js";
-import { formatClock } from "./visual-system.js";
+import { formatBusinessClock } from "./business-date.js";
 import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, classifyPreferenceFailure,
@@ -89,7 +89,7 @@ function showPreferenceMessage(text) {
 }
 
 const asOf = (read) => {
-  const clock = read.state === "read" ? formatClock(read.observed_at) : "";
+  const clock = read.state === "read" ? formatBusinessClock(read.observed_at) : "";
   return clock ? `As of ${clock}` : "";
 };
 

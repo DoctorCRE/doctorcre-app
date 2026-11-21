@@ -1,3 +1,5 @@
+import { BUSINESS_TIME_ZONE } from './business-date.js';
+import { phoneLabel, withoutRecordCodes } from './visual-system.js';
 import { mountLocalTicker } from './visibility-poll.mjs';
 import { createPageBudget } from './read-budget.mjs';
 import { compareInstants } from './change-receipts.mjs';
@@ -24,7 +26,7 @@ import { fetchRead, mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 // set are the server's answers; this file renders them or says why it cannot.
 
 import {
-  DATASET_LABEL, DATASET_ROUTE, DATASET_SINGULAR, MAX_QUERY_LENGTH, NOT_RECORDED, PIPELINE_FILTERS, PIPELINE_LABEL, SORTS,
+  DATASET_LABEL, DATASET_ROUTE, DATASET_SINGULAR, MAX_QUERY_LENGTH, PIPELINE_FILTERS, PIPELINE_LABEL, SORTS,
   SOURCE_LABEL, acceptsResponse, cachedPayload, clientNoteText, createBusinessState, datasetForPath, defaultQuery,
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
   isSessionExpiry, listPhase, listRequestUrl, ownerPresentation, pageSummary, panelModality, panelTabTarget,
@@ -169,9 +171,12 @@ async function syncQuietVendors() {
     vendorMeetingsHost = document.createElement('div');
     vendorMeetingsHost.className = 'vendor-meetings-host';
     vendorMeetingsHost.setAttribute('data-panel-background', '');
-    host.before(vendorMeetingsHost);
+    dom.listRegion.closest(".business-body").after(vendorMeetingsHost);
     const requestMeetings = createMcpRequests();
     vendorMeetings = mountVendorMeetings(vendorMeetingsHost, {
+      nameLabel: withoutRecordCodes,
+      phoneLabel,
+      timeLabel: formatMoment,
       load: async (query, signal) => {
         const result = await requestMeetings('read-vendor-meetings', query, { signal, timeoutMs: 15000 });
         if (result.kind !== 'payload' || result.isError) throw new Error('Vendor meetings unavailable');
@@ -241,12 +246,12 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 function formatMoment(value) {
   const date = new Date(value || NaN);
   if (Number.isNaN(date.valueOf())) return "an unknown time";
-  return date.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", hour12: true });
+  return date.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: BUSINESS_TIME_ZONE, hour12: true });
 }
 
 function formatDay(value) {
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? null : date.toLocaleDateString([], { dateStyle: "medium", ...(/^\d{4}-\d{2}-\d{2}$/.test(value) ? {timeZone:'UTC'} : {}) });
+  return Number.isNaN(date.valueOf()) ? null : date.toLocaleDateString([], { dateStyle: "medium", ...(/^\d{4}-\d{2}-\d{2}$/.test(value) ? {timeZone:'UTC'} : {timeZone:BUSINESS_TIME_ZONE}) });
 }
 
 const HEALTH_LABEL = {
@@ -433,30 +438,29 @@ function renderNotices(notices) {
 
 const metric = value => Number.isInteger(value) ? String(value) : '—';
 const winRate = stats => Number.isFinite(stats?.win_rate) ? `${Math.round(stats.win_rate * 100)}%` : '—';
+const vendorNote = value => withoutRecordCodes((value || '').replace(/\bCARR calendar history\b/gi, 'calendar history'));
 const shortNote = value => typeof value === 'string' ? value.split(/\n/)[0].slice(0, 140) : '';
-function tierHtml(stats) {
-  const computed = stats?.computed_tier || 'Unrated';
-  const tier = stats?.override?.tier || computed;
-  return `<span class="trust-line"><span class="trust-tier" data-tier="${escapeHtml(tier)}">${escapeHtml(tier)}</span>${stats?.override ? `<span>Computed: ${escapeHtml(computed)}</span>` : ''}</span>`;
-}
+const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
+const trustRatings = { Proven: 'Strong track record', Established: 'Ongoing working relationship', Trial: 'New working relationship' };
 function vendorContactsHtml(record) {
   const statuses = { not_researched: 'Not researched', needs_review: 'Needs review', office_verified: 'Office verified' };
   const contacts = (record.people || []).map(({ company, contact, office, research }) => `
     <li>
-      <h4>${escapeHtml(contact.name)}</h4>
-      ${company ? `<p class="note-summary">${escapeHtml(company.name.trim() || 'Company name not recorded')}</p>` : ''}
+      <h4>${escapeHtml(withoutRecordCodes(contact.name))}</h4>
+      ${company ? `<p class="note-summary">${escapeHtml(withoutRecordCodes(company.name))}</p>` : ''}
       <dl>
-        <div class="record-field"><dt>Email</dt><dd>${escapeHtml(contact.email || 'Email not recorded')}</dd></div>
-        <div class="record-field"><dt>Phone</dt><dd>${escapeHtml([contact.phone, contact.cell].filter(Boolean).join(' · ') || 'Phone not recorded')}</dd></div>
-        <div class="record-field"><dt>Office</dt><dd>${office ? escapeHtml(`${office.street_address}, ${office.city}, ${office.state}`) : 'Office not recorded'}</dd></div>
+        ${vendorField('Email', contact.email)}
+        ${vendorField('Phone', [contact.phone, contact.cell].filter(Boolean).map(phoneLabel).join(' · '))}
+        ${vendorField('Office', office && `${office.street_address}, ${office.city}, ${office.state}`)}
         <div class="record-field"><dt>Office research</dt><dd>${escapeHtml(statuses[research.status])}</dd></div>
       </dl>
       ${office ? `<p class="observed">${escapeHtml(office.source)} · ${escapeHtml(formatMoment(office.observed_at))}${office.expires_on ? ` · Expires ${escapeHtml(office.expires_on)}` : ''}</p>` : ''}
     </li>`).join('');
+  if (!contacts && !record.territory) return "";
   return `<section class="record-section" aria-label="Vendor contacts">
     <h3>Contacts & offices</h3>
-    <dl><div class="record-field"><dt>Recorded territory</dt><dd>${escapeHtml(record.territory || NOT_RECORDED)}</dd></div></dl>
-    ${contacts ? `<ul class="vendor-contacts">${contacts}</ul>` : '<p class="note-summary">No contacts recorded.</p>'}
+    ${record.territory ? `<dl>${vendorField("Territory", record.territory)}</dl>` : ""}
+    ${contacts ? `<ul class="vendor-contacts">${contacts}</ul>` : ''}
   </section>`;
 }
 
@@ -465,9 +469,19 @@ function relationshipHtml(record) {
   const intro = stats.introductions || [];
   const list = kind => {
     const items = intro.filter(item => kind === 'made' ? ['intro','intro_received','introduced'].includes(item.kind) : ['can_introduce','intro_requested'].includes(item.kind)).sort((a,b) => compareInstants(a.occurred_at,b.occurred_at));
-    return items.length ? `<ol class="network-list">${items.map(item => `<li>${escapeHtml(item.from_name)} → ${escapeHtml(item.to_name)}<p class="note-summary">${escapeHtml(shortNote(item.note))}</p>${item.occurred_at ? `<time>${escapeHtml(formatDay(item.occurred_at))}</time>` : ''}${kind === 'suggested' ? '<span class="observed">Suggested · not yet made</span>' : ''}${item.note ? `<details class="record-details" data-details-key="intro-${escapeHtml(item.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(item.note)}</p></details>` : ''}</li>`).join('')}</ol>` : '<p class="observed">None recorded</p>';
+    return items.length ? `<ol class="network-list">${items.map(item => `<li>${escapeHtml(item.from_name)} → ${escapeHtml(item.to_name)}<p class="note-summary">${escapeHtml(shortNote(vendorNote(item.note)))}</p>${item.occurred_at ? `<time>${escapeHtml(formatDay(item.occurred_at))}</time>` : ''}${kind === 'suggested' ? '<span class="observed">Suggested · not yet made</span>' : ''}${item.note ? `<details class="record-details" data-details-key="intro-${escapeHtml(item.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(item.note))}</p></details>` : ''}</li>`).join('')}</ol>` : '';
   };
-  return `<section class="record-section relationship-section" aria-label="Partnership">${tierHtml(stats)}${stats.override ? `<p class="note-summary">${escapeHtml(stats.override.recorded_by)} · ${escapeHtml(formatMoment(stats.override.recorded_at))} · ${escapeHtml(stats.override.reason)}</p>` : ''}<div class="relationship-metrics"><div class="relationship-metric"><strong>${metric(stats.deals_referred)}</strong><span>Deals referred</span></div><div class="relationship-metric"><strong>${metric(stats.deals_worked)}</strong><span>Deals worked</span></div><div class="relationship-metric"><strong>${winRate(stats)}</strong><span>Win rate${stats.win_rate != null ? ` · ${stats.won} won / ${stats.won + stats.lost} resolved` : ''}</span></div><div class="relationship-metric"><strong>${stats.last_contacted_at ? escapeHtml(formatMoment(stats.last_contacted_at)) : '—'}</strong><span>Last contacted</span></div></div><p class="note-summary">${escapeHtml(shortNote(stats.last_contact_note))}</p>${initialBootMode.mode === 'live' ? `<details class="trust-editor" data-details-key="trust"><summary>Trust rating</summary><form class="trust-form" id="trustForm"><label>Tier<select name="tier"><option value="">Use computed tier</option>${['Proven','Established','Trial'].map(tier => `<option${tier === stats.override?.tier ? ' selected' : ''}>${tier}</option>`).join('')}</select></label><label>Reason<input name="reason" maxlength="500" value="${escapeHtml(stats.override?.reason || '')}"></label><button class="action primary-action" type="submit"${view.pendingTrust ? ' disabled' : ''}>Save rating</button><p class="trust-status" role="status" id="trustStatus">${view.trustStatus?.id === record.id ? escapeHtml(view.trustStatus.text) : ''}</p></form></details>` : ''}</section><section class="record-section"><h3>Services & products</h3><p class="note-summary">${escapeHtml(shortNote(record.offers) || 'Not recorded')}</p>${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(record.offers)}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section><section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>${stats.recent_entries?.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...stats.recent_entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li><p class="note-summary">${escapeHtml(shortNote(entry.summary))}</p><time>${escapeHtml(formatMoment(entry.when))}</time>${entry.detail ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(entry.detail)}</p></details>` : ''}</li>`).join('')}</ol></section>` : ''}`;
+  const metrics = [
+    ['Deals referred', stats.deals_referred],
+    ['Deals worked', stats.deals_worked],
+    [stats.win_rate == null ? 'Win rate' : `Win rate · ${stats.won} won / ${stats.won + stats.lost} resolved`, stats.win_rate == null ? null : winRate(stats)],
+    ['Last contacted', stats.last_contacted_at && formatMoment(stats.last_contacted_at)],
+  ].filter(([, value]) => value != null);
+  const contactNote = shortNote(vendorNote(stats.last_contact_note));
+  return `<section class="record-section relationship-section" aria-label="Partnership">${stats.override ? `<p class="note-summary">${escapeHtml(stats.override.recorded_by)} · ${escapeHtml(formatMoment(stats.override.recorded_at))} · ${escapeHtml(vendorNote(stats.override.reason))}</p>` : ''}
+    ${metrics.length ? `<div class="relationship-metrics">${metrics.map(([label, value]) => `<div class="relationship-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`).join('')}</div>` : ''}
+    ${contactNote ? `<p class="note-summary">${escapeHtml(contactNote)}</p>` : ''}
+    ${initialBootMode.mode === 'live' ? `<details class="trust-editor" data-details-key="trust"><summary>Trust rating</summary><form class="trust-form" id="trustForm"><label>Rating<select name="tier"><option value="">Use automatic rating</option>${Object.entries(trustRatings).map(([tier, label]) => `<option value="${tier}"${tier === stats.override?.tier ? ' selected' : ''}>${label}</option>`).join('')}</select></label><label>Reason<input name="reason" maxlength="500" value="${escapeHtml(stats.override?.reason || '')}"></label><button class="action primary-action" type="submit"${view.pendingTrust ? ' disabled' : ''}>Save rating</button><p class="trust-status" role="status" id="trustStatus">${view.trustStatus?.id === record.id ? escapeHtml(view.trustStatus.text) : ''}</p></form></details>` : ''}</section>${record.offers || record.loan_programs?.length ? `<section class="record-section"><h3>Services & products</h3>${record.offers ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(record.offers)))}</p>` : ""}${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(record.offers))}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section>` : ''}${intro.length ? `<section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>` : ''}${stats.recent_entries?.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...stats.recent_entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li><p class="note-summary">${escapeHtml(shortNote(vendorNote(entry.summary)))}</p><time>${escapeHtml(formatMoment(entry.when))}</time>${entry.detail ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(entry.detail))}</p></details>` : ''}</li>`).join('')}</ol></section>` : ''}`;
 }
 function capturePanelState() {
   const id = dom.panelBody.dataset.recordId;
@@ -599,7 +613,7 @@ function rowFacts(dataset, row) {
     facts.push({ label: "Client type", value: type.text, known: type.known, unresolved: type.known && !type.resolved });
   } else {
     const category = recordedCode(row.recorded_category, row.recorded_category_label);
-    facts.push({ label: "Category", value: category.text, known: category.known, unresolved: category.known && !category.resolved });
+    facts.push({ label: "Category", value: category.text, known: category.resolved });
     const stats = row.relationship;
     facts.push({ label: 'Territory', value: row.territory || 'Not recorded', known: Boolean(row.territory) });
     facts.push({ label: 'Referred', value: metric(stats?.deals_referred), known: stats?.deals_referred != null });
@@ -626,12 +640,11 @@ function rowHtml(dataset, row, selectedId) {
   const tone = rowTone(dataset, row);
   const owner = ownerPresentation(row);
   const selected = row.id === selectedId;
-  const allFacts = rowFacts(dataset, row);
-  const missing = dataset === "vendors" ? allFacts.filter((fact) => !fact.known).map((fact) => fact.label.toLowerCase()) : [];
-  const facts = allFacts.filter((fact) => fact.known).map((fact) =>
-    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}${fact.label === "Last contacted" ? " row-last-contact" : ""}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("")
-    + (missing.length ? `<span class="row-missing">${NOT_RECORDED}: ${escapeHtml(missing.join(", "))}</span>` : "");
-  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${dataset === "vendors" ? tierHtml(row.relationship) + `<span class="contact-note">${escapeHtml(shortNote(row.relationship?.last_contact_note))}</span>` : ""}<span class="row-foot"><span class="row-owner${owner.known ? "" : " unknown"}">Owner: ${escapeHtml(owner.text)}${owner.ownedByViewer ? '<span class="row-you">Yours</span>' : ""}</span><span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
+  const vendor = dataset === "vendors";
+  const facts = rowFacts(dataset, row).filter((fact) => fact.known).map((fact) =>
+    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}${fact.label === "Last contacted" ? " row-last-contact" : ""}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("");
+  const note = vendor ? shortNote(vendorNote(row.relationship?.last_contact_note)) : '';
+  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${note ? `<span class="contact-note">${escapeHtml(note)}</span>` : ""}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
 }
 
 function paintList(html, { busy = false } = {}) {
@@ -719,8 +732,8 @@ function renderList() {
   if (dom.viewer) {
     dom.viewer.textContent = payload.viewer === "joe" ? "Joe’s workspace" : payload.viewer === "dell" ? "Dell’s workspace" : "Partner workspace";
   }
-  if (dom.observedAt) dom.observedAt.textContent = updatedLabel(payload.source.observed_at);
-  if (dom.source) dom.source.textContent = updatedLabel(payload.source?.observed_at);
+  if (dom.observedAt) dom.observedAt.textContent = updatedLabel(payload.source.observed_at, BUSINESS_TIME_ZONE);
+  if (dom.source) dom.source.textContent = updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE);
   if (dom.summary) dom.summary.textContent = `${payload.total} ${(payload.total === 1 ? DATASET_SINGULAR[dataset] : DATASET_LABEL[dataset]).toLowerCase()}`;
   // eslint-disable-next-line no-restricted-syntax -- Business notice metadata only; 0 automatic attempts, and any retry requires a fresh user action.
   renderNotices(view.failedPage ? [{ kind: 'unavailable', title: 'Could not load more', copy: 'Retrying automatically.', retry: true }]
@@ -838,16 +851,28 @@ function renderRecordPanel() {
   const tone = rowTone(dataset, payload.record);
   const owner = ownerPresentation(payload.record);
   const kind = partyKindText(payload.record.party_kind);
-  if (dom.panelTitle) dom.panelTitle.textContent = payload.record.name;
+  const vendor = dataset === "vendors";
+  if (dom.panelTitle) dom.panelTitle.textContent = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
   const ref = recordedValue(payload.record.ref);
-  const referenceDetails = ref.known
+  const referenceDetails = !vendor && ref.known
     ? `<details class="record-details" data-details-key="reference"><summary>Details</summary><dl><div class="record-field"><dt>Internal reference</dt><dd>${escapeHtml(ref.text)}</dd></div></dl></details>`
     : "";
-  const sections = recordSections(dataset, payload.record).filter(section => !["About this record", "Status on the record", "What they offer and need", "Introduction notes", "Record", "Recorded state"].includes(section.title)).filter(section => section.fields.some(field => field.known && !['Vendor reference','Client reference','What they offer','Last touch'].includes(field.label))).map((section) =>
-    `<section class="record-section"><h3>${escapeHtml(section.title)}</h3><dl>${section.fields.filter(field => !['ETL status','What this status means','Version','What this level means','Vendor reference','Client reference','What they offer','Last touch'].includes(field.label) && field.known).map((field) =>
-      `<div class="record-field${field.known ? "" : " unknown"}${field.resolved ? "" : " unresolved"}"><dt>${escapeHtml(field.label)}</dt><dd>${(section.title === 'Notes' ? `<p class="note-summary">${escapeHtml(shortNote(field.text))}</p><details class="record-details" data-details-key="notes"><summary>Details</summary><p class="entry-detail">${escapeHtml(field.text)}</p></details>` : escapeHtml(field.text))}${field.known && !field.resolved ? '<span class="unresolved-flag">Not recorded</span>' : ""}</dd></div>`).join("")}</dl></section>`).join("");
+  const hiddenFields = ['ETL status', 'What this status means', 'Version', 'What this level means', 'Vendor reference', 'Client reference', 'What they offer', 'Last touch'];
+  if (vendor) hiddenFields.push('Relationship level', 'Workable');
+  const sections = recordSections(dataset, payload.record)
+    .filter(section => !["About this record", "Status on the record", "What they offer and need", "Introduction notes", "Record", "Recorded state"].includes(section.title))
+    .map(section => {
+      const fields = section.fields.filter(field => !hiddenFields.includes(field.label) && field.known && (!vendor || field.resolved));
+      if (!fields.length) return "";
+      return `<section class="record-section"><h3>${escapeHtml(section.title)}</h3><dl>${fields.map(field => {
+        const value = vendor && ['Phone', 'Mobile'].includes(field.label) ? phoneLabel(field.text) : field.text;
+        const mark = field.resolved ? "" : '<span class="unresolved-flag">Not recorded</span>';
+        const note = section.title === 'Notes' && vendor ? vendorNote(value) : value;
+        return `<div class="record-field${field.resolved ? "" : " unresolved"}"><dt>${escapeHtml(field.label)}</dt><dd>${section.title === 'Notes' ? `<p class="note-summary">${escapeHtml(shortNote(note))}</p><details class="record-details" data-details-key="notes"><summary>Details</summary><p class="entry-detail">${escapeHtml(note)}</p></details>` : escapeHtml(value)}${mark}</dd></div>`;
+      }).join("")}</dl></section>`;
+    }).join("");
   if (dom.panelBody) {
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}<span>${escapeHtml(owner.text)}</span></p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at))}</p>`;
+    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     if (dataset === 'vendors' && !document.documentElement.hasAttribute('data-deals-saves-from-engine') && !document.documentElement.hasAttribute('data-clients-vendors-from-engine')) {
       if (!vendorClientNeedsHost) {

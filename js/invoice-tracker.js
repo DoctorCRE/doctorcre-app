@@ -1,3 +1,4 @@
+import { BUSINESS_TIME_ZONE } from './business-date.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
 import { createClient } from './client.js';
 import { resolveDealroomBoot } from './boot-mode.js';
@@ -7,7 +8,6 @@ import { partnerName } from './task-records-model.js';
 import { uuidv4 } from './uuid.js';
 import { AGES, projectInvoices, invoiceSummary, invoiceMoney, invoiceDate } from './invoice-tracker-model.js';
 const E=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const amountLabel = amount => amount === null ? 'Amount not recorded' : invoiceMoney(amount);
 const ownerLabel = owner => partnerName(owner) || 'Unassigned';
 const missingAmounts = count => count ? ` · ${count} without a recorded amount` : '';
 const statusLabel=row=>row.status==='paid'?'Paid':row.status==='awaiting'?'Awaiting invoice':row.overdue?'Overdue':'Unpaid';
@@ -62,7 +62,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
   function render() {
     const owned=scoped();
     $('invoiceRows').setAttribute('aria-busy',String(!rows));
-    $('invoiceUpdated').textContent=updatedLabel(updatedAt);
+    $('invoiceUpdated').textContent=updatedLabel(updatedAt, BUSINESS_TIME_ZONE);
     if(!owned){paint($('invoiceTotals'),'');paint($('invoiceAging'),'');paint($('invoiceRows'),'<p>Updating…</p>');return;}
     const totals=invoiceSummary(owned);
     const hasOwedAmount = totals.unpaid > totals.unknown;
@@ -92,7 +92,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       <button type="button" class="invoice-row ${row.status}${row.overdue?' overdue':''}" data-age="${row.bucket ?? ''}" data-invoice-key="${E(row.key)}" data-invoice="${E(row.key)}">
         <span><strong>${E(row.name)}</strong><span class="invoice-sub">${E(ownerLabel(row.owner))}</span></span>
         <span class="row-date">${row.invoiceDay ? E(invoiceDate(row.invoiceDay)) : ''}</span>
-        <span class="row-money${row.amount === null ? ' invoice-missing-amount' : ''}">${E(amountLabel(row.amount))}</span>
+        <span class="row-money">${row.amount === null ? "" : E(invoiceMoney(row.amount))}</span>
         <span class="invoice-state">${statusLabel(row)}</span>
         <span class="row-age">${row.age === null ? '' : `${row.age}<small>${row.status==='paid'?'days to payment':'days outstanding'}</small>`}</span>
       </button>`).join('') : '<p>No invoices match</p>');
@@ -111,13 +111,13 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       : row.status === 'awaiting' ? 'DoctorCRE commission' : 'Owed to DoctorCRE';
     paint($('invoiceDetailFacts'), `
       <div class="invoice-detail-facts">
-        <div><span>${commissionLabel}</span><strong class="${row.amount === null ? 'invoice-missing-amount' : ''}">${E(amountLabel(row.amount))}</strong></div>
+        ${row.amount === null ? "" : `<div><span>${commissionLabel}</span><strong>${E(invoiceMoney(row.amount))}</strong></div>`}
         <div><span>Status</span><strong class="invoice-status-value">${statusLabel(row)}</strong></div>
         ${row.age === null ? '' : `<div><span>${row.status==='paid'?'Days to payment':'Days outstanding'}</span><strong>${row.age}</strong></div>`}
       </div><p>${dealLink}</p>`);
     paint($('invoiceTimeline'),[['Closed',row.closed_on],['Invoiced',row.invoiceDay],['Paid',row.received_on]].map(([label,day])=>`<div class="invoice-milestone${day?' done':''}"><strong>${label}</strong>${day?`<time datetime="${day}">${invoiceDate(day)}</time>`:''}</div>`).join(''));
     $('invoiceActivity').textContent=row.status==='paid'?`Payment recorded ${invoiceDate(row.received_on)}.`:row.status==='awaiting'?'Waiting for an invoice date.':row.overdue?`Payment due ${invoiceDate(row.due_on)}.`:`Invoiced ${invoiceDate(row.invoiceDay)}.`;
-    paint($('invoiceOriginalFacts'),[['Owner',ownerLabel(row.owner)],['Closed',invoiceDate(row.closed_on)],['Invoiced',invoiceDate(row.invoiceDay)],['Commission',amountLabel(row.amount)],['Due',row.due_on?invoiceDate(row.due_on):'Due date not recorded'],['Paid',invoiceDate(row.received_on)]].map(([label,value])=>`<dt>${label}</dt><dd>${E(value)}</dd>`).join(''));
+    paint($('invoiceOriginalFacts'),[['Owner',ownerLabel(row.owner)],['Closed',row.closed_on && invoiceDate(row.closed_on)],['Invoiced',row.invoiceDay && invoiceDate(row.invoiceDay)],['Commission',row.amount !== null && invoiceMoney(row.amount)],['Due',row.due_on && invoiceDate(row.due_on)],['Paid',row.received_on && invoiceDate(row.received_on)]].filter(([,value])=>value).map(([label,value])=>`<dt>${label}</dt><dd>${E(value)}</dd>`).join(''));
     $('invoicePayment').hidden=!row.canMarkPaid;
     $('invoicePaidDate').min=row.invoiceDay || '';$('invoicePaidDate').max=today();
     const intent=payments.get(row.key);

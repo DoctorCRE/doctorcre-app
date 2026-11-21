@@ -32,7 +32,7 @@ export const PIPELINE_LABEL = {
 export const PAGE_SIZE = 25;
 const MAX_PAGE = 200;
 export const MAX_QUERY_LENGTH = 80;
-export const NOT_RECORDED = "Not recorded";
+const NOT_RECORDED = "Not recorded";
 const SIGNED_OUT_CODE = "AUTHENTICATION_REQUIRED";
 
 const VIEWERS = new Set(["joe", "dell"]);

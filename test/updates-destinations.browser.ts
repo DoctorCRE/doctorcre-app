@@ -144,8 +144,10 @@ for (const width of viewports)
 
     test(`an empty Updates read shows No updates at ${width}px in ${theme} mode`, async (t) => {
       const page = await open(t, width, theme);
+      await page.clock.setFixedTime(new Date("2026-07-01T12:27:00Z"));
       await page.goto(updates);
       await page.getByRole("heading", { name: "No updates", exact: true }).waitFor({ timeout: 2500 });
+      assert.equal(await page.locator("#feedAsOf").textContent(), "As of 7:27 AM");
       assert.equal(await page.getByText("Nothing unread", { exact: true }).count(), 1);
       assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
       assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /\bunknown\b/i);

@@ -128,6 +128,17 @@ export function orderWork(items, now) {
 const WEEKDAYS = Object.freeze(["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]);
 const MONTHS = Object.freeze(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]);
 
+export function withoutRecordCodes(text) {
+  return text.replace(/\s*\([A-Z]-(?:[A-Z0-9]+-)*\d+\)/g, '').trim();
+}
+
+export function phoneLabel(phone) {
+  return phone.replace(
+    /^(?:\+?1[ .-]?)?(?:\(([2-9]\d{2})\)|([2-9]\d{2}))[ .-]?(\d{3})[ .-]?(\d{4})(?= +x\d+$|$)/i,
+    (_, parenthesizedArea, area, exchange, line) => `(${parenthesizedArea || area}) ${exchange}-${line}`,
+  );
+}
+
 function asDate(value) {
   const date = value instanceof Date ? value : new Date(typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value);
   return Number.isFinite(date.valueOf()) ? date : null;

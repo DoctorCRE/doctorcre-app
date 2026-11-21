@@ -3,7 +3,7 @@
 // guessing a name or fetching a second record. Identifiers stay in Details.
 import { BOARD_ROUTE, boardIdFromPath } from './progress-board-route.js';
 import { routeContract, docRequestTarget } from "./routes.js";
-import { formatClock } from "./visual-system.js";
+import { formatBusinessClock } from "./business-date.js";
 import { REFUSAL_SENTENCE } from "./status-model.js";
 import { CONVERSATION_ID } from "./conversations-model.js";
 import { ACTOR_LABEL } from "./client.js";
@@ -148,9 +148,9 @@ export function notificationCards(payload, routes = APP_ROUTE_PATHS) {
       reason: isText(row.reason) ? row.reason : "no reason recorded",
       subject: recordLabel(row.subject_type),
       details: { subjectType: row.subject_type || null, subjectRef: row.subject_ref || null },
-      clock: formatClock(row.created_at),
+      clock: formatBusinessClock(row.created_at),
       read: isText(row.read_at),
-      readClock: formatClock(row.read_at) || null,
+      readClock: formatBusinessClock(row.read_at) || null,
       delivery: deliveryPhrases(row.delivery),
       // OUTPUT-ONLY, and printed exactly as the producer decided it. The page
       // does not recompute suppression from the delivery rows: the producer's
@@ -248,7 +248,7 @@ export function activityRows(events) {
       verb: changeAction(row),
       subject: recordLabel(row.subject_type),
       details: { actor: row.actor || null, verb: row.verb, subjectType: row.subject_type || null, subjectRef: row.subject_id || null },
-      clock: formatClock(row.recorded_at),
+      clock: formatBusinessClock(row.recorded_at),
     }));
 }
 
