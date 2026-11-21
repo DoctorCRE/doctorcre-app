@@ -25,6 +25,7 @@ const pages = [
   ...Object.keys(routeContract.routes)
     .filter((path) => !["/", "/share", "/client-portal"].includes(path))
     .map((path) => path.replace(":boardId", "carr-v5").replace(/:\w+/g, id)),
+  "/?view=charts",
   "/deals?view=national",
   "/deals?view=review",
   "/deals?view=dropped-prospect",
