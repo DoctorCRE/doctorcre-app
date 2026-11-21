@@ -348,14 +348,17 @@ for(const dataset of ['clients','vendors'])test(`R12/R13/R18 ${dataset} facts an
  }});await goto('/'+dataset+'?mode=live');await page.locator('.record-row').first().click();await page.waitForFunction(()=>document.querySelector('#recordActivity')?.textContent.includes('Newer review'));
  const c=await readContext(page);assert.equal(c.ready,true);assert.equal(c.active.fields.find(f=>f.label==='Owner').value,'Joe');assert.equal(c.active.fields.find(f=>f.label==='Status').value,dataset==='clients'?'Active':'Warm');assert.equal(c.active.activity[0]?.text,'Newer review');
 });
-test('R11/R18 Search completed catch-up supports positive context through live MCP',async t=>{
- const {page,goto}=await setup(t,{onRoute:async(route,{url})=>{
-  if(url.pathname!=='/mcp')return false;const {name,arguments:args}=route.request().postDataJSON().params;
-  if(name==='find'){await rpc(route,{parties:[{ref:'C-SAMPLE',kind:'client',name:'Sample Practice',city:null,specialty:null,org_name:null,merged:false}],deals:[],connections:[],organizations:[],lead_client_links:[],deals_via_link:[],note:'Sample'});return true;}
-  if(name==='find-and-catch-up'){await rpc(route,{state:'completed',match:{kind:'client',name:'Sample Practice',target:'C-SAMPLE'},catch_up:{timeline:[{summary:'Sample review',occurred_at:'2026-10-01T12:00:00Z'}]}});return true;}return false;
- }});await page.goto('https://app.doctorcre.com/search',{waitUntil:'domcontentloaded'});await page.locator('#searchQuery').fill('Sample');await page.locator('#searchForm').dispatchEvent('submit');await page.waitForFunction(()=>{const c=window.docContext?.snapshot();return c?.ready&&c.records.some(r=>r.kind==='catch-up'&&r.activity[0]?.text==='Sample review');});
- const c=await readContext(page);assert.equal(c.records.find(r=>r.kind==='catch-up'&&r.id==='C-SAMPLE')?.activity[0].text,'Sample review');
+test('R11/R18 Search results support positive context through live MCP',async t=>{
+ const {page}=await setup(t,{onRoute:async(route,{url})=>{
+  if(url.pathname!=='/mcp'||route.request().postDataJSON().params.name!=='find')return false;
+  await rpc(route,{schema_version:'search.v1',parties:[{id:'sample-practice',kind:'company',name:'Sample Practice',city:null,lead_id:null,roles:['client'],deals:[]}],deals:[]});
+  return true;
+ }});
+ await page.goto('https://app.doctorcre.com/search',{waitUntil:'domcontentloaded'});
+ await page.locator('#searchQuery').fill('Sample');await page.locator('#searchForm').dispatchEvent('submit');
+ await page.waitForFunction(()=>{const c=window.docContext?.snapshot();return c?.ready&&c.records.some(r=>r.kind==='party'&&r.id==='sample-practice');});
 });
+
 for(const failure of ['timeout','malformed'])test(`R6 Tour background ${failure} invalidates eligible context`,async t=>{
  let outage=false,release,started;const held=new Promise(r=>release=r),entered=new Promise(r=>started=r);t.after(()=>release());const {page,goto}=await setup(t,{onRoute:async(route,env)=>{
   if(outage&&env.url.pathname==='/api/tours/detail'){

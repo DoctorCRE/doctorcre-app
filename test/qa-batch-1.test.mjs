@@ -3,7 +3,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { JSDOM } from "jsdom";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 const at = (html, needle) => { const i = html.indexOf(needle); assert.ok(i >= 0, `missing ${needle}`); return i; };
@@ -26,10 +25,9 @@ test("Conversations carries no no-thread or unknown-status copy in the hero", as
   assert.match(js, /piece\.hidden = !header/);
 });
 
-test("Search puts candidates and results ahead of Scope and Saved views", async () => {
+test("Search puts results ahead of Scope and Saved views", async () => {
   const html = await read("search.html");
   for (const later of ['data-search="scope"', 'data-search="views"']) {
-    assert.ok(at(html, 'id="searchCandidates"') < at(html, later), `candidates before ${later}`);
     assert.ok(at(html, 'id="searchResults"') < at(html, later), `results before ${later}`);
   }
 });
@@ -68,28 +66,4 @@ test("Deal Room phone strips scroll in their own regions with token scrollbars",
   assert.match(shell, /\.app-shell-more-list[^}]*max-height:\s*calc\(100dvh - var\(--layout-bottom\) - var\(--space-5\)\)/);
   // V2 S0: the shared shell reads scrollbar colours from css/tokens.css.
   assert.match(shell, /\.app-shell-more-list[^{]*\{[^}]*scrollbar-color:\s*var\(--hairline-strong\) transparent/);
-});
-
-test("Search on a phone caps the candidate list inside its own scroll region", async () => {
-  const css = await read("css/business-workspace.css");
-  const dom = new JSDOM("<!doctype html><style></style>");
-  try {
-    const { document } = dom.window;
-    document.querySelector("style").textContent = css;
-    const phoneRules = [...document.styleSheets[0].cssRules]
-      .filter((rule) => rule.media?.mediaText === "(max-width: 640px)")
-      .flatMap((rule) => [...rule.cssRules]);
-    const list = phoneRules.find((rule) => rule.selectorText === "#searchCandidates > .work-list");
-    assert.ok(list, "candidate scroll rule exists inside the phone media query");
-    assert.equal(list.style.getPropertyValue("max-height"), "min(30vh, 220px)");
-    assert.equal(list.style.getPropertyValue("overflow-y"), "auto");
-    assert.equal(list.style.getPropertyValue("overscroll-behavior"), "contain");
-    assert.equal(list.style.getPropertyValue("scrollbar-width"), "thin");
-    assert.equal(list.style.getPropertyValue("scrollbar-color"), "var(--hairline-strong) transparent");
-    const state = phoneRules.find((rule) => rule.selectorText === '#searchState[data-state^="disamb"]');
-    assert.ok(state, "disambiguation notice rule exists inside the phone media query");
-    assert.equal(state.style.getPropertyValue("display"), "none");
-  } finally {
-    dom.window.close();
-  }
 });

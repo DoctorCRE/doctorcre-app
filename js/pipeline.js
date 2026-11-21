@@ -83,6 +83,7 @@ const state = {
   lifted: null,
   target: null,
   panelDeal: null,
+  panelStepId: null,
   panelReturnTo: null,
   intent: null,
   boardStatus: 'starting',
@@ -1627,6 +1628,8 @@ function workspaceHtml(detail) {
     ${otherActions.length ? `${ended ? '' : '<p class="deal-items-label">Also open:</p>'}<ul class="deal-items" aria-label="Other open steps">${otherActions.map(action =>
       `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(calendarDay(action.due_on), stepToday)}</li>`
     ).join('')}</ul>` : ''}`;
+  const stepId = state.panelStepId;
+  const completedStep = fromEngine && stepId && detail.next_actions?.find(step => step.id === stepId && step.status === 'done');
   const itemOwners = fromEngine ? new Map(detail.next_actions?.map(step => [step.id, step.owner])) : undefined;
   const prospect = state.deals.get(d.id);
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
@@ -1649,7 +1652,10 @@ function workspaceHtml(detail) {
       ${renderInvoiceClose(d, state.nextDealSaves)}
       ${fromEngine || phaseMove ? `<div data-phase-move>${phaseMove}</div>` : ''}
       ${!fromEngine && ended && (nextStep || otherActions.length) ? `<section aria-labelledby="ended-deal-steps"><h3 id="ended-deal-steps">Open before this deal ended</h3>${stepSummary}</section>` : stepSummary}
-      <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today:stepToday,buttons:true,empty:false,itemOwners})}</div>
+      ${completedStep ? `<section aria-label="Completed step"${stepFocusAttrs(completedStep)}>
+      <h2>Completed step</h2><p>${esc(completedStep.description)}</p>${stepOrigin(completedStep)}
+    </section>` : ''}
+    <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today:stepToday,buttons:true,empty:false,itemOwners})}</div>
       ${renderSnapshotFacts(d, fromEngine)}
       ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
     </section>
@@ -2084,6 +2090,8 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   setContextOpenVisible(false);
   if (!state.panelDeal) boardScroll = history.state?.boardScroll ?? scrollY;
   const scope = new URLSearchParams(location.search);
+  const focusStep = scope.get('deal') === dealId && scope.get('focus') === 'next-step';
+  state.panelStepId = focusStep ? scope.get('step') : null;
   workspaceTab = scope.get('deal') === dealId && scope.has('property') ? 'tours'
     : ['tours','client-view'].includes(scope.get('tab')) ? scope.get('tab') : 'overview';
   timelineType = '';
@@ -2106,12 +2114,12 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   scrollTo({ top: 0, behavior: 'instant' });
   $('panelTitle').focus({preventScroll:true});
   await refreshPanel();
-  if (new URL(location.href).searchParams.get('focus') === 'next-step' && state.panelDeal === dealId) {
+  if (focusStep && state.panelDeal === dealId) {
     if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
     await document.fonts.ready;
     if (state.panelDeal !== dealId) return;
     const current = new URL(location.href);
-    const step = current.searchParams.get('step');
+    const step = state.panelStepId;
     const selector = step === null ? '' : CSS.escape(step);
     const target = step === null
       ? $('dealUpdateStep')
@@ -2160,7 +2168,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); url.searchParams.delete('checklist'); url.searchParams.delete('property'); writeWorkspaceHistory({},url); }
   $('recordPanel').hidden = true; $('main').hidden = false;
   document.body.classList.remove('workspace-open');
-  state.panelDeal = null; state.panelDetail = null;
+  state.panelDeal = null; state.panelStepId = null; state.panelDetail = null;
   scrollTo(0, history.state?.boardScroll ?? boardScroll);
   state.panelReturnTo = null;
   setContextOpenVisible(false);
