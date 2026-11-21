@@ -6,7 +6,7 @@ import { chromium } from './browser-harness.mjs';
 import { createInvoiceFixture, invoiceTrackerFixture } from '../js/invoice-tracker-fixture.js';
 import worker from '../src/worker.js';
 const root = new URL('../', import.meta.url), today = '2026-10-02';
-async function open(t, { width = 1440, theme = 'dark', reducedMotion = 'no-preference', query = '', home = false, receipt = 'ok', engine } = {}) {
+async function open(t, { width = 1440, theme = 'dark', reducedMotion = 'no-preference', query = '', home = false, receipt = 'ok', engine, carr } = {}) {
   const browser = await chromium.launch({ args: [...CHROMIUM_SAFETY_ARGS] }); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 960 }, timezoneId: 'UTC', reducedMotion });
   await page.addInitScript(theme => localStorage.setItem('dealroom-theme', theme), theme);
@@ -20,13 +20,13 @@ async function open(t, { width = 1440, theme = 'dark', reducedMotion = 'no-prefe
     if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ csrf_token:'synthetic-session', actor: { slug: 'joe', display_name: 'Demo Partner' } }) });
     if (url.pathname === '/mcp') {
       const req = route.request().postDataJSON().params; let response = {};
-      if (engine && ['read-invoice-tracker', 'record-commission-receipt'].includes(req.name)) {
+      if ((engine || carr) && ['read-invoice-tracker', 'record-commission-receipt'].includes(req.name)) {
         const answer = await worker.fetch(new Request(url, {
           method: 'POST', headers: await route.request().allHeaders(), body: route.request().postData(),
         }), {
-          ENGINE_ROUTING: { get: async key => key === 'invoices-from-engine' ? 'on' : null },
-          ENGINE: { fetch: engine },
-          CARR: { fetch: () => assert.fail('The invoice request fell back to CARR') },
+          ENGINE_ROUTING: { get: async key => key === 'invoices-from-engine' ? (engine ? 'on' : 'off') : null },
+          ENGINE: { fetch: engine || (() => assert.fail('The invoice request unexpectedly reached the engine')) },
+          CARR: { fetch: carr || (() => assert.fail('The invoice request fell back to CARR')) },
         });
         return route.fulfill({ status: answer.status, headers: Object.fromEntries(answer.headers), body: await answer.text() });
       }
@@ -334,6 +334,99 @@ test('engine receipt confirms one payment even while tracker reads are stale', a
   await page.locator('[data-status="paid"]').click();
   assert.equal(await invoice.isVisible(), true);
 });
+test('an earlier read for another invoice preserves the confirmed payment', async t => {
+  const data = invoiceTrackerFixture(today);
+  const first = data.entries.find(row => row.name === 'Demo Cedar Expansion');
+  const second = data.entries.find(row => row.name === 'Demo Bay Relocation');
+  const firstWrite = Promise.withResolvers();
+  const secondRead = Promise.withResolvers();
+  const confirmFirst = Promise.withResolvers();
+  const finishSecondRead = Promise.withResolvers();
+  const secondWrite = Promise.withResolvers();
+  const finishSecondWrite = Promise.withResolvers();
+  let delayRead = false;
+  const { page } = await open(t, { engine: async request => {
+    if (request.method === 'GET') {
+      const snapshot = structuredClone(data);
+      if (delayRead) {
+        delayRead = false;
+        snapshot.entries.find(row => row.commission_id === second.commission_id).gross_amount = '7201';
+        secondRead.resolve();
+        await finishSecondRead.promise;
+      }
+      return Response.json(snapshot);
+    }
+    const args = await request.json();
+    if (args.commission_id === first.commission_id) {
+      firstWrite.resolve();
+      await confirmFirst.promise;
+      Object.assign(first, { status: 'received', base_version: 2, received_on: args.received_on, gross_amount: '9401' });
+      return Response.json({ ok: true, id: first.commission_id, base_version: 2, received_on: args.received_on });
+    }
+    assert.equal(args.commission_id, second.commission_id);
+    secondWrite.resolve();
+    return finishSecondWrite.promise;
+  } });
+  const invoice = id => page.locator(`[data-invoice="${id}"]`);
+  const markPaid = page.getByRole('button', { name: 'Mark paid' });
+  const close = page.getByRole('button', { name: 'Close invoice' });
+  await invoice(first.commission_id).click();
+  await markPaid.click();
+  await firstWrite.promise;
+  await close.click();
+  await invoice(second.commission_id).click();
+  delayRead = true;
+  await markPaid.click();
+  await secondRead.promise;
+  confirmFirst.resolve();
+  await invoice(first.commission_id).getByText('$9,401.00', { exact: true }).waitFor();
+  finishSecondRead.resolve();
+  await secondWrite.promise;
+  try {
+    assert.match(await page.locator('#invoiceDetailFacts').innerText(), /7,201\.00/);
+    await close.click();
+    await invoice(first.commission_id).click();
+    assert.equal(await page.locator('.invoice-status-value').innerText(), 'Paid');
+    assert.equal(await markPaid.isVisible(), false);
+    assert.equal(await invoice(first.commission_id).getByText('$9,401.00', { exact: true }).count(), 1);
+    first.gross_amount = '9402';
+    await page.evaluate(() => document.getElementById('refreshInvoices').click());
+    await invoice(first.commission_id).getByText('$9,402.00', { exact: true }).waitFor();
+  } finally {
+    finishSecondWrite.resolve(new Response(null, { status: 502 }));
+  }
+});
+
+test('with the engine switch off a payment receipt waits for the tracker read', async t => {
+  const data = invoiceTrackerFixture(today);
+  let saved;
+  const { page } = await open(t, { carr: async request => {
+    const { id, params } = await request.json();
+    if (params.name === 'record-commission-receipt') {
+      const { commission_id, base_version, received_on } = params.arguments;
+      saved = { ok: true, id: commission_id, base_version: base_version + 1, received_on };
+    }
+    const answer = params.name === 'read-invoice-tracker' ? data : saved;
+    return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(answer) }] } });
+  } });
+  await page.locator('[data-invoice]').filter({ hasText: 'Demo Cedar Expansion' }).click();
+  const reconciliation = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/mcp' &&
+    response.request().postDataJSON().params.name === 'read-invoice-tracker' && Boolean(saved));
+  await page.getByRole('button', { name: 'Mark paid' }).click();
+  await reconciliation;
+  assert.equal(await page.locator('.invoice-status-value').innerText(), 'Overdue');
+  const retry = page.getByRole('button', { name: 'Retry payment' });
+  await retry.waitFor();
+  assert.equal(await retry.isEnabled(), true);
+  Object.assign(data.entries.find(row => row.commission_id === saved.id), {
+    status: 'received', base_version: saved.base_version, received_on: saved.received_on,
+  });
+  await page.evaluate(() => document.getElementById('refreshInvoices').click());
+  await page.locator('.invoice-status-value').getByText('Paid', { exact: true }).waitFor();
+  assert.equal(await retry.isVisible(), false);
+});
+
 test('hung payment becomes recoverable after the write deadline without an automatic write',async t=>{
  const h=await open(t,{receipt:'hung'});await h.page.locator('[data-invoice]').first().click();await h.page.locator('#markInvoicePaid').click();
  await h.page.clock.runFor(11000);await h.page.waitForFunction(()=>document.querySelector('#markInvoicePaid').textContent==='Retry payment');
