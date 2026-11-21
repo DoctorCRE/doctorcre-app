@@ -222,3 +222,29 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
   assert.equal(foreign.status(), 404);
   assert.deepEqual(evalViolations, []);
 });
+
+test("Doc accepts engine IDs without RFC version or variant bits", async (t) => {
+  const engineId = "11111111-2222-3333-4444-555555555555";
+  const engineConversation = { ...conversation, id: engineId };
+  const { page, origin } = await docChatFixture(t, async (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/engine/doc/conversations")
+      return Response.json({ conversations: [engineConversation], next_before: engineId });
+    if (path === `/api/engine/doc/conversations/${engineId}`)
+      return Response.json({ conversation: engineConversation, turns: [] });
+    if (path === "/api/engine/doc/turns") {
+      const ask = await request.json();
+      assert.equal(ask.conversation_id, engineId);
+      return Response.json({
+        conversation_id: engineId,
+        turn: { ...answeredTurn, id: engineId, idempotency_key: engineId },
+      });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  await page.getByRole("link", { name: question }).click();
+  await page.getByLabel("Question for Doc").fill(question);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+});

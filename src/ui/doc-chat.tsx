@@ -7,7 +7,7 @@ z.config({ jitless: true });
 
 const recordRef = z.object({
   kind: z.enum(["deal", "lead", "client", "email"]),
-  id: z.uuid(),
+  id: z.guid(),
 });
 const source = z.object({
   ref: recordRef,
@@ -26,20 +26,20 @@ const answer = z.object({
   proposal: proposal.nullable(),
 });
 const confirmation = z.discriminatedUnion("kind", [
-  z.object({ kind: z.enum(["note", "next_step"]), id: z.uuid(), href: z.string() }),
-  z.object({ kind: z.literal("reply_draft"), id: z.uuid(), href: z.string(), existing: z.boolean() }),
+  z.object({ kind: z.enum(["note", "next_step"]), id: z.guid(), href: z.string() }),
+  z.object({ kind: z.literal("reply_draft"), id: z.guid(), href: z.string(), existing: z.boolean() }),
 ]);
 const conversation = z.object({
-  id: z.uuid(),
+  id: z.guid(),
   title: z.string(),
   created_at: z.iso.datetime({ offset: true }),
 });
 const chatTurn = z.object({
-  id: z.uuid(),
+  id: z.guid(),
   position: z.int().positive(),
   created_at: z.iso.datetime({ offset: true }),
   question: z.string(),
-  idempotency_key: z.uuid(),
+  idempotency_key: z.guid(),
   context: recordRef.nullable(),
   state: z.enum(["queued", "working", "failed", "answered"]),
   answer: answer.nullable(),
@@ -54,9 +54,9 @@ const chatTurn = z.object({
     ])
     .nullable(),
 });
-const conversationList = z.object({ conversations: z.array(conversation), next_before: z.uuid().nullable() });
+const conversationList = z.object({ conversations: z.array(conversation), next_before: z.guid().nullable() });
 const conversationDetail = z.object({ conversation, turns: z.array(chatTurn) });
-const sendResponse = z.object({ conversation_id: z.uuid(), turn: chatTurn });
+const sendResponse = z.object({ conversation_id: z.guid(), turn: chatTurn });
 
 type Conversation = Pick<z.infer<typeof conversation>, "id" | "title">;
 type Turn = z.infer<typeof chatTurn>;
