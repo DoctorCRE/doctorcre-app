@@ -279,7 +279,6 @@ const ENGINE_READS = new Map([
   ['find', { key: SEARCH, path: '/api/engine/find', args: { query: isString }, accepts: ({ query }) => Boolean(query) }],
   ['find-and-catch-up', { key: CLIENTS_VENDORS, path: '/api/engine/recent-activity', args: { query: isString, limit: Number.isFinite, ref: isString } }],
   ['read-vendor-meetings', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-meetings', args: { view: isString, q: isString, limit: Number.isFinite, cursor: isString } }],
-  ['read-vendor-markets-v1', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-markets', args: { market: isString } }],
   ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
   ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true }],

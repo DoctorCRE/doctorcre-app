@@ -102,6 +102,17 @@ for(const width of [1440,390])test(`W5 rendered directories and wide dialog at $
   await page.keyboard.press('Escape');assert.equal(await page.locator('#recordPanel').isVisible(),false);assert.equal(await page.locator('#appShell').evaluate(el=>el.inert),false);
   await page.goto(origin+'/clients', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/clients-${width}.png`});assert.deepEqual(h.errors,[]);
 });
+test('an old market bookmark opens the vendor list and its drawer', async t => {
+  const { page } = await open(t);
+  await page.goto(`${origin}/vendors?vendorView=market&vendorMarket=example`);
+  await page.waitForFunction(() => document.querySelector('#resultsTitle').textContent === 'Vendors');
+  assert.equal(new URL(page.url()).search, '');
+  await page.locator('.record-row').first().click();
+  await page.getByRole('dialog').waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('dialog').isVisible(), false);
+});
+
 test('Vendor version conflict keeps recorded people while retaining the rating draft', async t => {
   const h = await open(t), { page } = h;
   let detailReads = 0;
