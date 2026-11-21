@@ -3055,7 +3055,9 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   const fixtureOrigin = await dealFixtureOrigin(t);
   const deal = crypto.randomUUID();
   const row = { id: deal, deal_id: deal, name: 'Example Deal', owner: 'joe', phase: 'research', seen: 23 };
-  const own = { id: crypto.randomUUID(), description: 'Send the sample plan', owner: 'joe', due_on: '2026-11-24', status: 'open', change_id: 10,
+  const own = { id: crypto.randomUUID(), description: 'Send the sample plan. Confirm access with the property manager before sending it to the tenant.', owner: 'joe', due_on: '2026-11-24', status: 'open', change_id: 10,
+    display_title: 'Send the sample plan.',
+    display_instruction: 'Send the sample plan. Confirm access with the property manager before sending it to the tenant.',
     set_by: 'Example Partner', set_at: '2026-10-29T13:51:00Z' };
   const other = { ...own, id: crypto.randomUUID(), owner: 'dell', due_on: null, change_id: 11,
     set_by: null, set_at: '2026-10-30T14:30:00Z' };
@@ -3109,6 +3111,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   const otherRow = stepRows.filter({ hasText: 'Set Oct 30' });
   await steps.getByText(own.description, { exact: true }).first().waitFor();
   assert.equal(await stepRows.count(), 1, 'Both owners share one list item');
+  assert.equal(await ownRow.locator('strong').textContent(), own.display_title);
   assert.equal(await steps.getByText(own.description, { exact: true }).count(), 1);
   await ownRow.getByText(/^Joe · Due/).waitFor();
   await ownRow.getByText('Set by Example Partner · Oct 29, 8:51 AM CDT', { exact: true }).waitFor();

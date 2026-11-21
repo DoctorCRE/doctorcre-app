@@ -306,11 +306,14 @@ for (const width of [390, 1440])
     });
   }
 
-test("Today shows Outlook as the fallback when the schedule is stale and empty", async (t) => {
-  const { today } = await open(t, "/invoices", { meetingState: "partial", meetingItems: false });
-  await today.getByText("Check Outlook for today’s meetings.", { exact: true }).waitFor();
-  assert.equal(await today.getByText(/Last synced|last calendar update/).count(), 0);
-});
+for (const meetingState of ["partial", "unavailable"]) {
+  test(`Today omits the Outlook prompt when meetings are ${meetingState}`, async (t) => {
+    const { today } = await open(t, "/invoices", { meetingState, meetingItems: false });
+    await today.getByText("Send sample floor plan", { exact: true }).waitFor();
+    assert.equal(await today.getByText(/Check Outlook|Last synced|last calendar update/).count(), 0);
+    assert.equal(await today.getByText("Couldn't load meetings.", { exact: true }).count(), 1);
+  });
+}
 
 test("Today says when the calendar is empty", async (t) => {
   const { today } = await open(t, "/invoices", { meetingState: "empty" });

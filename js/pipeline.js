@@ -1605,8 +1605,10 @@ function openDealStepsHtml(detail, steps, today) {
   const canSave = detail.next_deal_saves && Number.isSafeInteger(detail.deal.seen);
   const groups = Map.groupBy(steps, step => step.description.trim());
   const rows = Array.from(groups, ([wording, owners]) => {
-    const textId = `step-text-${esc(owners[0].id)}`;
-    return `<li><strong id="${textId}">${esc(wording)}</strong>
+    const { id, display_title: title = wording, display_instruction: instruction } = owners[0];
+    const textId = `step-text-${esc(id)}`;
+    return `<li><strong id="${textId}">${esc(title)}</strong>
+      ${instruction ? `<p>${esc(instruction)}</p>` : ''}
       ${owners.map(step => openStepOwnerHtml(step, textId, canSave, today)).join('')}
     </li>`;
   }).join('');
