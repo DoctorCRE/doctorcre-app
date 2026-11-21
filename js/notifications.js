@@ -38,7 +38,7 @@ import {
   acknowledgeArgs, acknowledgeOperationKey, activityRows, classifyPreferenceFailure,
   classifyPreferenceReadFailure, classifyReadFailure, feedState, notificationCards,
   preferenceOriginSentence, preferenceState, preferenceSummary, preferenceView,
-  quietNowBanner, setPreferenceArgs, unreadLine, versionConflictLine,
+  quietNowBanner, setPreferenceArgs, unreadLine, validFeedPayload, versionConflictLine,
   preferenceSaveView, preferenceTimeLabel,
 } from "./notifications-model.js";
 import { uuidv4 } from "./uuid.js";
@@ -50,9 +50,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 
 /** The second line of a feed state: what fills this space, or what to do next. */
 const FEED_HINT = {
-  empty: "Action-required items and failures addressed to you land here. Routine progress shows under Who did what.",
   no_match: "Nothing in this view. Refresh to read the whole feed again.",
-  unavailable: "Nothing is shown rather than a guess. Refresh to read again.",
   refused: "Sign in again to read your notifications.",
 };
 
@@ -80,14 +78,20 @@ let dirty = false;
 /** Version shown when the person first edited; resume reads cannot move it. */
 let draftBaseVersion = null;
 
-function announce(text) {
+function announceFeed(text) {
   const live = $("feedLive");
   if (live && live.textContent !== text) live.textContent = text;
 }
 
-const asOf = (read) => (read?.state === "read" && formatClock(read.observed_at)
-  ? `As of ${formatClock(read.observed_at)}`
-  : "unknown");
+function showPreferenceMessage(text) {
+  const message = $("prefMessage");
+  if (message.textContent !== text) message.textContent = text;
+}
+
+const asOf = (read) => {
+  const clock = read.state === "read" ? formatClock(read.observed_at) : "";
+  return clock ? `As of ${clock}` : "";
+};
 
 /* -------------------------------------------------------------------- painting */
 
@@ -112,12 +116,12 @@ function cardHtml(card) {
     ? `<p class="quiet-mark" data-quiet="suppressed">${escapeHtml(QUIET_SUPPRESSED_MARK)}</p>`
     : "";
   const act = card.read
-    ? `<p class="read-mark" data-read="true">Acknowledged at ${escapeHtml(card.readClock || "unknown")}</p>`
+    ? `<p class="read-mark" data-read="true">Acknowledged${card.readClock ? ` at ${escapeHtml(card.readClock)}` : ""}</p>`
     : `<div class="note-act"><button class="btn btn-secondary" type="button" data-ack="${escapeHtml(card.id)}">Acknowledge this notification</button></div>`;
   return `<li class="work-item" data-priority="${card.severity === "failure" ? "overdue" : "deadline"}" data-notification="${escapeHtml(card.id)}">
     <div>
       <div class="note-top">
-        <span class="severity-chip" data-severity="${escapeHtml(card.severity || "unknown")}">${escapeHtml(card.severityLabel)}</span>
+        <span class="severity-chip" data-severity="${escapeHtml(card.severity || "")}">${escapeHtml(card.severityLabel)}</span>
         <span class="read-mark">${escapeHtml(card.clock)}</span>
       </div>
       <h3 class="note-reason">${escapeHtml(card.reason)}</h3>
@@ -138,15 +142,19 @@ function renderFeed() {
   const block = $("feedState");
   block.setAttribute("data-state", state.state);
   $("feedStateTitle").textContent = state.sentence || "";
+  const failed = ["refused", "unavailable", "unknown"].includes(state.state);
+  $("retryRead").textContent = failed ? "Retry" : "Refresh";
   const hint = $("feedStateHint");
   if (hint) hint.textContent = FEED_HINT[state.state] || "";
   block.hidden = state.state === "ready";
   const payload = read.state === "read" ? read.payload : null;
-  $("unreadLine").textContent = unreadLine(payload);
+  const unread = unreadLine(payload);
+  $("unreadLine").textContent = unread;
+  announceFeed(state.sentence || unread);
   $("feedOrb").setAttribute(
     "data-state",
     state.state === "ready" || state.state === "empty" ? "healthy"
-      : ["refused", "unavailable", "unknown"].includes(state.state) ? "urgent" : "still",
+      : failed ? "urgent" : "still",
   );
   $("feedList").innerHTML = notificationCards(payload).map(cardHtml).join("");
   const banner = $("quietNowBanner");
@@ -203,10 +211,10 @@ function renderActivity() {
   $("activityAsOf").textContent = asOf(read);
   const payload = read.state === "read" ? read.payload : null;
   const rows = activityRows(payload?.events);
-  $("activityState").hidden = Boolean(payload);
+  $("activityState").hidden = read.state === "pending" || Boolean(payload);
   $("activityList").innerHTML = rows.map((row) => `<li class="work-item" data-priority="ordinary">
     <div><h3>${escapeHtml(row.actor)} · ${escapeHtml(row.verb)}</h3>
-    <div class="work-meta"><span>${escapeHtml(row.subject)} · ${escapeHtml(row.clock)}</span></div>
+    <div class="work-meta"><span>${escapeHtml(row.subject)}${row.clock ? ` · ${escapeHtml(row.clock)}` : ""}</span></div>
     ${recordDetailsHtml(row.details)}</div>
     <div class="stack-end"></div>
   </li>`).join("") || (payload
@@ -229,12 +237,13 @@ function render() {
  */
 async function takeFeed() {
   const sequence = view.sequence;
-  if (view.feed.state === "read") view.feed = { ...view.feed, refreshing: true };
+  view.feed = view.feed.state === "read" ? { ...view.feed, refreshing: true } : { state: "pending" };
   render();
   try {
     const args = view.after ? { after: view.after, limit: LIMIT } : { limit: LIMIT };
     const payload = await client.notificationFeed(args);
     if (view.sequence !== sequence) return;
+    if (!validFeedPayload(payload)) throw new Error("Invalid notification feed");
     view.feed = { state: "read", payload, observed_at: new Date().toISOString() };
   } catch (error) {
     if (view.sequence !== sequence) return;
@@ -255,7 +264,7 @@ async function takePreference() {
     if (view.sequence !== sequence) return;
     view.preference = { state: "read", payload, observed_at: new Date().toISOString() };
     if (dirty && draftBaseVersion !== null && payload.version !== draftBaseVersion) {
-      $("prefMessage").textContent = "Preferences changed while you were editing. Save will check your earlier version before changing anything.";
+      showPreferenceMessage("Preferences changed while you were editing. Save will check your earlier version before changing anything.");
     }
   } catch (error) {
     if (view.sequence !== sequence) return;
@@ -311,8 +320,6 @@ async function load() {
     // eslint-disable-next-line no-restricted-syntax -- A single frame scrolls to the newly revealed preference form; preferenceAnchorRevealed prevents repetition.
     requestAnimationFrame(() => form.scrollIntoView({ block: "start", behavior: "instant" }));
   }
-  const state = feedState(view.feed, { after: view.after, limit: LIMIT });
-  announce(state.sentence || unreadLine(view.feed.payload));
 }
 
 /* --------------------------------------------------------------------- writing */
@@ -343,7 +350,10 @@ async function dispatch(operationKey, args, summary, preference = false) {
     // eslint-disable-next-line no-restricted-syntax -- Only an explicit dock-button click retries a notification; the receipt flag schedules no attempts.
     retry: result.retry, undo: false, request: result.request,
   });
-  if (result.message) announce(result.message);
+  if (result.message) {
+    if (preference) showPreferenceMessage(result.message);
+    else announceFeed(result.message);
+  }
   // Only the record layer knows what the feed now holds, so a settled write
   // re-reads it rather than marking the card this page hoped for.
   if (result.status === "ok") await load();
@@ -353,7 +363,7 @@ async function dispatch(operationKey, args, summary, preference = false) {
 function acknowledge(id) {
   const built = acknowledgeArgs(id);
   if (!built.ok) {
-    announce(built.message);
+    announceFeed(built.message);
     return;
   }
   const operationKey = acknowledgeOperationKey(built.args.notification_id);
@@ -375,14 +385,12 @@ async function savePreference(form) {
   const model = view.preference.state === "read" ? preferenceView(view.preference.payload) : null;
   const retained = commandState[PREFERENCE_OPERATION_KEY];
   const built = retained ? { ok: true, args: retained.request } : setPreferenceArgs(form, preferenceSaveView(model, draftBaseVersion));
-  const message = $("prefMessage");
   if (!built.ok) {
-    message.textContent = built.message;
-    announce(built.message);
+    showPreferenceMessage(built.message);
     return built;
   }
   saving = true;
-  message.textContent = "";
+  showPreferenceMessage("");
   renderPreference();
   if (!commandState[PREFERENCE_OPERATION_KEY]) {
     try {
@@ -394,14 +402,12 @@ async function savePreference(form) {
         // The next deliberate save reviews this version and reads again.
         dirty = true; draftBaseVersion = current.version; saving = false;
         renderPreference();
-        message.textContent = "Preferences changed. Review the current saved preferences above and your kept draft before saving again.";
-        announce(message.textContent);
+        showPreferenceMessage("Preferences changed. Review the current saved preferences above and your kept draft before saving again.");
         return;
       }
     } catch {
       saving = false; renderPreference();
-      message.textContent = "Preferences not sent. Their current version could not be verified.";
-      announce(message.textContent);
+      showPreferenceMessage("Preferences not sent. Their current version could not be verified.");
       return;
     }
   }
@@ -452,12 +458,9 @@ async function savePreference(form) {
     dirty = false;
     draftBaseVersion = null;
     sentence = sentence || "Saved";
-    message.textContent = sentence;
-    announce(sentence);
-    await load();
   }
-  $("prefMessage").textContent = sentence || "";
-  if (sentence) announce(sentence);
+  showPreferenceMessage(sentence || "");
+  if (result.status === "ok") await load();
   renderPreference();
   return result;
 }

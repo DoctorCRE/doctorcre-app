@@ -68,7 +68,7 @@ test("clause 1: the unread count is printed from the payload and never recompute
 
   assert.equal(unreadLine({ ok: true, unread_count: 0, notifications: [] }), "Nothing unread");
   assert.equal(unreadLine({ ok: true, unread_count: 1, notifications: [] }), "1 unread notification");
-  assert.equal(unreadLine(null), "unknown");
+  assert.equal(unreadLine(null), "");
 
 });
 
@@ -392,7 +392,7 @@ test("B12-1 defaults panel: with no row the page prints the record layer's docum
   assert.equal(preferenceOriginSentence(model), PREFERENCE_DEFAULTS_SENTENCE);
   assert.equal(PREFERENCE_DEFAULTS_SENTENCE, "Quiet hours off · Push off · UTC");
   assert.equal(preferenceSummary(model), "No quiet hours set · UTC · device push off");
-  assert.equal(preferenceSummary(null), "unknown");
+  assert.equal(preferenceSummary(null), "");
   assert.equal(preferenceState({ state: "read", payload: prefs }).state, "ready");
   assert.equal(preferenceState({ state: "pending" }).state, "loading");
 

@@ -31,34 +31,34 @@
 
   <main id="main" class="shell">
     <section class="card glass hero-card" aria-labelledby="pageTitle">
-      <div data-layout-slot="sidebar" class="hero">
+      <div class="hero">
         <div>
           <h1 id="pageTitle">Updates</h1>
           <p class="page-sub"><span class="orb" data-state="still" id="feedOrb" aria-hidden="true"></span> Addressed to you</p>
         </div>
-        <div class="hero-meta">
-          <span class="as-of" id="feedAsOf">unknown</span>
-          <button class="btn" type="button" data-layout-refresh id="retryRead" aria-label="Refresh" title="Refresh"><span aria-hidden="true">↻</span></button>
-        </div>
+        <span class="as-of" id="feedAsOf"></span>
       </div>
-      <p class="headline" id="unreadLine">unknown</p>
+      <p class="headline" id="unreadLine"></p>
       <p class="quiet-banner" id="quietNowBanner" data-quiet="off" hidden></p>
     </section>
 
-    <p class="sr-only" id="feedLive" aria-live="polite" role="status">Reading your notifications…</p>
+    <p class="sr-only" id="feedLive" aria-live="polite" role="status">Loading notifications…</p>
 
     <section class="card glass" data-section="feed" id="feedBlock" aria-labelledby="feedTitle">
-      <div class="card-heading"><div><h2 id="feedTitle">Notifications</h2></div></div>
-      <div class="state-block" id="feedState" data-state="loading"><h3 id="feedStateTitle">Reading your notifications…</h3><p class="state-hint" id="feedStateHint"></p></div>
+      <div class="card-heading">
+        <h2 id="feedTitle">Notifications</h2>
+        <button class="btn" type="button" data-layout-refresh id="retryRead">Refresh</button>
+      </div>
+      <div class="state-block" id="feedState" data-state="loading"><h3 id="feedStateTitle">Loading notifications…</h3><p class="state-hint" id="feedStateHint"></p></div>
       <ul class="work-list" id="feedList"></ul>
     </section>
 
     <section class="card glass" data-section="quiet_hours" id="quietHoursBlock" aria-labelledby="quietHoursTitle">
       <div class="card-heading">
         <div><h2 id="quietHoursTitle">Your notification preferences</h2><p class="page-sub">Quiet hours hold device pushes until they end</p></div>
-        <span class="as-of" id="prefAsOf">unknown</span>
+        <span class="as-of" id="prefAsOf"></span>
       </div>
-      <p class="caption" id="prefOrigin">unknown</p>
+      <p class="caption" id="prefOrigin"></p>
       <div class="state-block" id="prefState" data-state="loading"><h3 id="prefStateTitle">Reading your preferences…</h3></div>
       <form class="pref-form" id="prefForm" novalidate hidden>
         <div class="switch-field">
@@ -70,23 +70,23 @@
           <div class="field"><label for="quietEnd">Quiet hours end</label><input id="quietEnd" type="text" autocomplete="off" placeholder="7:00 AM"></div>
           <div class="field"><label for="quietTimezone">Timezone</label><input id="quietTimezone" type="text" list="timezoneNames" autocomplete="off" spellcheck="false" placeholder="UTC"><datalist id="timezoneNames"></datalist></div>
         </div>
-        <p class="caption pref-summary" id="prefSummary">unknown</p>
+        <p class="caption pref-summary" id="prefSummary"></p>
         <details class="record-details"><summary>Details</summary><p class="caption" id="prefVersion"></p></details>
         <div class="pref-act">
           <button class="btn btn-primary" type="submit" id="prefSave">Save preferences</button>
           <button class="btn" type="button" id="prefClear">Clear quiet hours</button>
         </div>
-        <p class="caption pref-message" id="prefMessage" role="status" aria-live="polite"></p>
+        <p class="caption pref-message" id="prefMessage" role="status" aria-live="polite" aria-atomic="true"></p>
       </form>
     </section>
 
     <section class="card glass" data-section="activity" id="activityBlock" aria-labelledby="activityTitle">
       <div class="card-heading">
         <div><h2 id="activityTitle">Who did what</h2><p class="page-sub">Accountable activity, not notifications</p></div>
-        <span class="as-of" id="activityAsOf">unknown</span>
+        <span class="as-of" id="activityAsOf"></span>
       </div>
       <ul class="work-list" id="activityList"></ul>
-      <div class="state-block" id="activityState" data-state="unknown" hidden><h3>The activity stream could not be verified</h3></div>
+      <div class="state-block" id="activityState" data-state="unavailable" hidden><h3>Recent activity is unavailable</h3></div>
     </section>
 
     <details class="context-help">

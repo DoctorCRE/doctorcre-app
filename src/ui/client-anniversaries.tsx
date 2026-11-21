@@ -188,7 +188,7 @@ function Panel({ load, cutover, win, dispose }: PanelProps) {
   }, [win, dispose, open, reset, cancel]);
   return (
     <section aria-label="Closing anniversaries" style={{ overflowWrap: "anywhere" }}>
-      <h2>Closing anniversaries</h2>
+      {!cutover && <h2>Closing anniversaries</h2>}
       {cutover && <p>Covers deals closed before {cutover.label}.</p>}
       <button
         type="button"
