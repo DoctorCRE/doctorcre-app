@@ -1791,6 +1791,22 @@ for (const width of [390, 1440]) {
   test(`A snoozed Home link shows its evidence without review actions at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
     const draft = draftCard();
+    state.linkedDisposition = {
+      ...draft, suggestions: [{ id: id(41) }], disposition: 'snoozed', section: 'snoozed',
+      snoozed_until: '2026-11-04T16:00:00Z', waiting_reason: 'Snoozed',
+    };
+    await open(`/inbox/card/${encodeURIComponent(draft.item_id)}?mode=live`);
+    const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+    await review.getByText('First draft.', { exact: true }).waitFor();
+    await review.getByRole('region', { name: 'File this email', exact: true }).waitFor();
+    assert.equal(await review.getByRole('button', { name: /^(Accept|Drop|Edit|Send reply)$/ }).count(), 0);
+    await page.getByText('Snoozed until Nov 4, 2026, 10:00 AM Central', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Back to Home' }).getAttribute('href'), '/');
+  });
+
+  test(`A snoozed Home link hides filing picker actions at ${width}px`, async t => {
+    const { page, open, state } = await dashboard(t, width, 'light');
+    const draft = draftCard();
     state.filingChoices = [dealChoice, vendorChoice];
     state.linkedDisposition = {
       ...draft, suggestions: [{ id: id(41) }], disposition: 'snoozed', section: 'snoozed',
