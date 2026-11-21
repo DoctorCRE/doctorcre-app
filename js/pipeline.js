@@ -1601,16 +1601,20 @@ function openDealStepsHtml(detail, steps, today) {
     groups.get(key).push(step);
   }
   const rows = [...groups.values()].map(group => {
-    const title = `step-text-${esc(group[0].id)}`;
-    return `<li><strong id="${title}">${esc(group[0].description.trim())}</strong>
+    const [first] = group;
+    const shared = group.length > 1;
+    const title = `step-text-${esc(first.id)}`;
+    return `<li${shared ? '' : stepFocusAttrs(first)}><strong id="${title}">${esc(first.description.trim())}</strong>
       ${group.map(step => {
         const id = esc(step.id);
         const canFinish = detail.next_deal_saves && Number.isSafeInteger(detail.deal.seen) && dealStepVersion(step);
         const saving = pendingCommand(commandState, completeStepKey(step.id))?.status === 'pending';
-        return `<div class="deal-step-assignment"${stepFocusAttrs(step)}>
-          <div><p id="step-owner-${id}">${esc(actorName(step.owner))} · ${dueDateHtml(calendarDay(step.due_on), today)}</p>
+        const owner = `step-owner-${id}`;
+        const label = `${title} ${owner}`;
+        return `<div class="deal-step-assignment"${shared ? `${stepFocusAttrs(step)} role="group" aria-labelledby="${label}"` : ''}>
+          <div><p id="${owner}">${esc(actorName(step.owner))} · ${dueDateHtml(calendarDay(step.due_on), today)}</p>
             ${stepOrigin(step)}</div>
-          ${canFinish ? `<button class="btn" type="button" data-complete-step="${id}" data-detail-focus="done-${id}" aria-describedby="${title} step-owner-${id}"${saving ? ' aria-disabled="true"' : ''}>Done</button>` : ''}
+          ${canFinish ? `<button class="btn" type="button" data-complete-step="${id}" data-detail-focus="done-${id}" aria-describedby="${label}"${saving ? ' aria-disabled="true"' : ''}>Done</button>` : ''}
         </div>`;
       }).join('')}
     </li>`;
