@@ -77,7 +77,7 @@
 .stage-nav { display: flex; align-items: center; gap: var(--space-3); width: min(100%, 360px); margin-bottom: var(--space-3); color: var(--fg-muted); }
 .stage-nav select { flex: 1; width: 0; color: var(--fg); }
 .stage-columns { display: grid; gap: var(--space-4); align-items: start; }
-.stage-column { min-width: 0; background: var(--ground); }
+.stage-column { min-width: 0; background: var(--ground); scroll-margin-top: var(--tabbar-height); }
 .stage-head { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); min-height: var(--touch); border-bottom: var(--hairline-width) solid var(--hairline); font-size: var(--font-size-1); white-space: nowrap; }
 .stage-head span { color: var(--fg-muted); font-weight: var(--font-weight-regular); font-variant-numeric: tabular-nums; }
 .stage-column[data-expanded="true"] .lead-stack { max-height: min(640px, 65dvh); overflow-y: auto; overscroll-behavior: contain; }
