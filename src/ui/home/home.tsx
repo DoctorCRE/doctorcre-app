@@ -509,7 +509,9 @@ function Inbox({ client }: { client: InboxClient }) {
       if (directUrl) location.assign(directUrl);
       else openCard(item, opener);
     }
-    const source = isDoneStep(item) && isEngineStep(item) && deal ? deal : (recordedSource ?? deal);
+    const recordedUrl = recordedSource ? new URL(recordedSource, "https://doctorcre.invalid") : null;
+    const opensEditor = recordedUrl?.searchParams.get("focus") === "next-step" && !recordedUrl.searchParams.get("step");
+    const source = (isDoneStep(item) && isEngineStep(item) && opensEditor ? null : recordedSource) ?? deal;
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
