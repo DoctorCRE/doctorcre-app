@@ -7,6 +7,59 @@ import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
 const server = await startFixtureServer();
 test.after(() => server.stop());
 
+const builderLinks = [
+  '/ideas-events?tab=ideas', '/ideas-events', '/doc-chats', '/work-requests',
+  '/all-work', '/incidents', '/status', '/design-lab', '/control-room',
+  '/control-room/progress', '/control-room/progress/work', '/control-room/observatory',
+];
+const builderPages = /^(Ideas(?: Events)?|Doc Chats(?: Work)?|Work Requests|All Work|Incidents|Status|Design Lab|Control Room.*|System Job Board|Project activity|Observatory) Page$/i;
+
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+  test(`Partner navigation and switcher at ${width}px in ${theme}`, async t => {
+    const browser = await chromium.launch();
+    t.after(() => browser.close());
+    const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+    await page.addInitScript(theme => {
+      localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
+      sessionStorage.setItem('doctorcre.quick-switcher.recents.v1', JSON.stringify(['page:/status']));
+    }, theme);
+    await page.goto(server.url);
+    const nav = page.getByRole('navigation', { name: 'Primary navigation' });
+    await nav.getByRole('link', { name: 'Home', exact: true }).waitFor();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+    for (const [name, href] of [['Clients', '/clients'], ['Calendar', '/calendar']]) {
+      const link = nav.getByRole('link', { name, exact: true });
+      assert.equal(await link.isVisible(), true, `${name} is in the primary rail`);
+      assert.equal(await link.getAttribute('href'), href);
+    }
+    await nav.getByRole('button', { name: 'More', exact: true }).click();
+    const hrefs = await nav.getByRole('link').evaluateAll(links => links.map(link => link.getAttribute('href')));
+    assert.deepEqual(hrefs.filter(href => builderLinks.includes(href)), []);
+    if (process.env.PARTNER_MENU_SCREENSHOT_DIR) {
+      mkdirSync(process.env.PARTNER_MENU_SCREENSHOT_DIR, { recursive: true });
+      await page.screenshot({ path: `${process.env.PARTNER_MENU_SCREENSHOT_DIR}/menu-${width}-${theme}.png` });
+    }
+    await page.keyboard.press('Escape');
+    if (width === 390) await page.getByRole('button', { name: 'Account and settings' }).click();
+    await page.getByRole('button', { name: 'Open Doc' }).click();
+    const doc = page.getByRole('dialog', { name: 'Doc', exact: true });
+    assert.equal(await doc.getByRole('link', { name: /^Doc Chats/ }).count(), 0);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Quick switcher' }).click();
+    const switcher = page.getByRole('dialog', { name: 'Quick switcher' });
+    const options = switcher.getByRole('option');
+    await switcher.getByRole('option', { name: 'Calendar Page', exact: true }).waitFor();
+    assert.equal(await switcher.getByRole('option', { name: 'Clients Page', exact: true }).count(), 1);
+    assert.equal(await switcher.getByRole('option', { name: builderPages }).count(), 0);
+    await switcher.getByRole('button', { name: 'Pages', exact: true }).click();
+    assert.ok(await options.count() > 0);
+    assert.equal(await switcher.getByRole('option', { name: builderPages }).count(), 0);
+    if (process.env.PARTNER_MENU_SCREENSHOT_DIR) {
+      await page.screenshot({ path: `${process.env.PARTNER_MENU_SCREENSHOT_DIR}/switcher-${width}-${theme}.png` });
+    }
+  });
+}
+
 for (const modifier of ['Meta', 'Control']) test(`${modifier}-Alt-K opens the global switcher`, async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage();

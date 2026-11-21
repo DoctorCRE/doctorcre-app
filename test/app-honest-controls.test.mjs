@@ -22,7 +22,7 @@ async function touchTargetBox(locator) {
   return locator.boundingBox();
 }
 
-test('shared Doc shows unavailable reads, keeps Chats reachable and offers no unsupported input', async () => {
+test('shared Doc shows unavailable reads, keeps Chats off the menu and offers no unsupported input', async () => {
   const dom = new JSDOM('<main id="appMainSlot"></main>', { url:'https://example.test/deals' });
   const context = createDocContext({ page:'deals' });
   let ui;
@@ -37,9 +37,8 @@ test('shared Doc shows unavailable reads, keeps Chats reachable and offers no un
     assert.equal(doc.querySelector('#docDetail form:not(#docCommandForm), #docMic, #docInput'), null);
     assert.ok(doc.querySelector('#docCommandForm'));
     assert.doesNotMatch(doc.querySelector('#docPresence').textContent, /Listening|prototype|demo/i);
-    const link = doc.querySelector('.doc-chats-link[href="/doc-chats"]');
-    assert.equal(new URL(link.href).pathname, '/doc-chats');
-    const destination = link.href;
+    assert.equal(doc.querySelector('#docDetail a[href="/doc-chats"]'), null);
+    const destination = new URL('/doc-chats', dom.window.location.href);
     const gates = [], assets = [];
     const response = await handleDoctorcreRequest(new Request(destination), {
       CARR: { fetch: async (request) => { gates.push(new URL(request.url).pathname); return new Response('signed in'); } },
@@ -256,7 +255,7 @@ test('honest controls fit 320px, 390px and iPad in both motion settings with 44p
       }
       const dockBox = await page.locator('#docDetail').boundingBox();
       assert.ok(dockBox.x >= 0 && dockBox.x + dockBox.width <= width);
-      await page.locator('.doc-chats-link[href="/doc-chats"]').click();
+      await page.goto(`${base}/doc-chats`);
       await page.waitForURL('**/doc-chats');
       await page.locator('#conversationList').waitFor({ state: 'attached' });
 

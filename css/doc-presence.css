@@ -58,7 +58,6 @@ body.has-app-layout:has(> #docPresence) .app-layout-status { padding-right: calc
 .doc-detail .entry-original { white-space: pre-wrap; }
 .doc-spark { color: var(--fg-muted); }
 .doc-chats-link { display: inline-flex; align-items: center; min-height: var(--touch); margin-top: var(--space-4); color: var(--fg); font-size: var(--font-size-1); text-underline-offset: 3px; }
-.doc-chats-link + .doc-chats-link { margin-left: var(--space-5); }
 #docApprovalStatus { min-height: 20px; color: var(--fg-muted); font-size: var(--font-size-1); }
 
 .doc-context-tools[hidden] { display: none; }

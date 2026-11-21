@@ -1,4 +1,4 @@
-import { NAVIGATION_GROUPS, navigationFor, navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./routes.js";
+import { navigationFor, navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./routes.js";
 export { navigationItems };
 
 export function activeDestination(pathname) {
@@ -16,7 +16,7 @@ export function appOriginForReport(origin) {
 }
 
 function groupIcon(label) {
-  return { Home: "⌂", Leads: "◎", Tours: "◇", "Local Deals": "▦", Vendors: "♧", "Control Room": "◈" }[label] || "";
+  return { Home: "⌂", Leads: "◎", Tours: "◇", "Local Deals": "▦", Clients: "♙", Calendar: "▣", Vendors: "♧" }[label] || "";
 }
 
 function link({ label, href }, current, base) {
@@ -27,10 +27,10 @@ function link({ label, href }, current, base) {
 
 export function appShellMarkup(pathname, base = "", search = "", items = navigationItems) {
   const current = pathname === "/ideas-events" ? `/ideas-events?tab=${new URLSearchParams(search).get("tab") === "events" ? "events" : "ideas"}` : activeDestination(pathname);
-  const primary = items.filter(item => !item.group).map((item) => link(item, current, base)).join("");
-  const more = NAVIGATION_GROUPS.map((group) =>
-    `<div class="app-shell-more-section"><span class="app-shell-more-group">${group}</span>${items.filter((item) => item.group === group).map((item) => link(item, current, base)).join("")}</div>`).join("");
-  const moreActive = items.filter(item => item.group).some((item) => item.href === current);
+  const primary = items.filter(item => !item.secondary).map((item) => link(item, current, base)).join("");
+  const secondary = items.filter(item => item.secondary);
+  const more = secondary.map(item => link(item, current, base)).join("");
+  const moreActive = secondary.some(item => item.href === current);
   return `<header class="app-shell-header" aria-label="Workspace rail">
     <a class="app-shell-brand" href="${base}/" aria-label="DoctorCRE Home">
       <svg viewBox="0 0 42 42" role="img" aria-label="Work flows from leads through deals to delivery">

@@ -38,7 +38,14 @@ const withHomeSwitch = (html: string) => html.replace("<html ", "<html data-home
 async function open(
   t: TestContext,
   path: string,
-  { enabled = true, width = 1440, recentChanges = false, malformedEndedReminder = false } = {},
+  {
+    enabled = true,
+    width = 1440,
+    recentChanges = false,
+    malformedEndedReminder = false,
+    meetingState = "ready",
+    theme = "dark",
+  } = {},
 ) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
@@ -72,10 +79,10 @@ async function open(
   }
   const legacy: string[] = [];
   const readToday: string[] = [];
-  await page.addInitScript(() => {
-    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ walkthroughSeen: { joe: true } }));
+  await page.addInitScript((theme) => {
+    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
     localStorage.setItem("doctorcre:sidebar:/invoices", "open");
-  });
+  }, theme);
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
   );
@@ -97,19 +104,28 @@ async function open(
         ok: true,
         schema_version: "home-today.v1",
         viewer: "joe",
+        partners: [
+          { slug: "joe", name: "Joe" },
+          { slug: "dell", name: "Dell" },
+        ],
         today: "2026-11-19",
         meetings: {
-          state: "ready",
-          items: [
-            {
-              title: "Example site visit",
-              start: "2026-11-19T16:00:00Z",
-              end: "2026-11-19T17:00:00Z",
-              context_label: "Example Dental",
-              attendees: [{ name: "Example Attendee" }],
-              open_url: "/deals?deal=example",
-            },
-          ],
+          state: meetingState,
+          observed_at: "2026-11-19T21:40:00Z",
+          notes: ["Internal calendar instruction"],
+          items:
+            meetingState === "empty"
+              ? []
+              : [
+                  {
+                    title: "Example site visit",
+                    start: "2026-11-19T16:00:00Z",
+                    end: "2026-11-19T17:00:00Z",
+                    context_label: "Example Dental",
+                    attendees: [{ name: "Example Attendee" }],
+                    open_url: "/deals?deal=example",
+                  },
+                ],
           follow_up_reviews: [],
         },
         reminders: {
@@ -220,6 +236,33 @@ test("Doc keeps Morning brief with the switch off and drops it with the switch o
   assert.equal(await on.page.getByRole("button", { name: "Morning brief", exact: true }).count(), 0);
   assert.equal(await on.page.locator("#docMorningBrief").count(), 0);
   assert.deepEqual(on.legacy, []);
+});
+
+for (const width of [390, 1440])
+  for (const theme of ["light", "dark"]) {
+    test(`Today shows meetings and last sync at ${width}px in ${theme}`, async (t) => {
+      const { page, today } = await open(t, "/", { width, theme, meetingState: "partial" });
+      if (width === 390) await page.getByRole("button", { name: "Today sidebar", exact: true }).click();
+      const meetings = today.getByRole("region", { name: "Meetings", exact: true });
+      await meetings.getByText("Example site visit", { exact: true }).waitFor();
+      assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
+      assert.equal(await meetings.getByText(/Check Outlook|Internal calendar instruction/).count(), 0);
+      await meetings.getByText("Last synced Nov 19, 3:40 PM CST.", { exact: true }).waitFor();
+      const owners = today.getByRole("combobox", { name: "Reminders for" });
+      await owners.selectOption("dell");
+      await today.getByText("No dated reminders.", { exact: true }).waitFor();
+      await owners.selectOption("all");
+      await today.getByText("Send sample floor plan", { exact: true }).waitFor();
+      if (process.env.PARTNER_MENU_SCREENSHOT_DIR) {
+        await mkdir(process.env.PARTNER_MENU_SCREENSHOT_DIR, { recursive: true });
+        await today.screenshot({ path: join(process.env.PARTNER_MENU_SCREENSHOT_DIR, `today-${width}-${theme}.png`) });
+      }
+    });
+  }
+
+test("Today says when the calendar is empty", async (t) => {
+  const { today } = await open(t, "/", { meetingState: "empty" });
+  await today.getByText("No meetings today.", { exact: true }).waitFor();
 });
 
 for (const width of [1440, 390])

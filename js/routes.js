@@ -63,114 +63,31 @@ export const routeContract = {
 },
   gatePaths: Object.fromEntries(routeEntries.map(([path, , gate]) => [path, gate])),
 };
-export const NAVIGATION_GROUPS = ["Workspace", "Updates", "Operations", "Reference"];
 export const navigationItems = [
-  {
-    "label": "Local Deals",
-    "href": "/deals"
-  },
-  {
-    "label": "Home",
-    "href": "/"
-  },
-  {
-    "label": "Leads",
-    "href": "/leads"
-  },
-  {
-    "label": "Tours",
-    "href": "/tours"
-  },
-  {
-    "label": "Vendors",
-    "href": "/vendors"
-  },
-  {
-    "label": "Control Room",
-    "href": "/control-room"
-  },
-  { label: "Phone capture", href: "/calls", group: "Workspace" },
-  {
-    "label": "Relationships",
-    "href": "/relationships",
-    "group": "Workspace"
-  },
-  {
-    "label": "Invoices",
-    "href": "/invoices",
-    "group": "Workspace"
-  },
-  {
-    "label": "Clients",
-    "href": "/clients",
-    "group": "Workspace"
-  },
-  {
-    "label": "Ideas",
-    "href": "/ideas-events?tab=ideas",
-    "group": "Workspace"
-  },
-  {
-    "label": "Lease radar",
-    "href": "/leases",
-    "group": "Workspace"
-  },
-  {
-    "label": "Events",
-    "href": "/ideas-events?tab=events",
-    "group": "Workspace"
-  },
-  {
-    "label": "Updates",
-    "href": "/updates",
-    "group": "Updates"
-  },
-  {
-    "label": "Doc Chats",
-    "href": "/doc-chats",
-    "group": "Updates"
-  },
-  {
-    "label": "System Job Board",
-    "href": "/control-room/progress",
-    "group": "Operations"
-  },
-  {
-    "label": "Work Requests",
-    "href": "/work-requests",
-    "group": "Operations"
-  },
-  {
-    "label": "All Work",
-    "href": "/all-work",
-    "group": "Operations"
-  },
-  {
-    "label": "Incidents",
-    "href": "/incidents",
-    "group": "Operations"
-  },
-  {
-    "label": "Project activity",
-    "href": "/control-room/progress/work",
-    "group": "Operations"
-  },
-  {
-    "label": "Observatory",
-    "href": "/control-room/observatory",
-    "group": "Operations"
-  },
-  {
-    "label": "Design Lab",
-    "href": "/design-lab",
-    "group": "Reference"
-  },
-  {
-    "label": "Status",
-    "href": "/status",
-    "group": "Reference"
-  }
+  { label: "Local Deals", href: "/deals" },
+  { label: "Home", href: "/" },
+  { label: "Leads", href: "/leads" },
+  { label: "Clients", href: "/clients" },
+  { label: "Calendar", href: "/calendar" },
+  { label: "Tours", href: "/tours" },
+  { label: "Vendors", href: "/vendors" },
+  { label: "Phone capture", href: "/calls", secondary: true },
+  { label: "Relationships", href: "/relationships", secondary: true },
+  { label: "Invoices", href: "/invoices", secondary: true },
+  { label: "Lease radar", href: "/leases", secondary: true },
+  { label: "Events", href: "/ideas-events?tab=events", secondary: true },
+  { label: "Updates", href: "/updates", secondary: true },
 ];
+
+export const switcherUtilityPages = [
+  { label: "Inbox", href: "/inbox" },
+  { label: "Review workflows", href: "/review-workflows" },
+  { label: "Search", href: "/search" },
+  { label: "Doc Activity", href: "/doc-activity" },
+  { label: "Client portal", href: "/client-portal" },
+  { label: "Share", href: "/share" },
+];
+
 export const sectionForRoute = {
   "/review-workflows": "/",
   "/doc/conversations/:conversation_id/turns/:msg_id": "/doc-chats",

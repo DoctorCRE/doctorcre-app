@@ -79,7 +79,7 @@ const fits=async(page,label)=>assert.equal(await page.evaluate(()=>document.docu
 test('five regions, rail destinations, Leads filters and per-page sidebar memory',async t=>{
  const{page,goto,errors}=await open(t);
  await goto('/leads');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'closed');
- assert.deepEqual(await page.locator('.app-shell-navigation > a').evaluateAll(nodes=>nodes.map(n=>n.title)),['Local Deals','Home','Leads','Tours','Vendors','Control Room']);
+ assert.deepEqual(await page.locator('.app-shell-navigation > a').evaluateAll(nodes=>nodes.map(n=>n.title)),['Local Deals','Home','Leads','Clients','Calendar','Tours','Vendors']);
  assert.equal(await page.locator('#appMainSlot #leadSearch').count(),1);assert.equal(await page.locator('#appStatusSlot #boardUpdated').count(),1);
  await page.locator('#appSidebarToggle').click();await page.locator('#leadSearch').fill('Example 3');assert.equal(await page.locator('.lead-card').count(),1);
  await goto('/deals?view=board');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'closed');
@@ -126,7 +126,7 @@ test('phone rail is a bottom bar; drawers close by Escape and scrim with focus r
  await page.keyboard.press('Escape');assert.equal(await page.locator('#appSidebarToggle').evaluate(n=>n===document.activeElement),true);
  await page.locator('#appTodayToggle').click();assert.equal(await page.locator('#appTodayToggle').getAttribute('aria-expanded'),'true');
  await page.locator('#appDrawerScrim').click({position:{x:5,y:5}});assert.equal(await page.locator('#appLayout').getAttribute('data-drawer'),'');
- await page.getByLabel('More',{exact:true}).click();assert.equal(await page.getByLabel('System Job Board',{exact:true}).isVisible(),true);await page.keyboard.press('Escape');
+ await page.getByLabel('More',{exact:true}).click();assert.equal(await page.getByLabel('Relationships',{exact:true}).isVisible(),true);await page.keyboard.press('Escape');
  assert.equal(await page.getByLabel('More',{exact:true}).getAttribute('aria-expanded'),'false');
  await fits(page,'phone drawers and menus');
  const reduced=await page.locator('#appToday,.app-layout-item,.app-shell-flow').evaluateAll(nodes=>nodes.map(n=>({transition:getComputedStyle(n).transitionDuration,animation:getComputedStyle(n).animationName})));
@@ -549,7 +549,7 @@ test('PR129 #9 touch taps open the existing reviewed stage and phase commands',a
 for(const width of [844,1440]) test(`PR129 #10 short rail destinations remain pointer actionable at ${width}x390`,async t=>{
  const {page,goto}=await open(t,{width,height:390});await goto('/leads');
  for(const link of await page.locator('.app-shell-navigation>a').all()) await link.click({trial:true});
- await page.getByLabel('More',{exact:true}).click();assert.equal(await page.getByLabel('System Job Board',{exact:true}).isVisible(),true);
+ await page.getByLabel('More',{exact:true}).click();assert.equal(await page.getByLabel('Relationships',{exact:true}).isVisible(),true);
 });
 test('PR129 #11 light theme pairs record headings and filter text with light surfaces',async t=>{
  const {page,goto}=await open(t);await goto('/leads');await page.evaluate(()=>document.documentElement.dataset.theme='light');await page.locator('#appSidebarToggle').click();
