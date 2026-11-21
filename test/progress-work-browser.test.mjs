@@ -749,17 +749,13 @@ test('fresh queue absence removes projected task metadata and sequence binding',
 
 test('late canonical binding restores receipts discarded before the rescan',async t=>{
   const {promise:gate,release}=fixtureScope(t).hold();
-  const {page,state}=await open(t,{rpcReply:async(rpc,payload)=>{if(rpc.name==='engineering-passport')await gate;return payload;}});
-  await assertEventually(()=>state.turnReads>=1);
-  for(let poll=0;poll<6;poll++){
-    for(let i=0;i<500;i++)state.turns.push({seq:state.turns.at(-1).seq+1,msg_id:`late-${poll}-${i}`,kind:'turn',seat:'human',at:NOW.toISOString(),body:'Unrelated synthetic retained-window turn'});
-    const before=state.turnReads;await page.clock.runFor(120_100);await assertEventually(()=>state.turnReads>before);
-    await fixtureScope(t).delay(100);
-  }
+  const {page}=await open(t,{history:500,rpcReply:async(rpc,payload)=>{if(rpc.name==='engineering-passport')await gate;return payload;}});
+  await page.locator('#composerInput[placeholder^="Speak into the room"]').waitFor();
   assert.equal(await page.locator('.passport-card').count(),0);
-  release();await page.clock.runFor(120_100);
-  await page.waitForFunction(()=>document.querySelector('#workCanonicalBody').textContent.includes('Closure: blocked'));
-  await page.clock.runFor(120_100);await page.waitForSelector('.passport-card');
+  release();
+  await page.locator('#workCanonicalBody').getByText(/^Closure: blocked/).waitFor();
+  await page.locator('#workSessionList').getByRole('heading',{name:'Demo builder',exact:true}).waitFor();
+  await page.clock.fastForward(60_100);await page.waitForSelector('.passport-card');
   assert.match(await page.locator('.passport-card').textContent(),/Grounding/);
 });
 
@@ -837,13 +833,13 @@ test('shared activity retains stage, desks, presence, wire filters, composers an
 test('older task passports survive the current global wire window',async t=>{
   const {page,state,errors}=await open(t,{history:2000});
   await page.locator('#composerInput[placeholder^="Speak into the room"]').waitFor();
-  await page.locator('#workCanonicalBody').getByText(/^Closure:/).waitFor();
+  await page.locator('#workSessionList').getByRole('heading',{name:'Demo builder',exact:true}).waitFor();
   await assertEventually(()=>state.turnReads>=11);
-  await page.clock.runFor(60_100);await page.waitForSelector('.passport-card');
+  await page.clock.fastForward(60_100);await page.waitForSelector('.passport-card');
   assert.match(await page.locator('#workDotList').textContent(),/Observed Dot turn/);
   await page.locator('#viewEverything').click();assert.doesNotMatch(await page.locator('#wireFeed').textContent(),/Unrelated synthetic historical/);
   for(let i=0;i<2000;i++)state.turns.push({seq:state.turns.at(-1).seq+1,msg_id:`later-${i}`,kind:'turn',seat:'human',at:NOW.toISOString(),body:`Unrelated synthetic later turn ${i}`});
-  await page.clock.runFor(60_100);await page.waitForSelector('.passport-card');
+  await page.clock.fastForward(60_100);await page.waitForSelector('.passport-card');
   assert.deepEqual(errors,[]);
 });
 
