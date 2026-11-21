@@ -20,6 +20,22 @@ async function touchTargetBox(locator) {
   return locator.boundingBox();
 }
 
+test('direct Doc Chats route checks the gate and serves the asset', async () => {
+  const destination = new URL('/doc-chats', 'https://example.test/deals');
+  const gates = [], assets = [];
+  const response = await handleDoctorcreRequest(new Request(destination), {
+    CARR: { fetch: async (request) => { gates.push(new URL(request.url).pathname); return new Response('signed in'); } },
+    ASSETS: { fetch: async (request) => {
+      assets.push(new URL(request.url).pathname);
+      return new Response(await read('conversations.html'), { headers: { 'content-type': 'text/html' } });
+    } },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(gates, ['/conversations']);
+  assert.deepEqual(assets, ['/conversations.html']);
+  assert.match(await response.text(), /Doc Chats/);
+});
+
 async function callSurface(fetchImpl, check) {
   const dom = new JSDOM(await read('index.html'));
   dom.window.document.getElementById('appShell').innerHTML = appShellMarkup('/deals');
