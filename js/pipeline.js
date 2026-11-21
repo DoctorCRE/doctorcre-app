@@ -11,7 +11,7 @@ import { engagementWriterFor } from './prospect-engagement.mjs';
 import { showToast } from './toast.js';
 import { renderDealVendors } from './deal-vendors.js';
 import { openEngineClientWebsite, renderClientPortalLink, saveEngineClientWebsite } from './client-portal-link.js';
-import { privateTextDraft, sessionFetch } from './private-session.js';
+import { clearPrivateTextDrafts, privateTextDraft, sessionFetch } from './private-session.js';
 import { pageDocContext, selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createCommandDock } from './command-dock.js';
 import { readWithDeadline } from './auto-refresh.mjs';
@@ -1166,6 +1166,7 @@ const requirementFields = [['use','Use'],['size','Size'],['location','Location']
 let draftActor = null;
 function bindDraftActor(actor) {
   if (draftActor === actor) return;
+  clearPrivateTextDrafts(window, draftActor);
   draftActor = actor;
   updateDrafts.clear();
   requirementDrafts.clear();

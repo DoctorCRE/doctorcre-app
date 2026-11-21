@@ -11,7 +11,7 @@ import { workCard } from './work-card.js';
 import { businessDay, BUSINESS_TIME_ZONE } from './business-date.js';
 import { shortDay, toDay } from './calendar-model.js';
 import { engagementWriterFor, engagementStorage } from './prospect-engagement.mjs';
-import { privateTextDraft } from "./private-session.js";
+import { clearPrivateTextDrafts, privateTextDraft } from "./private-session.js";
 import {onDialogClosed} from './dialog-lifecycle.js';
 import { pageDocContext, publishDocRead, selectDocRecord, setDocFilters } from './doc-context.js';
 import { createLeadBoardClient, hasLeadVersion, validateLeadWorkspace as validateWorkspace, validateLeadDetail as validateDetail } from "./leads-client.js";
@@ -245,6 +245,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     }
   }
   function clearPrivateView() {
+    clearPrivateTextDrafts(win, state.actor);
     emailAcknowledgements.clear();
     clearGuidance();
     clearQuiet();

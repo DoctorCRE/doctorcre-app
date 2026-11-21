@@ -7,9 +7,10 @@ import { clearPrivateStorage, offlineTourSession, sessionEpoch, SESSION_EPOCH_KE
 // which the server refuses once the cookie changes.
 export const SESSION_TRUST_MS = 2 * 60_000;
 const PARTNER_SIGN_IN_HEADER = 'x-doctorcre-partner-sign-in';
+const PRIVATE_DRAFT_PREFIX = 'doctorcre:draft:';
 
 export function privateTextDraft(win, actor, ...scope) {
-  const key = actor ? 'doctorcre:draft:' + JSON.stringify([actor, ...scope]) : null;
+  const key = actor ? PRIVATE_DRAFT_PREFIX + JSON.stringify([actor, ...scope]) : null;
   return {
     read() {
       try { return key ? win.sessionStorage.getItem(key) ?? '' : ''; }
@@ -23,6 +24,18 @@ export function privateTextDraft(win, actor, ...scope) {
       } catch { /* The editor still works without storage. */ }
     },
   };
+}
+
+export function clearPrivateTextDrafts(win, actor) {
+  if (!actor) return;
+  const actorKey = PRIVATE_DRAFT_PREFIX + JSON.stringify([actor]);
+  const prefix = actorKey.slice(0, -1) + ',';
+  try {
+    const storage = win.sessionStorage;
+    for (const key of Object.keys(storage)) {
+      if (key === actorKey || key.startsWith(prefix)) storage.removeItem(key);
+    }
+  } catch { /* Private storage may be blocked. */ }
 }
 
 export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '', acceptSession = async () => true, anonymousDiagnostics = false, now = () => performance.now() }) {
