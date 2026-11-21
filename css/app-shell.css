@@ -49,9 +49,8 @@
 .app-shell-icon { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
 .app-shell-more-toggle .app-shell-icon { stroke-width: 3; }
 
-.app-shell-doc { display: grid; place-items: center; width: 52px; height: 52px; border: var(--hairline-width) solid var(--hairline-strong); border-radius: 50%; color: var(--fg); background: var(--surface-2); font-size: var(--font-size-4); text-decoration: none; box-shadow: var(--shadow-overlay); transition: background-color var(--duration-hover) var(--ease-out); }
-@media (hover: hover) { .app-shell-doc:hover { background: var(--surface-3); } }
-.app-shell-doc[hidden] { display: none; }
+.app-layout-topbar .app-shell-ask-doc { width: auto; white-space: nowrap; padding-inline: var(--space-2); text-decoration: none; font-size: var(--font-size-1); }
+.app-shell-ask-doc[hidden] { display: none; }
 
 .app-shell-controls { display: flex; align-items: center; gap: var(--space-1); flex: none; }
 .app-shell-control, .app-shell-avatar { display: grid; place-items: center; width: var(--touch); height: var(--touch); border: var(--hairline-width) solid transparent; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); cursor: pointer; font: var(--font-weight-regular) var(--font-size-3) var(--font-text); transition: background-color var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out), transform var(--duration-press) var(--ease-out); }
@@ -134,7 +133,6 @@ body.has-app-layout { padding: 0 0 var(--layout-bottom) var(--layout-rail) !impo
 .app-shell-controls { order: 0 !important; flex-direction: column; gap: var(--space-1) !important; margin: 0 !important; flex: none; }
 .app-shell-account-menu { position: fixed !important; z-index: 1200; left: calc(var(--layout-rail) + 8px) !important; top: auto !important; bottom: calc(var(--layout-bottom) + 12px); right: auto !important; width: 270px !important; max-width: calc(100vw - 96px); }
 .app-shell-control, .app-shell-avatar { flex: none; }
-.app-shell-doc, .doc-fab { position: fixed !important; right: var(--space-5) !important; bottom: calc(var(--layout-bottom) + 20px) !important; z-index: 1050; }
 .doc-chat { bottom: calc(var(--layout-bottom) + 82px) !important; max-width: calc(100vw - 28px); }
 
 .app-layout { --layout-left: 236px; --layout-right: 260px; display: grid; grid-template-columns: var(--layout-left) minmax(0, 1fr) var(--layout-right); min-height: calc(100dvh - var(--layout-bottom)); isolation: isolate; }
@@ -197,7 +195,7 @@ html[data-deals-from-engine] :is(.app-layout-today > section:has(> #appTodayMove
 #appMeetingReviews select { flex: 1; min-width: 0; }
 #appMeetingReviews button:disabled { opacity: .5; }
 #appRemindersTitle + #appTodayOwners { margin-bottom: var(--space-2); }
-.app-layout-item strong { font-weight: var(--font-weight-strong); }
+.app-layout-item strong { font-weight: var(--font-weight-strong); overflow-wrap: anywhere; }
 .app-layout-show-all, #appTodayRetry { min-width: var(--touch); min-height: var(--touch); }
 #appTodayOwners[hidden], .app-layout-item[hidden], .app-layout-empty[hidden] { display: none; }
 .app-layout-item span { font-size: var(--font-size-1); color: var(--fg-muted); overflow-wrap: anywhere; }
@@ -332,7 +330,6 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
   body:has(#callModeButton.recording) #selfAvatar::after { content: ""; position: absolute; top: 0; right: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--status-danger); border: 2px solid var(--surface-1); }
   .app-shell-more-list { left: var(--space-2) !important; top: auto !important; bottom: calc(var(--layout-bottom) + 8px); width: calc(100vw - 16px); max-height: calc(100dvh - var(--layout-bottom) - var(--space-5)); grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   .app-shell-account-menu { left: var(--space-2) !important; bottom: calc(var(--layout-bottom) + 8px); width: calc(100vw - 16px) !important; max-width: none; max-height: calc(100dvh - var(--layout-bottom) - 16px); overflow-y: auto; }
-  .app-shell-doc, .doc-fab { right: var(--space-4) !important; bottom: calc(var(--layout-bottom) + 16px) !important; }
   .doc-chat { bottom: calc(var(--layout-bottom) + 76px) !important; }
   .app-layout-sidebar, .app-layout-today { position: fixed; top: 0; bottom: var(--layout-bottom); height: auto; width: min(330px, calc(100vw - 28px)); z-index: 1150; visibility: hidden; pointer-events: none; transition: transform var(--duration-panel) var(--ease-out); background: var(--surface-1); box-shadow: var(--shadow-overlay); }
   .app-layout-sidebar { left: 0; transform: translateX(-105%); }
@@ -433,7 +430,7 @@ body.report-shell { padding-left: var(--layout-rail); padding-bottom: 34px; }
 .app-walkthrough button { min-width: 44px; min-height: 44px; padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); color: var(--fg); background: var(--surface-3); cursor: pointer; font: inherit; }
 .app-walkthrough button:disabled { opacity: .5; cursor: default; }
 .app-walkthrough button:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
-.app-walkthrough-target, #docOpen.app-walkthrough-target { box-sizing: border-box; outline: 3px solid var(--focus-ring); outline-offset: -3px; animation: walkthrough-highlight 450ms ease-out; }
+.app-walkthrough-target, #askDocLink.app-walkthrough-target { box-sizing: border-box; outline: 3px solid var(--focus-ring); outline-offset: -3px; animation: walkthrough-highlight 450ms ease-out; }
 @keyframes walkthrough-highlight { from { outline-color: transparent; } }
 
 .email-source, .email-proposal q { color: var(--fg-muted); font-size: var(--font-size-1); }

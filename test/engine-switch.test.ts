@@ -587,11 +587,6 @@ for (const [name, args, path] of [
     "/api/engine/quiet-follow-ups?lead_days=45&vendor_days=90&owner_slug=example-partner",
   ],
   ["list-practice-origination", { limit: 25, before_id: "7" }, "/api/engine/reasons-to-reach-out?limit=25&before_id=7"],
-  [
-    "territory-state-board",
-    { vertical: "dental", city: "Example City", state: "EX" },
-    "/api/engine/territory-state-board?vertical=dental&city=Example+City&state=EX",
-  ],
 ] as const) {
   test(`leads switch routes ${name} ${JSON.stringify(args)} to its engine read`, async () => {
     const f = fixture(leadsOn);
@@ -635,7 +630,6 @@ for (const body of [
   call("list-practice-origination", { limit: "25" }),
   call("list-practice-origination", { limit: 25, extra: "x" }),
   call("quiet-follow-ups", { lead_days: "45" }),
-  call("territory-state-board", { state: 5 }),
   call("quiet-follow-ups", { constructor: "x" }),
   call("quiet-follow-ups", JSON.parse('{"__proto__": "x"}')),
 ]) {
@@ -932,7 +926,7 @@ for (const [key, name, path] of remainingScreens) {
     for (const body of [
       call("deal-room-board"),
       call("lead-board", { workspace: "leads" }),
-      call("read-vendor-markets-v1"),
+      call("read-vendor-meetings"),
       call("find", { query: "Example Clinic" }),
       ...(key === "invoices-from-engine" ? [] : [markPaid]),
       call("set-next-step", { deal: "example-deal", next_step: "Example step" }),
@@ -1164,8 +1158,6 @@ for (const [name, args, path] of [
     { view: "research", q: "lender", limit: 5, cursor: "c3ludGhldGlj" },
     "/api/engine/vendor-meetings?view=research&q=lender&limit=5&cursor=c3ludGhldGlj",
   ],
-  ["read-vendor-markets-v1", {}, "/api/engine/vendor-markets"],
-  ["read-vendor-markets-v1", { market: "Example Metro" }, "/api/engine/vendor-markets?market=Example+Metro"],
 ] as const) {
   test(`clients and vendors switch routes ${name} ${JSON.stringify(args)} to its engine read`, async () => {
     const f = fixture(directoryOn);
@@ -1238,9 +1230,8 @@ for (const value of [null, "off", "ON", new Error("KV failed"), leadsOn, new Map
   test(`clients and vendors stay on CARR while their own switch is not on (${String(value)})`, async () => {
     const f = fixture(value);
     assert.equal(await (await getRead(f, "/api/v1/business/clients")).text(), "old");
-    const body = call("read-vendor-markets-v1", {});
-    assert.equal(await (await f.send(body)).text(), "old");
-    assert.deepEqual(f.carr, ["", JSON.stringify(body)]);
+    assert.equal(await (await getRead(f, "/api/v1/business/vendors")).text(), "old");
+    assert.deepEqual(f.carr, ["", ""]);
     assert.equal(f.engine.length, 0);
   });
 }
@@ -1279,7 +1270,6 @@ for (const body of [
   call("find-and-catch-up", { query: "x", limit: "10" }),
   call("find-and-catch-up", { query: "x", extra: "y" }),
   call("read-vendor-meetings", { cursor: {} }),
-  call("read-vendor-markets-v1", { market: null }),
   call("/api/v1/business/clients", {}),
 ]) {
   test(`ineligible clients and vendors call stays on CARR without reading the switch ${JSON.stringify(body.params)}`, async () => {

@@ -22,48 +22,85 @@
     },
 
 APP PARSER
-import { createRoot } from 'react-dom/client';
-import { flushSync } from 'react-dom';
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
 
 type Filters = { vertical?: string; city?: string; state?: string };
 type Client = { getIdealClientProfile(filters: Filters): Promise<unknown> };
-type Profile = { vertical: string | null; deal_type: string | null; city: string | null; state: string | null;
-  won_deals: number; clients: number; hypothesis: string; evidence: { deal_id: string; closed_on: string; deal_name: string | null }[] };
+type Profile = {
+  vertical: string | null;
+  deal_type: string | null;
+  city: string | null;
+  state: string | null;
+  won_deals: number;
+  clients: number;
+  hypothesis: string;
+  evidence: { deal_id: string; closed_on: string; deal_name: string | null }[];
+};
 type CloseWindow = { from: string; through: string };
 function calendarDate(value: string): boolean {
   const date = Date.parse(value);
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(date) && new Date(date).toISOString().slice(0, 10) === value;
+  return (
+    /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(date) && new Date(date).toISOString().slice(0, 10) === value
+  );
 }
-type View = { kind: 'idle' } | { kind: 'loading' } | { kind: 'ready'; profiles: Profile[] } | { kind: 'error'; message: string };
+type View =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ready"; profiles: Profile[] }
+  | { kind: "error"; message: string };
 function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid historical fit');
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid historical fit");
   return Object.fromEntries(Object.entries(value));
 }
 function text(value: unknown): string {
-  if (typeof value !== 'string' || !value.trim()) throw new Error('Invalid historical fit');
+  if (typeof value !== "string" || !value.trim()) throw new Error("Invalid historical fit");
   return value;
 }
-function dimension(value: unknown): string | null { return value === null || value === '' ? null : text(value); }
+function dimension(value: unknown): string | null {
+  return value === null || value === "" ? null : text(value);
+}
 function count(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) throw new Error('Invalid historical count');
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
+    throw new Error("Invalid historical count");
   return value;
 }
 function parse(value: unknown): Profile[] {
   const payload = object(value);
-  if (payload.schema_version !== 'ideal-client-profile.v1' || payload.coverage !== 'recorded_closed_won_only' || !Array.isArray(payload.profiles) || payload.profiles.length > 1000) throw new Error('Invalid historical coverage');
-  return payload.profiles.map(value => {
+  if (
+    payload.schema_version !== "ideal-client-profile.v1" ||
+    payload.coverage !== "recorded_closed_won_only" ||
+    !Array.isArray(payload.profiles) ||
+    payload.profiles.length > 1000
+  )
+    throw new Error("Invalid historical coverage");
+  return payload.profiles.map((value) => {
     const row = object(value);
-    const won_deals = count(row.won_deals), clients = count(row.clients);
-    if (clients > won_deals || !Array.isArray(row.evidence) || row.evidence.length !== won_deals) throw new Error('Invalid historical evidence');
-    const evidence = row.evidence.map(value => {
-      const entry = object(value), deal_id = text(entry.deal_id), closed_on = text(entry.closed_on);
-      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deal_id) || !calendarDate(closed_on)) throw new Error('Invalid completed deal');
-      if (entry.deal_name != null && typeof entry.deal_name !== 'string') throw new Error('Invalid deal name');
-      const deal_name = typeof entry.deal_name === 'string' ? entry.deal_name.trim() || null : null;
+    const won_deals = count(row.won_deals),
+      clients = count(row.clients);
+    if (clients > won_deals || !Array.isArray(row.evidence) || row.evidence.length !== won_deals)
+      throw new Error("Invalid historical evidence");
+    const evidence = row.evidence.map((value) => {
+      const entry = object(value),
+        deal_id = text(entry.deal_id),
+        closed_on = text(entry.closed_on);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deal_id) || !calendarDate(closed_on))
+        throw new Error("Invalid completed deal");
+      if (entry.deal_name != null && typeof entry.deal_name !== "string") throw new Error("Invalid deal name");
+      const deal_name = typeof entry.deal_name === "string" ? entry.deal_name.trim() || null : null;
       return { deal_id, closed_on, deal_name };
     });
-    if (new Set(evidence.map(entry => entry.deal_id)).size !== won_deals) throw new Error('Duplicate historical evidence');
-    return { vertical: dimension(row.vertical), deal_type: dimension(row.deal_type), city: dimension(row.city), state: dimension(row.state),
-      won_deals, clients, evidence, hypothesis: text(row.hypothesis) };
+    if (new Set(evidence.map((entry) => entry.deal_id)).size !== won_deals)
+      throw new Error("Duplicate historical evidence");
+    return {
+      vertical: dimension(row.vertical),
+      deal_type: dimension(row.deal_type),
+      city: dimension(row.city),
+      state: dimension(row.state),
+      won_deals,
+      clients,
+      evidence,
+      hypothesis: text(row.hypothesis),
+    };
   });
 }

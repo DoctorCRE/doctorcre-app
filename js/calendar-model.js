@@ -243,7 +243,7 @@ export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onP
         const why = typeof row.why === "string" ? row.why.trim().replace(/\s+/g, " ") : "";
         return {
           key: `step:${row.id}`, type: "step", day: row.display_on, label,
-          why: why.toLowerCase() === label.toLowerCase() ? "" : why,
+          why,
           owner: row.owner, record_name: row.record_label, open_url: row.open_url,
           days_late: row.days_late, due_on: row.due_on, settled: false,
         };

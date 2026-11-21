@@ -1,3 +1,6 @@
+import { createClient } from './client.js';
+import { resolveDealroomBoot } from './boot-mode.js';
+import { TOUCH_LAYOUT } from './touch-layout.js';
 import { createPageBudget } from './read-budget.mjs';
 import { mountBriefQueues } from './brief-queues.js';
 import { overnightCutoff } from './business-date.js';
@@ -177,7 +180,6 @@ export function mountMorningBrief({ document:root, window:win, getClient, interv
   win.addEventListener('doctorcre-session-invalidated', invalidate);
   control.onclick = open;
   $('morningClose').onclick = close;
-  // A modal that replaced the brief (Doc's command bar) already owns focus.
   onDialogClosed(dialog, () => { queues.reset(); ++detailEpoch; selected = null; if (root.querySelector('dialog[open]')) return; (opener?.isConnected && !opener.closest('dialog:not([open])') ? opener : $('docOpen'))?.focus(); });
   $('morningBack').onclick = back;
   $('morningRefresh').onclick = () => queues.active ? queues.refresh() : auto.refresh();
@@ -187,4 +189,64 @@ export function mountMorningBrief({ document:root, window:win, getClient, interv
   root.addEventListener('visibilitychange',hidden);
   auto.refresh();
   return { open, refresh:auto.refresh, dispose() { if (disposed) return; disposed = true; queues.dispose(); ++detailEpoch; auto.dispose(); owners.dispose(); root.removeEventListener('doctorcre:refresh-brief-calendar', refreshCalendar); root.removeEventListener('doctorcre:request-brief-calendar', currentCalendar); win.removeEventListener('doctorcre-session-invalidated', invalidate); root.removeEventListener('visibilitychange',hidden); dialog.remove(); } };
+}
+
+export function mountMorningBriefLauncher(root) {
+  const win = root.defaultView;
+  const topbar = root.getElementById('appTopbar');
+  const workspace = root.getElementById('accountWorkspaceControls');
+  const avatar = root.getElementById('selfAvatar');
+  const phone = win.matchMedia(TOUCH_LAYOUT);
+  const style = root.createElement('link');
+  style.rel = 'stylesheet';
+  style.href = '/css/morning-brief.css';
+  root.head.append(style);
+  const strip = root.createElement('section');
+  strip.className = 'doc-presence';
+  strip.id = 'docPresence';
+  strip.innerHTML = '<button id="docOpen" class="doc-identity" type="button" aria-label="Open morning brief options" title="Morning brief" aria-haspopup="dialog" aria-controls="docDetail"><span class="doc-orb" aria-hidden="true">◍</span></button>';
+  const button = strip.querySelector('button');
+  const dialog = root.createElement('dialog');
+  dialog.id = 'docDetail';
+  dialog.className = 'doc-detail';
+  dialog.setAttribute('aria-labelledby', 'docTitle');
+  dialog.innerHTML = '<header><h2 id="docTitle">Morning brief</h2><button id="docClose" type="button" aria-label="Close morning brief options">×</button></header><button id="docMorning" type="button">Morning brief</button>';
+  root.body.append(dialog);
+
+  const place = () => {
+    const popups = root.querySelectorAll('dialog[open]:not(#docDetail):not(#docMorningBrief):not([data-quick-switcher]), aside#recordPanel:not([hidden]), main.deal-workspace:not([hidden])');
+    const popup = popups[popups.length - 1];
+    const host = popup?.querySelector('[data-doc-presence-slot]') || popup || (phone.matches ? workspace : topbar);
+    if (strip.parentElement === host) return;
+    if (host === workspace) host.querySelector('h3').after(strip);
+    else if (host === topbar) host.append(strip);
+    else host.prepend(strip);
+  };
+  place();
+  const placement = new win.MutationObserver(place);
+  placement.observe(root.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'hidden'] });
+  phone.addEventListener('change', place);
+
+  let opener;
+  button.onclick = () => {
+    opener = strip.closest('#accountWorkspaceControls') ? avatar : button;
+    if (opener === avatar) { avatar.click(); avatar.focus(); }
+    dialog.showModal();
+  };
+  dialog.querySelector('#docClose').onclick = () => dialog.close();
+  const stopClosed = onDialogClosed(dialog, () => {
+    if (!root.getElementById('docMorningBrief')?.open) opener?.focus();
+  });
+  const boot = resolveDealroomBoot(win.location);
+  const brief = mountMorningBrief({ document: root, window: win,
+    getClient: () => createClient(boot.mode, { ...boot.options, docContext: false }) });
+  return { dispose() {
+    brief.dispose();
+    stopClosed();
+    placement.disconnect();
+    phone.removeEventListener('change', place);
+    // Let document teardown remove the launcher without mutating its record dialog.
+    dialog.remove();
+    style.remove();
+  } };
 }

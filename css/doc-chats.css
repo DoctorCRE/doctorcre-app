@@ -28,9 +28,9 @@
 }
 .doc-chat__sources { margin: 0; padding-inline-start: var(--space-5); overflow-wrap: anywhere; }
 .doc-chat__question { justify-self: end; max-width: 90%; background: var(--surface-2); }
-.doc-chat-page textarea {
+.doc-chat-page textarea, .doc-chat__proposal input {
+  display: block;
   width: 100%;
-  resize: vertical;
   margin-block: var(--space-1);
   padding: var(--space-2);
   color: var(--fg);
@@ -38,7 +38,22 @@
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-2);
 }
+.doc-chat-page textarea { resize: vertical; }
 .doc-chat__actions { justify-content: flex-end; }
+.doc-chat__recent-toggle { display: none; }
 @media (max-width: 44rem) {
   .doc-chat__layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+  .doc-chat__recent-toggle { display: block; }
+  .doc-chat__recent { display: none; }
+  .doc-chat__recent--open { display: block; }
 }
+.doc-chat__proposal {
+  padding: var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-3);
+  overflow-wrap: anywhere;
+}
+.doc-chat__proposal fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.doc-chat__proposal button { margin-top: var(--space-2); }
+.doc-chat__proposal p { margin-block: 0 var(--space-2); }
+.doc-chat__proposal label { display: block; }

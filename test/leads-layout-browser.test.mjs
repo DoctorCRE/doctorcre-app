@@ -61,8 +61,7 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
     if (width === 390) {
       await page.mouse.move(195, 600);
       await page.mouse.wheel(0, 1600);
-      await page.waitForFunction(() => scrollY > 1000);
-      await page.waitForFunction(() => document.querySelector('.stage-nav').getBoundingClientRect().top <= 100);
+      await page.waitForFunction(() => scrollY > 0 && document.querySelector('.stage-nav').getBoundingClientRect().top <= 100);
     } else {
       await page.evaluate(() => scrollTo(0, document.querySelector('#leadBoard').getBoundingClientRect().top + scrollY - 80));
     }

@@ -26,6 +26,5 @@ export { mountLeadResearch } from "./lead-research";
 export { mountMarketTerms } from "./market-terms";
 export { mountMarketStudy, mountPortal } from "./portal/shell-home-sources";
 export { mountRelationshipKindFilter, relationshipKind } from "./relationship-kind-filter";
-export { mountTerritoryEvidence } from "./territory-evidence";
 export { mountWorkspace } from "./workspace-shell";
 export { mountZoomableWorkspace } from "./workspace-zoom";

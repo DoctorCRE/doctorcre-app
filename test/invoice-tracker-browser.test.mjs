@@ -61,7 +61,7 @@ test('phone invoice keeps its title and actions in view while details scroll', a
   const deal = page.getByRole('link', { name: 'Open deal', exact: true });
   assert.equal(await heading.getByRole('link', { name: 'Open deal', exact: true }).count(), 1);
   assert.equal(await deal.getAttribute('href'), '/deals?deal=demo-invoice-deal-4');
-  const doc = heading.getByRole('button', { name: 'Open Doc', exact: true });
+  const doc = heading.getByRole('button', { name: 'Open morning brief options', exact: true });
   const close = heading.getByRole('button', { name: 'Close invoice', exact: true });
   await doc.waitFor({ state: 'visible' });
   await page.locator('#invoiceOriginal summary').click();
@@ -74,7 +74,7 @@ test('phone invoice keeps its title and actions in view while details scroll', a
   assert.deepEqual(await heading.boundingBox(), before);
   await doc.click();
   await page.locator('#docDetail[open]').waitFor();
-  await page.getByRole('button', { name: 'Close Doc', exact: true }).click();
+  await page.getByRole('button', { name: 'Close morning brief options', exact: true }).click();
   await close.click();
   assert.equal(await row.evaluate(node => node === document.activeElement), true);
 });
@@ -230,7 +230,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.match(await page.locator('#invoiceOriginalFacts').innerText(), /Owner\s+Dell/);
     assert.doesNotMatch(await page.locator('#invoiceOriginalFacts').innerText(), /Due|Paid|Commission|—/);
     const drawer = page.getByRole('dialog');
-    const doc = drawer.getByRole('button', { name: 'Open Doc' });
+    const doc = drawer.getByRole('button', { name: 'Open morning brief options' });
     const close = drawer.getByRole('button', { name: 'Close invoice' });
     const openDeal = drawer.getByRole('link', { name: 'Open deal', exact: true });
     await doc.waitFor();
@@ -525,8 +525,14 @@ test('with the engine switch off only a read started after the save can clear Re
 });
 
 test('hung payment becomes recoverable after the write deadline without an automatic write',async t=>{
- const h=await open(t,{receipt:'hung'});await h.page.locator('[data-invoice]').first().click();await h.page.locator('#markInvoicePaid').click();
- await h.page.clock.runFor(11000);await h.page.waitForFunction(()=>document.querySelector('#markInvoicePaid').textContent==='Retry payment');
+ const h=await open(t,{receipt:'hung'});
+ await h.page.locator('[data-invoice]').first().click();
+ const sent = h.page.waitForRequest(request =>
+   new URL(request.url()).pathname === '/mcp' && request.postDataJSON()?.params?.name === 'record-commission-receipt');
+ await h.page.locator('#markInvoicePaid').click();
+ await sent;
+ await h.page.clock.runFor(11000);
+ await h.page.waitForFunction(()=>document.querySelector('#markInvoicePaid').textContent==='Retry payment');
  assert.equal(h.writes,1);assert.equal(await h.page.locator('#markInvoicePaid').isEnabled(),true);
 });
 test('phone focus survives automatic invoice removal and filtered-out row repaint',async t=>{

@@ -52,6 +52,9 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     assert.equal(reads.length, 1);
     assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'SUMMARY');
     const dental = region.getByRole('row').filter({ hasText: 'Dental' });
+    assert.equal(await region.getByRole('columnheader', { name: 'Transaction city / State', exact: true }).count(), 1);
+    assert.equal(await dental.getByText('Demo City / TX', { exact: true }).getAttribute('data-label'), 'Transaction city / State');
+    assert.match(await region.innerText(), /grouped by vertical, deal type, transaction city and state\./);
     assert.match(await dental.innerText(), /2 deals/);
     assert.match(await dental.innerText(), /1 client/);
     assert.match(await region.innerText(), /Unrecorded/);
@@ -77,10 +80,10 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     });
     assert.ok(documentScroll.pageWidth <= documentScroll.viewport, JSON.stringify(documentScroll));
     assert.equal(documentScroll.pageScrollX, 0, 'Charts cannot scroll the document sideways');
-    await mkdir('/tmp/WR647.S1.J42-ui', { recursive: true });
+    await mkdir('out/test-artifacts/client-fit', { recursive: true });
     await region.locator('.chart-scroll').evaluate(el => { el.scrollLeft = 0; });
     await region.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `/tmp/WR647.S1.J42-ui/${width}-${theme}.png` });
+    await page.screenshot({ path: `out/test-artifacts/client-fit/${width}-${theme}.png` });
     await region.getByLabel('City', { exact: true }).fill('Delayed');
     const delayed = page.waitForRequest(req => req.url().endsWith('/mcp') && req.postData()?.includes('Delayed'));
     await region.getByRole('button', { name: 'Apply filters' }).click(); await delayed;

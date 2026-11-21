@@ -110,7 +110,6 @@ export async function prove({
           "lead-board",
           "quiet-follow-ups",
           "list-practice-origination",
-          "territory-state-board",
           "read-notifications",
           "notification-count",
           "doc_activity",

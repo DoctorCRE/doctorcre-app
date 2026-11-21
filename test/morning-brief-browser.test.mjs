@@ -222,24 +222,6 @@ test('refresh retains Details on stable note identity and uses Back when it leav
  assert.equal(await page.evaluate(()=>document.activeElement.id),'morningBack');assert.equal(await page.locator('#morningContent details[open]').count(),0);
 });
 
-for (const key of ['d']) test(`Doc Control+${key} switches from the brief to the command bar with one modal`, async t => {
- const { page, goto } = await setup(t);
- await goto(); await page.locator('#docOpen[data-brief-unseen]').waitFor();await page.locator('#docOpen').click();await page.locator('#docMorning').click();await page.locator('#docMorningBrief[open]').waitFor();
- await page.keyboard.press(`Control+${key}`);
- await page.locator('#docDetail[open]').waitFor();
- assert.equal(await page.locator('dialog[open]').count(), 1);
- // The brief's close event lands a task later; focus must still be on the command bar after it.
- await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 50)));
- assert.equal(await page.locator('#docCommandInput').evaluate(node => document.activeElement === node), true);
- await page.keyboard.press('Escape');
- await page.waitForFunction(() => document.activeElement?.id === 'docOpen');
- assert.equal(await page.locator('dialog[open]').count(), 0);
- assert.equal(await page.locator('#docOpen').evaluate(node => document.activeElement === node), true);
- await page.locator('#docOpen').click(); await page.locator('#docMorning').click();
- assert.equal(await page.locator('dialog[open]').count(), 1);
- assert.equal(await page.locator('#docMorningBrief').evaluate(node => node.open), true);
-});
-
 
 test('full returned coverage is expandable on desktop and phone in a UTC browser',async t=>{
  const state=await setup(t,{coverage:true,timezoneId:'UTC'}),{page}=state;

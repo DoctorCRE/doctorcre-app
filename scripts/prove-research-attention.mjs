@@ -41,7 +41,7 @@ export async function prove({ origin, expectedCommit, cdpUrl, timeoutMs = 30000,
       if (url.origin !== base.origin) return route.abort();
       if (req.method() === 'POST') {
         const name = req.postDataJSON()?.params?.name;
-        if (!['lead-board', 'quiet-follow-ups', 'list-practice-origination', 'territory-state-board', 'read-home-agenda', 'deal-room-board'].includes(name)) return route.abort();
+        if (!['lead-board', 'quiet-follow-ups', 'list-practice-origination', 'read-home-agenda', 'deal-room-board'].includes(name)) return route.abort();
         calls++;
       } else if (req.method() !== 'GET') return route.abort();
       return route.continue();

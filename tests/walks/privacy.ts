@@ -71,7 +71,6 @@ export const readOnlyVerbs: readonly string[] = [
   "schedule-board",
   "search-parties-v1",
   "standing-context",
-  "territory-state-board",
   "today-triage",
   "unfinished-work",
   "work-queue",

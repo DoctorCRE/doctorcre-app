@@ -66,6 +66,7 @@ for (const path of ["list", "detail"] as const) {
     malformed = false;
     await page.getByRole("button", { name: "Retry loading" }).click();
     await expect(page.getByLabel("Question for Doc")).toBeEnabled();
+    await page.getByRole("button", { name: "Recent chats", exact: true }).click();
     await expect(page.getByRole("link", { name: question })).toBeVisible();
   });
 }
@@ -199,6 +200,7 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
   await expect(page.getByText("Doc isn't set up on your Mac yet.")).toBeVisible();
   await page.getByRole("link", { name: "New chat" }).click();
   state = "failed";
+  await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   await page.getByRole("link", { name: question }).click();
   await expect(page.getByText("Doc couldn’t answer.")).toBeVisible();
   state = "queued";
@@ -274,6 +276,7 @@ for (const storageBlocked of [false, true]) {
       await page.goto(start);
       await expect(composer).toBeEnabled();
       await expect(composer).toHaveValue("");
+      await page.getByRole("button", { name: "Recent chats", exact: true }).click();
       await page.getByRole("link", { name: question }).click();
       await expect(composer).toHaveValue(question);
     }
@@ -339,6 +342,7 @@ test("Doc accepts engine IDs without RFC version or variant bits", async (t) => 
     return Response.json({}, { status: 404 });
   });
   await page.goto(`${origin}/doc-chats?mode=live`);
+  await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   await page.getByRole("link", { name: question }).click();
   await page.getByLabel("Question for Doc").fill(question);
   await page.getByRole("button", { name: "Send", exact: true }).click();
@@ -526,6 +530,7 @@ test("An unavailable chat keeps the unsent question and other recent chats for t
   await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
   const composer = page.getByLabel("Question for Doc");
   const otherChat = page.getByRole("link", { name: other.title });
+  await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   await expect(otherChat).toBeVisible();
   await composer.fill("An unsent follow-up");
 
@@ -651,3 +656,226 @@ test("Session invalidation aborts an in-flight Doc refresh and clears the chat",
   await page.clock.runFor(15_000);
   assert.equal(requests, 1);
 });
+
+const confirmationPath = `/api/engine/doc/turns/${answeredTurn.id}/confirmation`;
+const deal = { ref: { kind: "deal", id }, label: "Example deal", href: `/deals?deal=${id}` };
+const savedId = "00000000-0000-4000-8000-000000000004";
+const draftHref = `/inbox/card/${encodeURIComponent(`reply_draft:${savedId}`)}`;
+
+for (const scenario of ["note", "next step", "reply", "unavailable"] as const) {
+  test(`Doc confirms an edited proposal for ${scenario}`, async (t) => {
+    const note = { kind: "note", target: deal, text: "A proposed note" };
+    const proposal =
+      scenario === "next step"
+        ? { kind: "next_step", target: deal, what: "A proposed step", due_on: "2026-01-02" }
+        : scenario === "reply"
+          ? {
+              kind: "reply_draft",
+              target: { ref: { kind: "email", id }, label: "Example email", href: "/inbox" },
+              subject: "A proposed subject",
+              body: "A proposed reply",
+            }
+          : note;
+    const askKey = "00000000-0000-4000-8000-000000000003";
+    const turn = { ...answeredTurn, idempotency_key: askKey, answer: { ...answeredTurn.answer, proposal } };
+    const attempts: { idempotency_key: string; edits: unknown }[] = [];
+    let result: { kind: string; id: string; href: string; existing?: boolean } | null = null;
+    let saves = 0;
+    const { page, origin } = await docChatFixture(t, async (request) => {
+      switch (new URL(request.url).pathname) {
+        case "/api/engine/doc/conversations":
+          return Response.json({ conversations: [conversation], next_before: null });
+        case detailPath:
+          return Response.json({ conversation, turns: [{ ...turn, confirmation: result }] });
+        case confirmationPath: {
+          assert.equal(request.method, "POST");
+          assert.equal(request.headers.get("x-carr-csrf"), "joe-test");
+          const command: unknown = await request.json();
+          assert.ok(
+            command &&
+              typeof command === "object" &&
+              "idempotency_key" in command &&
+              typeof command.idempotency_key === "string" &&
+              "edits" in command,
+          );
+          attempts.push({ idempotency_key: command.idempotency_key, edits: command.edits });
+          if (scenario === "unavailable") return Response.json({ error: "not_found" }, { status: 404 });
+          if (scenario === "next step")
+            return Response.json(
+              { error: "open_step_exists", next_step_id: savedId, href: deal.href },
+              { status: 409 },
+            );
+          if (!result) {
+            saves++;
+            result =
+              scenario === "reply"
+                ? { kind: "reply_draft", id: savedId, href: draftHref, existing: true }
+                : { kind: "note", id: savedId, href: deal.href };
+          }
+          return Response.json({ result });
+        }
+        default:
+          return Response.json({}, { status: 404 });
+      }
+    });
+    page.setDefaultTimeout(5000);
+    await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+    await expect(page.getByRole("link", { name: proposal.target.label, exact: true })).toHaveAttribute(
+      "href",
+      proposal.target.href,
+    );
+    assert.equal(attempts.length, 0);
+    const save = (name: string) => page.getByRole("button", { name, exact: true }).click();
+
+    if (scenario === "next step") {
+      await expect(page.getByText("Owner: You")).toBeVisible();
+      await page.getByLabel("Next step", { exact: true }).fill("An edited step");
+      await page.getByLabel("Due date").fill("");
+      await save("Save next step");
+      await expect(page.getByRole("link", { name: "Open existing next step" })).toHaveAttribute("href", deal.href);
+      await expect(page.getByLabel("Next step", { exact: true })).toHaveValue("An edited step");
+      assert.deepEqual(
+        attempts.map(({ edits }) => edits),
+        [{ what: "An edited step", due_on: null }],
+      );
+      assert.equal(saves, 0);
+      return;
+    }
+
+    if (scenario === "reply") {
+      await page.getByLabel("Subject").fill("An edited subject");
+      await page.getByLabel("Reply", { exact: true }).fill("An edited reply");
+      await page.route(`${origin}${draftHref}`, (route) => route.fulfill({ body: "Example reply review" }));
+      await save("Save draft and open review");
+      await expect(page).toHaveURL(`${origin}${draftHref}`);
+      assert.deepEqual(
+        attempts.map(({ edits }) => edits),
+        [{ subject: "An edited subject", body: "An edited reply" }],
+      );
+      return;
+    }
+
+    const field = page.getByLabel("Note", { exact: true });
+    await field.fill("An edited note");
+    await page.reload();
+    await expect(field).toHaveValue("An edited note");
+    if (scenario === "unavailable") {
+      await save("Save note");
+      await expect(page.getByRole("alert")).toHaveText("This record is no longer available.");
+      await expect(field).toHaveValue("An edited note");
+      assert.equal(saves, 0);
+      return;
+    }
+
+    await page.route(
+      `${origin}${confirmationPath}`,
+      async (route) => {
+        const response = await route.fetch();
+        assert.equal(response.status(), 200);
+        await route.abort();
+      },
+      { times: 1 },
+    );
+    await save("Save note");
+    await expect(page.getByRole("alert")).toHaveText("Doc couldn’t tell if this saved. Try again.");
+    await expect(field).toHaveValue("An edited note");
+    assert.equal(saves, 1);
+    await save("Retry save");
+    const saved = page.getByRole("link", { name: "Open saved note" });
+    await expect(saved).toHaveAttribute("href", deal.href);
+    assert.equal(attempts.length, 2);
+    assert.deepEqual(attempts[1], attempts[0]);
+    assert.equal(saves, 1);
+    const [command] = attempts;
+    assert.ok(command);
+    assert.notEqual(command.idempotency_key, askKey);
+    assert.deepEqual(command.edits, { text: "An edited note" });
+    await page.reload();
+    await expect(saved).toHaveCount(1);
+    await expect(field).toHaveCount(0);
+  });
+}
+
+test("Doc identifies refused reply fields and keeps edits", async (t) => {
+  const proposal = {
+    kind: "reply_draft",
+    target: { ref: { kind: "email", id }, label: "Example email", href: "/inbox" },
+    subject: "Subject",
+    body: "Reply",
+  };
+  const turn = {
+    ...answeredTurn,
+    idempotency_key: "00000000-0000-4000-8000-000000000003",
+    answer: { ...answeredTurn.answer, proposal },
+  };
+  const { page, origin } = await docChatFixture(t, async (request) => {
+    switch (new URL(request.url).pathname) {
+      case "/api/engine/doc/conversations":
+        return Response.json({ conversations: [conversation], next_before: null });
+      case detailPath:
+        return Response.json({ conversation, turns: [turn] });
+      case confirmationPath:
+        return Response.json(
+          {
+            error: "invalid_field_value",
+            fields: ["body"],
+            hint: "Check the named fields against the tool’s documented input.",
+          },
+          { status: 400 },
+        );
+      default:
+        return Response.json({}, { status: 404 });
+    }
+  });
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  const subject = page.getByLabel("Subject");
+  await expect(subject).toHaveAttribute("maxlength", "998");
+  await subject.fill("Edited subject");
+  const reply = page.getByLabel("Reply", { exact: true });
+  await reply.fill("Edited reply");
+  await page.getByRole("button", { name: "Save draft and open review" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Enter a reply.");
+  await expect(page.getByText("Check the named fields against the tool’s documented input.")).toHaveCount(0);
+  await expect(reply).toHaveValue("Edited reply");
+  await expect(subject).toHaveValue("Edited subject");
+});
+
+test("Recent chats pages on a phone and opens the chosen conversation", async (t) => {
+  const older = { ...conversation, id: "00000000-0000-4000-8000-000000000003", title: "An older question" };
+  let failOlder = true;
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const url = new URL(request.url);
+    if (url.searchParams.has("before") && failOlder) return Response.json({}, { status: 503 });
+    if (url.pathname === "/api/engine/doc/conversations")
+      return Response.json(
+        url.searchParams.has("before")
+          ? { conversations: [older], next_before: null }
+          : { conversations: [conversation], next_before: id },
+      );
+    return Response.json({ conversation: older, turns: [] });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  await page.getByRole("button", { name: "Recent chats", exact: true }).click();
+  await page.getByRole("button", { name: "Show older chats" }).click();
+  await expect(page.getByRole("status")).toHaveText("Chats couldn’t be loaded.");
+  failOlder = false;
+  await page.getByRole("button", { name: "Retry loading" }).click();
+  await expect(page.getByRole("link", { name: older.title })).toBeVisible();
+  await page.getByRole("link", { name: older.title }).click();
+  await expect(page.getByLabel("Question for Doc")).toBeVisible();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+});
+
+for (const path of [`/doc-chats?id=${id}`, `/doc/conversations/${id}/turns/${id}`]) {
+  test(`An unavailable legacy link offers a new chat: ${path}`, async (t) => {
+    const { page, origin } = await docChatFixture(t, (request) =>
+      new URL(request.url).pathname === "/api/engine/doc/conversations"
+        ? Response.json({ conversations: [], next_before: null })
+        : Response.json({}, { status: 404 }),
+    );
+    await page.goto(`${origin}${path}${path.includes("?") ? "&" : "?"}mode=live`);
+    await expect(page.getByRole("status")).toHaveText("This older conversation wasn't kept");
+    await page.getByRole("link", { name: "New chat" }).click();
+    await expect(page.getByLabel("Question for Doc")).toBeEnabled();
+  });
+}

@@ -24,6 +24,7 @@ test('lead tasks defer map assets until keyboard reveal and retain filters', asy
   await page.getByRole('button', { name: 'Show territory', exact: true }).focus();
   await page.keyboard.press('Enter');
   await page.locator('.market-marker').first().waitFor();
+  assert.equal(await page.getByText('Recorded territory conditions').count(), 0);
   assert.equal(await page.locator('#marketFilter').inputValue(), 'Mobile, AL');
   assert.deepEqual(await ids(), before);
   assert.equal(requests.filter(path => path.endsWith('leads-territory.geojson')).length, 1);
