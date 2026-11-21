@@ -16,7 +16,7 @@ before(async () => { outDir = temporaryDirectory('home-sections-'); await buildA
 after(async () => { await rm(outDir, { recursive: true, force: true }); });
 
 for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(`Home opens inbox cards with plain wording and source excerpts when the engine switch is ${enabled ? 'on' : 'off'} at ${width}px`, async t => {
-  const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
+  const { page, open, hold } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
   page.setDefaultTimeout(5000);
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
   await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
@@ -467,8 +467,15 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await sameSubject.getByText(/Nov 2, 2026, 9:30 PM/).waitFor();
   await email.getByText(/Nov 1, 2026, 10:00 AM/).waitFor();
   assert.equal(await subjectLinks.first().locator('xpath=ancestor::article').getAttribute('data-inbox-row'), `suggestion:${otherEmail}`);
+  const draftRead = await hold(request => new URL(request.url()).pathname === '/mcp' &&
+    request.postDataJSON()?.params?.name === 'read-engine-home-draft');
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
-  await email.getByRole('link', { name: /Sample Sender · Floor plan/ }).press('Enter');
+  await draftRead.requested;
+  const emailTitle = email.getByRole('link', { name: /Sample Sender · Floor plan/ });
+  await emailTitle.focus();
+  draftRead.release();
+  await reply.getByRole('textbox', { name: 'Subject', exact: true }).waitFor();
+  await page.keyboard.press('Enter');
   await reply.getByRole('region', { name: /Details for Reply to the sample email/ }).waitFor({ state: 'detached' });
   await email.getByText('Suggestion', { exact: true }).waitFor();
   assert.equal(await email.getByText(/days late/).count(), 0);
