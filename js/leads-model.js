@@ -24,12 +24,13 @@ export function leadTitle(lead) {
 }
 export const marketKey = lead => lead.market || [lead.city, lead.state].filter(Boolean).join(", ") || "Market pending";
 export const specialtyKey = lead => lead.specialty?.trim() || lead.vertical?.trim() || "Specialty pending";
+export const leadReachability = lead => lead.reachability === undefined ? "research" : lead.reachability?.classification;
 export function visibleLeads(leads, filters = {}) {
   const search = (filters.search || "").trim().toLowerCase();
   return leads.filter(eligibleLead).filter(lead => {
     const stage = normalizedStage(lead);
     return (filters.stage ? stage === filters.stage : BOARD_STAGES.some(([key]) => key === stage)) &&
-      (!filters.reachability || (lead.reachability?.classification || "research") === filters.reachability) &&
+      (!filters.reachability || leadReachability(lead) === filters.reachability) &&
       (!filters.owner || (filters.owner === "unclaimed" ? !lead.owner : lead.owner === filters.owner)) && (!filters.market || marketKey(lead) === filters.market) &&
       (!filters.specialty || specialtyKey(lead) === filters.specialty) &&
       (!search || [leadTitle(lead), lead.specialty, marketKey(lead), lead.party_id].join(" ").toLowerCase().includes(search));

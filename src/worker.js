@@ -295,6 +295,22 @@ function mcpReply(call, response, text, isError) {
   return copySessionCookies(response, json({ jsonrpc: '2.0', id: call.id ?? null, result: isError ? { isError, content } : { content } }));
 }
 
+async function legacyInvoiceReceipt(response) {
+  if (!response.ok) return response;
+  try {
+    const envelope = await response.clone().json();
+    const content = envelope?.result?.content?.[0];
+    const receipt = JSON.parse(content?.text);
+    if (!isObject(receipt) || !Object.hasOwn(receipt, 'engine_receipt')) return response;
+    delete receipt.engine_receipt;
+    content.text = JSON.stringify(receipt);
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    headers.delete('content-encoding');
+    return new Response(JSON.stringify(envelope), { status: response.status, statusText: response.statusText, headers });
+  } catch { return response; }
+}
+
 // The registered read a request asks for: a business GET, or a tool call with its arguments.
 async function engineRead(request, url) {
   if (request.method === 'GET') {
@@ -734,7 +750,9 @@ async function engineSave(request, env, call) {
   }
   if (call.params.name === 'record-commission-receipt') {
     if (!await switchedOn(env, INVOICES)) return null;
-    return engineAnswer(request, env, call, { path: '/api/engine/invoices/mark-paid' }, { allowHandoff: false });
+    return engineAnswer(request, env, call, { path: '/api/engine/invoices/mark-paid' }, {
+      allowHandoff: false, mapReceipt: receipt => ({ ...receipt, engine_receipt: true }),
+    });
   }
   if (CUTOVER_SAVES.has(call.params.name)) {
     const result = await cutoverSave(request, env, call);
@@ -843,7 +861,7 @@ async function sendEngineSave(request, env, path, body) {
 }
 
 // Only the legacy-schema saves share a receipt with CARR.
-async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments, rawClientError = false, uncertainServerError = false } = {}) {
+async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments, rawClientError = false, uncertainServerError = false, mapReceipt } = {}) {
   const response = await sendEngineSave(request, env, save.path, body);
   if (engineSignIn(env) && response?.status === 503) return response;
   if (!response || (uncertainServerError && response.status >= 500)) return unavailable(false);
@@ -851,6 +869,11 @@ async function engineAnswer(request, env, call, save, { allowHandoff = true, bod
   try {
     if ((rawClientError && response.status >= 400 && response.status < 500) || [401, 403, 429].includes(response.status)) return response;
     text = await response.text();
+    if (mapReceipt && response.status === 200) {
+      const receipt = JSON.parse(text);
+      if (!isObject(receipt)) return unavailable(false);
+      text = JSON.stringify(mapReceipt(receipt));
+    }
   } catch { return unavailable(false); }
   const handoff = OLD_SYSTEM_ANSWERS.get(response.status);
   if (!engineSignIn(env) && allowHandoff && handoff && handoff === parsedError(text)) return null;
@@ -1053,7 +1076,11 @@ async function handleRequest(request, env) {
       delete call.params.arguments.ref;
       request = new Request(request, { body: JSON.stringify(call) });
     }
-    return await refuseFrozenSave(request, env, url, call) ?? carrResponse(request, env);
+    const refusal = await refuseFrozenSave(request, env, url, call);
+    if (refusal) return refusal;
+    const legacy = await carrResponse(request, env);
+    return call?.method === 'tools/call' && call.params?.name === 'record-commission-receipt'
+      ? legacyInvoiceReceipt(legacy) : legacy;
   }
   return json({ error: "not_found" }, 404);
 }

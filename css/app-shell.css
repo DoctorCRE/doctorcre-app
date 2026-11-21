@@ -308,7 +308,7 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
   .app-layout-center { width: 100%; }
   .app-layout-main { padding: var(--space-3) var(--space-3) 100px; }
   .app-layout-topbar { padding-inline: var(--space-2); }
-  .app-layout-center:not(:has(#appTabsSlot > [data-layout-slot="tabs"])) > .app-layout-topbar { position: absolute; z-index: 81; inset-block-start: 0; inset-inline-end: var(--touch); min-height: calc(var(--touch) + 2 * var(--space-2)); }
+  .app-layout-center:has(> .app-layout-tabbar):not(:has(#appTabsSlot > [data-layout-slot="tabs"])) > .app-layout-topbar { position: absolute; z-index: 81; inset-block-start: 0; inset-inline-end: var(--touch); min-height: calc(var(--touch) + 2 * var(--space-2)); }
   .app-layout-tabbar { min-height: 52px; padding: var(--space-2) var(--space-2); gap: var(--space-1); }
   /* One row of tabs that scrolls sideways; wrapped rows cost the phone its first screen. */
   .app-layout-tabs { gap: var(--space-1); overflow-x: auto; flex-wrap: nowrap; }
@@ -324,7 +324,7 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
   .app-shell-navigation > a { flex: 1 1 0; }
   .app-shell-more { flex: none; }
   .app-shell-navigation > a, .app-shell-more-toggle { width: auto; min-width: var(--touch); height: var(--touch); min-height: var(--touch); font-size: var(--font-size-3); padding: var(--space-1) !important; grid-template-rows: auto auto; align-content: center; gap: 0; }
-  .app-shell-navigation > a .app-shell-nav-label, .app-shell-more-toggle .app-shell-nav-label { font-size: 11px; }
+  .app-shell-navigation > a .app-shell-nav-label, .app-shell-more-toggle .app-shell-nav-label { font-size: 12px; }
   .app-shell-navigation > a[aria-current=page]::before, .app-shell-more-current::before { left: 10px; right: 10px; top: auto; bottom: -3px; width: auto; height: 2px; }
   .app-shell-controls { flex-direction: row; grid-column: 2; grid-row: 1; gap: var(--space-1) !important; }
   .app-shell-account-menu #callModeButton.recording::after { content: "Recording"; }
