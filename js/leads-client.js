@@ -110,7 +110,7 @@ export function hasLeadVersion(lead) {
   return Number.isSafeInteger(lead?.base_version) && lead.base_version > 0;
 }
 function validateLead(lead, parseTiming) {
-  projection(object(lead) && text(lead.id) && (lead.base_version == null || hasLeadVersion(lead)) && text(lead.stage) && typeof lead.suppressed === "boolean");
+  projection(object(lead) && text(lead.id) && text(lead.stage) && typeof lead.suppressed === "boolean");
   for (const key of ["registry_ref", "party_id", "doctor_name", "practice_name", "entity_name", "name", "owner", "city", "state", "market", "specialty", "vertical", "plan_type"]) projection(optionalText(lead[key]));
   for (const key of ["is_client", "linked_client", "is_past_client", "is_deal", "do_not_contact", "new_from_email"]) projection(lead[key] == null || typeof lead[key] === "boolean");
   projection(lead.score == null || (["string", "number"].includes(typeof lead.score) && Number.isFinite(Number(lead.score))));

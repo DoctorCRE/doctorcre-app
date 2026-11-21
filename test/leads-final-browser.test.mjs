@@ -64,16 +64,16 @@ test('Claim is offered on unclaimed leads across active stages', async t => {
   assert.equal(await page.locator('#leadDetail').evaluate(node => node.open), false);
 });
 
-test('A mixed board keeps an unversioned lead readable and only the versioned lead can save', async t => {
+test('A mixed board keeps unversioned leads readable and only the versioned lead can save', async t => {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage();
   const editable = lead(1);
-  const readOnly = lead(2, {
-    base_version: undefined, new_from_email: true,
+  const readOnlyLeads = [undefined, '', null, '1'].map((base_version, index) => lead(index + 2, {
+    base_version, new_from_email: true,
     possible_clients: [{ client_id: id(901), name: 'Example Client Match' }],
-  });
-  const board = { ...workspace(), leads: [editable, readOnly, lead(3, { stage: null })] };
+  }));
+  const board = { ...workspace(), leads: [editable, ...readOnlyLeads, lead(6, { stage: null })] };
   const writes = [];
   await routeLeads(page, {
     getBoard: () => board,
@@ -84,22 +84,26 @@ test('A mixed board keeps an unversioned lead readable and only the versioned le
   });
   await page.goto('http://localhost/leads');
   await page.locator('#leadBoard[aria-busy="false"]').waitFor();
-  assert.deepEqual(await page.locator('#leadBoard .lead-open').allTextContents(), ['Dr. Example 1', 'Dr. Example 2']);
+  assert.deepEqual(await page.locator('#leadBoard .lead-open').allTextContents(), [
+    'Dr. Example 1', 'Dr. Example 2', 'Dr. Example 3', 'Dr. Example 4', 'Dr. Example 5',
+  ]);
   assert.equal(await page.locator('#leadBoardError').isVisible(), false);
-  const card = page.locator(`[data-lead-id="${readOnly.id}"]`);
-  const claim = card.getByRole('button', { name: 'Claim', exact: true });
-  assert.equal(await claim.isDisabled(), true);
-  await claim.evaluate(button => button.click());
-  const open = card.getByRole('button', { name: 'Dr. Example 2', exact: true });
-  await open.press('Alt+ArrowRight');
-  assert.equal(await page.locator('#stageDialog').isVisible(), false);
-  await open.click();
   const drawer = page.locator('#leadDetail');
-  await drawer.getByText("Can't edit right now. Refresh to try again.", { exact: true }).waitFor();
-  assert.equal(await drawer.getByRole('button', { name: 'Claim', exact: true }).isDisabled(), true);
-  assert.equal(await drawer.getByRole('combobox', { name: 'Stage' }).isDisabled(), true);
-  assert.equal(await drawer.getByRole('button', { name: 'Link to client Example Client Match' }).isDisabled(), true);
-  await drawer.getByRole('button', { name: 'Close lead details' }).click();
+  for (const readOnly of readOnlyLeads) {
+    const card = page.locator(`[data-lead-id="${readOnly.id}"]`);
+    const claim = card.getByRole('button', { name: 'Claim', exact: true });
+    assert.equal(await claim.isDisabled(), true);
+    await claim.evaluate(button => button.click());
+    const open = card.getByRole('button', { name: readOnly.doctor_name, exact: true });
+    await open.press('Alt+ArrowRight');
+    assert.equal(await page.locator('#stageDialog').isVisible(), false);
+    await open.click();
+    await drawer.getByText("Can't edit right now. Refresh to try again.", { exact: true }).waitFor();
+    assert.equal(await drawer.getByRole('button', { name: 'Claim', exact: true }).isDisabled(), true);
+    assert.equal(await drawer.getByRole('combobox', { name: 'Stage' }).isDisabled(), true);
+    assert.equal(await drawer.getByRole('button', { name: 'Link to client Example Client Match' }).isDisabled(), true);
+    await drawer.getByRole('button', { name: 'Close lead details' }).click();
+  }
   await page.locator(`[data-lead-id="${editable.id}"]`).getByRole('button', { name: 'Claim', exact: true }).click();
   await settles(async () => assert.equal(await page.locator('#moveAnnouncement').innerText(), 'Lead claimed'));
   assert.deepEqual(writes.map(({ name, arguments: { lead, base_version } }) => [name, lead, base_version]), [
