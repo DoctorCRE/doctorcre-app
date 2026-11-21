@@ -1626,6 +1626,9 @@ function workspaceHtml(detail) {
     ${otherActions.length ? `${ended ? '' : '<p class="deal-items-label">Also open:</p>'}<ul class="deal-items" aria-label="Other open steps">${otherActions.map(action =>
       `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(calendarDay(action.due_on), stepToday)}</li>`
     ).join('')}</ul>` : ''}`;
+  const route = new URLSearchParams(location.search);
+  const stepId = route.get('focus') === 'next-step' ? route.get('step') : null;
+  const completedStep = fromEngine && stepId && detail.next_actions?.find(step => step.id === stepId && step.status === 'done' && !step.title);
   const itemOwners = fromEngine ? new Map(detail.next_actions?.map(step => [step.id, step.owner])) : undefined;
   const prospect = state.deals.get(d.id);
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);
@@ -1648,7 +1651,10 @@ function workspaceHtml(detail) {
       ${renderInvoiceClose(d, state.nextDealSaves)}
       ${fromEngine || phaseMove ? `<div data-phase-move>${phaseMove}</div>` : ''}
       ${!fromEngine && ended && (nextStep || otherActions.length) ? `<section aria-labelledby="ended-deal-steps"><h3 id="ended-deal-steps">Open before this deal ended</h3>${stepSummary}</section>` : stepSummary}
-      <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today:stepToday,buttons:true,empty:false,itemOwners})}</div>
+      ${completedStep ? `<section aria-label="Completed step"${stepFocusAttrs(completedStep)}>
+      <h2>Completed step</h2><p>${esc(completedStep.description)}</p>${stepOrigin(completedStep)}
+    </section>` : ''}
+    <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today:stepToday,buttons:true,empty:false,itemOwners})}</div>
       ${renderSnapshotFacts(d, fromEngine)}
       ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
     </section>
