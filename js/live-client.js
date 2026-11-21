@@ -256,8 +256,15 @@ export function createLiveClient(opts = {}) {
     get selfActor() { return selfActor; },
     async readAssuranceHealth(args) { const { assuranceHealthRequest } = await import('./assurance-health-model.js'); return rpc('read-assurance-health', assuranceHealthRequest(args)); },
     async linkParties(args) { return write('link-parties', args); },
-    async getRelationshipNetwork({ signal } = {}) {
-      const response = await fetchReadImpl('/api/v1/business/relationships?contract=relationship-network.v1', {signal,credentials:'same-origin',cache:'no-store',headers:{accept:'application/json'}});
+    async getRelationshipNetwork({ signal, step } = {}) {
+      const query = new URLSearchParams({ contract: 'relationship-network.v1' });
+      if (step) query.set('step', step);
+      const read = () => fetchReadImpl(`/api/v1/business/relationships?${query}`, {signal,credentials:'same-origin',cache:'no-store',headers:{accept:'application/json'}});
+      let response = await read();
+      if (step && response.status === 400 && (await response.json().catch(() => null))?.error === 'QUERY_INVALID') {
+        query.delete('step');
+        response = await read();
+      }
       if (!response.ok) throw Object.assign(new Error('Relationships unavailable'), {status:response.status});
       return response.json();
     },

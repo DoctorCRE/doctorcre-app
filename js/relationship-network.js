@@ -45,6 +45,9 @@ export function mountRelationshipNetwork({
   };
   $("networkSearch").value = currentFilters.q;
   focus = params.get("node");
+  const step = params.get("step");
+  let stepId = focus?.startsWith("party:") && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(step ?? "") ? step : null;
+  let openLinkedStep = Boolean(stepId);
   const address = () => {
     const url = new URL(window.location.href);
     for (const [key, value] of Object.entries({
@@ -54,6 +57,7 @@ export function mountRelationshipNetwork({
           ? "referrals"
           : "",
       node: focus || "",
+      step: stepId || "",
     })) {
       if (value) url.searchParams.set(key, value);
       else url.searchParams.delete(key);
@@ -61,6 +65,7 @@ export function mountRelationshipNetwork({
     window.history.replaceState(null, "", url);
   };
   const open = (id, trigger) => {
+    if (focus !== id) stepId = null;
     focus = id;
     returnId = id;
     address();
@@ -109,6 +114,7 @@ export function mountRelationshipNetwork({
     else if (!phone && graphView.lastElementChild !== directory) graphView.append(directory);
     if (focus && !view.nodes.some(n => n.id === focus)) {
       focus = null;
+      stepId = null;
       returnId = null;
       dialog.clear();
       address();
@@ -275,7 +281,10 @@ export function mountRelationshipNetwork({
   };
   const invalidate = () => {
     snapshot = null;
-    focus = null;
+    if (!openLinkedStep) {
+      focus = null;
+      stepId = null;
+    }
     returnId = null;
     positions.clear();
     dialog.clear();
@@ -288,7 +297,7 @@ export function mountRelationshipNetwork({
     $("networkRefresh").setAttribute("aria-busy", "true");
     try {
       const next = await readWithDeadline(
-        (s) => client.getRelationshipNetwork({ signal: s }),
+        (s) => client.getRelationshipNetwork({ signal: s, ...(stepId && { step: stepId }) }),
         { signal },
       );
       if (disposed || seq !== epoch) return;
@@ -299,7 +308,9 @@ export function mountRelationshipNetwork({
       $("networkNotice").hidden = true;
       $("networkUpdated").textContent = updatedLabel(next.observed_at);
       render();
-      dialog.update(next);
+      if (openLinkedStep && focus) open(focus);
+      else dialog.update(next);
+      openLinkedStep = false;
     } catch (error) {
       if (disposed || seq !== epoch) return;
       const expired = [401, 403].includes(error.status);
