@@ -950,8 +950,8 @@ const snapshot = items => ({
   ok: true, schema_version: 'home-inbox.v5', engine_marks: true, truncated: false,
   limit: 1000, working_collapsed: true, items,
 });
-async function dashboard(t, width, theme) {
-  const { page, open } = await scenario(t, { root: join(outDir, 'site'), now, page: { viewport: { width, height: 760 } } });
+async function dashboard(t, width, theme, timezone) {
+  const { page, open } = await scenario(t, { root: join(outDir, 'site'), now, timezone, page: { viewport: { width, height: 760 } } });
   page.setDefaultTimeout(4000);
   await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences',
     JSON.stringify({ theme, walkthroughSeen: { joe: true } })), theme);
@@ -1212,10 +1212,128 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
 });
 
 
+const scheduledMeeting = {
+  title: 'Tour Cedar Suite', start: '2026-11-03T13:30:00Z', end: '2026-11-03T14:30:00Z',
+};
+const meetingOutcome = { ...scheduledMeeting, key: 'aaaaaaaaaaaaaaaa', state: 'needs_review' };
+const meetingDeal = { id: id(99), name: 'Example Dental', owner: 'joe' };
+
+async function meetingDashboard(t, calendar, time = NOW) {
+  const { page, open, state } = await dashboard(t, 1440, 'light', 'UTC');
+  state.items = [];
+  await page.clock.install({ time });
+  await page.route(request => request.pathname === '/mcp', route => {
+    const { id, params } = route.request().postDataJSON();
+    if (params.name !== 'deal-room-board') return route.fallback();
+    return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text',
+      text: JSON.stringify({ actor: 'joe', deals: [meetingDeal] }),
+    }] } } });
+  });
+  await page.route('**/api/engine/home/today', route => calendar.unavailable
+    ? route.fulfill({ status: 503 })
+    : route.fulfill({ json: {
+      ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe',
+      meetings: { state: 'ready', observed_at: '2026-11-03T14:00:00Z', items: [], follow_up_reviews: [], ...calendar },
+    } }));
+  await open('/?mode=live');
+  return { page, meetings: page.getByRole('region', { name: "Today's meetings", exact: true }) };
+}
+
+test('Home meetings rolls over at Central midnight even when the refresh fails', async t => {
+  const calendar = { items: [scheduledMeeting] };
+  const { page, meetings } = await meetingDashboard(t, calendar, new Date('2026-11-04T05:59:50Z'));
+  await meetings.getByText(scheduledMeeting.title, { exact: true }).waitFor();
+  calendar.unavailable = true;
+  await page.clock.fastForward(20_000);
+  await meetings.waitFor({ state: 'detached' });
+  await page.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
+  await page.clock.fastForward(60_000);
+  await page.getByText('Meetings unavailable.', { exact: true }).waitFor();
+  await page.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
+});
+
+test('Home keeps a review-only meeting after its outcome is saved and refreshed', async t => {
+  const calendar = { follow_up_reviews: [meetingOutcome] };
+  const { page, meetings } = await meetingDashboard(t, calendar);
+  await page.route('**/api/engine/activities', route => {
+    calendar.follow_up_reviews = [];
+    return route.fulfill({ status: 201, json: { activity_id: id(91), existing: false } });
+  });
+  await meetings.locator('summary').filter({ hasText: scheduledMeeting.title }).press('Enter');
+  await meetings.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
+  await meetings.getByRole('button', { name: 'It happened', exact: true }).click();
+  await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
+  const title = meetings.getByText(scheduledMeeting.title, { exact: true });
+  await title.waitFor();
+  await meetings.getByRole('button', { name: 'It happened', exact: true }).waitFor({ state: 'detached' });
+  calendar.state = 'partial';
+  calendar.observed_at = '2026-11-03T14:01:00Z';
+  await page.clock.fastForward(60_000);
+  await meetings.getByText('Last synced Nov 3, 8:01 AM Central').waitFor();
+  await title.waitFor();
+});
+
+test('Home keeps previously read attendees and deal links when Outlook moves the event to outcomes', async t => {
+  const open_url = `/deals?deal=${meetingDeal.id}`;
+  const calendar = { items: [{ ...scheduledMeeting, open_url, attendees: [{ name: 'Pat Example' }] }] };
+  const { page, meetings } = await meetingDashboard(t, calendar);
+  const summary = meetings.locator('summary').filter({ hasText: scheduledMeeting.title });
+  await summary.press('Enter');
+  await meetings.getByText('Pat Example', { exact: true }).waitFor();
+  calendar.items = [];
+  calendar.follow_up_reviews = [meetingOutcome];
+  await page.clock.fastForward(60_000);
+  await meetings.getByRole('button', { name: 'It happened', exact: true }).waitFor();
+  await meetings.getByText('Pat Example', { exact: true }).waitFor();
+  assert.equal(await meetings.getByRole('link', { name: 'Open deal' }).getAttribute('href'), open_url);
+});
+
+test('Home puts an overnight outcome on its meeting', async t => {
+  const overnight = { ...scheduledMeeting, start: '2026-11-03T05:30:00Z', end: '2026-11-03T06:30:00Z' };
+  const { page, meetings } = await meetingDashboard(t, {
+    items: [overnight], follow_up_reviews: [{ ...meetingOutcome, ...overnight }],
+  });
+  await meetings.locator('summary').filter({ hasText: overnight.title }).press('Enter');
+  await meetings.getByRole('button', { name: 'It happened', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: `Confirm ${overnight.title}` }).count(), 0);
+});
+
+test('Home keeps separate invites with the same title and times', async t => {
+  const pat = { ...scheduledMeeting, attendees: [{ name: 'Pat Example' }] };
+  const lee = { ...scheduledMeeting, key: meetingOutcome.key, attendees: [{ name: 'Lee Example' }] };
+  const { meetings } = await meetingDashboard(t, {
+    items: [pat, pat, lee], follow_up_reviews: [meetingOutcome],
+  });
+  await meetings.getByRole('heading', { name: "Today's meetings 3" }).waitFor();
+  for (const summary of await meetings.locator('summary').all()) await summary.press('Enter');
+  const matches = meetings.locator('details').filter({ hasText: 'Pat Example' });
+  assert.equal(await matches.count(), 2);
+  assert.equal(await matches.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+  await meetings.locator('details').filter({ hasText: 'Lee Example' })
+    .getByRole('button', { name: 'It happened', exact: true }).waitFor();
+});
+
+test('Home keeps the open meeting outcome and its focus when earlier meetings arrive', async t => {
+  const calendar = { items: [scheduledMeeting], follow_up_reviews: [meetingOutcome] };
+  const { page, meetings } = await meetingDashboard(t, calendar);
+  await meetings.locator('summary').filter({ hasText: scheduledMeeting.title }).press('Enter');
+  const choice = meetings.getByRole('combobox', { name: 'Deal', exact: true });
+  await choice.selectOption(meetingDeal.id);
+  await choice.focus();
+  const earlier = Array.from({ length: 3 }, (_, index) => ({
+    title: `Earlier sample meeting ${index + 1}`, start: '2026-11-03T12:00:00Z', end: '2026-11-03T13:00:00Z',
+  }));
+  calendar.items = [...earlier, scheduledMeeting];
+  await page.clock.fastForward(60_000);
+  await meetings.getByRole('heading', { name: "Today's meetings 4" }).waitFor();
+  assert.equal(await choice.inputValue(), meetingDeal.id);
+  assert.equal(await choice.evaluate(node => node === document.activeElement), true);
+});
+
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home meeting tile at ${width}px in ${theme}`, async t => {
   const { page, open } = await dashboard(t, width, theme);
   const deal = { id: id(99), name: 'Example Dental', owner: 'joe' };
-  const current = { title: 'Tour Cedar Suite', start: '2026-11-03T13:30:00Z', end: '2026-11-03T14:30:00Z',
+  const current = { key: 'aaaaaaaaaaaaaaaa', title: 'Tour Cedar Suite', start: '2026-11-03T13:30:00Z', end: '2026-11-03T14:30:00Z',
     context_label: deal.name, attendees: [{ name: 'Pat Example' }], open_url: `/deals?deal=${deal.id}` };
   const later = ['Review sample terms', 'Visit Elm Suite', 'Tour Pine Suite'].map((title, index) => ({
     title, start: `2026-11-03T${18 + index}:00:00Z`, end: `2026-11-03T${19 + index}:00:00Z`,
@@ -1306,7 +1424,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   meetingError = false;
   items = [laterDay];
   await page.clock.fastForward(60_000);
-  await meetings.waitFor({ state: 'detached' });
+  await page.getByText('Meetings unavailable.', { exact: true }).waitFor({ state: 'detached' });
+  await meetings.getByRole('heading', { name: "Today's meetings 1" }).waitFor();
+  await meetings.getByText(current.title, { exact: true }).waitFor();
+  assert.equal(await meetings.getByText(laterDay.title, { exact: true }).count(), 0);
   assert.equal(await reminders.getByRole('heading', { name: 'Reminders 4' }).count(), 1);
 });
 

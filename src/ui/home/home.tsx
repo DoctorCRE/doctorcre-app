@@ -23,7 +23,7 @@ import {
   type TaskReceipt,
   taskCommand,
 } from "./inbox";
-import { MeetingReview, MeetingTile, readMeetings } from "./meetings";
+import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
 import { type DraftEdits, ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays } from "./sections";
@@ -121,6 +121,7 @@ function Inbox({ client }: { client: InboxClient }) {
     // eslint-disable-next-line no-restricted-syntax -- The calendar reads once a minute while visible and online.
     refetchInterval: () => (navigator.onLine && document.visibilityState === "visible" ? 60_000 : false),
   });
+  const [meetingDay, setMeetingDay] = useState(() => day(new Date()));
   const [handledMeetings, setHandledMeetings] = useState<ReadonlySet<string>>(() => new Set());
   const finishMeeting = useCallback((key: string, message: string) => {
     setHandledMeetings((handled) => new Set([...handled, key]));
@@ -190,6 +191,7 @@ function Inbox({ client }: { client: InboxClient }) {
     mounted.current = true;
     let lastRefresh = -Infinity;
     const refresh = () => {
+      if (home && engineHome) setMeetingDay(day(new Date()));
       if (
         !navigator.onLine ||
         document.visibilityState !== "visible" ||
@@ -221,6 +223,18 @@ function Inbox({ client }: { client: InboxClient }) {
       removeEventListener("offline", update);
     };
   }, [cache, engineHome, home, meetings.refetch, query.refetch]);
+  useEffect(() => {
+    if (!home || !engineHome) return;
+    let timer: number;
+    function updateDay() {
+      setMeetingDay(day(new Date()));
+      // Central midnight falls on a UTC minute boundary, even across DST.
+      // eslint-disable-next-line no-restricted-syntax -- One local clock timer, cleared on leaving Home.
+      timer = window.setTimeout(updateDay, 60_000 - (Date.now() % 60_000));
+    }
+    updateDay();
+    return () => window.clearTimeout(timer);
+  }, [engineHome, home]);
   const snoozeOpener = useRef<HTMLElement | null>(null);
   const [snoozeCancelled, setSnoozeCancelled] = useState(0);
   function openSnooze(items: readonly InboxItem[]) {
@@ -1060,16 +1074,9 @@ function Inbox({ client }: { client: InboxClient }) {
             items={tiles.reminders}
             pinned={pinnedTile === "reminders" ? reviewing : null}
             current={reviewing?.item_id || item_id}
-            after={
-              meetings.data?.reviews
-                .filter(
-                  (review) =>
-                    !handledMeetings.has(review.key) && day(new Date(review.start)) < (meetings.data?.today ?? today),
-                )
-                .map((review) => (
-                  <MeetingReview key={review.key} data={meetings.data} review={review} finish={finishMeeting} />
-                )) ?? []
-            }
+            after={earlierMeetingReviews(meetings.data, meetingDay, handledMeetings).map((review) => (
+              <MeetingReview key={review.key} data={meetings.data} review={review} finish={finishMeeting} />
+            ))}
             row={row}
           />
           <CardTile
@@ -1083,6 +1090,7 @@ function Inbox({ client }: { client: InboxClient }) {
             <MeetingTile
               data={meetings.data}
               stale={meetings.isError}
+              today={meetingDay}
               handled={handledMeetings}
               finish={finishMeeting}
             />

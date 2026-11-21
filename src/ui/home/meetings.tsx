@@ -51,14 +51,7 @@ export async function readMeetings(signal: AbortSignal) {
   const calendar = answer.meetings;
   if (!["ready", "empty", "partial"].includes(String(calendar.state)) || !Array.isArray(calendar.items))
     throw Error("Meetings unavailable");
-  const today = answer.today;
-  const items = calendar.items
-    .map(event)
-    .filter(
-      (item) =>
-        day(new Date(item.start)) <= today &&
-        day(new Date(Math.max(Date.parse(item.start), Date.parse(item.end) - 1))) >= today,
-    );
+  const items = calendar.items.map(event);
 
   const { meetingReviews } = await sibling("./home-meeting-reviews.js");
   const actor = text(answer.viewer) ? answer.viewer : null;
@@ -78,7 +71,7 @@ export async function readMeetings(signal: AbortSignal) {
   }
   return {
     actor,
-    today,
+    readDay: answer.today,
     items,
     reviews,
     deals,
@@ -135,32 +128,113 @@ export function MeetingReview({
   return <div ref={host} />;
 }
 
-const eventKey = (item: Event) => JSON.stringify([Date.parse(item.start), Date.parse(item.end), item.title.trim()]);
+const lastMeetingDay = (item: Event) => day(new Date(Math.max(Date.parse(item.start), Date.parse(item.end) - 1)));
+
+const onMeetingDay = (item: Event, today: string) =>
+  day(new Date(item.start)) <= today && lastMeetingDay(item) >= today;
+
+export function earlierMeetingReviews(data: MeetingRead | undefined, today: string, handled: ReadonlySet<string>) {
+  return (data?.reviews ?? []).filter((review) => !handled.has(review.key) && lastMeetingDay(review) < today);
+}
+
+type Review = MeetingRead["reviews"][number];
+type MeetingRow = { id: string; item: Event; outcome: { key: string; pending: Review | null } | null };
+
+const sourceKey = (item: Event) => (text(item.key) ? item.key : undefined);
+const slot = (item: Event) => JSON.stringify([Date.parse(item.start), Date.parse(item.end), item.title.trim()]);
+function personKey(person: unknown) {
+  if (!object(person)) return null;
+  return text(person.email) ? person.email : text(person.name) ? person.name : null;
+}
+
+function scheduledRows(items: Event[]) {
+  const occurrences = new Map<string, number>();
+  const rows = new Map<string, MeetingRow>();
+  for (const item of items) {
+    const key = sourceKey(item);
+    if (key) {
+      rows.set(`event:${key}`, { id: `event:${key}`, item, outcome: null });
+      continue;
+    }
+    const attendees = Array.isArray(item.attendees) ? item.attendees.map(personKey).sort() : [];
+    const fingerprint = JSON.stringify([slot(item), personKey(item.organizer), attendees, item.location]);
+    const count = occurrences.get(fingerprint) ?? 0;
+    occurrences.set(fingerprint, count + 1);
+    const id = `schedule:${fingerprint}:${count}`;
+    rows.set(id, { id, item, outcome: null });
+  }
+  return rows;
+}
+
+function matchingRows(rows: Iterable<MeetingRow>, review: Review, uniqueSlot: boolean) {
+  const candidates = [...rows];
+  const exact = candidates.filter(({ item, outcome }) => sourceKey(item) === review.key || outcome?.key === review.key);
+  return exact.length || !uniqueSlot
+    ? exact
+    : candidates.filter(({ item, outcome }) => !sourceKey(item) && !outcome && slot(item) === slot(review));
+}
+
+function meetingRows(data: MeetingRead, today: string, previous: MeetingRow[]) {
+  const scheduled = scheduledRows(data.items.filter((item) => onMeetingDay(item, today)));
+  const reviews = data.reviews.filter((review) => onMeetingDay(review, today));
+  const rows = new Map(scheduled);
+  for (const review of reviews) {
+    const uniqueSlot = reviews.filter((other) => slot(other) === slot(review)).length === 1;
+    const linked = previous.find(({ outcome }) => outcome?.key === review.key);
+    const known = scheduled.get(`event:${review.key}`) ?? (linked && scheduled.get(linked.id));
+    const matching = known ? [known] : matchingRows(scheduled.values(), review, uniqueSlot);
+    const prior = matching.length ? [] : matchingRows(previous, review, uniqueSlot);
+    const [match] = matching.length === 1 ? matching : prior.length === 1 ? prior : [];
+    const id = match?.id ?? `event:${review.key}`;
+    rows.set(id, { id, item: match?.item ?? review, outcome: { key: review.key, pending: review } });
+  }
+
+  const linkedReviews = new Set([...rows.values()].map((row) => row.outcome?.key));
+  const retained: MeetingRow[] = [];
+  for (const old of previous) {
+    const row = rows.get(old.id);
+    rows.delete(old.id);
+    // Outlook's next snapshot can omit an ended meeting and its answered review.
+    const outcome =
+      old.outcome && !linkedReviews.has(old.outcome.key) && onMeetingDay(old.item, today)
+        ? { key: old.outcome.key, pending: null }
+        : null;
+    if (row) retained.push({ ...row, outcome: row.outcome ?? outcome });
+    else if (outcome) retained.push({ ...old, outcome });
+  }
+  return [...retained, ...rows.values()];
+}
 
 export function MeetingTile({
   data,
   stale,
+  today,
   handled,
   finish,
 }: {
   data: MeetingRead;
   stale: boolean;
+  today: string;
   handled: ReadonlySet<string>;
   finish: (key: string, message: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const events = new Map(data.items.map((item) => [eventKey(item), item]));
-  const reviews = new Map(
-    data.reviews
-      .filter((review) => !handled.has(review.key) && day(new Date(review.start)) === data.today)
-      .map((review) => [eventKey(review), review]),
-  );
-  for (const [key, review] of reviews) if (!events.has(key)) events.set(key, review);
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const [view, setView] = useState(() => ({ data, today, rows: meetingRows(data, today, []) }));
+  const changed = view.data !== data || view.today !== today;
+  const sameActor = view.data.actor === data.actor;
+  const events = changed ? meetingRows(data, today, sameActor ? view.rows : []) : view.rows;
+  if (changed) {
+    setView({ data, today, rows: events });
+    const stillOpen = sameActor ? events.filter(({ id }) => open.has(id)).map(({ id }) => id) : [];
+    if (stillOpen.length !== open.size) setOpen(new Set(stillOpen));
+  }
+
   const lastSync =
-    (stale || data.partial) && data.lastSync
+    (stale || data.partial || data.readDay !== today) && data.lastSync
       ? `Last synced ${localDate.format(new Date(data.lastSync))} Central`
       : null;
-  if (!events.size)
+  if (!events.length)
     return (
       lastSync && (
         <p className="home-tile-status" role="status">
@@ -169,16 +243,30 @@ export function MeetingTile({
       )
     );
 
+  const shown = expanded ? events : events.filter(({ id }, index) => index < 3 || open.has(id));
   return (
-    <HomeTile title="Today's meetings" count={events.size} expanded={expanded} setExpanded={setExpanded}>
+    <HomeTile title="Today's meetings" count={events.length} expanded={expanded} setExpanded={setExpanded}>
       {lastSync && <p className="home-tile-status">{lastSync}</p>}
-      {[...events].slice(0, expanded ? undefined : 3).map(([key, item]) => {
+      {shown.map(({ id, item, outcome }) => {
+        const review = outcome?.pending;
         const attendees = Array.isArray(item.attendees) ? item.attendees.filter(object) : [];
         const names = attendees.map((person) => (text(person.name) ? person.name : person.email)).filter(text);
-        const review = reviews.get(key);
         const deal = href(item.open_url);
         return (
-          <details className="home-meeting" key={key}>
+          <details
+            className="home-meeting"
+            key={id}
+            onToggle={({ currentTarget }) => {
+              const isOpen = currentTarget.open;
+              setOpen((previous) => {
+                if (previous.has(id) === isOpen) return previous;
+                const next = new Set(previous);
+                if (isOpen) next.add(id);
+                else next.delete(id);
+                return next;
+              });
+            }}
+          >
             <summary>
               <time dateTime={item.start}>{item.all_day ? "All day" : central.format(new Date(item.start))}</time>
               <strong>{item.title}</strong>
@@ -197,7 +285,9 @@ export function MeetingTile({
                   </a>
                 ) : null;
               })}
-            {review && <MeetingReview embedded data={data} review={review} finish={finish} />}
+            {review && !handled.has(review.key) && (
+              <MeetingReview embedded data={data} review={review} finish={finish} />
+            )}
           </details>
         );
       })}
