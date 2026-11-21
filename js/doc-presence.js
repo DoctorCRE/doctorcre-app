@@ -9,6 +9,7 @@ import { contextualSuggestions, docAnswer, DOC_PAGES } from './doc-context-model
 import { DOC_EVALUATED_PAGES } from './doc-accuracy.js';
 import { mountAutoRefresh, readWithDeadline, updatedLabel } from './auto-refresh.mjs';
 import { entryDetailsHtml } from './entry-details.mjs';
+import { TOUCH_LAYOUT } from './touch-layout.js';
 import { uuidv4 } from './uuid.js';
 import { mountMorningBrief } from './morning-brief.js';
 import { mountFeatureGate, SUGGESTION_ACTIONS_OFF } from './feature-switches.js';
@@ -25,7 +26,10 @@ export function mountDocPresence({ document: root = document, window: win = wind
   }
   const strip = root.createElement('section'); strip.id = 'docPresence'; strip.className = 'doc-presence'; strip.setAttribute('aria-label', 'Doc');
   strip.innerHTML = '<button id="docOpen" class="doc-identity" type="button" aria-label="Open Doc" title="Doc · ⌘D / Ctrl+D" aria-keyshortcuts="Meta+D Control+D" aria-haspopup="dialog" aria-controls="docDetail"><span class="doc-orb" aria-hidden="true">◍</span></button>';
-  root.body.append(strip);
+  const topbar = root.getElementById('appTopbar') || root.body;
+  const workspace = root.getElementById('accountWorkspaceControls');
+  const phone = win.matchMedia(TOUCH_LAYOUT);
+  topbar.append(strip);
   const dialog = root.createElement('dialog'); dialog.id = 'docDetail'; dialog.className = 'doc-detail'; dialog.setAttribute('aria-labelledby','docTitle');
   dialog.innerHTML = `<header><div><span class="doc-orb" aria-hidden="true">◍</span><h2 id="docTitle">Doc</h2></div><button id="docClose" type="button" aria-label="Close Doc">×</button></header><div class="doc-detail-grid"><section><label for="docRecord">Record<select id="docRecord"></select></label><div id="docFacts"></div><div id="docActivity"></div></section><section><h3>Suggestions</h3><div id="docActionList"></div><p id="docApprovalStatus" role="status"></p>${showMorningBrief ? '<button id="docMorning" type="button">Morning brief</button>' : ''}<a href="/doc-activity" class="doc-chats-link" data-doc-activity-link>Doc Activity ↗</a></section></div>`;
   const suggestionsHost = root.createElement('div'); suggestionsHost.className = 'doc-context-tools';
@@ -47,11 +51,11 @@ export function mountDocPresence({ document: root = document, window: win = wind
   // controls placement only; record identity still comes from the page read.
   function placePresence() {
     const hosts = [...root.querySelectorAll('dialog[open]:not(#docDetail):not(#docMorningBrief):not([data-quick-switcher]), aside#recordPanel:not([hidden]), main.deal-workspace:not([hidden])')];
-    const workspace = root.getElementById('accountWorkspaceControls');
     const popup = hosts.at(-1);
-    const host = popup?.querySelector('[data-doc-presence-slot]') || popup || (workspace && !workspace.hidden ? workspace : root.body);
+    const host = popup?.querySelector('[data-doc-presence-slot]') || popup || (phone.matches && workspace ? workspace : topbar);
     if (strip.parentElement !== host) {
       if (host === workspace) host.querySelector('h3').after(strip);
+      else if (host === topbar) host.append(strip);
       else host.prepend(strip);
     }
   }
@@ -157,10 +161,11 @@ export function mountDocPresence({ document: root = document, window: win = wind
   const placement = new win.MutationObserver(placePresence);
   placement.observe(root.body, { subtree:true, childList:true, attributes:true, attributeFilter:['open','hidden'] });
   placePresence();
+  phone.addEventListener('change', placePresence);
   const tick = mountLocalTicker({ document: root, window: win, tick: () => context.tick(), intervalMs: 1000 });
   root.addEventListener('doctorcre:open-doc', open);
   const brief = showMorningBrief ? mountMorningBrief({ document:root, window:win, getClient:ensureClient, intervalMs }) : null;
-  const dispose = () => { disposed = true; ++readEpoch; approval?.dispose(); actionGate?.dispose(); auto.dispose(); brief?.dispose(); command.dispose(); stopClosed(); placement.disconnect(); unsubscribe(); tick.dispose(); root.removeEventListener('doctorcre:open-doc',open); };
+  const dispose = () => { disposed = true; ++readEpoch; approval?.dispose(); actionGate?.dispose(); auto.dispose(); brief?.dispose(); command.dispose(); stopClosed(); placement.disconnect(); phone.removeEventListener('change', placePresence); unsubscribe(); tick.dispose(); root.removeEventListener('doctorcre:open-doc',open); };
   win.addEventListener('pagehide', event => { if (!event.persisted) dispose(); });
   return { open, refresh:auto.refresh, dispose };
 }

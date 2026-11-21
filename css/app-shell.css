@@ -1,5 +1,4 @@
-/* Shared rail, navigation, menus and the five-region workspace. Every value
-   comes from css/tokens.css. Page navigation lives in app-layout slots. */
+/* Shared rail, navigation, menus and workspace. Page navigation lives in app-layout slots. */
 @import url("/css/tokens.css");
 
 .has-app-layout dialog.quick-switcher { width: min(580px, calc(100vw - 24px)); max-height: min(680px, calc(100dvh - 48px)); padding: 0; color: var(--fg); background: var(--surface-1); border: 1px solid var(--hairline-strong); border-radius: var(--radius-3); box-shadow: var(--shadow-overlay); }
@@ -64,9 +63,16 @@
 .app-shell-account { position: relative; }
 
 .app-shell-account-menu { position: absolute; right: 0; top: calc(100% + 12px); width: 260px; display: grid; gap: 2px; padding: var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-3); background: var(--surface-2); box-shadow: var(--shadow-overlay); }
-.app-shell-account-group { display: contents; }
-.app-shell-account-group h3 { display: none; }
 .app-shell-workspace-group[hidden] { display: none; }
+.app-shell-account-group, .app-shell-workspace-group { display: grid; gap: 2px; }
+.app-shell-account-group h3, .app-shell-workspace-group h3 { display: block; margin: 0; padding: var(--space-2) var(--space-3); color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1) var(--font-text); }
+.app-shell-workspace-group, #accountSignOut { border-top: var(--hairline-width) solid var(--hairline-strong); padding-top: var(--space-2); margin-top: var(--space-2); }
+.app-shell-account-menu :is(.app-shell-control, #appSyncRefresh) { gap: var(--space-3); width: 100%; height: auto; }
+.app-shell-account-menu :is(.doc-identity, .app-shell-control, #appSyncRefresh) { display: grid; grid-template-columns: var(--space-5) minmax(0, 1fr); align-items: center; justify-items: start; }
+.app-shell-account-menu .doc-orb { width: var(--space-5); height: var(--space-4); }
+.app-shell-account-menu .app-shell-control[hidden] { display: none; }
+.app-shell-account-menu :is(.app-shell-control, #appSyncRefresh)::after { content: attr(aria-label); }
+
 .app-shell-account-menu[hidden] { display: none; }
 .app-shell-account-menu strong { padding: var(--space-2); color: var(--fg); font: var(--font-weight-strong) var(--font-size-2) var(--font-text); }
 .app-shell-account-menu button, .app-shell-account-menu a { padding: var(--space-3); border: 0; border-radius: var(--radius-2); text-align: left; background: transparent; color: var(--fg); cursor: pointer; font: var(--font-weight-regular) var(--font-size-1) var(--font-text); text-decoration: none; transition: background-color var(--duration-hover) var(--ease-out); }
@@ -101,9 +107,8 @@ body .shell, body .workspace-shell, body .system-shell { max-width: none; width:
 .as-of::after, .observed::after, .source:not(:empty)::after, .event-source:not(:empty)::after { content: " ↻"; font-size: var(--font-size-1); color: var(--fg-quiet); }
 .as-of, .observed, .source, .event-source { font-size: var(--font-size-1); }
 
-/* W1b: shared five-region workspace. The rail and status stay put; only the
-   workspace regions scroll. Page controls fill slots without changing owners. */
-:root { --layout-rail: 64px; --layout-bottom: 64px; }
+/* Page controls fill slots without changing owners. */
+:root { --layout-rail: 64px; --layout-bottom: 0px; }
 html { scroll-padding-bottom: 150px; }
 body.has-app-layout { padding: 0 0 var(--layout-bottom) var(--layout-rail) !important; overflow-x: clip; background: var(--ground); color: var(--fg); font-family: var(--font-text); }
 #appShell { position: fixed !important; inset: 8px auto calc(var(--layout-bottom) + 8px) 6px; width: calc(var(--layout-rail) - 12px); min-height: 0; background: transparent; z-index: 1100; }
@@ -150,6 +155,9 @@ body.has-app-layout { padding: 0 0 var(--layout-bottom) var(--layout-rail) !impo
 @media (hover: hover) { .app-layout-sidebar-head button:hover, .app-layout-tabbar > button:hover { background: var(--surface-2); color: var(--fg); } }
 .app-layout-sidebar-head button:active, .app-layout-tabbar > button:active { transform: scale(var(--press-scale)); }
 .app-layout-center { min-width: 0; max-width: 100%; position: relative; }
+.app-layout-topbar { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); padding-inline: var(--space-4); }
+.app-layout-topbar:empty { display: none; }
+.app-layout-topbar :focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .app-layout-tabbar { position: sticky; top: 0; z-index: 80; display: flex; align-items: center; gap: var(--space-2); min-height: var(--tabbar-height); padding: 0 var(--space-4); background: var(--ground); border-bottom: var(--hairline-width) solid var(--hairline); }
 #appSidebarToggle[hidden] { display: none; }
 .app-layout-tabs { display: flex; align-items: center; margin-inline-end: auto; gap: var(--space-3); min-width: 0; overflow: auto; scrollbar-width: none; }
@@ -195,16 +203,9 @@ html[data-deals-from-engine] :is(.app-layout-today > section:has(> #appTodayMove
 .app-layout-item .app-layout-age { white-space: nowrap; }
 @media (hover: hover) { .app-layout-item:hover { background: var(--surface-2); border-color: var(--hairline-strong); } }
 .app-layout-empty { display: block; padding: var(--space-3) 0; color: var(--fg-muted); font: var(--font-size-1) var(--font-text); }
-.app-layout-status { position: fixed; left: 0; right: 0; bottom: 0; height: var(--layout-bottom); display: flex; align-items: center; flex-wrap: wrap; align-content: center; gap: 2px var(--space-4); padding: 2px var(--space-5) 2px calc(var(--layout-rail) + var(--space-5)); background: var(--surface-1); border-top: var(--hairline-width) solid var(--hairline); color: var(--fg-muted); z-index: 1120; font: var(--font-size-1) var(--font-text); box-sizing: border-box; }
-.app-layout-status > span { display: flex; align-items: center; gap: var(--space-2); }
-.app-layout-status button { border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-2); cursor: pointer; min-width: var(--touch); min-height: var(--touch); height: var(--touch); border-radius: var(--radius-1); }
-@media (hover: hover) { .app-layout-status button:hover { background: var(--surface-2); color: var(--fg); } }
-/* Health is a still dot plus the words beside it; healthy is filled, unknown hollow. */
-.app-layout-status .app-layout-health { width: 8px; height: 8px; border: var(--hairline-width) solid var(--fg-quiet); border-radius: 50%; margin-left: auto; background: transparent; }
-.app-layout-health[data-state=healthy] { background: var(--status-ok); border-color: var(--status-ok); }
+#appSyncTime, #appConnection, [data-layout-slot="status"] { color: var(--fg-muted); font-size: var(--font-size-1); }
+#appSyncTime { margin-inline-start: auto; }
 .app-layout-scrim { display: none; }
-.app-layout-status time { font-variant-numeric: tabular-nums; }
-.app-layout-status[data-page-freshness] > span:has(#appSyncTime) { display: none; }
 
 .has-app-layout .stage-columns { display: grid; grid-auto-flow: row; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); grid-auto-columns: auto; overflow: visible; }
 .has-app-layout[data-prototype] .kanban { grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); overflow: visible; min-width: 0; grid-auto-flow: row; grid-auto-columns: auto; }
@@ -299,13 +300,15 @@ body.has-app-layout .toast { right: var(--toast-right); bottom: calc(var(--layou
 }
 body.has-app-layout:has(.toast) .receipt-dock { display: none; }
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
-  :root { --layout-rail: 0px; --layout-bottom: 112px; }
+  :root { --layout-rail: 0px; --layout-bottom: calc(56px + env(safe-area-inset-bottom)); }
   body.has-app-layout .toast { left: var(--space-3); right: var(--space-3); }
   body.has-app-layout:has(.app-layout[data-drawer=today]) :is(.toast, .receipt-dock) { display: none; }
   body.has-app-layout { padding: 0 0 var(--layout-bottom) !important; }
   .app-layout { display: block; min-height: calc(100dvh - var(--layout-bottom)); }
   .app-layout-center { width: 100%; }
   .app-layout-main { padding: var(--space-3) var(--space-3) 100px; }
+  .app-layout-topbar { padding-inline: var(--space-2); }
+  .app-layout-center:not(:has(#appTabsSlot > [data-layout-slot="tabs"])) > .app-layout-topbar { position: absolute; z-index: 81; inset-block-start: 0; inset-inline-end: var(--touch); min-height: calc(var(--touch) + 2 * var(--space-2)); }
   .app-layout-tabbar { min-height: 52px; padding: var(--space-2) var(--space-2); gap: var(--space-1); }
   /* One row of tabs that scrolls sideways; wrapped rows cost the phone its first screen. */
   .app-layout-tabs { gap: var(--space-1); overflow-x: auto; flex-wrap: nowrap; }
@@ -324,24 +327,10 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
   .app-shell-navigation > a .app-shell-nav-label, .app-shell-more-toggle .app-shell-nav-label { font-size: 11px; }
   .app-shell-navigation > a[aria-current=page]::before, .app-shell-more-current::before { left: 10px; right: 10px; top: auto; bottom: -3px; width: auto; height: 2px; }
   .app-shell-controls { flex-direction: row; grid-column: 2; grid-row: 1; gap: var(--space-1) !important; }
-  .app-shell-account-group, .app-shell-workspace-group { display: grid; gap: 2px; }
-  .app-shell-account-group h3, .app-shell-workspace-group h3 { display: block; margin: 0; padding: var(--space-2) var(--space-3); color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1) var(--font-text); }
-  .app-shell-workspace-group, #accountSignOut { border-top: var(--hairline-width) solid var(--hairline-strong); padding-top: var(--space-2); margin-top: var(--space-2); }
-  .app-shell-workspace-group #appConnection { width: auto; height: auto; margin: var(--space-2) var(--space-3); color: var(--fg-muted); background: transparent; border: 0; font-size: var(--font-size-1); }
-  .app-shell-workspace-group #appConnection::after { content: attr(aria-label); }
-  .app-shell-account-menu :is(.app-shell-control, #appSyncRefresh) { display: flex; gap: var(--space-3); width: 100%; height: auto; }
-  .app-shell-account-menu :is(.doc-identity, .app-shell-control, #appSyncRefresh) { display: grid; grid-template-columns: var(--space-5) minmax(0, 1fr); align-items: center; justify-items: start; }
-  .app-shell-account-menu .doc-orb { width: var(--space-5); height: var(--space-4); }
-  .app-shell-account-menu .app-shell-control[hidden] { display: none; }
-  .app-shell-account-menu :is(.app-shell-control, #appSyncRefresh)::after { content: attr(aria-label); }
   .app-shell-account-menu #callModeButton.recording::after { content: "Recording"; }
   body:has(#callModeButton.recording) #selfAvatar::after { content: ""; position: absolute; top: 0; right: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--status-danger); border: 2px solid var(--surface-1); }
   .app-shell-more-list { left: var(--space-2) !important; top: auto !important; bottom: calc(var(--layout-bottom) + 8px); width: calc(100vw - 16px); max-height: calc(100dvh - var(--layout-bottom) - var(--space-5)); grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   .app-shell-account-menu { left: var(--space-2) !important; bottom: calc(var(--layout-bottom) + 8px); width: calc(100vw - 16px) !important; max-width: none; max-height: calc(100dvh - var(--layout-bottom) - 16px); overflow-y: auto; }
-  .app-layout-status:not(:has(#appStatusSlot > *)), #appStatusSlot #retryRead { display: none; }
-  .app-layout-status > span:not(.app-layout-health) { display: none; }
-  #appStatusSlot { flex: 1 1 auto; }
-  .app-layout-status { bottom: calc(56px + env(safe-area-inset-bottom)); height: 56px; padding: var(--space-1) var(--space-3); gap: var(--space-1) var(--space-3); align-content: center; z-index: 1090; }
   .app-shell-doc, .doc-fab { right: var(--space-4) !important; bottom: calc(var(--layout-bottom) + 16px) !important; }
   .doc-chat { bottom: calc(var(--layout-bottom) + 76px) !important; }
   .app-layout-sidebar, .app-layout-today { position: fixed; top: 0; bottom: var(--layout-bottom); height: auto; width: min(330px, calc(100vw - 28px)); z-index: 1150; visibility: hidden; pointer-events: none; transition: transform var(--duration-panel) var(--ease-out); background: var(--surface-1); box-shadow: var(--shadow-overlay); }
@@ -388,19 +377,9 @@ body.report-shell { padding-left: var(--layout-rail); padding-bottom: 34px; }
 .has-app-layout .room-composer { bottom: var(--layout-bottom); left: var(--layout-rail); width: calc(100% - var(--layout-rail)); box-sizing: border-box; z-index: 1130; }
 @media (max-width: 767px) { .has-app-layout aside#recordPanel { inset: 2dvh 10px; max-height: 96dvh; } }
 
-/* Page owners retain their environment, capture and freshness feedback. */
-#appStatusSlot { display: flex; align-items: center; gap: var(--space-3); flex: 1 1 100%; min-width: 0; }
-#appStatusSlot > [data-layout-slot="status"] { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); min-width: 0; }
-#appStatusSlot .top-actions { margin: 0; flex-wrap: wrap; }
-#appStatusSlot .sync { display: inline-flex; align-items: center; }
-#appStatusSlot .deployment-badge, #appStatusSlot .sync, #appStatusSlot .capture { padding: 2px var(--space-1); }
-#appStatusSlot footer { margin: 0; padding: 0; border: 0; font-size: var(--font-size-1); }
-#appStatusSlot .home-updated { width: auto; justify-content: flex-start; }
-#appStatusSlot button { min-width: 44px; min-height: 44px; }
-@media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
-  #appStatusSlot { flex: none; gap: var(--space-2); }
-  #appStatusSlot > [data-layout-slot="status"], #appStatusSlot .top-actions { flex-wrap: nowrap; gap: var(--space-2); }
-}
+[data-layout-slot="status"]:has(> :not([hidden])) { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+[data-layout-slot="status"] button { min-width: var(--touch); min-height: var(--touch); }
+#deploymentBadge[data-mode="live"] { display: none; }
 
 /* One scrolling rail owns navigation and controls at short viewport heights. */
 @media (min-width: 761px) and (not ((hover: none) and (pointer: coarse) and (max-width: 1023px))) {
@@ -419,15 +398,6 @@ body.report-shell { padding-left: var(--layout-rail); padding-bottom: 34px; }
 .app-shell-call-availability[hidden], .app-shell-call-availability:has(#callModeAvailability[hidden]), #callModeRetry[hidden] { display: none; }
 #callModeAvailability { padding: var(--space-2) var(--space-3) 0; }
 #callModeRetry { min-height: var(--touch); }
-@media (min-width: 1101px) {
-  #appStatusSlot { flex: 1 1 auto; }
-  .app-layout-status .app-layout-health { order: 1; margin-left: 0; }
-}
-@media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
-  body.has-app-layout { --layout-bottom: calc(56px + env(safe-area-inset-bottom)); }
-  body.has-app-layout:has(#appStatusSlot > *) { --layout-bottom: calc(112px + env(safe-area-inset-bottom)); }
-}
-
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
   .has-app-layout :is(button, a, input, select, textarea, summary, [role="button"]) { min-width: 44px; min-height: 44px; box-sizing: border-box; touch-action: manipulation; }
   .app-shell-account-menu a { min-height: 44px; box-sizing: border-box; }

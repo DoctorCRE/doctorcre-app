@@ -22,13 +22,14 @@ test('Inbox uses one phone shell row and grouped controls in both themes', async
   for (const theme of ['dark', 'light']) {
     await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
     await testInfo.attach(`inbox-390-${theme}`, { body: await page.screenshot(), contentType: 'image/png' });
-    const contentBottom = await page.locator('.app-layout-status, #appShell').evaluateAll(bars => Math.min(...bars.filter(bar => bar.getClientRects().length).map(bar => bar.getBoundingClientRect().top)));
+    const contentBottom = await page.locator('#appShell').evaluate(bar => bar.getBoundingClientRect().top);
     expect(contentBottom, `${theme} Inbox space above the persistent shell`).toBeGreaterThanOrEqual(780);
-    const pageControls = page.getByRole('navigation', { name: 'Page controls' });
-    await expect(pageControls.getByRole('button', { name: /Search and quick switcher/ })).toBeVisible();
-    await expect(pageControls.getByRole('button', { name: 'Dark mode' })).toBeVisible();
-    await expect(pageControls.getByRole('button', { name: 'Color assist' })).toBeVisible();
+    const appControls = page.getByRole('region', { name: 'App controls' });
+    await expect(appControls.getByRole('button', { name: /Search and quick switcher/ })).toBeVisible();
     await page.locator('#selfAvatar').click();
+    const accountMenu = page.locator('#accountMenu');
+    await expect(accountMenu.getByRole('button', { name: 'Dark mode' })).toBeVisible();
+    await expect(accountMenu.getByRole('button', { name: 'Color assist' })).toBeVisible();
     const session = await page.context().newCDPSession(page);
     const { documents, strings } = await session.send('DOMSnapshot.captureSnapshot', { computedStyles: [] });
     const labels = ['Open Doc', 'Refresh workspace'];

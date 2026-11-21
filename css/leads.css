@@ -26,6 +26,7 @@
 
 .leads-workspace { display: flex; flex-direction: column; width: 100%; padding: var(--space-5) var(--space-6) var(--space-7); }
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
+.page-heading .freshness { flex-wrap: nowrap; white-space: nowrap; }
 .page-heading h1 span { margin-left: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-regular); font-variant-numeric: tabular-nums; }
 .freshness { display: flex; align-items: center; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 .freshness button { min-width: var(--touch); padding: 0; border-color: var(--hairline); background: transparent; color: var(--fg-muted); font-size: var(--font-size-2); }

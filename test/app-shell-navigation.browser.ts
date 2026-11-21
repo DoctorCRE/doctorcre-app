@@ -60,13 +60,14 @@ test("Shared shell navigation and controls work on real fixture pages at desktop
             assert.equal(await shell.evaluate((node) => getComputedStyle(node).borderRightWidth), "0px");
           } else assert.ok(box.y >= 840 && box.width === width, "phone navigation is one bottom row");
 
-          const pageControls = page.getByRole("navigation", { name: "Page controls" });
-          const darkMode = pageControls.getByRole("button", { name: "Dark mode", exact: true });
-          const colorAssist = pageControls.getByRole("button", { name: "Color assist", exact: true });
-          const search = pageControls.getByRole("button", { name: /Search.*Quick switcher/i });
-          assert.ok((await darkMode.isVisible()) && (await colorAssist.isVisible()) && (await search.isVisible()));
+          const appControls = page.getByRole("region", { name: "App controls" });
+          const display = width === 390 ? page.locator("#accountMenu") : appControls;
+          const darkMode = display.getByRole("button", { name: "Dark mode", exact: true });
+          const colorAssist = display.getByRole("button", { name: "Color assist", exact: true });
+          assert.ok(await appControls.getByRole("button", { name: /Search.*Quick switcher/i }).isVisible());
           assert.equal(await page.locator(".app-shell-search").count(), 1);
-          assert.equal(await page.locator(".app-layout-status #callModeRetry").count(), 0);
+          assert.equal(await darkMode.isVisible(), width === 1440);
+          assert.equal(await colorAssist.isVisible(), width === 1440);
           assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
           await page.screenshot({ path: `${captures}/${screen.name.toLowerCase()}-${width}-${theme}.png` });
 
@@ -88,6 +89,7 @@ test("Shared shell navigation and controls work on real fixture pages at desktop
           assert.equal(await more.isHidden(), true);
 
           await page.locator("#selfAvatar").click();
+          assert.ok((await darkMode.isVisible()) && (await colorAssist.isVisible()));
           assert.ok(await page.getByRole("button", { name: "Check call recorder status" }).isVisible());
           await page.keyboard.press("Escape");
         }

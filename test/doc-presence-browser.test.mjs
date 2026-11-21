@@ -77,7 +77,7 @@ test('shared Doc presence appears on every authenticated route; narrow drawers n
  const{page,goto,errors,calls}=await setup(t);
  for(const width of [1440,390]) { await page.setViewportSize({width,height:960});
  for(const path of ['/', '/deals', '/leads', '/tours', '/clients','/vendors','/calendar','/ideas-events','/control-room','/control-room/progress','/work-requests','/all-work','/incidents','/control-room/progress/work','/updates','/doc-chats','/doc-chats/work','/search','/status','/design-lab']){
-  try { await goto(path); } catch(error) { throw new Error(path+' '+JSON.stringify(errors)+' '+error.message); } assert.equal(await page.locator(width <= 760 ? '#accountWorkspaceControls > #docPresence' : 'body > #docPresence').count(),1,path);
+  try { await goto(path); } catch(error) { throw new Error(path+' '+JSON.stringify(errors)+' '+error.message); } assert.equal(await page.locator(width <= 760 ? '#accountWorkspaceControls > #docPresence' : '#appTopbar > #docPresence').count(),1,path);
   if (width <= 760) await page.locator('#selfAvatar').click();
   assert.equal(await page.locator('#docOpen').isVisible(),true,path);
   assert.equal(await page.locator('#docChat:visible').count(),0,path);
@@ -123,7 +123,7 @@ test('page facts and exact selection, existing suggestions, one-tap approval, in
  assert.equal(await page.locator('#docRecord').inputValue(),'deal:d14');
  await page.keyboard.press('Escape');
  await page.locator('#panelClose').click();
- await page.locator('body > #docPresence').waitFor();
+ await page.locator('#appTopbar > #docPresence').waitFor();
  await page.locator('#docOpen').click();
  await page.waitForFunction(()=>document.querySelector('#docSuggestions')?.textContent.includes('Confirm the survey'));
  await page.locator('#docRecord').selectOption('deal:d14');

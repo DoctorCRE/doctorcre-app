@@ -3310,7 +3310,7 @@ for (const width of [1440, 390]) {
     await open.waitFor();
     assert.deepEqual(await view.getByRole('button').allTextContents(), ['Client website (opens in a new tab)']);
     await page.route('http://127.0.0.1:4682/api/state', route => route.fulfill({ json: { state: 'idle' } }));
-    if (width === 390) await page.getByRole('button', { name: 'Account and settings' }).click();
+    await page.getByRole('button', { name: /account and settings/i }).click();
     await page.getByRole('button', { name: 'Check call recorder status' }).click();
     await page.getByRole('button', { name: 'Call mode', exact: true }).click();
     const recorder = page.getByRole('dialog', { name: /Call mode/i });

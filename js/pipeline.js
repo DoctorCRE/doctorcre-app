@@ -476,7 +476,8 @@ function renderStatus(status) {
     : status.state === SYNC_STATES.RECONNECTING ? 'attention' : 'refreshing';
   $('boardOrb')?.setAttribute('data-state', orbState);
   const badge = $('boardStatus');
-  if (badge) badge.setAttribute('data-state', orbState);
+  badge.dataset.state = orbState;
+  badge.hidden = !['urgent', 'attention'].includes(orbState);
   const text = $('boardStatusLabel');
   if (text && text.textContent !== label) text.textContent = label;
   const asOf = $('boardAsOf');

@@ -81,24 +81,18 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
       else home.addEventListener('doctorcre:home-ready', resolve, { once: true });
     }) : Promise.resolve();
     mountAppLayout(root, host, pathname, { ready });
-    const status = root.querySelector(".app-layout-status");
+    const topbar = root.getElementById("appTopbar");
     const workspace = root.getElementById("accountWorkspaceControls");
-    const connection = root.getElementById("appConnection");
+    workspace.hidden = false;
     const controls = host.querySelector(".app-shell-controls");
     const callButton = root.getElementById("callModeButton");
-    const tabbar = root.querySelector(".app-layout-tabbar");
-    tabbar.append(host.querySelector(".app-shell-search"), host.querySelector('[data-pref="theme"]'), host.querySelector("#colorAssistButton"));
-    const refresh = status.querySelector("#appSyncRefresh");
-    const freshness = refresh.parentElement;
+    const displayControls = [host.querySelector('[data-pref="theme"]'), host.querySelector("#colorAssistButton")];
+    topbar.append(host.querySelector(".app-shell-search"));
     const phone = root.defaultView.matchMedia(TOUCH_LAYOUT);
     const arrangeControls = () => {
-      workspace.hidden = !phone.matches;
-      if (phone.matches) workspace.append(callButton, refresh, connection);
-      else {
-        controls.prepend(callButton);
-        freshness.append(refresh);
-        status.insertBefore(connection, root.getElementById("appStatusSlot"));
-      }
+      (phone.matches ? workspace : topbar).append(...displayControls);
+      if (phone.matches) workspace.append(callButton);
+      else controls.prepend(callButton);
     };
     phone.addEventListener("change", arrangeControls);
     arrangeControls();
