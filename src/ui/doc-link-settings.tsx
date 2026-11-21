@@ -47,6 +47,7 @@ function DocLinkSettings({ request }: { request: Transport }) {
       codeView.current++;
       flushSync(() => setCode(""));
     }
+    addEventListener("hashchange", clearCode, { signal: lifetime.signal });
     addEventListener("pagehide", clearCode, { signal: lifetime.signal });
     addEventListener("doctorcre-session-invalidated", clearCode, { signal: lifetime.signal });
     return () => lifetime.abort();

@@ -25,7 +25,12 @@ after(async () => (await browser)?.close());
 
 async function app(
   t: TestContext,
-  { width = 1440, theme = "dark" }: { width?: number; theme?: "dark" | "light" } = {},
+  {
+    width = 1440,
+    theme = "dark",
+    signIn = "engine",
+    holdDocIssue,
+  }: { width?: number; theme?: "dark" | "light"; signIn?: "engine" | "carr"; holdDocIssue?: Promise<void> } = {},
 ) {
   let unavailable = false;
   let carrChecks = 0;
@@ -35,12 +40,17 @@ async function app(
   let issueCount = 0;
   let loseIssueResponse = false;
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
-    PARTNER_SIGN_IN: "engine",
+    PARTNER_SIGN_IN: signIn,
     WORKSPACE_COMMAND_CENTER_READ_ENABLED: "true",
     CARR: {
       fetch: async (input) => {
-        if (new URL(input.url).pathname.startsWith("/auth/") || input.headers.get("sec-fetch-mode") === "navigate")
-          carrChecks++;
+        const path = new URL(input.url).pathname;
+        const navigation = input.headers.get("sec-fetch-mode") === "navigate";
+        if (path.startsWith("/auth/") || navigation) carrChecks++;
+        if (signIn === "carr") {
+          if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
+          return new Response(null, { status: navigation ? 200 : 404 });
+        }
         throw Error("CARR unavailable");
       },
     },
@@ -89,6 +99,7 @@ async function app(
               loseIssueResponse = false;
               return new Response(null, { status: 503 });
             }
+            await holdDocIssue;
             return Response.json({ credential }, { status: 201 });
           }
           const status = links.get(token) ?? "not_set_up";
@@ -188,6 +199,62 @@ test("Doc settings show each Mac status and keep link codes private", async (t) 
 
   await settings.getByRole("button", { name: "Revoke link code" }).click();
   await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
+});
+
+for (const issuance of ["completed", "pending"] as const)
+  test(`Doc link clears the ${issuance} code when switching settings through the account menu`, async (t) => {
+    const issue = Promise.withResolvers<void>();
+    t.after(() => issue.resolve());
+    const { server, context } = await app(t, { width: 390, holdDocIssue: issue.promise });
+    const page = await context.newPage();
+    await page.goto(server.origin + "/updates?mode=live#docLinkSettings");
+    const settings = page.getByRole("region", { name: "Doc link" });
+    const making = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith(docLink));
+    await settings.getByRole("button", { name: "Make link code" }).click();
+    await making;
+    const code = settings.getByText("1".padStart(43, "a"), { exact: true });
+    if (issuance === "completed") {
+      issue.resolve();
+      await code.waitFor();
+    }
+
+    // The live fixture boots with a query that the production menu hrefs omit.
+    await page.evaluate(() => history.replaceState(null, "", "/updates#docLinkSettings"));
+    const avatar = page.locator('#selfAvatar[aria-label*="account and settings"]');
+    await avatar.click();
+    await page.getByRole("link", { name: "Notification preferences" }).click();
+    await page.waitForURL("**/updates#prefForm");
+    await page.keyboard.press("Escape");
+    await avatar.click();
+    await page.getByRole("link", { name: "Doc link", exact: true }).click();
+    await page.waitForURL("**/updates#docLinkSettings");
+    issue.resolve();
+    const replace = settings.getByRole("button", { name: "Replace link code" });
+    await code.or(replace).waitFor();
+    assert.equal(await code.count(), 0, "the issued code must be gone upon returning");
+  });
+
+test("Doc link settings are available only with engine sign-in", async (t) => {
+  for (const signIn of ["engine", "carr"] as const) {
+    const { server, context } = await app(t, { signIn });
+    const page = await context.newPage();
+    await page.goto(server.origin + "/updates?mode=live#docLinkSettings");
+    await page.locator('#selfAvatar[aria-label*="account and settings"]').click();
+    await page.getByRole("link", { name: "Notification preferences" }).waitFor();
+    const entry = page.getByRole("link", { name: "Doc link", exact: true });
+    const settings = page.getByRole("region", { name: "Doc link" });
+    if (signIn === "engine") {
+      await entry.waitFor();
+      await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
+    } else {
+      assert.equal(await entry.count(), 0, "CARR sign-in must hide the Doc link entry");
+      assert.equal(await settings.count(), 0);
+      assert.equal(
+        server.requests.some(({ path }) => path === docLink),
+        false,
+      );
+    }
+  }
 });
 
 for (const width of [390, 1440])
