@@ -15,11 +15,13 @@ for (const width of [320, 390, 1280, 1440]) for (const theme of ['light', 'dark'
     await page.clock.setFixedTime(new Date('2026-10-29T15:00:00Z'));
     await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
     await page.route('**/api/**', route => route.fulfill({ json: {} }));
+    const completed = 'Sent the signed sample lease and the revised floor plan to the lender, confirmed the delivery date with the site manager, and filed the full set of documents for the next review.';
     await page.route('**/data/board-seed.json', async route => {
       const seed = await (await route.fetch()).json();
       const deal = seed.deals.find(deal => deal.id === (national ? 'd01' : 'd14'));
       Object.assign(deal, { next_step: '', next_date: null, email_actions: [
         { id: 'summary-action', status: 'open', owner: 'dell', description: 'Review the sample lease terms and confirm the remaining details with the lender before arranging the property tour', due_on: '2026-10-30' },
+        { id: 'summary-done', status: 'done', description: completed, completed_at: '2026-10-28T12:00:00Z' },
       ] });
       seed.history = { ...seed.history, [deal.id]: [{ id: 'summary-last', summary: 'Sent the sample proposal for review', recorded_at: '2026-10-22T12:00:00Z' }] };
       await route.fulfill({ json: seed });
@@ -55,6 +57,12 @@ for (const width of [320, 390, 1280, 1440]) for (const theme of ['light', 'dark'
     }
     const next = card.getByText('Review the sample lease terms and confirm the remaining details with the lender before arranging the property tour', { exact: true });
     assert.ok(await next.evaluate(el => el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth));
+    if (width === 390) {
+      const last = card.getByText(completed, { exact: true });
+      assert.equal(await last.isVisible(), true);
+      assert.ok(await last.evaluate(el => el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth),
+        'the full completed step fits in the Last row');
+    }
     const facts = card.locator('.deal-summary-facts').first();
     assert.match(await facts.innerText(), /Fri Oct 30 · Dell/);
     const spaced = await card.locator('.deal-summary-facts').evaluateAll(nodes => nodes.filter(node => node.textContent.includes('·')).map(node => {
