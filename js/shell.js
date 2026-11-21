@@ -150,7 +150,9 @@ export function mountPrefs({ storageKey = PREFERENCES_KEY, legacyKeys = LEGACY_P
  * takes an already-constructed client rather than building one, so it never
  * decides live vs. fixture mode itself.
  *
- * @param {{notificationFeed: (args?: object) => Promise<object>}} client
+ * Once deal saves go to the engine, the count comes from its Updates read.
+ *
+ * @param {{notificationFeed: (args?: object) => Promise<object>, updates?: () => Promise<object>}} client
  * @param {{elementId?: string}} [options]
  */
 export async function mountNotificationBadge(client, { elementId = "navUnreadBadge" } = {}) {
@@ -166,7 +168,8 @@ export async function mountNotificationBadge(client, { elementId = "navUnreadBad
     const sequence = ++readSequence;
     hide();
     try {
-      const feed = await client.notificationFeed({ limit: 1 });
+      const fromEngine = document.documentElement?.hasAttribute("data-deals-saves-from-engine") && typeof client.updates === "function";
+      const feed = await (fromEngine ? client.updates() : client.notificationFeed({ limit: 1 }));
       if (sequence !== readSequence) return;
       const count = feed?.unread_count;
       if (!Number.isInteger(count) || count <= 0) return;
