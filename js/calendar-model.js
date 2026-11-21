@@ -220,19 +220,31 @@ const endedSession = (error) => error?.status === 401 || error?.status === 403;
 
 export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onProgress } = {}) {
   const empty = { entries: [], undated: [], failed: [], dealCount: 0, readCount: 0 };
-  if (client.getCalendarDates) {
+  if (client.getCalendarItems) {
     try {
-      const dates = await client.getCalendarDates();
-      const entries = dates.map(row => {
+      const { critical_dates, next_steps = [] } = await client.getCalendarItems();
+      const entries = critical_dates.map(row => {
         const day = toDay(row.due_on);
         if (!day || !row.id || !row.deal_id || typeof row.deal_name !== "string" ||
             typeof row.kind !== "string" || typeof row.done !== "boolean")
           throw new Error("Calendar date unreadable");
         return {
           key: row.id, deal_id: row.deal_id, deal_name: row.deal_name, day,
-          label: row.kind, kind_label: row.kind, status: row.done ? "done" : "open", settled: row.done,
+          label: row.kind, owner: row.owner, type: "date", settled: row.done,
         };
       });
+      entries.push(...next_steps.map(row => {
+        if (!isCalendarDay(row.due_on) || !isCalendarDay(row.display_on) || !row.id ||
+            typeof row.what !== "string" || typeof row.record_label !== "string" || typeof row.owner !== "string" ||
+            !Number.isInteger(row.days_late) || row.days_late < 0 ||
+            !(row.open_url === null || (typeof row.open_url === "string" && /^\/(?:deals|relationships)\?/.test(row.open_url))))
+          throw new Error("Calendar step unreadable");
+        return {
+          key: `step:${row.id}`, type: "step", day: row.display_on, label: row.what,
+          owner: row.owner, record_name: row.record_label, open_url: row.open_url,
+          days_late: row.days_late, due_on: row.due_on, settled: false,
+        };
+      }));
       return { ...empty, status: "ready", entries };
     } catch (error) {
       if (error?.status !== 404) return { ...empty, status: endedSession(error) ? "unauthorized" : "unavailable" };
@@ -271,8 +283,9 @@ export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onP
         const read = criticalDateEntries(deal, {
           critical_dates: detail.critical_dates.filter(row => row?.status === "open"),
         });
-        entries.push(...read.entries);
-        undated.push(...read.undated);
+        const asDate = row => ({ ...row, owner: deal.owner, type: "date" });
+        entries.push(...read.entries.map(asDate));
+        undated.push(...read.undated.map(asDate));
         readCount += 1;
       } catch (error) {
         if (endedSession(error)) {

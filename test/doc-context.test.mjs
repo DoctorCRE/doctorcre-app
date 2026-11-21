@@ -144,7 +144,7 @@ test('page selection hooks use recorded IDs for Calendar, Events and Control Roo
  const calendar=await readFile(new URL('../js/calendar.js',import.meta.url),'utf8');
  const ideas=await readFile(new URL('../js/ideas.js',import.meta.url),'utf8');
  const control=await readFile(new URL('../js/control-room.js',import.meta.url),'utf8');
- assert.match(calendar,/selectDocRecord\(currentEntry \? "deal" : null, currentEntry\?\.deal_id\)/);
+ assert.match(calendar,/selectDocRecord\(currentEntry\?\.deal_id \? "deal" : null, currentEntry\?\.deal_id\)/);
  assert.match(ideas,/selectDocRecord\(row \? 'event' : null, row\?\.id\)/);
  assert.match(control,/selectDocRecord\("incident", row\.ref\)/);
  assert.ok(DOC_PAGES.control.reads.includes('workRequestCard'));

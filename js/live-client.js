@@ -308,13 +308,14 @@ export function createLiveClient(opts = {}) {
       }
     },
 
-    async getCalendarDates() {
+    async getCalendarItems() {
       const response = await fetchReadImpl('/api/engine/calendar/critical-dates');
       if (!response.ok) throw Object.assign(new Error('Calendar dates could not be read.'), { status: response.status });
       const data = await response.json();
-      if (data?.schema_version !== 'calendar-critical-dates.v1' || !Array.isArray(data.critical_dates))
+      if (data?.schema_version !== 'calendar-critical-dates.v1' || !Array.isArray(data.critical_dates) ||
+          (data.next_steps !== undefined && !Array.isArray(data.next_steps)))
         throw new Error('Calendar dates could not be read.');
-      return data.critical_dates;
+      return data;
     },
 
     async getBoard(options = {}) {
