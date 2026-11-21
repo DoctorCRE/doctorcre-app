@@ -1269,7 +1269,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(await page.locator('.app-shell-search').count(), 1);
   assert.equal(await page.getByRole('button', { name: 'Search and quick switcher' }).isVisible(), true);
   assert.equal(await page.locator('.app-layout-status').count(), 0);
-  assert.equal(await page.getByRole('heading', { name: 'Home', exact: true }).count(), 0);
+  const homeTitle = page.getByRole('heading', { name: 'Home', exact: true });
+  assert.equal(await homeTitle.evaluate(node => getComputedStyle(node).clip), 'rect(0px, 0px, 0px, 0px)');
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
   if (process.env.HOME_MEETING_SCREENSHOTS) {
     await mkdir(process.env.HOME_MEETING_SCREENSHOTS, { recursive: true });
