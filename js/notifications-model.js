@@ -293,6 +293,7 @@ export function changeRows(changes) {
 
 export function validChangesPage(page) {
   return Boolean(page) && Array.isArray(page.changes)
+    && page.changes.every((row) => isText(row?.id))
     && (page.next_before === null || isText(page.next_before));
 }
 

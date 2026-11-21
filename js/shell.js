@@ -131,6 +131,15 @@ export function mountPrefs({ storageKey = PREFERENCES_KEY, legacyKeys = LEGACY_P
   return mounted;
 }
 
+export function renderNotificationBadge(count, badge = document.getElementById("navUnreadBadge")) {
+  if (!badge) return;
+  const visible = Number.isInteger(count) && count > 0;
+  badge.hidden = !visible;
+  badge.textContent = visible ? String(count) : "";
+  if (visible) badge.setAttribute("aria-label", count === 1 ? "1 unread notification" : `${count} unread notifications`);
+  else badge.removeAttribute("aria-label");
+}
+
 /**
  * V5-UX-B12b — the unread-count badge every page's top bar carries next to
  * "Notifications".
@@ -159,26 +168,16 @@ export async function mountNotificationBadge(client, { elementId = "navUnreadBad
   const badge = document.getElementById(elementId);
   if (!badge || !client || typeof client.notificationFeed !== "function") return;
   let readSequence = 0;
-  const hide = () => {
-    badge.hidden = true;
-    badge.textContent = "";
-    badge.removeAttribute("aria-label");
-  };
   const read = async () => {
     const sequence = ++readSequence;
-    hide();
+    renderNotificationBadge(null, badge);
     try {
       const fromEngine = document.documentElement?.hasAttribute("data-deals-saves-from-engine") && typeof client.updates === "function";
       const feed = await (fromEngine ? client.updates() : client.notificationFeed({ limit: 1 }));
       if (sequence !== readSequence) return;
-      const count = feed?.unread_count;
-      if (!Number.isInteger(count) || count <= 0) return;
-      badge.hidden = false;
-      badge.textContent = String(count);
-      badge.setAttribute("aria-label", count === 1 ? "1 unread notification" : `${count} unread notifications`);
+      renderNotificationBadge(feed?.unread_count, badge);
     } catch {
       // Fail quiet: no fake number, no error drawn into the top bar.
-      if (sequence === readSequence) hide();
       return false;
     }
   };

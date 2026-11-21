@@ -312,8 +312,13 @@ test("marking an update read saves it to the engine and refreshes the count", as
     },
   });
   await page.goto(updatesPath);
+  const badge = page.locator("#navUnreadBadge");
+  await page.locator('#navUnreadBadge[aria-label="1 unread notification"]').waitFor({ state: "attached" });
   await page.getByRole("button", { name: "Acknowledge this notification" }).click();
   await page.locator("#unreadLine").getByText("Nothing unread", { exact: true }).waitFor();
+  assert.equal(await badge.getAttribute("aria-label"), null);
+  assert.equal(await badge.getAttribute("hidden"), "");
+  assert.equal(sent.filter(({ key }) => key === "GET /api/engine/updates").length, 2);
   const [save] = sent.filter(({ key }) => key === "POST /api/engine/updates/read");
   assert.deepEqual(save?.body?.update_ids, [unread.source_id]);
   assert.match(String(save?.body?.idempotency_key), /^[0-9a-f-]{36}$/);
@@ -414,4 +419,90 @@ test("Who did what shows the engine's first page and Show more follows next_befo
     sent.filter(({ key }) => key === "GET /api/engine/updates/changes").map(({ search }) => search),
     ["", "?before=cursor-1"],
   );
+});
+
+test("a conflict keeps the settings draft and notice visible when the refresh fails", async (t) => {
+  let conflicted = false;
+  let available = false;
+  const { page } = await open(t, 390, "dark", {
+    "POST /api/engine/preferences": () => {
+      conflicted = true;
+      return { status: 409, json: { error: "version_conflict", current_version: 9 } };
+    },
+    "GET /api/engine/preferences": () => {
+      if (!conflicted) return { json: preferences };
+      return available
+        ? { json: { ...preferences, base_version: 9 } }
+        : { status: 503, json: { error: "unavailable" } };
+    },
+  });
+  await page.goto(updatesPath);
+  const draft = page.getByLabel("Timezone");
+  await draft.fill("America/Denver");
+  await saveButton(page).click();
+  const panel = page.getByRole("region", { name: "Your notification preferences" });
+  await panel.locator('#prefState[data-state="unavailable"]').waitFor();
+  assert.equal(await draft.isVisible(), true, "the unsaved timezone remains visible");
+  assert.equal(await draft.inputValue(), "America/Denver");
+  const notice = panel
+    .getByRole("status")
+    .filter({ hasText: /^Preferences changed elsewhere\. Your changes were not saved\./ });
+  await notice.waitFor();
+
+  available = true;
+  await panel.getByRole("button", { name: "Retry", exact: true }).click();
+  await panel
+    .locator("#prefSummary")
+    .getByText(/America\/Chicago/)
+    .waitFor();
+  assert.equal(await draft.inputValue(), "America/Denver");
+  assert.equal(await notice.isVisible(), true);
+});
+
+test("automatic refresh fills in new activity and keeps the loaded rows and Show more", async (t) => {
+  let refreshed = false;
+  const { page } = await open(t, 390, "dark", {
+    "GET /api/engine/updates/changes": (request) => {
+      const before = new URL(request.url()).searchParams.get("before");
+      if (before === "new-page") {
+        return {
+          json: {
+            changes: [change("Alex Example", "sent the draft"), change("Alex Example", "opened the deal")],
+            next_before: "second",
+          },
+        };
+      }
+      if (before === "second") {
+        return { json: { changes: [change("Blair Example", "added a note")], next_before: "third" } };
+      }
+      if (before === "third") {
+        return { json: { changes: [change("Blair Example", "added the lead")], next_before: null } };
+      }
+      return {
+        json: refreshed
+          ? { changes: [change("Alex Example", "signed the lease")], next_before: "new-page" }
+          : { changes: [change("Alex Example", "opened the deal")], next_before: "second" },
+      };
+    },
+  });
+  await page.clock.install({ time: new Date("2026-11-21T12:00:00Z") });
+  await page.goto(updatesPath);
+  const more = page.getByRole("button", { name: "Show more" });
+  const rows = page.locator("#activityList").getByRole("heading");
+  await more.click();
+  await rows.getByText("Blair Example · added a note").waitFor();
+  refreshed = true;
+  await page.clock.fastForward(60_000);
+  await rows.getByText("Alex Example · signed the lease").waitFor({ timeout: 5_000 });
+  const expected = [
+    "Alex Example · signed the lease",
+    "Alex Example · sent the draft",
+    "Alex Example · opened the deal",
+    "Blair Example · added a note",
+  ];
+  assert.deepEqual(await rows.allTextContents(), expected);
+  await more.click();
+  await rows.getByText("Blair Example · added the lead").waitFor();
+  assert.deepEqual(await rows.allTextContents(), [...expected, "Blair Example · added the lead"]);
+  assert.equal(await more.isVisible(), false);
 });

@@ -231,10 +231,10 @@ test("B12b-shell-8: every page with the shared top bar carries the navUnreadBadg
   }
 });
 
-test("B12b-shell-9: every page whose script builds a dealroom client also mounts the badge from it", async () => {
+test("B12b-shell-9: every page whose script builds a dealroom client also renders its unread badge", async () => {
   for (const [, script] of PAGES_WITH_BADGE_JS) {
     const source = await read(script);
-    assert.match(source, /mountNotificationBadge\(/, script);
+    assert.match(source, script === "js/notifications.js" ? /renderNotificationBadge\(/ : /mountNotificationBadge\(/, script);
   }
 });
 

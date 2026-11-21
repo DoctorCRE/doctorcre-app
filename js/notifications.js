@@ -31,7 +31,7 @@ import { performCommand } from "./command-feedback.mjs";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
 import { createLiveClient } from "./live-client.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
-import { mountNotificationBadge, mountPrefs } from "./shell.js";
+import { mountPrefs, renderNotificationBadge } from "./shell.js";
 import { formatClock } from "./visual-system.js";
 import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
@@ -95,8 +95,9 @@ const operations = new Map();
 /** True while a save is in flight, and true while the fields hold an edit. */
 let saving = false;
 let dirty = false;
-/** Version shown when the person first edited; resume reads cannot move it. */
+/** A conflict clears the draft version until the current preferences are read. */
 let draftBaseVersion = null;
+let preferenceSequence = 0;
 
 function announceFeed(text) {
   const live = $("feedLive");
@@ -168,6 +169,7 @@ function renderFeed() {
   if (hint) hint.textContent = FEED_HINT[state.state] || "";
   block.hidden = state.state === "ready";
   const payload = read.state === "read" ? read.payload : null;
+  renderNotificationBadge(payload?.unread_count);
   const unread = unreadLine(payload);
   $("unreadLine").textContent = unread;
   announceFeed(state.sentence || unread);
@@ -193,12 +195,15 @@ function renderPreference() {
   block.setAttribute("data-state", state.state);
   $("prefStateTitle").textContent = state.sentence || "";
   block.hidden = state.state === "ready";
+  $("retryPreference").hidden = state.state === "ready" || state.state === "loading";
   $("prefAsOf").textContent = asOf(read);
   const model = state.state === "ready" ? preferenceView(read.payload) : null;
   $("prefSummary").textContent = preferenceSummary(model);
+  $("prefSummary").hidden = !model;
   $("prefVersion").textContent = model ? `Version ${model.version}` : "";
+  $("prefVersion").closest("details").hidden = !model;
   const form = $("prefForm");
-  form.hidden = !model;
+  form.hidden = !model && !dirty;
   form.setAttribute("data-disabled", String(saving));
   form.setAttribute("data-quiet", model?.quietHoursSet ? "set" : "off");
   const retained = commandState[PREFERENCE_OPERATION_KEY];
@@ -272,38 +277,84 @@ async function takeFeed() {
  * tenant or a filter could be introduced here.
  */
 async function takePreference() {
-  const sequence = view.sequence;
+  const sequence = ++preferenceSequence;
+  if (view.preference.state !== "read" || (dirty && draftBaseVersion === null)) {
+    view.preference = { state: "pending" };
+    renderPreference();
+  }
   try {
     const payload = await source.preference();
-    if (view.sequence !== sequence) return;
+    if (preferenceSequence !== sequence) return;
     view.preference = { state: "read", payload, observed_at: new Date().toISOString() };
-    if (dirty && draftBaseVersion !== null && preferenceView(payload)?.version !== draftBaseVersion) {
-      showPreferenceMessage("Preferences changed while you were editing. Save will check your earlier version before changing anything.");
+    if (dirty) {
+      const version = preferenceView(payload)?.version ?? null;
+      if (draftBaseVersion === null) draftBaseVersion = version;
+      else if (version !== draftBaseVersion) {
+        showPreferenceMessage("Preferences changed while you were editing. Save will check your earlier version before changing anything.");
+      }
     }
   } catch (error) {
-    if (view.sequence !== sequence) return;
+    if (preferenceSequence !== sequence) return;
     view.preference = classifyPreferenceReadFailure(error);
   }
   render();
 }
 
-/** Who did what from the engine: the first page on load, the next on Show more. */
-async function takeChanges(more = false) {
+async function takeChanges() {
   const sequence = view.sequence;
-  const shown = more && view.activity.state === "read" ? view.activity.payload : null;
-  if (shown) {
-    view.activity = { ...view.activity, loadingMore: true, moreFailed: false };
-    renderActivity();
-  }
+  const shown = new Set(view.activity.payload?.changes.map((row) => row.id));
+  const newer = [];
+  let before = null;
+  const takePage = createPageBudget();
   try {
-    const page = await client.updateChanges(shown?.next_before ?? null);
-    if (view.sequence !== sequence) return;
-    if (!validChangesPage(page)) throw new Error("Who did what unavailable");
-    const changes = [...(shown?.changes ?? []), ...page.changes];
-    view.activity = { state: "read", payload: { changes, next_before: page.next_before }, observed_at: new Date().toISOString() };
+    // eslint-disable-next-line no-restricted-syntax -- takePage checks the budget before each read, with a max of 100 pages per refresh.
+    do {
+      takePage();
+      const page = await readChanges(before);
+      if (view.sequence !== sequence) return;
+      before = page.next_before;
+      const overlap = page.changes.findIndex((row) => shown.has(row.id));
+      newer.push(...(overlap < 0 ? page.changes : page.changes.slice(0, overlap)));
+      if (overlap >= 0) break;
+    } while (shown.size && before);
+    const current = view.activity.payload;
+    const changes = uniqueChanges([...newer, ...(current?.changes ?? [])]);
+    view.activity = {
+      ...view.activity,
+      state: "read", observed_at: new Date().toISOString(),
+      payload: { changes, next_before: shown.size ? current.next_before : before },
+    };
   } catch {
     if (view.sequence !== sequence) return;
-    view.activity = shown ? { ...view.activity, loadingMore: false, moreFailed: true } : { state: "unknown" };
+    if (view.activity.state !== "read") view.activity = { state: "unknown" };
+  }
+  renderActivity();
+}
+
+async function readChanges(before) {
+  const page = await client.updateChanges(before);
+  if (!validChangesPage(page) || (before && page.next_before === before)) throw new Error("Who did what unavailable");
+  return page;
+}
+
+function uniqueChanges(changes) {
+  return [...new Map(changes.map((row) => [row.id, row])).values()];
+}
+
+async function takeMoreChanges() {
+  const before = view.activity.payload?.next_before;
+  if (!before || view.activity.loadingMore) return;
+  view.activity = { ...view.activity, loadingMore: true, moreFailed: false };
+  renderActivity();
+  try {
+    const page = await readChanges(before);
+    const changes = uniqueChanges([...view.activity.payload.changes, ...page.changes]);
+    view.activity = {
+      state: "read", observed_at: new Date().toISOString(),
+      payload: { changes, next_before: page.next_before },
+    };
+  } catch {
+    view.activity = { ...view.activity, loadingMore: false, moreFailed: true };
   }
   renderActivity();
 }
@@ -469,10 +520,10 @@ async function savePreference(form) {
     // unsaved fields so the person can review both before another save.
     if (refusal.conflict) {
       dirty = true;
-      await takePreference();
-      const fresh = view.preference.state === "read" ? preferenceView(view.preference.payload) : null;
-      draftBaseVersion = fresh?.version ?? built.args.base_version;
+      draftBaseVersion = null;
       sentence = `${sentence} Your draft is kept. Review the current saved preferences above before saving again.`;
+      showPreferenceMessage(sentence);
+      await takePreference();
     }
   }
   dock.record(PREFERENCE_OPERATION_KEY, {
@@ -555,7 +606,8 @@ async function boot() {
   const params = new URLSearchParams(location.search || "");
   view.after = params.get("after") || null;
   $("retryRead")?.addEventListener("click", () => load());
-  $("activityMore")?.addEventListener("click", () => takeChanges(true));
+  $("retryPreference")?.addEventListener("click", () => takePreference());
+  $("activityMore")?.addEventListener("click", () => takeMoreChanges());
   $("prefForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     savePreference(formValues());
@@ -579,7 +631,6 @@ async function boot() {
   client = boot_.mode === "live"
     ? createLiveClient()
     : await (await import("./fixture-client.js")).createFixtureClient({ ...boot_.options, ...(outage ? { outage } : {}) });
-  mountNotificationBadge(client);
   mountAutoRefresh({ document, window: globalThis.window, refresh: load });
   await load();
 }
