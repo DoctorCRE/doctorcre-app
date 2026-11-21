@@ -140,7 +140,7 @@ export function earlierMeetingReviews(data: MeetingRead | undefined, today: stri
 type Review = MeetingRead["reviews"][number];
 type MeetingRow = { id: string; item: Event; outcome: { key: string; pending: Review | null } | null };
 
-const sourceKey = (item: Event) => (text(item.key) ? item.key : undefined);
+const outlookKey = (item: Event, outcome?: MeetingRow["outcome"]) => (text(item.key) ? item.key : outcome?.key);
 const slot = (item: Event) => JSON.stringify([Date.parse(item.start), Date.parse(item.end), item.title.trim()]);
 function personKey(person: unknown) {
   if (!object(person)) return null;
@@ -151,7 +151,7 @@ function scheduledRows(items: Event[]) {
   const occurrences = new Map<string, number>();
   const rows = new Map<string, MeetingRow>();
   for (const item of items) {
-    const key = sourceKey(item);
+    const key = outlookKey(item);
     if (key) {
       rows.set(`event:${key}`, { id: `event:${key}`, item, outcome: null });
       continue;
@@ -166,25 +166,27 @@ function scheduledRows(items: Event[]) {
   return rows;
 }
 
-function matchingRows(rows: Iterable<MeetingRow>, review: Review, uniqueSlot: boolean) {
-  const candidates = [...rows];
-  const exact = candidates.filter(({ item, outcome }) => sourceKey(item) === review.key || outcome?.key === review.key);
-  return exact.length || !uniqueSlot
-    ? exact
-    : candidates.filter(({ item, outcome }) => !sourceKey(item) && !outcome && slot(item) === slot(review));
+function matchReview(candidates: MeetingRow[], review: Review, reviews: Review[]) {
+  const exact = candidates.find(({ item, outcome }) => outlookKey(item, outcome) === review.key);
+  if (exact) return exact;
+
+  const reviewSlot = slot(review);
+  if (reviews.some((other) => other.key !== review.key && slot(other) === reviewSlot)) return;
+  const fallback = candidates.filter(({ item, outcome }) => !outlookKey(item, outcome) && slot(item) === reviewSlot);
+  if (fallback.length === 1) return fallback[0];
 }
 
 function meetingRows(data: MeetingRead, today: string, previous: MeetingRow[]) {
-  const scheduled = scheduledRows(data.items.filter((item) => onMeetingDay(item, today)));
+  const rows = scheduledRows(data.items.filter((item) => onMeetingDay(item, today)));
   const reviews = data.reviews.filter((review) => onMeetingDay(review, today));
-  const rows = new Map(scheduled);
+  const candidates = new Map(rows);
+  for (const old of previous) {
+    const current = candidates.get(old.id);
+    candidates.set(old.id, current ? { ...current, outcome: old.outcome } : old);
+  }
+  const meetings = [...candidates.values()];
   for (const review of reviews) {
-    const uniqueSlot = reviews.filter((other) => slot(other) === slot(review)).length === 1;
-    const linked = previous.find(({ outcome }) => outcome?.key === review.key);
-    const known = scheduled.get(`event:${review.key}`) ?? (linked && scheduled.get(linked.id));
-    const matching = known ? [known] : matchingRows(scheduled.values(), review, uniqueSlot);
-    const prior = matching.length ? [] : matchingRows(previous, review, uniqueSlot);
-    const [match] = matching.length === 1 ? matching : prior.length === 1 ? prior : [];
+    const match = matchReview(meetings, review, reviews);
     const id = match?.id ?? `event:${review.key}`;
     rows.set(id, { id, item: match?.item ?? review, outcome: { key: review.key, pending: review } });
   }

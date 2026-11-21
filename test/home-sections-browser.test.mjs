@@ -1313,6 +1313,48 @@ test('Home keeps separate invites with the same title and times', async t => {
     .getByRole('button', { name: 'It happened', exact: true }).waitFor();
 });
 
+test('Home keeps both invites when the keyed invite becomes review-only', async t => {
+  const pat = { ...scheduledMeeting, attendees: [{ name: 'Pat Example' }] };
+  const lee = { ...scheduledMeeting, key: meetingOutcome.key, attendees: [{ name: 'Lee Example' }] };
+  const calendar = { items: [pat, lee] };
+  const { page, meetings } = await meetingDashboard(t, calendar);
+  await meetings.getByRole('heading', { name: "Today's meetings 2" }).waitFor();
+  for (const summary of await meetings.locator('summary').all()) await summary.press('Enter');
+  const patRow = meetings.locator('details').filter({ hasText: 'Pat Example' });
+  const leeRow = meetings.locator('details').filter({ hasText: 'Lee Example' });
+  await leeRow.getByText('Lee Example', { exact: true }).waitFor();
+
+  calendar.items = [pat];
+  calendar.follow_up_reviews = [meetingOutcome];
+  calendar.state = 'partial';
+  calendar.observed_at = '2026-11-03T14:01:00Z';
+  await page.clock.fastForward(60_000);
+  await meetings.getByText('Last synced Nov 3, 8:01 AM Central').waitFor();
+  assert.equal(await meetings.locator('summary').count(), 2);
+  await leeRow.getByRole('button', { name: 'It happened', exact: true }).waitFor();
+  assert.equal(await patRow.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+});
+
+test('Home keeps an outcome separate when two unkeyed invites could match it', async t => {
+  const pat = { ...scheduledMeeting, attendees: [{ name: 'Pat Example' }] };
+  const lee = { ...scheduledMeeting, attendees: [{ name: 'Lee Example' }] };
+  const calendar = { items: [pat, lee] };
+  const { page, meetings } = await meetingDashboard(t, calendar);
+  await meetings.getByRole('heading', { name: "Today's meetings 2" }).waitFor();
+  calendar.items = [pat];
+  calendar.follow_up_reviews = [meetingOutcome];
+  calendar.state = 'partial';
+  await page.clock.fastForward(60_000);
+  await meetings.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
+  assert.equal(await meetings.locator('summary').count(), 2);
+
+  for (const summary of await meetings.locator('summary').all()) await summary.press('Enter');
+  const patRow = meetings.locator('details').filter({ hasText: 'Pat Example' });
+  await patRow.getByText('Pat Example', { exact: true }).waitFor();
+  await meetings.getByRole('button', { name: 'It happened', exact: true }).waitFor();
+  assert.equal(await patRow.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+});
+
 test('Home keeps the open meeting outcome and its focus when earlier meetings arrive', async t => {
   const calendar = { items: [scheduledMeeting], follow_up_reviews: [meetingOutcome] };
   const { page, meetings } = await meetingDashboard(t, calendar);
