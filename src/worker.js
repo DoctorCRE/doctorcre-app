@@ -87,7 +87,7 @@ async function engineFetch(request, env) {
     if (value !== null) headers.set(key, value);
   }
   const path = new URL(request.url).pathname;
-  if (path.startsWith('/api/engine/') && headers.has('cookie')) {
+  if ((path === '/auth/session' || path.startsWith('/api/engine/')) && headers.has('cookie')) {
     const session = headers.get('cookie').split(';').map(cookie => cookie.trim())
       .filter(cookie => cookie.startsWith(PARTNER_SESSION_COOKIE)).join('; ');
     if (session) headers.set('cookie', session);
@@ -325,19 +325,18 @@ async function legacyInvoiceReceipt(response) {
 }
 
 // The registered read a request asks for: a business GET, or a tool call with its arguments.
-async function engineRead(request, url) {
+function engineRead(request, url, call) {
   if (request.method === 'GET') {
     const [, path, record = ''] = BUSINESS_GET.exec(url.pathname) ?? [null, url.pathname];
     const read = ENGINE_READS.get(path);
     return read && !(read.listOnly && record) ? { read, record } : null;
   }
-  const call = await mcpCall(request, url);
-  const read = ENGINE_READS.get(call?.params?.name);
+  const read = call?.method === 'tools/call' && ENGINE_READS.get(call.params?.name);
   const args = call?.params?.arguments === undefined ? {} : call.params.arguments;
-  if (call?.method !== 'tools/call' || !read?.args || !isObject(args)
+  if (!read?.args || !isObject(args)
       || Object.entries(args).some(([key, value]) => !Object.hasOwn(read.args, key) || !read.args[key](value))
       || (read.accepts && !read.accepts(args))) return null;
-  return { read, call, args };
+  return { read, args };
 }
 
 // A switch that can't be read is off.
@@ -345,14 +344,22 @@ async function switchedOn(env, key) {
   try { return await env?.ENGINE_ROUTING?.get(key, { cacheTtl: 30 }) === 'on'; } catch { return false; }
 }
 
-async function engineResponse(request, env) {
+function routeToEngine(env, key) {
+  return engineSignIn(env) && (key === DEALS || key === NEXT_DEAL_SAVES) ? true : switchedOn(env, key);
+}
+
+async function engineResponse(request, env, call) {
   const url = new URL(request.url);
-  const asked = await engineRead(request, url);
-  if (!asked) return null;
-  const { read, call, args, record } = asked;
-  if (!await switchedOn(env, read.key)) return null;
+  const asked = engineRead(request, url, call);
+  if (!asked) {
+    if (engineSignIn(env) && call?.method === 'tools/call' && ENGINE_READS.get(call.params?.name)?.key === DEALS)
+      return saveRefusal(call, 'invalid_arguments', 'Reload Deals and try again.');
+    return null;
+  }
+  const { read, args, record } = asked;
+  if (!await routeToEngine(env, read.key)) return null;
   let cutover;
-  const cutoverOn = () => cutover ??= switchedOn(env, NEXT_DEAL_SAVES);
+  const cutoverOn = () => cutover ??= routeToEngine(env, NEXT_DEAL_SAVES);
   const origin = request.headers.get('origin');
   if (origin && origin !== url.origin) return json({ error: 'origin_mismatch' }, 403);
   const headers = new Headers();
@@ -406,8 +413,11 @@ async function engineResponse(request, env) {
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
           if (board?.schema_version === 'local-deals-board.v2') {
+            const saves = await cutoverOn();
+            const prospects = saves && (!engineSignIn(env) ||
+              (await switchedOn(env, DEALS) && await switchedOn(env, NEXT_DEAL_SAVES)));
             text = JSON.stringify({ ...board, board_from_engine: true,
-              ...(await cutoverOn() ? { engine_prospects: true, next_deal_saves: true } : {}) });
+              ...(prospects ? { engine_prospects: true } : {}), ...(saves ? { next_deal_saves: true } : {}) });
           }
         }
         if (call.params.name === 'get-deal-room' && response.ok) {
@@ -589,7 +599,7 @@ function dealPeopleAndDateHint(name, body) {
 
 async function cutoverSave(request, env, call) {
   const { name, arguments: args } = call.params;
-  const on = await switchedOn(env, NEXT_DEAL_SAVES);
+  const on = await routeToEngine(env, NEXT_DEAL_SAVES);
   const marketDeal = name === 'create-national-market-deal';
   const creating = name === 'new-deal' || marketDeal;
   const accountSave = name === 'create-national-account' || name === 'set-national-account-owner';
@@ -600,9 +610,9 @@ async function cutoverSave(request, env, call) {
   const conversion = name === 'new-deal' && args.prospect_id !== undefined;
   if (!on && !fromNext && !conversion) return null;
   if (creating && (!on || !fromNext)) return saveRefusal(call, 'reload_deals', 'Reload Deals before adding a deal.');
-  if (accountSave && (!on || !fromNext || !await switchedOn(env, DEALS)))
+  if (accountSave && (!on || !fromNext || !await routeToEngine(env, DEALS)))
     return saveRefusal(call, 'reload_deals', 'Reload Deals before saving the account.');
-  if (!accountSave && on && !await switchedOn(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
+  if (!accountSave && on && !await routeToEngine(env, DEALS)) return saveRefusal(call, 'version_conflict', 'Reload the deal before saving.');
   if (on && name === 'complete-deal-item' && (!Number.isSafeInteger(args.base_version) || args.base_version < 0))
     return saveRefusal(call, 'version_conflict', 'Reload the item before marking it done.');
   const save = nextDealSave(name, args);
@@ -725,11 +735,16 @@ const DEAL_EMAIL_REFUSALS = new Map([
 // and tool_call's primary key refuses a second one, so the second replays or
 // refuses and never writes.
 async function engineSave(request, env, call) {
-  if (call?.method !== 'tools/call' || !isObject(call.params?.arguments)) return null;
+  if (call?.method !== 'tools/call') return null;
+  if (!isObject(call.params?.arguments)) {
+    if (engineSignIn(env) && CUTOVER_SAVES.has(call.params?.name))
+      return saveRefusal(call, 'invalid_arguments', 'Reload the deal before saving.');
+    return null;
+  }
   const leadAction = LEAD_ACTIONS.get(call.params.name);
   if (leadAction) return routeLeadSave(request, env, call, leadAction);
   if (call.params.name === 'decide-engine-deal-email') {
-    if (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))
+    if (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES))
       return saveRefusal(call, 'deal_email_routing_changed', 'Reload the deal before reviewing this email.');
     const { proposal_id, decision, idempotency_key, edits } = call.params.arguments;
     if (!isUuid(proposal_id) || !isUuid(idempotency_key) || !['accept', 'dismiss'].includes(decision)
@@ -1025,28 +1040,28 @@ async function handleRequest(request, env) {
       || (pathname === '/api/engine/activities' && (await request.clone().json().catch(() => null))?.calendar_review_key !== undefined));
     if (meetingAnswer && !await switchedOn(env, HOME)) return json({ error: 'not_found' }, 404);
     if (request.method === 'POST' && /^\/api\/engine\/next-steps\/[^/]+\/end$/.test(pathname)) {
-      if (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES))
+      if (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES))
         return json({ error: 'reload_deals' }, 409);
       const command = await request.clone().json().catch(() => null);
       if (!isUuid(command?.idempotency_key) || !Number.isSafeInteger(command?.base_version) || command.base_version < 0)
         return json({ error: 'invalid_arguments' }, 400);
     }
-    if (documentWriteMethod && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
+    if (documentWriteMethod && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     const website = /^\/api\/engine\/deals\/[^/]+\/client-website(\/open)?$/.exec(pathname);
-    if (website && (!await switchedOn(env, DEALS) || (!website[1] && !await switchedOn(env, NEXT_DEAL_SAVES))))
+    if (website && (!await routeToEngine(env, DEALS) || (!website[1] && !await routeToEngine(env, NEXT_DEAL_SAVES))))
       return json({ error: 'not_found' }, 404);
     const shareOrigin = website?.[1] ? URL.parse(env?.CLIENT_WEBSITE_ORIGIN ?? '') : null;
     if (website?.[1] && (shareOrigin?.protocol !== 'https:' || shareOrigin.href !== `${shareOrigin.origin}/`))
       return json({ error: 'client_website_origin_unconfigured' }, 503);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     const dealRead = pathname === '/api/engine/calendar/critical-dates' || pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
-    if ((weeklyReview && !await switchedOn(env, NEXT_DEAL_SAVES))
-        || ((weeklyReview || dealRead || pathname.startsWith('/api/engine/documents/')) && !await switchedOn(env, DEALS)))
+    if ((weeklyReview && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
+        || ((dealRead || pathname.startsWith('/api/engine/documents/')) && !await routeToEngine(env, DEALS)))
       return json({ error: 'not_found' }, 404);
     const dealClientLookup = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
       || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname);
-    if (dealClientLookup && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
+    if (dealClientLookup && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
     const prospectSave = prospects && request.method === 'POST';
@@ -1088,16 +1103,16 @@ async function handleRequest(request, env) {
   }
 
   if (pathname === '/pipeline/changes') {
-    if (await switchedOn(env, DEALS))
-      return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
     if (engineSignIn(env)) {
       url.pathname = '/api/engine/pipeline/changes';
       return engineFetch(new Request(url, request), env).catch(() => json({ error: 'engine_unavailable' }, 503));
     }
+    if (await switchedOn(env, DEALS))
+      return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
   }
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     const call = await mcpCall(request, url);
-    const engine = await engineSave(request, env, call) ?? await engineResponse(request, env);
+    const engine = await engineSave(request, env, call) ?? await engineResponse(request, env, call);
     if (engine) return engine;
     if (call?.method === 'tools/call' && call.params?.name === 'find-and-catch-up' && isObject(call.params.arguments) && Object.hasOwn(call.params.arguments, 'ref')) {
       delete call.params.arguments.ref;

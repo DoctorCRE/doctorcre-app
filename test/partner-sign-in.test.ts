@@ -5,6 +5,11 @@ import worker from "../src/worker.js";
 const staging = "https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev";
 const production = "https://app.doctorcre.com";
 const cookie = "__Host-doctorcre_session=synthetic";
+const deal = "11111111-1111-4111-8111-111111111111";
+const step = "22222222-2222-4222-8222-222222222222";
+const key = "33333333-3333-4333-8333-333333333333";
+const dealNote = { deal, seen_change_id: 7, idempotency_key: key, text: "Confirm the site visit" };
+const mixedCookies = `__Host-dealroom_session=stale; ${cookie}; preference=fixture`;
 const request = (path: string, init?: RequestInit, origin = staging) => new Request(origin + path, init);
 const cookies = [
   cookie + "; Path=/; Secure; HttpOnly; SameSite=Lax",
@@ -199,7 +204,7 @@ test("engine auth outages fail closed for docs, auth and direct or adapted API c
       assert.equal(response.status, 503, path);
       assert.equal(response.headers.get("cache-control"), "no-store");
     }
-    const save = await send("/mcp", toolsCall("patch-deal-field", { deal: "fixture" }));
+    const save = await send("/mcp", toolsCall("add-deal-note", dealNote));
     assert.equal(save.status, 503);
     assert.equal(save.headers.get("cache-control"), "no-store");
     assert.equal(calls.assets.length, 0);
@@ -271,39 +276,28 @@ test("PartnerApp receives the Search version header only for supported Search re
   }
 });
 
-test("engine browser reads and writes stay on PartnerApp with CARR down", async () => {
-  const { send, calls } = fixture(
-    async (input: Request) => {
-      if ((await status(input)).status === 401) return new Response(null, { status: 401 });
-      if (input.method === "POST") {
-        for (const [name, value] of Object.entries(proofs)) assert.equal(input.headers.get(name), value);
-        assert.deepEqual(await input.json(), { deal: "fixture" });
-      }
-      return Response.json({ synthetic: true });
-    },
-    {
-      ENGINE_ROUTING: {
-        get: async (key: string) => (["deals-from-engine", "deal-saves-to-engine"].includes(key) ? "on" : null),
-      },
-    },
-  );
-  assert.deepEqual(await (await send("/api/engine/leads?owner=partner", { headers: proofs })).json(), {
-    synthetic: true,
-  });
-  const read = await send("/mcp", toolsCall("deal-room-board", {}));
-  assert.deepEqual(JSON.parse((await read.json()).result.content[0].text), { synthetic: true });
-  const save = await send("/mcp", toolsCall("patch-deal-field", { deal: "fixture" }));
-  assert.deepEqual(JSON.parse((await save.json()).result.content[0].text), { synthetic: true });
-  assert.equal(calls.engine.length + calls.carr.length, 0);
-});
+function dealsRouting(reads: string | null, saves: string | null) {
+  return {
+    get: async (key: string) =>
+      key === "deals-from-engine" ? reads : key === "deals-saves-from-engine" ? saves : null,
+  };
+}
 
-test("Deals actions carry only the engine session to PartnerApp", async (t) => {
-  const deal = "11111111-1111-4111-8111-111111111111";
-  const step = "22222222-2222-4222-8222-222222222222";
-  const key = "33333333-3333-4333-8333-333333333333";
-  const browserHeaders = { ...proofs, cookie: `__Host-dealroom_session=stale; ${cookie}; __Host-dealroom_oauth=stale` };
+test("Deals actions carry only the engine session to PartnerApp across switch combinations", async (t) => {
+  const browserHeaders = { ...proofs, cookie: mixedCookies };
   const command = { deal, seen_change_id: 7, idempotency_key: key };
+  const board = { schema_version: "local-deals-board.v2", deals: [] };
+  const detail = { deal_id: deal, email_follow_ups: [], activities: [{ id: key, summary: "Confirm the site visit" }] };
   const actions = [
+    {
+      name: "board load",
+      requestPath: "/mcp",
+      init: toolsCall("deal-room-board", { workspace: "all" }),
+      enginePath: "/api/engine/deals?workspace=all",
+      payload: null,
+      receipt: board,
+      expected: { ...board, board_from_engine: true, next_deal_saves: true },
+    },
     {
       name: "board move",
       requestPath: "/mcp",
@@ -325,7 +319,7 @@ test("Deals actions carry only the engine session to PartnerApp", async (t) => {
     {
       name: "deal page note",
       requestPath: "/mcp",
-      init: toolsCall("add-deal-note", { ...command, text: "Confirm the site visit" }),
+      init: toolsCall("add-deal-note", dealNote),
       enginePath: "/api/engine/activities",
       payload: { idempotency_key: key, kind: "note", about: [{ deal_id: deal }], summary: "Confirm the site visit" },
       receipt: { activity_id: key },
@@ -339,73 +333,74 @@ test("Deals actions carry only the engine session to PartnerApp", async (t) => {
       receipt: { next_step_id: step, status: "done", change_id: 8 },
     },
     {
-      name: "deal Updates load",
+      name: "saved deal load",
       requestPath: "/mcp",
       init: toolsCall("get-deal-room", { deal }),
       enginePath: `/api/engine/deals/${deal}`,
       payload: null,
-      receipt: { deal_id: deal, activities: [{ id: key, summary: "Confirm the site visit" }] },
+      receipt: detail,
+      expected: { ...detail, next_deal_saves: true },
     },
   ];
-  for (const { name, requestPath, init, enginePath, payload, receipt } of actions) {
-    await t.test(name, async () => {
-      const { send, calls } = fixture(
-        (input) => {
-          if (input.headers.get("cookie") !== cookie) return new Response(null, { status: 401 });
-          return Response.json(receipt);
-        },
-        {
-          ENGINE_ROUTING: {
-            get: async (switchKey: string) =>
-              ["deals-from-engine", "deals-saves-from-engine"].includes(switchKey) ? "on" : null,
-          },
-        },
-      );
-      const response = await send(requestPath, { ...init, headers: browserHeaders });
-      assert.equal(response.status, 200);
-      const answer = await response.json();
-      assert.deepEqual(
-        requestPath === "/mcp" ? JSON.parse(answer.result.content[0].text) : answer,
-        requestPath === "/mcp" && payload ? { ...receipt, ok: true } : receipt,
-      );
-      assert.equal(calls.partner.length, 1);
-      const [forwarded] = calls.partner;
-      assert.ok(forwarded);
-      assert.equal(forwarded.url, staging + enginePath);
-      assert.equal(forwarded.method, payload ? "POST" : "GET");
-      assert.equal(forwarded.headers.get("cookie"), cookie);
-      if (payload) {
-        for (const name of ["origin", "sec-fetch-site", "x-carr-csrf"]) {
-          assert.equal(forwarded.headers.get(name), new Headers(proofs).get(name), name);
-        }
-        assert.deepEqual(await forwarded.json(), payload);
+  for (const reads of ["off", "on"]) {
+    for (const saves of ["off", "on"]) {
+      for (const { name, requestPath, init, enginePath, payload, receipt, expected } of actions) {
+        await t.test(`${name}, reads ${reads}, saves ${saves}`, async () => {
+          const { send, calls } = fixture(() => Response.json(receipt), { ENGINE_ROUTING: dealsRouting(reads, saves) });
+          const response = await send(requestPath, { ...init, headers: browserHeaders });
+          assert.equal(calls.carr.length + calls.engine.length, 0, "Deals must use PartnerApp only");
+          assert.equal(response.status, 200);
+          const answer = await response.json();
+          assert.deepEqual(
+            requestPath === "/mcp" ? JSON.parse(answer.result.content[0].text) : answer,
+            name === "board load" && reads === "on" && saves === "on"
+              ? { ...expected, engine_prospects: true }
+              : (expected ?? (requestPath === "/mcp" && payload ? { ...receipt, ok: true } : receipt)),
+          );
+          assert.equal(calls.partner.length, 1);
+          const [forwarded] = calls.partner;
+          assert.ok(forwarded);
+          assert.equal(forwarded.url, staging + enginePath);
+          assert.equal(forwarded.method, payload ? "POST" : "GET");
+          assert.equal(forwarded.headers.get("cookie"), cookie);
+          if (payload) {
+            for (const name of ["origin", "sec-fetch-site", "x-carr-csrf"]) {
+              assert.equal(forwarded.headers.get(name), new Headers(proofs).get(name), name);
+            }
+            assert.deepEqual(await forwarded.json(), payload);
+          }
+        });
       }
-      assert.equal(calls.carr.length + calls.engine.length, 0);
-    });
+    }
   }
 });
 
-test("the board polling feed uses the engine session until the switched board retires the feed", async () => {
-  for (const boardSwitch of [null, "off", "on"]) {
+test("PartnerApp serves the board polling feed across Deals read switch settings", async () => {
+  for (const reads of [null, "off", "on"]) {
     const path = "/pipeline/changes?cursor=example";
     const feed = { events: [], cursor: "example" };
-    const { send, calls } = fixture(() => Response.json(feed), {
-      ENGINE_ROUTING: { get: async (key: string) => (key === "deals-from-engine" ? boardSwitch : null) },
-    });
-    const response = await send(path, { headers: { cookie: `__Host-dealroom_session=stale; ${cookie}` } });
+    const { send, calls } = fixture(() => Response.json(feed), { ENGINE_ROUTING: dealsRouting(reads, null) });
+    const response = await send(path, { headers: { cookie: mixedCookies } });
     assert.equal(response.headers.get("cache-control"), "no-store");
-    if (boardSwitch === "on") {
-      assert.equal(response.status, 204);
-      assert.equal(calls.partner.length, 0);
-    } else {
-      assert.equal(response.status, 200);
-      assert.deepEqual(await response.json(), feed);
-      assert.equal(calls.partner.length, 1);
-      assert.equal(calls.partner[0]?.url, staging + "/api/engine" + path);
-      assert.equal(calls.partner[0]?.headers.get("cookie"), cookie);
-    }
+    assert.equal(response.status, 200, `Deals reads ${reads}`);
+    assert.deepEqual(await response.json(), feed);
+    assert.equal(calls.partner.length, 1);
+    assert.equal(calls.partner[0]?.url, staging + "/api/engine" + path);
+    assert.equal(calls.partner[0]?.headers.get("cookie"), cookie);
     assert.equal(calls.carr.length + calls.engine.length, 0);
   }
+});
+
+test("the saved Deals page checks only the engine session cookie", async () => {
+  const { send, calls } = fixture(status);
+  const path = "/deals?deal=11111111-1111-4111-8111-111111111111";
+  const response = await send(path, { headers: { cookie: mixedCookies } });
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "/pipeline.html");
+  assert.equal(calls.partner.length, 1);
+  assert.equal(calls.partner[0]?.url, staging + "/auth/session");
+  assert.equal(calls.partner[0]?.headers.get("cookie"), cookie);
+  assert.equal(calls.carr.length + calls.engine.length, 0);
 });
 
 test("an expired engine session returns to an old deal link after sign-in", async () => {
@@ -427,17 +422,25 @@ test("an expired engine session returns to an old deal link after sign-in", asyn
   assert.equal(calls.carr.length + calls.engine.length, 0);
 });
 
-test("engine partner saves refuse an old-system handoff", async () => {
-  const { send, calls } = fixture(() => Response.json({ error: "old_system_required" }, { status: 501 }), {
-    ENGINE_ROUTING: {
-      get: async (key: string) => (["deals-from-engine", "deal-saves-to-engine"].includes(key) ? "on" : null),
-    },
-  });
-  const response = await send("/mcp", toolsCall("patch-deal-field", { deal: "fixture" }));
-  const body = await response.json();
-  assert.equal(body.result.isError, true);
-  assert.equal(JSON.parse(body.result.content[0].text).error, "old_system_required");
+test("a refused Deals save stays with PartnerApp in engine sign-in mode", async () => {
+  const { send, calls } = fixture(() => Response.json({ error: "old_system_required" }, { status: 501 }));
+  const response = await send("/mcp", toolsCall("add-deal-note", dealNote));
+  assert.equal(response.status, 503);
+  assert.equal(calls.partner.length, 1);
   assert.equal(calls.engine.length + calls.carr.length, 0);
+});
+
+test("invalid Deals reads and stale saves do not reach CARR in engine sign-in mode", async () => {
+  const { send, calls } = fixture(null);
+  for (const [init, error] of [
+    [toolsCall("get-deal-room", {}), "invalid_arguments"],
+    [toolsCall("add-deal-note", { deal, text: dealNote.text }), "deal_save_unavailable"],
+  ] as const) {
+    const envelope = await (await send("/mcp", init)).json();
+    assert.equal(envelope.result.isError, true);
+    assert.equal(JSON.parse(envelope.result.content[0].text).error, error);
+  }
+  assert.equal(calls.partner.length + calls.engine.length + calls.carr.length, 0);
 });
 
 test("CARR mode keeps its existing auth, page and API destinations", async () => {
@@ -449,6 +452,56 @@ test("CARR mode keeps its existing auth, page and API destinations", async () =>
   assert.equal(await (await send("/leads")).text(), "/leads.html");
   assert.deepEqual(await (await send("/api/engine/leads")).json(), { legacy: true });
   assert.equal(calls.partner.length, 0);
+});
+
+test("CARR sign-in preserves Deals destinations and save guards for all switch combinations", async () => {
+  const legacyCookie = "__Host-dealroom_session=synthetic";
+  const headers = { ...proofs, cookie: legacyCookie };
+  for (const reads of [false, true]) {
+    for (const saves of [false, true]) {
+      const oldCalls: Request[] = [];
+      const newCalls: Request[] = [];
+      const { send, calls } = fixture(null, {
+        PARTNER_SIGN_IN: "carr",
+        ENGINE_ROUTING: dealsRouting(reads ? "on" : "off", saves ? "on" : "off"),
+        CARR: {
+          fetch: async (input: Request) => {
+            oldCalls.push(input);
+            return Response.json({ source: "carr" });
+          },
+        },
+        ENGINE: {
+          fetch: async (input: Request) => {
+            newCalls.push(input);
+            return Response.json({ source: "engine", activity_id: key });
+          },
+        },
+      });
+      for (const init of [toolsCall("deal-room-board", {}), toolsCall("get-deal-room", { deal })]) {
+        const response = await send("/mcp", { ...init, headers });
+        const answer = await response.json();
+        assert.equal(
+          reads ? JSON.parse(answer.result.content[0].text).source : answer.source,
+          reads ? "engine" : "carr",
+        );
+      }
+      const { seen_change_id, ...legacyNote } = dealNote;
+      const note = await send("/mcp", { ...toolsCall("add-deal-note", saves ? dealNote : legacyNote), headers });
+      const answer = await note.json();
+      if (saves) {
+        const result = JSON.parse(answer.result.content[0].text);
+        if (reads) assert.equal(result.activity_id, key);
+        else assert.equal(result.error, "version_conflict");
+      } else assert.equal(answer.source, "carr");
+      const feed = await send("/pipeline/changes", { headers });
+      if (reads) assert.equal(feed.status, 204);
+      else assert.deepEqual(await feed.json(), { source: "carr" });
+      assert.equal(calls.partner.length, 0);
+      assert.equal(oldCalls.length, (reads ? 0 : 3) + (saves ? 0 : 1));
+      assert.equal(newCalls.length, reads ? (saves ? 3 : 2) : 0);
+      for (const input of [...oldCalls, ...newCalls]) assert.equal(input.headers.get("cookie"), legacyCookie);
+    }
+  }
 });
 
 test("missing, off and carr sign-in settings keep CARR's board feed", async () => {

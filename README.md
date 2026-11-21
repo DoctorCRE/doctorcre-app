@@ -130,10 +130,11 @@ the app release adds the binding. In engine mode, keep
 environment until the old gate is removed. See the
 [partner sign-in cutover plan](https://github.com/DoctorCRE/doctorcre-engine/blob/main/docs/sign-in.md#switch-after-hours-with-advance-notice).
 
-In engine sign-in mode, the app forwards only the engine session cookie on
-engine API requests. PartnerApp serves the board's polling feed when
-`deals-from-engine` is off. When that switch is on, the app retires the
-polling feed with a 204 response.
+In engine sign-in mode, PartnerApp serves the Deals board, deal detail, deal
+saves, and the board polling feed regardless of the Deals read and save switch
+values. The app forwards only the engine session cookie on session checks and
+engine API requests. The board stops polling after its first engine-backed load.
+Show deal attribution remains on CARR until the engine reader is available.
 
 `npm run release:production` consumes the prepared artifact, replaces `dist/site`
 from its verified source bytes, and runs only provider upload, promotion and
