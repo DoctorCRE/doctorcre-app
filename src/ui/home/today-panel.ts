@@ -18,6 +18,22 @@ type Meeting = Record<string, unknown> & { title: string; start: string; end: st
 function meeting(value: unknown): value is Meeting {
   return object(value) && text(value.title) && instant(value.start) && instant(value.end);
 }
+
+function readMeetings(section: unknown) {
+  if (
+    !object(section) ||
+    !["ready", "empty", "partial"].includes(String(section.state)) ||
+    !Array.isArray(section.items) ||
+    !section.items.every(meeting)
+  )
+    return null;
+
+  const meetingsMayBeMissing = "meetings_may_be_missing" in section ? section.meetings_may_be_missing : false;
+  if (typeof meetingsMayBeMissing !== "boolean") return null;
+
+  return { items: section.items, meetingsMayBeMissing, follow_up_reviews: section.follow_up_reviews };
+}
+
 type Reminder = Record<string, unknown> & {
   kind: "step" | "call_follow_up";
   title: string;
@@ -192,26 +208,6 @@ export async function mountHomeTodayPanel(
   };
   clear("loading");
 
-  const showMeetings = (section: unknown) => {
-    if (
-      !object(section) ||
-      !["ready", "empty", "partial"].includes(String(section.state)) ||
-      !Array.isArray(section.items) ||
-      !section.items.every(meeting)
-    ) {
-      paint(schedule, status("Couldn't load meetings."));
-      return false;
-    }
-    paint(
-      schedule,
-      section.items.length
-        ? section.items.map(meetingRow).join("")
-        : status("No meetings today.") +
-            (section.meetings_may_be_missing === true ? status("Calendar may be incomplete") : ""),
-    );
-    return true;
-  };
-
   function reminders(answer: Record<string, unknown> & { today: string }): DatedReminders | null {
     const section = answer.reminders;
     const validRow = (value: unknown): value is Reminder =>
@@ -270,7 +266,18 @@ export async function mountHomeTodayPanel(
         clear();
         return false;
       }
-      const meetingsReady = showMeetings(answer.meetings);
+      const calendar = readMeetings(answer.meetings);
+      if (calendar) {
+        paint(
+          schedule,
+          calendar.items.length
+            ? calendar.items.map(meetingRow).join("")
+            : status("No meetings today.") +
+                (calendar.meetingsMayBeMissing ? status("Calendar may be incomplete") : ""),
+        );
+      } else {
+        paint(schedule, status("Couldn't load meetings."));
+      }
       const dated = reminders({ ...answer, today: answer.today });
       const groups =
         dated && [...dated.late, ...dated.upcoming].some((item) => text(item.home_item_id))
@@ -291,8 +298,7 @@ export async function mountHomeTodayPanel(
       paintOwnerSelection();
       owners.hidden = !partners.length;
       renderReminders(unavailableReason(answer.reminders, "Couldn't load dated reminders."));
-      retry.hidden = meetingsReady && data !== null;
-      const calendar = meetingsReady && object(answer.meetings) ? answer.meetings : null;
+      retry.hidden = calendar !== null && data !== null;
       const actor = text(answer.viewer) ? answer.viewer : null;
       let deals: unknown[] | null = [];
       if (actor && Array.isArray(calendar?.follow_up_reviews) && calendar.follow_up_reviews.length) {

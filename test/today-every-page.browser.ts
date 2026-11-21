@@ -45,9 +45,19 @@ async function open(
     malformedEndedReminder = false,
     meetingState = "ready",
     meetingItems = true,
-    meetingsMayBeMissing = false,
+    meetingsMayBeMissing,
     todayStatus = 200,
     theme = "dark",
+  }: {
+    enabled?: boolean;
+    width?: number;
+    recentChanges?: boolean;
+    malformedEndedReminder?: boolean;
+    meetingState?: string;
+    meetingItems?: boolean;
+    meetingsMayBeMissing?: boolean | string | null | undefined;
+    todayStatus?: number;
+    theme?: string;
   } = {},
 ) {
   const browser = await chromium.launch();
@@ -129,7 +139,7 @@ async function open(
         today: "2026-11-19",
         meetings: {
           state: meetingState,
-          meetings_may_be_missing: meetingsMayBeMissing,
+          ...(meetingsMayBeMissing === undefined ? {} : { meetings_may_be_missing: meetingsMayBeMissing }),
           observed_at: "2026-11-19T21:40:00Z",
           notes: ["Internal calendar instruction"],
           items:
@@ -314,6 +324,7 @@ for (const width of [390, 1440])
   }
 
 for (const [meetingState, meetingsMayBeMissing] of [
+  ["empty", undefined],
   ["empty", false],
   ["partial", false],
   ["partial", true],
@@ -325,12 +336,28 @@ for (const [meetingState, meetingsMayBeMissing] of [
     assert.equal(await meetings.getByText("No meetings today.", { exact: true }).count(), 1);
     assert.equal(
       await meetings.getByText("Calendar may be incomplete", { exact: true }).count(),
-      Number(meetingsMayBeMissing),
+      Number(meetingsMayBeMissing === true),
     );
     assert.equal(
       await meetings
         .getByText(/Couldn't load meetings|Check Outlook|Last synced|Internal calendar instruction/)
         .count(),
+      0,
+    );
+  });
+}
+
+for (const { meetingsMayBeMissing, meetingItems } of [
+  { meetingsMayBeMissing: "false", meetingItems: false },
+  { meetingsMayBeMissing: null, meetingItems: true },
+]) {
+  test(`Today rejects a malformed calendar flag (${JSON.stringify(meetingsMayBeMissing)})`, async (t) => {
+    const { today } = await open(t, "/invoices", { meetingsMayBeMissing, meetingItems });
+    await today.getByText("Send sample floor plan", { exact: true }).waitFor();
+    const meetings = today.getByRole("region", { name: "Meetings", exact: true });
+    assert.equal(await meetings.getByText("Couldn't load meetings.", { exact: true }).count(), 1);
+    assert.equal(
+      await meetings.getByText(/No meetings today|Calendar may be incomplete|Example site visit/).count(),
       0,
     );
   });
