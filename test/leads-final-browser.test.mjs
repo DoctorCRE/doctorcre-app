@@ -64,6 +64,93 @@ test('Claim is offered on unclaimed leads across active stages', async t => {
   assert.equal(await page.locator('#leadDetail').evaluate(node => node.open), false);
 });
 
+test('A mixed board keeps unversioned leads readable and only the versioned lead can save', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const editable = lead(1);
+  const readOnlyLeads = [undefined, '', null, '1'].map((base_version, index) => lead(index + 2, {
+    base_version, new_from_email: true,
+    possible_clients: [{ client_id: id(901), name: 'Example Client Match' }],
+  }));
+  const board = { ...workspace(), leads: [editable, ...readOnlyLeads, lead(6, { stage: null })] };
+  const writes = [];
+  await routeLeads(page, {
+    getBoard: () => board,
+    onWrite: request => {
+      writes.push(request);
+      if (request.name === 'claim-lead' && request.arguments.lead === editable.registry_ref) editable.owner = 'example-partner';
+    },
+  });
+  await page.goto('http://localhost/leads');
+  await page.locator('#leadBoard[aria-busy="false"]').waitFor();
+  assert.deepEqual(await page.locator('#leadBoard .lead-open').allTextContents(), [
+    'Dr. Example 1', 'Dr. Example 2', 'Dr. Example 3', 'Dr. Example 4', 'Dr. Example 5',
+  ]);
+  assert.equal(await page.locator('#leadBoardError').isVisible(), false);
+  const drawer = page.locator('#leadDetail');
+  for (const readOnly of readOnlyLeads) {
+    const card = page.locator(`[data-lead-id="${readOnly.id}"]`);
+    const claim = card.getByRole('button', { name: 'Claim', exact: true });
+    assert.equal(await claim.isDisabled(), true);
+    await claim.evaluate(button => button.click());
+    const open = card.getByRole('button', { name: readOnly.doctor_name, exact: true });
+    await open.press('Alt+ArrowRight');
+    assert.equal(await page.locator('#stageDialog').isVisible(), false);
+    await open.click();
+    await drawer.getByText("Can't edit right now. Refresh to try again.", { exact: true }).waitFor();
+    assert.equal(await drawer.getByRole('button', { name: 'Claim', exact: true }).isDisabled(), true);
+    assert.equal(await drawer.getByRole('combobox', { name: 'Stage' }).isDisabled(), true);
+    assert.equal(await drawer.getByRole('button', { name: 'Link to client Example Client Match' }).isDisabled(), true);
+    await drawer.getByRole('button', { name: 'Close lead details' }).click();
+  }
+  await page.locator(`[data-lead-id="${editable.id}"]`).getByRole('button', { name: 'Claim', exact: true }).click();
+  await settles(async () => assert.equal(await page.locator('#moveAnnouncement').innerText(), 'Lead claimed'));
+  assert.deepEqual(writes.map(({ name, arguments: { lead, base_version } }) => [name, lead, base_version]), [
+    ['claim-lead', editable.registry_ref, editable.base_version],
+  ]);
+});
+
+test('An invalid first Leads response hides results and Retry can load the board', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const board = { ...workspace(), leads: [lead(1, { stage: null })] };
+  await routeLeads(page, { getBoard: () => board });
+  await page.goto('http://localhost/leads');
+  const banner = page.locator('#leadBoardError');
+  const retry = banner.getByRole('button', { name: 'Retry', exact: true });
+  await retry.waitFor();
+  assert.equal(await banner.innerText(), "Leads couldn't be loaded. Retry");
+  assert.equal(await page.locator('#leadTerritory').isVisible(), false);
+  assert.equal(await page.locator('#stageFilter').isVisible(), false);
+  assert.equal(await page.locator('#marketCounts').innerText(), '');
+  assert.equal(await page.locator('#leadBoard [data-stage]').count(), 0);
+  assert.equal(await page.locator('#leadCount').innerText(), '');
+  board.leads = [lead(1)];
+  await retry.click();
+  await page.locator('.lead-card').waitFor();
+  assert.equal(await banner.isVisible(), false);
+  assert.equal(await page.locator('#stageFilter').isVisible(), true);
+});
+
+test('An invalid Leads refresh identifies a load failure and keeps the last update visible', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const board = { ...workspace(), leads: [lead(1)] };
+  let invalid = false;
+  await routeLeads(page, { getBoard: () => invalid ? [] : board });
+  await page.goto('http://localhost/leads');
+  await page.locator('.lead-card').waitFor();
+  invalid = true;
+  await page.getByRole('button', { name: 'Refresh leads', exact: true }).click();
+  const banner = page.locator('#leadBoardError');
+  await banner.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+  assert.equal(await banner.innerText(), "Leads couldn't be loaded. Showing the last update. Retry");
+  assert.deepEqual(await page.locator('#leadBoard .lead-open').allTextContents(), ['Dr. Example 1']);
+});
+
 for (const width of [390, 768, 1280, 1440]) for (const theme of ['dark', 'light']) {
   test(`The selected stage fills the board at ${width}px ${theme}`, async t => {
     const browser = await chromium.launch();
@@ -464,7 +551,7 @@ test('A failed drawer read does not acknowledge and a 503 retries only on reopen
       detailReads += 1;
       return {
         ...detail(row),
-        ...(detailReads === 1 ? { base_version: null } : {}),
+        ...(detailReads === 1 ? { stage: null } : {}),
         notes: `Synthetic drawer read ${detailReads}`,
       };
     },

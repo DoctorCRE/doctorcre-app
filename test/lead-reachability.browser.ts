@@ -70,7 +70,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
           const body = await request.json();
           const name = body.params.name;
           calls.push(name);
-          if (name === "lead-board" && failure && !Object.hasOwn(malformed, failure))
+          if (name === "lead-board" && ["denied", "stale"].includes(failure))
             return failure === "denied" ? new Response("", { status: 403 }) : new Response("", { status: 503 });
           const payload =
             name === "lead-board"
@@ -84,14 +84,23 @@ test("views, keyboard selection, refresh, source change and retirement at both w
                     tasks_created: false,
                   }
                 : { error: "unsupported_fixture_read" };
-          if (name === "lead-board" && Object.hasOwn(malformed, failure) && "leads" in payload) {
-            payload.leads = payload.leads.map((row) => {
-              const changed = structuredClone(row);
-              const mutate = malformed[failure];
-              assert.ok(mutate);
-              mutate(changed.reachability);
-              return changed;
-            });
+          if ("leads" in payload && failure === "workspace")
+            payload.leads = payload.leads.map((row) => ({ ...row, stage: null }));
+          else if ("leads" in payload && Object.hasOwn(malformed, failure)) {
+            const invalid = {
+              ...structuredClone(current),
+              id: "example-unverified",
+              doctor_name: "Example Unverified Lead",
+            };
+            const research = {
+              ...recording.cases.unknown,
+              id: "example-research",
+              doctor_name: "Example Research Lead",
+            };
+            const mutate = malformed[failure];
+            assert.ok(mutate);
+            mutate(invalid.reachability);
+            payload.leads.push(research, invalid);
           }
           return Response.json({
             jsonrpc: "2.0",
@@ -105,7 +114,8 @@ test("views, keyboard selection, refresh, source change and retirement at both w
   t.after(() => server.close());
   const browser = await chromium.launch();
   t.after(() => browser.close());
-  await mkdir("/tmp/WR591.S12.J8-shots", { recursive: true });
+  const screenshots = "out/test-artifacts/lead-reachability";
+  await mkdir(screenshots, { recursive: true });
   for (const width of [1440, 390])
     for (const theme of ["light", "dark"] as const) {
       current = { ...recording.cases.reachable, city: "Pensacola", state: "FL" };
@@ -115,15 +125,15 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         for (const mutation of Object.keys(malformed)) {
           failure = mutation;
           await page.goto(`${server.origin}/leads`);
-          await page.locator("#leadBoardError").waitFor();
-          assert.equal(
-            await page.locator("#leadBoardError").textContent(),
-            "Source refused · invalid reachability response. Retry",
-          );
-          assert.equal(await page.locator(".lead-card").count(), 0, mutation);
+          await page.locator('#leadBoard[aria-busy="false"]').waitFor();
+          assert.equal(await page.locator("#leadBoardError").isVisible(), false, mutation);
+          assert.equal(await page.locator(".lead-card").count(), 3, mutation);
+          await page.locator("#reachabilityFilter").selectOption("research");
+          assert.equal(await page.locator(".lead-card").count(), 1, mutation);
+          assert.equal(await page.locator(".lead-open").textContent(), "Example Research Lead");
         }
         failure = "";
-        await page.locator("#refreshBoard").click();
+        await page.goto(`${server.origin}/leads`);
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
@@ -138,7 +148,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         await page.locator('#leadBoard[aria-busy="false"]').waitFor();
         assert.equal(await page.locator(".lead-card").getAttribute("data-selected"), "true");
         await page.locator("#leadBoard").scrollIntoViewIfNeeded();
-        await page.screenshot({ path: `/tmp/WR591.S12.J8-shots/${width}-${theme}.png` });
+        await page.screenshot({ path: `${screenshots}/${width}-${theme}.png` });
         await page.locator("#showTerritory").click();
         await page.locator(".market-marker").first().waitFor();
         const canvas = await page.locator("#territoryMap canvas").elementHandle();
@@ -191,12 +201,12 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         await page.locator("#refreshBoard").click();
         await page.locator("#leadBoardError").waitFor({ state: "hidden" });
         assert.equal(await page.locator(".lead-card").count(), 1);
-        failure = "invalid";
+        failure = "workspace";
         await page.locator("#refreshBoard").click();
         await page.waitForFunction(
           () =>
             document.getElementById("leadBoardError")?.textContent ===
-            "Source refused · invalid reachability response. Previous snapshot is stale. Retry",
+            "Leads couldn't be loaded. Showing the last update. Retry",
         );
         failure = "denied";
         await page.locator("#refreshBoard").click();

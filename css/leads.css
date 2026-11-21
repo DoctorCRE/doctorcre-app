@@ -42,7 +42,8 @@
 .research-facts a { color: var(--fg); }
 .research-facts p { margin: var(--space-1) 0 0; }
 .research-source, .research-expiry { color: var(--fg-muted); font-size: var(--font-size-1); }
-.leads-workspace:has(#refreshEmptyBoard) :is(.territory, .territory-entry) { display: none; }
+.leads-workspace:has(#refreshEmptyBoard) :is(.territory, .territory-entry),
+.leads-workspace:has(#leadBoard[data-unavailable]) :is(.controls, .stage-nav, .territory, .territory-entry) { display: none; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
 .section-heading h2 { font-size: var(--font-size-2); }
 .section-heading time { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
