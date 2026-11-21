@@ -13,6 +13,7 @@ const expect = baseExpect.configure({ timeout: WAIT_MS });
 const root = fileURLToPath(new URL("../", import.meta.url));
 const app = "https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev";
 const calendarRead = "/api/engine/calendar/critical-dates";
+const stepTitle = "Send revised offer for ExampleLeaseRenewalPackageRevision20261020";
 
 test("Calendar reads once and shows dates and next steps in the visible period", async (t) => {
   const outDir = await temporaryDirectory("calendar-one-read-");
@@ -75,7 +76,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
                 next_steps: [
                   {
                     id: "step-a",
-                    what: "Send revised offer",
+                    what: stepTitle,
                     owner: "joe",
                     record_label: "Example lease",
                     due_on: "2026-10-17",
@@ -115,7 +116,20 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await page.goto(`${app}/calendar?view=month&d=2026-10-01&day=2026-10-20`);
           await expect(page.locator("#calStatusLabel")).toHaveText("Current");
           const panel = page.locator("#dayPanelBody");
-          const step = panel.locator(".cal-day-entry").filter({ hasText: "Send revised offer" });
+          const step = panel.locator(".cal-day-entry").filter({ hasText: stepTitle });
+          const title = step.getByRole("heading", { name: stepTitle });
+          await expect(title).toBeVisible();
+          assert.equal(
+            await title.evaluate((node) => {
+              const panel = node.closest("#dayPanel");
+              return (
+                node.scrollWidth <= node.clientWidth &&
+                node.getBoundingClientRect().right <= (panel?.getBoundingClientRect().right ?? 0)
+              );
+            }),
+            true,
+            "The full step title fits inside the selected-day panel",
+          );
           await expect(step).toContainText("Next step · Joe");
           await expect(step).toContainText("3 days late");
           await expect(step.getByRole("link")).toHaveAttribute(
