@@ -66,6 +66,7 @@ for (const path of ["list", "detail"] as const) {
     malformed = false;
     await page.getByRole("button", { name: "Retry loading" }).click();
     await expect(page.getByLabel("Question for Doc")).toBeEnabled();
+    await page.getByRole("button", { name: "Recent chats", exact: true }).click();
     await expect(page.getByRole("link", { name: question })).toBeVisible();
   });
 }
@@ -199,6 +200,7 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
   await expect(page.getByText("Doc isn't set up on your Mac yet.")).toBeVisible();
   await page.getByRole("link", { name: "New chat" }).click();
   state = "failed";
+  await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   await page.getByRole("link", { name: question }).click();
   await expect(page.getByText("Doc couldn’t answer.")).toBeVisible();
   state = "queued";
@@ -274,6 +276,7 @@ for (const storageBlocked of [false, true]) {
       await page.goto(start);
       await expect(composer).toBeEnabled();
       await expect(composer).toHaveValue("");
+      await page.getByRole("button", { name: "Recent chats", exact: true }).click();
       await page.getByRole("link", { name: question }).click();
       await expect(composer).toHaveValue(question);
     }
@@ -339,6 +342,7 @@ test("Doc accepts engine IDs without RFC version or variant bits", async (t) => 
     return Response.json({}, { status: 404 });
   });
   await page.goto(`${origin}/doc-chats?mode=live`);
+  await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   await page.getByRole("link", { name: question }).click();
   await page.getByLabel("Question for Doc").fill(question);
   await page.getByRole("button", { name: "Send", exact: true }).click();
@@ -526,6 +530,7 @@ test("An unavailable chat keeps the unsent question and other recent chats for t
   await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
   const composer = page.getByLabel("Question for Doc");
   const otherChat = page.getByRole("link", { name: other.title });
+  await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   await expect(otherChat).toBeVisible();
   await composer.fill("An unsent follow-up");
 
@@ -834,3 +839,43 @@ test("Doc identifies refused reply fields and keeps edits", async (t) => {
   await expect(reply).toHaveValue("Edited reply");
   await expect(subject).toHaveValue("Edited subject");
 });
+
+test("Recent chats pages on a phone and opens the chosen conversation", async (t) => {
+  const older = { ...conversation, id: "00000000-0000-4000-8000-000000000003", title: "An older question" };
+  let failOlder = true;
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const url = new URL(request.url);
+    if (url.searchParams.has("before") && failOlder) return Response.json({}, { status: 503 });
+    if (url.pathname === "/api/engine/doc/conversations")
+      return Response.json(
+        url.searchParams.has("before")
+          ? { conversations: [older], next_before: null }
+          : { conversations: [conversation], next_before: id },
+      );
+    return Response.json({ conversation: older, turns: [] });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  await page.getByRole("button", { name: "Recent chats", exact: true }).click();
+  await page.getByRole("button", { name: "Show older chats" }).click();
+  await expect(page.getByRole("status")).toHaveText("Chats couldn’t be loaded.");
+  failOlder = false;
+  await page.getByRole("button", { name: "Retry loading" }).click();
+  await expect(page.getByRole("link", { name: older.title })).toBeVisible();
+  await page.getByRole("link", { name: older.title }).click();
+  await expect(page.getByLabel("Question for Doc")).toBeVisible();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+});
+
+for (const path of [`/doc-chats?id=${id}`, `/doc/conversations/${id}/turns/${id}`]) {
+  test(`An unavailable legacy link offers a new chat: ${path}`, async (t) => {
+    const { page, origin } = await docChatFixture(t, (request) =>
+      new URL(request.url).pathname === "/api/engine/doc/conversations"
+        ? Response.json({ conversations: [], next_before: null })
+        : Response.json({}, { status: 404 }),
+    );
+    await page.goto(`${origin}${path}${path.includes("?") ? "&" : "?"}mode=live`);
+    await expect(page.getByRole("status")).toHaveText("This older conversation wasn't kept");
+    await page.getByRole("link", { name: "New chat" }).click();
+    await expect(page.getByLabel("Question for Doc")).toBeEnabled();
+  });
+}

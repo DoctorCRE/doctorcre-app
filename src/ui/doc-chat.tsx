@@ -93,12 +93,16 @@ function sessionModule(): Promise<{
 }
 
 const api = "/api/engine/doc";
-const initialId = new URLSearchParams(location.search).get("chat");
+const params = new URLSearchParams(location.search);
+const legacyPath = /^\/doc\/conversations\/([^/]+)\/turns\/([^/]+)$/.exec(location.pathname);
+const legacyLink = params.has("id") || Boolean(legacyPath);
+const initialId = legacyPath?.[1] ?? params.get("id") ?? params.get("chat");
 const statusText = {
   signIn: "Sign in again to open your chats.",
   loadFailed: "Chats couldn’t be loaded.",
   sendFailed: "The question couldn’t be sent. Try again.",
   unavailable: "Conversation unavailable",
+  older: "This older conversation wasn't kept",
 };
 const stateText = {
   queued: "Doc is waiting.",
@@ -109,9 +113,10 @@ const stateText = {
 
 function chatHref(id: string | null) {
   const query = new URLSearchParams(location.search);
+  query.delete("id");
   if (id) query.set("chat", id);
   else query.delete("chat");
-  return location.pathname + (query.size ? `?${query}` : "");
+  return "/doc-chats" + (query.size ? `?${query}` : "");
 }
 
 function conversationPath(id: string) {
@@ -390,6 +395,9 @@ function ProposalEditor({
 function DocChat() {
   const [id, setId] = useState(initialId);
   const [recent, setRecent] = useState<Conversation[]>([]);
+  const [nextBefore, setNextBefore] = useState<string | null>(null);
+  const [showRecent, setShowRecent] = useState(false);
+  const [olderFailed, setOlderFailed] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [question, setQuestion] = useState("");
   const privateDraft = useRef<((field: DraftField, id: string | null) => TextDraft) | null>(null);
@@ -428,7 +436,7 @@ function DocChat() {
   const showUnavailable = useCallback(() => {
     setTurns([]);
     setReady(false);
-    setStatus("unavailable");
+    setStatus(legacyLink ? "older" : "unavailable");
   }, []);
 
   const run = useCallback(
@@ -457,9 +465,10 @@ function DocChat() {
   const load = useCallback(
     async (chatId: string | null) => {
       await run("load", async () => {
-        const { conversations } = await docFetch("/conversations", conversationList);
+        const { conversations, next_before } = await docFetch("/conversations", conversationList);
         if (retired.current) return;
         setRecent(conversations);
+        setNextBefore(next_before);
         if (chatId) {
           const { turns: saved } = await docFetch(conversationPath(chatId), conversationDetail);
           if (retired.current) return;
@@ -483,6 +492,7 @@ function DocChat() {
       privateDraft.current = null;
       setId(null);
       setRecent([]);
+      setNextBefore(null);
       setTurns([]);
       setQuestion("");
       setPendingAsk(null);
@@ -532,6 +542,22 @@ function DocChat() {
     };
   }, [id, waitingTurnId, showUnavailable]);
 
+  function loadOlder() {
+    if (!nextBefore) return;
+    void run("load", async () => {
+      try {
+        const page = await docFetch(`/conversations?before=${encodeURIComponent(nextBefore)}`, conversationList);
+        if (retired.current) return;
+        setRecent((rows) => [...rows, ...page.conversations]);
+        setNextBefore(page.next_before);
+        setOlderFailed(false);
+      } catch (error) {
+        setOlderFailed(true);
+        throw error;
+      }
+    });
+  }
+
   function send(ask: Ask) {
     void run("send", async () => {
       setPendingAsk(ask);
@@ -567,7 +593,15 @@ function DocChat() {
         </nav>
       </header>
       <div className="doc-chat__layout">
-        <aside className="doc-chat__recent" aria-labelledby="docRecent">
+        <button
+          className="btn doc-chat__recent-toggle"
+          type="button"
+          aria-expanded={showRecent}
+          onClick={() => setShowRecent(!showRecent)}
+        >
+          {showRecent ? "Back to conversation" : "Recent chats"}
+        </button>
+        <aside className={`doc-chat__recent${showRecent ? " doc-chat__recent--open" : ""}`} aria-labelledby="docRecent">
           <h2 id="docRecent">Recent chats</h2>
           <ul>
             {recent.map((chat) => (
@@ -579,6 +613,11 @@ function DocChat() {
             ))}
           </ul>
           {ready && recent.length === 0 && <p>No conversations yet</p>}
+          {nextBefore && (
+            <button className="btn" type="button" disabled={busy} onClick={loadOlder}>
+              Show older chats
+            </button>
+          )}
         </aside>
         <section aria-label="Conversation">
           <ol className="doc-chat__turns" aria-live="polite">
@@ -626,7 +665,12 @@ function DocChat() {
           </p>
           <div className="doc-chat__actions">
             {!pendingAsk && status === "loadFailed" && (
-              <button className="btn" type="button" disabled={busy} onClick={() => void load(id)}>
+              <button
+                className="btn"
+                type="button"
+                disabled={busy}
+                onClick={() => (olderFailed ? loadOlder() : void load(id))}
+              >
                 Retry loading
               </button>
             )}
@@ -652,8 +696,8 @@ function DocChat() {
               id="docQuestion"
               rows={3}
               value={question}
-              disabled={(!ready && status !== "unavailable") || !!pendingAsk}
-              readOnly={status === "unavailable"}
+              disabled={(!ready && status !== "unavailable" && status !== "older") || !!pendingAsk}
+              readOnly={status === "unavailable" || status === "older"}
               onChange={(event) => {
                 const value = event.currentTarget.value;
                 privateDraft.current?.("doc-question", id).write(value);
