@@ -38,14 +38,12 @@
 .app-shell-brand svg .app-shell-flow { fill: none; stroke: var(--fg-muted); }
 
 .app-shell-navigation a { color: var(--fg-muted); text-decoration: none; font: var(--font-weight-strong) var(--font-size-1) var(--font-text); }
-.app-shell-navigation .nav-badge { display: inline-grid; place-items: center; min-width: 19px; height: 19px; border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
+.app-shell-navigation .nav-badge:not([hidden]) { display: inline-grid; place-items: center; min-width: 19px; height: 19px; border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
 
 .app-shell-more-list:not([hidden]) { display: grid; gap: 2px; padding: var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-3); }
-.app-shell-more-list a { display: flex; align-items: center; padding: var(--space-2) var(--space-3); border-radius: var(--radius-2); transition: background-color var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out); }
+.app-shell-more-list a { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-2); transition: background-color var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out); }
 @media (hover: hover) { .app-shell-more-list a:hover { background: var(--surface-3); color: var(--fg); } }
 .app-shell-more-list a[aria-current="page"] { background: var(--surface-3); color: var(--fg); }
-.app-shell-more-section { display: grid; align-content: start; gap: 2px; }
-.app-shell-more-group { padding: var(--space-2) var(--space-3) var(--space-1); color: var(--fg-quiet); font: var(--font-weight-regular) var(--font-size-1) var(--font-text); }
 .app-shell-navigation, .app-shell-more-list { scrollbar-width: thin; scrollbar-color: var(--hairline-strong) transparent; }
 
 .app-shell-search { display: grid; place-items: center; border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); color: var(--fg-muted); background: transparent; transition: background-color var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out); }
@@ -123,7 +121,7 @@ body.has-app-layout { padding: 0 0 var(--layout-bottom) var(--layout-rail) !impo
 .app-shell-navigation > a[aria-current=page], .app-shell-more-current { background: var(--surface-3); color: var(--fg); }
 .app-shell-navigation > a[aria-current=page]::before, .app-shell-more-current::before { content: ""; position: absolute; left: calc(-1 * var(--space-2)); top: 10px; bottom: 10px; width: 2px; border-radius: 2px; background: var(--fg); }
 .app-shell-more { margin: 0; position: relative; }
-.app-shell-more-list { position: fixed !important; left: calc(var(--layout-rail) + 8px); top: var(--space-4); right: auto !important; bottom: auto; min-width: 0 !important; width: min(570px, calc(100vw - 96px)); max-height: calc(100dvh - 75px); grid-template-columns: repeat(3, minmax(0, 1fr)) !important; overflow: auto; background: var(--surface-2); box-shadow: var(--shadow-overlay); z-index: 1200; }
+.app-shell-more-list { position: fixed !important; left: calc(var(--layout-rail) + 8px); top: var(--space-4); right: auto !important; bottom: auto; min-width: 0 !important; width: min(380px, calc(100vw - 96px)); max-height: calc(100dvh - 75px); grid-template-columns: repeat(2, minmax(0, 1fr)) !important; overflow: auto; background: var(--surface-2); box-shadow: var(--shadow-overlay); z-index: 1200; }
 .app-shell-more-list[hidden] { display: none !important; }
 .app-shell-more-list a { width: auto; min-height: var(--touch); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-regular); white-space: normal; }
 .app-shell-more-list .app-shell-nav-label { position: static; width: auto; height: auto; clip-path: none; }
@@ -411,6 +409,11 @@ body.report-shell { padding-left: var(--layout-rail); padding-bottom: 34px; }
   .app-shell-header { overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
   .app-shell-brand, .app-shell-navigation > a, .app-shell-more-toggle, .app-shell-search { flex-shrink: 0; }
   .app-shell-menu { flex: 1 0 auto !important; min-height: auto; }
+}
+
+@media (max-width: 360px) {
+  .app-shell-header { padding-inline: var(--space-1) !important; }
+  .app-shell-navigation > a, .app-shell-more-toggle { padding-inline: 0 !important; }
 }
 
 .app-shell-control[hidden] { display: none; }

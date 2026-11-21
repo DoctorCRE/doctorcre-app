@@ -53,15 +53,16 @@ test("built report uses only report-adapter asset routes and includes the shared
   }
 });
 
-test("the shared navigation has one stable set of destinations, including every secondary page", async () => {
-  const { appShellMarkup } = await import("../js/navigation.js");
+test("the shared navigation has one stable set of destinations, including every partner destination", async () => {
+  const { appShellMarkup, activeDestination } = await import("../js/navigation.js");
   for (const route of Object.keys(routes)) {
     const html = appShellMarkup(route);
     const labels = [...html.matchAll(/data-app-nav-item[^>]*aria-label="([^"]+)"/g)].map((match) => match[1]);
     assert.deepEqual(labels, expected, `${route}: same order and items`);
-    assert.match(html, />Project activity<\/a>/);
     assert.doesNotMatch(html, />Agent (?:Room|Queue)<\/a>/);
-    assert.equal((html.match(/aria-current="page"/g) || []).length, ["/calendar", "/client-portal"].includes(route) ? 0 : 1, `${route}: one active destination or utility when included in navigation`);
+    const current = navigationItems.some(item => item.href === activeDestination(route))
+      || ["/search", "/doc-activity"].includes(route);
+    assert.equal((html.match(/aria-current="page"/g) || []).length, Number(current), `${route}: current when present in navigation`);
   }
 });
 

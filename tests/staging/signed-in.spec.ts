@@ -5,7 +5,7 @@ const screens = [
   { name: "Tours", path: "/tours", title: "Tours · DoctorCRE", more: false },
   { name: "Local Deals", path: "/deals", title: "Deals · DoctorCRE", more: false },
   { name: "Vendors", path: "/vendors", title: "Vendors · DoctorCRE", more: false },
-  { name: "Control Room", path: "/control-room", title: "Control Room · DoctorCRE", more: false },
+  { name: "Clients", path: "/clients", title: "Clients · DoctorCRE", more: false },
   { name: "Relationships", path: "/relationships", title: "Relationships · DoctorCRE", more: true },
   { name: "Invoices", path: "/invoices", title: "Invoices · DoctorCRE", more: true },
   { name: "Home", path: "/", title: "Home · DoctorCRE", more: false },

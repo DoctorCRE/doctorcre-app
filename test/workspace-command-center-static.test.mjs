@@ -21,23 +21,19 @@ test("workspace surfaces share navigation while the client portal mounts its ded
     const nav = appShellMarkup(route);
     assert.equal((nav.match(/data-app-nav-item/g) || []).length, navigationItems.length, `${route}: same destinations`);
   }
-  assert.deepEqual(navigationItems.filter(item => !item.group).map(({ label }) => label),
-    ["Local Deals", "Home", "Leads", "Tours", "Vendors", "Control Room"]);
+  assert.deepEqual(navigationItems.filter(item => !item.secondary).map(({ label }) => label),
+    ["Local Deals", "Home", "Leads", "Clients", "Calendar", "Tours", "Vendors"]);
 });
 
 test("People offers both directories in the shared shell", () => {
-  assert.match(appShellMarkup("/clients"), /href="\/clients" aria-current="page">Clients<\/a>/);
+  assert.match(appShellMarkup("/clients"), /href="\/clients" aria-current="page">.*?Clients<\/span><\/a>/);
   assert.match(appShellMarkup("/vendors"), /href="\/vendors" aria-current="page">.*?Vendors<\/span><\/a>/);
 });
 
-test("More keeps Updates, Operations and Reference in stable groups", () => {
+test("More includes workspace pages and updates", () => {
   const nav = appShellMarkup("/");
-  for (const group of ["Updates", "Operations", "Reference"]) {
-    assert.match(nav, new RegExp(`app-shell-more-group[^>]*>${group}<`));
-  }
-  for (const route of ["/updates", "/doc-chats", "/work-requests", "/all-work", "/incidents", "/control-room/progress/work", "/design-lab", "/status"]) {
+  for (const route of ["/updates", "/calls", "/relationships", "/invoices", "/leases"]) {
     assert.match(nav, new RegExp(`href="${route}"`));
   }
   assert.match(nav, /href="\/search" aria-label="Search"/);
-  assert.match(nav, /aria-label="Doc Chats"[^>]*href="\/doc-chats"/);
 });

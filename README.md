@@ -65,8 +65,8 @@ npx playwright test --project=chromium
 The setup exchanges that secret at staging's `/auth/e2e-session` for the
 synthetic `e2e-joe` account and saves `storageState` under ignored
 `playwright/.auth/`. The Chromium journey visits Home, Leads, Tours, Local Deals,
-Vendors, Control Room, Relationships and Invoices, then reloads Home and checks
-the account menu. It uses the fixed staging origin in `playwright.config.ts`.
+Vendors, Clients, Relationships and Invoices. It reloads each screen and
+checks the account menu. It uses the fixed staging origin in `playwright.config.ts`.
 Keep the secret and saved browser state out of logs and commits. The existing
 fixture suites continue to run separately.
 

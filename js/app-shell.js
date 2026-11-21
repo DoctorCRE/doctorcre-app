@@ -45,16 +45,12 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
       opening = true;
       const opener = root.activeElement instanceof HTMLElement && root.activeElement !== root.body ? root.activeElement : toggle;
       try {
-        const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationFor, routeEntries }, { createClient }] = await Promise.all([
+        const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationFor, switcherUtilityPages }, { createClient }] = await Promise.all([
           import('./ui-quick-switcher.generated.js'), import('./routes.js'), import('./client.js'),
         ]);
         if (retired) return;
         const boot = resolveDealroomBoot(location);
-        const pages = [...navigationFor(root)];
-        for (const [href] of routeEntries) {
-          if (href.includes(':') || pages.some(page => page.href === href)) continue;
-          pages.push({ href, label: href.slice(1).split(/[/-]/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') || 'Home' });
-        }
+        const pages = [...navigationFor(root), ...switcherUtilityPages];
         openQuickSwitcher({ opener, pages, read: async (publish) => {
           const client = await createClient(boot.mode, boot.options);
           return readQuickSwitcherSources(() => client.getBoard(), () => client.getRelationshipNetwork(), switcherInboxReader(createMcpRequests(), boot.mode === "fixture"), publish);
@@ -95,16 +91,13 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
     const refresh = status.querySelector("#appSyncRefresh");
     const freshness = refresh.parentElement;
     const phone = root.defaultView.matchMedia(TOUCH_LAYOUT);
-    // Four named destinations and More fill the phone bar; the rest move into More.
+    // Tours and Vendors move into More to fit the phone bar.
     const moreToggle = host.querySelector(".app-shell-more-toggle"), moreList = host.querySelector(".app-shell-more-list");
-    const overflow = ["/vendors", "/control-room"].map(href => host.querySelector(`[data-app-nav-item][href$="${href}"]`)).filter(Boolean);
-    const overflowSection = root.createElement("div");
-    overflowSection.className = "app-shell-more-section";
-    overflowSection.innerHTML = '<span class="app-shell-more-group">Pages</span>';
+    const overflow = ["/tours", "/vendors"].map(href => host.querySelector(`[data-app-nav-item][href$="${href}"]`)).filter(Boolean);
     const moreCurrent = moreToggle.classList.contains("app-shell-more-current");
     const arrangeNavigation = () => {
-      if (phone.matches) { overflowSection.append(...overflow); moreList.prepend(overflowSection); }
-      else { moreToggle.parentElement.before(...overflow); overflowSection.remove(); }
+      if (phone.matches) moreList.prepend(...overflow);
+      else moreToggle.parentElement.before(...overflow);
       moreToggle.classList.toggle("app-shell-more-current", moreCurrent || phone.matches && overflow.some(link => link.hasAttribute("aria-current")));
     };
     const arrangeControls = () => {

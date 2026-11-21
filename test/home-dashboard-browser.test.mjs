@@ -232,10 +232,7 @@ test('Home desktop and phone show flags, visual agenda, ranked leads and wide en
     await page.locator('#homeLeads:not([hidden])').waitFor();
     await page.waitForFunction(() => document.querySelector('#refreshHome').getAttribute('aria-busy') === 'false');
     assert.equal(await page.locator('#homeControl, .home-radar').count(), 0);
-    // On a phone Control Room waits in More; the bar keeps Home, Leads, Tours and Deals.
-    if (width <= 760) await page.getByLabel('More', { exact: true }).click();
-    assert.equal(await page.getByRole('link', { name: 'Control Room', exact: true }).count(), 1);
-    if (width <= 760) await page.keyboard.press('Escape');
+    assert.equal(await page.getByRole('link', { name: 'Control Room', exact: true }).count(), 0);
     assert.equal(await page.locator('.home-week .home-day').count(), 7);
     assert.equal(await page.getByRole('region', { name: 'Calendar', exact: true }).getByRole('link', { name: 'Open Calendar', exact: true }).getAttribute('href'), '/calendar');
     assert.equal(await page.locator('.home-lead').count(), 3);

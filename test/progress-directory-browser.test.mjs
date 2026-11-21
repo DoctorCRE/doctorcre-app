@@ -65,15 +65,14 @@ test("freshness has an exact 24h boundary and unknown timestamps never look fres
   assert.deepEqual(boardDirectory({ schema: "progress-board-directory.v1", boards }).map(b => b.board_id), ["carr-v5", "demo-project"]);
 });
 
-test("desktop and phone navigation reach Progress through More", async t => {
+test("desktop and phone still load the direct System Job Board URL", async t => {
   for (const width of [1440, 390, 320]) await t.test(String(width), async t => {
-    const { page, errors } = await open(t, { width, path: "/control-room" });
+    const { page, errors } = await open(t, { width, path: "/control-room/progress" });
 
     await page.locator(".app-shell-more-toggle").click();
     const selector = '[data-app-nav-item][aria-label="System Job Board"]';
-    assert.equal(await page.locator(selector).isVisible(), true);
-    await page.locator(selector).click();
-    await page.waitForURL("**/control-room/progress?mode=live");
+    assert.equal(await page.locator(selector).count(), 0);
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.querySelector("#board-title")?.textContent === "System Job Board");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.deepEqual(errors, []);

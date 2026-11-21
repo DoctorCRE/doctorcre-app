@@ -15,7 +15,7 @@ for (const width of [1440, 390]) {
     t.after(() => server.close());
     const browser = await chromium.launch();
     t.after(() => browser.close());
-    await mkdir("/tmp/WR591.S1.J1-shots", { recursive: true });
+    await mkdir("out/test-artifacts/deals-first-navigation", { recursive: true });
     for (const theme of ["light", "dark"] as const) {
       const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme: theme });
       try {
@@ -47,7 +47,7 @@ for (const width of [1440, 390]) {
         assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
         const links = page.locator(".app-shell-navigation > a");
         const expected = navigationItems.filter(
-          (item) => !item.group && (width > 760 || !["/vendors", "/control-room"].includes(item.href)),
+          (item) => !item.secondary && (width > 760 || !["/tours", "/vendors"].includes(item.href)),
         );
         assert.equal(await links.first().getAttribute("href"), "/deals", "Deals is the first ordinary destination");
         assert.deepEqual(
@@ -76,10 +76,10 @@ for (const width of [1440, 390]) {
           "page",
         );
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-        await page.screenshot({ path: `/tmp/WR591.S1.J1-shots/${width}-${theme}.png` });
+        await page.screenshot({ path: `out/test-artifacts/deals-first-navigation/${width}-${theme}.png` });
         await page.getByRole("button", { name: "More", exact: true }).click();
         const more = navigationItems.filter(
-          (item) => item.group || (width === 390 && ["/vendors", "/control-room"].includes(item.href)),
+          (item) => item.secondary || (width === 390 && ["/tours", "/vendors"].includes(item.href)),
         );
         assert.deepEqual(
           await page

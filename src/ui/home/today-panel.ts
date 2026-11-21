@@ -201,11 +201,12 @@ export async function mountHomeTodayPanel(
       return false;
     }
     const partial = section.state === "partial";
-    const last = instant(section.observed_at) ? ` Last synced ${central(section.observed_at, true)}.` : "";
+    const last =
+      partial && instant(section.observed_at) ? status(`Last synced ${central(section.observed_at, true)}.`) : "";
     paint(
       schedule,
       [
-        partial ? status(`Check Outlook for calendar changes.${last}`) : "",
+        last,
         section.items.length
           ? section.items.map(meetingRow).join("")
           : status(partial ? "No meetings found in the last calendar update." : "No meetings today."),
