@@ -9,6 +9,7 @@ import vm from "node:vm";
 import { observeDocRead, selectDocRecord, setDocFilters } from "../js/doc-context.js";
 import { createDocContext } from "../js/doc-context-model.js";
 import { createLiveClient } from "../js/live-client.js";
+import { usesLegacyRelationScope, validSearchRecords } from "../js/search-model.js";
 import { createSystemWorkClient } from "../js/system-work-client.js";
 import { isHumanRef } from "../js/system-work-view.js";
 import { mountPrefs } from "../js/shell.js";
@@ -309,7 +310,7 @@ test("Dot 11: a blocked second rename cannot replace the retained recovery inten
 
 function searchHarness() {
   const view={query:"Alpha",kinds:[]};const replies=new Map();
-  const globals={view,client:{find:args=>replies.get(args.q),findAndCatchUp:async()=>({})},queryIsSendable:q=>q.trim().length>0,render:noop,pushAddress:noop,searchReads:createCurrentRead(),validSearchPayload:()=>true,validCatchUpPayload:()=>true,buildFindArguments:q=>({q}),buildFindAndCatchUpArguments:q=>({q}),FIND_CATCH_UP_LIMIT_DEFAULT:10,classifySearchFailure:()=>"unknown",refusalDetail:()=>({}),parseSearchAddress:query=>({query:new URLSearchParams(query).get("q")||"",kinds:[],present:true}),location:{search:"?q=Alpha"},history:{pushState:noop,replaceState:noop},searchAddress:()=>""};
+  const globals={view,client:{find:args=>replies.get(args.q)},queryIsSendable:q=>q.trim().length>0,render:noop,pushAddress:noop,searchReads:createCurrentRead(),usesLegacyRelationScope,validSearchRecords,validSearchPayload:()=>true,buildFindArguments:q=>({q}),classifySearchFailure:()=>"unknown",parseSearchAddress:query=>({query:new URLSearchParams(query).get("q")||"",kinds:[],present:true}),location:{search:"?q=Alpha"},history:{pushState:noop,replaceState:noop},searchAddress:()=>""};
   const h=handlers("js/search.js","async function read(","/* ------------------------------------------------------------------ the wiring",globals,["read","restoreFromAddress"]);
   return {h,view,replies};
 }

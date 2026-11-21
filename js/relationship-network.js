@@ -47,7 +47,7 @@ export function mountRelationshipNetwork({
   focus = params.get("node");
   const step = params.get("step");
   let stepId = focus?.startsWith("party:") && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(step ?? "") ? step : null;
-  let openLinkedStep = Boolean(stepId);
+  let openLinkedRecord = Boolean(focus);
   const address = () => {
     const url = new URL(window.location.href);
     for (const [key, value] of Object.entries({
@@ -281,7 +281,7 @@ export function mountRelationshipNetwork({
   };
   const invalidate = () => {
     snapshot = null;
-    if (!openLinkedStep) {
+    if (!openLinkedRecord) {
       focus = null;
       stepId = null;
     }
@@ -308,9 +308,9 @@ export function mountRelationshipNetwork({
       $("networkNotice").hidden = true;
       $("networkUpdated").textContent = updatedLabel(next.observed_at);
       render();
-      if (openLinkedStep && focus) open(focus);
+      if (openLinkedRecord && snapshot.nodes.some(node => node.id === focus)) open(focus);
       else dialog.update(next);
-      openLinkedStep = false;
+      openLinkedRecord = false;
     } catch (error) {
       if (disposed || seq !== epoch) return;
       const expired = [401, 403].includes(error.status);

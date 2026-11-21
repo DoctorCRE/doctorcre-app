@@ -39,26 +39,20 @@ a.tab[aria-current="page"] { border-color: var(--hairline-strong); background: v
   main.shell { padding-bottom: 96px; }
 }
 
-/* V5-UX-B05 Search tab: one column at 360 px. A result is the shared
- * work-item row, a chip is the shared chip, a state is the state-block. */
-.search-results { display: grid; gap: var(--space-3); }
-.search-results > .card + .card { margin-top: 0; }
-.search-row .work-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); color: var(--fg-muted); }
-.search-row .chip-list { margin-top: var(--space-2); }
-.search-row[data-retired="true"] h3 { color: var(--fg-muted); }
-
-/* A ref is an address the record layer prints, so it is set as one. */
-.ref-chip { padding: 2px var(--space-2); border: 1px solid var(--hairline-strong); border-radius: var(--radius-1); color: var(--fg-muted); font-family: var(--font-mono); font-size: var(--font-size-1); }
+.search-results { display: grid; gap: var(--space-4); padding-block: var(--space-4); }
+.search-results:empty { display: none; }
+.search-group-title { font-size: var(--font-size-1); color: var(--fg-muted); margin: 0 0 var(--space-1); }
+.search-row { padding: var(--space-2) 0; border-bottom: 1px solid var(--hairline); overflow-wrap: anywhere; }
+.search-row h3, .search-row p { margin: 0; }
+.search-row h3 a { display: inline-flex; align-items: center; min-height: var(--touch); }
+.search-row .work-meta { color: var(--fg-muted); }
+.search-deal-links { margin-top: var(--space-2); padding-inline-start: var(--space-4); }
 
 #searchChips .chip, #savedViewList .chip, .saved-view .chip { min-height: var(--touch); display: inline-flex; align-items: center; }
 #searchChips .chip[aria-pressed="false"] { color: var(--fg-muted); border-style: dashed; }
 .saved-view { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .quiet { color: var(--fg-quiet); }
 #searchForm .row-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-3); }
-
-@media (max-width: 640px) {
-  .search-row .work-meta { flex-direction: column; gap: var(--space-1); }
-}
 
 /* V5-UX-B06 Charts tab: a table first, a bar second.
  *  1. The row is the control: a full-width pick over the touch floor.
@@ -107,16 +101,8 @@ a.tab[aria-current="page"] { border-color: var(--hairline-strong); background: v
   .chart-bar-cell, .chart-bar-head { display: none; }
 }
 
-/* QA batch 1: on a phone the first candidate and the detailed results share
- * the first screen. The candidate list scrolls inside its own card. */
 @media (max-width: 640px) {
   [data-search="ask"] { padding: var(--space-4); }
-  [data-search="ask"] .card-heading { margin-bottom: var(--space-1); }
   [data-search="ask"] .field { margin-bottom: var(--space-2); }
-  #searchState[data-state^="disamb"] { display: none; }
-  #searchCandidates { padding: var(--space-3); }
-  #searchCandidates > .work-list { max-height: min(30vh, 220px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--hairline-strong) transparent; }
-  #searchCandidates > .work-list::-webkit-scrollbar { width: 8px; background: transparent; }
-  #searchCandidates > .work-list::-webkit-scrollbar-thumb { border-radius: 8px; background: var(--hairline-strong); }
 }
 #searchChips .chip:focus { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
