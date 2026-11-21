@@ -11,7 +11,7 @@ import { engagementWriterFor } from './prospect-engagement.mjs';
 import { showToast } from './toast.js';
 import { renderDealVendors } from './deal-vendors.js';
 import { openEngineClientWebsite, renderClientPortalLink, saveEngineClientWebsite } from './client-portal-link.js';
-import { sessionFetch } from './private-session.js';
+import { clearPrivateTextDrafts, privateTextDraft, sessionFetch } from './private-session.js';
 import { pageDocContext, selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createCommandDock } from './command-dock.js';
 import { readWithDeadline } from './auto-refresh.mjs';
@@ -1166,6 +1166,7 @@ const requirementFields = [['use','Use'],['size','Size'],['location','Location']
 let draftActor = null;
 function bindDraftActor(actor) {
   if (draftActor === actor) return;
+  clearPrivateTextDrafts(window, draftActor);
   draftActor = actor;
   updateDrafts.clear();
   requirementDrafts.clear();
@@ -1175,7 +1176,9 @@ function bindDraftActor(actor) {
   }
 }
 function updateKey(id) { return `deal-update:${state.selfActor}:${id}`; }
+function updateTextDraft(id) { return privateTextDraft(window, draftActor, 'deal-update', id); }
 function discardUpdate(id) {
+  updateTextDraft(id).write('');
   updateDrafts.delete(id);
   if (updateDraft?.id === id) updateDraft = null;
 }
@@ -1226,7 +1229,7 @@ function syncUpdateForm() {
   if (requirementFieldset) requirementFieldset.disabled = !state.selfActor;
   if (!updateDraft || updateDraft.id !== state.panelDeal) {
     const reviewed = reviewedDealStep(state.panelDetail);
-    updateDraft = updateDrafts.get(state.panelDeal) || {id:state.panelDeal,text:'', step:noteText(reviewed.next_step), date:editableStepDate(reviewed), reviewed, noteSaved:false};
+    updateDraft = updateDrafts.get(state.panelDeal) || {id:state.panelDeal,text:updateTextDraft(state.panelDeal).read(), step:noteText(reviewed.next_step), date:editableStepDate(reviewed), reviewed, noteSaved:false};
     updateDrafts.set(state.panelDeal, updateDraft);
   }
   form.elements.text.value = pending ? pending.request.text : updateDraft.text;
@@ -1250,7 +1253,7 @@ function syncUpdateForm() {
   const discard = form.querySelector('[data-discard-update]');
   discard.hidden = !(pending || pendingStep || updateDraft.text || changed);
   discard.disabled = Boolean(pending || pendingStep);
-  if (!pending) $('detailUpdateStatus').textContent = updateDraft.noteSaved ? updateDraft.message || 'Update added; next step still needs to be saved.' : updateDraft.text ? 'Unsent draft · kept while this page is open' : updateDraft.message || '';
+  if (!pending) $('detailUpdateStatus').textContent = updateDraft.noteSaved ? updateDraft.message || 'Update added; next step still needs to be saved.' : updateDraft.text ? 'Unsent draft' : updateDraft.message || '';
   if (pending) $('detailUpdateStatus').textContent = pending.message || 'Saving update…';
 }
 function validateDetail(detail, id) {
@@ -1310,6 +1313,7 @@ async function saveUpdate(id) {
       }
       if (actor !== state.selfActor || draftActor !== actor) return;
       draft.noteSaved = true;
+      updateTextDraft(id).write('');
     }
     if (changed) {
       if (!pendingStep && !validateUpdateStep(draft, form)) return;
@@ -2715,7 +2719,11 @@ function wire() {
       Object.assign(draft, Object.fromEntries(new FormData($('requirementEmailForm'))));
       requirementDrafts.set(state.panelDeal, draft);
     }
-    if (e.target.closest('#detailUpdateForm') && updateDraft && ['text','step','date'].includes(e.target.name)) { updateDraft[e.target.name] = e.target.value; syncUpdateForm(); }
+    if (e.target.closest('#detailUpdateForm') && updateDraft && ['text','step','date'].includes(e.target.name)) {
+      updateDraft[e.target.name] = e.target.value;
+      if (e.target.name === 'text') updateTextDraft(updateDraft.id).write(updateDraft.text);
+      syncUpdateForm();
+    }
   });
   $('panelBody').addEventListener('change', async e => {
     if (e.target.id === 'timelineType') {

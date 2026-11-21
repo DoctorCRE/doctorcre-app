@@ -166,6 +166,6 @@ export function mountDocPresence({ document: root = document, window: win = wind
   root.addEventListener('doctorcre:open-doc', open);
   const brief = showMorningBrief ? mountMorningBrief({ document:root, window:win, getClient:ensureClient, intervalMs }) : null;
   const dispose = () => { disposed = true; ++readEpoch; approval?.dispose(); actionGate?.dispose(); auto.dispose(); brief?.dispose(); command.dispose(); stopClosed(); placement.disconnect(); phone?.removeEventListener('change', placePresence); unsubscribe(); tick.dispose(); root.removeEventListener('doctorcre:open-doc',open); };
-  win.addEventListener('pagehide', event => { if (!event.persisted) dispose(); });
+  win.addEventListener('pagehide', dispose);
   return { open, refresh:auto.refresh, dispose };
 }

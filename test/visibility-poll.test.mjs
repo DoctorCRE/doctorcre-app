@@ -295,11 +295,7 @@ test('local repaint resumes immediately after an idle hidden return without waki
   assert.equal(ticks,1,'visibility return repaints local labels immediately, even after idle');
   assert.equal(active.size,1,'one local interval resumes');
   fire();assert.equal(ticks,2,'the next minute repaints again');
-  p.window.dispatchEvent(new Event('pagehide'));p.advance(60*60_000);
-  p.window.dispatchEvent(Object.assign(new Event('pageshow'),{persisted:true}));await settle();
-  assert.equal(ticks,3,'BFCache return also repaints when no visibility event cleared the old interval');
-  assert.equal(active.size,1,'a restored interval replaces the frozen interval');
-  p.hide();fire();assert.equal(ticks,3);assert.equal(active.size,0);
+  p.hide();fire();assert.equal(ticks,2);assert.equal(active.size,0);
   assert.equal(reads,0,'local repaint cannot renew network presence or bypass its idle stop');
-  local.dispose();network.dispose();p.show();await settle();assert.equal(ticks,3);
+  local.dispose();network.dispose();p.show();await settle();assert.equal(ticks,2);
 });

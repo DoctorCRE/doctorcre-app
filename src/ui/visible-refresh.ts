@@ -1,4 +1,7 @@
-export function refreshWhileVisible(refresh: (signal: AbortSignal) => Promise<void>, { immediate = true } = {}) {
+export function refreshWhileVisible(
+  refresh: (signal: AbortSignal) => Promise<void> | Promise<"stop" | undefined>,
+  { immediate = true, delay = () => 5000 }: { immediate?: boolean; delay?: (visibleMs: number) => number } = {},
+) {
   let controller: AbortController | undefined;
   let timer: number | undefined;
 
@@ -16,14 +19,15 @@ export function refreshWhileVisible(refresh: (signal: AbortSignal) => Promise<vo
     if (controller) return;
     controller = new AbortController();
     const { signal } = controller;
+    const visibleSince = performance.now();
     async function read() {
       if (signal.aborted || document.visibilityState !== "visible") return;
-      await refresh(signal);
-      if (!signal.aborted) schedule();
+      const result = await refresh(signal);
+      if (!signal.aborted && result !== "stop") schedule();
     }
     function schedule() {
       // eslint-disable-next-line no-restricted-syntax -- One pending timeout per visible view, cleared on hide or unmount.
-      timer = window.setTimeout(read, 5000);
+      timer = window.setTimeout(read, delay(performance.now() - visibleSince));
     }
     if (immediate) void read();
     else schedule();

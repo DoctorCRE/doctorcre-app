@@ -13,7 +13,7 @@ const INPUT_EVENTS = ["pointerdown", "pointermove", "keydown", "touchstart", "to
 
 // Scroll events are also dispatched for scrollIntoView and restored scroll.
 // Pointer, touch, wheel and keyboard input establish user presence instead.
-export function listenForHumanInput(document, callback) {
+function listenForHumanInput(document, callback) {
   const options = { capture: true, passive: true };
   const input = event => { if (event.isTrusted === true) callback(event); };
   // eslint-disable-next-line no-restricted-syntax -- Registers only the finite INPUT_EVENTS list; trusted input renews presence, and this callback performs 0 reads.
@@ -21,7 +21,7 @@ export function listenForHumanInput(document, callback) {
   return () => INPUT_EVENTS.forEach(type => document?.removeEventListener?.(type, input, options));
 }
 
-export function watchPresence({ document, window, onResume, onWake, onInput = () => {}, idleMs = IDLE_CUTOFF_MS, now = () => Date.now() }) {
+export function watchPresence({ document, onResume, onWake, onInput = () => {}, idleMs = IDLE_CUTOFF_MS, now = () => Date.now() }) {
   let lastInput = now();
   const hidden = () => document.visibilityState === "hidden";
   const idle = () => now() - lastInput >= idleMs;
@@ -32,12 +32,12 @@ export function watchPresence({ document, window, onResume, onWake, onInput = ()
     if (waking) onWake();
     else if (!hidden()) onInput();
   });
-  const resume = mountReadOnResume({ document, window, refresh: () => { if (active()) return onResume(); } });
+  const resume = mountReadOnResume({ document, refresh: () => { if (active()) return onResume(); } });
   return { active, dispose() { resume.dispose(); stopInput(); } };
 }
 
 // All automatic clocks and lifecycle signals share one attempt counter and
-// one next-read deadline. Only trusted input can grant another presence period.
+// one next-read deadline. Only trusted input renews presence.
 export function mountVisibilityPoll({
   poll, intervalMs = MIN_POLL_MS, keepAlive = () => false, idleMs, now = () => Date.now(),
   document = globalThis.document, window = globalThis, periodic = true, lifecycle = false, shouldPoll = () => true,
@@ -48,7 +48,7 @@ export function mountVisibilityPoll({
   let timer = null, disposed = false, running = null, attempts = 0, failures = 0, requested = false;
   const asked = () => typeof intervalMs === 'function' ? intervalMs() : intervalMs;
   const delay = () => Math.min(MAX_BACKOFF_MS, (keepAlive() ? asked() : Math.max(MIN_POLL_MS, asked())) * 2 ** Math.max(failures, Math.floor(attempts / 5)));
-  let nextReadAt = periodic ? now() + delay() : now();
+  let nextReadAt = now() + (periodic ? delay() : 0);
   const stop = () => { if (timer !== null) clearTimeout(timer); timer = null; };
   const eligible = () => !disposed && attempts < MAX_POLL_ATTEMPTS && (presence.active() || keepAlive());
   const arm = () => {
@@ -73,20 +73,19 @@ export function mountVisibilityPoll({
   const restartFromInput = callback => {
     attempts = 0; failures = 0; nextReadAt = now(); return run(false, callback, true);
   };
-  const presence = watchPresence({ document, window, idleMs, now,
-    onResume: () => run(false, onResume, true),
+  const lifecycleRead = () => run(false, onResume, true);
+  const presence = watchPresence({ document, idleMs, now,
+    onResume: lifecycleRead,
     onWake: () => restartFromInput(onWake),
     onInput: () => { if (attempts >= MAX_POLL_ATTEMPTS) restartFromInput(() => {}); } });
   const visibility = () => { if (document.visibilityState === 'hidden' && !keepAlive()) stop(); };
-  const eventRead = () => run(false, undefined, true);
   // eslint-disable-next-line no-restricted-syntax -- Visibility callback will stop the poll timer when hidden; 0 HTTP reads in this listener.
   document.addEventListener('visibilitychange', visibility);
-  const lifecycleRead = () => run(false, onResume, true);
   // eslint-disable-next-line no-restricted-syntax -- Lifecycle dispatches share a max of 20 poll attempts and failure backoff; hidden or 30-minute idle state stops reads, and events never replenish attempts.
   if (lifecycle) { window.addEventListener('online', lifecycleRead); window.addEventListener('focus', lifecycleRead); }
   if (periodic) arm();
   return {
-    refresh: () => run(true), poll: eventRead,
+    refresh: () => run(true), poll: () => run(false, undefined, true),
     revalidate() { const pending = running; onResume(); return pending ? pending.then(() => run(true)) : run(true); },
     dispose() { disposed = true; stop(); presence.dispose(); document.removeEventListener?.('visibilitychange', visibility); window.removeEventListener?.('online', lifecycleRead); window.removeEventListener?.('focus', lifecycleRead); },
   };
@@ -128,7 +127,7 @@ export function mountLocalTicker({ tick, intervalMs, document = globalThis.docum
   };
   const resume = () => { lastActivity = now(); start(true); };
   const input = listenForHumanInput(document, resume);
-  const returned = mountReadOnResume({ document, window, refresh: () => { stop(); resume(); } });
+  const returned = mountReadOnResume({ document, refresh: () => { stop(); resume(); } });
   const visibility = () => { if (document.visibilityState === 'hidden') stop(); };
   // eslint-disable-next-line no-restricted-syntax -- Visibility callback will stop the local ticker when hidden; 0 HTTP reads in this listener.
   document.addEventListener('visibilitychange', visibility);

@@ -1,7 +1,4 @@
 import { createRequestBudget } from './request-budget.mjs';
-import { mountVisibilityPoll } from './visibility-poll.mjs';
-// A browser lifetime belongs to one verified server session. Re-bootstrap in a
-// new document after revocation; never reuse old controllers for a new actor.
 import { resolveDealroomBoot } from './boot-mode.js';
 import { clearPrivateStorage, offlineTourSession, sessionEpoch, SESSION_EPOCH_KEY } from './offline-tour-session.js';
 
@@ -10,6 +7,36 @@ import { clearPrivateStorage, offlineTourSession, sessionEpoch, SESSION_EPOCH_KE
 // which the server refuses once the cookie changes.
 export const SESSION_TRUST_MS = 2 * 60_000;
 const PARTNER_SIGN_IN_HEADER = 'x-doctorcre-partner-sign-in';
+const PRIVATE_DRAFT_PREFIX = 'doctorcre:draft:';
+
+export function privateTextDraft(win, actor, ...scope) {
+  const key = actor ? PRIVATE_DRAFT_PREFIX + JSON.stringify([actor, ...scope]) : null;
+  return {
+    read() {
+      try { return key ? win.sessionStorage.getItem(key) ?? '' : ''; }
+      catch { return ''; }
+    },
+    write(text) {
+      if (!key) return;
+      try {
+        if (text) win.sessionStorage.setItem(key, text);
+        else win.sessionStorage.removeItem(key);
+      } catch { /* The editor still works without storage. */ }
+    },
+  };
+}
+
+export function clearPrivateTextDrafts(win, actor) {
+  if (!actor) return;
+  const actorKey = PRIVATE_DRAFT_PREFIX + JSON.stringify([actor]);
+  const prefix = actorKey.slice(0, -1) + ',';
+  try {
+    const storage = win.sessionStorage;
+    for (const key of Object.keys(storage)) {
+      if (key === actorKey || key.startsWith(prefix)) storage.removeItem(key);
+    }
+  } catch { /* Private storage may be blocked. */ }
+}
 
 export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '', acceptSession = async () => true, anonymousDiagnostics = false, now = () => performance.now() }) {
   let binding = null, generation = 0, revoked = false, checking = null, trusted = null;
@@ -27,13 +54,13 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
     if (startedEpoch !== epoch()) revoke('session-changed');
     if (revoked || ticket !== generation) throw failure();
   }
-  async function verify({ fresh = false } = {}) {
+  async function verify({ fresh = false, waitForBudget = false } = {}) {
     if (revoked) throw failure();
     if (!fresh && trusted && now() - trusted.at < SESSION_TRUST_MS) return trusted;
     if (!fresh && checking) return checking;
     const ticket = generation, startedEpoch = epoch(), startedAt = now();
     const pending = (async () => {
-      const response = await fetchImpl('/auth/session', { credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000) });
+      const response = await fetchImpl('/auth/session', { credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000) }, { waitForBudget });
       const signIn = response.headers.get(PARTNER_SIGN_IN_HEADER);
       engineSessionSeen ||= signIn === 'engine';
       if ([401,403].includes(response.status)) { if (!(anonymousDiagnostics && !binding)) revoke(); throw failure(); }
@@ -46,7 +73,7 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
       if (!await acceptSession(session, engineSessionSeen)) { revoke('session-changed'); throw failure(); }
       current(ticket, startedEpoch);
       binding = next;
-      trusted = { session, at: startedAt, signIn };
+      trusted = { session, at: startedAt, signIn, epoch: startedEpoch };
       return trusted;
     })().finally(() => { if (checking === pending) checking = null; });
     checking = pending;
@@ -57,14 +84,18 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
     async verify(options) { return (await verify(options)).session; },
     get revoked() { return revoked; },
     get engineSignIn() { return !revoked && trusted?.signIn === 'engine'; },
-    async fetch(path, init = {}) {
+    async fetch(path, init = {}, { boundRead = false, waitForBudget = false } = {}) {
       // Writes read the session to scope themselves; that read is a fresh, bound check.
       if (path === '/auth/session') {
-        const { session, signIn } = await verify({ fresh: true });
+        const { session, signIn } = await verify({ fresh: true, waitForBudget });
         return Response.json(session, signIn ? { headers: { [PARTNER_SIGN_IN_HEADER]: signIn } } : undefined);
       }
-      const ticket = generation, startedEpoch = epoch();
-      const { session } = await verify(); current(ticket, startedEpoch);
+      // Bound reads are for URLs whose records belong to the already verified partner.
+      if (boundRead && (!trusted || (init.method ?? 'GET') !== 'GET')) throw failure();
+      const ticket = generation, startedEpoch = boundRead ? trusted.epoch : epoch();
+      current(ticket, startedEpoch);
+      const { session } = boundRead ? trusted : await verify({ waitForBudget });
+      current(ticket, startedEpoch);
       const controller = new AbortController(); active.add(controller);
       const cancel = () => controller.abort();
       init.signal?.addEventListener('abort', cancel, { once: true });
@@ -75,7 +106,7 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
           if (headers.has('x-carr-csrf') && headers.get('x-carr-csrf') !== session.csrf_token) { revoke('session-changed'); throw failure(); }
           headers.set('x-carr-csrf', session.csrf_token);
         }
-        const response = await fetchImpl(path, { ...init, headers, cache: 'no-store', redirect: 'error', signal: controller.signal });
+        const response = await fetchImpl(path, { ...init, headers, cache: 'no-store', redirect: 'error', signal: controller.signal }, { waitForBudget });
         // Even an older read's denial revokes the entire view.
         if ([401,403].includes(response.status)) { revoke(); throw failure(); }
         const bytes = await response.arrayBuffer();
@@ -93,17 +124,35 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
   };
 }
 
-let browserBoundary, browserRequests;
-function browserFetch(path, init) {
+let browserBoundary, browserRequests, browserPause;
+function showBudgetPause(document, notice) {
+  if (!notice) {
+    browserPause?.remove();
+    return;
+  }
+  if (!browserPause) {
+    browserPause = document.createElement('aside');
+    browserPause.setAttribute('role', 'status');
+    browserPause.style.cssText = 'position:fixed;visibility:visible;inset:1rem 1rem auto;z-index:2147483647;padding:1rem;border:1px solid;background:Canvas;color:CanvasText';
+  }
+  browserPause.textContent = notice;
+  if (!browserPause.isConnected) document.body.prepend(browserPause);
+}
+
+function browserFetch(path, init, budgetOptions) {
   if (typeof window === 'undefined' || globalThis !== window || resolveDealroomBoot(window.location).mode !== 'live') return globalThis.fetch(path, init);
-  browserRequests ||= createRequestBudget({ document: window.document, fetchImpl: (...args) => window.fetch(...args) });
-  return browserRequests.fetch(path, init);
+  return (browserRequests ??= createRequestBudget({
+    fetchImpl: (...args) => window.fetch(...args),
+    onPauseChange: notice => showBudgetPause(window.document, notice),
+  })).fetch(path, init, budgetOptions);
 }
 export function privateSession() {
   if (browserBoundary) return browserBoundary;
   if (typeof window === 'undefined' || globalThis !== window || resolveDealroomBoot(window.location).mode !== 'live') return null;
   const win = window;
-  const returnTo = /^\/a\/al1_[A-Za-z0-9_-]{1,120}$/.test(win.location.pathname) ? win.location.pathname : null;
+  const { pathname } = win.location;
+  const returnQuery = /^\/a\/al1_[A-Za-z0-9_-]{1,120}$/.test(pathname) ? `?return_to=${encodeURIComponent(pathname)}` : '';
+  const sessionEndedUrl = '/public-shell/session-ended.html' + returnQuery;
   const initialEpoch = sessionEpoch(win);
   let anonymousDiagnostics = false;
   try { anonymousDiagnostics = win.location.pathname === '/status' && !win.localStorage.getItem('doctorcre-session-binding-v1'); } catch {}
@@ -135,8 +184,7 @@ export function privateSession() {
       const view = win.document.createElement('main');
       const title = win.document.createElement('h1');
       title.textContent = reload ? 'Opening your workspace' : reason === 'signed-out' ? 'Signed out' : 'Session ended';
-      const loginHref = returnTo ? `/auth/login?return_to=${encodeURIComponent(returnTo)}` : '/auth/login';
-      const link = win.document.createElement('a'); link.href = loginHref; link.textContent = 'Sign in again';
+      const link = win.document.createElement('a'); link.href = '/auth/login' + returnQuery; link.textContent = 'Sign in again';
       win.document.title = reload ? title.textContent : 'Session ended';
       view.append(title);
       if (!reload) view.append(link);
@@ -146,57 +194,13 @@ export function privateSession() {
       void cleanup.finally(() => {
         if (win.document !== retiredDocument) return;
         if (reload) win.location.reload();
-        else win.location.replace(returnTo ? `/public-shell/session-ended.html?return_to=${encodeURIComponent(returnTo)}` : '/public-shell/session-ended.html');
+        else win.location.replace(sessionEndedUrl);
       });
     },
   });
-  const paused = win.document.createElement('aside'), refresh = win.document.createElement('button');
-  const fenced = new Map();
-  paused.dataset.sessionRestorePaused = ''; paused.setAttribute('role', 'status');
-  paused.style.cssText = 'position:fixed;inset:1rem 1rem auto;z-index:2147483647;padding:1rem;border:1px solid;background:Canvas;color:CanvasText';
-  refresh.type = 'button'; refresh.textContent = 'Refresh page'; refresh.onclick = () => win.location.reload();
-  paused.append('Updates paused. Showing last loaded data. ', refresh);
-  const renderRestore = unavailable => {
-    if (unavailable && !browserBoundary.revoked) {
-      Array.from(win.document.body.children).forEach(node => {
-        if (node === paused) return;
-        if (!fenced.has(node)) fenced.set(node, node.inert);
-        node.inert = true;
-      });
-      win.document.body.prepend(paused);
-    } else {
-      fenced.forEach((inert, node) => { node.inert = inert; });
-      fenced.clear(); paused.remove();
-    }
-  };
-  let restoreGeneration = 0;
-  const finishRestore = (generation, unavailable) => {
-    if (generation !== restoreGeneration) return;
-    renderRestore(unavailable);
-    win.document.documentElement.style.visibility = '';
-  };
-  const restore = mountVisibilityPoll({ document: win.document, window: win, periodic: false, poll: async () => {
-    const generation = restoreGeneration;
-    try {
-      const session = await browserBoundary.verify({ fresh: true });
-      finishRestore(generation, false);
-      return session;
-    } catch (error) {
-      finishRestore(generation, true);
-      throw error;
-    }
-  } });
   win.addEventListener('storage', event => { if (event.key === SESSION_EPOCH_KEY && sessionEpoch(win) !== initialEpoch) browserBoundary.revoke('session-changed'); });
-  // eslint-disable-next-line no-restricted-syntax -- Restored pages verify once per persisted pageshow before unlocking controls; the document request budget limits the verifier.
-  win.addEventListener('pageshow', event => {
-    if (!event.persisted) return;
-    if (browserBoundary.revoked) { win.location.replace(returnTo ? `/public-shell/session-ended.html?return_to=${encodeURIComponent(returnTo)}` : '/public-shell/session-ended.html'); return; }
-    if (sessionEpoch(win) !== initialEpoch) { browserBoundary.revoke('session-changed'); return; }
-    const generation = ++restoreGeneration;
-    win.document.documentElement.style.visibility = 'hidden';
-    // Revalidation waits for an older poll, then reads for this restore.
-    void restore.revalidate().then(session => finishRestore(generation, !session));
-  });
+  // eslint-disable-next-line no-restricted-syntax -- A cached Back return navigates once and leaves session reads to normal boot.
+  win.addEventListener('pageshow', event => { if (event.persisted) win.location.reload(); });
   return browserBoundary;
 }
 
@@ -205,12 +209,11 @@ export async function sessionFetch(path, init) {
   // /status. It carries no actor or record data and needs no private lifetime.
   if (typeof window !== 'undefined' && window.location?.href && new URL(path,window.location.href).pathname === '/app-release') return browserFetch(path,init);
   const boundary = privateSession();
-  if (!boundary) return browserFetch(path,init);
-  try { return await boundary.fetch(path,init); }
+  try { return await (boundary?.fetch ?? browserFetch)(path,init); }
   catch (error) {
     // Retired page controllers cannot repaint or issue a retry while the
     // replacement document is loading. Caller deadlines still cancel reads.
-    if (boundary.revoked) return new Promise(() => {});
+    if (boundary?.revoked) return new Promise(() => {});
     throw error;
   }
 }

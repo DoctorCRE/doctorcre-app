@@ -81,7 +81,7 @@ export function mountBoard(deps = {}) {
   let directorySignature = "";
   const badgeTimes = new Map();
   let ageTimer = null, ageAttempts = 0;
-  const agePresence = watchPresence({ document: doc, window: win,
+  const agePresence = watchPresence({ document: doc,
     now: () => currentNow().getTime(),
     onResume: () => { ageAttempts = 0; refreshAges(); },
     onWake: () => { ageAttempts = 0; refreshAges(); } });

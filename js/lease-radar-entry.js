@@ -7,7 +7,7 @@ import { mountLeaseRadar } from './lease-radar.js';
 const boot=resolveDealroomBoot(location);
 const client=boot.mode==='live' ? createLeaseRadarClient() : {readLeaseRadar:async()=>leaseRadarFixture()};
 const radar=mountLeaseRadar({document,window,client});
-window.addEventListener('pagehide',event=>{if(!event.persisted)radar.dispose();});
+window.addEventListener('pagehide',()=>radar.dispose());
 
 const leaseDialog = document.getElementById('leaseDetail');
 let leaseWatch = null, dealWatch = null, watchHost = null, watchLease = null, watchDeal = null;
@@ -40,4 +40,4 @@ const syncLeaseWatch = () => {
 };
 const leaseWatchObserver = new MutationObserver(syncLeaseWatch);
 if (leaseDialog) leaseWatchObserver.observe(leaseDialog,{attributes:true,attributeFilter:['open'],childList:true});
-window.addEventListener('pagehide',event=>{if(!event.persisted){leaseWatchObserver.disconnect();leaseWatch?.dispose();dealWatch?.dispose();}});
+window.addEventListener('pagehide',()=>{leaseWatchObserver.disconnect();leaseWatch?.dispose();dealWatch?.dispose();});

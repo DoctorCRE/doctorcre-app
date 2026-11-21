@@ -24,7 +24,7 @@ function clock() {
       time=end; await settle();
     },
     scroll() { const event=new Event('scroll');Object.defineProperty(event,'isTrusted',{value:true});document.dispatchEvent(event); },
-    lifecycle() { window.dispatchEvent(new Event('online'));window.dispatchEvent(new Event('focus'));document.visibilityState='hidden';document.dispatchEvent(new Event('visibilitychange'));document.visibilityState='visible';document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(Object.assign(new Event('pageshow'),{persisted:true})); },
+    lifecycle() { window.dispatchEvent(new Event('online'));window.dispatchEvent(new Event('focus'));document.visibilityState='hidden';document.dispatchEvent(new Event('visibilitychange'));document.visibilityState='visible';document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('pageshow')); },
   };
 }
 for(const helper of [mountVisibilityPoll,mountAutoRefresh]) test(`${helper.name}: auto-scroll and lifecycle storms cannot replenish a 24-hour budget`,async()=>{

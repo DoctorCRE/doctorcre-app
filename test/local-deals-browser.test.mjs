@@ -397,6 +397,23 @@ test('W4 a long automatic reason keeps its date visible without persistent card 
 });
 
 
+test('Reload restores the unsaved Deal update for that deal until it is saved', async t => {
+ const {page,errors}=await open(t, {deal:'d14'});
+ const form=page.locator('#detailUpdateForm');
+ const note=form.getByRole('textbox',{name:'Update',exact:true});
+ const text='Unsaved demo update across reload';
+ await note.fill(text);
+ await page.reload();
+ await note.waitFor();
+ assert.equal(await note.inputValue(),text);
+ await form.getByRole('button',{name:'Add update',exact:true}).click();
+ await page.waitForFunction(expected=>document.querySelector('.deal-updates').textContent.includes(expected),text);
+ await page.reload();
+ await note.waitFor();
+ assert.equal(await note.inputValue(),'');
+ assert.deepEqual(errors,[]);
+});
+
 test('detail reads recover without losing an update draft', async t => {
  const {page,errors}=await open(t);
  await page.locator('[data-id="d14"] .card-open').click();
