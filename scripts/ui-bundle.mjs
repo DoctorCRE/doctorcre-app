@@ -22,6 +22,7 @@ export const UI_ENTRIES = {
   'ui-tour-client-grants': 'tour-client-grants',
   'ui-broker-cheat-sheet': 'broker-cheat-sheet',
   'ui-phone-push': 'phone-push',
+  'ui-doc-link-settings': 'doc-link-settings',
   'ui-action-session-return': 'action-session-return',
   'ui-share-intake': 'share-intake',
   'ui-watches': 'watches/control',

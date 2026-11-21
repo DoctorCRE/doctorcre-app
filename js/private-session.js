@@ -13,6 +13,7 @@ const PARTNER_SIGN_IN_HEADER = 'x-doctorcre-partner-sign-in';
 
 export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '', acceptSession = async () => true, anonymousDiagnostics = false, now = () => performance.now() }) {
   let binding = null, generation = 0, revoked = false, checking = null, trusted = null;
+  let engineSessionSeen = false;
   const active = new Set();
   const failure = () => Object.assign(new Error('Sign in to continue'), { status: 401, code: 'authentication_required' });
   function revoke(reason = 'denied') {
@@ -20,7 +21,7 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
     revoked = true; generation++;
     for (const controller of active) controller.abort();
     active.clear(); binding = null;
-    invalidate(reason);
+    invalidate(reason, engineSessionSeen);
   }
   function current(ticket, startedEpoch) {
     if (startedEpoch !== epoch()) revoke('session-changed');
@@ -33,6 +34,8 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
     const ticket = generation, startedEpoch = epoch(), startedAt = now();
     const pending = (async () => {
       const response = await fetchImpl('/auth/session', { credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000) });
+      const signIn = response.headers.get(PARTNER_SIGN_IN_HEADER);
+      engineSessionSeen ||= signIn === 'engine';
       if ([401,403].includes(response.status)) { if (!(anonymousDiagnostics && !binding)) revoke(); throw failure(); }
       if (!response.ok) throw new Error('Session verification unavailable');
       const session = await response.json();
@@ -40,10 +43,10 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
       if (typeof session?.actor?.slug !== 'string' || !session.actor.slug || typeof session.csrf_token !== 'string' || !session.csrf_token) throw new Error('Session verification unavailable');
       const next = JSON.stringify([session.actor.slug, session.csrf_token]);
       if (binding && next !== binding) { revoke('session-changed'); throw failure(); }
-      if (!await acceptSession(session)) { revoke('session-changed'); throw failure(); }
+      if (!await acceptSession(session, engineSessionSeen)) { revoke('session-changed'); throw failure(); }
       current(ticket, startedEpoch);
       binding = next;
-      trusted = { session, at: startedAt, signIn: response.headers.get(PARTNER_SIGN_IN_HEADER) };
+      trusted = { session, at: startedAt, signIn };
       return trusted;
     })().finally(() => { if (checking === pending) checking = null; });
     checking = pending;
@@ -53,6 +56,7 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
     revoke,
     async verify(options) { return (await verify(options)).session; },
     get revoked() { return revoked; },
+    get engineSignIn() { return !revoked && trusted?.signIn === 'engine'; },
     async fetch(path, init = {}) {
       // Writes read the session to scope themselves; that read is a fresh, bound check.
       if (path === '/auth/session') {
@@ -101,16 +105,11 @@ export function privateSession() {
   const win = window;
   const returnTo = /^\/a\/al1_[A-Za-z0-9_-]{1,120}$/.test(win.location.pathname) ? win.location.pathname : null;
   const initialEpoch = sessionEpoch(win);
-  let engineSession = false;
   let anonymousDiagnostics = false;
   try { anonymousDiagnostics = win.location.pathname === '/status' && !win.localStorage.getItem('doctorcre-session-binding-v1'); } catch {}
   browserBoundary = createSessionBoundary({ anonymousDiagnostics, epoch: () => sessionEpoch(win),
-    async fetchImpl(path, init) {
-      const response = await browserFetch(path, init);
-      if (path === '/auth/session') engineSession ||= response.headers.get(PARTNER_SIGN_IN_HEADER) === 'engine';
-      return response;
-    },
-    async acceptSession(session) {
+    fetchImpl: browserFetch,
+    async acceptSession(session, engineSession) {
       const bytes = await win.crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([session.actor.slug,session.csrf_token])));
       const digest = [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2,'0')).join('');
       try {
@@ -126,7 +125,7 @@ export function privateSession() {
       } catch { /* Storage-denied browsers cannot restore private offline state. */ }
       return true;
     },
-    invalidate(reason) {
+    invalidate(reason, engineSession) {
       // Clear before async cleanup/navigation so private text and controls
       // disappear immediately, including detached dialogs and account labels.
       win.dispatchEvent(new win.Event('doctorcre-session-invalidated'));
