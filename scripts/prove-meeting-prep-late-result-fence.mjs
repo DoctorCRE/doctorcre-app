@@ -12,7 +12,7 @@ async function observe(fixtures) {
   const { mountAppLayout } = await import('/js/app-layout.js');
   const { mountMeetingPreparation } = await import('/js/meeting-preparation.js');
   const { createLiveClient } = await import('/js/live-client.js');
-  mountAppLayout(document, document.querySelector('header'), '/');
+  mountAppLayout(document, document.querySelector('header'), '/deals');
   const retry = () => document.getElementById('appTodayRetry').onclick();
   await retry();
   const panels = () => ['appCalendarSlot', 'appScheduleSlot'].map(id => document.getElementById(id).textContent);
