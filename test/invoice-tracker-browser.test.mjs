@@ -6,9 +6,10 @@ import { chromium } from './browser-harness.mjs';
 import { createInvoiceFixture, invoiceTrackerFixture } from '../js/invoice-tracker-fixture.js';
 import worker from '../src/worker.js';
 const root = new URL('../', import.meta.url), today = '2026-10-02';
-async function open(t, { width = 1440, reducedMotion = 'no-preference', query = '', home = false, receipt = 'ok', engine } = {}) {
+async function open(t, { width = 1440, theme = 'dark', reducedMotion = 'no-preference', query = '', home = false, receipt = 'ok', engine } = {}) {
   const browser = await chromium.launch({ args: [...CHROMIUM_SAFETY_ARGS] }); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 960 }, timezoneId: 'UTC', reducedMotion });
+  await page.addInitScript(theme => localStorage.setItem('dealroom-theme', theme), theme);
   await page.clock.install({ time: new Date(today + 'T17:00:00Z') });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   const data = invoiceTrackerFixture(today); let failed = false, denied = false, reads = 0, writes = 0; const attempts = [];
@@ -144,12 +145,108 @@ test('owner scope survives an empty snapshot result',async t=>{
  await h.page.waitForFunction(()=>document.querySelector('#invoiceRows').textContent.includes('No invoices match'));
  assert.equal(await h.page.locator('#invoiceOwner').inputValue(),'dell');assert.equal(await h.page.locator('[data-invoice]').count(),0);
 });
-test('unknown aging amounts remain visible without a quantitative fill',async t=>{
- const h=await open(t);h.update(data=>{data.entries=[{...data.entries[5],invoiced_on:'2026-09-25'}, {...data.entries[1],gross_amount:'0'}];});
- await h.page.locator('#refreshInvoices').click();await h.page.waitForFunction(()=>document.querySelectorAll('[data-invoice]').length===2);
- const unknown=h.page.locator('#invoiceAging [data-age="0"]');assert.match(await unknown.innerText(),/—/);assert.match(await unknown.innerText(),/1 amount pending/);
- assert.equal(await unknown.locator('.age-fill').getAttribute('width'),'0');
- assert.match(await h.page.locator('#invoiceAging [data-age="1"]').innerText(),/\$0.00/);
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+  test(`invoice amounts and drawer at ${width}px in ${theme}`, async t => {
+    const h = await open(t, { width, theme });
+    const { page } = h;
+    const totals = page.locator('#invoiceTotals');
+    const owed = totals.locator('.owed');
+    const age = page.locator('#invoiceAging [data-age="0"]');
+    const rows = page.locator('[data-invoice]');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+    assert.match(await owed.innerText(), /Owed to DoctorCRE/);
+    assert.match(await owed.innerText(), /\$47,600.00/);
+    await page.locator('[data-status="paid"]').click();
+    assert.match(await totals.innerText(), /Paid\s+1/);
+    assert.equal(await rows.count(), 1);
+    assert.match(await rows.innerText(), /\$6,500.00/);
+
+    await page.locator('[data-status="awaiting"]').click();
+    const awaiting = await rows.innerText();
+    assert.equal(awaiting.match(/Awaiting invoice/g)?.length, 1);
+    assert.doesNotMatch(awaiting, /days outstanding/);
+    assert.match(await rows.innerText(), /Joe/);
+    assert.equal(await page.locator('#invoiceOwner option[value="dell"]').innerText(), 'Dell');
+
+    h.update(data => {
+      const [known] = data.entries;
+      const awaiting = data.entries[5];
+      data.entries = [known, awaiting, { ...awaiting, deal_id: 'demo-no-amount',
+        name: 'Demo Missing Amount', owner: 'dell', invoiced_on: '2026-09-25' }];
+    });
+    await page.locator('#clearInvoiceFilters').click();
+    await page.locator('#refreshInvoices').click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-invoice]').length === 3);
+    assert.match(await totals.innerText(), /Paid\s+0/);
+    assert.match(await owed.innerText(), /\$12,500.00/);
+    assert.match(await owed.innerText(), /1 without a recorded amount/);
+    assert.match(await age.innerText(), /\$12,500.00/);
+    assert.match(await age.innerText(), /2 invoices · 1 without a recorded amount/);
+
+    await page.locator('#invoiceOwner').selectOption('dell');
+    assert.match(await owed.innerText(), /No invoice amounts recorded yet/);
+    assert.doesNotMatch(await owed.innerText(), /\$/);
+    assert.match(await age.innerText(), /1 invoice/);
+    assert.doesNotMatch(await age.innerText(), /—|\$/);
+    assert.equal(await age.locator('.age-fill').getAttribute('width'), '0');
+    assert.match(await rows.innerText(), /Dell/);
+    assert.match(await rows.innerText(), /Amount not recorded/);
+
+    const evidence = new URL('out/test-artifacts/w15/', root);
+    await mkdir(evidence, { recursive: true });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: new URL(`amounts-${width}-${theme}.png`, evidence).pathname });
+    await rows.click();
+    await page.locator('#invoiceOriginal summary').click();
+    assert.match(await page.locator('#invoiceDetailFacts').innerText(), /Owed to DoctorCRE\s+Amount not recorded/);
+    assert.match(await page.locator('#invoiceOriginalFacts').innerText(), /Owner\s+Dell/);
+    assert.match(await page.locator('#invoiceOriginalFacts').innerText(), /Due date not recorded/);
+    const drawer = page.getByRole('dialog');
+    const doc = drawer.getByRole('button', { name: 'Open Doc' });
+    const close = drawer.getByRole('button', { name: 'Close invoice' });
+    const openDeal = drawer.getByRole('link', { name: 'Open deal', exact: true });
+    await doc.waitFor();
+    await page.screenshot({ path: new URL(`missing-amount-${width}-${theme}.png`, evidence).pathname });
+    await page.setViewportSize({ width, height: 360 });
+    await close.focus();
+    const panel = await drawer.boundingBox();
+    const heading = drawer.locator('.invoice-detail-heading');
+    const header = await heading.boundingBox();
+    const headerBottom = header.y + header.height;
+    const dealBeforeScroll = await openDeal.boundingBox();
+    const scrollPastDeal = Math.ceil(dealBeforeScroll.y + dealBeforeScroll.height - headerBottom) + 4;
+    await page.mouse.move(panel.x + panel.width / 2, panel.y + panel.height - 20);
+    await page.mouse.wheel(0, scrollPastDeal);
+    await page.waitForFunction(([link, bottom]) => link.getBoundingClientRect().bottom <= bottom,
+      [await openDeal.elementHandle(), headerBottom]);
+    await page.screenshot({ path: new URL(`scrolled-${width}-${theme}.png`, evidence).pathname });
+
+    const label = await heading.getByText('Commission', { exact: true }).boundingBox();
+    for (const control of [doc, close]) {
+      const box = await control.boundingBox();
+      assert.ok(box.x >= label.x + label.width, 'header actions stay beside the label');
+      assert.ok(box.x + box.width <= panel.x + panel.width, 'header actions fit inside the drawer');
+      assert.ok(box.y >= panel.y && box.y + box.height <= panel.y + panel.height,
+        'header actions stay fully visible while scrolling');
+    }
+    await page.keyboard.press('Tab');
+    assert.ok(await openDeal.evaluate(link => link === document.activeElement), 'Tab from Close focuses Open deal');
+    const focusedDeal = await openDeal.boundingBox();
+    const focusedHeader = await heading.boundingBox();
+    assert.ok(focusedDeal.y >= focusedHeader.y + focusedHeader.height,
+      'the header leaves the focused Open deal link visible');
+    assert.ok(focusedDeal.y + focusedDeal.height <= panel.y + panel.height,
+      'the focused Open deal link fits inside the drawer');
+    assert.deepEqual(h.errors, []);
+  });
+}
+test('an unpaid amount recorded as zero still displays as money', async t => {
+  const h = await open(t);
+  h.update(data => { data.entries = [{ ...data.entries[1], gross_amount: '0' }]; });
+  await h.page.locator('#refreshInvoices').click();
+  await h.page.waitForFunction(() => document.querySelectorAll('[data-invoice]').length === 1);
+  assert.match(await h.page.locator('#invoiceTotals .owed').innerText(), /\$0.00/);
+  assert.match(await h.page.locator('#invoiceAging [data-age="1"]').innerText(), /\$0.00/);
 });
 test('payment uncertainty offers explicit immutable replay across close, polling and reload',async t=>{
  const h=await open(t,{receipt:'pending'}),page=h.page;const key=await page.locator('[data-invoice]').first().getAttribute('data-invoice');

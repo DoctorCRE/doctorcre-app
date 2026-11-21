@@ -3,10 +3,13 @@ import { createClient } from './client.js';
 import { resolveDealroomBoot } from './boot-mode.js';
 import { mountAutoRefresh, updatedLabel } from './auto-refresh.mjs';
 import { localToday, isCalendarDay } from './calendar-model.js';
+import { partnerName } from './task-records-model.js';
 import { uuidv4 } from './uuid.js';
 import { AGES, projectInvoices, invoiceSummary, invoiceMoney, invoiceDate } from './invoice-tracker-model.js';
 const E=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const bucketMoney=bucket=>bucket.unknown?(bucket.count===bucket.unknown?'—':`${invoiceMoney(bucket.amount)} + —`):invoiceMoney(bucket.amount);
+const amountLabel = amount => amount === null ? 'Amount not recorded' : invoiceMoney(amount);
+const ownerLabel = owner => partnerName(owner) || 'Unassigned';
+const missingAmounts = count => count ? ` · ${count} without a recorded amount` : '';
 const statusLabel=row=>row.status==='paid'?'Paid':row.status==='awaiting'?'Awaiting invoice':row.overdue?'Overdue':'Unpaid';
 const paymentRefusals = new Map([
   ['version_conflict', 'Invoice changed before the payment could be saved.'],
@@ -62,13 +65,37 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     $('invoiceUpdated').textContent=updatedLabel(updatedAt);
     if(!owned){paint($('invoiceTotals'),'');paint($('invoiceAging'),'');paint($('invoiceRows'),'<p>Updating…</p>');return;}
     const totals=invoiceSummary(owned);
-    paint($('invoiceTotals'),`<div class="invoice-total owed glass"><span>Owed to CARR</span><strong>${E(invoiceMoney(totals.owed))}${totals.unknown?' + —':''}</strong><small>${totals.unpaid} unpaid${totals.unknown?` · ${totals.unknown} amount pending`:''}</small></div><div class="invoice-total glass"><span>Awaiting invoice</span><strong>${totals.awaiting}</strong></div><div class="invoice-total glass"><span>Paid</span><strong>${totals.paid}</strong></div>`);
-    const ceiling=Math.max(1,...totals.buckets.map(bucket=>bucket.amount));
-    paint($('invoiceAging'),totals.buckets.map(bucket=>`<button class="invoice-age" data-age="${bucket.index}" data-invoice-key="age:${bucket.index}" aria-pressed="${age===bucket.index}"><span class="age-label">${bucket.label}</span><strong>${E(bucketMoney(bucket))}</strong><svg class="age-track${bucket.unknown?' amount-unknown':''}" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="age-base" width="100" height="8" rx="4"/><rect class="age-fill" width="${bucket.unknown?0:Math.max(bucket.count?4:0,bucket.amount/ceiling*100)}" height="8" rx="4"/></svg><small>${bucket.count} ${bucket.count===1?'invoice':'invoices'}${bucket.unknown?` · ${bucket.unknown} amount pending`:''}</small></button>`).join(''));
+    const hasOwedAmount = totals.unpaid > totals.unknown;
+    paint($('invoiceTotals'), `
+      <div class="invoice-total owed glass">
+        <span>Owed to DoctorCRE</span>
+        ${hasOwedAmount ? `<strong>${E(invoiceMoney(totals.owed))}</strong>`
+          : '<strong class="invoice-missing-amount">No invoice amounts recorded yet</strong>'}
+        <small>${totals.unpaid} unpaid${hasOwedAmount ? missingAmounts(totals.unknown) : ''}</small>
+      </div>
+      <div class="invoice-total glass"><span>Awaiting invoice</span><strong>${totals.awaiting}</strong></div>
+      <div class="invoice-total glass"><span>Paid</span><strong>${totals.paid}</strong></div>`);
+    const ceiling = Math.max(1, ...totals.buckets.map(bucket => bucket.amount));
+    paint($('invoiceAging'), totals.buckets.map(bucket => {
+      const hasAmount = bucket.count > bucket.unknown;
+      return `<button class="invoice-age" data-age="${bucket.index}" data-invoice-key="age:${bucket.index}" aria-pressed="${age===bucket.index}">
+        <span class="age-label">${bucket.label}</span>
+        ${hasAmount ? `<strong>${E(invoiceMoney(bucket.amount))}</strong>` : ''}
+        <svg class="age-track" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="age-base" width="100" height="8" rx="4"/><rect class="age-fill" width="${bucket.amount / ceiling * 100}" height="8" rx="4"/></svg>
+        <small>${bucket.count} ${bucket.count===1?'invoice':'invoices'}${hasAmount ? missingAmounts(bucket.unknown) : ''}</small>
+      </button>`;
+    }).join(''));
     const term=$('invoiceSearch').value.trim().toLocaleLowerCase();
     const visible=owned.filter(row=>(status==='all'||row.status===status)&&(age===null||(row.status==='unpaid'&&row.bucket===age))&&row.name.toLocaleLowerCase().includes(term));
     $('invoiceCount').textContent=`Invoices · ${visible.length}`;$('invoiceFiltered').textContent=age===null?'':AGES[age];
-    paint($('invoiceRows'),visible.length?visible.map(row=>`<button type="button" class="invoice-row ${row.status}${row.overdue?' overdue':''}" data-age="${row.bucket ?? ''}" data-invoice-key="${E(row.key)}" data-invoice="${E(row.key)}"><span><strong>${E(row.name)}</strong><span class="invoice-sub">${E(row.owner || 'Unassigned')}</span></span><span class="row-date">${row.status==='awaiting'?'Awaiting invoice':E(invoiceDate(row.invoiceDay))}</span><span class="row-money">${row.status==='paid'?E(invoiceMoney(0)):E(invoiceMoney(row.amount))}</span><span class="invoice-state">${statusLabel(row)}</span><span class="row-age">${row.age===null?'—':row.age}<small>${row.status==='paid'?'days to payment':'days outstanding'}</small></span></button>`).join(''):'<p>No invoices match</p>');
+    paint($('invoiceRows'), visible.length ? visible.map(row => `
+      <button type="button" class="invoice-row ${row.status}${row.overdue?' overdue':''}" data-age="${row.bucket ?? ''}" data-invoice-key="${E(row.key)}" data-invoice="${E(row.key)}">
+        <span><strong>${E(row.name)}</strong><span class="invoice-sub">${E(ownerLabel(row.owner))}</span></span>
+        <span class="row-date">${row.invoiceDay ? E(invoiceDate(row.invoiceDay)) : ''}</span>
+        <span class="row-money${row.amount === null ? ' invoice-missing-amount' : ''}">${E(amountLabel(row.amount))}</span>
+        <span class="invoice-state">${statusLabel(row)}</span>
+        <span class="row-age">${row.age === null ? '' : `${row.age}<small>${row.status==='paid'?'days to payment':'days outstanding'}</small>`}</span>
+      </button>`).join('') : '<p>No invoices match</p>');
     $('allAges').setAttribute('aria-pressed',String(age===null));
     for(const button of $('invoiceTabs').querySelectorAll('[data-status]'))button.setAttribute('aria-pressed',String(button.dataset.status===status));
     if(selected)renderDetail();
@@ -80,10 +107,17 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     $('invoiceDetailTitle').textContent=row.name;
     const dealLink=typeof row.deal_id==='string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(row.deal_id)
       ? `<a data-invoice-key="deal:${E(row.key)}" href="/deals?deal=${E(encodeURIComponent(row.deal_id))}">Open deal</a>` : '<span>Deal unavailable</span>';
-    paint($('invoiceDetailFacts'),`<div class="invoice-detail-facts"><div><span>${row.status==='paid'?'Paid to CARR':'Owed to CARR'}</span><strong>${E(invoiceMoney(row.amount))}</strong></div><div><span>Status</span><strong class="invoice-status-value">${statusLabel(row)}</strong></div><div><span>${row.status==='paid'?'Days to payment':'Days outstanding'}</span><strong>${row.age ?? '—'}</strong></div></div><p>${dealLink}</p>`);
-    paint($('invoiceTimeline'),[['Closed',row.closed_on],['Invoiced',row.invoiceDay],['Paid',row.received_on]].map(([label,day])=>`<div class="invoice-milestone${day?' done':''}"><strong>${label}</strong><time${day?` datetime="${day}"`:''}>${day?invoiceDate(day):label==='Invoiced'?'Awaiting invoice':'—'}</time></div>`).join(''));
-    $('invoiceActivity').textContent=row.status==='paid'?`Payment recorded ${invoiceDate(row.received_on)}.`:row.status==='awaiting'?'Closed · awaiting invoice.':row.overdue?`Payment due ${invoiceDate(row.due_on)}.`:`Invoiced ${invoiceDate(row.invoiceDay)}.`;
-    paint($('invoiceOriginalFacts'),[['Owner',row.owner || 'Unassigned'],['Closed',invoiceDate(row.closed_on)],['Invoiced',invoiceDate(row.invoiceDay)],['Commission',invoiceMoney(row.amount)],['Due',row.due_on?invoiceDate(row.due_on):'Not set'],['Paid',invoiceDate(row.received_on)]].map(([label,value])=>`<dt>${label}</dt><dd>${E(value)}</dd>`).join(''));
+    const commissionLabel = row.status === 'paid' ? 'Paid to DoctorCRE'
+      : row.status === 'awaiting' ? 'DoctorCRE commission' : 'Owed to DoctorCRE';
+    paint($('invoiceDetailFacts'), `
+      <div class="invoice-detail-facts">
+        <div><span>${commissionLabel}</span><strong class="${row.amount === null ? 'invoice-missing-amount' : ''}">${E(amountLabel(row.amount))}</strong></div>
+        <div><span>Status</span><strong class="invoice-status-value">${statusLabel(row)}</strong></div>
+        ${row.age === null ? '' : `<div><span>${row.status==='paid'?'Days to payment':'Days outstanding'}</span><strong>${row.age}</strong></div>`}
+      </div><p>${dealLink}</p>`);
+    paint($('invoiceTimeline'),[['Closed',row.closed_on],['Invoiced',row.invoiceDay],['Paid',row.received_on]].map(([label,day])=>`<div class="invoice-milestone${day?' done':''}"><strong>${label}</strong>${day?`<time datetime="${day}">${invoiceDate(day)}</time>`:''}</div>`).join(''));
+    $('invoiceActivity').textContent=row.status==='paid'?`Payment recorded ${invoiceDate(row.received_on)}.`:row.status==='awaiting'?'Waiting for an invoice date.':row.overdue?`Payment due ${invoiceDate(row.due_on)}.`:`Invoiced ${invoiceDate(row.invoiceDay)}.`;
+    paint($('invoiceOriginalFacts'),[['Owner',ownerLabel(row.owner)],['Closed',invoiceDate(row.closed_on)],['Invoiced',invoiceDate(row.invoiceDay)],['Commission',amountLabel(row.amount)],['Due',row.due_on?invoiceDate(row.due_on):'Due date not recorded'],['Paid',invoiceDate(row.received_on)]].map(([label,value])=>`<dt>${label}</dt><dd>${E(value)}</dd>`).join(''));
     $('invoicePayment').hidden=!row.canMarkPaid;
     $('invoicePaidDate').min=row.invoiceDay || '';$('invoicePaidDate').max=today();
     const intent=payments.get(row.key);
@@ -122,7 +156,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       for(const row of projected)if(row.status==='paid')forgetPayment(row.key);
       rows=projected;updatedAt=next.observed_at;$('invoiceNotice').hidden=true;
       const owner=$('invoiceOwner').value;const owners=[...new Set([...rows.map(row=>row.owner),owner].filter(Boolean))].sort();
-      const options='<option value="">Everyone</option>'+owners.map(value=>`<option value="${E(value)}">${E(value)}</option>`).join('');
+      const options='<option value="">Everyone</option>'+owners.map(value=>`<option value="${E(value)}">${E(ownerLabel(value))}</option>`).join('');
       if($('invoiceOwner').innerHTML!==options){$('invoiceOwner').innerHTML=options;$('invoiceOwner').value=owner;}
       render();
     }catch(error){if(disposed||signal?.aborted)return;$('invoiceNotice').hidden=false;

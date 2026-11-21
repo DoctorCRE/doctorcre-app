@@ -59,7 +59,6 @@ body { background: var(--ground); color: var(--fg); }
 .age-track { display: block; width: 100%; height: 8px; overflow: hidden; border-radius: var(--radius-round); background: var(--surface-3); }
 .age-base { fill: var(--surface-3); }
 .age-fill { fill: var(--age); }
-.age-track.amount-unknown { background: repeating-linear-gradient(120deg, var(--hairline-strong) 0 3px, transparent 3px 7px); }
 .invoice-age small { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 [data-age="1"] { --age: var(--data-2); }
 [data-age="2"] { --age: var(--status-warn); }
@@ -101,14 +100,19 @@ body { background: var(--ground); color: var(--fg); }
 #invoiceRows > p { padding: var(--space-6) var(--space-5); color: var(--fg-muted); font-size: var(--font-size-1); }
 
 /* --- the invoice dialog -------------------------------------------------------- */
-.invoice-detail { width: min(1000px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); margin: auto; overflow: auto; padding: var(--space-6); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--panel-radius); background: var(--surface-1); color: var(--fg); font-family: var(--font-text); font-size: var(--font-size-1); line-height: var(--line-height-body); box-shadow: var(--shadow-overlay); }
+.invoice-detail { --invoice-detail-padding: var(--space-6); width: min(1000px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); margin: auto; overflow: hidden; padding: 0; border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--panel-radius); background: var(--surface-1); color: var(--fg); font-family: var(--font-text); font-size: var(--font-size-1); line-height: var(--line-height-body); box-shadow: var(--shadow-overlay); }
+.invoice-detail[open], .invoice-detail > article { display: flex; flex-direction: column; }
+.invoice-detail > article { min-height: 0; }
 .invoice-detail::backdrop { background: var(--scrim); }
 .invoice-detail a { display: inline-flex; align-items: center; min-height: var(--touch); color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
-.invoice-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-5); padding-bottom: var(--space-4); border-bottom: var(--hairline-width) solid var(--hairline); }
+.invoice-detail-heading { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--invoice-detail-padding); border-bottom: var(--hairline-width) solid var(--hairline); background: var(--surface-1); }
+.invoice-detail-actions { display: flex; gap: var(--space-2); flex: none; }
+.invoice-detail-actions > .doc-presence { position: static; }
+.invoice-detail-body { overflow: auto; padding: var(--space-5) var(--invoice-detail-padding) var(--invoice-detail-padding); }
 .invoice-detail-heading h2 { margin-top: var(--space-1); font-size: var(--font-size-4); overflow-wrap: anywhere; }
 .invoice-eyebrow { color: var(--fg-muted); font-size: var(--font-size-1); }
-.invoice-detail-heading button { min-width: var(--touch); padding: 0; border-color: var(--hairline); background: transparent; color: var(--fg-muted); font-size: var(--font-size-3); line-height: 1; }
-.invoice-detail-heading button:hover { background: var(--surface-2); color: var(--fg); }
+.invoice-detail-heading #closeInvoiceDetail { min-width: var(--touch); padding: 0; border-color: var(--hairline); background: transparent; color: var(--fg-muted); font-size: var(--font-size-3); line-height: 1; }
+.invoice-detail-heading #closeInvoiceDetail:hover { background: var(--surface-2); color: var(--fg); }
 .invoice-detail-facts { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: var(--space-4); padding-bottom: var(--space-5); }
 .invoice-detail-facts > div { min-width: 0; }
 .invoice-detail-facts span { display: block; color: var(--fg-muted); font-size: var(--font-size-1); }
@@ -169,11 +173,14 @@ body { background: var(--ground); color: var(--fg); }
   .app-layout-tabs .invoice-tabs button { flex: none; white-space: nowrap; font-size: var(--font-size-1); padding-inline: var(--space-1); }
   :where(.invoice-workspace, .invoice-controls, .invoice-detail) :is(input, select) { font-size: var(--font-size-2); }
   .invoice-row { padding: var(--space-3) var(--space-4) !important; }
-  .invoice-detail { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); padding: var(--space-4); border-radius: var(--radius-3); }
+  .invoice-detail { --invoice-detail-padding: var(--space-4); width: calc(100vw - 20px); max-height: calc(100dvh - 20px); border-radius: var(--radius-3); }
   .invoice-detail-heading h2 { font-size: var(--font-size-3); }
   .invoice-detail-bottom { grid-template-columns: 1fr; }
   .invoice-timeline { gap: var(--space-2); }
 }
+.invoice-total .invoice-missing-amount, .invoice-detail-facts .invoice-missing-amount { font-size: var(--font-size-3); }
+.invoice-row .invoice-missing-amount { color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-regular); }
+
 @media (prefers-reduced-motion: reduce) {
   :where(.invoice-workspace, .invoice-controls, .invoice-tabs, .invoice-updated, .invoice-detail) button, .invoice-row { transition: none; }
 }
