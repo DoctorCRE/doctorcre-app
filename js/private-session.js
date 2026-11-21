@@ -44,7 +44,7 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
       if (binding && next !== binding) { revoke('session-changed'); throw failure(); }
       if (!await acceptSession(session, engineSessionSeen)) { revoke('session-changed'); throw failure(); }
       current(ticket, startedEpoch);
-      binding = next; trusted = { session, at: startedAt, engineSignIn };
+      binding = next; trusted = { session, at: startedAt, engineSignIn, epoch: startedEpoch };
       return session;
     })().finally(() => { if (checking === pending) checking = null; });
     checking = pending;
@@ -54,11 +54,15 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
     revoke, verify,
     get revoked() { return revoked; },
     get engineSignIn() { return !revoked && trusted?.engineSignIn === true; },
-    async fetch(path, init = {}) {
+    async fetch(path, init = {}, { boundRead = false } = {}) {
       // Writes read the session to scope themselves; that read is a fresh, bound check.
       if (path === '/auth/session') return Response.json(await verify({ fresh: true }));
-      const ticket = generation, startedEpoch = epoch();
-      const session = await verify(); current(ticket, startedEpoch);
+      // Bound reads are for URLs whose records belong to the already verified partner.
+      if (boundRead && (!trusted || (init.method ?? 'GET') !== 'GET')) throw failure();
+      const ticket = generation, startedEpoch = boundRead ? trusted.epoch : epoch();
+      current(ticket, startedEpoch);
+      const session = boundRead ? trusted.session : await verify();
+      current(ticket, startedEpoch);
       const controller = new AbortController(); active.add(controller);
       const cancel = () => controller.abort();
       init.signal?.addEventListener('abort', cancel, { once: true });

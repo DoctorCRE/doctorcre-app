@@ -216,10 +216,13 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
     idempotency_key: Reflect.get(Object(payloads[2]), "idempotency_key"),
     conversation_id: id,
   });
+  await composer.fill("An unsent follow-up");
   actor = "dell";
   await page.clock.fastForward(5_000);
-  await expect(page.getByRole("link", { name: "Sign in again" })).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("Conversation unavailable");
+  await expect(page.getByText(question, { exact: true })).toHaveCount(0);
   await expect(page.getByText("One example deal is open.")).toHaveCount(0);
+  await expect(composer).toHaveValue("");
   const foreign = await page.request.get(`${origin}/api/engine/doc/conversations/${id}`);
   assert.equal(foreign.status(), 404);
   assert.deepEqual(evalViolations, []);
@@ -309,6 +312,122 @@ test("A reopened Doc question keeps its place and lets the partner draft a follo
 
   await page.clock.runFor(15_000);
   assert.deepEqual(docReads, ["/api/engine/doc/conversations", ...Array(6).fill(detailPath)]);
+});
+
+const detailPath = `/api/engine/doc/conversations/${id}`;
+const queuedTurn = { ...answeredTurn, idempotency_key: id, state: "queued", answer: null };
+const answered = { ...answeredTurn, idempotency_key: id };
+
+function waitingChat(t: TestContext) {
+  return docChatFixture(t, (request) => {
+    switch (new URL(request.url).pathname) {
+      case "/api/engine/doc/conversations":
+        return Response.json({ conversations: [conversation], next_before: null });
+      case detailPath:
+        return Response.json({ conversation, turns: [queuedTurn] });
+      default:
+        return Response.json({}, { status: 404 });
+    }
+  });
+}
+
+test("A visible Ask Doc chat can receive its answer after three idle hours", async (t) => {
+  const { page, origin } = await waitingChat(t);
+  await pausedClock(page, new Date(created_at));
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
+
+  const reads = await page.evaluateHandle(
+    ({ detailPath, conversation, queuedTurn, answered }) => {
+      const requests: { path: string; minute: number }[] = [];
+      const started = Date.now();
+      window.fetch = async (input) => {
+        const path = String(input);
+        const minute = (Date.now() - started) / 60_000;
+        requests.push({ path, minute });
+        if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "joe-test" });
+        if (path !== detailPath) return Response.json({}, { status: 404 });
+        const waiting_reason =
+          minute >= 120
+            ? "Doc is paused until your Claude plan resets."
+            : minute >= 60
+              ? "Doc answers when your Mac is on."
+              : null;
+        return Response.json({
+          conversation,
+          turns: [minute >= 180 ? answered : { ...queuedTurn, waiting_reason }],
+        });
+      };
+      return requests;
+    },
+    { detailPath, conversation, queuedTurn, answered },
+  );
+  await page.clock.runFor(182 * 60_000);
+  await expect(page.getByText(answered.answer.text)).toBeVisible();
+  const requests = await reads.jsonValue();
+  await reads.dispose();
+  assert.deepEqual([...new Set(requests.map(({ path }) => path))], [detailPath]);
+  for (const [start, end, expected] of [
+    [0, 1, 12],
+    [1, 60, 118],
+    [60, 120, 30],
+    [120, 180, 30],
+  ] as const) {
+    const count = requests.filter(({ minute }) => minute > start && minute <= end).length;
+    assert.ok(
+      Math.abs(count - expected) <= 2,
+      `Expected about ${expected} reads from minute ${start} to ${end}, got ${count}`,
+    );
+  }
+});
+
+test("Ask Doc pauses on budget exhaustion and checks again when the tab returns", async (t) => {
+  const { page, origin } = await waitingChat(t);
+  await pausedClock(page, new Date(created_at));
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
+
+  const ticks = await page.evaluateHandle(
+    async ({ detailPath, conversation, answered }) => {
+      const { privateSession } = await import(String("/js/private-session.js"));
+      const session = privateSession();
+      const times: number[] = [];
+      window.fetch = async (input) => {
+        const path = String(input);
+        if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "joe-test" });
+        if (path === detailPath) {
+          times.push(Date.now());
+          return Response.json({ conversation, turns: [answered] });
+        }
+        return Response.json({});
+      };
+      await Promise.allSettled(Array.from({ length: 600 }, () => session.fetch("/fixture/other-read")));
+      return times;
+    },
+    { detailPath, conversation, answered },
+  );
+
+  await page.clock.runFor(5_000);
+  const paused = page.getByText("Open this chat again to see Doc's answer", { exact: true });
+  await expect(paused).toBeVisible();
+  assert.deepEqual(await ticks.jsonValue(), []);
+
+  await page.keyboard.press("Shift");
+  await page.clock.runFor(3 * 60_000);
+  assert.deepEqual(await ticks.jsonValue(), []);
+  await page.evaluate(() => {
+    const setVisibility = (value: DocumentVisibilityState) => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value });
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
+    setVisibility("hidden");
+    setVisibility("visible");
+  });
+  await page.clock.runFor(5_000);
+  await expect(page.getByText(answered.answer.text)).toBeVisible();
+  await expect(paused).toHaveCount(0);
+  assert.equal((await ticks.jsonValue()).length, 1);
+  await ticks.dispose();
 });
 
 test("Doc links to app records and renders other source labels as text", async (t) => {

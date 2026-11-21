@@ -52,6 +52,34 @@ test('repeated requests inside the trust window share one sign-in check, and the
  clock=SESSION_TRUST_MS;await boundary.fetch('/poll');
  assert.equal(checks,2);assert.equal(sent,2+Math.ceil((SESSION_TRUST_MS-1_000)/30_000)+1);
 });
+test('an epoch change discards a pending bound read without another verification', async () => {
+  const reply = defer();
+  const started = defer();
+  const requests = [];
+  let epoch = 'original', clock = 0, reason, signal;
+  const boundary = createSessionBoundary({
+    epoch: () => epoch,
+    invalidate(value) { reason = value; },
+    now: () => clock,
+    fetchImpl(path, init) {
+      requests.push(path);
+      if (path === '/auth/session') return Response.json(session('joe'));
+      signal = init.signal;
+      started.resolve();
+      return reply.promise;
+    },
+  });
+  await boundary.verify();
+  clock = SESSION_TRUST_MS + 1;
+  const pending = boundary.fetch('/api/private', {}, { boundRead: true });
+  await started.promise;
+  epoch = 'new account';
+  reply.resolve(Response.json({ private: 'old chat' }));
+  await assert.rejects(pending, { code: 'authentication_required' });
+  assert.equal(reason, 'session-changed');
+  assert.equal(signal.aborted, true);
+  assert.deepEqual(requests, ['/auth/session', '/api/private']);
+});
 test('a cookie switch on a GET read is trusted inside the window and caught by the first request after it',async()=>{
  let clock=0,identity=session('joe'),reason=null,sent=0;
  const boundary=createSessionBoundary({invalidate(why){reason=why;},now:()=>clock,fetchImpl:async path=>{

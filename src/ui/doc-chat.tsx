@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import { refreshWhileVisible } from "./visible-refresh";
@@ -35,6 +35,8 @@ const conversation = z.object({
   title: z.string(),
   created_at: z.iso.datetime({ offset: true }),
 });
+const macOffline = "Doc answers when your Mac is on.";
+const planPaused = "Doc is paused until your Claude plan resets.";
 const chatTurn = z.object({
   id: z.guid(),
   position: z.int().positive(),
@@ -48,9 +50,9 @@ const chatTurn = z.object({
   waiting_reason: z
     .enum([
       "Doc isn't set up on your Mac yet.",
-      "Doc answers when your Mac is on.",
+      macOffline,
       "Sign in to Claude Code on your Mac.",
-      "Doc is paused until your Claude plan resets.",
+      planPaused,
       "Doc is waiting for a free slot on your Mac.",
     ])
     .nullable(),
@@ -67,7 +69,7 @@ type Ask = Pick<Turn, "question" | "idempotency_key"> & {
 };
 type Session = {
   verify(options: { fresh: boolean }): Promise<unknown>;
-  fetch(path: string, init: RequestInit): Promise<Response>;
+  fetch(path: string, init: RequestInit, options: { boundRead: boolean }): Promise<Response>;
 };
 
 const api = "/api/engine/doc";
@@ -77,6 +79,7 @@ const statusText = {
   loadFailed: "Chats couldn’t be loaded.",
   sendFailed: "The question couldn’t be sent. Try again.",
   unavailable: "Conversation unavailable",
+  refreshPaused: "Open this chat again to see Doc's answer",
 };
 const stateText = {
   queued: "Doc is waiting.",
@@ -105,7 +108,7 @@ class ConversationUnavailable extends Error {}
 async function docFetch<T>(
   path: string,
   schema: z.ZodType<T>,
-  { ask, signal }: { ask?: Ask; signal?: AbortSignal } = {},
+  { ask, signal, boundRead = false }: { ask?: Ask; signal?: AbortSignal; boundRead?: boolean } = {},
 ): Promise<T> {
   const { privateSession }: { privateSession: () => Session | null } = await import(
     new URL("./private-session.js", import.meta.url).href
@@ -113,19 +116,23 @@ async function docFetch<T>(
   const session = privateSession();
   if (!session) throw Error(statusText.signIn);
   signal?.throwIfAborted();
-  await session.verify({ fresh: true });
+  if (!boundRead) await session.verify({ fresh: true });
   signal?.throwIfAborted();
   const timeout = AbortSignal.timeout(12000);
-  const response = await session.fetch(api + path, {
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    ...(ask && {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(ask),
-    }),
-  });
+  const response = await session.fetch(
+    api + path,
+    {
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      ...(ask && {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(ask),
+      }),
+    },
+    { boundRead },
+  );
   signal?.throwIfAborted();
-  await session.verify({ fresh: true });
+  if (!boundRead) await session.verify({ fresh: true });
   if (response.status === 404 && path.startsWith("/conversations/")) throw new ConversationUnavailable();
   if (!response.ok) throw Error(`Doc request failed with status ${response.status}`);
   const result = schema.safeParse(await response.json());
@@ -147,6 +154,7 @@ function DocChat() {
   const latest = turns.at(-1);
   const waiting = latest?.state === "queued" || latest?.state === "working";
   const waitingTurnId = waiting ? latest.id : undefined;
+  const getWaitingReason = useEffectEvent(() => latest?.waiting_reason);
   const retry =
     pendingAsk ??
     (latest?.state === "failed"
@@ -234,18 +242,42 @@ function DocChat() {
 
   useEffect(() => {
     if (!id || !waitingTurnId || retired.current) return;
+    let waitingReason = getWaitingReason();
     const stop = refreshWhileVisible(
       async (signal) => {
         try {
-          const { turns: saved } = await docFetch(conversationPath(id), conversationDetail, { signal });
+          const { turns: saved } = await docFetch(conversationPath(id), conversationDetail, {
+            signal,
+            boundRead: true,
+          });
           if (signal.aborted || retired.current) return;
+          setStatus((current) => (current === "refreshPaused" ? null : current));
           const turn = saved.find((row) => row.id === waitingTurnId);
-          if (turn) setTurns((rows) => rows.map((row) => (row.id === turn.id ? turn : row)));
+          if (!turn) return;
+          waitingReason = turn.waiting_reason;
+          setTurns((rows) => rows.map((row) => (row.id === turn.id ? turn : row)));
+          if (turn.state !== "queued" && turn.state !== "working") return "stop";
         } catch (error) {
-          if (!signal.aborted && !retired.current && error instanceof ConversationUnavailable) showUnavailable();
+          if (signal.aborted || retired.current) return;
+          if (error instanceof ConversationUnavailable) {
+            setRecent([]);
+            setQuestion("");
+            showUnavailable();
+            return "stop";
+          }
+          if (error instanceof Error && "code" in error && error.code === "request_budget_exhausted") {
+            setStatus("refreshPaused");
+            return "stop";
+          }
         }
       },
-      { immediate: false },
+      {
+        immediate: false,
+        delay(visibleMs) {
+          if (visibleMs < 60_000) return 5_000;
+          return waitingReason === macOffline || waitingReason === planPaused ? 120_000 : 30_000;
+        },
+      },
     );
     window.addEventListener("doctorcre-session-invalidated", stop, { once: true });
     return () => {
