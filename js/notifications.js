@@ -38,7 +38,7 @@ import {
   acknowledgeArgs, acknowledgeOperationKey, activityRows, classifyPreferenceFailure,
   classifyPreferenceReadFailure, classifyReadFailure, feedState, notificationCards,
   preferenceOriginSentence, preferenceState, preferenceSummary, preferenceView,
-  quietNowBanner, setPreferenceArgs, unreadLine, versionConflictLine,
+  quietNowBanner, setPreferenceArgs, unreadLine, validFeedPayload, versionConflictLine,
   preferenceSaveView, preferenceTimeLabel,
 } from "./notifications-model.js";
 import { uuidv4 } from "./uuid.js";
@@ -50,9 +50,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 
 /** The second line of a feed state: what fills this space, or what to do next. */
 const FEED_HINT = {
-  empty: "Action-required items and failures addressed to you land here. Routine progress shows under Who did what.",
   no_match: "Nothing in this view. Refresh to read the whole feed again.",
-  unavailable: "Nothing is shown rather than a guess. Refresh to read again.",
   refused: "Sign in again to read your notifications.",
 };
 
@@ -85,9 +83,10 @@ function announce(text) {
   if (live && live.textContent !== text) live.textContent = text;
 }
 
-const asOf = (read) => (read?.state === "read" && formatClock(read.observed_at)
-  ? `As of ${formatClock(read.observed_at)}`
-  : "unknown");
+const asOf = (read) => {
+  const clock = read.state === "read" ? formatClock(read.observed_at) : "";
+  return clock ? `As of ${clock}` : "";
+};
 
 /* -------------------------------------------------------------------- painting */
 
@@ -112,12 +111,12 @@ function cardHtml(card) {
     ? `<p class="quiet-mark" data-quiet="suppressed">${escapeHtml(QUIET_SUPPRESSED_MARK)}</p>`
     : "";
   const act = card.read
-    ? `<p class="read-mark" data-read="true">Acknowledged at ${escapeHtml(card.readClock || "unknown")}</p>`
+    ? `<p class="read-mark" data-read="true">Acknowledged${card.readClock ? ` at ${escapeHtml(card.readClock)}` : ""}</p>`
     : `<div class="note-act"><button class="btn btn-secondary" type="button" data-ack="${escapeHtml(card.id)}">Acknowledge this notification</button></div>`;
   return `<li class="work-item" data-priority="${card.severity === "failure" ? "overdue" : "deadline"}" data-notification="${escapeHtml(card.id)}">
     <div>
       <div class="note-top">
-        <span class="severity-chip" data-severity="${escapeHtml(card.severity || "unknown")}">${escapeHtml(card.severityLabel)}</span>
+        <span class="severity-chip" data-severity="${escapeHtml(card.severity || "")}">${escapeHtml(card.severityLabel)}</span>
         <span class="read-mark">${escapeHtml(card.clock)}</span>
       </div>
       <h3 class="note-reason">${escapeHtml(card.reason)}</h3>
@@ -138,15 +137,19 @@ function renderFeed() {
   const block = $("feedState");
   block.setAttribute("data-state", state.state);
   $("feedStateTitle").textContent = state.sentence || "";
+  const failed = ["refused", "unavailable", "unknown"].includes(state.state);
+  $("retryRead").textContent = failed ? "Retry" : "Refresh";
   const hint = $("feedStateHint");
   if (hint) hint.textContent = FEED_HINT[state.state] || "";
   block.hidden = state.state === "ready";
   const payload = read.state === "read" ? read.payload : null;
-  $("unreadLine").textContent = unreadLine(payload);
+  const unread = unreadLine(payload);
+  $("unreadLine").textContent = unread;
+  announce(state.sentence || unread);
   $("feedOrb").setAttribute(
     "data-state",
     state.state === "ready" || state.state === "empty" ? "healthy"
-      : ["refused", "unavailable", "unknown"].includes(state.state) ? "urgent" : "still",
+      : failed ? "urgent" : "still",
   );
   $("feedList").innerHTML = notificationCards(payload).map(cardHtml).join("");
   const banner = $("quietNowBanner");
@@ -203,10 +206,10 @@ function renderActivity() {
   $("activityAsOf").textContent = asOf(read);
   const payload = read.state === "read" ? read.payload : null;
   const rows = activityRows(payload?.events);
-  $("activityState").hidden = Boolean(payload);
+  $("activityState").hidden = read.state === "pending" || Boolean(payload);
   $("activityList").innerHTML = rows.map((row) => `<li class="work-item" data-priority="ordinary">
     <div><h3>${escapeHtml(row.actor)} · ${escapeHtml(row.verb)}</h3>
-    <div class="work-meta"><span>${escapeHtml(row.subject)} · ${escapeHtml(row.clock)}</span></div>
+    <div class="work-meta"><span>${escapeHtml(row.subject)}${row.clock ? ` · ${escapeHtml(row.clock)}` : ""}</span></div>
     ${recordDetailsHtml(row.details)}</div>
     <div class="stack-end"></div>
   </li>`).join("") || (payload
@@ -229,12 +232,13 @@ function render() {
  */
 async function takeFeed() {
   const sequence = view.sequence;
-  if (view.feed.state === "read") view.feed = { ...view.feed, refreshing: true };
+  view.feed = view.feed.state === "read" ? { ...view.feed, refreshing: true } : { state: "pending" };
   render();
   try {
     const args = view.after ? { after: view.after, limit: LIMIT } : { limit: LIMIT };
     const payload = await client.notificationFeed(args);
     if (view.sequence !== sequence) return;
+    if (!validFeedPayload(payload)) throw new Error("Invalid notification feed");
     view.feed = { state: "read", payload, observed_at: new Date().toISOString() };
   } catch (error) {
     if (view.sequence !== sequence) return;
@@ -311,8 +315,6 @@ async function load() {
     // eslint-disable-next-line no-restricted-syntax -- A single frame scrolls to the newly revealed preference form; preferenceAnchorRevealed prevents repetition.
     requestAnimationFrame(() => form.scrollIntoView({ block: "start", behavior: "instant" }));
   }
-  const state = feedState(view.feed, { after: view.after, limit: LIMIT });
-  announce(state.sentence || unreadLine(view.feed.payload));
 }
 
 /* --------------------------------------------------------------------- writing */

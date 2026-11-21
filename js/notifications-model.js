@@ -71,7 +71,7 @@ export function validFeedPayload(payload) {
  * not.
  */
 export function unreadLine(payload) {
-  if (!validFeedPayload(payload)) return "unknown";
+  if (!validFeedPayload(payload)) return "";
   const count = payload.unread_count;
   if (count === 0) return "Nothing unread";
   return count === 1 ? "1 unread notification" : `${count} unread notifications`;
@@ -144,11 +144,11 @@ export function notificationCards(payload, routes = APP_ROUTE_PATHS) {
     .map((row) => ({
       id: row.id,
       severity: SEVERITIES.includes(row.severity) ? row.severity : null,
-      severityLabel: SEVERITY_LABELS[row.severity] || "unknown severity",
+      severityLabel: SEVERITY_LABELS[row.severity] || "Severity unavailable",
       reason: isText(row.reason) ? row.reason : "no reason recorded",
       subject: recordLabel(row.subject_type),
       details: { subjectType: row.subject_type || null, subjectRef: row.subject_ref || null },
-      clock: formatClock(row.created_at) || "unknown",
+      clock: formatClock(row.created_at),
       read: isText(row.read_at),
       readClock: formatClock(row.read_at) || null,
       delivery: deliveryPhrases(row.delivery),
@@ -170,8 +170,7 @@ export function notificationCards(payload, routes = APP_ROUTE_PATHS) {
  * maintains the verb, and this page prints at partners.
  *
  *  - 401/403 is a DECISION taken before the verb ran. Nothing was read.
- *  - any other HTTP status is the path failing around a request that may well
- *    have been served; the page says so and does not invite a blind retry.
+ *  - any other HTTP status means the page could not read the feed.
  *  - `notification_feed_unavailable` is the shaper's own refusal: the answer
  *    could not be shaped, so the page shows nothing rather than a guess.
  */
@@ -187,7 +186,7 @@ export function classifyReadFailure(error) {
 /** The eight states UX20 demands, each with the sentence the page renders. */
 export const FEED_STATES = Object.freeze({
   loading: "Loading notifications…",
-  empty: "No notifications",
+  empty: "No updates",
   no_match: "No matching notifications",
   stale: "Updating…",
   unavailable: "Notifications temporarily unavailable",
@@ -249,7 +248,7 @@ export function activityRows(events) {
       verb: changeAction(row),
       subject: recordLabel(row.subject_type),
       details: { actor: row.actor || null, verb: row.verb, subjectType: row.subject_type || null, subjectRef: row.subject_id || null },
-      clock: formatClock(row.recorded_at) || "unknown",
+      clock: formatClock(row.recorded_at),
     }));
 }
 
@@ -342,7 +341,7 @@ export function preferenceView(payload) {
  * A human-readable summary. The compare-and-swap version belongs in Details.
  */
 export function preferenceSummary(view) {
-  if (!view) return "unknown";
+  if (!view) return "";
   const window = view.quietHoursSet
     ? `Quiet hours ${preferenceTimeLabel(view.start)} to ${preferenceTimeLabel(view.end)} ${view.timezone}`
     : `No quiet hours set · ${view.timezone}`;
@@ -355,7 +354,7 @@ export const PREFERENCE_DEFAULTS_SENTENCE =
 export const PREFERENCE_SAVED_SENTENCE =
   "Preferences saved";
 export function preferenceOriginSentence(view) {
-  if (!view) return "unknown";
+  if (!view) return "";
   return view.exists ? PREFERENCE_SAVED_SENTENCE : PREFERENCE_DEFAULTS_SENTENCE;
 }
 

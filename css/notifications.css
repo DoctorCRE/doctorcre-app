@@ -13,7 +13,6 @@
  */
 
 .hero { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
-.hero-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .hero-card { display: grid; gap: var(--space-3); }
 .page-sub { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 
@@ -24,6 +23,8 @@
 .chip-bar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .chip { min-height: var(--touch); overflow-wrap: anywhere; }
 .btn { min-height: var(--touch); }
+
+.headline:empty, .as-of:empty, #prefOrigin:empty { display: none; }
 
 /* --------------------------------------------------------------- the feed */
 #feedList { grid-template-columns: minmax(0, 1fr); }
@@ -86,7 +87,6 @@
 
 @media (max-width: 480px) {
   .hero { flex-direction: column; align-items: stretch; }
-  .hero-meta { justify-content: flex-start; }
   .note-top { flex-direction: column; align-items: flex-start; }
 }
 
