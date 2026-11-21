@@ -210,12 +210,15 @@ const saveUncertain = "Doc couldn’t tell if this saved. Try again.";
 
 function proposalRefusal(error: DocRequestFailed) {
   const refusal = saveRefusal.safeParse(error.payload).data;
-  if (
-    refusal?.fields?.length &&
-    refusal.hint &&
-    refusal.fields.every((field) => ["text", "what", "due_on", "subject", "body"].includes(field))
-  ) {
-    return { text: refusal.hint, fields: refusal.fields };
+  const messages = new Map([
+    ["subject", "Keep the subject under 998 characters."],
+    ["body", "Enter a reply."],
+    ["text", "Enter the note."],
+    ["what", "Enter the next step."],
+    ["due_on", "Choose a valid due date."],
+  ]);
+  if (refusal?.fields?.length && refusal.fields.every((field) => messages.has(field))) {
+    return { text: refusal.fields.map((field) => messages.get(field)).join(" "), fields: refusal.fields };
   }
   if (error.status === 404) return { text: "This record is no longer available." };
   switch (refusal?.error) {

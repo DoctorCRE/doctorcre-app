@@ -811,7 +811,11 @@ test("Doc identifies refused reply fields and keeps edits", async (t) => {
         return Response.json({ conversation, turns: [turn] });
       case confirmationPath:
         return Response.json(
-          { error: "invalid_field_value", fields: ["body"], hint: "Please correct the reply." },
+          {
+            error: "invalid_field_value",
+            fields: ["body"],
+            hint: "Check the named fields against the tool’s documented input.",
+          },
           { status: 400 },
         );
       default:
@@ -825,7 +829,8 @@ test("Doc identifies refused reply fields and keeps edits", async (t) => {
   const reply = page.getByLabel("Reply", { exact: true });
   await reply.fill("Edited reply");
   await page.getByRole("button", { name: "Save draft and open review" }).click();
-  await expect(page.getByRole("alert")).toHaveText("Please correct the reply.");
+  await expect(page.getByRole("alert")).toHaveText("Enter a reply.");
+  await expect(page.getByText("Check the named fields against the tool’s documented input.")).toHaveCount(0);
   await expect(reply).toHaveValue("Edited reply");
   await expect(subject).toHaveValue("Edited subject");
 });
