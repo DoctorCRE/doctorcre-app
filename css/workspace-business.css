@@ -158,6 +158,19 @@ body.record-open { overflow: hidden; }
 .record-field { display: grid; grid-template-columns: minmax(120px, .8fr) minmax(0, 1.2fr); gap: var(--space-3); }
 .record-field dt { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 .record-field dd { margin: 0; font-size: var(--font-size-1); line-height: var(--line-height-body); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.client-deals { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--font-size-1); }
+.record-item > .client-deals { padding: 0 var(--space-4) var(--space-2); }
+.client-deals a, #recordActivity .activity-what a { overflow-wrap: anywhere; text-decoration: underline; }
+.client-note > p { margin: 0; }
+.client-note:has(details:not([open])) > p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+:is(.client-note, #recordActivity) .record-details:not([open]) > summary > :last-child,
+:is(.client-note, #recordActivity) .record-details[open] > summary > :first-child { display: none; }
+.client-activity .activity-what summary { cursor: pointer; }
+.client-activity .activity-row { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; }
+.client-activity .activity-when { white-space: nowrap; }
+@media (max-width: 767px) {
+  .client-activity .activity-row { grid-template-columns: minmax(0, 1fr); }
+}
 .unresolved-flag { display: block; color: var(--status-warn-ink); font-size: var(--font-size-1); }
 .note-summary { margin: 0; font-size: var(--font-size-1); line-height: var(--line-height-body); }
 .record-details summary { display: flex; align-items: center; min-height: var(--touch); color: var(--fg-muted); font-size: var(--font-size-1); cursor: pointer; }

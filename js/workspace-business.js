@@ -25,7 +25,7 @@ import { fetchRead, mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 
 import {
   DATASET_LABEL, DATASET_ROUTE, DATASET_SINGULAR, MAX_QUERY_LENGTH, NOT_RECORDED, PIPELINE_FILTERS, PIPELINE_LABEL, SORTS,
-  SOURCE_LABEL, acceptsResponse, cachedPayload, createBusinessState, datasetForPath, defaultQuery,
+  SOURCE_LABEL, acceptsResponse, cachedPayload, clientNoteText, createBusinessState, datasetForPath, defaultQuery,
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
   isSessionExpiry, listPhase, listRequestUrl, ownerPresentation, pageSummary, panelModality, panelTabTarget,
   parseViewState, partyKindText, recordRequestUrl, recordSections, recordedCode, recordedValue, refusalCopy,
@@ -609,21 +609,29 @@ function rowFacts(dataset, row) {
 
   }
   const place = [row.city, row.state].filter(Boolean).join(", ");
-  facts.push({ label: "Location", value: place || "Not recorded", known: Boolean(place) });
+  facts.push({ label: dataset === "clients" ? "Territory" : "Location", value: place || "Not recorded", known: Boolean(place) });
   return facts;
 }
+
+const dealHref = id => `/deals?deal=${encodeURIComponent(id)}`;
+const dealLinks = row => row.active_deals?.length
+  ? `<div class="client-deals">${row.active_deals.map(deal =>
+      `<a href="${dealHref(deal.id)}">${escapeHtml(deal.name)}</a>`).join("")}</div>`
+  : "";
+const toneHtml = tone => tone
+  ? `<span class="tone tone-${escapeHtml(tone.tone)}">${escapeHtml(tone.label)}</span>`
+  : "";
 
 function rowHtml(dataset, row, selectedId) {
   const tone = rowTone(dataset, row);
   const owner = ownerPresentation(row);
   const selected = row.id === selectedId;
-  // A blank is said once per row, quietly, instead of repeating per field.
   const allFacts = rowFacts(dataset, row);
-  const missing = allFacts.filter((fact) => !fact.known).map((fact) => fact.label.toLowerCase());
+  const missing = dataset === "vendors" ? allFacts.filter((fact) => !fact.known).map((fact) => fact.label.toLowerCase()) : [];
   const facts = allFacts.filter((fact) => fact.known).map((fact) =>
     `<span class="row-fact${fact.unresolved ? " unresolved" : ""}${fact.label === "Last contacted" ? " row-last-contact" : ""}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("")
     + (missing.length ? `<span class="row-missing">${NOT_RECORDED}: ${escapeHtml(missing.join(", "))}</span>` : "");
-  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(row.name)}</span><span class="tone tone-${escapeHtml(tone.tone)}">${escapeHtml(tone.label)}</span></span><span class="row-facts">${facts}</span>${dataset === "vendors" ? tierHtml(row.relationship) + `<span class="contact-note">${escapeHtml(shortNote(row.relationship?.last_contact_note))}</span>` : ""}<span class="row-foot"><span class="row-owner${owner.known ? "" : " unknown"}">Owner: ${escapeHtml(owner.text)}${owner.ownedByViewer ? '<span class="row-you">Yours</span>' : ""}</span><span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a></li>`;
+  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${dataset === "vendors" ? tierHtml(row.relationship) + `<span class="contact-note">${escapeHtml(shortNote(row.relationship?.last_contact_note))}</span>` : ""}<span class="row-foot"><span class="row-owner${owner.known ? "" : " unknown"}">Owner: ${escapeHtml(owner.text)}${owner.ownedByViewer ? '<span class="row-you">Yours</span>' : ""}</span><span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
 }
 
 function paintList(html, { busy = false } = {}) {
@@ -776,6 +784,12 @@ function containPanelFocus(event) {
   focusWithoutScrolling(target === "first" ? stops[0] : stops[stops.length - 1]);
 }
 
+function clientNote(saved) {
+  const note = clientNoteText(saved);
+  if (!note) return "";
+  return `<section class="record-section client-note"><h3>Notes</h3><p class="entry-detail">${escapeHtml(note)}</p><details class="record-details" data-details-key="notes"><summary><span>More</span><span>Less</span></summary></details></section>`;
+}
+
 function renderRecordPanel() {
   const keepNeeds = !view.signedOut && view.dataset === 'vendors' && view.recordId &&
     view.record.status === 'ready' && vendorClientNeedsId === view.recordId;
@@ -833,7 +847,7 @@ function renderRecordPanel() {
     `<section class="record-section"><h3>${escapeHtml(section.title)}</h3><dl>${section.fields.filter(field => !['ETL status','What this status means','Version','What this level means','Vendor reference','Client reference','What they offer','Last touch'].includes(field.label) && field.known).map((field) =>
       `<div class="record-field${field.known ? "" : " unknown"}${field.resolved ? "" : " unresolved"}"><dt>${escapeHtml(field.label)}</dt><dd>${(section.title === 'Notes' ? `<p class="note-summary">${escapeHtml(shortNote(field.text))}</p><details class="record-details" data-details-key="notes"><summary>Details</summary><p class="entry-detail">${escapeHtml(field.text)}</p></details>` : escapeHtml(field.text))}${field.known && !field.resolved ? '<span class="unresolved-flag">Not recorded</span>' : ""}</dd></div>`).join("")}</dl></section>`).join("");
   if (dom.panelBody) {
-    dom.panelBody.innerHTML = `<p class="record-tone"><span class="tone tone-${escapeHtml(tone.tone)}">${escapeHtml(tone.label)}</span><span>${escapeHtml(owner.text)}</span></p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : ''}<div class="detail-columns">${sections}</div>${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at))}</p>`;
+    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}<span>${escapeHtml(owner.text)}</span></p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     if (dataset === 'vendors' && !document.documentElement.hasAttribute('data-deals-saves-from-engine') && !document.documentElement.hasAttribute('data-clients-vendors-from-engine')) {
       if (!vendorClientNeedsHost) {
@@ -844,7 +858,28 @@ function renderRecordPanel() {
       } else dom.panelBody.prepend(vendorClientNeedsHost);
     }
     restorePanelState();
+    const note = dom.panelBody.querySelector(".client-note > p");
+    if (note) note.nextElementSibling.hidden = !note.nextElementSibling.open && note.scrollHeight <= note.clientHeight;
   }
+}
+
+function clientActivityList(rows) {
+  return `<ol class="activity-list client-activity">${rows.map((row, index) => {
+    const text = escapeHtml(row.what);
+    const entry = row.dealId
+      ? `<a href="${dealHref(row.dealId)}">${text}</a>`
+      : row.email
+        ? `<details data-details-key="email-${escapeHtml(row.when)}-${index}"><summary>${text}</summary><p class="entry-detail">${escapeHtml(row.email)}</p></details>`
+        : text;
+    return `<li class="activity-row"><span class="activity-dot" aria-hidden="true"></span><div class="activity-what">${entry}</div>${row.when ? `<time class="activity-when">${escapeHtml(formatMoment(row.when))}${row.source ? ` · ${escapeHtml(row.source)}` : ""}</time>` : ""}</li>`;
+  }).join("")}</ol>`;
+}
+
+function clientActivity(rows) {
+  const rest = rows.slice(3);
+  return clientActivityList(rows.slice(0, 3)) + (rest.length
+    ? `<details class="record-details" data-details-key="more-activity"><summary><span>Show all</span><span>Show less</span></summary>${clientActivityList(rest)}</details>`
+    : "");
 }
 
 /** The record's recent activity, or the plain reason none is shown. */
@@ -852,9 +887,9 @@ function activityHtml(recordId) {
   const result = view.activity.id === recordId ? view.activity.result : null;
   const state = result || { state: "loading" };
   const body = state.state === "ready"
-    ? `<ol class="activity-list">${state.rows.map((row) => `<li class="activity-row" data-kind="${escapeHtml(row.kind)}"><span class="activity-dot" aria-hidden="true"></span><span class="activity-what">${escapeHtml(row.what)}${row.owed ? ` <b>· owed: ${escapeHtml(row.owed)}</b>` : ""}</span><span class="activity-when">${escapeHtml(row.when ? formatMoment(row.when) : "an unknown time")}${row.actor ? ` · ${escapeHtml(row.actor)}` : ""}</span></li>`).join("")}</ol>`
+    ? view.dataset === "clients" ? clientActivity(state.rows) : `<ol class="activity-list">${state.rows.map((row) => `<li class="activity-row" data-kind="${escapeHtml(row.kind)}"><span class="activity-dot" aria-hidden="true"></span><span class="activity-what">${escapeHtml(row.what)}${row.owed ? ` <b>· owed: ${escapeHtml(row.owed)}</b>` : ""}</span><span class="activity-when">${escapeHtml(row.when ? formatMoment(row.when) : "an unknown time")}${row.actor ? ` · ${escapeHtml(row.actor)}` : ""}</span></li>`).join("")}</ol>`
     : `<p class="record-note activity-note" data-state="${escapeHtml(state.state)}">${escapeHtml(activityCopy(state))}</p>`;
-  return `<section class="record-section" id="recordActivity" aria-live="polite"><h3>Recent activity</h3>${body}<p class="record-note"></p></section>`;
+  return `<section class="record-section" id="recordActivity" aria-labelledby="recordActivityTitle" aria-live="polite"><h3 id="recordActivityTitle">Recent activity</h3>${body}</section>`;
 }
 
 /**
@@ -865,19 +900,20 @@ async function loadActivity(id, record) {
   const sequence = ++view.activity.sequence;
   view.activity.id = id;
   view.activity.result = null;
-  const request = activityRequest(record);
+  const dataset = view.dataset;
+  const request = activityRequest(record, dataset);
   const docTicket=request ? pageDocContext?.begin('businessActivity',[{dataset:view.dataset,id}]) : null;
   const settle = (result) => {
     if (view.activity.sequence !== sequence || view.recordId !== id) return;
     view.activity.result = result;
-    if(['ready','empty'].includes(result.state))pageDocContext?.finish(docTicket,{record,activities:result.rows});
+    if(['ready','empty'].includes(result.state))pageDocContext?.finish(docTicket,{record,activities:result.rows.map(({what, when}) => ({what, when}))});
     else if (docTicket)pageDocContext?.fail(docTicket);
     renderRecordPanel();
   };
   if (!request) return settle({ state: "no_ref" });
   try {
     const client = await dealroomClient();
-    settle(activityState(record, await client.findAndCatchUp(request)));
+    settle(activityState(record, await client.findAndCatchUp(request), dataset));
   } catch {
     settle({ state: "unavailable" });
   }

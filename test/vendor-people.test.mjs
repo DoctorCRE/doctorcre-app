@@ -19,7 +19,7 @@ const detail = () => {
 test('People reads explicitly negotiate v2 while callers without people retain v1', () => {
   assert.equal(new URL(recordRequestUrl('vendors', id, { people: true }), 'https://example.test').searchParams.get('contract'), 'vendor-directory.v2');
   assert.equal(new URL(recordRequestUrl('vendors', id), 'https://example.test').searchParams.get('contract'), 'vendor-directory.v1');
-  assert.equal(new URL(recordRequestUrl('clients', id, { people: true }), 'https://example.test').searchParams.get('contract'), 'vendor-directory.v1');
+  assert.equal(new URL(recordRequestUrl('clients', id, { people: true }), 'https://example.test').searchParams.get('contract'), 'vendor-directory.v2');
   assert.equal(new URL(listRequestUrl(defaultQuery('vendors')), 'https://example.test').searchParams.get('contract'), 'vendor-directory.v1');
 });
 
