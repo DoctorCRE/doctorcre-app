@@ -228,6 +228,97 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
   assert.deepEqual(evalViolations, []);
 });
 
+for (const storageBlocked of [false, true]) {
+  test(`Ask Doc question drafts ${storageBlocked ? "are optional when storage is blocked" : "survive reload until sent or the session ends"}`, async (t) => {
+    let actor = "joe";
+    const errors: Error[] = [];
+    const { page, origin } = await docChatFixture(
+      t,
+      async (request) => {
+        switch (new URL(request.url).pathname) {
+          case "/api/engine/doc/conversations":
+            return Response.json({ conversations: [conversation], next_before: null });
+          case detailPath:
+            return Response.json({ conversation, turns: [] });
+          case "/api/engine/doc/turns": {
+            const { idempotency_key } = await request.json();
+            return Response.json({ conversation_id: id, turn: { ...answeredTurn, idempotency_key } });
+          }
+          default:
+            return new Response(null, { status: 404 });
+        }
+      },
+      () => actor,
+    );
+    if (storageBlocked) {
+      await page.addInitScript(() => {
+        Object.defineProperty(window, "sessionStorage", {
+          get() {
+            throw new DOMException("Storage blocked", "SecurityError");
+          },
+        });
+      });
+    }
+    page.on("pageerror", (error) => errors.push(error));
+    const start = `${origin}/doc-chats?mode=live`;
+    const chat = `${start}&chat=${id}`;
+    const composer = page.getByLabel("Question for Doc");
+    await page.goto(chat);
+    await composer.fill(question);
+    await page.reload();
+    await expect(composer).toBeEnabled();
+    await expect(composer).toHaveValue(storageBlocked ? "" : question);
+    if (storageBlocked) {
+      await composer.fill(question);
+    } else {
+      await page.goto(start);
+      await expect(composer).toBeEnabled();
+      await expect(composer).toHaveValue("");
+      await page.getByRole("link", { name: question }).click();
+      await expect(composer).toHaveValue(question);
+    }
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+    await page.reload();
+    await expect(composer).toBeEnabled();
+    await expect(composer).toHaveValue("");
+
+    if (!storageBlocked) {
+      await composer.fill("Draft before account change");
+      await page.goto(start);
+      await composer.fill("Unsent first question");
+      await page.reload();
+      await expect(composer).toHaveValue("Unsent first question");
+      actor = "dell";
+      await page.reload();
+      await expect(composer).toBeEnabled();
+      await expect(composer).toHaveValue("");
+      await page.goto(chat);
+      await expect(composer).toBeEnabled();
+      await expect(composer).toHaveValue("");
+      await composer.fill("Draft before sign-out");
+    }
+    await page.evaluate(async () => {
+      const { privateSession } = await import(String("/js/private-session.js"));
+      privateSession().revoke("signed-out");
+    });
+    await expect(page).toHaveURL(`${origin}/public-shell/session-ended.html`);
+    await page.goto(chat);
+    await expect(composer).toBeEnabled();
+    await expect(composer).toHaveValue("");
+    if (!storageBlocked) {
+      actor = "joe";
+      await page.goto(chat);
+      await expect(composer).toBeEnabled();
+      await expect(composer).toHaveValue("");
+      await page.goto(start);
+      await expect(composer).toBeEnabled();
+      await expect(composer).toHaveValue("");
+    }
+    assert.deepEqual(errors, []);
+  });
+}
+
 test("Doc accepts engine IDs without RFC version or variant bits", async (t) => {
   const engineId = "11111111-2222-3333-4444-555555555555";
   const engineConversation = { ...conversation, id: engineId };
@@ -337,6 +428,8 @@ test("Back reloads Ask Doc once and a failed session check cannot read the saved
   const url = `${origin}/doc-chats?mode=live&chat=${id}`;
   await page.goto(url);
   await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
+  const composer = page.getByLabel("Question for Doc");
+  await composer.fill("An unsent Back follow-up");
 
   let reloads = 0;
   let detailReads = 0;
@@ -363,6 +456,7 @@ test("Back reloads Ask Doc once and a failed session check cannot read the saved
   await page.unroute(sessionUrl);
   await page.getByRole("button", { name: "Retry loading" }).click();
   await expect(page.getByText(answered.answer.text)).toBeVisible();
+  await expect(composer).toHaveValue("An unsent Back follow-up");
   assert.equal(detailReads, 1);
   assert.equal(reloads, 1);
 });

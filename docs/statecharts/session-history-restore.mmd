@@ -5,3 +5,7 @@ stateDiagram-v2
   CheckingSession --> SessionEnded: Session denied or changed
   CheckingSession --> LoadFailed: Session verification unavailable
   LoadFailed --> CheckingSession: Normal page retry
+  note right of PrivateView
+    Ask Doc, Lead review, and Deal updates restore unsent text for the same account and record or chat.
+    A confirmed save or send clears its draft. Sign-out or account change clears all drafts.
+  end note

@@ -11,6 +11,7 @@ import { workCard } from './work-card.js';
 import { businessDay, BUSINESS_TIME_ZONE } from './business-date.js';
 import { shortDay, toDay } from './calendar-model.js';
 import { engagementWriterFor, engagementStorage } from './prospect-engagement.mjs';
+import { privateTextDraft } from "./private-session.js";
 import {onDialogClosed} from './dialog-lifecycle.js';
 import { pageDocContext, publishDocRead, selectDocRecord, setDocFilters } from './doc-context.js';
 import { createLeadBoardClient, hasLeadVersion, validateLeadWorkspace as validateWorkspace, validateLeadDetail as validateDetail } from "./leads-client.js";
@@ -59,6 +60,10 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   const leadById = id => state.board?.leads.find(lead => lead.id === id && eligibleLead(lead));
   const canEditLead = lead => hasLeadVersion(lead) && hasLeadVersion(leadById(lead.id));
   const reviewComplete = (lead, target, undoEventId) => (undoEventId ? lead.stage : normalizedStage(lead)) === target;
+  const reviewAnswer = (actor, id, target, undoEventId) => privateTextDraft(win, actor, "lead-review", id, target, undoEventId);
+  function clearReviewAnswer(pending) {
+    if (pending.kind === "stage") reviewAnswer(pending.actor, pending.lead.id, pending.stage, pending.review.undo_event_id ?? null).write("");
+  }
   function captureReviewDraft() {
     const draft = state.reviewTarget, input = $("stageQuestions").querySelector("textarea");
     if (draft && input) draft.answer = input.value;
@@ -332,6 +337,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
         if ((state.pending.kind === "link" && current?.client_id === state.pending.clientId) ||
             (state.pending.kind === "stage" && move?.idempotency_key === state.pending.key) ||
             (state.pending.kind === "claim" && current?.owner === state.pending.actor)) {
+          clearReviewAnswer(state.pending);
           state.pending = null; state.commandFeedback = null; $("stageDialog").close();
         }
       }
@@ -563,7 +569,9 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       const undo = undoEventId ? undoReview(detail) : null;
       if (undoEventId && (undo?.stage_review.undo_event_id !== undoEventId || undo.stage !== target)) { $("stageDialog").close(); return; }
       const review = undo ? { evidence: [], question: undo.question, reason: undo.stage_review.reason } : stageReview(detail, target);
-      if (review.question !== priorQuestion) draft.answer = "";
+      if (review.question !== priorQuestion) {
+        draft.answer = !updating && review.question ? reviewAnswer(actor, id, target, undoEventId).read() : "";
+      }
       draft.question = review.question;
       state.proposal = { lead: detail, target, review, actor, undoEventId };
       $("stageContext").innerHTML = `<div class="stage-proposal">${esc(stageLabel(normalizedStage(detail)))} <span>→</span> ${esc(stageLabel(target))}</div><ul class="stage-evidence">${review.evidence.map(entry => `<li><b>${esc(summary(entry.summary))}</b> · ${shortDate(entry.occurred_at)}</li>`).join("") || '<li>No supporting mail or calendar entry</li>'}</ul>`;
@@ -680,6 +688,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       else if (pending.kind === "claim") claim = await client.claimLead(pending.lead, pending.key, pending.actor);
       else await client.recordStage(pending.lead, pending.stage, pending.review, pending.key, pending.actor);
       if (state.pending !== pending || state.actor !== actor) return;
+      clearReviewAnswer(pending);
       if (claim?.lead_id === pending.lead.id && leadById(pending.lead.id)?.new_from_email) clearEmailBadge(pending.lead.id);
       state.pending = null; state.commandFeedback = null; $("stageDialog").close();
       $("moveAnnouncement").textContent = pending.kind === "link" ? "Client linked" : pending.kind === "claim" ? "Lead claimed" : pending.review.undo_event_id ? "Stage restored" : `Moved to ${stageLabel(pending.stage)}`;
@@ -738,6 +747,10 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
         stage.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
       }
     }
+  });
+  $("stageQuestions").addEventListener("input", () => {
+    const draft = captureReviewDraft();
+    if (draft?.question) reviewAnswer(draft.actor, draft.id, draft.target, draft.undoEventId).write(draft.answer);
   });
   $("stageForm").addEventListener("submit", event => {
     event.preventDefault(); if (state.pending) { executePending(); return; } const p = state.proposal;

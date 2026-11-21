@@ -8,6 +8,23 @@ import { clearPrivateStorage, offlineTourSession, sessionEpoch, SESSION_EPOCH_KE
 export const SESSION_TRUST_MS = 2 * 60_000;
 const PARTNER_SIGN_IN_HEADER = 'x-doctorcre-partner-sign-in';
 
+export function privateTextDraft(win, actor, ...scope) {
+  const key = actor ? 'doctorcre:draft:' + JSON.stringify([actor, ...scope]) : null;
+  return {
+    read() {
+      try { return key ? win.sessionStorage.getItem(key) ?? '' : ''; }
+      catch { return ''; }
+    },
+    write(text) {
+      if (!key) return;
+      try {
+        if (text) win.sessionStorage.setItem(key, text);
+        else win.sessionStorage.removeItem(key);
+      } catch { /* The editor still works without storage. */ }
+    },
+  };
+}
+
 export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '', acceptSession = async () => true, anonymousDiagnostics = false, now = () => performance.now() }) {
   let binding = null, generation = 0, revoked = false, checking = null, trusted = null;
   let engineSessionSeen = false;

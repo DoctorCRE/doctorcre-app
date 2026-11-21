@@ -68,9 +68,18 @@ type Ask = Pick<Turn, "question" | "idempotency_key"> & {
   context?: z.infer<typeof recordRef>;
 };
 type Session = {
-  verify(options: { fresh: boolean; waitForBudget?: boolean }): Promise<unknown>;
+  verify(options: { fresh: boolean; waitForBudget?: boolean }): Promise<{ actor: { slug: string } }>;
   fetch(path: string, init: RequestInit, options: { boundRead: boolean; waitForBudget: boolean }): Promise<Response>;
 };
+
+type QuestionDraft = { read(): string; write(text: string): void };
+
+function sessionModule(): Promise<{
+  privateSession(): Session | null;
+  privateTextDraft(window: Window, actor: string, field: "doc-question", chatId: string | null): QuestionDraft;
+}> {
+  return import(new URL("./private-session.js", import.meta.url).href);
+}
 
 const api = "/api/engine/doc";
 const initialId = new URLSearchParams(location.search).get("chat");
@@ -109,9 +118,7 @@ async function docFetch<T>(
   schema: z.ZodType<T>,
   { ask, signal, boundRead = false }: { ask?: Ask; signal?: AbortSignal; boundRead?: boolean } = {},
 ): Promise<T> {
-  const { privateSession }: { privateSession: () => Session | null } = await import(
-    new URL("./private-session.js", import.meta.url).href
-  );
+  const { privateSession } = await sessionModule();
   const session = privateSession();
   if (!session) throw Error(statusText.signIn);
   signal?.throwIfAborted();
@@ -147,6 +154,7 @@ function DocChat() {
   const [recent, setRecent] = useState<Conversation[]>([]);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [question, setQuestion] = useState("");
+  const questionDraft = useRef<((chatId: string | null) => QuestionDraft) | null>(null);
   const [pendingAsk, setPendingAsk] = useState<Ask | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -219,6 +227,12 @@ function DocChat() {
           if (retired.current) return;
           setTurns(saved);
         }
+        const { privateSession, privateTextDraft } = await sessionModule();
+        const session = await privateSession()?.verify({ fresh: false });
+        if (retired.current || !session) return;
+        const actor = session.actor.slug;
+        questionDraft.current = (chatId) => privateTextDraft(window, actor, "doc-question", chatId);
+        setQuestion(questionDraft.current(chatId).read());
         setReady(true);
       });
     },
@@ -228,6 +242,7 @@ function DocChat() {
   useEffect(() => {
     function clear() {
       retired.current = true;
+      questionDraft.current = null;
       setId(null);
       setRecent([]);
       setTurns([]);
@@ -291,7 +306,10 @@ function DocChat() {
       }
       setTurns((rows) => [...rows.filter((row) => row.id !== turn.id), turn]);
       setPendingAsk(null);
-      if (latest?.idempotency_key !== ask.idempotency_key) setQuestion("");
+      if (latest?.idempotency_key !== ask.idempotency_key) {
+        questionDraft.current?.(id).write("");
+        setQuestion("");
+      }
     });
   }
 
@@ -301,7 +319,7 @@ function DocChat() {
         <h1>Ask Doc</h1>
         <nav className="doc-chat__actions" aria-label="Chat navigation">
           <a href="/">Home</a>
-          <a className="btn" href={chatHref(null)}>
+          <a className="btn" href={chatHref(null)} onClick={() => questionDraft.current?.(null).write("")}>
             New chat
           </a>
         </nav>
@@ -375,7 +393,11 @@ function DocChat() {
               value={question}
               disabled={(!ready && status !== "unavailable") || !!pendingAsk}
               readOnly={status === "unavailable"}
-              onChange={(event) => setQuestion(event.currentTarget.value)}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                questionDraft.current?.(id).write(value);
+                setQuestion(value);
+              }}
             />
             <div className="doc-chat__actions">
               <button className="btn btn-primary" type="submit" disabled={!canSend}>
