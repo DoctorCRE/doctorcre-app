@@ -139,6 +139,24 @@ test("auth forwards the app URL and preserves Google redirects and individual co
   assert.equal(calls.carr.length, 0);
 });
 
+test("Google callback refusal preserves cookie clears and JSON clients can still read the error", async () => {
+  const expiredCookies = ["__Host-state=; Path=/; Secure; Max-Age=0", "__Host-reauth=; Path=/; Secure; Max-Age=0"];
+  const { send } = fixture(() => {
+    const headers = new Headers();
+    for (const value of expiredCookies) headers.append("set-cookie", value);
+    return Response.json({ error: "sign_in_required" }, { status: 401, headers });
+  });
+  const path = "/auth/callback/google?state=fixture";
+  const page = await send(path, { headers: { accept: "text/html" } });
+  assert.equal(page.status, 401);
+  assert.match(page.headers.get("content-type") ?? "", /^text\/html\b/);
+  assert.equal(page.headers.get("cache-control"), "no-store");
+  assert.deepEqual(page.headers.getSetCookie(), expiredCookies);
+  const api = await send(path, { headers: { accept: "application/json" } });
+  assert.equal(api.status, 401);
+  assert.deepEqual(await api.json(), { error: "sign_in_required" });
+});
+
 test("engine session stays bound to its app origin and forwarded identity carries no authority", async () => {
   const { send, calls } = fixture(status);
   const identity = {

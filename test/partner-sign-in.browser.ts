@@ -50,7 +50,7 @@ async function app(
         if (path === "/auth/login") return redirect("/auth/callback/google" + url.search);
         if (path === "/auth/callback/google") {
           const token = url.searchParams.get("fixture") ?? "first";
-          if (!partners.has(token)) return new Response(null, { status: 401 });
+          if (!partners.has(token)) return Response.json({ error: "sign_in_required" }, { status: 401 });
           live.add(token);
           return redirect(url.searchParams.get("return_to") ?? "/", 302, {
             "set-cookie": `${cookieName}=${token}; Secure; HttpOnly; SameSite=Lax; Path=/`,
@@ -147,6 +147,23 @@ for (const width of [390, 1440])
       });
       assert.equal(carrChecks(), 0);
     });
+    test(`a refused Google sign-in can be retried at ${width}px in ${theme}`, async (t) => {
+      const { server, context } = await app(t, { width, theme });
+      const page = await context.newPage();
+      const response = await page.goto(server.origin + "/auth/callback/google?fixture=refused");
+      assert.ok(response);
+      assert.equal(response.status(), 401);
+      assert.match(response.headers()["content-type"] ?? "", /^text\/html\b/);
+      assert.equal(response.headers()["cache-control"], "no-store");
+      await page.getByRole("heading", { name: "We couldn’t complete Google sign-in" }).waitFor();
+      assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width);
+      await mkdir(artifacts, { recursive: true });
+      await page.screenshot({ path: `${artifacts}/refused-${width}-${theme}.png` });
+      await page.getByRole("link", { name: "Try again" }).click();
+      await page.waitForURL(server.origin + "/");
+      await page.locator('#selfAvatar[aria-label*="account and settings"]').waitFor();
+    });
   }
 
 test("engine sign-out clears two tabs, revokes the cookie, and leaves another context signed in", async (t) => {
@@ -174,6 +191,39 @@ test("engine sign-out clears two tabs, revokes the cookie, and leaves another co
     false,
   );
   assert.equal((await separate.request.get(server.origin + "/auth/session")).status(), 200);
+});
+
+test("a delayed session change notification leaves the new engine workspace open", async (t) => {
+  const { server, context } = await app(t);
+  const stale = await context.newPage();
+  const fresh = await context.newPage();
+  const avatar = '#selfAvatar[aria-label*="account and settings"]';
+  const target = server.origin + deepLink;
+  await stale.addInitScript(() => {
+    const delayEpoch = (event: StorageEvent) => {
+      if (event.key !== "doctorcre-session-epoch-v1") return;
+      event.stopImmediatePropagation();
+      window.removeEventListener("storage", delayEpoch, true);
+      const notification = new StorageEvent("storage", event);
+      window.addEventListener("release-session-change", () => window.dispatchEvent(notification), { once: true });
+      document.documentElement.dataset.sessionChangeDelayed = "true";
+    };
+    window.addEventListener("storage", delayEpoch, true);
+  });
+
+  await stale.goto(target);
+  await stale.locator(avatar).waitFor();
+  await fresh.goto(server.origin + "/auth/callback/google?fixture=second&return_to=" + encodeURIComponent(deepLink));
+  await fresh.locator(avatar).waitFor();
+  await stale.locator('html[data-session-change-delayed="true"]').waitFor({ state: "attached" });
+  await fresh.evaluate(() => localStorage.setItem("doctorcre:fixture-new-draft", "New synthetic draft"));
+
+  await stale.evaluate(() => window.dispatchEvent(new Event("release-session-change")));
+  await stale.waitForURL("**/public-shell/session-ended.html");
+  assert.equal((await context.request.get(server.origin + "/auth/session")).status(), 200);
+  assert.equal(fresh.url(), target);
+  assert.equal(await fresh.locator(avatar).isVisible(), true);
+  assert.equal(await fresh.evaluate(() => localStorage.getItem("doctorcre:fixture-new-draft")), "New synthetic draft");
 });
 
 test("engine session changes fence old tabs and offline navigation shows the public shell", async (t) => {

@@ -88,22 +88,31 @@ async function engineFetch(request, env) {
   return noStore(await env.PARTNER_APP.fetch(new Request(request, { headers, redirect: 'manual' })));
 }
 
-function signInUnavailable(request) {
+function signInPage(request, status = 503) {
+  const refused = status === 401;
+  const title = refused ? 'Google sign-in' : 'DoctorCRE unavailable';
+  const heading = refused ? 'We couldn’t complete Google sign-in' : 'DoctorCRE is temporarily unavailable';
+  const action = refused ? '<a href="/auth/login">Try again</a>' : '<p>Try again in a moment.</p>';
   return secure(new Response(request.method === 'HEAD' ? null : `<!doctype html>
-<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="/js/theme-boot.js"></script><link rel="stylesheet" href="/public-shell/shell.css"><title>DoctorCRE unavailable</title>
-<body class="shell-offline"><main><h1>DoctorCRE is temporarily unavailable</h1><p>Try again in a moment.</p></main></body></html>`,
-  { status: 503, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }),
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/js/theme-boot.js"></script><link rel="stylesheet" href="/public-shell/shell.css"><title>${title}</title></head>
+<body class="${refused ? 'shell-refusal' : 'shell-offline'}"><main><h1>${heading}</h1>${action}</main></body></html>`,
+  { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }),
   new URL(request.url).pathname);
 }
 
 async function authResponse(request, env, documentRequest) {
   try {
     const response = await engineFetch(request, env);
+    if (response.status === 401 && documentRequest && new URL(request.url).pathname === '/auth/callback/google' &&
+        request.headers.get('accept')?.includes('text/html')) {
+      void response.body?.cancel().catch(() => {});
+      return copySessionCookies(response, signInPage(request, 401));
+    }
     if (response.status < 500 || (!documentRequest && response.status === 503)) return response;
-    return copySessionCookies(response, documentRequest ? signInUnavailable(request) : json({ error: 'sign_in_unavailable' }, 503));
+    return copySessionCookies(response, documentRequest ? signInPage(request) : json({ error: 'sign_in_unavailable' }, 503));
   } catch {
-    return documentRequest ? signInUnavailable(request) : json({ error: 'sign_in_unavailable' }, 503);
+    return documentRequest ? signInPage(request) : json({ error: 'sign_in_unavailable' }, 503);
   }
 }
 
@@ -118,7 +127,7 @@ async function pageGate(request, env, gateRequest) {
   const response = await authResponse(new Request(new URL('/auth/session', url), { headers: request.headers }), env, false);
   void response.body?.cancel().catch(() => {});
   if (response.status === 200) return new Response(null, { headers: response.headers });
-  if (response.status !== 401) return signInUnavailable(request);
+  if (response.status !== 401) return signInPage(request);
   const login = new URL('/auth/login', url);
   login.searchParams.set('return_to', url.pathname + url.search);
   return noStore(Response.redirect(login, 302));
@@ -1025,7 +1034,7 @@ async function handleRequest(request, env) {
   if (engineSignIn(env) && pathname.startsWith('/auth/')) {
     const session = pathname === '/auth/session';
     const response = await authResponse(request, env, request.method === 'GET' && !session);
-    if (session && response.ok) response.headers.set('x-doctorcre-partner-sign-in', 'engine');
+    if (session) response.headers.set('x-doctorcre-partner-sign-in', 'engine');
     return response;
   }
 

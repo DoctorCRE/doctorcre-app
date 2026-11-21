@@ -3,8 +3,8 @@ export const SESSION_EPOCH_KEY = 'doctorcre-session-epoch-v1';
 export function sessionEpoch(window) {
   try { return window.localStorage.getItem(SESSION_EPOCH_KEY) || 'initial'; } catch { return null; }
 }
-export async function clearPrivateStorage(window) {
-  for (const name of ['localStorage','sessionStorage']) {
+export async function clearPrivateStorage(window, { shared = true } = {}) {
+  for (const name of shared ? ['localStorage','sessionStorage'] : ['sessionStorage']) {
     try {
       const storage = window[name];
       // eslint-disable-next-line no-restricted-syntax -- Revocation visits each storage key once in descending order; deletion cannot extend the finite scan.
@@ -14,6 +14,7 @@ export async function clearPrivateStorage(window) {
       }
     } catch { /* Revocation remains fail-closed when browser storage is denied. */ }
   }
+  if (!shared) return;
   const tasks = [];
   if (window.caches) tasks.push(window.caches.keys().then(names => Promise.all(names.map(name => window.caches.delete(name)))));
   if (window.indexedDB) tasks.push(new Promise(resolve => {
@@ -44,10 +45,13 @@ export function offlineTourSession(window) {
         return sessionEpoch(window) !== null && saved?.epoch === sessionEpoch(window) && saved?.tourId === tourId && typeof saved.scope === 'string' && saved.scope && typeof saved.userRef === 'string' ? saved : null;
       } catch { return null; }
     },
-    async revoke() {
-      try { window.localStorage.setItem(SESSION_EPOCH_KEY, window.crypto.randomUUID()); } catch { /* Offline restore requires storage. */ }
+    async revoke({ expectedEpoch } = {}) {
+      const shared = expectedEpoch === undefined || expectedEpoch === sessionEpoch(window);
+      if (shared) {
+        try { window.localStorage.setItem(SESSION_EPOCH_KEY, window.crypto.randomUUID()); } catch { /* Offline restore requires storage. */ }
+      }
       try { clear(); } finally { window.dispatchEvent(new window.Event('doctorcre-offline-session-revoked')); }
-      await clearPrivateStorage(window);
+      await clearPrivateStorage(window, { shared });
     },
   };
 }
