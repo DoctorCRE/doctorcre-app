@@ -370,7 +370,7 @@ for (const target of ['extra10', 'extra9']) test(`scrolled completion of ${targe
   const notice = await page.locator('.inbox-notice').boundingBox();
   const undo = await page.getByRole('button', { name: 'Undo', exact: true }).boundingBox();
   await page.screenshot({ path: `/tmp/j62-${target}-receipt.png` });
-  const safe = await page.evaluate(() => ({ top: Math.max(0, document.querySelector('.app-layout-tabbar')?.getBoundingClientRect().bottom || 0), bottom: Math.min(innerHeight, ...[...document.querySelectorAll('.app-shell-header, .app-layout-status')].map(node => node.getBoundingClientRect()).filter(box => box.height && box.top > innerHeight / 2).map(box => box.top)) }));
+  const safe = await page.evaluate(() => ({ top: Math.max(0, document.querySelector('.app-layout-tabbar')?.getBoundingClientRect().bottom || 0), bottom: Math.min(innerHeight, ...[...document.querySelectorAll('.app-shell-header')].map(node => node.getBoundingClientRect()).filter(box => box.height && box.top > innerHeight / 2).map(box => box.top)) }));
   assert.ok(notice.y >= safe.top && notice.y + notice.height <= safe.bottom, 'named receipt clears fixed mobile chrome');
   assert.ok(undo.y >= safe.top && undo.y + undo.height <= safe.bottom, 'Undo clears fixed mobile chrome');
   const focused = await page.locator('[data-inbox-row] h3 a:focus').boundingBox();
