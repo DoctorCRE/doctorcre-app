@@ -1531,8 +1531,8 @@ function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_sa
     const excerpt = hasEvidence ? `<details><summary>Read email excerpt</summary><q>${esc(body)}</q></details>` : `<p>${esc(body)}</p>`;
     const change = row.kind === 'file_to_deal' ? 'File email to this deal'
       : row.kind === 'phase_move' ? `Move to ${columnBySlug(row.to_phase)?.label || 'the next phase'}`
-      : row.what && emailPlaceholderText(row.what) || 'Review email';
-    const title = row.title || change;
+      : row.what && emailPlaceholderText(redactEmailAddresses(row.what)) || 'Review email';
+    const title = row.title || (subject === '(No subject)' ? 'Email follow-up' : subject);
     const showBody = body.trim() && title.replace(/\s+/g, ' ') !== body.replace(/\s+/g, ' ').trim();
     const owner = row.kind === 'next_step' ? ACTOR_LABEL[row.owner] : '';
     const details = [title !== change && esc(change), esc(owner), row.due_on && dueDateHtml(row.due_on, today)].filter(Boolean);

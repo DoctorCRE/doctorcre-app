@@ -416,6 +416,10 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       { proposal_id: second, kind: 'file_to_deal', title: letterTitle,
         email: { subject: 'Re: Letter attached for "Morgan Example" <morgan@example.test> and Casey <casey@example.test> with Alex alex@example.test and Plan Desk "plans@west"@example.test copied',
           sender: 'Morgan Example <sender@example.test>', happened_at: '2026-11-02T15:00:00Z', summary: 'The letter is attached.' } },
+      { proposal_id: crypto.randomUUID(), kind: 'next_step', what: 'Email sample@example.test for the plan',
+        email: { subject: 'Updated plan for sample@example.test' } },
+      { proposal_id: crypto.randomUUID(), kind: 'file_to_deal',
+        email: { subject: 'sender@example.test' } },
       ...refusals.map(({ kind, id, title }) => ({
         proposal_id: id, kind, title, what: 'Review the example', to_phase: 'legal', email: { sender: 'sender@example.test' },
       })),
@@ -521,7 +525,8 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     await followups.getByText(readsOn ? 'From Example, Nov 1' : 'No email follow-ups.', { exact: true }).waitFor({ timeout: 5000 });
     if (readsOn) {
       const planCard = followups.getByRole('article').filter({ hasText: 'Send the plan' });
-      assert.deepEqual((await followups.getByRole('heading', { level: 3 }).allTextContents()).slice(0, 2), [planTitle, letterTitle]);
+      assert.deepEqual((await followups.getByRole('heading', { level: 3 }).allTextContents()).slice(0, 4),
+        [planTitle, letterTitle, 'Updated plan for', 'Email follow-up']);
       const letterCard = followups.getByRole('article').filter({ hasText: 'The letter is attached.' });
       assert.equal(await planCard.count(), 1);
       assert.equal(await planCard.getByText('From Example, Nov 1', { exact: true }).count(), 1);
@@ -593,6 +598,11 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
           }
           await card.waitFor({ state: 'detached' });
           if (refusal.error !== 'already_decided') assert.deepEqual(decisions.at(-1), [refusal.id, 'dismiss', undefined]);
+        }
+        for (const title of ['Updated plan for', 'Email follow-up']) {
+          const card = followups.getByRole('article').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+          await card.getByRole('button', { name: 'Dismiss', exact: true }).click();
+          await card.waitFor({ state: 'detached' });
         }
         await followups.getByText('No email follow-ups.', { exact: true }).waitFor();
       } else assert.equal(await followups.getByRole('button').count(), 0);
@@ -3132,18 +3142,21 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   }), 'Tab reaches Done and shows a focus ring');
   await capture(page, 'focus');
 
-  other.description = 'Check the revised sample lease';
   other.change_id = 15;
   await otherDone.focus();
   await page.keyboard.press('Enter');
   await page.getByText('This step changed. Review the latest version.', { exact: true }).waitFor();
-  await snapshot.getByText(other.description, { exact: true }).waitFor();
+  assert.equal(await stepRows.count(), 1);
   assert.equal(other.status, 'open');
   assert.ok(await otherDone.evaluate(button => document.activeElement === button));
 
   await page.keyboard.press('Enter');
-  await snapshot.getByText(other.description, { exact: true }).waitFor({ state: 'hidden' });
+  await otherDone.waitFor({ state: 'hidden' });
+  assert.equal(other.status, 'done');
+  assert.equal(own.status, 'open');
+  assert.equal(await stepRows.count(), 1);
   assert.equal(await ownRow.getByText(own.description, { exact: true }).count(), 1);
+  await ownRow.getByRole('button', { name: 'Done', exact: true, description: /Joe/ }).waitFor();
   await page.getByRole('tab', { name: 'Timeline' }).click();
   const timeline = page.getByRole('tabpanel', { name: 'Timeline' });
   const completed = timeline.getByRole('listitem').filter({ hasText: `${other.description} · Done` });
@@ -3160,7 +3173,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   await ended.waitFor({ state: 'hidden' });
   await snapshot.getByText('No next step set.', { exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Timeline' }).click();
-  await timeline.getByText(own.description + ' · Done', { exact: false }).waitFor();
+  await timeline.getByText(own.description + ' · Done · Due Nov 24, 2026', { exact: true }).waitFor();
   await capture(timeline, 'timeline');
   assert.deepEqual(writes.map(({ id, base_version }) => [id, base_version]), [[other.id, 11], [other.id, 15], [own.id, 10], [own.id, 10]]);
   assert.notEqual(writes[0].idempotency_key, writes[1].idempotency_key);
