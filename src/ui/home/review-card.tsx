@@ -1,6 +1,12 @@
 import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { DropReason } from "./drop-reason.tsx";
-import { draftReference, proposalRefusal, type Suggestion } from "./engine-review.ts";
+import {
+  draftReference,
+  type FilingReasonRefusal,
+  filingReasonRefusal,
+  proposalRefusal,
+  type Suggestion,
+} from "./engine-review.ts";
 import { FilingControls, type FilingDestination } from "./filing-controls.tsx";
 import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
 import { type Operation, reviewError } from "./review";
@@ -11,7 +17,7 @@ type State =
   | { phase: "ready" | "editing"; review: Review }
   | { phase: "submitting" | "uncertain"; review: Review; request: ReviewRequest }
   | { phase: "conflict"; review: Review; message: string }
-  | { phase: "proposal-refused"; review: Review; message: string; id: string }
+  | { phase: "proposal-refused"; review: Review; message: string; id: string; filing: FilingReasonRefusal | null }
   | { phase: "refused" | "done"; message: string };
 const labels: Record<Operation["verb"], string> = {
   "complete-one-action": "Mark done",
@@ -276,14 +282,15 @@ export function ReviewCard({
       if (!alive.current) return;
       const refusal = request.verb === "decide-engine-home-proposal" ? proposalRefusal(error) : null;
       if (refusal) {
-        const { id, decision } = request.args;
+        const { id, decision, deal_id } = request.args;
+        const filing = typeof deal_id === "string" ? filingReasonRefusal(error, deal_id) : null;
         setMessage("");
         setState(
           decision === "accept" && typeof id === "string"
-            ? { phase: "proposal-refused", review: detail, message: refusal, id }
+            ? { phase: "proposal-refused", review: detail, message: refusal, id, filing }
             : { phase: "refused", message: refusal },
         );
-        host.current?.focus();
+        if (!filing) host.current?.focus();
         return;
       }
       const failure = reviewError(error);
@@ -437,6 +444,7 @@ export function ReviewCard({
             {proposal.filingChoices && !readOnly && (
               <FilingControls
                 choices={proposal.filingChoices}
+                refusal={state.phase === "proposal-refused" && state.id === proposal.id ? state.filing : null}
                 file={(destination, reason) => decideSuggestion(proposal, "accept", reason, destination)}
                 dismiss={() => decideSuggestion(proposal, "dismiss")}
               />
@@ -536,7 +544,7 @@ export function ReviewCard({
         ))}
       {client && state.phase === "loading" && <p role="status">Loading current evidence…</p>}
       {(state.phase === "refused" || state.phase === "done") && <p role="status">{state.message}</p>}
-      {state.phase === "proposal-refused" && <p role="alert">{state.message}</p>}
+      {state.phase === "proposal-refused" && !state.filing && <p role="alert">{state.message}</p>}
       {review && (
         <form
           ref={form}

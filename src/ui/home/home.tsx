@@ -168,16 +168,22 @@ function Inbox({ client }: { client: InboxClient }) {
       return next;
     });
   }
-  const reviewOpener = useRef<HTMLElement | null>(null);
-  const reviewFallback = useRef<HTMLElement[]>([]);
+  const reviewFocus = useRef<{ opener: HTMLElement; tile: Element | null; preceding: Set<HTMLElement> }>(null);
   const [reviewUncertain, setReviewUncertain] = useState(false);
   const openedLink = useRef<string | null>(null);
   useLayoutEffect(() => {
-    if (!reviewing && reviewOpener.current) {
-      const target = [reviewOpener.current, ...reviewFallback.current].find((node) => node.isConnected);
-      (target || root.current)?.focus({ preventScroll: true });
-      reviewOpener.current = null;
-    }
+    const focus = reviewFocus.current;
+    if (reviewing || !focus) return;
+    const { opener, preceding } = focus;
+    const tile = focus.tile?.isConnected ? focus.tile : null;
+    const links = Array.from(tile?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) ?? []).filter(
+      visibleRow,
+    );
+    const target = visibleRow(opener)
+      ? opener
+      : (links.find((link) => !preceding.has(link)) ?? links.at(-1) ?? tile?.querySelector<HTMLElement>("h2"));
+    (target || root.current)?.focus({ preventScroll: true });
+    reviewFocus.current = null;
   }, [reviewing]);
   const [selected, select] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Pending | null>(null);
@@ -481,16 +487,10 @@ function Inbox({ client }: { client: InboxClient }) {
   );
   const picked = items.filter((item) => selected.has(item.item_id) && canSnooze(item));
   const openCard = useCallback((item: InboxItem, opener: HTMLElement) => {
-    reviewOpener.current = opener;
     const tile = opener.closest(".home-slice");
     const links = Array.from(tile?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) ?? []);
     const index = links.findIndex((link) => link.closest("[data-inbox-row]") === opener.closest("[data-inbox-row]"));
-    const heading = tile?.querySelector<HTMLElement>("h2");
-    reviewFallback.current = [
-      ...links.slice(index + 1),
-      ...links.slice(0, Math.max(0, index)).reverse(),
-      ...(heading ? [heading] : []),
-    ];
+    reviewFocus.current = { opener, tile, preceding: new Set(links.slice(0, Math.max(0, index))) };
     setReviewing(item);
   }, []);
   const openingLocked = busy || !!pending || reviewUncertain || !!dropping || !!snooze;
@@ -857,9 +857,12 @@ function Inbox({ client }: { client: InboxClient }) {
               if (value) void cache.cancelQueries({ queryKey });
             }}
             confirmed={async (current, receipt, snapshot) => {
-              if (!current) setReviewing(null);
               await updateAfterSave(snapshot, current ? [current] : []);
-              if (!mounted.current || !current) return;
+              if (!mounted.current) return;
+              if (!current) {
+                setReviewing(null);
+                return;
+              }
               if (receipt) {
                 setUndo((entries) => [
                   ...entries.filter((entry) => entry.items[0]?.item_id !== current.item_id),

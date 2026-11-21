@@ -1031,7 +1031,10 @@ async function dashboard(t, width, theme, timezone) {
     if (name === 'deal-room-board') result = { deals: [{ id: id(61), name: 'Sample clinic' }] };
     if (name === 'decide-engine-home-proposal' && state.filingWrites) {
       state.filingWrites.push(args);
-      state.items = [];
+      if (state.filingReasonRequired && !args.reason) return route.fulfill({
+        status: 422, json: { error: 'database_refused_the_statement', rule: 'proposal_filing_reason' },
+      });
+      state.items = state.items.filter(item => item.item_id !== mailCard.item_id);
       if (state.filingConflict) return route.fulfill({ status: 409, json: { error: 'already_decided' } });
       result = { proposal_id: args.id, status: args.decision === 'accept' ? 'accepted' : 'dismissed' };
     }
@@ -1107,10 +1110,13 @@ for (const available of [true, false]) test(`Home email suggestions ${available 
 const dealChoice = { kind: 'deal', label: 'Choose deal' };
 const vendorChoice = { kind: 'vendor', label: 'Choose vendor' };
 
-for (const { name, choices, kind, conflict, dismiss } of [
+for (const { name, choices, kind, focus, dismiss, reasonRefused, filterDeals } of [
   { name: 'mixed choices file to a deal', choices: [dealChoice, vendorChoice], kind: 'deal' },
+  { name: 'the deal picker keeps the selected deal while searching', choices: [dealChoice], kind: 'deal', filterDeals: true },
+  { name: 'a reason refusal keeps the chosen deal and allows retry', choices: [dealChoice], kind: 'deal', reasonRefused: true },
   { name: 'vendor-only choices file to a vendor', choices: [vendorChoice], kind: 'vendor' },
-  { name: 'an already decided filing leaves Home quietly', choices: [vendorChoice], kind: 'vendor', conflict: true },
+  { name: 'an already decided filing focuses the next card', choices: [vendorChoice], kind: 'vendor', focus: 'next' },
+  { name: 'an already decided last filing focuses the previous card', choices: [vendorChoice], kind: 'vendor', focus: 'previous' },
   { name: 'a filing can be dismissed', choices: [dealChoice], dismiss: true },
   { name: 'an older filing keeps Accept', choices: undefined },
 ]) test(`Home filing: ${name}`, async t => {
@@ -1120,8 +1126,13 @@ for (const { name, choices, kind, conflict, dismiss } of [
     filing_choices: choices, primary_action: choices.length === 1 ? choices[0].label : 'Review filing',
   }) }];
   state.filingChoices = choices;
-  state.filingConflict = conflict;
+  state.filingConflict = Boolean(focus);
+  state.filingReasonRequired = reasonRefused;
   state.filingWrites = [];
+  const previous = step(63, 'Review the sample project', { card_id: 'project:63' });
+  const next = step(64, 'Check the sample space', { card_id: 'project:64' });
+  if (focus) state.items.unshift(previous);
+  if (focus === 'next') state.items.push(next);
   await page.route('**/api/v1/business/vendors?**', route => route.fulfill({
     json: { rows: [{ id: id(62), name: 'Sample surveyors' }], page_count: 1 },
   }));
@@ -1148,15 +1159,39 @@ for (const { name, choices, kind, conflict, dismiss } of [
         await filing.getByRole('button', { name: 'Search vendors' }).click();
         await searched;
       }
-      const destination = filing.getByRole('combobox', { name: kind === 'deal' ? 'Deal' : 'Vendor', exact: true });
+      const destination = filing.getByRole('combobox', { name: kind === 'deal' ? /^(Deal|Selected deal)$/ : 'Vendor', exact: true });
       const label = kind === 'deal' ? 'Sample clinic' : 'Sample surveyors';
       await destination.selectOption({ label });
-      if (kind === 'deal') {
-        expected.reason = 'This email is about the sample clinic.';
-        await filing.getByRole('textbox', { name: 'Reason if correcting the filing' }).fill(expected.reason);
+      if (filterDeals) {
+        await filing.getByRole('searchbox', { name: /Deal name|Search existing deals/ }).fill('other practice');
+        assert.equal(await destination.inputValue(), id(61));
       }
+      const file = filing.getByRole('button', { name: 'File email' });
       assert.deepEqual(state.filingWrites, []);
-      await filing.getByRole('button', { name: 'File email' }).click();
+      if (kind === 'deal') {
+        if (reasonRefused) {
+          const reason = filing.getByRole('textbox', { name: /Reason/ });
+          assert.equal(await reason.getAttribute('required'), null);
+          await file.click();
+          const refusal = filing.getByRole('alert');
+          await refusal.waitFor();
+          assert.equal(await refusal.textContent(),
+            "This email isn't linked to that deal yet. Add a short reason to file it there.");
+          await page.waitForFunction(() => document.activeElement?.getAttribute('aria-invalid') === 'true');
+          assert.equal(await reason.getAttribute('required'), '');
+          assert.equal(await file.isDisabled(), true);
+          assert.equal(await destination.inputValue(), id(61));
+          const [{ idempotency_key, ...first }] = state.filingWrites;
+          assert.deepEqual(first, { ...expected, deal_id: id(61) });
+        }
+        const reason = filing.getByRole('textbox', { name: 'Reason for filing', exact: true });
+        await reason.waitFor();
+        if (reasonRefused) {
+          expected.reason = 'This email is about the sample clinic.';
+          await reason.fill(expected.reason);
+        }
+      }
+      await file.click();
       expected[`${kind}_id`] = kind === 'deal' ? id(61) : id(62);
     }
   } else {
@@ -1165,10 +1200,14 @@ for (const { name, choices, kind, conflict, dismiss } of [
   }
   await card.waitFor({ state: 'hidden' });
   await review.waitFor({ state: 'hidden' });
-  assert.equal(state.filingWrites.length, 1);
-  const [{ idempotency_key, ...request }] = state.filingWrites;
+  assert.equal(state.filingWrites.length, reasonRefused ? 2 : 1);
+  const { idempotency_key, ...request } = state.filingWrites.at(-1);
   assert.match(idempotency_key, /^[a-f0-9-]{36}$/);
   assert.deepEqual(request, expected);
+  if (focus) {
+    const target = page.getByRole('link', { name: (focus === 'next' ? next : previous).title });
+    assert.equal(await target.evaluate(node => node === document.activeElement), true);
+  }
 });
 
 test('Home reveals earlier text only for the selected email message', async t => {

@@ -154,6 +154,17 @@ async function answer(rpc: Rpc, name: string, args: unknown, signal?: AbortSigna
 export const openStepRefusal =
   "You already have an open step for this client or deal. Finish or change that step first.";
 
+export type FilingReasonRefusal = { dealId: string; message: string };
+
+export function filingReasonRefusal(error: unknown, dealId: string): FilingReasonRefusal | null {
+  const payload = object(error) && object(error.payload) ? error.payload : null;
+  return payload?.http_status === 422 &&
+    payload.error === "database_refused_the_statement" &&
+    payload.rule === "proposal_filing_reason"
+    ? { dealId, message: "This email isn't linked to that deal yet. Add a short reason to file it there." }
+    : null;
+}
+
 export function proposalRefusal(error: unknown) {
   const payload = object(error) && object(error.payload) ? error.payload : null;
   const status = payload?.http_status;
