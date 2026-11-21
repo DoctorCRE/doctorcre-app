@@ -1,4 +1,4 @@
-export type MeetingQuery = { view: "suggested" | "research"; q: string; limit: number; cursor?: string };
+export type MeetingQuery = { q: string; limit: number; cursor?: string };
 type Contact = { id: string; name: string; email: string | null; phone: string | null; cell: string | null };
 type Office = {
   street_address: string;
@@ -22,7 +22,7 @@ type MeetingPerson = {
 };
 export type MeetingPage = {
   schema: "vendor-meetings.v1";
-  view: MeetingQuery["view"];
+  view: "research";
   total: number;
   items: MeetingPerson[];
   has_more: boolean;
@@ -81,16 +81,16 @@ function person(value: unknown): value is MeetingPerson {
     )
   );
 }
-export function parseMeetingPage(value: unknown, query: MeetingQuery): MeetingPage {
+export function parseMeetingPage(value: unknown, limit: number): MeetingPage {
   if (
     !object(value) ||
     value.schema !== "vendor-meetings.v1" ||
-    value.view !== query.view ||
+    value.view !== "research" ||
     typeof value.total !== "number" ||
     !Number.isSafeInteger(value.total) ||
     value.total < 0 ||
     !Array.isArray(value.items) ||
-    value.items.length > query.limit ||
+    value.items.length > limit ||
     !value.items.every(person) ||
     typeof value.has_more !== "boolean" ||
     !nullableText(value.next_cursor) ||
@@ -100,20 +100,13 @@ export function parseMeetingPage(value: unknown, query: MeetingQuery): MeetingPa
     (value.calendar.notes !== undefined && (!Array.isArray(value.calendar.notes) || !value.calendar.notes.every(text)))
   )
     throw new Error("Invalid vendor meeting response");
-  if (
-    value.items.some((row) =>
-      query.view === "suggested"
-        ? !row.contact?.name.trim() || !row.office || !row.reason?.trim() || row.missing.length !== 0
-        : row.missing.length === 0,
-    )
-  )
-    throw new Error("Invalid vendor meeting membership");
+  if (value.items.some((row) => row.missing.length === 0)) throw new Error("Invalid vendor meeting membership");
   const state = value.calendar.state;
   if (state !== "ready" && state !== "empty" && state !== "partial" && state !== "unavailable")
     throw new Error("Invalid calendar state");
   return {
     schema: "vendor-meetings.v1",
-    view: query.view,
+    view: value.view,
     total: value.total,
     items: value.items,
     has_more: value.has_more,

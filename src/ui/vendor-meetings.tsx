@@ -14,10 +14,9 @@ type Options = {
 };
 type State = { kind: "loading" } | { kind: "failed" } | { kind: "ready"; page: MeetingPage };
 function VendorMeetings({ options }: { options: Options }) {
-  const [query, setQuery] = useState<MeetingQuery>({ view: "suggested", q: "", limit: 5 });
+  const [query, setQuery] = useState<MeetingQuery>({ q: "", limit: 5 });
   const [state, setState] = useState<State>({ kind: "loading" });
   const generation = useRef(0);
-  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
   const active = useRef<AbortController | null>(null);
   function change(next: MeetingQuery) {
     generation.current++;
@@ -36,7 +35,7 @@ function VendorMeetings({ options }: { options: Options }) {
           .load(query, controller.signal)
           .then((value) => {
             if (ticket !== generation.current || controller.signal.aborted) return;
-            const page = parseMeetingPage(value, query);
+            const page = parseMeetingPage(value, query.limit);
             setState({ kind: "ready", page });
           })
           .catch(() => {
@@ -54,56 +53,17 @@ function VendorMeetings({ options }: { options: Options }) {
   const calendarUnavailable = state.kind === "ready" && state.page.calendar.state === "unavailable";
   return (
     <section aria-label="People worth meeting">
-      <div role="tablist" aria-label="Vendor meetings">
-        {(["suggested", "research"] satisfies MeetingQuery["view"][]).map((view, index) => (
-          <button
-            key={view}
-            ref={(node) => {
-              tabs.current[index] = node;
-            }}
-            type="button"
-            role="tab"
-            id={`vendor-meetings-${view}`}
-            aria-controls="vendor-meetings-results"
-            aria-selected={query.view === view}
-            tabIndex={query.view === view ? 0 : -1}
-            onClick={() => {
-              if (query.view !== view) change({ view, q: query.q, limit: 5 });
-            }}
-            onKeyDown={(event) => {
-              const target =
-                event.key === "Home"
-                  ? 0
-                  : event.key === "End"
-                    ? 1
-                    : event.key === "ArrowLeft" || event.key === "ArrowRight"
-                      ? 1 - index
-                      : null;
-              if (target === null) return;
-              event.preventDefault();
-              tabs.current[target]?.click();
-              tabs.current[target]?.focus();
-            }}
-          >
-            {view === "suggested" ? "Suggested" : "Research"}
-          </button>
-        ))}
-      </div>
+      <h3>Research</h3>
       <label className="field">
         Search people and offices
         <input
           type="search"
           maxLength={80}
           value={query.q}
-          onChange={(event) => change({ view: query.view, q: event.currentTarget.value, limit: 5 })}
+          onChange={(event) => change({ q: event.currentTarget.value, limit: 5 })}
         />
       </label>
-      <div
-        role="tabpanel"
-        id="vendor-meetings-results"
-        aria-labelledby={`vendor-meetings-${query.view}`}
-        aria-busy={state.kind === "loading"}
-      >
+      <div id="vendor-meetings-results" aria-busy={state.kind === "loading"}>
         {state.kind === "loading" && <p role="status">Loading people…</p>}
         {(state.kind === "failed" || calendarUnavailable) && (
           <>
@@ -118,9 +78,7 @@ function VendorMeetings({ options }: { options: Options }) {
         {state.kind === "ready" && (
           <>
             {state.page.calendar.state === "partial" && <p role="status">Calendar incomplete</p>}
-            {state.page.items.length === 0 && (
-              <p>{query.view === "suggested" ? "No suggested people" : "No people need research"}</p>
-            )}
+            {state.page.items.length === 0 && <p>No people need research</p>}
             <ul className="vendor-meetings-list">
               {state.page.items.map((row, index) => (
                 <li
@@ -186,11 +144,7 @@ function VendorMeetings({ options }: { options: Options }) {
               </button>
             )}
             {query.cursor && (
-              <button
-                type="button"
-                className="action"
-                onClick={() => change({ view: query.view, q: query.q, limit: 5 })}
-              >
+              <button type="button" className="action" onClick={() => change({ q: query.q, limit: 5 })}>
                 Back to first people
               </button>
             )}

@@ -5,7 +5,6 @@ import { parseArgs } from "node:util";
 import type { Browser, Page } from "playwright";
 import { chromium as driver } from "playwright";
 import { withoutRecordCodes } from "../js/visual-system.js";
-import type { MeetingQuery } from "../src/ui/vendor-meetings-client.ts";
 import { parseMeetingPage, researchReason } from "../src/ui/vendor-meetings-client.ts";
 import { launchProofBrowser, readAppRelease } from "./app-release-reader.mjs";
 import { CHROMIUM_SAFETY_ARGS } from "./chromium-safety-args.mjs";
@@ -100,17 +99,35 @@ export async function prove({
     });
     if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
     await activePage.setViewportSize({ width: 1440, height: 900 });
-    const firstRead = activePage.waitForResponse(
+    const read = activePage.waitForResponse(
       (r) =>
         new URL(r.url()).pathname === "/mcp" &&
         r.request().postDataJSON()?.params?.name === "read-vendor-meetings" &&
-        r.request().postDataJSON()?.params?.arguments?.view === "suggested",
+        r.request().postDataJSON()?.params?.arguments?.view === "research",
       { timeout: remaining() },
     );
-    firstRead.catch(() => {});
+    read.catch(() => {});
     await activePage.goto(`${origin}/vendors`, { timeout: remaining() });
     const section = activePage.getByRole("region", { name: "People worth meeting" });
     await section.waitFor({ timeout: remaining() });
+    const response = await read;
+    if (!response.ok()) throw insufficient(`Authorized response unavailable (HTTP ${response.status()})`);
+    const envelope: unknown = await response.json();
+    if (
+      !envelope ||
+      typeof envelope !== "object" ||
+      !("result" in envelope) ||
+      !envelope.result ||
+      typeof envelope.result !== "object" ||
+      !("content" in envelope.result) ||
+      !Array.isArray(envelope.result.content)
+    )
+      throw insufficient("Authorized response unavailable");
+    const content = envelope.result.content.find(
+      (c: unknown) => c && typeof c === "object" && "type" in c && c.type === "text",
+    );
+    if (!content || typeof content.text !== "string") throw insufficient("Authorized response unavailable");
+    const snapshot = parseMeetingPage(JSON.parse(content.text), 5);
     for (const width of [1440, 390])
       for (const theme of ["light", "dark"]) {
         remaining();
@@ -121,104 +138,64 @@ export async function prove({
         await activePage.setViewportSize({ width, height: 900 });
         if ((await activePage.locator(".vendor-meetings").getAttribute("open")) === null)
           await activePage.locator(".vendor-meetings > summary").click({ timeout: remaining() });
-        for (const view of ["suggested", "research"] satisfies MeetingQuery["view"][]) {
-          const initial = width === 1440 && theme === "light" && view === "suggested";
-          const read = initial
-            ? firstRead
-            : activePage.waitForResponse(
-                (r) =>
-                  new URL(r.url()).pathname === "/mcp" &&
-                  r.request().postDataJSON()?.params?.name === "read-vendor-meetings" &&
-                  r.request().postDataJSON()?.params?.arguments?.view === view,
-                { timeout: remaining() },
-              );
-          read.catch(() => {});
-          if (!initial)
-            await section
-              .getByRole("tab", { name: view === "suggested" ? "Suggested" : "Research", exact: true })
-              .click({ timeout: remaining() });
-          const response = await read;
-          if (!response.ok()) throw insufficient(`Authorized response unavailable (HTTP ${response.status()})`);
-          const envelope: unknown = await response.json();
-          if (
-            !envelope ||
-            typeof envelope !== "object" ||
-            !("result" in envelope) ||
-            !envelope.result ||
-            typeof envelope.result !== "object" ||
-            !("content" in envelope.result) ||
-            !Array.isArray(envelope.result.content)
-          )
-            throw insufficient("Authorized response unavailable");
-          const content = envelope.result.content.find(
-            (c: unknown) => c && typeof c === "object" && "type" in c && c.type === "text",
-          );
-          if (!content || typeof content.text !== "string") throw insufficient("Authorized response unavailable");
-          const snapshot = parseMeetingPage(JSON.parse(content.text), { view, q: "", limit: 5 });
-          await section.locator('[role="tabpanel"][aria-busy="false"]').waitFor({ timeout: remaining() });
+        await section.locator('#vendor-meetings-results[aria-busy="false"]').waitFor({ timeout: remaining() });
+        assert.equal(await section.getByRole("heading", { name: "Research", exact: true }).count(), 1);
+        const rows = section.locator("[data-meeting-person]");
+        assert.equal(await rows.count(), snapshot.items.length);
+        assert.equal(
+          await section.getByText("Calendar incomplete", { exact: true }).count(),
+          snapshot.calendar.state === "partial" ? 1 : 0,
+        );
+        for (const [index, item] of snapshot.items.entries()) {
+          const row = rows.nth(index);
+          assert.equal(await row.getAttribute("data-meeting-person"), item.contact?.id ?? "");
           assert.equal(
-            await section
-              .getByRole("tab", { name: view === "suggested" ? "Suggested" : "Research", exact: true })
-              .getAttribute("aria-selected"),
-            "true",
+            await row.locator(":scope > a").textContent(),
+            withoutRecordCodes(item.contact?.name || item.company?.name || "Open vendor"),
           );
-          const rows = section.locator("[data-meeting-person]");
-          assert.equal(await rows.count(), snapshot.items.length);
-          assert.equal(
-            await section.getByText("Calendar incomplete", { exact: true }).count(),
-            snapshot.calendar.state === "partial" ? 1 : 0,
+          assert.deepEqual(
+            await row.locator("[data-meeting-office]").allTextContents(),
+            item.office ? [`${item.office.street_address}, ${item.office.city}, ${item.office.state}`] : [],
           );
-          for (const [index, item] of snapshot.items.entries()) {
-            const row = rows.nth(index);
-            assert.equal(await row.getAttribute("data-meeting-person"), item.contact?.id ?? "");
-            assert.equal(
-              await row.locator(":scope > a").textContent(),
-              withoutRecordCodes(item.contact?.name || item.company?.name || "Open vendor"),
-            );
-            assert.deepEqual(
-              await row.locator("[data-meeting-office]").allTextContents(),
-              item.office ? [`${item.office.street_address}, ${item.office.city}, ${item.office.state}`] : [],
-            );
-            assert.deepEqual(
-              await row.locator("[data-meeting-reason]").allTextContents(),
-              item.reason ? [withoutRecordCodes(item.reason)] : [],
-            );
-            assert.deepEqual(
-              await row.locator('[aria-label="Research needed"] > li').allTextContents(),
-              item.missing.map(researchReason),
-            );
-            const phone = item.contact?.phone || item.contact?.cell;
-            for (const value of [
-              item.contact && item.company && withoutRecordCodes(item.company.name),
-              item.contact?.email,
-            ].filter(Boolean))
-              assert.equal(await row.getByText(String(value), { exact: true }).count(), 1);
-            assert.deepEqual(
-              (await row.locator("[data-meeting-phone]").allTextContents()).map(phoneDigits),
-              phone ? [phoneDigits(phone)] : [],
-            );
-            assert.deepEqual(
-              await row
-                .locator("h3 + ul time")
-                .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("datetime"))),
-              item.possible_meetings.flatMap((meeting) => [meeting.start, meeting.end]),
-            );
-          }
-          assert.equal(
-            await activePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
-            true,
-            "No horizontal overflow",
+          assert.deepEqual(
+            await row.locator("[data-meeting-reason]").allTextContents(),
+            item.reason ? [withoutRecordCodes(item.reason)] : [],
           );
-          if (screenshotDir)
-            await activePage.screenshot({ path: `${screenshotDir}/${view}-${width}-${theme}.png`, fullPage: true });
-          observations.push({
-            width,
-            theme,
-            view,
-            total: snapshot.total,
-            count: snapshot.items.length,
-          });
+          assert.deepEqual(
+            await row.locator('[aria-label="Research needed"] > li').allTextContents(),
+            item.missing.map(researchReason),
+          );
+          const phone = item.contact?.phone || item.contact?.cell;
+          for (const value of [
+            item.contact && item.company && withoutRecordCodes(item.company.name),
+            item.contact?.email,
+          ].filter(Boolean))
+            assert.equal(await row.getByText(String(value), { exact: true }).count(), 1);
+          assert.deepEqual(
+            (await row.locator("[data-meeting-phone]").allTextContents()).map(phoneDigits),
+            phone ? [phoneDigits(phone)] : [],
+          );
+          assert.deepEqual(
+            await row
+              .locator("h3 + ul time")
+              .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("datetime"))),
+            item.possible_meetings.flatMap((meeting) => [meeting.start, meeting.end]),
+          );
         }
+        assert.equal(
+          await activePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          true,
+          "No horizontal overflow",
+        );
+        if (screenshotDir)
+          await activePage.screenshot({ path: `${screenshotDir}/research-${width}-${theme}.png`, fullPage: true });
+        observations.push({
+          width,
+          theme,
+          view: snapshot.view,
+          total: snapshot.total,
+          count: snapshot.items.length,
+        });
       }
     const after = await readAppRelease(origin, { timeoutMs: remaining() });
     if (after.source_commit !== release.source_commit) throw insufficient("Release changed during proof");

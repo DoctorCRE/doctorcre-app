@@ -7,7 +7,18 @@ import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 
 const paginated = JSON.parse(await readFile(new URL("./fixtures/vendor-meetings/page.json", import.meta.url), "utf8"));
 
-test("Unavailable calendar keeps suggested people and retries in place", async (t) => {
+for (const path of ["/vendors", "/vendors?view=suggested"]) {
+  test(`Vendor meetings opens Research at ${path}`, async (t) => {
+    const { page, section, requests } = await setup(t, 1440, path);
+    assert.equal(requests[0]?.view, "research");
+    assert.equal(await section.getByRole("tab", { name: "Suggested", exact: true }).count(), 0);
+    await section.getByText("A verified office is needed", { exact: true }).waitFor();
+    await section.getByRole("link", { name: "Ada Synthetic" }).click();
+    await page.getByRole("dialog").getByRole("heading", { name: "Demo Partner 01", exact: true }).waitFor();
+  });
+}
+
+test("Unavailable calendar keeps Research rows and retries in place", async (t) => {
   const recording = JSON.parse(
     await readFile(new URL("./fixtures/vendor-meetings/recordings.json", import.meta.url), "utf8"),
   );
@@ -34,7 +45,7 @@ test("Unavailable calendar keeps suggested people and retries in place", async (
               type: "text",
               text: JSON.stringify(
                 req.params.name === "read-vendor-meetings"
-                  ? (++meetingReads === 1 ? recording : recovered).suggested
+                  ? (++meetingReads === 1 ? recording : recovered).research
                   : {},
               ),
             },
@@ -49,9 +60,7 @@ test("Unavailable calendar keeps suggested people and retries in place", async (
   const list = await page.locator("#recordList").boundingBox();
   const meetingsBox = await section.boundingBox();
   assert.ok(list && meetingsBox && meetingsBox.y > list.y + list.height);
-  assert.doesNotMatch((await section.textContent()) ?? "", /not recorded|Named people with|suggested people\./i);
-  for (const text of ["1 Synthetic Plaza, Demo City, FL", "Medical office purchase financing"])
-    assert.equal(await section.getByText(text, { exact: true }).count(), 1);
+  assert.equal(await section.getByText("A verified office is needed", { exact: true }).count(), 1);
   assert.equal(await section.getByRole("alert").textContent({ timeout: 1000 }), "Calendar unavailable.");
   await section.getByRole("button", { name: "Retry calendar" }).click();
   await section.getByRole("heading", { name: "Possible meetings" }).waitFor();
@@ -59,7 +68,7 @@ test("Unavailable calendar keeps suggested people and retries in place", async (
   assert.equal(meetingReads, 2);
 });
 
-async function setup(t: import("node:test").TestContext, width = 1440) {
+async function setup(t: import("node:test").TestContext, width = 1440, path = "/vendors") {
   const recording = JSON.parse(
     await readFile(new URL("./fixtures/vendor-meetings/recordings.json", import.meta.url), "utf8"),
   );
@@ -71,6 +80,7 @@ async function setup(t: import("node:test").TestContext, width = 1440) {
   await page.route("https://**", (r) => r.abort());
   await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: directoryFixture(r.request().url()) }));
   const requests: { view: string; q: string; cursor?: string }[] = [];
+  recording.research.items[0].vendor_id = "00000000-0000-4000-8000-000000000001";
   let mode = "ready";
   let release: (() => void) | undefined;
   await page.route("**/mcp", async (route) => {
@@ -104,7 +114,7 @@ async function setup(t: import("node:test").TestContext, width = 1440) {
       })
       .catch(() => {});
   });
-  await page.goto(`${server.url}/vendors`);
+  await page.goto(`${server.url}${path}`);
   const section = page.getByRole("region", { name: "People worth meeting" });
   if (width < 768) await page.locator(".vendor-meetings > summary").click();
   await section.getByText("Ada Synthetic", { exact: true }).waitFor();
@@ -122,7 +132,7 @@ test("empty, failure and retry remain distinct", async (t) => {
   const { section, setMode } = await setup(t);
   setMode("empty");
   await section.getByRole("searchbox").fill("empty");
-  await section.getByText("No suggested people", { exact: true }).waitFor();
+  await section.getByText("No people need research", { exact: true }).waitFor();
   assert.equal(await section.getByRole("alert").count(), 0);
   setMode("fail");
   await section.getByRole("searchbox").fill("failure");
@@ -138,39 +148,30 @@ test("empty, failure and retry remain distinct", async (t) => {
   await section.getByRole("searchbox").fill("recovered query");
   await section.getByText("Ada Synthetic", { exact: true }).waitFor();
 });
-test("pagination is query-bound and keyboard tabs retire late responses", async (t) => {
+test("pagination is query-bound when a new search retires the pending page", async (t) => {
   const { page, section, requests, setMode, release } = await setup(t);
   setMode("page");
   await section.getByRole("searchbox").fill("Ada");
   await section.getByRole("button", { name: "Next people" }).waitFor();
   setMode("hold");
-  await section.getByRole("button", { name: "Next people" }).click();
-  await page.waitForTimeout(450);
-  assert.equal(requests.at(-1)?.cursor, paginated.suggested.next_cursor);
-  setMode("ready");
-  await section.getByRole("tab", { name: "Suggested", exact: true }).focus();
-  await page.keyboard.press("ArrowRight");
-  await section.getByText("A verified office is needed", { exact: true }).waitFor();
-  assert.equal(requests.at(-1)?.view, "research");
-  assert.equal(requests.at(-1)?.cursor, undefined);
-  assert.equal(
-    await section.getByRole("tab", { name: "Research", exact: true }).evaluate((el) => el === document.activeElement),
-    true,
+  const nextPage = page.waitForRequest(
+    (request) => request.url().endsWith("/mcp") && Boolean(request.postDataJSON()?.params?.arguments?.cursor),
   );
-  release();
-  await section.getByText("A meeting reason is needed", { exact: true }).waitFor();
-  assert.equal(await section.getByText("1 Synthetic Plaza, Demo City, FL", { exact: true }).count(), 0);
-  await page.keyboard.press("Home");
-  await section.getByText("1 Synthetic Plaza, Demo City, FL", { exact: true }).waitFor();
+  await section.getByRole("button", { name: "Next people" }).click();
+  const request = await nextPage;
+  assert.equal(request.postDataJSON()?.params?.arguments?.cursor, paginated.research.next_cursor);
+  setMode("ready");
   await section.getByRole("searchbox").fill("");
-  await section.getByText("1 Synthetic Plaza, Demo City, FL", { exact: true }).waitFor();
+  await section.getByText("A verified office is needed", { exact: true }).waitFor();
+  assert.equal(requests.at(-1)?.cursor, undefined);
+  release();
   setMode("page");
   await section.getByRole("searchbox").fill("Ada");
   await section.getByRole("button", { name: "Next people" }).click();
   await section.getByRole("button", { name: "Back to first people" }).waitFor();
   setMode("ready");
   await section.getByRole("searchbox").fill("new");
-  await section.getByText("1 Synthetic Plaza, Demo City, FL", { exact: true }).waitFor();
+  await section.getByText("A verified office is needed", { exact: true }).waitFor();
   assert.equal(requests.at(-1)?.cursor, undefined);
 });
 test("session retirement erases results and ignores pending responses", async (t) => {
@@ -195,12 +196,6 @@ for (const width of [1440, 390])
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       const { mkdir } = await import("node:fs/promises");
       await mkdir("out/test-artifacts/vendor-meetings", { recursive: true });
-      await page.screenshot({
-        path: `out/test-artifacts/vendor-meetings/suggested-${width}-${theme}.png`,
-        fullPage: true,
-      });
-      await section.getByRole("tab", { name: "Research", exact: true }).click();
-      await section.getByText("A verified office is needed", { exact: true }).waitFor();
       await page.screenshot({
         path: `out/test-artifacts/vendor-meetings/research-${width}-${theme}.png`,
         fullPage: true,
@@ -237,12 +232,11 @@ test("query changes retire successful and failed late reads even when the adapte
     }
     search("new");
     await tick();
-    pending[1]?.resolve(recording.suggested);
+    pending[1]?.resolve(recording.research);
     await tick();
     pending[0]?.reject(Error("Old failure"));
     await tick();
-    if (host.querySelector("[data-meeting-office]")?.textContent !== "1 Synthetic Plaza, Demo City, FL")
-      throw Error("Late failure replaced current result");
+    if (!host.textContent?.includes("A verified office is needed")) throw Error("Late failure replaced current result");
     search("third");
     await tick();
     search("fourth");
@@ -250,14 +244,13 @@ test("query changes retire successful and failed late reads even when the adapte
     if (pending.length !== 4) throw Error("Expected all four reads to start");
     pending[2]?.resolve(recording.research);
     await tick();
-    if (host.querySelector('[role="tabpanel"]')?.getAttribute("aria-busy") !== "true")
+    if (host.querySelector("#vendor-meetings-results")?.getAttribute("aria-busy") !== "true")
       throw Error("Late response replaced current pending read");
-    pending[3]?.resolve(recording.suggested);
+    pending[3]?.resolve(recording.research);
     await tick();
-    if (host.querySelector("[data-meeting-office]")?.textContent !== "1 Synthetic Plaza, Demo City, FL")
-      throw Error("Late success replaced current result");
+    if (!host.textContent?.includes("A verified office is needed")) throw Error("Late success replaced current result");
     mounted.dispose();
-    pending.at(-1)?.resolve(recording.suggested);
+    pending.at(-1)?.resolve(recording.research);
     await tick();
     if (host.textContent) throw Error("Disposed mount repainted");
   }, recording);
@@ -270,7 +263,7 @@ for (const mode of ["ready", "empty", "fail"])
       setMode(mode);
       await section.getByRole("searchbox").fill(mode);
       if (mode === "fail") await section.getByText("People could not be loaded. Try again.", { exact: true }).waitFor();
-      else await section.getByText("No suggested people", { exact: true }).waitFor();
+      else await section.getByText("No people need research", { exact: true }).waitFor();
     }
     await page.evaluate(() => window.dispatchEvent(new Event("doctorcre-session-invalidated")));
     assert.equal(await section.count(), 0);
@@ -305,13 +298,14 @@ test("possible meetings show Central times and a short partial-calendar warning"
     "Nov 10, 2026, 7:50 PM",
   ]);
   assert.equal(await section.getByText("Calendar incomplete", { exact: true }).count(), 1);
-  for (const note of ready.suggested.calendar.notes)
+  for (const note of ready.research.calendar.notes)
     assert.equal(await section.getByText(note, { exact: true }).count(), 0);
 });
 
-test("phone disclosure restores directory and retains meeting view across close and reopen", async (t) => {
+test("phone disclosure restores directory and retains the Research search across close and reopen", async (t) => {
   const { page, section } = await setup(t, 390);
-  await section.getByRole("tab", { name: "Research", exact: true }).click();
+  const search = section.getByRole("searchbox");
+  await search.fill("Ada");
   await section.getByText("A verified office is needed", { exact: true }).waitFor();
   const summary = page.locator(".vendor-meetings > summary");
   await summary.click();
@@ -321,5 +315,5 @@ test("phone disclosure restores directory and retains meeting view across close 
   await summary.focus();
   await page.keyboard.press("Enter");
   await section.getByText("A verified office is needed", { exact: true }).waitFor();
-  assert.equal(await section.getByRole("tab", { name: "Research", exact: true }).getAttribute("aria-selected"), "true");
+  assert.equal(await search.inputValue(), "Ada");
 });
