@@ -4,7 +4,7 @@ The app pins `vendor-markets.v1` version 1.0.0 to producer PR 3183 at `3d49c4b8d
 
 ## System design
 
-One React island owns view and canonical selection in the URL. The parser refuses inconsistent identities, counts and references. CARR owns aliases, reviewed membership, Regional links and office declarations. Category preserves the existing directory. Suggested and Research retain their own lifecycle.
+One React island owns view and canonical selection in the URL. The parser refuses inconsistent identities, counts and references. CARR owns aliases, reviewed membership, Regional links and office declarations. Category preserves the existing directory. The Research panel loads independently of the directory.
 
 Two interfaces were considered. Filtering the category directory would mix territory with reviewed membership. A separate snapshot reader keeps those rules at their source and exposes one load interface.
 
