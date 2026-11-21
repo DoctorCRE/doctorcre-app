@@ -324,6 +324,10 @@ export function groupSearchResults(payload) {
 
 const roleLabels = { client: "Client", lead: "Lead", vendor: "Vendor" };
 const roleGroups = { client: "clients", lead: "leads", vendor: "vendors" };
+const legacyRelationNames = {
+  connections: ["from_name", "to_name"],
+  lead_client_links: ["lead_name", "client_name"],
+};
 const isSearchRole = role => typeof role === "string" && Object.hasOwn(roleLabels, role);
 const recordLink = (page, key, id) => `/${page}?${new URLSearchParams({ [key]: id })}`;
 const isDealLink = row => nonEmptyString(row?.id) && nonEmptyString(row?.name);
@@ -345,16 +349,26 @@ function partyLink(row) {
   return recordLink("relationships", "node", `party:${row.id}`);
 }
 
-export function displaySearchGroups(payload) {
+export function usesLegacyRelationScope(kinds) {
+  return kinds.some(id => Object.hasOwn(legacyRelationNames, id));
+}
+
+export function displaySearchGroups(payload, kinds = []) {
   if (payload?.schema_version !== "search.v1") {
     return groupSearchResults(payload).flatMap(group => {
-      if (["connections", "lead_client_links"].includes(group.id)) return [];
+      const relationNames = legacyRelationNames[group.id];
+      if (relationNames && !kinds.includes(group.id)) return [];
       const rows = group.rows.filter(row => !row.retired && !row.allRetired).map(row => ({
         ...row,
         ...(group.id === "leads" && row.refs[0] && { link: recordLink("leads", "lead", row.refs[0]) }),
         ...(group.id === "organizations" && { link: recordLink("relationships", "q", row.name) }),
       }));
-      return rows.length ? [{ ...group, rows, count: rows.length }] : [];
+      const shown = relationNames ? rows.flatMap(row => {
+        const [from, to] = relationNames.map(label => row.facts.find(fact => fact.label === label)?.value);
+        const name = to || from;
+        return name ? [{ name, meta: from && from !== name ? [from] : [], link: recordLink("relationships", "q", name) }] : [];
+      }) : rows;
+      return shown.length ? [{ ...group, rows: shown, count: shown.length }] : [];
     });
   }
   const parties = payload.parties.map(row => {
@@ -362,7 +376,7 @@ export function displaySearchGroups(payload) {
     if (!scopes.length) scopes.push(row.kind === "company" ? "organizations" : "people");
     return {
       name: row.name,
-      scopes,
+      scopes: row.deals.length ? [...scopes, "deals_via_link"] : scopes,
       group: roleGroups[row.roles.find(role => role !== "lead") || row.roles[0]] || scopes[0],
       meta: [...(row.roles.length ? row.roles.map(role => roleLabels[role]) : [row.kind === "person" ? "Person" : "Company"]), row.city].filter(Boolean),
       link: partyLink(row),

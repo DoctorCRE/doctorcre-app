@@ -8,7 +8,7 @@ import {
   SAVED_VIEW_SENTENCE, SEARCH_STATE_COPY, applyScope, buildFindArguments,
   classifySearchFailure, displaySearchGroups, parseSearchAddress, queryIsSendable,
   readSavedViews, renameView, saveView, scopeChips, toggleSearchScope, searchAddress,
-  validSearchPayload, validSearchRecords, visibleCount, writeSavedViews,
+  usesLegacyRelationScope, validSearchPayload, validSearchRecords, visibleCount, writeSavedViews,
 } from "./search-model.js";
 
 const IDLE_REREAD_MS = 300;
@@ -74,7 +74,7 @@ function renderState(phase) {
 }
 
 function render() {
-  const groups = view.payload ? displaySearchGroups(view.payload) : [];
+  const groups = view.payload ? displaySearchGroups(view.payload, view.kinds) : [];
   const shown = applyScope(groups, view.kinds);
   const phase = view.status === "ready" && !groups.length ? "no_match" : view.status;
   document.querySelector('[data-search="scope"]').hidden = !groups.length;
@@ -113,8 +113,9 @@ async function read({ push = true, signal } = {}) {
   if (push) view.payload = null;
   render();
   if (push) pushAddress();
+  const searchRecords = !usesLegacyRelationScope(view.kinds);
   return searchReads.run(async ({ signal, read: step }) => {
-    const payload = await step(client.find(buildFindArguments(query), { signal, searchRecords: true }));
+    const payload = await step(client.find(buildFindArguments(query), { signal, searchRecords }));
     return validSearchRecords(payload) || validSearchPayload(payload)
       ? { status: "ready", payload }
       : { status: "unknown", payload: null };
