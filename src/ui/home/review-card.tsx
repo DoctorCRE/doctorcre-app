@@ -34,6 +34,11 @@ const emailDate = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   year: "numeric",
 });
+const threadDate = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Chicago",
+  month: "short",
+  day: "numeric",
+});
 export type DraftEdits = Pick<Extract<Review, { kind: "reply_draft" }>, "subject" | "body">;
 
 type Props = {
@@ -72,6 +77,7 @@ export function ReviewCard({
   const alive = useRef(true);
   const host = useRef<HTMLElement>(null);
   const form = useRef<HTMLFormElement>(null);
+  const draftSubject = useRef<HTMLInputElement>(null);
   const anchor = useRef(item);
   const reconcileFacts = useCallback((detail: Review) => {
     if (detail.kind !== "fact_review") return;
@@ -124,11 +130,17 @@ export function ReviewCard({
   }, [uncertain, blockSwitching]);
   const waiting = state.phase === "submitting" || lock.current;
   const review = "review" in state ? state.review : null;
-  const draft = review?.kind === "reply_draft" ? (draftEdits ?? review) : null;
+  const thread = review && "thread" in review ? review.thread : undefined;
   const proposals = review && "proposals" in review ? (review.proposals ?? []) : [];
   const proposalLed = item.item_id.startsWith("suggestion:");
   const operations = readOnly ? [] : review?.operations;
-  const canSaveDraft = operations?.some((op) => op.verb === "edit-email-draft");
+  const canSaveDraft = review?.operations.some((op) => op.verb === "edit-email-draft");
+  const editingDraft = Boolean(item.engine_marks && canSaveDraft && draftEdits);
+  const draft =
+    review?.kind === "reply_draft" ? ((!item.engine_marks || editingDraft ? draftEdits : null) ?? review) : null;
+  useLayoutEffect(() => {
+    if (editingDraft) draftSubject.current?.focus();
+  }, [editingDraft]);
   const canDeclineDraft = operations?.some((op) => op.verb === "dismiss-email-proposal");
   const editable =
     !readOnly && (state.phase === "ready" || state.phase === "editing" || state.phase === "proposal-refused");
@@ -199,6 +211,7 @@ export function ReviewCard({
           throw Object.assign(Error("The saved draft changed again."), { payload: { error: "version_conflict" } });
         updateDraftEdits(null);
         setState({ phase: "ready", review: next });
+        if (item.engine_marks) host.current?.focus();
         setMessage("Saved as a draft. Nothing was sent.");
       } else {
         setState({
@@ -340,11 +353,12 @@ export function ReviewCard({
                   )}
                 </p>
                 {proposal.emailLead && proposal.senderAddress && <p>{proposal.senderAddress}</p>}
-                {proposal.source.subject && <p>{proposal.source.subject}</p>}
                 {proposal.source.excerpt && <blockquote>{sourceExcerptText(proposal.source.excerpt)}</blockquote>}
               </>
             )}
-            <p>{proposal.emailLead ? "Summary" : "Words that prompted this suggestion"}</p>
+            {(!thread || proposal.emailLead) && (
+              <p>{proposal.emailLead ? "Summary" : "Words that prompted this suggestion"}</p>
+            )}
             <blockquote>{proposal.evidence}</blockquote>
             {proposal.emailLead && proposal.evidenceQuote && <blockquote>{proposal.evidenceQuote}</blockquote>}
             {proposal.editable ? (
@@ -419,7 +433,26 @@ export function ReviewCard({
         </button>
       </header>
       {children}
+      {thread &&
+        (thread.messages.length ? (
+          <section className="home-email-thread" aria-label="Email thread">
+            <h4>Email thread</h4>
+            {thread.subject && <p>{sourceExcerptText(thread.subject)}</p>}
+            {thread.messages.map(({ id, sender, occurredAt, body }) => (
+              <article key={id}>
+                <h5>
+                  From {sender || "unknown sender"} ·{" "}
+                  <time dateTime={occurredAt}>{threadDate.format(new Date(occurredAt))}</time>
+                </h5>
+                <p>{sourceExcerptText(body)}</p>
+              </article>
+            ))}
+          </section>
+        ) : (
+          <p>The original email is unavailable.</p>
+        ))}
       {review?.kind === "reply_draft" &&
+        !thread &&
         (review.email ? (
           <section aria-label="Their email">
             <h4>Their email</h4>
@@ -452,7 +485,9 @@ export function ReviewCard({
               {review.kind === "reply_draft"
                 ? proposalLed
                   ? "Suggestions and reply draft"
-                  : "Exact reply for review"
+                  : item.engine_marks
+                    ? "Reply draft"
+                    : "Exact reply for review"
                 : review.kind === "fact_review"
                   ? "Evidence and decision"
                   : review.kind === "suggestions"
@@ -491,38 +526,51 @@ export function ReviewCard({
                     <a href={`/api/engine/documents/${encodeURIComponent(attachment.id)}`}>{attachment.name}</a>
                   </p>
                 ))}
-                <details>
-                  <summary>Current saved reply</summary>
-                  <p>{review.subject}</p>
-                  <p>{review.body}</p>
-                </details>
-                <label>
-                  Subject
-                  <input
-                    value={draft.subject}
-                    disabled={!review.operations.length}
-                    onChange={(event) => updateDraftEdits({ subject: event.target.value, body: draft.body })}
-                    maxLength={998}
-                    required
-                  />
-                </label>
-                <label>
-                  Message
-                  <textarea
-                    aria-label="Message"
-                    value={draft.body}
-                    disabled={!review.operations.length}
-                    onChange={(event) => updateDraftEdits({ subject: draft.subject, body: event.target.value })}
-                    rows={8}
-                    maxLength={20000}
-                    required
-                  />
-                </label>
-                {canSaveDraft && (
+                {!item.engine_marks && (
+                  <details>
+                    <summary>Current saved reply</summary>
+                    <p>{review.subject}</p>
+                    <p>{review.body}</p>
+                  </details>
+                )}
+                {!item.engine_marks || editingDraft ? (
+                  <>
+                    <label>
+                      Subject
+                      <input
+                        ref={draftSubject}
+                        value={draft.subject}
+                        disabled={!review.operations.length}
+                        onChange={(event) => updateDraftEdits({ subject: event.target.value, body: draft.body })}
+                        maxLength={998}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Message
+                      <textarea
+                        aria-label="Message"
+                        value={draft.body}
+                        disabled={!review.operations.length}
+                        onChange={(event) => updateDraftEdits({ subject: draft.subject, body: event.target.value })}
+                        rows={8}
+                        maxLength={20000}
+                        required
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      <strong>{draft.subject}</strong>
+                    </p>
+                    <p>{draft.body}</p>
+                  </>
+                )}
+                {!item.engine_marks && canSaveDraft && (
                   <p>
-                    {item.engine_marks
-                      ? "Save draft keeps your edits. Send reply approves this exact text from your mailbox."
-                      : "Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to these recipients."}
+                    Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to
+                    these recipients.
                   </p>
                 )}
                 {canDeclineDraft && !item.engine_marks && (
@@ -533,7 +581,6 @@ export function ReviewCard({
                 )}
               </>
             )}
-            {!proposalLed && suggestionFields}
             {review.kind === "fact_review" && (
               <>
                 <p>Canonical value: {review.canonical}</p>
@@ -658,29 +705,36 @@ export function ReviewCard({
             )}
           </fieldset>
           <div className="inbox-actions">
-            {operations?.map((op) => (
-              <button
-                type="button"
-                key={op.verb}
-                disabled={
-                  !editable ||
-                  (op.verb === "resolve-fact-review" &&
-                    (review.kind !== "fact_review" || !availableDecisions(op, review).includes(decision)))
-                }
-                onClick={(event) => {
-                  if (item.engine_marks && op.verb === "dismiss-email-proposal")
-                    setDrop({ title: "draft", opener: event.currentTarget, confirm: (reason) => choose(op, reason) });
-                  else choose(op);
-                }}
-              >
-                {item.engine_marks && op.verb === "dismiss-email-proposal"
-                  ? "Drop"
-                  : item.engine_marks && op.verb === "submit-email-draft"
-                    ? "Send reply"
-                    : labels[op.verb]}
-              </button>
-            ))}
+            {operations?.map((op) => {
+              const startDraftEdit = item.engine_marks && op.verb === "edit-email-draft" && !editingDraft;
+              return (
+                <button
+                  type="button"
+                  key={op.verb}
+                  disabled={
+                    !editable ||
+                    (op.verb === "resolve-fact-review" &&
+                      (review.kind !== "fact_review" || !availableDecisions(op, review).includes(decision)))
+                  }
+                  onClick={(event) => {
+                    if (startDraftEdit && draft) updateDraftEdits({ subject: draft.subject, body: draft.body });
+                    else if (item.engine_marks && op.verb === "dismiss-email-proposal")
+                      setDrop({ title: "draft", opener: event.currentTarget, confirm: (reason) => choose(op, reason) });
+                    else choose(op);
+                  }}
+                >
+                  {startDraftEdit
+                    ? "Edit"
+                    : item.engine_marks && op.verb === "dismiss-email-proposal"
+                      ? "Drop"
+                      : item.engine_marks && op.verb === "submit-email-draft"
+                        ? "Send reply"
+                        : labels[op.verb]}
+                </button>
+              );
+            })}
           </div>
+          {!proposalLed && proposals.length > 0 && <fieldset disabled={!editable}>{suggestionFields}</fieldset>}
         </form>
       )}
       {state.phase === "conflict" && (
