@@ -28,12 +28,15 @@ test('signed-in Calendar journey crosses the real CARR gate and renders a record
   };
   const carr = await startLocalCarr({ assets });
   t.after(() => carr.close());
-  await carr.mcp('add-critical-date', { deal: Object.values(carr.deals)[0], kind: 'tour',
-    due_on: new Date().toISOString().slice(0, 10), note: 'Synthetic calendar tour meeting', source: 'synthetic test fixture' });
+  const fixtureDay = '2026-10-21';
+  const deal = Object.values(carr.deals)[0];
+  await carr.mcp('add-critical-date', { deal, kind: 'tour',
+    due_on: fixtureDay, note: 'Synthetic calendar tour meeting', source: 'synthetic test fixture' });
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage();
   t.after(() => page.close());
+  await page.clock.setFixedTime(new Date('2026-10-21T02:00:00Z'));
   const appOrigin = 'https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev';
   const appEnv = { ASSETS: { fetch: assets }, APP_ENV: 'staging', GIT_SHA: '0'.repeat(40), CARR: {
     fetch: request => fetch(`${carr.url}${new URL(request.url).pathname}${new URL(request.url).search}`, {
@@ -61,12 +64,11 @@ test('signed-in Calendar journey crosses the real CARR gate and renders a record
   assert.equal((await session.json()).actor.slug, 'joe');
   const state = await page.request.storageState();
   await page.context().addCookies(state.cookies.map(cookie => ({ ...cookie, domain: new URL(appOrigin).hostname })));
-  await page.goto(`${appOrigin}/calendar`);
-  await expect(page.locator('#calGrid .cal-day-open').first()).toBeVisible();
-  const meetingEntry = page.locator('.cal-agenda-item').filter({ hasText: 'Synthetic calendar tour meeting' });
-  await expect(meetingEntry).toBeVisible();
-  await meetingEntry.click();
-  await expect(page.locator('#dayPanelBody')).toContainText('Synthetic calendar tour meeting');
+  await page.goto(`${appOrigin}/calendar?d=2026-10-01&day=2026-10-20`);
+  await expect(page.locator('#calCount')).toHaveText('1 critical date');
+  await page.locator(`#calGrid [data-select-day="${fixtureDay}"]`).click();
+  const meeting = page.locator('#dayPanelBody .cal-day-entry').filter({ hasText: 'Synthetic calendar tour meeting' });
+  await expect(meeting.getByRole('link')).toHaveAttribute('href', `/deals?deal=${deal}`);
   await page.reload();
-  await expect(meetingEntry).toBeVisible();
+  await expect(meeting).toBeVisible();
 });

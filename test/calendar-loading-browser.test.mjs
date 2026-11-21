@@ -24,7 +24,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
   const browser = await chromium.launch();
   t.after(() => browser.close());
 
-  for (const status of [200, 401]) await t.test(String(status), async () => {
+  for (const status of [200, 401, 502]) await t.test(String(status), async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
@@ -54,7 +54,8 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
       if (args.deal === 'late') await late;
       if (args.deal === 'slow') {
         await held;
-        if (status === 401) return route.fulfill({ status: 401, json: { error: 'not_authenticated' } });
+        if (status === 401) return route.fulfill({ status, json: { error: 'not_authenticated' } });
+        if (status === 502) return route.fulfill({ status });
       }
       return answer(route, { deal_id: args.deal, critical_dates: [{
         id: args.deal, kind: 'loi_expiry', due_on: '2026-10-20', status: 'open', note: `Synthetic ${args.deal} date`,
@@ -78,6 +79,10 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await expect(page.locator('#calGrid')).toHaveAttribute('aria-busy', 'false');
         await expect(page.locator('#calAsOf')).toContainText('Updated');
         await expect(page.locator('.cal-day-open[data-select-day="2026-10-20"]')).toBeFocused();
+      } else if (status === 502) {
+        await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
+        await expect(page.getByRole('main').getByRole('button', { name: /^Refresh/ })).toHaveCount(1);
+        await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
       } else {
         await page.waitForURL('**/public-shell/session-ended.html');
         await expect(page.getByRole('heading',{name:'Session ended'})).toBeVisible();

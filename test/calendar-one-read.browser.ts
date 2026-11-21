@@ -28,10 +28,10 @@ test("Calendar reads once and shows dates and next steps in the visible period",
 
   for (const width of [390, 1440])
     for (const theme of ["light", "dark"]) {
-      await t.test(`${width} ${theme}`, async () => {
+      await t.test(`${width} ${theme}`, async (t) => {
         const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: "reduce" });
         const reads: string[] = [];
-        await page.clock.setFixedTime(new Date("2026-10-20T15:00:00Z"));
+        await page.clock.install({ time: new Date("2026-10-20T15:00:00Z") });
         await page.addInitScript((theme) => {
           localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme }));
           localStorage.setItem("doctorcre:today", "closed");
@@ -61,7 +61,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
                     deal_name: "Example lease",
                     kind: "Option notice",
                     owner: "dell",
-                    due_on: "2026-10-28",
+                    due_on: "2026-10-26",
                     done: false,
                   },
                   {
@@ -170,12 +170,17 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await expect(page.locator("#dayPanelBody .cal-day-entry")).toHaveCount(2);
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
           await page.screenshot({ path: join(evidence, `month-${width}-${theme}.png`), fullPage: true });
-          if (width === 390) {
-            await page.locator("#dayPanel").scrollIntoViewIfNeeded();
-            await page.screenshot({ path: join(evidence, `day-${width}-${theme}.png`) });
-          }
+          await page.locator("#dayPanel").screenshot({ path: join(evidence, `day-${width}-${theme}.png`) });
 
-          await page.getByRole("button", { name: "Oct 22 1 next step" }).click();
+          const comingUp = page.getByRole("button", { name: /^Oct 22\b/ });
+          await t.test("Coming up names every item due", async () => {
+            await expect(comingUp).toContainText("Confirm suite availability");
+            await expect(comingUp).toContainText("Dell");
+            const twoItems = page.getByRole("button", { name: /^Oct 26\b/ });
+            await expect(twoItems).toContainText("Confirm suite availability");
+            await expect(twoItems).toContainText("Option notice");
+          });
+          await comingUp.click();
           await expect(panel).toContainText("Confirm suite availability");
           await expect(panel).toContainText("Next step · Dell");
           await expect(panel.getByRole("link", { name: "Example clinic" })).toHaveAttribute(
@@ -204,6 +209,33 @@ test("Calendar reads once and shows dates and next steps in the visible period",
 
           await page.getByRole("button", { name: "Previous month" }).click();
           await page.getByRole("button", { name: "Previous month" }).click();
+          const updated = page.locator("#calAsOf");
+          const record = step.getByRole("link");
+          const focusRetained: boolean[] = [];
+          for (const minute of [1, 2, 3, 4, 5]) {
+            const focused = minute === 1 ? record : comingUp;
+            await focused.focus();
+            const previous = await updated.textContent();
+            await page.clock.setSystemTime(new Date(Date.UTC(2026, 9, 20, 15, minute)));
+            await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+            await expect(updated).toContainText("Updated");
+            await expect(updated).not.toHaveText(previous ?? "");
+            assert.equal(reads.length, minute + 1);
+            focusRetained.push(await focused.evaluate((node) => node === document.activeElement));
+          }
+          await t.test("quiet refresh preserves focus on record links and upcoming dates", () => {
+            assert.deepEqual(focusRetained, [true, true, true, true, true]);
+          });
+          await t.test("a sixth focus keeps the last data until the deferred read", async () => {
+            const previous = await updated.textContent();
+            await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+            await expect(record).toBeVisible({ timeout: 500 });
+            await expect(updated).toHaveText(previous ?? "");
+            assert.equal(reads.length, 6);
+            await page.clock.fastForward(120_000);
+            await expect(updated).not.toHaveText(previous ?? "");
+            assert.equal(reads.length, 7);
+          });
           await panel.locator(".cal-day-entry").filter({ hasText: "LOI expiry" }).getByRole("link").click();
           await page.waitForURL((url) => url.pathname === "/deals" && url.searchParams.get("deal") === "qa-deal-1");
           await expect(page.locator("#recordPanel .deal-opening-snapshot")).toBeVisible();

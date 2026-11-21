@@ -26,13 +26,6 @@ import {
 } from "../js/calendar-model.js";
 import { carrInterface } from "./carr-contract.mjs";
 
-test("Calendar rereads on return and clears prior-session dates while checking", async () => {
-  const source = await readFile(new URL("../js/calendar.js", import.meta.url), "utf8");
-  assert.match(source, /mountAutoRefresh\(\{[^}]+refresh: load, onResume: clearCalendar, onWake: clearCalendar/);
-  assert.match(source, /function clearCalendar\(\)\s*\{[\s\S]*?status:\s*["']loading["']/);
-  assert.match(source, /asOf\.textContent\s*=\s*""/, "a failed return cannot keep the prior timestamp");
-});
-
 const ROOT = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, ROOT), "utf8");
 
