@@ -8,14 +8,13 @@ import sys
 import xml.etree.ElementTree as ET
 
 CRITICAL = (
-    *(f'test/home-sections-browser.test.mjs::at {now} tomorrow meetings stay upcoming and out of Today'
-      for now in ('2026-11-03T23:00:00-06:00', '2026-11-03T23:30:00-06:00', '2026-11-03T23:59:59-06:00')),
     'test/inbox-freshness-feedback-browser.test.mjs::authentication loss during a refresh retires all private cards',
     'test/deal-tours-browser.test.mjs::creation and pending-write departures preserve history and saved notes::1440 pending keep',
     *(f'test/calendar-rail-fit-browser.test.mjs::Calendar rail fits {count} meetings in {theme}'
       for theme in ('light', 'dark') for count in (0, 1, 2, 3, 6)),
-    *(f'test/home-sections-browser.test.mjs::sectioned Home and shared panels {width} {theme}'
-      for width in (390, 1024, 1280, 1440) for theme in ('light', 'dark')),
+    *(f'test/home-sections-browser.test.mjs::{scenario} at {width}px in {theme}'
+      for scenario in ('Home dashboard', 'Home polls in place')
+      for width in (390, 1440) for theme in ('light', 'dark')),
 )
 
 def add_failure_locations(path, repository):

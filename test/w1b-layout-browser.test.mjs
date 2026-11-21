@@ -272,7 +272,7 @@ const briefWithToday=(page,row)=>page.route('**/mcp',route=>{
  return route.fulfill({json:{result:{content:[{type:'text',text:JSON.stringify(body)}]}}});
 });
 
-test('Home shows a dated deal reminder when the brief also has a nameless inbox row',async t=>{
+test('Inbox shows a dated deal reminder when the brief also has a nameless inbox row',async t=>{
  const {page,errors}=await open(t);
  await briefWithToday(page,{item_kind:'ingest',id:'inbox-1',subject_type:'inbox',subject_id:'00000000-0000-4000-8000-000000000099',subject_name:null,what:'Demo item awaiting triage'});
  const dated=async()=>{
@@ -281,8 +281,6 @@ test('Home shows a dated deal reminder when the brief also has a nameless inbox 
   assert.match(await page.locator('#appTodayNext').innerText(),/Demo Dental North/);
   assert.doesNotMatch(await page.locator('#appTodayNext').innerText(),/Unavailable/);
  };
- await page.goto('http://localhost/?mode=live');
- await dated();
  await page.goto('http://localhost/inbox?mode=live');
  await dated();
  assert.deepEqual(errors,[]);
@@ -294,7 +292,7 @@ for(const [label,row] of [
 ]) test(`Today stays unavailable when ${label}`,async t=>{
  const {page,errors}=await open(t);
  await briefWithToday(page,row);
- await page.goto('http://localhost/?mode=live');
+ await page.goto('http://localhost/inbox?mode=live');
  await page.waitForFunction(()=>/Dated reminders unavailable/.test(document.querySelector('#appTodayReadStatus')?.textContent||''));
  assert.match(await page.locator('#appTodayReadStatus').innerText(),/Dated reminders unavailable\. Retry Today to update\./);
  assert.match(await page.locator('#appTodayNext').innerText(),/Unavailable/);
@@ -321,7 +319,7 @@ test('Today retains offline rows but clears them before resume revalidation',asy
  release();await page.waitForFunction(()=>document.querySelector('#appTodayNeeds [data-layout-deal]'));
 });
 
-test('Home Today shows loading on first read and tab resume, and keeps rows quietly on a background refresh',async t=>{
+test('Today shows loading on first read and tab resume, and keeps rows quietly on a background refresh',async t=>{
  const {page,errors}=await open(t,{clock:true});
  let pending,release;
  let reads=0,failedSchedule=false;
@@ -337,13 +335,11 @@ test('Home Today shows loading on first read and tab resume, and keeps rows quie
   return route.fallback();
  });
  const loading=async()=>{
-  await page.locator('.working-week').waitFor();
-  assert.doesNotMatch(await page.locator('.working-week').textContent(),/unavailable|No returned items/i);
   assert.doesNotMatch(await page.locator('#appToday').textContent(),/unavailable/i);
   assert.match(await page.locator('#appTodayReadStatus').textContent(),/Loading Today/);
   assert.equal(await page.locator('#appTodayRetry').isVisible(),false);
  };
- hold();await page.goto('http://localhost/?mode=live');
+ hold();await page.goto('http://localhost/inbox?mode=live');
  await page.locator('#appToday').waitFor();await loading();
  await captureToday(page,'initial-loading');
  release();await page.locator('#appSyncTime[datetime]').waitFor({state:'attached'});
@@ -388,11 +384,11 @@ test('Home Today shows loading on first read and tab resume, and keeps rows quie
  assert.deepEqual(errors,[]);
 });
 
-test('Home malformed schedule offers Retry Today and names Schedule',async t=>{
+test('Today malformed schedule offers Retry Today and names Schedule',async t=>{
  const {page,errors}=await open(t,{clock:true});
  await page.route('**/mcp',route=>route.request().postDataJSON().params.name==='calendar-meeting-prep'
   ?route.fulfill({json:{result:{content:[{type:'text',text:'{"ok":true}'}]}}}):route.fallback());
- await page.goto('http://localhost/?mode=live');
+ await page.goto('http://localhost/inbox?mode=live');
  await page.waitForFunction(()=>document.querySelector('#appScheduleSlot')?.textContent.includes('Schedule unavailable'));
  assert.equal(await page.locator('#appTodayRetry').isVisible(),true);
  assert.match(await page.locator('#appTodayReadStatus').textContent(),/Schedule unavailable/);
@@ -406,7 +402,7 @@ test('Today failure notice uses visible section titles and Retry Today',async t=
  await page.route('**/mcp',route=>['morning-brief','today-triage'].includes(route.request().postDataJSON().params.name)
   ?route.fulfill({status:503,body:'Unavailable'}):route.fallback());
  await page.route('**/pipeline/changes*',route=>route.fulfill({status:503,body:'Unavailable'}));
- await page.goto('http://localhost/?mode=live');
+ await page.goto('http://localhost/inbox?mode=live');
  await page.locator('#appTodayRetry').waitFor();
  assert.match(await page.locator('#appTodayReadStatus').textContent(),/^(Showing last update\. )?Overdue, Dated reminders, Deal pulse unavailable\. Retry Today to update\.$/);
 });
@@ -425,9 +421,9 @@ for(const stalled of ['client','changes'])test(`Today settles the whole-read tim
   await new Promise(resolve=>release=resolve);
   return route.fulfill({json:{events:[{id:`synthetic-${pages}`,subject_type:'deal',subject_id:'d23',field:'next_step',actor:'doc',new_value:'Synthetic change',recorded_at:'2026-10-01T15:00:00Z'}],cursor:String(pages)}});
  });
- // Home starts Today after a zero-delay timer; release due timers without moving the paused clock.
+ // Today starts after a zero-delay timer; release due timers without moving the paused clock.
  const started=check=>settles(async()=>{await page.clock.runFor(0);assert.ok(await check());});
- await page.goto('http://localhost/?mode=live');
+ await page.goto('http://localhost/inbox?mode=live');
  await page.locator('#appTodayReadStatus').waitFor();
  if(stalled==='client')await started(()=>page.evaluate(()=>window.__heldTodayClient));
  if(stalled==='changes')for(let i=1;i<=3;i++){

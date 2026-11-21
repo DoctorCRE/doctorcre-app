@@ -71,11 +71,11 @@ for (const [name, options, expectedLink, expectedName] of [
   ['task with a contact', { kind: 'action', contextLabel: 'Demo contact', sourceUrl: `/relationships?node=party%3A${id}` }, `/relationships?node=party%3A${id}`, 'Demo contact'],
   ['call follow-up', { kind: 'action', sourceType: 'capture_post_call_action', sourceUrl: '/calls?session=synthetic', contextLabel: 'Demo practice', dealId: id }, '/calls?session=synthetic', 'Call summary'],
   ['update', { kind: 'action', sourceType: 'notification', contextLabel: 'Demo practice update', sourceUrl: '/updates', dealId: id }, `/deals?deal=${id}`, 'Demo practice update'],
-  ['unlinked completed task', { kind: 'action', reference: false, sourceState: 'done' }],
+  ['unlinked completed task', { kind: 'action', reference: false, sourceState: 'done', surface: '/inbox' }],
 ]) test(`Home Open shows the exact ${name}`, async t => {
   const { page, panel, calls } = await setup(t, { width: 390, ...options });
   const opener = name === 'unlinked completed task'
-    ? page.getByRole('link', { name: 'Synthetic review', exact: true })
+    ? page.getByRole('button', { name: 'Open', exact: true })
     : page.getByRole('button', { name: 'Open', exact: true });
   await opener.click();
   await panel.waitFor();
@@ -119,7 +119,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`in
   assert.equal(writes[0].args.subject, 'Reviewed exact subject'); assert.equal(writes[0].args.body, 'Reviewed exact body');
   assert.equal(page.url().includes('/inbox'), false);
   await panel.getByRole('button', { name: 'Close review', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('[data-inbox-row="one"]')?.contains(document.activeElement));
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Inbox cards');
 });
 test('conflict keeps text and reload binds a fresh version before another deliberate save', async t => {
   const { page, panel, calls } = await setup(t, { refusal: 'version_conflict' });
@@ -307,9 +307,9 @@ for (const width of [390, 1440]) for (const surface of ['/', '/inbox', '/inbox/c
   const finish = row.action_id && sourceState === 'needs_attention' ? 'Mark done' : 'Open';
   assert.equal(await card.getByRole('button', { name: finish, exact: true }).getAttribute('class'), 'inbox-primary');
   assert.equal(await opener.count(), 1);
-  assert.equal(await card.getByRole('button', { name: 'Hide from inbox', exact: true }).count(), sourceState === 'working' ? 0 : 1);
+  assert.equal(await card.getByRole('button', { name: 'Hide from inbox', exact: true }).count(), sourceState === 'working' || surface === '/' ? 0 : 1);
   if (sourceState === 'failed') {
-    assert.equal(await card.getByText("This reply didn't send. Send it from your email, then press Hide from inbox.", { exact: true }).count(), 1);
+    assert.equal(await card.getByText(surface === '/' ? "This reply didn't send. Send it from your email." : "This reply didn't send. Send it from your email, then press Hide from inbox.", { exact: true }).count(), 1);
   }
   assert.equal(await card.getByText(/Work is in progress|Review card|Waiting on|Set waiting person|Correct waiting person/).count(), 0);
   await page.screenshot({ path: `test-artifacts/inline-review/finish-${width}-${surface === '/' ? 'home' : surface === '/inbox' ? 'inbox' : 'opened'}-${sourceType || kind}-${sourceState}${sourceUrl ? `-linked-${sourceUrl.split(/[/?]/)[1]}` : ''}.png`, fullPage: true });

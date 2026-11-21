@@ -23,9 +23,8 @@ const legacyVerbs = new Set(["morning-brief", "today-triage", "calendar-meeting-
 const id = "00000000-0000-4000-8000-000000000001";
 const pages = [
   ...Object.keys(routeContract.routes)
-    .filter((path) => !["/share", "/client-portal"].includes(path))
+    .filter((path) => !["/", "/share", "/client-portal"].includes(path))
     .map((path) => path.replace(":boardId", "carr-v5").replace(/:\w+/g, id)),
-  "/?view=charts",
   "/deals?view=national",
   "/deals?view=review",
   "/deals?view=dropped-prospect",
@@ -203,10 +202,8 @@ for (const path of pages)
     assert.deepEqual(legacy, []);
   });
 
-test("Today keeps an ended deal's reminder on Home and leaves it out on Deals", async (t) => {
-  const home = await open(t, "/");
+test("Today leaves an ended deal's reminder out on Deals", async (t) => {
   const deals = await open(t, "/deals?view=national");
-  await home.today.getByText("Check the former office", { exact: true }).waitFor();
   await deals.today.getByText("Send sample floor plan", { exact: true }).waitFor();
   assert.equal(await deals.today.getByText("Check the former office", { exact: true }).count(), 0);
   assert.equal(await deals.today.getByText("Joe · 4 days late", { exact: true }).count(), 0);
@@ -241,7 +238,7 @@ test("Doc keeps Morning brief with the switch off and drops it with the switch o
 for (const width of [390, 1440])
   for (const theme of ["light", "dark"]) {
     test(`Today shows meetings and last sync at ${width}px in ${theme}`, async (t) => {
-      const { page, today } = await open(t, "/", { width, theme, meetingState: "partial" });
+      const { page, today } = await open(t, "/invoices", { width, theme, meetingState: "partial" });
       if (width === 390) await page.getByRole("button", { name: "Today sidebar", exact: true }).click();
       const meetings = today.getByRole("region", { name: "Meetings", exact: true });
       await meetings.getByText("Example site visit", { exact: true }).waitFor();
@@ -261,7 +258,7 @@ for (const width of [390, 1440])
   }
 
 test("Today says when the calendar is empty", async (t) => {
-  const { today } = await open(t, "/", { meetingState: "empty" });
+  const { today } = await open(t, "/invoices", { meetingState: "empty" });
   await today.getByText("No meetings today.", { exact: true }).waitFor();
 });
 

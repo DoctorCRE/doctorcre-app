@@ -1,12 +1,11 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { rm } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { temporaryDirectory } from '../scripts/temp-directory.mjs';
 import { chromium } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
-import { observeSearch } from '../scripts/prove-home-loaded-card-search.mjs';
 import { context as buildContext } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 async function syntheticCards() {
@@ -53,125 +52,9 @@ async function setup(t, width = 1440, theme = 'light', review = false, card = nu
   });
   page.setDefaultTimeout(5000);
   await page.goto(`${server.origin}/?mode=live${card ? `&card=${encodeURIComponent(card)}` : ''}`);
-  await page.getByRole('searchbox').waitFor();
+  await page.getByRole('region', { name: 'Reminders', exact: true }).waitFor();
   return { page, fixture, calls, update: value => { snapshot = fixture.parseSnapshot(value); } };
 }
-for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`loaded search subset, clear and no RPC ${width} ${theme}`, async t => {
-  const { page, fixture, calls } = await setup(t, width, theme);
-  await observeSearch(page, fixture.snapshot, calls);
-  const search = page.getByRole('searchbox');
-  for (const term of ['Demo practice with a long owning deal name', 'Task']) {
-    await search.fill(term);
-    await page.getByText('6 results', { exact: true }).waitFor();
-  }
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-});
-test('selection, refresh additions/removals, disclosure, current pin and session disposal', async t => {
-  const { page, fixture, update } = await setup(t, 1440, 'light', false, 'demo-call');
-  const search = page.getByRole('searchbox');
-  await page.getByRole('checkbox', { name: 'Select Review the practice tour follow-up', exact: true }).check();
-  await search.fill('pipeline');
-  await page.getByText('Selection cleared because the search changed.', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('checkbox', { checked: true }).count(), 0);
-  update({ ...fixture.snapshot, truncated: true, items: fixture.snapshot.items.filter(item => item.item_id !== 'demo-call') });
-  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
-  await page.getByText('No cards match your search.', { exact: true }).waitFor();
-  assert.equal(await search.inputValue(), 'pipeline');
-  await page.getByText('Showing the first 1,000 cards. More work is available.', { exact: true }).waitFor();
-  update(fixture.snapshot);
-  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
-  await page.locator('[data-inbox-row="demo-call"]').waitFor();
-  await search.fill('not found');
-  await page.getByText('Pinned outside search', { exact: true }).waitFor();
-  assert.equal(await page.locator('[data-inbox-row]').count(), 1);
-  await page.getByRole('search').getByRole('button', { name: 'Clear', exact: true }).click();
-  const region = page.getByRole('region', { name: 'Overdue', exact: true });
-  const disclosure = region.getByRole('button', { name: /See all/ });
-  await disclosure.click();
-  assert.equal(await region.locator('[data-inbox-row]').count(), 2);
-  await region.getByRole('button', { name: 'Show less' }).click();
-  await page.evaluate(() => dispatchEvent(new Event('doctorcre-session-invalidated')));
-  assert.equal(await page.locator('[data-inbox-row]').count(), 0);
-  assert.equal(await search.count(), 0);
-});
-test('pending request locks search and completion Undo preserves query', async t => {
-  const { page } = await setup(t);
-  const search = page.getByRole('searchbox');
-  await search.fill('pipeline');
-  let release;
-  const held = new Promise(resolve => { release = resolve; });
-  await page.route('**/mcp', async route => {
-    if (route.request().postDataJSON().params.name !== 'complete-one-action') return route.fallback();
-    await held; await route.fallback();
-  });
-  await page.getByRole('button', { name: 'Mark done', exact: true }).click();
-  assert.equal(await search.isDisabled(), true);
-  release();
-  await page.getByRole('button', { name: 'Undo', exact: true }).waitFor();
-  assert.equal(await search.isDisabled(), false);
-  await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await page.getByRole('button', { name: 'Mark done', exact: true }).waitFor();
-  assert.equal(await search.inputValue(), 'pipeline');
-});
-
-test('inline review locks search and preserves opener focus through close and unmount', async t => {
-  const { page } = await setup(t, 1440, 'light', true);
-  const search = page.getByRole('searchbox');
-  const opener = page.locator('[data-inbox-row="demo-review"]').getByRole('button', { name: 'Open', exact: true });
-  await opener.click();
-  await page.getByRole('button', { name: 'Close', exact: true }).waitFor();
-  assert.equal(await search.isDisabled(), true);
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
-  assert.equal(await search.isDisabled(), false);
-  assert.equal(await opener.evaluate(node => node === document.activeElement), true);
-  assert.equal(await search.inputValue(), '');
-  await search.fill('practice tour');
-  await opener.click();
-  await page.evaluate(() => dispatchEvent(new Event('doctorcre-session-invalidated')));
-  assert.equal(await search.count(), 0);
-});
-test('literal field matching preserves canonical slices and excludes source payload fields', async t => {
-  const { page } = await setup(t);
-  const search = page.getByRole('searchbox');
-  for (const region of await page.locator('.home-slice').all()) {
-    const more = region.getByRole('button', { name: /^See all/ });
-    if (await more.count()) await more.click();
-  }
-  assert.equal(await page.getByRole('region', { name: 'In motion and waiting', exact: true }).getByRole('button', { name: 'Show less', exact: true }).getAttribute('aria-expanded'), 'true');
-  const placements = () => page.locator('[data-inbox-row]').evaluateAll(rows => rows.map(row => [row.dataset.inboxRow, row.closest('.home-slice').getAttribute('aria-label')]));
-  const before = await placements();
-  await search.fill('Task');
-  assert.deepEqual(await placements(), before);
-  await search.fill('Demo practice with a long owning deal name');
-  assert.deepEqual(await placements(), before);
-  await search.fill('next_action');
-  await page.getByText('No cards match your search.', { exact: true }).waitFor();
-  await search.fill('.*');
-  assert.equal(await page.locator('[data-inbox-row]').count(), 0);
-});
-test('uncertain server refusal locks query until dismissal and refresh', async t => {
-  const { page } = await setup(t);
-  const search = page.getByRole('searchbox');
-  await search.fill('pipeline');
-  await page.route('**/mcp', route => route.request().postDataJSON().params.name === 'complete-one-action'
-    ? route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify({ error: 'partner_required' }) }] } } }) : route.fallback());
-  await page.getByRole('button', { name: 'Mark done', exact: true }).click();
-  await page.getByRole('button', { name: 'Dismiss and refresh', exact: true }).waitFor();
-  assert.equal(await search.isDisabled(), true);
-  await page.getByRole('button', { name: 'Dismiss and refresh', exact: true }).click();
-  assert.equal(await search.isDisabled(), false);
-  assert.equal(await search.inputValue(), 'pipeline');
-});
-
-test('opening a Home card title preserves its search', async t => {
-  const { page } = await setup(t);
-  const search = page.getByRole('searchbox');
-  await search.fill('pipeline');
-  await page.locator('[data-inbox-row="demo-call"] h3 a').click();
-  await page.locator('[data-inbox-row="demo-call"]').getByRole('button', { name: 'Close', exact: true }).click();
-  assert.equal(await search.inputValue(), 'pipeline');
-});
-
 for (const destination of ['00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000099', 'bad']) test(`watch Home source selects exact client or visibly refuses ${destination}`, async t => {
   const { directoryFixture } = await import('./fixtures/vendor-directory.synthetic.mjs');
   const { page, fixture, update } = await setup(t);
@@ -190,7 +73,8 @@ for (const destination of ['00000000-0000-4000-8000-000000000002', '00000000-000
   });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.getByRole('button', { name: 'Refresh inbox', exact: true }).click();
+  await page.clock.fastForward(60_000);
+  await mkdir('test-artifacts/home-loaded-card-search', { recursive: true });
   await page.getByRole('link', { name: card.title, exact: true }).click();
   if (destination.endsWith('002')) await page.screenshot({ path: 'test-artifacts/home-loaded-card-search/watch-home.png', fullPage: true });
   if (destination === 'bad') {

@@ -38,7 +38,6 @@ export type DraftEdits = Pick<Extract<Review, { kind: "reply_draft" }>, "subject
 
 type Props = {
   item: InboxItem;
-  focusedSuggestionId: string | undefined;
   readOnly: boolean;
   client: InboxClient["review"];
   draftEdits: DraftEdits | undefined;
@@ -51,7 +50,6 @@ type Props = {
 };
 export function ReviewCard({
   item,
-  focusedSuggestionId,
   readOnly,
   client,
   draftEdits,
@@ -75,7 +73,6 @@ export function ReviewCard({
   const host = useRef<HTMLElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const anchor = useRef(item);
-  const focusSuggestion = useCallback((section: HTMLElement | null) => section?.focus(), []);
   const reconcileFacts = useCallback((detail: Review) => {
     if (detail.kind !== "fact_review") return;
     const choices = detail.operations[0] ? availableDecisions(detail.operations[0], detail) : [];
@@ -321,12 +318,7 @@ export function ReviewCard({
       {review?.kind === "reply_draft" && proposals.length > 0 && <h4>Suggestions</h4>}
       {proposals.length > 0 &&
         proposals.map((proposal) => (
-          <section
-            key={proposal.id}
-            aria-label={proposal.label}
-            tabIndex={focusedSuggestionId === proposal.id ? -1 : undefined}
-            ref={focusedSuggestionId === proposal.id ? focusSuggestion : undefined}
-          >
+          <section key={proposal.id} aria-label={proposal.label}>
             <h4>
               {proposal.label}
               {proposal.target ? ` · ${proposal.target}` : ""}

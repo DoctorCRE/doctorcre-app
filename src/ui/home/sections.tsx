@@ -1,5 +1,5 @@
-import { type ReactNode, useEffect, useState } from "react";
-import type { InboxItem } from "./inbox";
+import { Component, Fragment, type ReactNode, useState } from "react";
+import { type InboxItem, object, parseSnapshot } from "./inbox";
 
 const dayFormat = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Chicago",
@@ -16,242 +16,186 @@ const completionFormat = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
   timeZoneName: "short",
 });
-const welcomeFormat = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Chicago",
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-});
-const day = (date: Date) => dayFormat.format(date);
+export const day = (date: Date) => dayFormat.format(date);
 
 export function lateDays(due: string | null, now = new Date()) {
   return due ? Math.max(0, (Date.parse(day(now)) - Date.parse(due)) / 86_400_000) : 0;
 }
 
-export function completionGroups(items: readonly InboxItem[], now: Date) {
-  const completed = items
-    .filter((item) => item.section === "done" || (!item.engine_marks && item.auto_settled))
-    .sort(
-      (a, b) =>
-        (b.completed_at ? Date.parse(b.completed_at) : 0) - (a.completed_at ? Date.parse(a.completed_at) : 0) ||
-        a.item_id.localeCompare(b.item_id),
-    );
-  const today = day(now);
-  const isToday = (item: InboxItem) => item.completed_at !== null && day(new Date(item.completed_at)) === today;
-  return { today: completed.filter(isToday), earlier: completed.filter((item) => !isToday(item)) };
-}
 export function completionLabel(item: InboxItem) {
   if (!item.completed_at) return "Done, time not recorded";
   const label = item.engine_marks && item.kind_label === "Reply draft" ? "Sent" : "Done";
   return `${label} ${completionFormat.format(new Date(item.completed_at))}`;
 }
 
-function Slice({
+export async function readDashboard(signal: AbortSignal) {
+  const { sessionFetch } = await import(new URL("./private-session.js", import.meta.url).href);
+  const response: Response = await sessionFetch("/api/engine/home/inbox?view=dashboard", {
+    signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw Error("Reminders and waiting items unavailable");
+  const answer: unknown = await response.json();
+  if (object(answer) && !("reminders" in answer) && !("waiting" in answer)) return null;
+  if (!object(answer)) throw Error("Reminders and waiting items unavailable");
+  const items = (["reminders", "waiting"] as const).flatMap((tile) => {
+    const group = answer[tile];
+    if (!object(group) || !Array.isArray(group.items) || group.count !== group.items.length)
+      throw Error("Reminders and waiting items unavailable");
+    return group.items.map((item: unknown) => {
+      if (!object(item) || typeof item.card_id !== "string" || !item.card_id.trim())
+        throw Error("Reminders and waiting items unavailable");
+      return { ...item, card_id: item.card_id, dashboard_tile: tile };
+    });
+  });
+  if (new Set(items.map((item) => item.card_id)).size !== items.length)
+    throw Error("Reminders and waiting items unavailable");
+  return parseSnapshot({ ...answer, items, engine_marks: true });
+}
+
+const previewCount = 3;
+export const cardKey = (item: InboxItem) => item.card_id ?? item.item_id;
+
+export function dashboardCards(items: readonly InboxItem[], today = day(new Date())) {
+  const reminders: InboxItem[] = [];
+  const waiting: InboxItem[] = [];
+  for (const item of items) {
+    if (item.dashboard_tile) {
+      (item.dashboard_tile === "reminders" ? reminders : waiting).push(item);
+      continue;
+    }
+    if (item.auto_settled || item.source_state === "done") continue;
+    const lead = !item.deal_id && /^\/(?:leads(?:[/?#]|$)|deals\?[^#]*\bprospect=)/.test(item.open_url ?? "");
+    if (item.action_id && lead) continue;
+    if (["working", "held", "snoozed"].includes(item.section)) waiting.push(item);
+    else if (item.section === "inbox" && (!item.action_id || !item.due_on || item.due_on <= today))
+      reminders.push(item);
+  }
+  return {
+    reminders: reminders[0]?.dashboard_tile
+      ? reminders
+      : reminders.sort((a, b) => Number(isLate(b, today)) - Number(isLate(a, today))),
+    waiting,
+  };
+}
+
+function isLate(item: InboxItem, today: string) {
+  return item.days_late !== undefined
+    ? item.days_late > 0
+    : item.action_id !== null && item.due_on !== null && item.due_on < today;
+}
+
+function HomeTile({
   title,
-  detail,
-  items,
-  current,
-  row,
-  display = "preview",
+  count,
+  children,
+  expanded,
+  setExpanded,
 }: {
   title: string;
-  detail?: string;
-  items: readonly InboxItem[];
-  current: string | undefined;
-  row: (item: InboxItem) => ReactNode;
-  display?: "preview" | "collapsed-working";
+  count: number;
+  children: ReactNode;
+  expanded: boolean;
+  setExpanded: (expanded: boolean) => void;
 }) {
-  const [expanded, expand] = useState(false);
-  const shown = expanded
-    ? items
-    : items.filter((item, index) => (display === "preview" && index === 0) || item.item_id === current);
   return (
     <section className="home-slice" aria-label={title}>
       <header>
-        <div>
-          <h2 tabIndex={-1}>
-            {title} <span>{items.length}</span>
-          </h2>
-          {detail && <p>{detail}</p>}
-        </div>
-        {(items.length > 1 || (display === "collapsed-working" && items.length > 0)) && (
-          <button type="button" aria-expanded={expanded} onClick={() => expand(!expanded)}>
-            {expanded ? "Show less" : `See all ${items.length}`}
+        <h2 tabIndex={-1}>
+          {title} <span>{count}</span>
+        </h2>
+        {count > previewCount && (
+          <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+            {expanded ? "Show less" : `See all ${count}`}
           </button>
         )}
       </header>
-      {items.length ? shown.map(row) : <p className="home-slice-empty">Nothing here right now.</p>}
+      {children}
     </section>
   );
 }
 
-export function HomeWelcome() {
-  return (
-    <header className="home-welcome">
-      <p className="home-kicker">YOUR DAY, IN FOCUS</p>
-      <p className="home-date">{welcomeFormat.format(new Date())}</p>
-      <h1>Welcome home.</h1>
-      <p>Review what matters. Keep your day moving.</p>
-    </header>
-  );
+function retainOrder(previous: readonly InboxItem[], incoming: readonly InboxItem[]) {
+  const remaining = new Map(incoming.map((item) => [cardKey(item), item]));
+  return [
+    ...previous.flatMap((old) => {
+      const current = remaining.get(cardKey(old));
+      remaining.delete(cardKey(old));
+      return current ? [current] : [];
+    }),
+    ...remaining.values(),
+  ];
 }
 
-function matchesLoadedCard(item: InboxItem, query: string) {
-  const literal = query.trim().toLowerCase();
-  return [item.title, item.context_label, item.kind_label].some((value) => value?.toLowerCase().includes(literal));
-}
-
-export function HomeSections({
-  items: cards,
+export function CardTile({
+  title,
+  items,
   pinned,
-  engine = false,
   current,
-  search,
-  locked,
-  changeSearch,
   row,
 }: {
+  title: string;
   items: readonly InboxItem[];
-  engine?: boolean;
   pinned?: InboxItem | null;
   current: string | undefined;
-  search: string;
-  locked: boolean;
-  changeSearch: (value: string) => void;
   row: (item: InboxItem) => ReactNode;
 }) {
-  const placement = (item: InboxItem) => (item.item_id === pinned?.item_id ? pinned : item);
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = () => {
-      setNow(new Date());
-      // eslint-disable-next-line no-restricted-syntax -- One local clock update per minute boundary; no reads, one timer, cleared on unmount.
-      timer = setTimeout(tick, 60_000 - (Date.now() % 60_000));
-    };
-    // eslint-disable-next-line no-restricted-syntax -- One initial minute-boundary timer; no reads, cleared on unmount.
-    timer = setTimeout(tick, 60_000 - (Date.now() % 60_000));
-    return () => clearTimeout(timer);
-  }, []);
-  const today = day(now);
-  const loaded = cards.filter(
-    (item) => !engine || item.section !== "inbox" || !item.action_id || !item.due_on || item.due_on <= today,
-  );
-  const matching = loaded.filter((item) => matchesLoadedCard(item, search));
-  const items = loaded.filter((item) => matchesLoadedCard(item, search) || item.item_id === current);
-  const renderRow = (item: InboxItem) => (
-    <div key={item.item_id}>
-      {item.item_id === current && !matchesLoadedCard(item, search) && <p role="status">Pinned outside search</p>}
-      {row(item)}
-    </div>
-  );
-  const completed = completionGroups(items.map(placement), now);
-  const overdue = (item: InboxItem) => {
-    const placed = placement(item);
-    return (
-      placed.section === "inbox" &&
-      placed.source_state === "needs_attention" &&
-      placed.action_id !== null &&
-      placed.due_on !== null &&
-      placed.due_on < today
-    );
-  };
-  const overdueItems = items.filter(overdue);
-  const lateActions = loaded
-    .filter((item) => (engine ? item.source_state === "needs_attention" && item.action_id !== null : overdue(item)))
-    .map((item) => item.action_id)
-    .join(" ");
-  useEffect(() => {
-    const shown = (ids: string[]) => {
-      document.dispatchEvent(new CustomEvent("doctorcre:overdue-shown", { detail: ids }));
-    };
-    shown(lateActions ? lateActions.split(" ") : []);
-    return () => shown([]);
-  }, [lateActions]);
-  const dueToday = (item: InboxItem) => placement(item).section === "inbox" && placement(item).due_on === today;
-
+  const [expanded, setExpanded] = useState(false);
+  const count = items.length;
+  const [order, setOrder] = useState({ incoming: items, pinned, cards: items });
+  const changed = order.incoming !== items || order.pinned !== pinned;
+  const preserve = pinned && !items.some((item) => cardKey(item) === cardKey(pinned));
+  const visible = changed ? retainOrder(order.cards, preserve ? [...items, pinned] : items) : order.cards;
+  if (changed) setOrder({ incoming: items, pinned, cards: visible });
+  if (!visible.length) return null;
+  const shown = expanded
+    ? visible
+    : visible.filter(
+        (item, index) =>
+          index < previewCount || item.item_id === current || (pinned && cardKey(item) === cardKey(pinned)),
+      );
+  const firstLate = title === "Reminders" ? shown.find((item) => isLate(item, day(new Date()))) : undefined;
   return (
-    <div className="home-sections">
-      <search aria-label="Inbox">
-        <label>
-          Search inbox{" "}
-          <input
-            type="search"
-            value={search}
-            disabled={locked}
-            onChange={(event) => changeSearch(event.target.value)}
-          />
-        </label>
-        <button type="button" disabled={locked || !search} onClick={() => changeSearch("")}>
-          Clear
-        </button>
-        <p role="status">
-          {search.trim() &&
-            (matching.length
-              ? `${matching.length} ${matching.length === 1 ? "result" : "results"}`
-              : "No cards match your search.")}
-        </p>
-      </search>
-      {!engine && !document.documentElement.hasAttribute("data-home-today-from-engine") && (
-        <nav className="home-shortcuts" aria-label="Review workflows">
-          <a href="/review-workflows#homeCallTasks">Call follow-ups ↗</a>
-          <a href="/review-workflows#homeEmailFollowups">Email and filings ↗</a>
-          <a href="/deals">Next steps ↗</a>
-        </nav>
-      )}
-      {overdueItems.length > 0 && (
-        <Slice
-          title={engine ? "Late" : "Overdue"}
-          detail="Your tasks dated before today."
-          items={overdueItems}
-          current={current}
-          row={renderRow}
-        />
-      )}
-      <Slice
-        title="Needs your attention"
-        detail="One thing at a time. Review, act, move on."
-        items={items.filter((item) => placement(item).section === "inbox" && !dueToday(item) && !overdue(item))}
-        current={current}
-        row={renderRow}
-      />
-      <Slice
-        title="Today"
-        detail="Your tasks dated today."
-        items={items.filter(dueToday)}
-        current={current}
-        row={renderRow}
-      />
-      <Slice
-        display="collapsed-working"
-        title="In motion and waiting"
-        detail="Work in progress, on hold, or snoozed."
-        items={items.filter((item) => ["working", "held", "snoozed"].includes(placement(item).section))}
-        current={current}
-        row={renderRow}
-      />
-      <Slice
-        title="Done today"
-        items={completed.today.map((done) => items.find((item) => item.item_id === done.item_id) ?? done)}
-        current={current}
-        row={renderRow}
-      />
-      <Slice
-        title="Earlier and undated completions"
-        detail="Completed before today, or without a recorded completion time."
-        items={completed.earlier.map((done) => items.find((item) => item.item_id === done.item_id) ?? done)}
-        current={current}
-        row={renderRow}
-      />
-      {!engine && (
-        <Slice
-          title="Hidden from inbox"
-          detail="Set aside by you. These tasks may still be open."
-          items={items.filter((item) => placement(item).section === "settled" && !placement(item).auto_settled)}
-          current={current}
-          row={renderRow}
-        />
-      )}
-    </div>
+    <HomeTile title={title} count={count} expanded={expanded} setExpanded={setExpanded}>
+      {shown.map((item) => (
+        <Fragment key={cardKey(item)}>
+          {item === firstLate && <h3 className="home-late">Late</h3>}
+          {row(item)}
+        </Fragment>
+      ))}
+    </HomeTile>
   );
+}
+
+type Anchor = { node: Element; top: number };
+export class HomeGrid extends Component<{ children: ReactNode; snapshot: unknown }> {
+  private grid: HTMLDivElement | null = null;
+
+  getSnapshotBeforeUpdate(previous: Readonly<typeof this.props>): Anchor[] | null {
+    if (!window.scrollY || this.props.snapshot === previous.snapshot) return null;
+    const active = document.activeElement;
+    if (active && this.grid?.contains(active)) return [{ node: active, top: active.getBoundingClientRect().top }];
+    return Array.from(this.grid?.querySelectorAll(".inbox-row") ?? []).flatMap((node) => {
+      const { top, bottom } = node.getBoundingClientRect();
+      return bottom > 0 && top < window.innerHeight ? [{ node, top }] : [];
+    });
+  }
+
+  componentDidUpdate(_previous: Readonly<typeof this.props>, _state: unknown, anchors: Anchor[] | null) {
+    const anchor = anchors?.find(({ node }) => node.isConnected);
+    if (anchor) window.scrollBy({ top: anchor.node.getBoundingClientRect().top - anchor.top, behavior: "instant" });
+  }
+
+  render() {
+    return (
+      <div
+        className="home-sections"
+        ref={(node) => {
+          this.grid = node;
+        }}
+      >
+        {this.props.children}
+      </div>
+    );
+  }
 }

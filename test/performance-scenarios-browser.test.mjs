@@ -179,7 +179,7 @@ test('Tours guidance keeps its phone width while the shared shell loads', async 
 });
 
 
-test('Home performance expansion survives calendar, month and Chicago DST boundaries', async t => {
+test('Home performance card opening survives calendar, month and Chicago DST boundaries', async t => {
   const { applyPhoneProfile } = await import('../scripts/performance-scenarios.mjs');
   const outDir = await temporaryDirectory('doctorcre-home-clock-');
   t.after(() => rm(outDir, { recursive: true, force: true }));
@@ -199,11 +199,9 @@ test('Home performance expansion survives calendar, month and Chicago DST bounda
         await applyPhoneProfile(context, page);
         await page.goto(server.url + home.route, { waitUntil: 'networkidle' });
         await page.locator(home.ready).first().waitFor();
-        const slice = page.locator('.home-slice[aria-label="Needs your attention"]');
-        assert.equal(await slice.locator('[data-inbox-row]').count(), 1, 'collapsed attention slice retains its first task');
         await page.locator(home.tap).first().tap();
         await page.waitForFunction(home.complete);
-        assert.equal(await slice.locator('[data-inbox-row]').count(), 2, 'timed expansion reveals both tasks');
+        assert.equal(await page.locator('.home-inline-review').count(), 1, 'timed opening shows the selected card review');
         const elapsed = await page.evaluate(async () => {
           const started = performance.now();
           await new Promise(resolve => setTimeout(() => requestAnimationFrame(resolve), 25));

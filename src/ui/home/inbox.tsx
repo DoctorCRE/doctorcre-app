@@ -53,6 +53,11 @@ export type InboxItem = BaseItem &
   Readonly<{
     waiting_version?: number;
     engine_marks?: true;
+    card_id?: string;
+    days_late?: number;
+    waiting_reason?: string;
+    returns_at?: string;
+    dashboard_tile?: "reminders" | "waiting";
     presentation?: { why: string; primaryAction: PrimaryAction };
     checklistItemRef?: string;
     undo_completion?: true;
@@ -380,9 +385,22 @@ export function parseSnapshot(value: unknown): Snapshot {
     throw Error("Inbox unavailable. The server could not provide the complete inbox.");
   const items = value.items.map((item) => {
     const parsed = parseItem(item, contract.settlement, contract.completion, engine);
-    const card = engine
+    const card: InboxItem = engine
       ? {
           ...parsed,
+          ...(object(item) && text(item.card_id) && { card_id: item.card_id }),
+          ...(object(item) && text(item.waiting_reason) && { waiting_reason: item.waiting_reason }),
+          ...(object(item) &&
+            text(item.returns_at) &&
+            Number.isFinite(Date.parse(item.returns_at)) && { returns_at: item.returns_at }),
+          ...(object(item) &&
+            (item.dashboard_tile === "reminders" || item.dashboard_tile === "waiting") && {
+              dashboard_tile: item.dashboard_tile,
+            }),
+          ...(object(item) &&
+            typeof item.days_late === "number" &&
+            Number.isSafeInteger(item.days_late) &&
+            item.days_late >= 0 && { days_late: item.days_late }),
           ...(object(item) && item.kind === "tour_feedback" && { kind_label: "Tour feedback" as const }),
           ...(value.home_mark_drop === true && { home_mark_drop: true as const }),
           ...(value.home_proposal_drop === true && { home_proposal_drop: true as const }),
