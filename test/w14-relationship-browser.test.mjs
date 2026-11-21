@@ -44,6 +44,22 @@ async function open(t, width = 1440) {
         payload.nodes.find(n => n.kind === "deal").name = JSON.stringify({value:"Demo Dental Relocation"});
       }
       if (mode === "duplicate") payload.edges[0].detail = payload.edges[0].summary;
+      if (mode === "connections") {
+        const contact = { id: "party:demo-contact", name: "Demo Contact (TBD)", kind: "contact", verticals: [] };
+        payload.nodes.push(contact, { ...contact, id: "party:demo-isolated", name: "Demo Isolated" });
+        for (let i = 1; i <= 45; i++) {
+          const other = { ...contact, id: `party:demo-linked-${i}`, name: `Demo Link ${i}` };
+          payload.nodes.push(other);
+          payload.edges.push({
+            id: `link:demo-${i}`,
+            from: i === 1 ? other.id : contact.id,
+            to: i === 1 ? "party:demo-build" : other.id,
+            via: i === 1 ? contact.id : null,
+            kind: i === 1 ? "introduced" : "knows",
+            when: i === 1 ? null : new Date(Date.UTC(2026, 0, i)).toISOString(),
+          });
+        }
+      }
       if (mode === "connector") {
         payload.edges[0].via = "party:demo-build";
         payload.suggestions[0].via = "party:demo-build";
@@ -229,8 +245,12 @@ for (const width of [1440, 320])
     const shown = await page.locator(".relationship-node").evaluateAll((nodes) =>
       nodes.map((node) => node.querySelector(".node-name").textContent));
     assert.equal(shown.filter((text) => text.startsWith("Demo Healthcare Lending")).length, 2, "both similar names remain present for accessible identification");
-    for (const side of ["North", "South"])
-      assert.equal(await page.getByRole("button", { name: width === 1440 ? `Open vendor, Demo Healthcare Lending ${side} Partners, Demo Coast` : `Demo Healthcare Lending ${side} Partners vendor · Demo Coast`, exact: true }).count(), 1);
+    for (const [side, connections] of [["North", 3], ["South", 2]]) {
+      const name = width === 1440
+        ? `Open vendor, Demo Healthcare Lending ${side} Partners, Demo Coast`
+        : `Demo Healthcare Lending ${side} Partners vendor · Demo Coast · ${connections} connections`;
+      assert.equal(await page.getByRole("button", { name, exact: true }).count(), 1);
+    }
     await page.addScriptTag({ content: axe.source });
     const audit = await page.evaluate(() => window.axe.run(document.querySelector(innerWidth < 760 ? "#networkNodes" : "#networkCanvas"), { runOnly: ["label-content-name-mismatch"] }));
     assert.deepEqual(audit.violations, []);
@@ -374,6 +394,71 @@ for(const failure of ['auth','expiry']) test(`R6 ${failure} invalidates relation
  assert.equal(await page.locator('.relationship-dialog').textContent(),'');assert.equal(await page.locator('#networkTerritory option').count(),1);assert.equal(await page.locator('#networkVertical option').count(),1);
  assert.equal(await page.locator('#networkCount').textContent(),'');assert.equal(await page.locator('#networkMore').isVisible(),false);assert.equal(await page.locator('#networkZoomIn').isDisabled(),true);assert.deepEqual(h.errors,[]);
 });
+test("Directory counts match a contact's links even when the other records are filtered out", async (t) => {
+  const h = await open(t), { page } = h;
+  h.setMode("connections");
+  await page.goto("http://localhost/relationships?mode=live&q=Demo+Contact");
+  const contact = page.locator("#networkNodes").getByRole("button", { name: /Demo Contact \(TBD\)/ });
+  await contact.waitFor();
+  assert.match(await contact.innerText(), /45 connections/);
+  await contact.click();
+  const dialog = page.getByRole("dialog");
+  assert.match(await dialog.getByRole("heading", { name: /Connections/ }).innerText(), /45/);
+  await dialog.getByRole("button", { name: "Show more", exact: true }).click();
+  await dialog.getByRole("button", { name: "Show more", exact: true }).click();
+  assert.equal(await dialog.locator(".relationship-entry").count(), 45);
+  assert.match(await dialog.innerText(), /Introduced · via Demo Contact \(TBD\)/);
+  await page.keyboard.press("Escape");
+  await page.locator("#networkSearch").fill("Demo Isolated");
+  const isolated = page.locator("#networkNodes").getByRole("button", { name: /Demo Isolated/ });
+  assert.match(await isolated.innerText(), /0 connections/);
+  await isolated.click();
+  assert.equal(await dialog.getByText("No connections recorded", { exact: true }).count(), 1);
+});
+
+test("A contact's connections show newest first in batches", async (t) => {
+  const h = await open(t, 390), { page } = h;
+  h.setMode("connections");
+  await page.goto("http://localhost/relationships?mode=live&q=Demo+Contact");
+  await page.locator("#networkNodes").getByRole("button", { name: /Demo Contact/ }).click();
+  const dialog = page.getByRole("dialog");
+  const entries = dialog.locator(".relationship-entry");
+  const more = dialog.getByRole("button", { name: "Show more", exact: true });
+  assert.equal(await entries.count(), 20);
+  assert.match(await entries.first().innerText(), /Demo Link 45/);
+  assert.match(await entries.last().innerText(), /Demo Link 26/);
+  await more.click();
+  assert.equal(await entries.count(), 40);
+  await more.click();
+  assert.equal(await entries.count(), 45);
+  assert.match(await entries.last().innerText(), /Demo Link 1\b/);
+  assert.equal(await more.count(), 0);
+});
+
+test("A failed Connections read shows Retry even while an empty contact is open", async (t) => {
+  const h = await open(t), { page } = h;
+  h.setMode("fail");
+  await page.goto("http://localhost/relationships?mode=live&node=party:demo-isolated");
+  const notice = page.locator("#networkNotice");
+  await notice.waitFor();
+  assert.match(await notice.innerText(), /unavailable/i);
+  const retry = notice.getByRole("button", { name: "Retry", exact: true });
+  assert.equal(await retry.count(), 1);
+  h.setMode("connections");
+  await retry.click();
+  const dialog = page.getByRole("dialog");
+  const empty = dialog.getByText("No connections recorded", { exact: true });
+  await empty.waitFor();
+  h.setMode("fail");
+  await page.clock.fastForward(61000);
+  await page.waitForFunction(() => !document.querySelector("#networkNotice").hidden);
+  assert.equal(await empty.count(), 0);
+  h.setMode("connections");
+  await dialog.getByRole("button", { name: "Retry", exact: true }).click();
+  await empty.waitFor();
+  assert.deepEqual(h.errors, []);
+});
+
 test('R7 malformed optional field is rejected without poisoning retained snapshot or later interactions',async t=>{
  const h=await open(t),{page}=h;await page.goto('http://localhost/relationships?mode=live');await page.waitForSelector('.relationship-node');
  const before=await page.locator('#networkCanvas').textContent();h.setMode('territory');await page.clock.fastForward(61000);await page.waitForFunction(()=>!document.querySelector('#networkNotice').hidden);

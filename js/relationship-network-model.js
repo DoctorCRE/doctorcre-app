@@ -147,6 +147,17 @@ export function introductionSuggestions(
 export function introductionRouteLabel(path) {
   return path.map(node => node.name).join(" → ");
 }
+export function indexConnections(edges) {
+  const byNode = new Map();
+  for (const edge of edges) {
+    for (const id of new Set([edge.from, edge.to, edge.via])) {
+      if (!id) continue;
+      if (!byNode.has(id)) byNode.set(id, []);
+      byNode.get(id).push(edge);
+    }
+  }
+  return byNode;
+}
 export function focusedNetwork(snapshot, focus, limit = 12) {
   const candidates = new Set([focus]);
   snapshot.edges.forEach((e) => {
