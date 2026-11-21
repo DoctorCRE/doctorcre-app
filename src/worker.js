@@ -371,6 +371,11 @@ async function engineResponse(request, env) {
           void response.body?.cancel().catch(() => {});
           return null;
         }
+        if (response.status === 403 && call?.params.name === 'read-engine-home-draft') {
+          const refusal = await response.clone().json().catch(() => null);
+          if (refusal?.error === 'not_mailbox_owner')
+            return mcpReply(call, response, JSON.stringify({ error: 'not_found' }), true);
+        }
         if ([401, 403, 429].includes(response.status)) return response;
         if (response.status >= 500 || (response.status !== 200 && response.status < 400)) {
           void response.body?.cancel().catch(() => {});

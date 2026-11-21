@@ -5,6 +5,7 @@ import {
   type EmailThread,
   hasEngineReview,
   loadEngineReview,
+  loadLinkedReview,
   proposalIds,
   type Suggestion,
   saveEngineReview,
@@ -557,14 +558,26 @@ function incomingEmail(value: unknown): IncomingEmail | null {
   };
 }
 
+export type ReviewItem = Pick<
+  InboxItem,
+  "item_id" | "title" | "engine_marks" | "home_proposal_drop" | "review_reference"
+> &
+  Partial<Pick<InboxItem, "source_version">>;
+
+export type ReviewClient<Item extends ReviewItem> = {
+  current(item: Item): Promise<Item>;
+  load(item: Item, signal?: AbortSignal): Promise<CardReview>;
+  run(
+    item: Item,
+    request: ReviewRequest,
+  ): Promise<{ item: Item | null; receipt?: TaskReceipt; saved_version?: number; snapshot?: Snapshot }>;
+};
+
 export type InboxClient = {
-  review?: {
-    current(item: InboxItem): Promise<InboxItem>;
-    load(item: InboxItem, signal?: AbortSignal): Promise<CardReview>;
-    run(
-      item: InboxItem,
-      request: ReviewRequest,
-    ): Promise<{ item: InboxItem | null; receipt?: TaskReceipt; saved_version?: number; snapshot?: Snapshot }>;
+  review?: ReviewClient<InboxItem>;
+  linkedReview: {
+    read(itemId: string, signal?: AbortSignal): Promise<{ item: ReviewItem; review: CardReview }>;
+    client: ReviewClient<ReviewItem>;
   };
   read(signal?: AbortSignal): Promise<Snapshot>;
   run(request: Command): Promise<ItemResult[]>;
@@ -675,8 +688,25 @@ export function createInboxClient(
     }
     throw Error("Inbox unavailable. No supported inbox could be verified.");
   }
+  const readLinkedReview = (itemId: string, signal?: AbortSignal) => loadLinkedReview(rpc, itemId, signal);
   return {
     read,
+    linkedReview: {
+      read: readLinkedReview,
+      client: {
+        async current(item) {
+          return (await readLinkedReview(item.item_id)).item;
+        },
+        load: (item, signal) => loadEngineReview(rpc, item, signal),
+        async run(item, request) {
+          if (navigator.onLine === false) throw Error("Offline. Nothing was sent.");
+          const version = await saveEngineReview(rpc, item, request);
+          return request.verb === "edit-email-draft" && version !== undefined
+            ? { item: { ...item, source_version: String(version) }, saved_version: version }
+            : { item: null };
+        },
+      },
+    },
     review: {
       async current(item) {
         const current = (await read()).items.find((row) => row.item_id === item.item_id);

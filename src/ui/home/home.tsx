@@ -1247,6 +1247,43 @@ function Inbox({ client }: { client: InboxClient }) {
     </section>
   );
 }
+function LinkedReview({ itemId, client }: { itemId: string; client: InboxClient["linkedReview"] }) {
+  const [draftEdits, setDraftEdits] = useState<DraftEdit | undefined>();
+  const { data, isPending } = useQuery({
+    queryKey: ["home-linked-review", itemId],
+    queryFn: ({ signal }) => client.read(itemId, signal),
+  });
+
+  if (!data)
+    return (
+      <>
+        <p role="status">{isPending ? "Loading review…" : "This review is unavailable."}</p>
+        <a href="/">Back to Home</a>
+      </>
+    );
+
+  return (
+    <>
+      <h1>{data.item.title}</h1>
+      <ReviewCard
+        item={data.item}
+        client={client.client}
+        initialReview={data.review}
+        draftEdits={draftEdits}
+        updateDraftEdits={(edits) => setDraftEdits(edits ?? undefined)}
+        close={() => location.assign("/")}
+      />
+    </>
+  );
+}
+
+function InboxCard({ client }: { client: InboxClient }) {
+  const { item_id } = useParams();
+  if (item_id?.startsWith("suggestion:") || item_id?.startsWith("reply_draft:"))
+    return <LinkedReview key={item_id} itemId={item_id} client={client.linkedReview} />;
+  return <Inbox client={client} />;
+}
+
 export function mountInbox(host: HTMLElement, client: InboxClient) {
   const query = new QueryClient({
     defaultOptions: {
@@ -1273,7 +1310,7 @@ export function mountInbox(host: HTMLElement, client: InboxClient) {
           <Route path="/" element={inbox} />
           <Route path="/inbox" element={inbox} />
           <Route path="/inbox.html" element={inbox} />
-          <Route path="/inbox/card/:item_id" element={inbox} />
+          <Route path="/inbox/card/:item_id" element={<InboxCard client={client} />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>,

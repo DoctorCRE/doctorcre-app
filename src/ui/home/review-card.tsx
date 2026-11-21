@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { DropReason } from "./drop-reason.tsx";
 import { draftReference, proposalRefusal, type Suggestion } from "./engine-review.ts";
-import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
+import type { CardReview as Review, ReviewClient, ReviewItem, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
 import { type Operation, reviewError } from "./review";
 import { sourceExcerptText } from "./source-excerpt.ts";
 
@@ -60,22 +60,24 @@ export type DraftEdit = Pick<Extract<Review, { kind: "reply_draft" }>, "subject"
 
 const writesDraftText = (verb: Operation["verb"]) => verb === "edit-email-draft" || verb === "submit-email-draft";
 
-type Props = {
-  item: InboxItem;
-  readOnly: boolean;
-  client: InboxClient["review"];
+type Props<Item extends ReviewItem> = {
+  item: Item;
+  readOnly?: boolean;
+  client: ReviewClient<Item> | undefined;
+  initialReview?: Review;
   draftEdits: DraftEdit | undefined;
   updateDraftEdits(edits: DraftEdit | null): void;
-  children: ReactNode;
+  children?: ReactNode;
   close(): void;
-  blockSwitching(value: boolean): void;
-  busy(value: boolean): void;
-  confirmed(item: InboxItem | null, receipt?: TaskReceipt, snapshot?: Snapshot): void | Promise<void>;
+  blockSwitching?(value: boolean): void;
+  busy?(value: boolean): void;
+  confirmed?(item: Item | null, receipt?: TaskReceipt, snapshot?: Snapshot): void | Promise<void>;
 };
-export function ReviewCard({
+export function ReviewCard<Item extends ReviewItem>({
   item,
-  readOnly,
+  readOnly = false,
   client,
+  initialReview,
   draftEdits,
   updateDraftEdits,
   close,
@@ -83,7 +85,7 @@ export function ReviewCard({
   busy,
   confirmed,
   children,
-}: Props) {
+}: Props<Item>) {
   const [state, setState] = useState<State>({ phase: "loading" });
   const [reason, setReason] = useState("");
   const [drop, setDrop] = useState<{ title: string; opener: HTMLButtonElement; confirm(reason: string): void } | null>(
@@ -120,8 +122,7 @@ export function ReviewCard({
     if (!client) return;
     const controller = new AbortController();
     alive.current = true;
-    void client
-      .load(anchor.current, controller.signal)
+    void (initialReview ? Promise.resolve(initialReview) : client.load(anchor.current, controller.signal))
       .catch(async (error: unknown) => {
         const draft = draftReference(anchor.current);
         if (controller.signal.aborted || !draft || reviewError(error).kind !== "conflict") throw error;
@@ -150,12 +151,12 @@ export function ReviewCard({
       alive.current = false;
       controller.abort();
     };
-  }, [client, reconcileFacts]);
+  }, [client, initialReview, reconcileFacts]);
   const uncertain = state.phase === "uncertain";
   useLayoutEffect(() => {
     if (!uncertain) return;
-    blockSwitching(true);
-    return () => blockSwitching(false);
+    blockSwitching?.(true);
+    return () => blockSwitching?.(false);
   }, [uncertain, blockSwitching]);
   const waiting = state.phase === "submitting" || lock.current;
   const review = "review" in state ? state.review : null;
@@ -191,7 +192,7 @@ export function ReviewCard({
   async function reload() {
     if (!client || lock.current) return;
     lock.current = true;
-    busy(true);
+    busy?.(true);
     setMessage("Loading the updated card. Your edits are kept.");
     try {
       const current = await client.current(anchor.current);
@@ -199,7 +200,7 @@ export function ReviewCard({
       if (!alive.current) return;
       reconcileFacts(updated);
       anchor.current = current;
-      await confirmed(current);
+      await confirmed?.(current);
       if (!alive.current) return;
       setState({ phase: "ready", review: updated });
       setMessage(
@@ -209,20 +210,20 @@ export function ReviewCard({
       if (alive.current) setMessage(reviewError(error).message);
     } finally {
       lock.current = false;
-      busy(false);
+      busy?.(false);
     }
   }
   async function run(request: ReviewRequest, detail: Review) {
     if (!client || lock.current) return;
     lock.current = true;
-    busy(true);
+    busy?.(true);
     setState({ phase: "submitting", review: detail, request });
     setMessage("Waiting for server confirmation…");
     try {
       const result = await client.run(anchor.current, request);
       if (!alive.current) return;
       if (request.verb === "submit-email-draft" || request.verb === "dismiss-email-proposal") updateDraftEdits(null);
-      await confirmed(result.item, result.receipt, result.snapshot);
+      await confirmed?.(result.item, result.receipt, result.snapshot);
       if (!alive.current) return;
       if (request.verb === "decide-engine-home-proposal" && detail.kind === "reply_draft" && result.item) {
         const before = draftReference(anchor.current);
@@ -265,7 +266,13 @@ export function ReviewCard({
               ? item.engine_marks
                 ? "Sending"
                 : "Reply submitted to the existing sender. Delivery is not yet confirmed."
-              : "This card is confirmed. Its current state is shown in your inbox.",
+              : request.verb === "decide-engine-home-proposal"
+                ? request.args.decision === "accept"
+                  ? "Suggestion accepted."
+                  : "Suggestion dismissed."
+                : request.verb === "dismiss-email-proposal" && item.engine_marks
+                  ? "Draft dropped."
+                  : "This card is confirmed. Its current state is shown in your inbox.",
         });
         setMessage("");
       }
@@ -290,7 +297,7 @@ export function ReviewCard({
       else setState({ phase: "refused", message: failure.message });
     } finally {
       lock.current = false;
-      busy(false);
+      busy?.(false);
     }
   }
   function choose(op: Operation, dropReason?: string) {

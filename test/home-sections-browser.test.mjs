@@ -1516,6 +1516,106 @@ const draftCard = () => ({
   primary_action: null,
 });
 
+for (const width of [390, 1440]) test(`Home links open exact mailbox reviews without loading the inbox at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  const draft = draftCard();
+  const writes = [];
+  const listReads = [];
+  async function signIn(page, partner) {
+    await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: partner }, csrf_token: 'synthetic' } }));
+    await page.route('**/mcp', async route => {
+      const request = route.request();
+      const name = request.postDataJSON()?.params?.name;
+      if (name?.startsWith('read-home-inbox-')) listReads.push(name);
+      if (!name?.includes('engine-home-') && !name?.startsWith('read-home-inbox-')) return route.fallback();
+      const response = await worker.fetch(new Request(request.url(), {
+        method: request.method(), headers: request.headers(), body: request.postData(),
+      }), {
+        ENGINE_ROUTING: { get: async key => key === 'home-from-engine' ? 'on' : null },
+        ENGINE: { fetch: async request => {
+          const [, , , collection, reviewId, action] = new URL(request.url).pathname.split('/');
+          if (collection === 'home') return Response.json(snapshot([]));
+          if (collection === 'proposals' && reviewId === id(41)) {
+            if (partner !== 'joe') return Response.json({ error: 'not_found' }, { status: 404 });
+            if (action === 'decision') {
+              const { decision } = await request.json();
+              writes.push([action, reviewId, decision]);
+              return Response.json({ proposal_id: reviewId, status: 'accepted' });
+            }
+            return Response.json({
+              proposal_id: reviewId, kind: 'file_to_deal', target_name: 'Example Dental', evidence: 'Review the plan.',
+              source_activity: mailSource, thread: mailThread,
+            });
+          }
+          assert.equal(collection, 'reply-drafts');
+          assert.equal(reviewId, id(20));
+          if (partner !== 'joe') return Response.json({ error: 'not_mailbox_owner' }, { status: 403 });
+          if (action) {
+            const { version, subject, body } = await request.json();
+            writes.push([action, reviewId, version, body]);
+            state.draft = { ...state.draft, version: version + 1, subject, body,
+              status: action === 'edit' ? 'pending' : 'approved' };
+          }
+          return Response.json({
+            ...state.draft, to: 'sender@example.test', cc: 'partner@example.test', attachments: [],
+            source_activity: mailSource, thread: mailThread,
+          });
+        } },
+      });
+      await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
+    });
+  }
+
+  await signIn(page, 'joe');
+  const path = item => `/inbox/card/${encodeURIComponent(item)}?mode=live`;
+  const suggestionUrl = path(`suggestion:${id(41)}`);
+  const draftUrl = path(draft.item_id);
+  await open(suggestionUrl);
+  await page.getByRole('region', { name: 'Email thread' }).getByText(mailThread[0].body, { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Accept', exact: true }).click();
+  await page.getByText('Suggestion accepted.', { exact: true }).waitFor();
+
+  await open(draftUrl);
+  await page.getByText('First draft.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Updated sample draft.');
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await page.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Send reply', exact: true }).click();
+  await page.getByText('Sending', { exact: true }).waitFor();
+  assert.deepEqual(writes, [
+    ['decision', id(41), 'accept'],
+    ['edit', id(20), 1, 'Updated sample draft.'],
+    ['submission', id(20), 2, 'Updated sample draft.'],
+  ]);
+
+  const otherPartner = await scenario(t, { root: join(outDir, 'site'), page: { viewport: { width, height: 760 } } });
+  otherPartner.page.setDefaultTimeout(4000);
+  await signIn(otherPartner.page, 'dell');
+  for (const url of [suggestionUrl, draftUrl]) {
+    await otherPartner.open(url);
+    const deniedPage = otherPartner.page;
+    await deniedPage.getByText('This review is unavailable.', { exact: true }).waitFor();
+    assert.equal(await deniedPage.getByRole('region', { name: 'Email thread' }).count(), 0);
+    assert.equal(await deniedPage.getByText(/Sample email|Review the plan|Updated sample draft/).count(), 0);
+    assert.equal(await deniedPage.getByRole('button', { name: /^(Accept|Edit|Send reply)$/ }).count(), 0);
+  }
+  assert.deepEqual(listReads, []);
+});
+
+test('The Home query link still opens its loaded draft', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  state.dashboard = true;
+  state.items = [draft];
+  await open(`/?mode=live&card=${encodeURIComponent(draft.item_id)}`);
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  await review.getByRole('button', { name: 'Close review' }).click();
+  assert.equal(await review.count(), 0);
+  await page.getByRole('link', { name: draft.title }).waitFor();
+});
+
 for (const save of ['single', 'bulk', 'review']) test(`Home keeps grouped cards after a ${save} save`, async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = draftCard();
