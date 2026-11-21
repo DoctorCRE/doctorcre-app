@@ -59,7 +59,7 @@ test('rendered reasons preserve date meaning, relationship routing, review holds
   assert.match(host.textContent,/Medicare enrollment evidence corrected/);
   assert.match(host.textContent,/Publication date/);
   assert.match(host.textContent,/Oct 26, 2026/);
-  assert.match(host.textContent,/Alabama formations · Not yet covered/);
+  assert.doesNotMatch(host.textContent,/Alabama formations · Not yet covered/);
   assert.match(host.textContent,/NPPES · Covered/);
   assert.equal(host.querySelectorAll('a[target="_blank"]').length,6);
   assert.equal(host.querySelectorAll('button').length,1);

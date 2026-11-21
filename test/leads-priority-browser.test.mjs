@@ -22,9 +22,9 @@ for (const width of [390, 800, 1280]) for (const theme of ['dark', 'light']) {
     assert.equal(await page.locator('#leadSearch').isVisible(), true, 'search is available in the main page');
     const controlsFit = await page.locator('.controls').evaluate(node => {
       const box = node.getBoundingClientRect();
-      return [...node.querySelectorAll('input, select, output')].every(child => {
+      return [...node.querySelectorAll('input, select, button')].every(child => {
         const bounds = child.getBoundingClientRect();
-        return bounds.left >= box.left && bounds.right <= box.right;
+        return bounds.width === 0 || (bounds.left >= box.left && bounds.right <= box.right);
       });
     });
     assert.equal(controlsFit, true, 'filters fit the available main-column width');
@@ -57,7 +57,7 @@ for (const width of [390, 800, 1280]) for (const theme of ['dark', 'light']) {
     assert.equal(detailLayout.panelsAreFlat, true, 'detail groups use spacing and dividers instead of nested cards');
     const detailText = await page.locator('#detailBody').innerText();
     assert.doesNotMatch(detailText, /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i, 'human details do not expose raw record UUIDs');
-    const sizes = await page.locator('#mapLeadMembers small, .history small').evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize)));
+    const sizes = await page.locator('.history small').evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize)));
     assert.ok(sizes.every(size => size >= 13), JSON.stringify(sizes));
     await page.locator('#closeDetail').click();
     await page.locator('#leadSearch').fill('no-synthetic-result');

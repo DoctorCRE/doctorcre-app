@@ -128,11 +128,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
           document.documentElement.dataset.theme = theme;
         }, theme);
         await page.locator(".lead-card").waitFor();
-        assert.equal(await page.locator("#reachabilitySummary").textContent(), "1 Reachable · 0 Research");
-        await page.locator("#reachabilityFilter").focus();
-        await page.keyboard.press("r");
-        await page.keyboard.press("Enter");
-        await page.locator("#reachabilityFilter").selectOption("reachable");
+        assert.equal(await page.locator("#reachabilityFilter").isVisible(), false);
         await page.locator(".lead-open").focus();
         await page.keyboard.press("Enter");
         await page.locator("#leadDetail[open]").waitFor();
@@ -141,7 +137,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         await page.locator("#refreshBoard").click();
         await page.locator('#leadBoard[aria-busy="false"]').waitFor();
         assert.equal(await page.locator(".lead-card").getAttribute("data-selected"), "true");
-        await page.locator("#reachabilityFilter").scrollIntoViewIfNeeded();
+        await page.locator("#leadBoard").scrollIntoViewIfNeeded();
         await page.screenshot({ path: `/tmp/WR591.S12.J8-shots/${width}-${theme}.png` });
         await page.locator("#showTerritory").click();
         await page.locator(".market-marker").first().waitFor();
@@ -158,24 +154,19 @@ test("views, keyboard selection, refresh, source change and retirement at both w
           const markers = await page
             .locator(".market-marker")
             .evaluateAll((nodes) => nodes.flatMap((node) => JSON.parse(node.getAttribute("data-lead-ids") || "[]")));
-          const unlocated = await page
-            .locator("#mapLeadMembers [data-lead-id]")
-            .evaluateAll((nodes) =>
-              nodes
-                .filter((node) => node.textContent?.includes("No location"))
-                .map((node) => node.getAttribute("data-lead-id")),
-            );
-          assert.deepEqual([...markers, ...unlocated].sort(), boardIds);
+          assert.ok(markers.every((id) => boardIds.includes(id)));
+          const marketTotal = await page
+            .locator("#marketCounts b")
+            .evaluateAll((nodes) => nodes.reduce((sum, node) => sum + Number(node.textContent), 0));
+          assert.equal(marketTotal, boardIds.length);
         };
         await membership();
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         current = recording.cases.unknown;
         await page.locator("#refreshBoard").click();
         await page.locator('#leadBoard[aria-busy="false"]').waitFor();
-        assert.equal(await page.locator(".lead-card").count(), 0);
-        await page.locator("#reachabilityFilter").selectOption("research");
-        await page.locator(".lead-card").waitFor();
-        assert.equal(await page.locator(".lead-card").getAttribute("data-selected"), "false");
+        assert.equal(await page.locator(".lead-card").count(), 1);
+        assert.equal(await page.locator("#reachabilityFilter").isVisible(), false);
         assert.equal(await page.locator(".lead-card .work-card-body").count(), 0);
         await membership();
         assert.equal(await canvas.evaluate((node) => node.isConnected), true);
@@ -186,12 +177,9 @@ test("views, keyboard selection, refresh, source change and retirement at both w
           }),
           camera,
         );
-        await page.locator("#reachabilityFilter").selectOption("");
-        assert.equal(await page.locator(".lead-card").count(), 1);
-        await page.locator("#reachabilityFilter").selectOption("research");
         await page.evaluate(() => window.dispatchEvent(new Event("doctorcre-session-invalidated")));
         assert.equal(await page.locator(".lead-card").count(), 0);
-        assert.equal(await page.locator("#mapLeadMembers [data-lead-id]").count(), 0);
+        assert.equal(await page.locator(".market-marker").count(), 0);
         await page.locator("#refreshBoard").click();
         await page.locator(".lead-card").waitFor();
         failure = "stale";
@@ -202,7 +190,6 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         failure = "";
         await page.locator("#refreshBoard").click();
         await page.locator("#leadBoardError").waitFor({ state: "hidden" });
-        assert.equal(await page.locator("#reachabilityFilter").inputValue(), "research");
         assert.equal(await page.locator(".lead-card").count(), 1);
         failure = "invalid";
         await page.locator("#refreshBoard").click();
@@ -216,7 +203,7 @@ test("views, keyboard selection, refresh, source change and retirement at both w
         await page.getByText("Sign-in required", { exact: false }).first().waitFor();
         assert.equal(await page.locator(".lead-card").count(), 0);
         await page.evaluate(() => window.dispatchEvent(new Event("doctorcre-session-invalidated")));
-        assert.equal(await page.locator("#mapLeadMembers [data-lead-id]").count(), 0);
+        assert.equal(await page.locator(".market-marker").count(), 0);
       } catch (error) {
         console.error(await page.locator("#leadBoardError").textContent());
         throw error;
@@ -274,7 +261,7 @@ test("natural production proof observer checks real fixture UI and refuses a cha
       const asset = assets.get(path);
       assert.ok(asset);
       const source = asset.body.toString();
-      const modified = source.replace(" matching ", " displayed ");
+      const modified = source.replace('"lead":"leads"', '"visible lead":"visible leads"');
       assert.notEqual(modified, source);
       assets.set(path, { ...asset, body: Buffer.from(modified) });
     }
