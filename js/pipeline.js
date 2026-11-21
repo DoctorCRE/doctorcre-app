@@ -1511,11 +1511,14 @@ function dealEmailSender({ sender_name, sender, happened_at }) {
 }
 
 function cleanEmailExcerpt(text) {
-  return text.trim()
+  const body = text.trim()
     .replace(/^Email from [^\n]+?:[^\n]*(?:\r?\n|$)/i, '')
     .replace(/^(?:(?:from|to|cc|bcc|sent|date|subject):[^\n]*(?:\n[ \t]+[^\n]*)*\n?)+/i, '')
-    .split(/^[ \t]*(?:-+ Original Message -+|On .+ wrote:|--)[ \t]*\r?$/im, 1)[0]
-    .replace(/<?[^\s<>@]+@[^\s<>@]+\.[\w-]+>?/g, '').trim();
+    .split(/^[ \t]*(?:-+ Original Message -+|On .+ wrote:|--)[ \t]*\r?$/im, 1)[0];
+  return body.split(/(\s+)/).filter(word => {
+    const [local, domain] = word.split('@', 2);
+    return !local || !domain?.includes('.');
+  }).join('').trim();
 }
 
 function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_saves }) {

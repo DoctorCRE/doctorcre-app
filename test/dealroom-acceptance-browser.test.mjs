@@ -409,7 +409,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       summary: 'Email from Example Sender <sender@example.test>: (no subject)' };
     let email_follow_ups = [
       { proposal_id: first, kind: 'next_step', what: 'Send the plan (no subject)', owner: 'dell', due_on: '2026-11-02', email: filedEmail,
-        evidence: 'From: Example Sender <sender@example.test>\nTo: Team <team@example.test>\nSubject: (no subject)\n\nThe plan is ready for review this week. Please send comments by Friday so we can revise the drawings.' },
+        evidence: 'From: Example Sender <sender@example.test>\nTo: Team <team@example.test>\nSubject: (no subject)\n\nThe plan is ready for review this week. Please send comments to <team@example.test> by Friday so we can revise the drawings.' },
       { proposal_id: crypto.randomUUID(), kind: 'file_to_deal', email: filedEmail },
       { proposal_id: second, kind: 'file_to_deal', evidence: 'The letter is attached.',
         email: { subject: 'Letter attached', sender: 'Morgan Example <sender@example.test>',
