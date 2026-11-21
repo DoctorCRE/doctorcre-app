@@ -695,19 +695,22 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   const feedback = row(7, 'notification', 'Tour feedback on Cedar Suite — review feedback', 'The exam rooms are bright. Recorded Nov 3, 2026.',
     'Review feedback', { kind: 'tour_feedback', kind_label: 'Tour feedback', open_url: `${dealUrl}&property=${property}` });
   const ownDone = row(15, 'next_action', 'Follow-up completed for Example Dental — send the brochure', 'Pat had asked for a brochure.', 'Open',
-    { ...completed, action_id: id(15), action_version: 1, undo_completion: true, open_url: `${dealUrl}&focus=next-step` });
+    { ...completed, action_id: id(15), action_version: 1, undo_completion: true, open_url: stepUrl(id(15)) });
   const otherDone = row(4, 'next_action', 'Follow-up completed for Example Dental — send the brochure cover', undefined, 'Open',
     { ...completed, action_id: otherStep, action_version: 1, undo_completion: false, open_url: `${dealUrl}&focus=next-step` });
   const legacy = row(16, 'email_proposal', 'Pat Example · Sample lease', undefined, undefined,
     { item_id: `suggestion:${id(16)}`, kind_label: 'Suggestion', deal_id: null, suggestions: [{ id: id(17) }] });
   let items = [task, followUp, reminder, requirement, completion, meeting, call, feedback, legacy, ownDone, otherDone];
+  let savedStepDescription = 'Send the signed lease';
   const writes = [];
   await page.route('**/mcp', route => {
     const { name, arguments: args } = route.request().postDataJSON().params;
     let result = { ok: true, items: [], deals: [] };
     if (name === 'read-home-inbox-v5') result = { ...result, schema_version: 'home-inbox.v5', engine_marks: true, home_mark_drop: true,
       home_proposal_drop: true, truncated: false, limit: 1000, working_collapsed: true, items };
-    if (name === 'get-deal-room') result = { deal_id: args.deal, name: 'Example Dental',
+    if (name === 'get-deal-room') result = { deal_id: args.deal, name: 'Example Dental', email_follow_ups: [],
+      next_actions: [{ id: step, description: savedStepDescription, owner: 'joe', status: 'done',
+        ...(width === 1440 && { title: 'Signed lease' }) }],
       items: [{ id: checklist, title: 'Review lease clauses', status: 'open', bullets: [] }],
       checklist: { schema_version: 'deal-checklist.v1', template_state: 'current', due_items: [], phases: [
         { label: 'Legal', items: [{ id: 'attorney_comments', label: 'Read attorney comments', status: 'due',
@@ -771,6 +774,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   assert.deepEqual(await card(otherDone).getByRole('button').allTextContents(), ['Open']);
   assert.deepEqual(await card(legacy).getByRole('button').allTextContents(), ['Open', 'Review suggestions', 'Snooze', 'Drop']);
 
+  await button(ownDone).click();
+  const savedStep = card(ownDone).getByRole('region', { name: /Details for/ });
+  assert.equal(await savedStep.getByRole('link', { name: 'Example Dental', exact: true }).getAttribute('href'), ownDone.open_url);
+  await savedStep.getByRole('button', { name: 'Close', exact: true }).click();
   await button(ownDone, 'Undo').click();
   await button(ownDone, 'Mark done').waitFor();
   assert.deepEqual(writes.at(-1), ['reopen-engine-home-step', ownDone.action_id]);
@@ -819,6 +826,14 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   const doneDetail = card(otherDone).getByRole('region', { name: /Details for/ });
   await doneDetail.getByText(/^Done Nov 3, 2026/).waitFor();
   assert.equal(await doneDetail.getByRole('link', { name: 'Example Dental', exact: true }).getAttribute('href'), dealUrl);
+  await button(task, 'Open').click();
+  await card(task).getByRole('link', { name: 'Example Dental', exact: true }).click();
+  const completedStep = page.getByRole('region', { name: 'Completed step', exact: true });
+  await completedStep.getByText('Send the signed lease', { exact: true }).waitFor();
+  await page.waitForFunction(id => document.activeElement?.getAttribute('data-detail-focus') === `next-step-${id}`, step);
+  savedStepDescription = 'Send the updated signed lease';
+  await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
+  await completedStep.getByText(savedStepDescription, { exact: true }).waitFor();
 });
 
 for (const width of [390, 1440]) test(`Home opens the exact prospect and Relationships steps with their origin at ${width}px`, async t => {

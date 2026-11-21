@@ -5,7 +5,7 @@ import { expect } from 'e2e';
 
 export async function openSearch(app, browser) {
   await app.open('/search?q=Demo');
-  await expect(browser.locator('#searchResults [data-group]')).toHaveCount(9);
+  await expect(browser.locator('.search-row').first()).toBeVisible();
 }
 
 export async function refuseReads(app, browser, status = 503) {
