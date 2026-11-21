@@ -338,7 +338,7 @@ for (const width of [1440, 390]) {
     assert.equal(await card(flagged).getByText('Needs attention', { exact: true }).isVisible(), true);
 
     await page.goto(url);
-    await card(late).getByRole('img', { name: 'Needs attention: Step 1 day late', exact: true }).waitFor();
+    await card(late).getByRole('button', { name: 'Needs attention: Step 1 day late', exact: true }).waitFor();
     const phases = ['Prospective Client', 'Research', 'Site Selection', 'Negotiating', 'Legal', 'Due Diligence', 'Closing'];
     for (const name of phases) {
       assert.equal(await page.getByRole('region', { name: `${name}, ${name === 'Research' ? 2 : 0} cards`, exact: true }).isVisible(), true);
@@ -959,12 +959,12 @@ for (const width of [1440, 390]) {
       const onlyStep = page.locator(`article[data-id="${singleStep.id}"]`);
       if (view === 'Board') {
         assert.equal(visibleText.replace(/\s+/g, ' '), `${deal.name} Dell Needs attention`);
-        assert.equal(await card.getByRole('img', { name: 'Needs attention: Step 1 day late', exact: true }).count(), 1);
+        assert.equal(await card.getByRole('button', { name: 'Needs attention: Step 1 day late', exact: true }).count(), 1);
         assert.equal((await empty.innerText()).replace(/\s+/g, ' '), `${checklistOnly.name} Dell`);
         assert.equal((await onlyStep.innerText()).replace(/\s+/g, ' '), `${singleStep.name} Dell`);
         const flaggedCard = page.locator(`article[data-id="${flagged.id}"]`);
         assert.equal((await flaggedCard.innerText()).replace(/\s+/g, ' '), `${flagged.name} Dell Needs attention`);
-        assert.equal(await flaggedCard.getByRole('img', { name: 'Needs attention: Flagged by a partner', exact: true }).count(), 1);
+        assert.equal(await flaggedCard.getByRole('button', { name: 'Needs attention: Flagged by a partner', exact: true }).count(), 1);
       } else {
         assert.match(visibleText, /Send the floor plan.*Due Wed, Nov 18.*1 day late/);
         assert.doesNotMatch(visibleText, /Call the architect|\d+ days late|overdue|Still needed|Last:/);

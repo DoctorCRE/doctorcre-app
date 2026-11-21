@@ -87,6 +87,73 @@ for (const width of [320, 390, 1280, 1440]) for (const theme of ['light', 'dark'
   });
 }
 
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+  test(`Board badge explains attention and labels parked deals at ${width}px ${theme}`, async t => {
+    const server = await fixtureServer();
+    t.after(() => server.close());
+    const browser = await chromium.launch();
+    t.after(() => browser.close());
+    const touch = width === 390;
+    const page = await browser.newPage({ viewport: { width, height: 844 }, hasTouch: touch, reducedMotion: 'reduce' });
+    const press = control => touch ? control.tap() : control.click();
+    await page.clock.setFixedTime(new Date('2026-10-29T15:00:00Z'));
+    await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
+    await page.route('**/api/**', route => route.fulfill({ json: {} }));
+    await page.route('**/data/board-seed.json', async route => {
+      const seed = await (await route.fetch()).json();
+      const deal = seed.deals.find(deal => deal.id === 'd14');
+      Object.assign(deal, { attention: true, next_step: 'Send the sample plans', next_date: '2026-10-28' });
+      seed.deals.push({ ...deal, id: 'sample-client-paused', name: 'Example Parked Practice', operating_state: 'parked', parking_reason: 'client_paused' });
+      await route.fulfill({ json: seed });
+    });
+    await page.goto(`${server.origin}/deals?mode=fixture`);
+    const card = page.locator('#kanban article[data-id="d14"]');
+    const name = card.getByRole('button', { name: 'Demo Surgical Practice', exact: true });
+    const badge = card.getByRole('button', { name: 'Needs attention: Flagged by a partner. Step 1 day late', exact: true });
+    const reason = card.getByText('Flagged by a partner. Step 1 day late', { exact: true });
+    const parked = page.getByRole('button', { name: 'Parked', exact: true });
+    await card.waitFor();
+    await press(parked);
+    const otherCard = page.locator('#kanban article[data-id="d06"]');
+    await otherCard.waitFor();
+    const screenshots = 'test-artifacts/board-attention/after';
+    await mkdir(screenshots, { recursive: true });
+    await otherCard.evaluate(card => card.scrollIntoView({ block: 'center' }));
+    await otherCard.screenshot({ path: `${screenshots}/parked-${width}-${theme}.png` });
+    assert.ok(await otherCard.getByText('Parked', { exact: true }).isVisible(), 'Other is shown as Parked');
+    assert.ok(await page.locator('#kanban article[data-id="sample-client-paused"]').getByText('Client paused', { exact: true }).isVisible());
+
+    assert.equal(await reason.isVisible(), false);
+    assert.equal(await badge.count(), 1, 'the attention badge is an operable button');
+    await press(badge);
+    assert.equal(await badge.getAttribute('aria-expanded'), 'true');
+    assert.ok(await reason.isVisible());
+    await card.screenshot({ path: `${screenshots}/attention-${width}-${theme}.png` });
+    assert.equal(await page.locator('#recordPanel').isVisible(), false);
+    await press(page.locator('#boardLive'));
+    assert.equal(await reason.isVisible(), false);
+    await name.focus();
+    await page.keyboard.press('Tab');
+    assert.ok(await badge.evaluate(button => button === document.activeElement));
+    assert.ok(await reason.isVisible());
+    await page.keyboard.press('Escape');
+    assert.equal(await reason.isVisible(), false);
+    assert.ok(await badge.evaluate(button => button === document.activeElement));
+    if (touch) {
+      const target = await badge.boundingBox();
+      assert.ok(target.width >= 44 && target.height >= 44);
+      const audit = await inspectPhoneAccessibility(page);
+      assert.deepEqual(audit.small.filter(target => target.selector.startsWith('#kanban')), []);
+    }
+    assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await press(badge);
+    assert.ok(await reason.isVisible());
+    await press(name);
+    await page.locator('#recordPanel').getByRole('heading', { name: 'Demo Surgical Practice', exact: true }).waitFor();
+  });
+}
+
 test('search from National Accounts keeps dates visible on local deals', async t => {
   const server = await fixtureServer();
   t.after(() => server.close());

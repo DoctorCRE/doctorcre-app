@@ -181,13 +181,16 @@ function cardAttentionHtml(deal) {
   const reasons = [deal.attention === true && 'Flagged by a partner', late && `Step ${late}`].filter(Boolean);
   if (!reasons.length) return '';
   const reason = esc(reasons.join('. '));
-  return `<span class="deal-board-badge" role="img" aria-label="Needs attention: ${reason}" title="${reason}">Needs attention</span>`;
+  const reasonId = `board-attention-${esc(deal.id)}`;
+  return `<button class="deal-board-attention" type="button" aria-label="Needs attention: ${reason}" aria-expanded="false" aria-controls="${reasonId}"><span class="deal-board-badge">Needs attention</span></button>
+    <span class="deal-board-reason" id="${reasonId}" hidden>${reason}</span>`;
 }
 function cardHtml(deal) {
   const parked = deal.operating_state === 'parked';
   const pending = pendingCommand(state.fieldWrites, cellKey(deal.id, 'phase'));
   const moveAttrs = parked ? 'tabindex="-1"' : `draggable="true" tabindex="0" data-phase="${esc(deal.phase)}"${pending ? ' data-pending="true"' : ''}${state.lifted === deal.id ? ' data-lifted="true"' : ''}`;
-  const badge = parked ? `<span class="deal-board-badge">${PARKING_REASONS.get(deal.parking_reason) || 'Parked'}</span>` : cardAttentionHtml(deal);
+  const parkingLabel = deal.parking_reason === 'other' ? 'Parked' : PARKING_REASONS.get(deal.parking_reason) || 'Parked';
+  const badge = parked ? `<span class="deal-board-badge">${parkingLabel}</span>` : cardAttentionHtml(deal);
   return workCard({ variant: 'tile', className: `kanban-card${parked ? ' parked-card' : ''}`, heading: 'h4',
     attributes: `data-id="${esc(deal.id)}" ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
@@ -2247,6 +2250,26 @@ function wireBoard() {
   const board = $('kanban');
   if (!board) return;
 
+  const openAttention = () => board.querySelector('.deal-board-attention[aria-expanded="true"]');
+  const setAttention = (button, expanded) => {
+    button.setAttribute('aria-expanded', String(expanded));
+    $(button.getAttribute('aria-controls')).hidden = !expanded;
+  };
+  const showAttention = button => {
+    const current = openAttention();
+    if (current && current !== button) setAttention(current, false);
+    setAttention(button, true);
+  };
+  board.addEventListener('focusin', event => {
+    if (event.target.matches('.deal-board-attention:focus-visible')) showAttention(event.target);
+  });
+  document.addEventListener('click', event => {
+    const button = event.target.closest('.deal-board-attention');
+    const current = openAttention();
+    if (button && button !== current) showAttention(button);
+    else if (current && !event.target.closest('.deal-board-reason')) setAttention(current, false);
+  });
+
   board.addEventListener('click', (event) => {
     if (event.target.closest('[data-toggle-empty-stages]')) { state.showEmptyStages = !state.showEmptyStages; renderBoard(); return; }
     const toggle = event.target.closest('[data-collapse-stage]');
@@ -2301,6 +2324,12 @@ function wireBoard() {
   });
 
   board.addEventListener('keydown', (event) => {
+    const current = openAttention();
+    if (event.key === 'Escape' && current) {
+      event.preventDefault();
+      setAttention(current, false);
+      return;
+    }
     const card = event.target.closest('.kanban-card');
     if (!card) return;
     if (event.target.closest('button,input,select,a,.deal-vendor-details')) return;
@@ -2393,7 +2422,7 @@ function wire() {
     if (undo) { runUndo(undo.dataset.undo); return; }
     const openDeal = event.target.closest('button[data-open-deal]');
     const card = event.target.closest('.kanban-card');
-    if (card && card.dataset.dragging !== 'true' && !event.target.closest('button,input,select,a,.deal-vendor-details')) { openWorkspace(card.dataset.id, card); return; }
+    if (card && card.dataset.dragging !== 'true' && !event.target.closest('button,input,select,a,.deal-vendor-details,.deal-board-reason')) { openWorkspace(card.dataset.id, card); return; }
     if (openDeal) {
       openWorkspace(openDeal.dataset.openDeal, null);
     }
