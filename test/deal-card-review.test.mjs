@@ -120,22 +120,31 @@ test('archive-only snapshots hide board mutation controls',async t=>{
 
 test('deal review prioritizes cards, page tabs and Add deal in both themes and widths',async t=>{
  const dir=new URL('out/test-artifacts/dealroom-round2/',root);await mkdir(dir,{recursive:true});
- for(const width of [390,1280])for(const theme of ['dark','light'])await t.test(`${width}-${theme}`,async t=>{
+ for(const width of [390,1440])for(const theme of ['dark','light'])await t.test(`${width}-${theme}`,async t=>{
   const {page,errors}=await open(t,width,{theme,sparse:true,showDetail:false});
   const evidence=async name=>page.screenshot({path:new URL(`${width}-${theme}-${name}.png`,dir).pathname,animations:'disabled'});
   assert.equal(await page.locator('html').getAttribute('data-theme'),theme);
   const columns=await page.locator('.kanban-column:visible').evaluateAll(nodes=>nodes.map(n=>({top:n.getBoundingClientRect().top,cards:n.querySelectorAll('.kanban-card').length})));
   assert.ok(columns[0].cards>0 || width>760,'the first phone stage contains active deals');
-  if(width===1280){
+  if(width===1440){
    assert.equal(new Set(columns.map(n=>Math.round(n.top))).size,1,'desktop stages share one row');
    assert.equal(await page.locator('#appTodayToggle').getAttribute('aria-expanded'),'true','look-ahead defaults open on Deals');
    assert.ok((await page.locator('#kanban').boundingBox()).width>790,'board retains desktop width beside look-ahead');
   }
+  assert.equal(await page.getByRole('heading',{level:1}).count(),1);
+  assert.equal(await page.getByRole('heading',{level:1,name:'Local Deals'}).isVisible(),true);
+  assert.equal(await page.locator('.app-layout-working').count(),0);
+  assert.equal(await page.getByText('Page tools', {exact:true}).isVisible(),false);
+  assert.equal(await page.getByRole('button',{name:/Recent changes/}).isVisible(),true);
+  assert.equal(await page.locator('.dealroom-heading').evaluate(n=>n.lastElementChild.id),'addDealOpen');
   assert.equal(await page.locator('.app-section-tabs').isVisible(),true);
   assert.equal(await page.locator('.app-section-tabs [aria-current="page"]').textContent(),'Local Deals');
   const add=await page.locator('#addDealOpen').boundingBox();assert.ok(add.x>=0&&add.x+add.width<=width,'Add deal stays in view');
   assert.equal(await page.locator('#addDealOpen').evaluate(n=>getComputedStyle(n).backgroundColor!==getComputedStyle(n.parentElement).backgroundColor),true,'Add deal has a primary fill');
   await evidence('board');
+  await page.getByRole('button',{name:'Add deal',exact:true}).click();
+  assert.equal(await page.getByRole('dialog',{name:'Add deal'}).isVisible(),true);
+  await page.keyboard.press('Escape');
   await page.locator('[data-id="d14"] .card-open').click();await page.locator('#detailUpdateForm').waitFor();
 
   await page.getByRole('tab',{name:'Timeline',exact:true}).click();

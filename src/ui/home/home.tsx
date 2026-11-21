@@ -24,7 +24,7 @@ import {
   taskCommand,
 } from "./inbox";
 import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
-import { type DraftEdits, ReviewCard } from "./review-card";
+import { type DraftEdit, ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
@@ -149,12 +149,12 @@ function Inbox({ client }: { client: InboxClient }) {
     );
   }
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
-  const [draftEdits, setDraftEdits] = useState(() => new Map<string, DraftEdits>());
+  const [draftEdits, setDraftEdits] = useState(() => new Map<string, DraftEdit>());
   const reviewingDraftId = reviewing
     ? (draftReference(reviewing)?.id ??
       (reviewing.review_reference?.kind === "reply_draft" ? reviewing.source_id : null))
     : null;
-  function updateDraftEdits(id: string, edits: DraftEdits | null) {
+  function updateDraftEdits(id: string, edits: DraftEdit | null) {
     setDraftEdits((current) => {
       if (!edits && !current.has(id)) return current;
       const next = new Map(current);
