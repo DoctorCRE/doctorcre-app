@@ -58,7 +58,6 @@ export const UI_ENTRIES = {
   'ui-territory-evidence': 'territory-evidence',
   'ui-quiet-vendors': 'quiet-vendors',
   'ui-vendor-meetings': 'vendor-meetings',
-  'ui-vendor-markets': 'vendor-markets',
   'ui-calendar-panels': 'calendar-panels',
   'ui-deal-prospects': 'deal-prospects',
   'ui-deal-documents': 'deal-documents',
