@@ -390,7 +390,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await leadCard.getByRole('button', { name: 'Open', exact: true }).click();
   await leadCard.getByRole('heading', { name: 'Possible lead · New Example' }).waitFor();
   await leadCard.getByText('Asked about leasing a suite.', { exact: true }).waitFor();
-  await leadCard.getByText('I am looking to lease a suite.', { exact: true }).waitFor();
+  assert.equal(await leadCard.getByText('I am looking to lease a suite.', { exact: true }).count(), 0);
   await leadCard.getByText(/new@example.test/).waitFor();
   await leadCard.getByText(/Jan 8, 2026/).waitFor();
   const leadReview = leadCard.getByRole('region', { name: /Details for New Example/ });
@@ -469,7 +469,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(await subjectLinks.first().locator('xpath=ancestor::article').getAttribute('data-inbox-row'), `suggestion:${otherEmail}`);
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
   await email.getByRole('link', { name: /Sample Sender · Floor plan/ }).press('Enter');
-  assert.equal(await reply.getByRole('region', { name: /Details for Reply to the sample email/ }).count(), 0);
+  await reply.getByRole('region', { name: /Details for Reply to the sample email/ }).waitFor({ state: 'detached' });
   await email.getByText('Suggestion', { exact: true }).waitFor();
   assert.equal(await email.getByText(/days late/).count(), 0);
   assert.equal(await email.getByRole('button', { name: 'Mark done', exact: true }).count(), 0);
@@ -984,6 +984,8 @@ async function dashboard(t, width, theme) {
     dashboardReads: 0,
     draft: { draft_id: id(20), version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.' },
     thread: mailThread,
+    draftThread: undefined,
+    proposalEvidence: undefined,
     draftWrites: [],
     unavailable: false,
   };
@@ -1010,13 +1012,15 @@ async function dashboard(t, width, theme) {
     if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item));
     if (name === 'read-engine-home-proposal') result = {
       proposal_id: args.id, kind: args.id === id(41) ? 'file_to_deal' : 'next_step',
-      evidence: args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.',
+      target_name: 'Example Dental',
+      evidence: state.proposalEvidence ?? (args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.'),
+      reason: args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.',
       what: args.id === id(42) ? 'Send the floor plan' : null,
       source_activity: mailSource, thread: state.thread,
     };
     if (name === 'read-engine-home-draft') result = {
       ...state.draft, to: 'sender@example.test', cc: 'partner@example.test', attachments: [],
-      source_activity: mailSource, thread: state.thread,
+      source_activity: mailSource, thread: state.draftThread ?? state.thread,
     };
     if (name === 'edit-engine-home-draft') {
       state.draftWrites.push(args);
@@ -1083,6 +1087,39 @@ for (const available of [true, false]) test(`Home email suggestions ${available 
   assert.equal(await review.getByRole('button', { name: 'Accept', exact: true }).count(), 2);
 });
 
+for (const draftHasMail of [false, true]) test(`Home combines a draft with its proposal threads when draft mail is ${draftHasMail ? 'partial' : 'missing'}`, async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  const draft = { ...draftCard(), suggestions: mailSuggestions };
+  const extra = { ...mailThread[0], activity_id: id(43), happened_at: '2026-11-02T16:00:00Z', body: 'The draft source.' };
+  state.dashboard = true;
+  state.items = [draft];
+  state.draftThread = draftHasMail ? [mailThread[1], extra] : [];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Edit', exact: true }).waitFor();
+  const thread = review.getByRole('region', { name: 'Email thread' });
+  assert.equal(await thread.count(), 1);
+  const expected = draftHasMail ? [extra, ...mailThread] : mailThread;
+  assert.deepEqual(await thread.getByRole('paragraph').allTextContents(), [mailSource.subject, ...expected.map(row => row.body)]);
+  assert.equal(await review.getByText('The original email is unavailable.', { exact: true }).count(), 0);
+});
+
+test('Home shows the email once and keeps the reasons and targets of its suggestions', async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.proposalEvidence = 'From: maya@example.test\n' + mailThread[0].body;
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${mailCard.title}` });
+  await review.getByRole('heading', { name: 'File this email · Example Dental' }).waitFor();
+  assert.equal(await review.getByText(mailThread[0].body).count(), 1);
+  assert.equal(await review.getByText('From: maya@example.test', { exact: false }).count(), 0);
+  await review.getByText('The email names the suite.', { exact: true }).waitFor();
+  await review.getByText('The manager needs the floor plan.', { exact: true }).waitFor();
+});
+
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home draft Edit saves once at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
   const draft = { ...draftCard(), suggestions: mailSuggestions };
@@ -1118,33 +1155,80 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(state.draft.body, 'Edited sample draft.');
 });
 
-test('Home keeps a stale draft edit for review before saving it against the new version', async t => {
-  const { page, open, state } = await dashboard(t, 390, 'light');
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home shows a stale edit alongside the saved draft at ${width}px in ${theme}`, async t => {
+  const { page, open, state } = await dashboard(t, width, theme);
   const draft = draftCard();
   state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
-  await page.getByRole('link', { name: draft.title }).click();
+  const title = page.getByRole('link', { name: draft.title });
+  await title.click();
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
-  await review.getByRole('button', { name: 'Edit', exact: true }).click();
+  const edit = review.getByRole('button', { name: 'Edit', exact: true });
+  const send = review.getByRole('button', { name: 'Send reply', exact: true });
+  await edit.click();
   const message = review.getByRole('textbox', { name: 'Message' });
+  const subject = review.getByRole('textbox', { name: 'Subject' });
+  await subject.fill('My sample subject');
   await message.fill('Keep this local edit.');
-  state.draft.version = 2;
-  state.draft.body = 'Saved somewhere else.';
+  Object.assign(state.draft, { version: 2, subject: 'New saved subject', body: 'Saved somewhere else.' });
   state.items = [{ ...draft, source_version: '2' }];
   const save = review.getByRole('button', { name: 'Save draft' });
-  await save.click();
-  await review.getByRole('alert').filter({ hasText: 'Your edits are kept.' }).waitFor();
-  assert.equal(await message.inputValue(), 'Keep this local edit.');
+  const close = review.getByRole('button', { name: 'Close review' });
+  if (width === 390) {
+    await save.click();
+    await review.getByRole('alert').filter({ hasText: 'Your edits are kept.' }).waitFor();
+    assert.equal(await message.inputValue(), 'Keep this local edit.');
+    assert.equal(await save.isDisabled(), true);
+    await review.getByRole('button', { name: 'Review updated card' }).click();
+    await review.getByText(/Updated evidence loaded/).waitFor();
+  } else {
+    await close.click();
+    await title.click();
+    await send.waitFor();
+  }
+
+  assert.equal(await send.isDisabled(), true);
   assert.equal(await save.isDisabled(), true);
-  await review.getByRole('button', { name: 'Review updated card' }).click();
-  await review.getByText(/Updated evidence loaded/).waitFor();
+  await review.getByText('New saved subject', { exact: true }).waitFor();
+  await review.getByText('Saved somewhere else.', { exact: true }).waitFor();
+  const unsaved = review.getByRole('region', { name: 'Your unsaved edit' });
+  await unsaved.getByText('My sample subject', { exact: true }).waitFor();
+  await unsaved.getByText('Keep this local edit.', { exact: true }).waitFor();
+  assert.equal(await message.count(), 0);
+  const attemptedVersions = width === 390 ? [1] : [];
+  assert.deepEqual(state.draftWrites.map(write => write.version), attemptedVersions);
+
+  if (process.env.HOME_THREAD_SCREENSHOTS) {
+    await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
+    if (width === 390) await unsaved.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `stale-reply-${width}-${theme}.png`), fullPage: width !== 390 });
+  }
+
+  if (theme === 'dark') {
+    await unsaved.getByRole('button', { name: 'Discard' }).click();
+    await edit.waitFor();
+    assert.equal(await send.isEnabled(), true);
+    assert.equal(await unsaved.count(), 0);
+    await close.click();
+    await title.click();
+    await edit.click();
+    assert.equal(await subject.inputValue(), 'New saved subject');
+    assert.equal(await message.inputValue(), 'Saved somewhere else.');
+    assert.deepEqual(state.draftWrites.map(write => write.version), attemptedVersions);
+    return;
+  }
+
+  await unsaved.getByRole('button', { name: 'Use my edit' }).click();
+  assert.equal(await subject.inputValue(), 'My sample subject');
   assert.equal(await message.inputValue(), 'Keep this local edit.');
-  assert.equal(state.draftWrites.length, 1);
-  assert.equal(state.draft.body, 'Saved somewhere else.');
+  assert.equal(await send.isEnabled(), true);
+  await close.click();
+  await title.click();
+  assert.equal(await message.inputValue(), 'Keep this local edit.');
   await save.click();
   await review.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
-  assert.deepEqual(state.draftWrites.map(write => write.version), [1, 2]);
+  assert.deepEqual(state.draftWrites.map(write => write.version), [...attemptedVersions, 2]);
   assert.equal(state.draft.body, 'Keep this local edit.');
 });
 

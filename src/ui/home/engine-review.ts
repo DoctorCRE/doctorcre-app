@@ -168,8 +168,7 @@ export type Suggestion = {
   id: string;
   label: string;
   target: string | null;
-  evidence: string;
-  evidenceQuote: string | null;
+  reason: string | null;
   emailLead: boolean;
   senderAddress: string | null;
   source: ReturnType<typeof source>;
@@ -199,8 +198,8 @@ export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: Abort
         id,
         label,
         target: string(value.target_name),
-        evidence: value.evidence,
-        evidenceQuote: string(value.evidence_quote),
+        // Imported proposals can store raw email quotes in evidence.
+        reason: thread ? string(value.reason) : value.evidence,
         emailLead: value.kind === "email_lead",
         senderAddress: leadCandidate ? string(activity?.sender) : null,
         source: thread ? null : source(activity),
@@ -213,16 +212,14 @@ export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: Abort
       return { proposal, thread };
     }),
   );
-  if (draft) {
-    const [reply, details] = await Promise.all([loadDraft(rpc, item, draft, signal), pending]);
-    return { ...reply, proposals: details.map(({ proposal }) => proposal) };
-  }
-  const details = await pending;
+  const [reply, details] = await Promise.all([draft && loadDraft(rpc, item, draft, signal), pending]);
   const threads = details.flatMap(({ thread }) => (thread ? [thread] : []));
+  const proposals = details.map(({ proposal }) => proposal);
+  if (reply) return { ...reply, proposals, thread: combineThreads([reply.thread, ...threads]) };
   return {
     kind: "suggestions",
     operations: [],
-    proposals: details.map(({ proposal }) => proposal),
+    proposals,
     ...(threads.length && { thread: combineThreads(threads) }),
   };
 }
@@ -232,7 +229,7 @@ async function loadDraft(
   item: InboxItem,
   draft: { id: string; version: string },
   signal?: AbortSignal,
-): Promise<Extract<CardReview, { kind: "reply_draft" }>> {
+): Promise<Extract<CardReview, { kind: "reply_draft" }> & { thread: EmailThread }> {
   const { id } = draft;
   const value = await answer(rpc, "read-engine-home-draft", { id }, signal);
   const { subject, body, version, status, to, cc } = value;
@@ -273,7 +270,7 @@ async function loadDraft(
     reference: {
       kind: "reply_draft",
       item_id: item.item_id,
-      source_version: item.source_version,
+      source_version: String(version),
       operations: operations.map((op) => op.verb),
     },
     subject,
@@ -281,7 +278,7 @@ async function loadDraft(
     recipients,
     operations,
     sendUnavailableReason: statusMessage || "A reply needs the sender and the other partner’s work email.",
-    thread: combineThreads([emailThread(value)]),
+    thread: emailThread(value),
     attachments,
     addresses: { to: string(to), cc: string(cc) },
     statusMessage,

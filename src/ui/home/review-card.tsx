@@ -39,14 +39,18 @@ const threadDate = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
 });
-export type DraftEdits = Pick<Extract<Review, { kind: "reply_draft" }>, "subject" | "body">;
+export type DraftEdit = Pick<Extract<Review, { kind: "reply_draft" }>, "subject" | "body"> & {
+  baseVersion: string;
+};
+
+const writesDraftText = (verb: Operation["verb"]) => verb === "edit-email-draft" || verb === "submit-email-draft";
 
 type Props = {
   item: InboxItem;
   readOnly: boolean;
   client: InboxClient["review"];
-  draftEdits: DraftEdits | undefined;
-  updateDraftEdits(edits: DraftEdits | null): void;
+  draftEdits: DraftEdit | undefined;
+  updateDraftEdits(edits: DraftEdit | null): void;
   children: ReactNode;
   close(): void;
   blockSwitching(value: boolean): void;
@@ -102,6 +106,15 @@ export function ReviewCard({
     alive.current = true;
     void client
       .load(anchor.current, controller.signal)
+      .catch(async (error: unknown) => {
+        const draft = draftReference(anchor.current);
+        if (controller.signal.aborted || !draft || reviewError(error).kind !== "conflict") throw error;
+        const current = await client.current(anchor.current);
+        if (draftReference(current)?.id !== draft.id) throw error;
+        const review = await client.load(current, controller.signal);
+        if (!controller.signal.aborted) anchor.current = current;
+        return review;
+      })
       .then((review) => {
         if (controller.signal.aborted) return;
         reconcileFacts(review);
@@ -134,10 +147,18 @@ export function ReviewCard({
   const proposals = review && "proposals" in review ? (review.proposals ?? []) : [];
   const proposalLed = item.item_id.startsWith("suggestion:");
   const operations = readOnly ? [] : review?.operations;
-  const canSaveDraft = review?.operations.some((op) => op.verb === "edit-email-draft");
-  const editingDraft = Boolean(item.engine_marks && canSaveDraft && draftEdits);
-  const draft =
-    review?.kind === "reply_draft" ? ((!item.engine_marks || editingDraft ? draftEdits : null) ?? review) : null;
+  const savedDraft = review?.kind === "reply_draft" ? review : null;
+  const canSaveDraft = savedDraft?.operations.some((op) => op.verb === "edit-email-draft");
+  const staleEdit =
+    item.engine_marks && draftEdits && savedDraft && draftEdits.baseVersion !== savedDraft.reference.source_version
+      ? draftEdits
+      : null;
+  const editingDraft = Boolean(item.engine_marks && canSaveDraft && draftEdits && !staleEdit);
+  const draft = (!item.engine_marks || editingDraft ? draftEdits : null) ?? savedDraft;
+
+  function editDraft({ subject, body }: Pick<DraftEdit, "subject" | "body">) {
+    if (savedDraft) updateDraftEdits({ subject, body, baseVersion: savedDraft.reference.source_version });
+  }
   useLayoutEffect(() => {
     if (editingDraft) draftSubject.current?.focus();
   }, [editingDraft]);
@@ -251,9 +272,10 @@ export function ReviewCard({
   }
   function choose(op: Operation, dropReason?: string) {
     if (!review || !editable || lock.current || !form.current) return;
+    if (writesDraftText(op.verb) && staleEdit) return;
     if (op.verb !== "dismiss-email-proposal" && !form.current.reportValidity()) return;
     let input: Record<string, unknown> = {};
-    if ((op.verb === "edit-email-draft" || op.verb === "submit-email-draft") && draft)
+    if (writesDraftText(op.verb) && draft)
       input = {
         subject: draft.subject,
         body: draft.body,
@@ -356,11 +378,15 @@ export function ReviewCard({
                 {proposal.source.excerpt && <blockquote>{sourceExcerptText(proposal.source.excerpt)}</blockquote>}
               </>
             )}
-            {(!thread || proposal.emailLead) && (
-              <p>{proposal.emailLead ? "Summary" : "Words that prompted this suggestion"}</p>
-            )}
-            <blockquote>{proposal.evidence}</blockquote>
-            {proposal.emailLead && proposal.evidenceQuote && <blockquote>{proposal.evidenceQuote}</blockquote>}
+            {proposal.reason &&
+              (proposal.source ? (
+                <>
+                  <p>{proposal.emailLead ? "Summary" : "Words that prompted this suggestion"}</p>
+                  <blockquote>{proposal.reason}</blockquote>
+                </>
+              ) : (
+                <p>{proposal.reason}</p>
+              ))}
             {proposal.editable ? (
               <>
                 <label>
@@ -541,7 +567,7 @@ export function ReviewCard({
                         ref={draftSubject}
                         value={draft.subject}
                         disabled={!review.operations.length}
-                        onChange={(event) => updateDraftEdits({ subject: event.target.value, body: draft.body })}
+                        onChange={(event) => editDraft({ subject: event.target.value, body: draft.body })}
                         maxLength={998}
                         required
                       />
@@ -552,7 +578,7 @@ export function ReviewCard({
                         aria-label="Message"
                         value={draft.body}
                         disabled={!review.operations.length}
-                        onChange={(event) => updateDraftEdits({ subject: draft.subject, body: event.target.value })}
+                        onChange={(event) => editDraft({ subject: draft.subject, body: event.target.value })}
                         rows={8}
                         maxLength={20000}
                         required
@@ -560,12 +586,40 @@ export function ReviewCard({
                     </label>
                   </>
                 ) : (
-                  <>
-                    <p>
-                      <strong>{draft.subject}</strong>
-                    </p>
-                    <p>{draft.body}</p>
-                  </>
+                  <div className={staleEdit ? "home-draft-comparison" : undefined}>
+                    <div>
+                      {staleEdit && <h4>Saved draft</h4>}
+                      <p>
+                        <strong>{draft.subject}</strong>
+                      </p>
+                      <p>{draft.body}</p>
+                    </div>
+                    {staleEdit && (
+                      <section aria-label="Your unsaved edit">
+                        <h4>Your unsaved edit</h4>
+                        <p>
+                          <strong>{staleEdit.subject}</strong>
+                        </p>
+                        <p>{staleEdit.body}</p>
+                        <div className="inbox-actions">
+                          {canSaveDraft && (
+                            <button type="button" onClick={() => editDraft(staleEdit)}>
+                              Use my edit
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateDraftEdits(null);
+                              host.current?.focus();
+                            }}
+                          >
+                            Discard
+                          </button>
+                        </div>
+                      </section>
+                    )}
+                  </div>
                 )}
                 {!item.engine_marks && canSaveDraft && (
                   <p>
@@ -706,18 +760,19 @@ export function ReviewCard({
           </fieldset>
           <div className="inbox-actions">
             {operations?.map((op) => {
-              const startDraftEdit = item.engine_marks && op.verb === "edit-email-draft" && !editingDraft;
+              const startDraftEdit = item.engine_marks && op.verb === "edit-email-draft" && !editingDraft && !staleEdit;
               return (
                 <button
                   type="button"
                   key={op.verb}
                   disabled={
                     !editable ||
+                    Boolean(staleEdit && writesDraftText(op.verb)) ||
                     (op.verb === "resolve-fact-review" &&
                       (review.kind !== "fact_review" || !availableDecisions(op, review).includes(decision)))
                   }
                   onClick={(event) => {
-                    if (startDraftEdit && draft) updateDraftEdits({ subject: draft.subject, body: draft.body });
+                    if (startDraftEdit && draft) editDraft(draft);
                     else if (item.engine_marks && op.verb === "dismiss-email-proposal")
                       setDrop({ title: "draft", opener: event.currentTarget, confirm: (reason) => choose(op, reason) });
                     else choose(op);
