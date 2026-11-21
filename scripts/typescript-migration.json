@@ -1022,7 +1022,6 @@
     "tests/staging/tours-itinerary.spec.ts": "af63bf86613224e9e1dad4f80a15d918f07b0d3e0f95202794a9c986e8c41b5f",
     "tests/staging/tours-planner.spec.ts": "ec6eeaa76cc6d0e1ee33d5a035e107a635d9bf41f5adf75104c9643c5d68f32d",
     "tests/staging/tours-share.spec.ts": "ca05146e2657b2cd13a8dbcc14140c0a5b8c30aadd2e03a5bfa1a22cfb98c132",
-    "tests/staging/updates.spec.ts": "3350851e755a5de0a4bd445629e545949ef860d342885ef91c1ce7f506b7c522",
     "tests/staging/vendors.spec.ts": "4729d8f2a3d18ffbf313e64ab69972ec5d023f9e49d7b3306d9fd20689574a07",
     "tests/staging/work-requests.spec.ts": "1c37abe4fd3df04eb7bf5e40ca9efae0899fc9501f43e676addf147a01f66ff1",
     "tests/walks/01-WR-000581.spec.ts": "c1a10529b30d499cd3bac968ace70b7a413c499bcd0f8243c5090d28a426452c",
