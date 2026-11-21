@@ -7,13 +7,11 @@ export function DealPicker({
   suggested = [],
   initialDeal = "",
   onSelect,
-  onReadError,
 }: {
   readBoard(signal: AbortSignal): Promise<unknown>;
   suggested?: readonly DealOption[];
   initialDeal?: string;
   onSelect(deal: DealOption | null): void;
-  onReadError?(error: unknown): void;
 }) {
   const [board, setBoard] = useState<DealOption[] | "unavailable" | null>(null);
   const [search, setSearch] = useState("");
@@ -40,13 +38,12 @@ export function DealPicker({
           ),
         );
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         if (controller.signal.aborted) return;
         setBoard("unavailable");
-        onReadError?.(error);
       });
     return () => controller.abort();
-  }, [loading, readBoard, onReadError]);
+  }, [loading, readBoard]);
 
   const deals = new Map<string, DealOption>();
   if (Array.isArray(board)) {

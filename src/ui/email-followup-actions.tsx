@@ -29,7 +29,7 @@ type Request = {
 };
 type Client = {
   getPendingEmailAction?(proposalId: string): { method: Method; request: Request } | null;
-  getBoard(options?: { signal: AbortSignal }): Promise<{ deals: { id: string; name: string }[] }>;
+  getBoard(): Promise<{ deals: { id: string; name: string }[] }>;
   previewEmailFiling(args: { proposal_id: string; deal: string; correction_reason?: string }): Promise<unknown>;
   confirmEmailFiling(args: Request, context?: { activityId: string }): Promise<unknown>;
   snoozeEmailProposal(args: Request): Promise<unknown>;
@@ -122,10 +122,12 @@ export function mountEmailActions(
           button.disabled = true;
         });
   }
-  const readBoard = (signal: AbortSignal) => client.getBoard({ signal });
-  function onDealReadError(error: unknown) {
-    retireIfDenied(error);
-  }
+  // An access denial still applies after the picker closes.
+  const readBoard = () =>
+    client.getBoard().catch((error: unknown) => {
+      if (current()) retireIfDenied(error);
+      throw error;
+    });
   function render() {
     if (!current()) return;
     const state = model.state;
@@ -176,7 +178,6 @@ export function mountEmailActions(
             <>
               <DealPicker
                 readBoard={readBoard}
-                onReadError={onDealReadError}
                 suggested={row.suggested_deals?.map(({ deal, name }) => ({ id: deal, name })) ?? []}
                 initialDeal={draft.deal}
                 onSelect={(deal) => {
