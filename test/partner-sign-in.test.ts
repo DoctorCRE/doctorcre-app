@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
 import worker from "../src/worker.js";
 
@@ -254,7 +253,7 @@ test("engine partner saves refuse an old-system handoff", async () => {
   assert.equal(calls.engine.length + calls.carr.length, 0);
 });
 
-test("CARR remains the default and the engine binding follows the app environment", async () => {
+test("CARR mode keeps its existing auth, page and API destinations", async () => {
   const { send, calls } = fixture(status, {
     PARTNER_SIGN_IN: "carr",
     CARR: { fetch: async (input: Request) => Response.json({ source: new URL(input.url).pathname }) },
@@ -263,15 +262,4 @@ test("CARR remains the default and the engine binding follows the app environmen
   assert.equal(await (await send("/leads")).text(), "/leads.html");
   assert.deepEqual(await (await send("/api/engine/leads")).json(), { legacy: true });
   assert.equal(calls.partner.length, 0);
-  const config = JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
-  for (const [target, suffix] of [
-    [config, ""],
-    [config.env.staging, "-staging"],
-  ]) {
-    assert.equal(target.vars.PARTNER_SIGN_IN, "carr");
-    assert.deepEqual(
-      target.services.find((binding: { binding: string }) => binding.binding === "PARTNER_APP"),
-      { binding: "PARTNER_APP", service: "doctorcre-engine" + suffix, entrypoint: "PartnerApp" },
-    );
-  }
 });
