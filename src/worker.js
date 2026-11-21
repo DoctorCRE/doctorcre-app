@@ -28,6 +28,12 @@ const UNGATED_PAGES = new Set(["/status"]);
 // Each slice chooses an admitted CARR page gate through its route fragment.
 // Authentication and authorization remain entirely in the producer.
 const GATE_PATHS = new Map(Object.entries(routeContract.gatePaths));
+const WORKSPACE_GATES = new Set([
+  '/business', '/clients', '/vendors', '/work-inventory', '/tasks',
+  '/control-room', '/incidents', '/notifications', '/conversations',
+]);
+const PARTNER_HEADERS = ['accept', 'content-type', 'content-length', 'cookie', 'origin',
+  'sec-fetch-site', 'x-carr-csrf', 'x-correlation-id', 'user-agent'];
 
 function gateRequestFor(request, pathname) {
   const gatePath = GATE_PATHS.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
@@ -62,6 +68,65 @@ function unavailable(documentRequest) {
     status: 503,
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
   });
+}
+
+const engineSignIn = env => env?.PARTNER_SIGN_IN === 'engine';
+
+function noStore(response) {
+  const copy = new Response(response.body, response);
+  copy.headers.set('cache-control', 'no-store');
+  return copy;
+}
+
+async function engineFetch(request, env) {
+  if (!engineSignIn(env)) return env.ENGINE.fetch(request);
+  const headers = new Headers();
+  for (const key of PARTNER_HEADERS) {
+    const value = request.headers.get(key);
+    if (value !== null) headers.set(key, value);
+  }
+  return noStore(await env.PARTNER_APP.fetch(new Request(request, { headers, redirect: 'manual' })));
+}
+
+function signInUnavailable(request) {
+  return secure(new Response(request.method === 'HEAD' ? null : `<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="/js/theme-boot.js"></script><link rel="stylesheet" href="/public-shell/shell.css"><title>DoctorCRE unavailable</title>
+<body class="shell-offline"><main><h1>DoctorCRE is temporarily unavailable</h1><p>Try again in a moment.</p></main></body></html>`,
+  { status: 503, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }),
+  new URL(request.url).pathname);
+}
+
+async function authResponse(request, env, documentRequest) {
+  try {
+    const response = await engineFetch(request, env);
+    if (response.status < 500 || (!documentRequest && response.status === 503)) return response;
+    return copySessionCookies(response, documentRequest ? signInUnavailable(request) : json({ error: 'sign_in_unavailable' }, 503));
+  } catch {
+    return documentRequest ? signInUnavailable(request) : json({ error: 'sign_in_unavailable' }, 503);
+  }
+}
+
+async function pageGate(request, env, gateRequest) {
+  if (!engineSignIn(env)) {
+    const gate = await carrResponse(gateRequest, env, true);
+    return gateRequest === request ? gate : restoreOriginalReturnTo(gate, request);
+  }
+  if (env.WORKSPACE_COMMAND_CENTER_READ_ENABLED !== 'true' && WORKSPACE_GATES.has(new URL(gateRequest.url).pathname))
+    return new Response(null, { status: 404, headers: JSON_HEADERS });
+  const url = new URL(request.url);
+  const response = await authResponse(new Request(new URL('/auth/session', url), { headers: request.headers }), env, false);
+  void response.body?.cancel().catch(() => {});
+  if (response.status === 200) return new Response(null, { headers: response.headers });
+  if (response.status !== 401) return signInUnavailable(request);
+  const login = new URL('/auth/login', url);
+  login.searchParams.set('return_to', url.pathname + url.search);
+  return noStore(Response.redirect(login, 302));
+}
+
+function gatedResponse(gate, response, env) {
+  const result = copySessionCookies(gate, response);
+  return engineSignIn(env) ? noStore(result) : result;
 }
 
 function secure(response, path) {
@@ -274,7 +339,7 @@ async function engineResponse(request, env) {
     }
     const response = await Promise.race([
       (async () => {
-        const response = await env.ENGINE.fetch(new Request(url, { headers, signal: controller.signal, redirect: 'manual' }));
+        const response = await engineFetch(new Request(url, { headers, signal: controller.signal, redirect: 'manual' }), env);
         if (controller.signal.aborted) {
           void response.body?.cancel().catch(() => {});
           return null;
@@ -328,7 +393,7 @@ async function engineResponse(request, env) {
     if (response) return response;
   } catch { /* The switch below decides whether this read can fall back. */ }
   finally { clearTimeout(timer); reader?.releaseLock(); }
-  return read.engineOnly || await cutoverOn()
+  return engineSignIn(env) || read.engineOnly || await cutoverOn()
     ? json({ error: 'engine_unavailable' }, 503) : null;
 }
 
@@ -666,7 +731,7 @@ async function engineSave(request, env, call) {
   if (!save) return null;
   if (await switchedOn(env, save.key)) return await engineAnswer(request, env, call, save) ?? carrResponse(request, env);
   const old = await carrResponse(request, env);
-  if (await oldRefusal(old.clone()) !== 'key_reuse') return old;
+  if (engineSignIn(env) || await oldRefusal(old.clone()) !== 'key_reuse') return old;
   return await engineAnswer(request, env, call, save) ?? old;
 }
 
@@ -760,13 +825,14 @@ async function sendEngineSave(request, env, path, body) {
     if (value !== null) headers.set(key, value);
   }
   try {
-    return await env.ENGINE.fetch(new Request(new URL(path, request.url), { method: 'POST', headers, body: JSON.stringify(body), redirect: 'manual' }));
+    return await engineFetch(new Request(new URL(path, request.url), { method: 'POST', headers, body: JSON.stringify(body), redirect: 'manual' }), env);
   } catch { return null; }
 }
 
 // Only the legacy-schema saves share a receipt with CARR.
 async function engineAnswer(request, env, call, save, { allowHandoff = true, body = call.params.arguments, rawClientError = false, uncertainServerError = false } = {}) {
   const response = await sendEngineSave(request, env, save.path, body);
+  if (engineSignIn(env) && response?.status === 503) return response;
   if (!response || (uncertainServerError && response.status >= 500)) return unavailable(false);
   let text;
   try {
@@ -774,7 +840,7 @@ async function engineAnswer(request, env, call, save, { allowHandoff = true, bod
     text = await response.text();
   } catch { return unavailable(false); }
   const handoff = OLD_SYSTEM_ANSWERS.get(response.status);
-  if (allowHandoff && handoff && handoff === parsedError(text)) return null;
+  if (!engineSignIn(env) && allowHandoff && handoff && handoff === parsedError(text)) return null;
   return mcpReply(call, response, text, response.status !== 200);
 }
 
@@ -810,17 +876,17 @@ async function handleRequest(request, env) {
   const boardDestination = legacyBoardDestination(url);
   if (boardDestination) {
     if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
-    const gate = await carrResponse(gateRequestFor(request, BOARD_ROUTE), env, true);
-    if (gate.status !== 200) return restoreOriginalReturnTo(gate, request);
-    return copySessionCookies(gate, Response.redirect(boardDestination, 308));
+    const gate = await pageGate(request, env, gateRequestFor(request, BOARD_ROUTE));
+    if (gate.status !== 200) return gate;
+    return gatedResponse(gate, Response.redirect(boardDestination, 308), env);
   }
   if (pathname === "/app-release") return request.method === "GET" ? release(env) : json({ error: "method_not_allowed" }, 405);
   if (pathname === '/share' && staging) {
     if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
     const gateUrl = new URL(url); gateUrl.pathname = '/control-room'; gateUrl.search = '';
-    const gate = await carrResponse(new Request(gateUrl, request), env, true);
-    if (gate.status !== 200) return restoreOriginalReturnTo(gate, request);
-    return copySessionCookies(gate, await assetResponse(request, env, '/reports/share.html'));
+    const gate = await pageGate(request, env, new Request(gateUrl, request));
+    if (gate.status !== 200) return gate;
+    return gatedResponse(gate, await assetResponse(request, env, '/reports/share.html'), env);
   }
   if (staging && STAGING_REPORT_ASSETS.has(pathname)) return assetResponse(request, env, `/reports${pathname}`);
   if (staging && pathname.startsWith('/api/share/')) return carrResponse(request, env);
@@ -833,7 +899,11 @@ async function handleRequest(request, env) {
     const destination = new URL(target, url.origin);
     for (const [key, value] of url.searchParams) if (!destination.searchParams.has(key)) destination.searchParams.append(key, value);
     destination.hash = url.hash;
-    return Response.redirect(destination, 308);
+    if (!engineSignIn(env)) return Response.redirect(destination, 308);
+    const targetRequest = new Request(destination, request);
+    const gate = await pageGate(request, env, gateRequestFor(targetRequest, destination.pathname));
+    if (gate.status !== 200) return gate;
+    return gatedResponse(gate, Response.redirect(destination, 308), env);
   }
 
   if (UNGATED_PAGES.has(pathname)) {
@@ -849,28 +919,27 @@ async function handleRequest(request, env) {
     : APP_ROUTES.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
   if (routeAsset) {
     if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method_not_allowed" }, 405);
-    const gateRequest = gateRequestFor(request, pathname);
-    const gate = await carrResponse(gateRequest, env, true);
-    if (gate.status !== 200) return gateRequest === request ? gate : restoreOriginalReturnTo(gate, request);
+    const gate = await pageGate(request, env, gateRequestFor(request, pathname));
+    if (gate.status !== 200) return gate;
     const switches = await pageSwitches(env);
     if (reviewView && (!switches.dealsFromEngine || !switches.dealSavesFromEngine)) {
       url.searchParams.delete('view');
-      return copySessionCookies(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }));
+      return gatedResponse(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }), env);
     }
     if (routeAsset === 'review-workflows.html' && switches.homeToday)
-      return copySessionCookies(gate, await assetResponse(request, env, '/review-workflows-moved.html', switches));
+      return gatedResponse(gate, await assetResponse(request, env, '/review-workflows-moved.html', switches), env);
     if (['lease-radar.html', 'client-portal.html'].includes(routeAsset) && switches.dealSavesFromEngine) {
       const deal = url.searchParams.get('deal');
       if (routeAsset === 'client-portal.html' && deal) {
         const query = new URLSearchParams({ deal, tab: 'client-view' });
-        return copySessionCookies(gate, new Response(null, { status: 302, headers: {
+        return gatedResponse(gate, new Response(null, { status: 302, headers: {
           location: `/deals?${query}`, 'cache-control': 'no-store',
-        } }));
+        } }), env);
       }
       const page = routeAsset === 'lease-radar.html' ? '/lease-anniversaries.html' : '/client-website-moved.html';
-      return copySessionCookies(gate, await assetResponse(request, env, page, switches));
+      return gatedResponse(gate, await assetResponse(request, env, page, switches), env);
     }
-    return copySessionCookies(gate, await assetResponse(request, env, `/${routeAsset}`, switches));
+    return gatedResponse(gate, await assetResponse(request, env, `/${routeAsset}`, switches), env);
   }
 
   const staticAsset = assetPath(pathname);
@@ -932,14 +1001,13 @@ async function handleRequest(request, env) {
     if (prospects && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES) ||
         (prospectSave && !prospectDestination && !prospectWrite)))
       return json({ error: 'not_found' }, 404);
-    if (!env?.ENGINE?.fetch) return json({ error: 'engine_unavailable' }, 503);
     try {
       const forwarded = new Request(request, { redirect: 'manual' });
       if (prospectDestination) {
         url.pathname = prospectDestination;
-        return await env.ENGINE.fetch(new Request(url, forwarded));
+        return await engineFetch(new Request(url, forwarded), env);
       }
-      const response = await env.ENGINE.fetch(forwarded);
+      const response = await engineFetch(forwarded, env);
       if (shareOrigin && response.ok) {
         const grant = new Response(response.body, response);
         grant.headers.set('x-doctorcre-client-website-origin', shareOrigin.origin);
@@ -952,6 +1020,13 @@ async function handleRequest(request, env) {
     } catch {
       return json({ error: 'engine_unavailable' }, 503);
     }
+  }
+
+  if (engineSignIn(env) && pathname.startsWith('/auth/')) {
+    const session = pathname === '/auth/session';
+    const response = await authResponse(request, env, request.method === 'GET' && !session);
+    if (session && response.ok) response.headers.set('x-doctorcre-partner-sign-in', 'engine');
+    return response;
   }
 
   if (pathname === '/pipeline/changes' && await switchedOn(env, DEALS)) {

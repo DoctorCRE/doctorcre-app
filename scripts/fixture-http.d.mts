@@ -15,10 +15,18 @@ type Observation = {
   readonly target: string;
   readonly headers: Readonly<IncomingHttpHeaders>;
 };
+type ServiceBinding = { fetch(request: Request): Promise<Response> };
 export function startWorkerFixture(options?: {
   assets?: Map<string, Descriptor | { sequence: Descriptor[] }>;
   routes?: Map<string, Descriptor | { sequence: Descriptor[] }>;
-  env?: { CARR?: { fetch(request: Request): Promise<Response> }; APP_ENV?: string; GIT_SHA?: string };
+  env?: {
+    CARR?: ServiceBinding;
+    APP_ENV?: string;
+    GIT_SHA?: string;
+    PARTNER_APP?: ServiceBinding;
+    PARTNER_SIGN_IN?: "carr" | "engine";
+    WORKSPACE_COMMAND_CENTER_READ_ENABLED?: "true" | "false";
+  };
   limits?: Partial<
     Record<"bytes" | "entries" | "body" | "requests" | "observations" | "connections" | "delayMs", number>
   >;
