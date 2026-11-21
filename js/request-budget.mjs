@@ -4,15 +4,18 @@ export const TAB_REQUEST_LIMIT = 600;
 export const INITIAL_ASSET_REQUEST_LIMIT = 400;
 export const QUIET_TAB_REQUEST_LIMIT = TAB_REQUEST_LIMIT + INITIAL_ASSET_REQUEST_LIMIT;
 
+const VISIBILITY_RENEWAL_INTERVAL_MS = 2 * 60_000;
 const pauseMessage = 'Automatic reads paused. Interact with this page to continue.';
 
-// eslint-disable-next-line no-restricted-syntax -- The cap is 600 HTTP attempts per document until trusted input or a return to view.
+// eslint-disable-next-line no-restricted-syntax -- The cap is 600 HTTP attempts per document between renewals.
 export function createRequestBudget({ fetchImpl, document, onPauseChange = () => {} }) {
   let used = 0;
+  let lastRenewal = Date.now();
   let paused = false;
   let visible = document?.visibilityState === 'visible';
   const renew = () => {
     used = 0;
+    lastRenewal = Date.now();
     if (paused) {
       paused = false;
       onPauseChange(null);
@@ -22,9 +25,12 @@ export function createRequestBudget({ fetchImpl, document, onPauseChange = () =>
   const visibility = () => {
     const wasVisible = visible;
     visible = document.visibilityState === 'visible';
-    if (visible && !wasVisible) renew();
+    if (visible && !wasVisible && used >= TAB_REQUEST_LIMIT
+        && Date.now() - lastRenewal >= VISIBILITY_RENEWAL_INTERVAL_MS) {
+      renew();
+    }
   };
-  // eslint-disable-next-line no-restricted-syntax -- Renews the document budget once per return to view and performs zero reads.
+  // eslint-disable-next-line no-restricted-syntax -- Visibility can renew a spent budget at most once every two minutes and performs zero reads.
   document?.addEventListener('visibilitychange', visibility, true);
   return {
     get used() { return used; },

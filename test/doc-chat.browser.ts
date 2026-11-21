@@ -408,7 +408,7 @@ test("An unavailable chat keeps the unsent question and other recent chats for t
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
 });
 
-test("Ask Doc pauses on budget exhaustion and checks again when the tab returns", async (t) => {
+test("Ask Doc shows one pause line until the exhausted tab can read again", async (t) => {
   const { page, origin } = await waitingChat(t);
   await pausedClock(page, new Date(created_at));
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
@@ -443,16 +443,23 @@ test("Ask Doc pauses on budget exhaustion and checks again when the tab returns"
   await expect(paused).toBeVisible();
   assert.deepEqual(await ticks.jsonValue(), []);
 
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
+  const visibility = (value: DocumentVisibilityState) =>
+    page.evaluate((value) => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, value);
+  await visibility("hidden");
+  await visibility("visible");
+  await page.clock.runFor(5_000);
+  assert.deepEqual(await ticks.jsonValue(), [], "a quick return still has no request allowance");
+  await expect(page.getByRole("button", { name: "Refresh page", exact: true })).toBeHidden();
+  await expect(paused).toHaveCount(1);
+  await expect(paused).toBeVisible();
+
+  await visibility("hidden");
   await page.clock.runFor(3 * 60 * 60_000);
   assert.deepEqual(await ticks.jsonValue(), []);
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
+  await visibility("visible");
   await page.clock.runFor(5_000);
   await expect(page.getByText(answered.answer.text)).toBeVisible();
   await expect(paused).toHaveCount(0);

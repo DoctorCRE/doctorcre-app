@@ -202,7 +202,8 @@ export function privateSession() {
       finishRestore(generation, false);
       return session;
     } catch (error) {
-      finishRestore(generation, true);
+      // A persisted pageshow has its own fallback when the budget blocks verification.
+      if (error?.code !== 'request_budget_exhausted') finishRestore(generation, true);
       throw error;
     }
   } });
