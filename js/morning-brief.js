@@ -245,7 +245,7 @@ export function mountMorningBriefLauncher(root) {
     stopClosed();
     placement.disconnect();
     phone.removeEventListener('change', place);
-    strip.remove();
+    // Let document teardown remove the launcher without mutating its record dialog.
     dialog.remove();
     style.remove();
   } };

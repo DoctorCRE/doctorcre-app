@@ -61,9 +61,9 @@ fixture. Reviewed DoctorCRE production hosts boot the live adapter.
 | `status.html` | V5-UX-C15 Status at `/status`: the one page served ahead of the CARR sign-in gate, so an app outage and a record-layer outage can be told apart without signing in |
 | `js/status-model.js` | Pure status rules: the four headline scenarios, the sanitized refusal sentence, the payload-free last-known snapshot and the named integration gaps |
 | `js/status.js` | Status DOM wiring over `GET /app-release` and the four Control Room reads, each settled on its own |
-| `js/shell.js` | The shell every surface shares: the three presentation icons (one storage key, legacy key migrated), the tab strip, and Ask Doc in the shell menu |
+| `js/shell.js` | The shell every surface shares: the three presentation icons (one storage key, legacy key migrated), the tab strip, and shared controls |
 | `css/` | Product presentation and responsive behavior; `css/system.css` defines the shared visual system |
-| `src/ui/doc-chat.tsx` | Ask Doc conversations and turns |
+| `src/ui/doc-chat.tsx` | Ask Doc conversations and turns, opened from the shared top bar |
 | `src/ui/` | Strict TypeScript React islands (decision d23358f1, V2-WORKSPACE). `scripts/ui-bundle.mjs` compiles narrow browser entries with shared React chunks into the artifact. Each caller imports its own island: `/ideas-events?ui=react` hosts the Ideas panel in a React node host on a fixture boot. The rest of the app stays static HTML and JavaScript modules |
 | `js/client.js` | Small client interface selected by the app |
 | `js/live-client.js` | Authenticated same-origin CARR adapter |

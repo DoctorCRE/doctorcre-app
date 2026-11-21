@@ -836,8 +836,10 @@ test('shared activity retains stage, desks, presence, wire filters, composers an
 
 test('older task passports survive the current global wire window',async t=>{
   const {page,state,errors}=await open(t,{history:2000});
-  await page.clock.runFor(60_100);await page.waitForSelector('.passport-card');
+  await page.locator('#composerInput[placeholder^="Speak into the room"]').waitFor();
+  await page.locator('#workCanonicalBody').getByText(/^Closure:/).waitFor();
   await assertEventually(()=>state.turnReads>=11);
+  await page.clock.runFor(60_100);await page.waitForSelector('.passport-card');
   assert.match(await page.locator('#workDotList').textContent(),/Observed Dot turn/);
   await page.locator('#viewEverything').click();assert.doesNotMatch(await page.locator('#wireFeed').textContent(),/Unrelated synthetic historical/);
   for(let i=0;i<2000;i++)state.turns.push({seq:state.turns.at(-1).seq+1,msg_id:`later-${i}`,kind:'turn',seat:'human',at:NOW.toISOString(),body:`Unrelated synthetic later turn ${i}`});

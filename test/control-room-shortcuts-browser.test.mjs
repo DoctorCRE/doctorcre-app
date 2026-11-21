@@ -176,9 +176,7 @@ test('every tab is reachable, modal focus stays contained, and navigation introd
   assert.equal(await page.locator('#crWorkbench').getAttribute('data-detail'), 'closed');
   await page.keyboard.press('Escape');
   await page.keyboard.press('Control+d');
-  await page.locator('dialog[open]').waitFor();
-  assert.equal(await page.locator('#crCommands').isVisible(), false);
-  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'the retired Doc shortcut opens no dialog');
   assert.deepEqual(calls.filter(name => /^(?:add|set|change|delete|close|send|approve|reject|accept|start|run)-/.test(name)), []);
   assert.deepEqual(errors, []);
 });

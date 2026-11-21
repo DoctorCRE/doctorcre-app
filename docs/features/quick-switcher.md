@@ -2,7 +2,7 @@
 
 Card: WR617.S11.J3
 
-Ask Doc opens from the shell menu.
+Ask Doc opens the chat page from the shared top bar when the partner signs in through the engine.
 The global switcher uses Cmd/Ctrl+Alt+K. Its button advertises the same shortcut.
 Cmd/Ctrl+Shift+K was rejected because Edge on Windows reserves it for Duplicate
 Tab. The Alt variant is unused by app keydown handlers and is not listed in the
