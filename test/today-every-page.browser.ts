@@ -168,6 +168,7 @@ async function open(
               kind: "step",
               owner: "joe",
               title: "Check in with the supplier",
+              why: null,
               due_on: "2026-11-16",
               home_item_id: "example-vendor-step",
               open_url: "/relationships?node=party:example",
@@ -210,6 +211,7 @@ test("Today opens the record when a reminder is missing from the Home grid", asy
   const link = today.getByRole("link", { name: /Check in with the supplier/ });
   await link.waitFor();
   assert.equal(await link.getAttribute("href"), "/relationships?node=party:example");
+  assert.equal(await today.getByText("Check in with the supplier", { exact: true }).count(), 1);
 });
 
 test("Today keeps lead reminders on Leads", async (t) => {
