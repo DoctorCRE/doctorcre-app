@@ -124,8 +124,11 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await expect(page.locator("#calAsOf")).toContainText("Updated");
           await expect(page.locator("#calStatus")).toHaveCount(0);
           await expect(page.getByText("Critical dates from open deals")).toHaveCount(0);
+          await expect(page.getByRole("complementary", { name: "Today", exact: true })).toHaveCount(0);
           await expect(page.getByRole("button", { name: "Close Today" })).toHaveCount(0);
           await expect(page.getByRole("button", { name: "Today sidebar" })).toHaveCount(0);
+          const appControls = page.getByRole("region", { name: "App controls" });
+          await expect(appControls.getByRole("button", { name: /Search.*Quick switcher/i })).toBeVisible();
           const geometry = await page.evaluate(() => {
             const box = (id: string) => document.getElementById(id)?.getBoundingClientRect();
             return {
@@ -172,11 +175,12 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await page.screenshot({ path: join(evidence, `month-${width}-${theme}.png`), fullPage: true });
           await page.locator("#dayPanel").screenshot({ path: join(evidence, `day-${width}-${theme}.png`) });
 
-          const comingUp = page.getByRole("button", { name: /^Oct 22\b/ });
+          const comingUpPanel = page.getByRole("region", { name: "Coming up" });
+          const comingUp = comingUpPanel.getByRole("button", { name: /^Oct 22\b/ });
           await t.test("Coming up names every item due", async () => {
             await expect(comingUp).toContainText("Confirm suite availability");
             await expect(comingUp).toContainText("Dell");
-            const twoItems = page.getByRole("button", { name: /^Oct 26\b/ });
+            const twoItems = comingUpPanel.getByRole("button", { name: /^Oct 26\b/ });
             await expect(twoItems).toContainText("Confirm suite availability");
             await expect(twoItems).toContainText("Option notice");
           });
