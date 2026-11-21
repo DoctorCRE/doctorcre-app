@@ -188,7 +188,7 @@ for (const path of pages)
       await rail.getByText("Send sample floor plan", { exact: true }).locator("..").getAttribute("href"),
       "/?card=example-reminder",
     );
-    assert.equal(await rail.getByText("3 days late", { exact: true }).count(), 1);
+    assert.equal(await rail.getByText("Joe · 3 days late", { exact: true }).count(), 1);
     assert.equal(await page.getByText("Example site visit", { exact: true }).count(), 1);
     assert.equal(
       await page
@@ -209,7 +209,7 @@ test("Today keeps an ended deal's reminder on Home and leaves it out on Deals", 
   await home.today.getByText("Check the former office", { exact: true }).waitFor();
   await deals.today.getByText("Send sample floor plan", { exact: true }).waitFor();
   assert.equal(await deals.today.getByText("Check the former office", { exact: true }).count(), 0);
-  assert.equal(await deals.today.getByText("4 days late", { exact: true }).count(), 0);
+  assert.equal(await deals.today.getByText("Joe · 4 days late", { exact: true }).count(), 0);
 });
 
 test("Today rejects a reminder with a malformed ended-deal marker", async (t) => {
