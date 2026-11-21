@@ -252,6 +252,24 @@ test("Search returns versioned results through PartnerApp with only the engine c
   assert.deepEqual(calls.engine, []);
 });
 
+test("PartnerApp receives the Search version header only for supported Search requests", async (t) => {
+  const header = "x-doctorcre-search";
+  const cases = [
+    { path: "/api/engine/find?query=clinic", value: "search.v1", expected: "search.v1" },
+    { path: "/api/engine/find?query=clinic", value: "search.v2", expected: null },
+    { path: "/auth/session", value: "search.v1", expected: null },
+    { path: "/auth/session", value: "search.v2", expected: null },
+  ];
+  for (const { path, value, expected } of cases) {
+    await t.test(`${path} with ${value}`, async () => {
+      const { send, calls } = fixture(status);
+      assert.equal((await send(path, { headers: { cookie, [header]: value } })).status, 200);
+      assert.equal(calls.partner.length, 1);
+      assert.equal(calls.partner[0]?.headers.get(header), expected);
+    });
+  }
+});
+
 test("engine browser reads and writes stay on PartnerApp with CARR down", async () => {
   const { send, calls } = fixture(
     async (input: Request) => {

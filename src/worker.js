@@ -33,7 +33,7 @@ const WORKSPACE_GATES = new Set([
   '/control-room', '/incidents', '/notifications', '/conversations',
 ]);
 const PARTNER_HEADERS = ['accept', 'content-type', 'content-length', 'cookie', 'origin',
-  'sec-fetch-site', 'x-carr-csrf', 'x-correlation-id', 'x-doctorcre-search', 'user-agent'];
+  'sec-fetch-site', 'x-carr-csrf', 'x-correlation-id', 'user-agent'];
 
 function gateRequestFor(request, pathname) {
   const gatePath = GATE_PATHS.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
@@ -85,6 +85,8 @@ async function engineFetch(request, env) {
     const value = request.headers.get(key);
     if (value !== null) headers.set(key, value);
   }
+  if (new URL(request.url).pathname === '/api/engine/find' && request.headers.get('x-doctorcre-search') === 'search.v1')
+    headers.set('x-doctorcre-search', 'search.v1');
   return noStore(await env.PARTNER_APP.fetch(new Request(request, { headers, redirect: 'manual' })));
 }
 
