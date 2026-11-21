@@ -30,9 +30,11 @@ import { createCommandDock } from "./command-dock.js";
 import { performCommand } from "./command-feedback.mjs";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
 import { createLiveClient } from "./live-client.js";
+import { privateSession, sessionFetch } from "./private-session.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountPrefs, renderNotificationBadge } from "./shell.js";
-import { formatClock } from "./visual-system.js";
+import { meetingTime } from "./home-week.js";
+import { BUSINESS_TIME_ZONE } from "./business-date.js";
 import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, changeRows, classifyPreferenceFailure,
@@ -109,8 +111,9 @@ function showPreferenceMessage(text) {
   if (message.textContent !== text) message.textContent = text;
 }
 
+const savedZone = () => preferenceView(view.preference.payload)?.timezone || BUSINESS_TIME_ZONE;
 const asOf = (read) => {
-  const clock = read.state === "read" ? formatClock(read.observed_at) : "";
+  const clock = read.state === "read" && Number.isFinite(Date.parse(read.observed_at)) ? meetingTime(read.observed_at, savedZone()) : "";
   return clock ? `As of ${clock}` : "";
 };
 
@@ -173,7 +176,7 @@ function renderFeed() {
   const unread = unreadLine(payload);
   $("unreadLine").textContent = unread;
   announceFeed(state.sentence || unread);
-  $("feedList").innerHTML = notificationCards(payload).map(cardHtml).join("");
+  $("feedList").innerHTML = notificationCards(payload, undefined, savedZone()).map(cardHtml).join("");
   const banner = $("quietNowBanner");
   const sentence = quietNowBanner(payload, view.preference.payload);
   banner.textContent = sentence || "";
@@ -200,8 +203,6 @@ function renderPreference() {
   const model = state.state === "ready" ? preferenceView(read.payload) : null;
   $("prefSummary").textContent = preferenceSummary(model);
   $("prefSummary").hidden = !model;
-  $("prefVersion").textContent = model ? `Version ${model.version}` : "";
-  $("prefVersion").closest("details").hidden = !model;
   const form = $("prefForm");
   form.hidden = !model && !dirty;
   form.setAttribute("data-disabled", String(saving));
@@ -225,7 +226,7 @@ function renderActivity() {
   $("activityBlock").hidden = read.state === "retired" || read.state === "pending";
   $("activityAsOf").textContent = asOf(read);
   const payload = read.state === "read" ? read.payload : null;
-  const rows = payload?.changes ? changeRows(payload.changes) : activityRows(payload?.events);
+  const rows = payload?.changes ? changeRows(payload.changes, savedZone()) : activityRows(payload?.events, savedZone());
   $("activityState").hidden = read.state === "pending" || Boolean(payload);
   const more = $("activityMore");
   more.hidden = !payload?.next_before;
@@ -626,6 +627,17 @@ async function boot() {
     if (target) acknowledge(target.getAttribute("data-ack"));
   });
   const boot_ = resolveDealroomBoot(location);
+  const docLink = $("docLinkSettings");
+  const session = privateSession();
+  if (docLink && session) {
+    void session.verify().then(async () => {
+      if (!session.engineSignIn) return;
+      const { mountDocLinkSettings } = await import("./ui-doc-link-settings.generated.js");
+      if (session.engineSignIn) mountDocLinkSettings(docLink, sessionFetch);
+    }).catch(() => {
+      if (session.engineSignIn) docLink.textContent = "Couldn't load Doc link settings.";
+    });
+  }
   const outage = params.get("outage");
   if (document.documentElement.hasAttribute("data-deals-saves-from-engine")) source = sources.engine;
   client = boot_.mode === "live"

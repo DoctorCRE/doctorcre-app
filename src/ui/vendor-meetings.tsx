@@ -7,6 +7,9 @@ import { parseMeetingPage, researchReason } from "./vendor-meetings-client.ts";
 type Options = {
   load: (query: MeetingQuery, signal: AbortSignal) => Promise<unknown>;
   href: (id: string) => string;
+  nameLabel: (text: string) => string;
+  phoneLabel: (phone: string) => string;
+  timeLabel: (instant: string) => string;
   open: (href: string, returnFocusId: string) => void;
 };
 type State = { kind: "loading" } | { kind: "failed" } | { kind: "ready"; page: MeetingPage };
@@ -48,11 +51,9 @@ function VendorMeetings({ options }: { options: Options }) {
       generation.current++;
     };
   }, [options, query]);
+  const calendarUnavailable = state.kind === "ready" && state.page.calendar.state === "unavailable";
   return (
     <section aria-label="People worth meeting">
-      <header>
-        <p>Named people with a reason to meet and a verified office.</p>
-      </header>
       <div role="tablist" aria-label="Vendor meetings">
         {(["suggested", "research"] satisfies MeetingQuery["view"][]).map((view, index) => (
           <button
@@ -104,42 +105,21 @@ function VendorMeetings({ options }: { options: Options }) {
         aria-busy={state.kind === "loading"}
       >
         {state.kind === "loading" && <p role="status">Loading people…</p>}
-        {state.kind === "failed" && (
+        {(state.kind === "failed" || calendarUnavailable) && (
           <>
-            <p role="alert">People could not be loaded. Try again.</p>
-            <button
-              type="button"
-              className="action"
-              onClick={() => {
-                generation.current++;
-                setState({ kind: "loading" });
-                setQuery({ ...query });
-              }}
-            >
-              Retry people
+            <p role="alert">
+              {calendarUnavailable ? "Calendar unavailable." : "People could not be loaded. Try again."}
+            </p>
+            <button type="button" className="action" onClick={() => change({ ...query })}>
+              {calendarUnavailable ? "Retry calendar" : "Retry people"}
             </button>
           </>
         )}
         {state.kind === "ready" && (
           <>
-            {state.page.calendar.state === "unavailable" && (
-              <p role="status">Calendar unavailable. People and office details are still shown.</p>
-            )}
-            {state.page.calendar.notes?.map((note) => (
-              <p key={note} className="note-summary">
-                {note}
-              </p>
-            ))}
-            <p role="status">
-              {state.page.total} {query.view === "suggested" ? "suggested people" : "people needing research"}. Showing{" "}
-              {state.page.items.length}.
-            </p>
+            {state.page.calendar.state === "partial" && <p role="status">Calendar incomplete</p>}
             {state.page.items.length === 0 && (
-              <p>
-                {query.view === "suggested"
-                  ? "No suggested people match this search. Open Research to see what is missing."
-                  : "No people need research for this search."}
-              </p>
+              <p>{query.view === "suggested" ? "No suggested people" : "No people need research"}</p>
             )}
             <ul className="vendor-meetings-list">
               {state.page.items.map((row, index) => (
@@ -157,18 +137,19 @@ function VendorMeetings({ options }: { options: Options }) {
                       options.open(event.currentTarget.href, event.currentTarget.id);
                     }}
                   >
-                    {row.contact?.name || "Named contact not recorded"}
+                    {options.nameLabel(row.contact?.name || row.company?.name || "Open vendor")}
                   </a>
-                  <p>{row.company?.name || "Company not recorded"}</p>
-                  <p data-meeting-office>
-                    {row.office
-                      ? `${row.office.street_address}, ${row.office.city}, ${row.office.state}`
-                      : "Verified office not recorded"}
-                  </p>
-                  {row.office && <p className="note-summary">Office source: {row.office.source}</p>}
-                  <p data-meeting-reason>{row.reason || "Meeting reason not recorded"}</p>
-                  <p>{row.contact?.email || "Email not recorded"}</p>
-                  <p>{row.contact?.phone || row.contact?.cell || "Phone not recorded"}</p>
+                  {row.contact && row.company && <p>{options.nameLabel(row.company.name)}</p>}
+                  {row.office && (
+                    <p data-meeting-office>
+                      {row.office.street_address}, {row.office.city}, {row.office.state}
+                    </p>
+                  )}
+                  {row.reason && <p data-meeting-reason>{options.nameLabel(row.reason)}</p>}
+                  {row.contact?.email && <p>{row.contact.email}</p>}
+                  {(row.contact?.phone || row.contact?.cell) && (
+                    <p data-meeting-phone>{options.phoneLabel(row.contact.phone || row.contact.cell || "")}</p>
+                  )}
                   {row.missing.length > 0 && (
                     <ul aria-label="Research needed">
                       {row.missing.map((reason) => (
@@ -176,22 +157,19 @@ function VendorMeetings({ options }: { options: Options }) {
                       ))}
                     </ul>
                   )}
-                  {row.possible_meetings.length > 0 ? (
+                  {row.possible_meetings.length > 0 && (
                     <>
                       <h3>Possible meetings</h3>
                       <ul>
                         {row.possible_meetings.map((meeting) => (
                           <li key={`${meeting.title}-${meeting.start}-${meeting.end}-${meeting.location}`}>
-                            {meeting.title} · <time dateTime={meeting.start}>{meeting.start}</time> to{" "}
-                            <time dateTime={meeting.end}>{meeting.end}</time>
+                            {meeting.title} · <time dateTime={meeting.start}>{options.timeLabel(meeting.start)}</time>{" "}
+                            to <time dateTime={meeting.end}>{options.timeLabel(meeting.end)}</time>
                             {meeting.location ? ` · ${meeting.location}` : ""}
                           </li>
                         ))}
                       </ul>
-                      <p className="note-summary">Check Outlook before relying on these meetings.</p>
                     </>
-                  ) : (
-                    state.page.calendar.state !== "unavailable" && <p>No possible meetings recorded for this person.</p>
                   )}
                 </li>
               ))}

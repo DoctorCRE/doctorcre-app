@@ -3,13 +3,17 @@
 // guessing a name or fetching a second record. Identifiers stay in Details.
 import { BOARD_ROUTE, boardIdFromPath } from './progress-board-route.js';
 import { routeContract, docRequestTarget } from "./routes.js";
-import { formatClock } from "./visual-system.js";
+import { meetingTime } from "./home-week.js";
+import { BUSINESS_TIME_ZONE } from "./business-date.js";
+
 import { REFUSAL_SENTENCE } from "./status-model.js";
 import { CONVERSATION_ID } from "./conversations-model.js";
 import { ACTOR_LABEL } from "./client.js";
 import { changeAction } from "./change-receipts.mjs";
 
 export { REFUSAL_SENTENCE };
+
+const formatClock = (value, zone) => value && Number.isFinite(new Date(value).valueOf()) ? meetingTime(value, zone) : null;
 
 /* ----------------------------------------------------------- the vocabulary */
 
@@ -140,11 +144,11 @@ export function deepLinkView(deepLink, routes = APP_ROUTE_PATHS) {
  * without an id is dropped rather than drawn: the id is what an acknowledgement
  * is addressed to, and a card that cannot be acknowledged is a dead control.
  */
-export function notificationCards(payload, routes = APP_ROUTE_PATHS) {
+export function notificationCards(payload, routes = APP_ROUTE_PATHS, zone = BUSINESS_TIME_ZONE) {
   if (!validFeedPayload(payload)) return [];
   if (payload.updates) return payload.updates
     .filter((row) => row && typeof row === "object" && isText(row.source_id) && isText(row.title))
-    .map((row) => updateCard(row, routes));
+    .map((row) => updateCard(row, routes, zone));
   return payload.notifications
     .filter((row) => row && typeof row === "object" && isText(row.id))
     .map((row) => ({
@@ -154,9 +158,9 @@ export function notificationCards(payload, routes = APP_ROUTE_PATHS) {
       reason: isText(row.reason) ? row.reason : "no reason recorded",
       subject: recordLabel(row.subject_type),
       details: { subjectType: row.subject_type || null, subjectRef: row.subject_ref || null },
-      clock: formatClock(row.created_at),
+      clock: formatClock(row.created_at, zone),
       read: isText(row.read_at),
-      readClock: formatClock(row.read_at) || null,
+      readClock: formatClock(row.read_at, zone) || null,
       delivery: deliveryPhrases(row.delivery),
       // OUTPUT-ONLY, and printed exactly as the producer decided it. The page
       // does not recompute suppression from the delivery rows: the producer's
@@ -169,7 +173,7 @@ export function notificationCards(payload, routes = APP_ROUTE_PATHS) {
 }
 
 /** An engine update is a Home card: its title, its one-line why, and where it opens. */
-function updateCard(row, routes) {
+function updateCard(row, routes, zone) {
   const link = deepLinkView(row.open_url, routes);
   return {
     id: row.source_id,
@@ -178,9 +182,9 @@ function updateCard(row, routes) {
     reason: row.title,
     subject: isText(row.why) ? row.why : "",
     details: {},
-    clock: formatClock(row.activity_at),
+    clock: formatClock(row.activity_at, zone),
     read: isText(row.read_at),
-    readClock: formatClock(row.read_at) || null,
+    readClock: formatClock(row.read_at, zone) || null,
     delivery: [],
     quietSuppressed: false,
     link: link.routed && isText(row.primary_action) ? { ...link, label: row.primary_action } : link,
@@ -263,7 +267,7 @@ const activityActor = (actor) => !isText(actor) ? "Unattributed"
   : Object.hasOwn(ACTOR_LABEL, actor) ? ACTOR_LABEL[actor]
   : /^[a-z]+$/.test(actor) ? actor.charAt(0).toUpperCase() + actor.slice(1)
   : "Recorded actor";
-export function activityRows(events) {
+export function activityRows(events, zone = BUSINESS_TIME_ZONE) {
   return (Array.isArray(events) ? events : [])
     .filter((row) => row && typeof row === "object" && isText(row.verb))
     .slice(-12)
@@ -273,12 +277,12 @@ export function activityRows(events) {
       verb: changeAction(row),
       subject: recordLabel(row.subject_type),
       details: { actor: row.actor || null, verb: row.verb, subjectType: row.subject_type || null, subjectRef: row.subject_id || null },
-      clock: formatClock(row.recorded_at),
+      clock: formatClock(row.recorded_at, zone),
     }));
 }
 
 /** Who did what from the engine: newest first already, each row openable. */
-export function changeRows(changes) {
+export function changeRows(changes, zone = BUSINESS_TIME_ZONE) {
   return (Array.isArray(changes) ? changes : [])
     .filter((row) => row && typeof row === "object" && isText(row.who) && isText(row.what))
     .map((row) => ({
@@ -286,7 +290,7 @@ export function changeRows(changes) {
       verb: row.what,
       subject: isText(row.record) ? row.record : "",
       details: {},
-      clock: formatClock(row.changed_at),
+      clock: formatClock(row.changed_at, zone),
       link: deepLinkView(row.open_url),
     }));
 }

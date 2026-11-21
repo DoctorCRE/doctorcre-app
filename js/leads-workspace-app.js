@@ -1,3 +1,4 @@
+import { phoneLabel, withoutRecordCodes } from './visual-system.js';
 import { dealsSaveToEngine } from "./boot-mode.js";
 import { parseOpportunityTiming, timingMarkup } from './ui-lead-opportunity-timing.generated.js';
 import { parseReachability } from './ui-lead-reachability.generated.js';
@@ -14,7 +15,7 @@ import {onDialogClosed} from './dialog-lifecycle.js';
 import { pageDocContext, publishDocRead, selectDocRecord, setDocFilters } from './doc-context.js';
 import { createLeadBoardClient, hasLeadVersion, validateLeadWorkspace as validateWorkspace, validateLeadDetail as validateDetail } from "./leads-client.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
-import { BOARD_STAGES, FILTER_STAGES, stageLabel, normalizedStage, eligibleLead, leadTitle, marketKey, specialtyKey,
+import { BOARD_STAGES, FILTER_STAGES, stageLabel, normalizedStage, eligibleLead, leadTitle, leadMarket, marketKey, specialtyKey,
   visibleLeads, marketCounts, stageReview, automaticMove, undoReview, leadTimestamp, leadReachability } from "./leads-model.js";
 import { mountTerritoryMap } from "./leads-territory-map.js";
 
@@ -28,12 +29,7 @@ const shortDate = (value, calendarDate = false) => {
 };
 const stamp = value => Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("en-US", { timeZone: BUSINESS_TIME_ZONE, month: "short", day: "numeric", year: yearIfNeeded(new Date(value)), hour: "numeric", minute: "2-digit", hour12: true }) : "—";
 const summary = value => String(value || "").split(/\n\s*\n/)[0].slice(0, 230);
-const score = lead => lead.score == null ? "—" : esc(Math.round(Number(lead.score)));
 const ownerName = owner => owner ? owner.charAt(0).toUpperCase() + owner.slice(1) : "Unclaimed";
-const phoneLabel = phone => phone.replace(
-  /^(?:\+1[ .-]?)?(?:\(([2-9]\d{2})\)|([2-9]\d{2}))[ .-]?([2-9]\d{2})[ .-]?(\d{4})(?= +x\d+$|$)/i,
-  (_, parenthesizedArea, area, exchange, line) => `(${parenthesizedArea || area}) ${exchange}-${line}`,
-);
 const claimButton = lead => !lead.owner && normalizedStage(lead) !== "archived" ? `<button data-claim="${esc(lead.id)}">Claim</button>` : "";
 const readOnlyMessage = "Can't edit right now. Refresh to try again.";
 const quietLeadIndex = proposals => new Map(proposals.filter(row => row.subject_type === "lead").flatMap(row =>
@@ -188,9 +184,9 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     // The time states the snapshot on screen, as Deals does: a failed refresh
     // that keeps the board keeps its time beside the reconnecting line, and
     // only a failed read with nothing to show is "Unavailable".
-    $("boardUpdated").textContent = state.board ? updatedLabel(state.board.generated_at) : state.readFailed ? "Unavailable" : "Updating…";
+    $("boardUpdated").textContent = state.board ? updatedLabel(state.board.generated_at, BUSINESS_TIME_ZONE) : state.readFailed ? "Unavailable" : "Updating…";
     $("boardUpdated").dateTime = state.board?.generated_at || "";
-    $("searchUpdated").textContent = `New-lead search ${state.board?.last_search_at ? stamp(state.board.last_search_at) : "—"}`;
+    $("searchUpdated").textContent = state.board?.last_search_at ? `New-lead search ${stamp(state.board.last_search_at)}` : "";
     paintWriteControls();
     const columns = $("leadBoard").querySelector(".stage-columns");
     if (columns) columns.scrollLeft = boardScroll;
@@ -402,9 +398,16 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const expanded = new Set(intent?.expanded ?? [...$("detailBody").querySelectorAll("details[open]")].map(node => node.dataset.entryKey));
     const scroll = intent?.scroll ?? $("leadDetail").scrollTop;
     $("detailTitle").textContent = leadTitle(detail);
-    const contact = (kind, value) => value ? `<a href="${kind === "Email" ? "mailto:" : "tel:"}${esc(value)}">${esc(kind === "Phone" ? phoneLabel(value) : value)}</a>` : "—";
-    const plans = (detail.plans ?? detail.notes ?? "").trim();
-    const [plan, ...planDetails] = plans.split(/\n\s*\n/);
+    const fields = [
+      ["Owner", esc(detail.owner_label || ownerName(detail.owner))],
+      ["Phone", detail.phone && `<a href="tel:${esc(detail.phone)}">${esc(phoneLabel(detail.phone))}</a>`],
+      ["Email", detail.email && `<a href="mailto:${esc(detail.email)}">${esc(detail.email)}</a>`],
+      ["Market", esc(leadMarket(detail))],
+      ["Vertical", esc(detail.specialty || detail.vertical)],
+    ];
+    const plans = (detail.plans ?? detail.notes ?? "").split(/\n\s*\n/)
+      .map(text => withoutRecordCodes(text.replace(/\bT\d+\s+(?:open|closed)\b[.]?/gi, ""))).filter(Boolean);
+    const [plan, ...planDetails] = plans;
     const leaseDate = toDay(detail.est_lease_event);
     const lastArchive = detail.stage_history.find(entry => entry.stage === "archived");
     const becameDeal = normalizedStage(detail) === "archived" && lastArchive?.reason === "became a deal in the old system";
@@ -414,15 +417,15 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const selectedKind = researchSubject === detail.id ? researchKind : '';
     const selectedAttention = researchSubject === detail.id ? researchAttention : '';
     clearGuidance();
-    $("detailBody").innerHTML = `<section class="detail-summary"><div><h3>Lead score</h3><div class="detail-score">${score(detail)}<span>/ 100</span></div></div><label>Stage<select id="detailStage">${FILTER_STAGES.filter(([key]) => key !== "do_not_contact").map(([key,text]) => `<option value="${key}"${normalizedStage(detail) === key ? " selected" : ""}>${text}</option>`).join("")}</select></label></section>
+    $("detailBody").innerHTML = `<section class="detail-summary">${detail.score == null ? "" : `<div><h3>Lead score</h3><div class="detail-score">${esc(Math.round(Number(detail.score)))}<span>/ 100</span></div></div>`}<label>Stage<select id="detailStage">${FILTER_STAGES.filter(([key]) => key !== "do_not_contact").map(([key,text]) => `<option value="${key}"${normalizedStage(detail) === key ? " selected" : ""}>${text}</option>`).join("")}</select></label></section>
       ${becameDeal ? '<p class="detail-archive-reason">Became a deal.</p>' : ""}
       <p id="leadReadOnly" hidden>${readOnlyMessage}</p>
       <div class="detail-actions">${claimButton(detail)}
         ${move ? `<div class="auto-move">Moved automatically: ${esc(move.reason || "stage updated")} ${shortDate(move.evidence_date || move.occurred_at, !!move.evidence_date)}${undo ? `<button data-undo="${esc(detail.id)}">Undo</button>` : ""}</div>` : ""}
         ${detail.possible_clients.map(match => `<button class="client-hint" data-link="${esc(detail.id)}" data-client-id="${esc(match.client_id)}">Link to client ${esc(match.name)}</button>`).join("")}
       </div>
-      <div class="detail-overview"><section class="detail-panel"><h3>Contact</h3><dl><dt>Owner</dt><dd>${esc(detail.owner_label || ownerName(detail.owner))}</dd><dt>Phone</dt><dd>${contact("Phone", detail.phone)}</dd><dt>Email</dt><dd>${contact("Email", detail.email)}</dd><dt>Market</dt><dd>${esc(marketKey(detail))}</dd><dt>Vertical</dt><dd>${esc(detail.specialty || detail.vertical || "—")}</dd></dl></section>
-      <section class="detail-panel"><h3>Plans</h3><p>${esc(plan || "No plans recorded.")}</p>${planDetails.length ? `<details class="plan-details" data-entry-key="plans"><summary>More about these plans</summary><div class="original-entry">${esc(planDetails.join("\n\n"))}</div></details>` : ""}${leaseDate ? `<dl class="plan-window"><dt>Estimated lease date</dt><dd><time datetime="${esc(leaseDate)}">${esc(shortDate(leaseDate, true))}</time></dd></dl>` : ""}</section>
+      <div class="detail-overview"><section class="detail-panel"><h3>Contact</h3><dl>${fields.filter(([, value]) => value).map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join("")}</dl></section>
+      ${plan || leaseDate ? `<section class="detail-panel"><h3>Plans</h3>${plan ? `<p>${esc(plan)}</p>` : ""}${planDetails.length ? `<details class="plan-details" data-entry-key="plans"><summary>More about these plans</summary><div class="original-entry">${esc(planDetails.join("\n\n"))}</div></details>` : ""}${leaseDate ? `<dl class="plan-window"><dt>Estimated lease date</dt><dd><time datetime="${esc(leaseDate)}">${esc(shortDate(leaseDate, true))}</time></dd></dl>` : ""}</section>` : ""}
       </div>
       ${source ? `<section class="detail-panel"><h3>Source email</h3><time>${stamp(source.occurred_at)}</time>${sourceExcerpt ? `<p>${esc(sourceExcerpt)}</p>` : ""}</section>` : ""}
       ${timingMarkup(detail.opportunity_timing, true, !!leaseDate)}

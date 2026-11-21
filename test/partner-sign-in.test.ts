@@ -281,3 +281,23 @@ test("CARR mode keeps its existing auth, page and API destinations", async () =>
   assert.deepEqual(await (await send("/api/engine/leads")).json(), { legacy: true });
   assert.equal(calls.partner.length, 0);
 });
+
+test("Ask Doc uses the engine page gate and forwards writes only to PartnerApp", async () => {
+  const path = "/doc-chats?id=synthetic";
+  const ask = "/api/engine/doc/turns";
+  const { send, calls } = fixture(status, { WORKSPACE_COMMAND_CENTER_READ_ENABLED: "false" });
+  const denied = await send(path);
+  assert.equal(denied.status, 302);
+  assert.equal(new URL(denied.headers.get("location") ?? "").searchParams.get("return_to"), path);
+  const admitted = await send(path, { headers: proofs });
+  assert.equal(admitted.status, 200);
+  assert.equal(await admitted.text(), "/doc-chats.html");
+  assert.equal(admitted.headers.get("cache-control"), "no-store");
+  assert.equal((await send(ask, { method: "POST", headers: proofs })).status, 200);
+  assert.equal(calls.partner.at(-1)?.headers.get("x-carr-csrf"), session.csrf_token);
+  assert.equal(calls.engine.length + calls.carr.length, 0);
+
+  const legacy = fixture(status, { PARTNER_SIGN_IN: "carr" });
+  assert.equal((await legacy.send(ask, { method: "POST", headers: proofs })).status, 404);
+  assert.equal(legacy.calls.engine.length + legacy.calls.partner.length, 0);
+});

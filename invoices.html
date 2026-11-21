@@ -10,6 +10,7 @@
 </head><body>
 <div id="appShell"></div><script type="module" src="/js/app-shell.js"></script><a class="invoice-skip" href="#main">Skip to invoices</a>
 <main id="main" class="invoice-workspace">
+<h1 class="app-page-title" data-layout-slot="title">Invoices</h1>
 <section data-layout-slot="sidebar" class="invoice-controls"><label for="invoiceSearch">Search invoices</label><input id="invoiceSearch" type="search" placeholder="Deal name" autocomplete="off"><label for="invoiceOwner">Owner</label><select id="invoiceOwner"><option value="">Everyone</option></select><button id="clearInvoiceFilters" type="button">Clear filters</button></section>
 <div data-layout-slot="tabs" id="invoiceTabs" class="invoice-tabs" role="group" aria-label="Invoice status"><button type="button" data-status="all" aria-pressed="true">All</button><button type="button" data-status="unpaid" aria-pressed="false">Unpaid</button><button type="button" data-status="awaiting" aria-pressed="false">Awaiting invoice</button><button type="button" data-status="paid" aria-pressed="false">Paid</button></div>
 <p id="invoiceNotice" role="status" hidden></p>

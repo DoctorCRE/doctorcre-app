@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import {
   canDispatch, classifyPriority, contrastRatio, createFeedback, feedbackLabel, formatCalendarDate,
   formatClock, formatDueStamp, orderWork, parseQuickAdd, preferenceAttributes,
-  readTokens, resolvePreferences, transitionFeedback, weekdayName,
+  readTokens, resolvePreferences, transitionFeedback, weekdayName, withoutRecordCodes,
 } from "../js/visual-system.js";
 
 test("preferences resolve to known values, fall back per key, and honour the system motion request only when nothing is stored", () => {
@@ -73,6 +73,18 @@ test("clock and calendar formatting are 12-hour AM/PM and a readable calendar da
   assert.equal(formatDueStamp("2026-09-15", "5:00 PM"), "Tue, Sep 15, 2026 · 5:00 PM");
   assert.equal(formatDueStamp("2026-09-15"), "Tue, Sep 15, 2026");
   assert.equal(formatDueStamp("nope", "5:00 PM"), null);
+});
+
+test("display names remove the V-SUP three-digit record code", () => {
+  assert.equal(withoutRecordCodes("Example (V-SUP-901) Clinic"), "Example Clinic");
+});
+
+test("display names preserve ambiguous parentheticals", () => {
+  assert.equal(withoutRecordCodes("Example Clinic (B-52) (TBD: intake) (V-OTHER-901)"), "Example Clinic (B-52) (TBD: intake) (V-OTHER-901)");
+});
+
+test("display names fall back to the stored name when it is only a code", () => {
+  assert.equal(withoutRecordCodes("(V-SUP-901)"), "(V-SUP-901)");
 });
 
 test("Quick add fills owner, due and related from the sentence and never leaves them unknown when the sentence holds them", () => {

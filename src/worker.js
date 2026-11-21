@@ -947,15 +947,17 @@ async function handleRequest(request, env) {
     return assetResponse(request, env, `/${APP_ROUTES.get(pathname)}`);
   }
 
+  const engineChat = pathname === '/doc-chats' && engineSignIn(env);
   const dealView = pathname === '/deals' ? url.searchParams.get('view') : null;
   const reviewView = dealView === 'review' || dealView === 'dropped-prospect';
-  const routeAsset = reviewView ? 'monday-review.html'
+  const routeAsset = engineChat ? 'doc-chats.html'
+    : reviewView ? 'monday-review.html'
     : dealView === 'national' ? "index.html"
     : pathname === "/" && url.searchParams.get("view") === "charts" ? "charts.html"
     : APP_ROUTES.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
   if (routeAsset) {
     if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method_not_allowed" }, 405);
-    const gate = await pageGate(request, env, gateRequestFor(request, pathname));
+    const gate = await pageGate(request, env, engineChat ? request : gateRequestFor(request, pathname));
     if (gate.status !== 200) return gate;
     const switches = await pageSwitches(env);
     if (reviewView && (!switches.dealsFromEngine || !switches.dealSavesFromEngine)) {
@@ -990,6 +992,8 @@ async function handleRequest(request, env) {
   }
 
   if (pathname.startsWith('/api/engine/')) {
+    if (/^\/api\/engine\/doc\/(turns|conversations)(?:\/|$)/.test(pathname) && !engineSignIn(env))
+      return json({ error: 'not_found' }, 404);
     const documentWriteMethod = /^\/api\/engine\/files\/[a-f0-9]{64}$/.test(pathname) ? 'PUT'
       : /^\/api\/engine\/deals\/[^/]+\/documents$/.test(pathname) ? 'POST' : null;
     const allowed = documentWriteMethod ? [documentWriteMethod] : ['GET', 'HEAD', 'POST'];
