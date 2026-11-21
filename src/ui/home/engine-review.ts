@@ -142,6 +142,8 @@ async function answer(rpc: Rpc, name: string, args: unknown, signal?: AbortSigna
   });
   if (object(value) && (typeof value.error === "string" || typeof value.http_status === "number")) {
     const error = string(value.error) ?? "suggestion_refused";
+    if (name === "decide-engine-home-proposal" && error === "already_decided" && value.http_status === 409)
+      return value;
     const resolved = ["draft_changed", "already_decided", "not_found"].includes(error);
     const code = resolved ? "home_review_resolved" : error === "not_mailbox_owner" ? "email_draft_not_owner" : error;
     throw Object.assign(Error(code), { payload: { ...value, error: code } });
@@ -151,6 +153,32 @@ async function answer(rpc: Rpc, name: string, args: unknown, signal?: AbortSigna
 }
 export const openStepRefusal =
   "You already have an open step for this client or deal. Finish or change that step first.";
+
+export type FilingReasonRefusal = { dealId: string; message: string };
+
+export type DealFilingReason = { required: true; hint: string } | { required: false; hint: null };
+
+export async function readDealFilingReason(
+  rpc: Rpc,
+  id: string,
+  dealId: string,
+  signal: AbortSignal,
+): Promise<DealFilingReason> {
+  const value = await answer(rpc, "read-engine-home-proposal", { id, deal_id: dealId }, signal);
+  if (value.reason_required === true && typeof value.hint === "string" && value.hint.trim())
+    return { required: true, hint: value.hint };
+  if (value.reason_required === false && value.hint === null) return { required: false, hint: null };
+  throw unreadable();
+}
+
+export function filingReasonRefusal(error: unknown, dealId: string): FilingReasonRefusal | null {
+  const payload = object(error) && object(error.payload) ? error.payload : null;
+  return payload?.http_status === 422 &&
+    payload.error === "database_refused_the_statement" &&
+    payload.rule === "proposal_filing_reason"
+    ? { dealId, message: "This email isn't linked to that deal yet. Add a short reason to file it there." }
+    : null;
+}
 
 export function proposalRefusal(error: unknown) {
   const payload = object(error) && object(error.payload) ? error.payload : null;
@@ -172,6 +200,20 @@ export function proposalRefusal(error: unknown) {
         : "This suggestion could not be saved. Review the linked record or dismiss the suggestion.";
   }
 }
+export type FilingChoice = { kind: "deal" | "vendor"; label: string };
+
+function filingChoices(value: unknown): FilingChoice[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw unreadable();
+  const choices = new Map<FilingChoice["kind"], FilingChoice>();
+  for (const choice of value) {
+    if (!object(choice) || (choice.kind !== "deal" && choice.kind !== "vendor") || typeof choice.label !== "string")
+      throw unreadable();
+    choices.set(choice.kind, { kind: choice.kind, label: choice.label });
+  }
+  return [...choices.values()];
+}
+
 export type Suggestion = {
   id: string;
   label: string;
@@ -185,6 +227,7 @@ export type Suggestion = {
   editable: boolean;
   completion: boolean;
   canAccept: boolean;
+  filingChoices: FilingChoice[] | undefined;
 };
 
 function parseProposal(value: Record<string, unknown>, id: string, canAccept: boolean) {
@@ -195,9 +238,10 @@ function parseProposal(value: Record<string, unknown>, id: string, canAccept: bo
   const leadCandidate = value.kind === "email_lead" && activity?.id === null && !Array.isArray(value.thread);
   const thread =
     !leadCandidate && (Array.isArray(value.thread) || activity?.kind === "email") ? emailThread(value) : null;
+  const choices = filingChoices(value.filing_choices);
   const proposal: Suggestion = {
     id,
-    label,
+    label: choices ? "File this email" : label,
     target: string(value.target_name),
     // Imported proposals can store raw email quotes in evidence.
     reason: thread ? string(value.reason) : value.evidence,
@@ -208,7 +252,8 @@ function parseProposal(value: Record<string, unknown>, id: string, canAccept: bo
     dueOn: string(value.due_on),
     editable: value.kind === "next_step",
     completion: value.kind === "next_step_done",
-    canAccept: canAccept,
+    canAccept,
+    filingChoices: choices,
   };
   return { proposal, thread };
 }
@@ -316,6 +361,7 @@ export async function saveEngineReview(rpc: Rpc, item: ReviewItem, request: Revi
   if (verb === "decide-engine-home-proposal") {
     if (typeof args.id !== "string" || !matchesProposal(item, args.id)) throw unreadable();
     const result = await answer(rpc, verb, args);
+    if (result.error === "already_decided") return "already_decided";
     if (result.proposal_id !== args.id || result.status !== (args.decision === "accept" ? "accepted" : "dismissed"))
       throw unreadable();
     return undefined;

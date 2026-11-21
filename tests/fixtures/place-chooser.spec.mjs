@@ -19,8 +19,19 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     await page.getByRole('button', { name: 'Show territory', exact: true }).click();
     const marker = page.locator('.market-marker');
     await marker.waitFor();
-    await page.evaluate(() => leadsRenderer.jumpTo({ center: [-87.2, 30.42], zoom: 11 }));
-    await marker.click();
+    await page.evaluate(() => leadsRenderer.jumpTo({ center: [-87.191242, 30.440989], zoom: 11 }));
+    if (width === 390) {
+      const point = await marker.evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        const y = innerHeight - 120;
+        window.scrollBy({ top: rect.top + rect.height / 2 - y, behavior: 'instant' });
+        const scrolled = node.getBoundingClientRect();
+        return { x: scrolled.left + scrolled.width / 2, y: scrolled.top + scrolled.height / 2 };
+      });
+      await page.mouse.click(point.x, point.y);
+    } else {
+      await marker.click();
+    }
     const chooser = page.getByRole('region', { name: 'Leads in this place', exact: true });
     await expect(chooser).toBeVisible();
     if (width === 390) {
@@ -30,6 +41,10 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
         return rect.top >= list.top && rect.bottom <= list.bottom;
       }).length);
       expect(visibleRows, 'fully visible member rows').toBeGreaterThanOrEqual(4);
+      await page.waitForFunction(() => {
+        const map = document.getElementById('territoryMap');
+        return map.querySelector('canvas').clientHeight === map.clientHeight;
+      });
       expect(await marker.evaluate(node => {
         const rect = node.getBoundingClientRect();
         return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === node;

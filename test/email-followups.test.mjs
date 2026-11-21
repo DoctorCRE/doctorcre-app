@@ -794,6 +794,13 @@ const fillFollowup = (container, key, value) => {
   const field = container.querySelector(`[data-field="${key}"]`); assert.ok(field, key);
   field.value = value; field.dispatchEvent(new field.ownerDocument.defaultView.Event('input', { bubbles: true }));
 };
+const selectFollowupDeal = (container, id) => {
+  const select = container.querySelector('select[aria-label="Selected deal"]');
+  assert.ok(select);
+  select.value = id;
+  assert.equal(select.value, id);
+  select.dispatchEvent(new select.ownerDocument.defaultView.Event('change', { bubbles: true }));
+};
 const filingRow = () => ({ ...proposal(), kind: 'file_to_deal', confirm_verb: 'confirm-email-filing',
   suggested_deals: [{ deal: proposal().deal, name: 'Demo Harbor expansion', reasons: ['Existing client transaction'] }],
   preview: { contract: 'email-filing.v1', proposal_id: proposal().id, kind: 'file_to_deal', deal: proposal().deal,
@@ -809,7 +816,7 @@ for (const kind of ['file_to_deal', 'possible_new_deal']) test(`${kind} files to
     createDeal: async () => assert.fail('existing deal must not create'),
     confirmEmailFiling: async args => { calls.push(args); return { ok: true, proposal_id: row.id, version: 4, status: 'confirmed', disposition: 'filed', note: args.note, deal: args.deal, activity_id: row.source.activity_id }; } });
   await view.refresh(); await clickFollowup(container, 'File to existing deal');
-  fillFollowup(container, 'deal', proposal().deal); fillFollowup(container, 'note', 'Discussed on the call');
+  selectFollowupDeal(container, proposal().deal); fillFollowup(container, 'note', 'Discussed on the call');
   await clickFollowup(container, 'Review selected deal');
   assert.equal(calls.length, 0); assert.equal(previews.length, 1);
   await clickFollowup(container, 'Confirm filing');
@@ -968,7 +975,7 @@ for (const action of ['defer', 'file', 'handled']) test(`remounted live ${action
     await clickFollowup(mounted.container, { defer: 'Not now', file: 'File to existing deal', handled: 'Already handled' }[action]);
     fillFollowup(mounted.container, 'note', note);
     if (action === 'defer') fillFollowup(mounted.container, 'when', note === 'Original note' ? '2099-11-04T09:00' : '2099-11-05T09:00');
-    if (action === 'file') { fillFollowup(mounted.container, 'deal', row.deal); await clickFollowup(mounted.container, 'Review selected deal'); }
+    if (action === 'file') { selectFollowupDeal(mounted.container, row.deal); await clickFollowup(mounted.container, 'Review selected deal'); }
     await clickFollowup(mounted.container, { defer: 'Defer follow-up', file: 'Confirm filing', handled: 'Confirm handled' }[action]);
   };
   const first = setup(client); await start(first, 'Original note');
@@ -1030,7 +1037,7 @@ for (const outcome of ['lost', 'success', 'refusal', 'in-flight']) test(`changed
   } });
   const file = async (mounted, deal) => {
     await clickFollowup(mounted.container, 'File to existing deal');
-    fillFollowup(mounted.container, 'deal', deal);
+    selectFollowupDeal(mounted.container, deal);
     await clickFollowup(mounted.container, 'Review selected deal');
     await clickFollowup(mounted.container, 'Confirm filing');
   };
@@ -1082,7 +1089,7 @@ for (const outcome of ['offline', 'malformed']) test(`round-three changed-target
   } });
   const file = async (mounted, deal) => {
     await clickFollowup(mounted.container, 'File to existing deal');
-    fillFollowup(mounted.container, 'deal', deal);
+    selectFollowupDeal(mounted.container, deal);
     await clickFollowup(mounted.container, 'Review selected deal');
     await clickFollowup(mounted.container, 'Confirm filing');
   };

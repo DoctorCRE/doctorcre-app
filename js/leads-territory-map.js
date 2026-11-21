@@ -161,7 +161,7 @@ export async function mountTerritoryMap(root, selectMarket, selectLead, { signal
     close.type = "button"; close.textContent = "×"; close.setAttribute("aria-label", "Close place leads");
     close.addEventListener("click", () => closePicker());
     element.addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closePicker(); } });
-    heading.append(title, close); element.append(heading, precision, list); root.append(element);
+    heading.append(title, close); element.append(heading, precision, list); root.after(element);
     picker = { element, list, buttons: new Map(), places: new Set(item.features.map(feature => feature.id)), trigger: item.button };
     updatePicker();
     picker?.list.querySelector("button")?.focus({ preventScroll: true });

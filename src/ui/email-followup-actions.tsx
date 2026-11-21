@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { requireEmailActionReceipt } from "../../js/email-action-receipt.mjs";
+import { DealPicker } from "./deal-picker";
 
 type Row = {
   id: string;
@@ -60,11 +61,6 @@ type State =
 export type ActionModel = { state: State };
 export const actionModel = (): ActionModel => ({ state: { kind: "idle" } });
 const zone = "America/Chicago";
-const escapeHtml = (value: string) =>
-  value.replace(
-    /[&<>"']/g,
-    (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] || char,
-  );
 function isRequest(value: unknown): value is Request {
   if (!value || typeof value !== "object") return false;
   const request = record(value);
@@ -126,6 +122,12 @@ export function mountEmailActions(
           button.disabled = true;
         });
   }
+  // An access denial still applies after the picker closes.
+  const readBoard = () =>
+    client.getBoard().catch((error: unknown) => {
+      if (current()) retireIfDenied(error);
+      throw error;
+    });
   function render() {
     if (!current()) return;
     const state = model.state;
@@ -174,17 +176,24 @@ export function mountEmailActions(
             </>
           ) : matching ? (
             <>
-              <label>
-                Search existing deals
-                <input type="search" data-deal-search="" />
-              </label>
-              <label>
-                Selected deal
-                <select aria-label="Selected deal" data-field="deal" defaultValue="">
-                  <option value="">Choose a deal</option>
-                </select>
-              </label>
-              <div data-deal-reasons="" />
+              <DealPicker
+                readBoard={readBoard}
+                suggested={row.suggested_deals?.map(({ deal, name }) => ({ id: deal, name })) ?? []}
+                initialDeal={draft.deal}
+                onSelect={(deal) => {
+                  draft.deal = deal?.id ?? "";
+                  draft.dealName = deal?.name ?? "";
+                }}
+              />
+              {row.suggested_deals?.length ? (
+                row.suggested_deals.map((item) => (
+                  <p key={item.deal}>
+                    <a href={`/deals?deal=${encodeURIComponent(item.deal)}`}>{item.name}</a> · {item.reasons.join("; ")}
+                  </p>
+                ))
+              ) : (
+                <p>No suggested deals. Search all accessible deals.</p>
+              )}
             </>
           ) : (
             <p>Mark this follow-up handled. Nothing will be sent.</p>
@@ -270,11 +279,7 @@ export function mountEmailActions(
         </>
       );
     flushSync(() => root.render(content));
-    if (state.kind === "editing") {
-      if (["file_to_deal", "possible_new_deal"].includes(row.kind) && ["file", "handled"].includes(state.draft.action))
-        void loadDeals(state.draft);
-      updateTime(state.draft);
-    }
+    if (state.kind === "editing") updateTime(state.draft);
     syncControls();
   }
   function message(text: string) {
@@ -289,50 +294,6 @@ export function mountEmailActions(
       } catch (error) {
         node.textContent = error instanceof Error ? error.message : "Choose a valid return time.";
       }
-    }
-  }
-  async function loadDeals(draft: Draft) {
-    try {
-      const board = await client.getBoard();
-      if (!current() || model.state.kind !== "editing" || model.state.draft !== draft) return;
-      const select = host.querySelector("select"),
-        search = host.querySelector<HTMLInputElement>("[data-deal-search]");
-      if (!select || !search) return;
-      const suggested = row.suggested_deals || [];
-      const choices = [...suggested.map((item) => ({ id: item.deal, name: item.name })), ...board.deals].filter(
-        (item, index, all) => all.findIndex((other) => other.id === item.id) === index,
-      );
-      function options() {
-        if (!select || !search) return;
-        select.innerHTML =
-          '<option value="">Choose a deal</option>' +
-          choices
-            .filter((item) => item.id === draft.deal || item.name.toLowerCase().includes(search.value.toLowerCase()))
-            .map(
-              (item) =>
-                `<option value="${escapeHtml(item.id)}"${item.id === draft.deal ? " selected" : ""}>${escapeHtml(item.name)}</option>`,
-            )
-            .join("");
-      }
-      options();
-      search.addEventListener("input", options);
-      draft.dealName = choices.find((item) => item.id === draft.deal)?.name || "";
-      select.addEventListener("change", () => {
-        draft.dealName = choices.find((item) => item.id === select.value)?.name || "";
-      });
-      const reasons = host.querySelector("[data-deal-reasons]");
-      if (reasons)
-        reasons.innerHTML =
-          suggested
-            .map(
-              (item) =>
-                `<p><a href="/deals?deal=${encodeURIComponent(item.deal)}">${escapeHtml(item.name)}</a> · ${escapeHtml(item.reasons.join("; "))}</p>`,
-            )
-            .join("") || "<p>No suggested deals. Search all accessible deals.</p>";
-    } catch (error) {
-      if (!current() || retireIfDenied(error)) return;
-      if (model.state.kind !== "editing" || model.state.draft !== draft) return;
-      message("Could not load deals. Cancel and try again.");
     }
   }
   function retireIfDenied(error: unknown) {
@@ -552,7 +513,7 @@ export function mountEmailActions(
       return;
     const key = target.dataset.field,
       draft = model.state.draft;
-    if (key === "deal" || key === "note" || key === "reason" || key === "when" || key === "name" || key === "client")
+    if (key === "note" || key === "reason" || key === "when" || key === "name" || key === "client")
       draft[key] = target.value;
     updateTime(draft);
   };
@@ -589,6 +550,8 @@ export function mountEmailActions(
         message("Choose the deal before continuing.");
         return;
       }
+      const chosen = host.querySelector("select")?.selectedOptions[0];
+      if (chosen?.value === draft.deal) draft.dealName = chosen.text;
       void preview(draft);
     } else void write("handleEmailProposal", request, undefined, draft);
   };

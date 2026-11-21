@@ -10,50 +10,29 @@ function events(initial = "visible") {
     visibilityState: initial,
     addEventListener(name, fn) { listeners.set(`doc:${name}`, fn); },
   };
-  const win = { addEventListener(name, fn) { listeners.set(`win:${name}`, fn); } };
   return {
-    doc, win,
+    doc,
     visibility(state) { doc.visibilityState = state; listeners.get("doc:visibilitychange")(); },
-    pagehide() { listeners.get("win:pagehide")(); },
-    pageshow(persisted) { listeners.get("win:pageshow")({ persisted }); },
   };
 }
 
 test("a hidden Notifications page reads the feed once when it becomes visible", async () => {
   const browser = events();
   let reads = 0;
-  mountReadOnResume({ document: browser.doc, window: browser.win, refresh: async () => { reads++; } });
+  mountReadOnResume({ document: browser.doc, refresh: async () => { reads++; } });
   browser.visibility("hidden");
   browser.visibility("visible");
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(reads, 1);
   browser.visibility("visible");
-  browser.pageshow(true);
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(reads, 1, "one resume cannot issue a second read through pageshow");
-});
-
-test("a back-forward cache restore reads, while ordinary pageshow and hidden pages do not", async () => {
-  const browser = events();
-  let reads = 0;
-  mountReadOnResume({ document: browser.doc, window: browser.win, refresh: async () => { reads++; } });
-  browser.pageshow(false);
-  browser.visibility("hidden");
-  browser.pageshow(true);
-  assert.equal(reads, 0);
-  browser.pageshow(true);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(reads, 0);
-  browser.doc.visibilityState = "visible";
-  browser.pageshow(true);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(reads, 1);
+  assert.equal(reads, 1, "a repeated visible event cannot issue a second read");
 });
 
 test("failed reads can be retried on the next actual resume", async () => {
   const browser = events();
   let reads = 0;
-  mountReadOnResume({ document: browser.doc, window: browser.win, refresh: async () => {
+  mountReadOnResume({ document: browser.doc, refresh: async () => {
     reads++;
     if (reads === 1) throw new Error("synthetic feed failure");
   } });
@@ -66,24 +45,11 @@ test("failed reads can be retried on the next actual resume", async () => {
   assert.equal(reads, 2);
 });
 
-test("each back-forward restore reads again even when the browser skips visibilitychange", async () => {
-  const browser = events();
-  let reads = 0;
-  mountReadOnResume({ document: browser.doc, window: browser.win, refresh: async () => { reads++; } });
-  browser.pagehide();
-  browser.pageshow(true);
-  await new Promise((resolve) => setImmediate(resolve));
-  browser.pagehide();
-  browser.pageshow(true);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(reads, 2);
-});
-
 test("a second return while a read is in flight queues one fresh read", async () => {
   const browser = events();
   let complete;
   let reads = 0;
-  mountReadOnResume({ document: browser.doc, window: browser.win, refresh: async () => {
+  mountReadOnResume({ document: browser.doc, refresh: async () => {
     reads++;
     if (reads === 1) await new Promise((resolve) => { complete = resolve; });
   } });

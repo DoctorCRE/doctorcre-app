@@ -44,6 +44,7 @@ async function open(
     recentChanges = false,
     malformedEndedReminder = false,
     meetingState = "ready",
+    meetingItems = true,
     theme = "dark",
   } = {},
 ) {
@@ -128,9 +129,8 @@ async function open(
           observed_at: "2026-11-19T21:40:00Z",
           notes: ["Internal calendar instruction"],
           items:
-            meetingState === "empty"
-              ? []
-              : [
+            meetingState !== "empty" && meetingItems
+              ? [
                   {
                     title: "Example site visit",
                     start: "2026-11-19T16:00:00Z",
@@ -139,7 +139,8 @@ async function open(
                     attendees: [{ name: "Example Attendee" }],
                     open_url: "/deals?deal=example",
                   },
-                ],
+                ]
+              : [],
           follow_up_reviews: [],
         },
         reminders: {
@@ -149,6 +150,7 @@ async function open(
               kind: "step",
               owner: "joe",
               title: "Send sample floor plan",
+              why: "Check the suite number before sending.",
               due_on: "2026-11-16",
               days_late: 3,
               late_label: "3 days late",
@@ -161,6 +163,14 @@ async function open(
               due_on: "2026-11-16",
               home_item_id: "example-lead-step",
               open_url: "/leads?lead=example",
+            },
+            {
+              kind: "step",
+              owner: "joe",
+              title: "Check in with the supplier",
+              due_on: "2026-11-16",
+              home_item_id: "example-vendor-step",
+              open_url: "/relationships?node=party:example",
             },
             {
               kind: "step",
@@ -195,11 +205,17 @@ async function open(
   return { page, today: page.getByRole("complementary", { name: "Today", exact: true }), legacy, readToday };
 }
 
-test("Today links a reminder missing from the Home grid to its record", async (t) => {
+test("Today opens the record when a reminder is missing from the Home grid", async (t) => {
   const { today } = await open(t, "/invoices");
-  const link = today.getByRole("link", { name: /Call the example lead/ });
+  const link = today.getByRole("link", { name: /Check in with the supplier/ });
   await link.waitFor();
-  assert.equal(await link.getAttribute("href"), "/leads?lead=example");
+  assert.equal(await link.getAttribute("href"), "/relationships?node=party:example");
+});
+
+test("Today keeps lead reminders on Leads", async (t) => {
+  const { today } = await open(t, "/leads");
+  await today.getByText("Send sample floor plan", { exact: true }).waitFor();
+  assert.equal(await today.getByText("Call the example lead", { exact: true }).count(), 0);
 });
 
 for (const path of pages)
@@ -260,25 +276,36 @@ test("The shell keeps Morning brief with the switch off and drops it with the sw
 
 for (const width of [390, 1440])
   for (const theme of ["light", "dark"]) {
-    test(`Today shows meetings and last sync at ${width}px in ${theme}`, async (t) => {
+    test(`Today shows meetings and reminder filters at ${width}px in ${theme}`, async (t) => {
       const { page, today } = await open(t, "/invoices", { width, theme, meetingState: "partial" });
       if (width === 390) await page.getByRole("button", { name: "Today sidebar", exact: true }).click();
       const meetings = today.getByRole("region", { name: "Meetings", exact: true });
       await meetings.getByText("Example site visit", { exact: true }).waitFor();
       assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
       assert.equal(await meetings.getByText(/Check Outlook|Internal calendar instruction/).count(), 0);
-      await meetings.getByText("Last synced Nov 19, 3:40 PM CST.", { exact: true }).waitFor();
-      const owners = today.getByRole("combobox", { name: "Reminders for" });
-      await owners.selectOption("dell");
+      assert.equal(await meetings.getByText(/Last synced/).count(), 0);
+      const owners = today.getByRole("group", { name: "Reminders for" });
+      const both = owners.getByRole("button", { name: "Both partners" });
+      const dell = owners.getByRole("button", { name: "Dell" });
+      assert.equal(await both.getAttribute("aria-pressed"), "true");
+      await dell.click();
+      assert.equal(await dell.getAttribute("aria-pressed"), "true");
       await today.getByText("No dated reminders.", { exact: true }).waitFor();
-      await owners.selectOption("all");
+      await both.click();
       await today.getByText("Send sample floor plan", { exact: true }).waitFor();
+      await today.getByText("Check the suite number before sending.", { exact: true }).waitFor();
       if (process.env.PARTNER_MENU_SCREENSHOT_DIR) {
         await mkdir(process.env.PARTNER_MENU_SCREENSHOT_DIR, { recursive: true });
         await today.screenshot({ path: join(process.env.PARTNER_MENU_SCREENSHOT_DIR, `today-${width}-${theme}.png`) });
       }
     });
   }
+
+test("Today shows Outlook as the fallback when the schedule is stale and empty", async (t) => {
+  const { today } = await open(t, "/invoices", { meetingState: "partial", meetingItems: false });
+  await today.getByText("Check Outlook for today’s meetings.", { exact: true }).waitFor();
+  assert.equal(await today.getByText(/Last synced|last calendar update/).count(), 0);
+});
 
 test("Today says when the calendar is empty", async (t) => {
   const { today } = await open(t, "/invoices", { meetingState: "empty" });

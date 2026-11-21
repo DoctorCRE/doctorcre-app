@@ -87,6 +87,16 @@ test("Calendar reads once and shows dates and next steps in the visible period",
                     days_late: 3,
                     open_url: "/deals?deal=qa-deal-1&focus=next-step&step=step-a",
                   },
+                  {
+                    id: "step-parking",
+                    what: "Confirm parking",
+                    owner: "dell",
+                    record_label: "Example lease",
+                    due_on: "2026-10-19",
+                    display_on: "2026-10-20",
+                    days_late: 1,
+                    open_url: "/relationships?node=party:example-clinic",
+                  },
                   ...["22", "24", "26", "30"].map((day) => ({
                     id: `step-${day}`,
                     what: "Confirm suite availability",
@@ -167,6 +177,22 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           });
           await expect(step).toContainText("Next step · Joe");
           await expect(step).toContainText("3 days late");
+          await t.test("late steps appear before today's dates and stay off the original due day", async () => {
+            const late = panel.getByRole("region", { name: "Late" });
+            await expect(late.getByRole("heading", { name: stepTitle })).toBeVisible();
+            await expect(late.getByRole("heading", { name: "Confirm parking" })).toBeVisible();
+            await expect(late.getByText(/1 day late/)).toBeVisible();
+            await expect(late.getByText("LOI expiry")).toHaveCount(0);
+            assert.equal(await panel.getByRole("heading").first().textContent(), "Late");
+            await page.locator('[data-select-day="2026-10-17"]').click();
+            await expect(late).toHaveCount(0);
+            await expect(panel.getByText(stepTitle)).toHaveCount(0);
+            const lateChip = page.getByRole("button", { name: "2 late steps", exact: true });
+            await expect(lateChip).toHaveCount(1);
+            await expect(lateChip).toBeVisible();
+            await expect(lateChip).toHaveText("2 late");
+            await lateChip.click();
+          });
           await expect(step.getByRole("link")).toHaveAttribute(
             "href",
             "/deals?deal=qa-deal-1&focus=next-step&step=step-a",
@@ -176,16 +202,16 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           );
           assert.deepEqual(reads, [calendarRead]);
           await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-          await expect(page.locator("#calCount")).toHaveText("5 next steps · 2 critical dates");
+          await expect(page.locator("#calCount")).toHaveText("6 next steps · 2 critical dates");
           await t.test("the period total appears once", async () => {
-            const total = page.getByText("5 next steps · 2 critical dates", { exact: true });
+            const total = page.getByText("6 next steps · 2 critical dates", { exact: true });
             await expect(total).toHaveCount(1);
             await expect(total).toBeVisible();
             await expect(total).toHaveAttribute("aria-live", "polite");
           });
           await expect(page.locator("#calGrid .cal-chip")).toHaveCount(7);
           await expect(page.locator("#calAgenda .cal-agenda-item")).toHaveCount(5);
-          await expect(page.locator("#dayPanelBody .cal-day-entry")).toHaveCount(2);
+          await expect(page.locator("#dayPanelBody .cal-day-entry")).toHaveCount(3);
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
           await page.screenshot({ path: join(evidence, `month-${width}-${theme}.png`), fullPage: true });
           await page.locator("#dayPanel").screenshot({ path: join(evidence, `day-${width}-${theme}.png`) });
@@ -220,8 +246,11 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await expect(week).not.toHaveCSS("background-color", background);
           await week.click();
           await expect(week).toHaveAttribute("aria-pressed", "true");
-          await expect(page.locator("#calCount")).toHaveText("3 next steps · 1 critical date");
+          await expect(page.locator("#calCount")).toHaveText("4 next steps · 1 critical date");
           await expect(page.locator("#calGrid .cal-chip")).toHaveCount(4);
+          const lateChip = page.getByRole("button", { name: "2 late steps", exact: true });
+          await expect(lateChip).toBeVisible();
+          await expect(lateChip).toHaveCount(1);
           await page.getByRole("button", { name: "Month", exact: true }).click();
           await page.getByRole("button", { name: "Next month" }).click();
           await expect(page.locator("#calCount")).toHaveText("1 critical date");

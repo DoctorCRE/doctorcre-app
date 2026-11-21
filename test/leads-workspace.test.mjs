@@ -116,16 +116,19 @@ test('card opens wide details with original entries; polling preserves expanded 
  const original=s.d.querySelector('#detailBody details');original.open=true;await s.app.refresh();assert.equal(s.d.querySelector('#detailBody details').open,true);
  }finally{s.close()}
 });
-for (const interruption of ['visibility', 'bfcache']) test(`Lead resumes the same eligible record and reading position after ${interruption}`,async()=>{
+function returnToLeadTab({ d, w }) {
+ for (const value of ['hidden', 'visible']) {
+  Object.defineProperty(d, 'visibilityState', { value, configurable: true });
+  d.dispatchEvent(new w.Event('visibilitychange'));
+ }
+}
+test('Lead resumes the same eligible record and reading position after a tab return',async()=>{
  const s=await setup();let release,releaseDetail;try{
   await s.app.readDetail(id(1));const expanded=s.d.querySelector('#detailBody details');expanded.open=true;
   const key=expanded.dataset.entryKey;s.d.getElementById('leadDetail').scrollTop=173;
   s.client.getActor=()=>new Promise(resolve=>release=resolve);
   s.client.getLeadDetail=()=>new Promise(resolve=>releaseDetail=resolve);
-  if(interruption==='visibility'){
-   Object.defineProperty(s.d,'visibilityState',{value:'hidden',configurable:true});s.d.dispatchEvent(new s.w.Event('visibilitychange'));
-   Object.defineProperty(s.d,'visibilityState',{value:'visible',configurable:true});s.d.dispatchEvent(new s.w.Event('visibilitychange'));
-  }else{s.w.dispatchEvent(new s.w.PageTransitionEvent('pagehide',{persisted:true}));s.w.dispatchEvent(new s.w.PageTransitionEvent('pageshow',{persisted:true}));}
+  returnToLeadTab(s);
   await tick();assert.equal(s.d.getElementById('leadDetail').open,false);assert.equal(s.d.getElementById('detailBody').textContent,'');
   assert.equal(s.d.querySelectorAll('.lead-card').length,0);
   release('example-partner');await tick();assert.equal(typeof releaseDetail,'function');
@@ -145,7 +148,7 @@ for (const refusal of ['actor change','denied','vanished','ineligible']) test(`L
   const lead=s.board.leads[0];
   if(refusal==='vanished')s.board.leads.shift();
   if(refusal==='ineligible')lead.client_id=id(888);
-  s.w.dispatchEvent(new s.w.PageTransitionEvent('pageshow',{persisted:true}));await tick();
+  returnToLeadTab(s);await tick();
   assert.equal(s.d.getElementById('leadDetail').open,false);assert.equal(s.d.getElementById('detailBody').textContent,'');
   s.setActor('example-partner');s.client.getActor=async()=> 'example-partner';
   if(refusal==='vanished')s.board.leads.unshift(lead);delete lead.client_id;
@@ -241,7 +244,7 @@ test('Undo preserves its historical stage, event and quote through resume and an
  const calls=[];const s=await setup({recordStage:async(...args)=>{calls.push(args);throw Object.assign(new Error('uncertain'),{code:'unknown_outcome'})}});try{
   s.board.leads.find(row=>row.id===id(10)).last_stage_move.from='closed_lost';await s.app.refresh();
   await s.app.readDetail(id(10));s.d.querySelector('[data-undo]').click();await tick();s.d.querySelector('#stageQuestions textarea').value='Synthetic correction after reviewing the reply';
-  s.w.dispatchEvent(new s.w.PageTransitionEvent('pagehide',{persisted:true}));s.w.dispatchEvent(new s.w.PageTransitionEvent('pageshow',{persisted:true}));await tick();
+  returnToLeadTab(s);await tick();
   assert.equal(s.d.getElementById('stageDialog').open,true);assert.equal(s.d.querySelector('#stageQuestions textarea').value,'Synthetic correction after reviewing the reply');assert.equal(calls.length,0);
   s.d.getElementById('stageForm').dispatchEvent(new s.w.Event('submit',{cancelable:true}));await tick();
   assert.equal(calls[0][1],'closed_lost');assert.equal(calls[0][2].undo_event_id,id(500));assert.equal(calls[0][2].human_quote,'Synthetic correction after reviewing the reply');
@@ -257,7 +260,7 @@ test('stale Undo resume cannot copy its draft into another lead review',async()=
   s.d.querySelector('#stageQuestions textarea').value='Synthetic reason for lead A';
   const read=s.client.getLeadDetail;
   s.client.getLeadDetail=l=>l.id===a.id?new Promise(resolve=>{release=resolve}):read(l);
-  s.w.dispatchEvent(new s.w.PageTransitionEvent('pageshow',{persisted:true}));await tick();
+  returnToLeadTab(s);await tick();
   assert.equal(typeof release,'function');s.d.getElementById('closeStage').click();
   await s.app.openReview(b.id,'outreach_active',{undoEventId:id(502)});
   release({detail:detail(a)});await tick();
@@ -581,13 +584,13 @@ test('resume clears private views before identity responds, restores the same un
  const s=await setup();let release;try{
   await s.app.openReview(id(1),'qualified');s.d.querySelector('#stageQuestions textarea').value='Synthetic unsigned qualification';
   s.client.getActor=()=>new Promise(resolve=>release=resolve);
-  s.w.dispatchEvent(new s.w.PageTransitionEvent('pageshow',{persisted:true}));await tick();
+  returnToLeadTab(s);await tick();
   assert.equal(s.d.querySelectorAll('.lead-card').length,0);assert.equal(s.d.getElementById('stageDialog').open,false);assert.equal(s.d.getElementById('stageContext').textContent,'');
   s.client.getActor=async()=> 'example-partner';release('example-partner');await tick();
   assert.equal(s.d.getElementById('stageDialog').open,true);assert.equal(s.d.querySelector('#stageQuestions textarea').value,'Synthetic unsigned qualification');assert.equal(s.writes.length,0);
   let attempts=0;s.client.recordStage=async()=>{attempts++;throw Object.assign(new Error('unknown'),{code:'unknown_outcome'})};
   s.d.getElementById('stageForm').dispatchEvent(new s.w.Event('submit',{cancelable:true}));await tick();const pending=s.app.state.pending;
-  s.w.dispatchEvent(new s.w.PageTransitionEvent('pagehide',{persisted:true}));s.w.dispatchEvent(new s.w.PageTransitionEvent('pageshow',{persisted:true}));await tick();
+  returnToLeadTab(s);await tick();
   assert.equal(s.app.state.pending,pending);assert.equal(attempts,1);assert.equal(s.writes.length,0);
  }finally{release?.('example-partner');s.close()}
 });
@@ -1032,8 +1035,7 @@ for(const total of [100,101])test(`captured correspondence and stage history exp
   assert.equal(s.d.querySelectorAll('.correspondence > li').length,101);
   assert.equal(s.d.querySelectorAll('.history > li').length,101);
   const older=s.d.querySelector('.correspondence > li:last-child details');older.open=true;
-  s.w.dispatchEvent(new s.w.PageTransitionEvent('pagehide',{persisted:true}));
-  s.w.dispatchEvent(new s.w.PageTransitionEvent('pageshow',{persisted:true}));await tick();
+  returnToLeadTab(s);await tick();
   assert.equal(s.d.querySelectorAll('.correspondence > li').length,101);
   assert.equal(s.d.querySelectorAll('.history > li').length,101);
   assert.equal(s.d.querySelector('.correspondence > li:last-child details').open,true);

@@ -138,7 +138,7 @@ test("returning to an open page refreshes its unread badge once, and a failed re
     listeners.get("doc:visibilitychange")();
     document.visibilityState = "visible";
     listeners.get("doc:visibilitychange")();
-    listeners.get("win:pageshow")({ persisted: true });
+    listeners.get("doc:visibilitychange")();
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(calls, 2, "one return causes one read");
     assert.equal(badge.hidden, true, "the refused read cannot leave a stale count visible");

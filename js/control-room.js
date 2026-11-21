@@ -310,6 +310,6 @@ async function boot(){
  if(strip.contains(document.activeElement))document.activeElement.blur();
  $('crQueueMore').addEventListener('click',loadMoreQueue);
  $('automationPrev').onclick=()=>{month--;if(month<0){month=11;year--;}renderAutomations();};$('automationNext').onclick=()=>{month++;if(month>11){month=0;year++;}renderAutomations();};
- await load();const auto=mountAutoRefresh({document,window,refresh:load});window.addEventListener('pagehide',event=>{if(!event.persisted){auto.dispose();board.dispose();commands.dispose();}});
+ await load();const auto=mountAutoRefresh({document,window,refresh:load});window.addEventListener('pagehide',()=>{auto.dispose();board.dispose();commands.dispose();});
 }
 boot();

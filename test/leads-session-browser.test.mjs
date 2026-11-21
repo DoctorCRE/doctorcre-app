@@ -56,6 +56,40 @@ test('Leads uses authenticated sessions and clears the previous actor before loa
   assert.equal(reads.board, 0);
 });
 
+test('Lead review restores the answer after reload and keeps it through a version refusal', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const row = lead(1);
+  const writes = [];
+  await routeLeads(page, { getBoard: () => ({ ...workspace(), leads: [row] }), onWrite: request => writes.push(request) });
+  const opener = page.getByRole('button', { name: row.doctor_name, exact: true });
+  const answer = page.locator('#stageQuestions textarea');
+  const save = page.locator('#saveStage');
+  const text = 'Synthetic lead review answer';
+
+  await page.goto('http://localhost/leads');
+  await opener.press('Alt+ArrowRight');
+  await answer.fill(text);
+  await page.reload();
+  await opener.press('Alt+ArrowRight');
+  await answer.waitFor();
+  assert.equal(await answer.inputValue(), text);
+  row.base_version++;
+  await save.click();
+  await page.getByText('This lead changed. Review the current record before confirming again.', { exact: true }).first().waitFor();
+  assert.equal(writes.length, 0);
+  assert.equal(await answer.inputValue(), text);
+  await save.click();
+  await page.locator('#stageDialog').waitFor({ state: 'hidden' });
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].arguments.stage_review.human_quote, text);
+  await page.reload();
+  await opener.press('Alt+ArrowRight');
+  await answer.waitFor();
+  assert.equal(await answer.inputValue(), '');
+});
+
 test('measure five alternating synthetic browser loads per revision', { skip: !process.env.LEADS_BENCHMARK_BASE }, async t => {
   const baseline = execFileSync('git', ['show', `${process.env.LEADS_BENCHMARK_BASE}:js/leads-client.js`], { encoding: 'utf8' });
   const browser = await chromium.launch();
