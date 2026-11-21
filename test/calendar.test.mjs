@@ -224,7 +224,7 @@ test("readCalendar reads the board once and every deal's own record, and reports
 test("Calendar uses individual deal reads only when the engine read is missing", async () => {
   for (const [status, expected] of [[404, "empty"], [401, "unauthorized"], [403, "unauthorized"], [429, "unavailable"], [503, "unavailable"]]) {
     const client = stubClient({ board: { deals: [deal] }, details: { d1: { critical_dates: [] } } });
-    client.getCalendarDates = async () => { throw httpError(status); };
+    client.getCalendarItems = async () => { throw httpError(status); };
     assert.equal(calendarPhase(await readCalendar(client)), expected);
     assert.deepEqual(client.calls.map(([method]) => method), status === 404 ? ["getBoard", "getDeal"] : []);
   }

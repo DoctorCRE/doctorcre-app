@@ -22,7 +22,7 @@ import { formatCalendarDate } from "./visual-system.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import {
   addDays, approach, calendarHref, calendarPhase, entriesByDay, localToday, monthGrid, motionDirection,
-  parseCalendarState, readCalendar, stepAnchor, weekStrip,
+  parseCalendarState, readCalendar, shortDay, stepAnchor, weekStrip,
 } from "./calendar-model.js";
 
 const $ = (id) => document.getElementById(id);
@@ -67,13 +67,16 @@ function setStatus(state, label) {
 
 /* ------------------------------------------------------------------ painting */
 
+const recordName = entry => entry.record_name ?? entry.deal_name;
+const typeLabel = entry => entry.type === "step" ? "Next step" : "Critical date";
+
 function chipHtml(entry, { withDeal }) {
   const near = approach(entry, view.today);
-  const text = `${entry.label} · ${entry.deal_name} · ${near.label}${entry.settled ? " · settled" : ""}`;
+  const text = `${typeLabel(entry)} · ${entry.label} · ${recordName(entry)} · ${near.label}`;
   return `<li><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(entry.day)}" data-band="${near.band}" aria-label="${escapeHtml(text)}">`
     + `<span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span>`
     + `<span class="cal-chip-label">${escapeHtml(entry.label)}</span>`
-    + (withDeal ? `<span class="cal-chip-deal">${escapeHtml(entry.deal_name)}</span>` : "")
+    + (withDeal ? `<span class="cal-chip-deal">${escapeHtml(recordName(entry))}</span>` : "")
     + "</button></li>";
 }
 
@@ -88,7 +91,7 @@ function dayHtml(cell, index) {
   const selected = state.day === cell.day;
   const isToday = cell.day === view.today;
   const readable = formatCalendarDate(cell.day);
-  const count = rows.length ? ` · ${rows.length} critical date${rows.length === 1 ? "" : "s"}` : "";
+  const count = rows.length ? ` · ${itemCount(rows)}` : "";
   const dayNumber = Number(cell.day.slice(8));
   return `<div class="cal-day" role="gridcell" data-day="${cell.day}" data-today="${isToday}" data-out-month="${!cell.inMonth}" aria-selected="${selected}">`
     + `<button class="cal-day-open" type="button" data-select-day="${cell.day}" tabindex="${selected || (!state.day && isToday) ? 0 : -1}" aria-label="${escapeHtml(`${readable}${isToday ? " · today" : ""}${count}`)}">`
@@ -145,54 +148,40 @@ function paintSelection() {
   paintDayPanel(selectedDay);
 }
 
-function detailRow(label, value) {
-  return value
-    ? `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`
-    : `<dt>${escapeHtml(label)}</dt><dd class="unknown">Not recorded</dd>`;
+function recordLink(entry) {
+  const url = entry.type === "step" ? entry.open_url : entry.deal_id && `/deals?deal=${encodeURIComponent(entry.deal_id)}`;
+  const name = escapeHtml(recordName(entry));
+  return url ? `<a href="${escapeHtml(url)}">${name}</a>` : name;
 }
 
-function dealLink(entry) {
-  return entry.deal_id
-    ? `<a href="/deals?deal=${escapeHtml(encodeURIComponent(entry.deal_id))}">${escapeHtml(entry.deal_name)}</a>`
-    : escapeHtml(entry.deal_name);
+function itemCount(rows) {
+  const steps = rows.filter(entry => entry.type === "step").length;
+  const dates = rows.length - steps;
+  return [steps && `${steps} next step${steps === 1 ? "" : "s"}`,
+    dates && `${dates} critical date${dates === 1 ? "" : "s"}`].filter(Boolean).join(" · ") || "0 items";
 }
 
 function paintDayPanel(day) {
-  const title = $("dayPanelTitle");
+  $("dayPanelTitle").textContent = day ? formatCalendarDate(day) : "Choose a day";
   const body = $("dayPanelBody");
-  if (!title || !body) return;
-  if (!day) {
-    title.textContent = "Choose a day";
-    body.innerHTML = '<p class="small">Select a day or a date to see what falls on it.</p>';
-    return;
-  }
-  title.textContent = formatCalendarDate(day);
   const phase = calendarPhase(view.result);
-  if (phase === "loading") {
-    body.innerHTML = '<p class="small">Reading this day…</p>';
-    return;
-  }
-  if (phase === "unauthorized" || phase === "unavailable") {
-    body.innerHTML = '<p class="small">Calendar temporarily unavailable.</p>';
-    return;
-  }
   const rows = view.byDay.get(day) || [];
-  if (rows.length === 0) {
-    if (phase === "reading") {
-      body.innerHTML = '<p class="small">Still reading critical dates. This day may have dates that have not arrived yet.</p>';
-      return;
-    }
-    const partial = view.result.failed?.length ? " Some deals temporarily unavailable, so this may not be every date." : "";
-    body.innerHTML = `<p class="small">No critical date is recorded on this day.${escapeHtml(partial)}</p>`;
-    return;
+  if (phase === "unauthorized" || phase === "unavailable") {
+    body.textContent = "Calendar temporarily unavailable.";
+  } else if (rows.length) {
+    body.innerHTML = `<ol class="cal-day-entries">${rows.map(entry => {
+      const near = approach(entry, view.today);
+      const owner = typeof entry.owner === "string" && entry.owner ? ` · ${escapeHtml(entry.owner[0].toUpperCase() + entry.owner.slice(1))}` : "";
+      const late = entry.days_late ? `<span class="cal-late">${entry.days_late} ${entry.days_late === 1 ? "day" : "days"} late · Due ${shortDay(entry.due_on, view.today)}</span>` : "";
+      return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}">
+        <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${owner}</small>
+        <h3>${escapeHtml(entry.label)}</h3>
+        <p>${recordLink(entry)}</p>${late}</li>`;
+    }).join("")}</ol>`;
+  } else {
+    body.textContent = phase === "loading" || phase === "reading" ? "Reading Calendar…"
+      : !day ? "Select a day to see its items." : "No critical dates or next steps on this day.";
   }
-  body.innerHTML = `<ol class="cal-day-entries">${rows.map((entry) => {
-    const near = approach(entry, view.today);
-    return `<li class="cal-day-entry" data-band="${near.band}" data-focus="${entry.key === view.focusEntry}">`
-      + `<h3><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span>${escapeHtml(entry.label)}</h3>`
-      + `<dl><dt>Deal</dt><dd>${dealLink(entry)}</dd>${detailRow("When", near.label)}${entry.kind_label && entry.kind_label !== entry.label ? detailRow("Kind", entry.kind_label) : ""}${entry.source ? detailRow("Reference", entry.source) : ""}${detailRow("Status", entry.status)}</dl>`
-      + "</li>";
-  }).join("")}</ol>`;
 }
 
 function paintAgenda(phase, rows) {
@@ -213,7 +202,7 @@ function paintAgenda(phase, rows) {
         return `<li><button class="cal-agenda-item" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${entry.day}" data-band="${near.band}">`
           + `<span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span>`
           + `<span class="cal-agenda-day">${escapeHtml(formatCalendarDate(entry.day))}</span>`
-          + `<span><b>${escapeHtml(entry.label)}</b> · ${escapeHtml(entry.deal_name)}</span>`
+          + `<span><b>${escapeHtml(entry.label)}</b> · ${escapeHtml(recordName(entry))}</span>`
           + `<span class="cal-agenda-when">${escapeHtml(near.label)}</span>`
           + "</button></li>";
       }).join("");
@@ -223,7 +212,7 @@ function paintAgenda(phase, rows) {
   const missing = ["ready", "partial", "empty", "reading"].includes(phase) ? view.result.undated : [];
   if (undated) undated.hidden = missing.length === 0;
   if (undatedList) {
-    undatedList.innerHTML = missing.map((entry) => `<li><b>${escapeHtml(entry.label)}</b> · ${dealLink(entry)} — Date unavailable</li>`).join("");
+    undatedList.innerHTML = missing.map((entry) => `<li><b>${escapeHtml(entry.label)}</b> · ${recordLink(entry)} — Date unavailable</li>`).join("");
   }
 }
 
@@ -286,7 +275,7 @@ function render() {
   const layout = calendarLayout(view.state);
   const periodRows = layout.days.flatMap(cell => cell.inMonth ? view.byDay.get(cell.day) || [] : []);
   $("calCount").textContent = ["ready", "partial", "empty"].includes(phase)
-    ? `${periodRows.length} critical date${periodRows.length === 1 ? "" : "s"}`
+    ? itemCount(periodRows)
     : "";
   const gridNode = $("calGrid");
   if (phase === "unauthorized" || phase === "unavailable") {
@@ -326,8 +315,8 @@ function go(next, { push = true } = {}) {
 function selectDay(day, { entry = null, focus = false } = {}) {
   view.focusEntry = entry;
   const currentEntry = view.result?.entries?.find(row => row.key === entry);
-  selectDocRecord(currentEntry ? "deal" : null, currentEntry?.deal_id);
-  if(currentEntry) void client.getDeal(currentEntry.deal_id).catch(() => {});
+  selectDocRecord(currentEntry?.deal_id ? "deal" : null, currentEntry?.deal_id);
+  if (currentEntry?.deal_id) void client.getDeal(currentEntry.deal_id).catch(() => {});
   const state = view.state;
   const inView = calendarLayout(state).days.some(cell => cell.inMonth && cell.day === day);
   const next = { ...state, day, anchor: inView ? state.anchor : day };
@@ -338,7 +327,7 @@ function selectDay(day, { entry = null, focus = false } = {}) {
     button?.scrollIntoView({ block: "nearest", behavior: motionReduced() ? "auto" : "smooth" });
   }
   const rows = view.byDay.get(day) || [];
-  announce(`${formatCalendarDate(day)}: ${rows.length === 0 ? "no critical date" : `${rows.length} critical date${rows.length === 1 ? "" : "s"}`}.`);
+  announce(`${formatCalendarDate(day)}: ${itemCount(rows)}.`);
 }
 
 const ARROW_STEP = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
@@ -385,7 +374,7 @@ function wire() {
     const today = localToday();
     if (today === view.today) return;
     view.today = today;
-    render();
+    void load();
   } });
 }
 
