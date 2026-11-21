@@ -645,18 +645,20 @@ const ENGINE_SAVES = new Map([
 ]);
 const LEAD_ACTIONS = new Map([
   ['claim-lead', 'claim'],
+  ['acknowledge-lead-email', 'acknowledge_email'],
   ['update-lead', 'stage'],
   ['link-lead-client', 'link'],
 ]);
 
 async function routeLeadSave(request, env, call, action) {
   const { lead_id, ...legacy } = call.params.arguments;
-  if (!await switchedOn(env, NEXT_DEAL_SAVES)) {
-    if (lead_id === undefined) return null;
+  const saveToEngine = await switchedOn(env, NEXT_DEAL_SAVES);
+  if (!saveToEngine || !isUuid(lead_id) || !await switchedOn(env, LEADS)) {
+    if (action === 'acknowledge_email') return saveRefusal(call, 'lead_routing_changed', 'Reload Leads.');
+    if (saveToEngine || lead_id === undefined) return null;
     const params = { ...call.params, arguments: legacy };
     return carrResponse(new Request(request, { body: JSON.stringify({ ...call, params }) }), env);
   }
-  if (!isUuid(lead_id) || !await switchedOn(env, LEADS)) return null;
 
   const { base_version, expected_actor, idempotency_key, fields, stage_review, client_id, confirmed } = legacy;
   const body = { action, base_version, expected_actor, idempotency_key };
