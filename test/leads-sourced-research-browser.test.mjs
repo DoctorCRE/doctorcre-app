@@ -88,7 +88,7 @@ test('quiet leads explain an empty server list without calling it a refusal', as
   release();
   await page.locator('#quietFilter').click();
   assert.equal(await page.locator('#leadCount').innerText(), '0 leads');
-  assert.equal(await page.locator('#quietStatus').isVisible(), false);
+  assert.equal(await page.locator('#quietStatus').innerText(), 'Showing 0 quiet leads');
 });
 
 test('a refused follow-up read shows unavailable and keeps the board', async t => {

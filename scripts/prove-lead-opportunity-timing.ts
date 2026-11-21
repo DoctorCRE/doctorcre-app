@@ -173,7 +173,11 @@ export async function prove({
             timing.record_added_at,
           );
           if (timing.status === "unknown") {
-            assert.equal(await panel.locator("[data-timing-evidence]").textContent(), "Opportunity timing unknown");
+            const estimate = active.locator("#detailBody .plan-window time");
+            assert.equal(
+              await panel.locator("[data-timing-evidence]").textContent(),
+              (await estimate.count()) ? "No sourced timing evidence" : "Opportunity timing unknown",
+            );
             assert.equal(await panel.locator("[data-timing-evidence] time").count(), 0);
           } else {
             const summary = panel.locator("summary");

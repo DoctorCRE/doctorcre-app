@@ -7,8 +7,8 @@ import { mountLeadGuidance } from './ui-lead.generated.js';
 import { createPageBudget } from './read-budget.mjs';
 import { mountContactReasons } from './contact-reasons.mjs';
 import { workCard } from './work-card.js';
-import { BUSINESS_TIME_ZONE } from './business-date.js';
-import { toDay } from './calendar-model.js';
+import { businessDay, BUSINESS_TIME_ZONE } from './business-date.js';
+import { shortDay, toDay } from './calendar-model.js';
 import { engagementWriterFor, engagementStorage } from './prospect-engagement.mjs';
 import {onDialogClosed} from './dialog-lifecycle.js';
 import { pageDocContext, publishDocRead, selectDocRecord, setDocFilters } from './doc-context.js';
@@ -21,11 +21,16 @@ import { mountTerritoryMap } from "./leads-territory-map.js";
 const validateLeadWorkspace = value => validateWorkspace(value, parseOpportunityTiming);
 const validateLeadDetail = (value, id) => validateDetail(value, id, parseOpportunityTiming);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const shortDate = (value, calendarDate = false, month = "numeric") => Number.isFinite(Date.parse(value)) ? new Date(calendarDate && toDay(value) ? `${toDay(value)}T12:00:00Z` : value).toLocaleDateString("en-US", { timeZone: BUSINESS_TIME_ZONE, month, day: "numeric" }) : "Date pending";
-const stamp = value => Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("en-US", { timeZone: BUSINESS_TIME_ZONE, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : "—";
+const yearIfNeeded = date => businessDay(date).slice(0, 4) !== businessDay().slice(0, 4) ? "numeric" : undefined;
+const shortDate = (value, calendarDate = false) => {
+  const day = (calendarDate && toDay(value)) || (Number.isFinite(Date.parse(value)) && businessDay(new Date(value)));
+  return day ? shortDay(day, businessDay()) : "Date pending";
+};
+const stamp = value => Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("en-US", { timeZone: BUSINESS_TIME_ZONE, month: "short", day: "numeric", year: yearIfNeeded(new Date(value)), hour: "numeric", minute: "2-digit", hour12: true }) : "—";
 const summary = value => String(value || "").split(/\n\s*\n/)[0].slice(0, 230);
 const score = lead => lead.score == null ? "—" : esc(Math.round(Number(lead.score)));
 const ownerName = owner => owner ? owner.charAt(0).toUpperCase() + owner.slice(1) : "Unclaimed";
+const phoneLabel = phone => phone.replace(/^(?:\+?1[ .-]?)?\(?(\d{3})\)?[ .-]?(\d{3})[ .-]?(\d{4})(?=\s+x\d+$|$)/i, "($1) $2-$3");
 const claimButton = lead => !lead.owner && normalizedStage(lead) !== "archived" ? `<button data-claim="${esc(lead.id)}">Claim</button>` : "";
 const quietLeadIndex = proposals => new Map(proposals.filter(row => row.subject_type === "lead").flatMap(row =>
   row.ref ? [[row.subject_id, row], [row.ref, row]] : [[row.subject_id, row]]
@@ -63,9 +68,9 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const target = $("detailFollowUp");
     target.hidden = !row;
     if (!row) { target.textContent = ""; return; }
-    const anchor = shortDate(row.anchor_on, true, "short");
+    const anchor = shortDate(row.anchor_on, true);
     const basis = row.basis === "last_contact" ? `Last contact ${anchor}.` : `No contact recorded. Added ${anchor}.`;
-    target.textContent = `${basis} Follow-up due ${shortDate(row.due_on, true, "short")}.`;
+    target.textContent = `${basis} Follow-up due ${shortDate(row.due_on, true)}.`;
   }
   function card(lead) {
     return workCard({ variant: "tile", className: "lead-card", attributes: `data-lead-id="${esc(lead.id)}" data-selected="${lead.id === state.selectedId}" draggable="true"`,
@@ -105,8 +110,6 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const shown = visibleLeads(cohort, state.filters);
     quietFilter.setAttribute("aria-pressed", String(state.filters.quiet));
     quietFilter.disabled = !state.quiet?.rows && !state.filters.quiet;
-    $("quietStatus").textContent = state.quiet?.error || "";
-    $("quietStatus").hidden = !state.quiet?.error;
     if (!shown.some(lead => lead.id === state.selectedId)) state.selectedId = null;
     if (state.detailId && leads.some(lead => lead.id === state.detailId) && !shown.some(lead => lead.id === state.detailId)) {
       clearGuidance(); ++state.detailEpoch; state.detailId = null; state.detail = null; $("leadDetail").close();
@@ -125,6 +128,10 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const quietUnavailable = state.filters.quiet && !state.quiet?.rows;
     const resultsReady = state.board && !quietUnavailable;
     const count = `${shown.length} ${shown.length === 1 ? "lead" : "leads"}`;
+    const quietStatus = $("quietStatus");
+    quietStatus.textContent = state.quiet?.error || (resultsReady && state.filters.quiet
+      ? `Showing ${shown.length} quiet ${shown.length === 1 ? "lead" : "leads"}` : "");
+    quietStatus.hidden = !quietStatus.textContent;
     $("leadCount").textContent = resultsReady ? count : loading ? "Loading leads…" : "";
     $("filterSummary").textContent = resultsReady ? `${shown.length} matching ${shown.length === 1 ? "lead" : "leads"}` : "";
     const ownerOptions = owners.map(k => [k, ownerName(k)]);
@@ -160,7 +167,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       $("leadBoard").innerHTML = `<div class="filtered-list" aria-label="${stageLabel(state.filters.stage)}">${shown.map(card).join("") || '<p class="empty">No matching leads</p>'}</div>`;
     } else {
       $("leadBoard").innerHTML = `<div class="stage-columns">${BOARD_STAGES.map(([key, text]) => {
-        const rows = shown.filter(lead => normalizedStage(lead) === key), expanded = expandedStages.has(key);
+        const rows = shown.filter(lead => normalizedStage(lead) === key), expanded = rows.length > 5 && expandedStages.has(key);
         return `<section class="stage-column" data-expanded="${expanded}" data-mobile-current="${!currentStage || key === currentStage}"${!currentStage && !rows.length && !state.showEmptyStages ? ' data-hide-empty="true"' : ""} data-stage="${key}" aria-label="${text}"><h2 class="stage-head">${text}<span>${rows.length}</span>${rows.length > 5 ? `<button type="button" data-expand-stage="${key}" aria-expanded="${expanded}" aria-controls="leads-${key}" aria-label="${expanded ? `Collapse ${text} to 5 leads` : `Show all ${rows.length} ${text} leads`}">${expanded ? "Collapse" : "Show all"}</button>` : ""}</h2><div class="lead-stack" id="leads-${key}">${(expanded ? rows : rows.slice(0, 5)).map(card).join("") || `<p class="stage-empty">No leads in ${text}</p>`}</div></section>`;
       }).join("")}${emptyStagesNote(currentStage ? 0 : BOARD_STAGES.filter(([key]) => !shown.some(lead => normalizedStage(lead) === key)).length)}</div>`;
     }
@@ -361,20 +368,26 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const expanded = new Set(intent?.expanded ?? [...$("detailBody").querySelectorAll("details[open]")].map(node => node.dataset.entryKey));
     const scroll = intent?.scroll ?? $("leadDetail").scrollTop;
     $("detailTitle").textContent = leadTitle(detail);
-    const contact = (kind, value) => value ? `<a href="${kind === "Email" ? "mailto:" : "tel:"}${esc(value)}">${esc(value)}</a>` : "—";
+    const contact = (kind, value) => value ? `<a href="${kind === "Email" ? "mailto:" : "tel:"}${esc(value)}">${esc(kind === "Phone" ? phoneLabel(value) : value)}</a>` : "—";
+    const plans = (detail.plans ?? detail.notes ?? "").trim();
+    const [plan, ...planDetails] = plans.split(/\n\s*\n/);
+    const leaseDate = toDay(detail.est_lease_event);
+    const lastArchive = detail.stage_history.find(entry => entry.stage === "archived");
+    const becameDeal = normalizedStage(detail) === "archived" && lastArchive?.reason === "became a deal in the old system";
     const move = automaticMove(detail), undo = undoReview(detail);
     const selectedKind = researchSubject === detail.id ? researchKind : '';
     const selectedAttention = researchSubject === detail.id ? researchAttention : '';
     clearGuidance();
     $("detailBody").innerHTML = `<section class="detail-summary"><div><h3>Lead score</h3><div class="detail-score">${score(detail)}<span>/ 100</span></div></div><label>Stage<select id="detailStage">${FILTER_STAGES.filter(([key]) => key !== "do_not_contact").map(([key,text]) => `<option value="${key}"${normalizedStage(detail) === key ? " selected" : ""}>${text}</option>`).join("")}</select></label></section>
+      ${becameDeal ? '<p class="detail-archive-reason">Became a deal.</p>' : ""}
       <div class="detail-actions">${claimButton(detail)}
         ${move ? `<div class="auto-move">Moved automatically: ${esc(move.reason || "stage updated")} ${shortDate(move.evidence_date || move.occurred_at, !!move.evidence_date)}${undo ? `<button data-undo="${esc(detail.id)}">Undo</button>` : ""}</div>` : ""}
-        ${detail.possible_clients.map(match => `<div class="client-hint">${esc(match.name)} <button data-link="${esc(detail.id)}" data-client-id="${esc(match.client_id)}" aria-label="Link ${esc(leadTitle(detail))} to ${esc(match.name)}">Link</button></div>`).join("")}
+        ${detail.possible_clients.map(match => `<button class="client-hint" data-link="${esc(detail.id)}" data-client-id="${esc(match.client_id)}">Link to client ${esc(match.name)}</button>`).join("")}
       </div>
-      <div class="detail-overview"><section class="detail-panel"><h3>Contact</h3><dl><dt>Phone</dt><dd>${contact("Phone", detail.phone)}</dd><dt>Email</dt><dd>${contact("Email", detail.email)}</dd><dt>Market</dt><dd>${esc(marketKey(detail))}</dd><dt>Vertical</dt><dd>${esc(detail.specialty || detail.vertical || "—")}</dd></dl></section>
-      <section class="detail-panel"><h3>Plans</h3><p>${esc(summary(detail.plans || detail.notes) || "—")}</p>${detail.notes ? `<details data-entry-key="plans"><summary>Details</summary><div class="original-entry">${esc(detail.notes)}</div></details>` : ""}<dl class="plan-window"><dt>Lease window</dt><dd>${esc(detail.est_lease_event || "—")}</dd></dl></section>
+      <div class="detail-overview"><section class="detail-panel"><h3>Contact</h3><dl><dt>Owner</dt><dd>${esc(detail.owner_label || ownerName(detail.owner))}</dd><dt>Phone</dt><dd>${contact("Phone", detail.phone)}</dd><dt>Email</dt><dd>${contact("Email", detail.email)}</dd><dt>Market</dt><dd>${esc(marketKey(detail))}</dd><dt>Vertical</dt><dd>${esc(detail.specialty || detail.vertical || "—")}</dd></dl></section>
+      <section class="detail-panel"><h3>Plans</h3><p>${esc(plan || "No plans recorded.")}</p>${planDetails.length ? `<details class="plan-details" data-entry-key="plans"><summary>More about these plans</summary><div class="original-entry">${esc(planDetails.join("\n\n"))}</div></details>` : ""}${leaseDate ? `<dl class="plan-window"><dt>Estimated lease date</dt><dd><time datetime="${esc(leaseDate)}">${esc(shortDate(leaseDate, true))}</time></dd></dl>` : ""}</section>
       </div>
-      ${timingMarkup(detail.opportunity_timing, true)}
+      ${timingMarkup(detail.opportunity_timing, true, !!leaseDate)}
       <div id="leadGuidance"></div>
       <div id="leadResearch"></div>
       ${!dealsSaveToEngine(doc) && detail.prospect_client_id && detail.prospect_engagement_status === "inactive" ? `<form id="activateProspect"><p>Mark active to return this prospect to the deal board.</p><label>Reason<input name="reason" maxlength="1000" required></label><button type="submit">Mark active</button></form>` : ""}
@@ -383,7 +396,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     researchKind = detail.research?.evidence.some(item => item.kind === selectedKind) ? selectedKind : '';
     researchAttention = selectedAttention;
     researchView = mountLeadResearch($("leadResearch"), detail.research, researchKind, kind => { researchKind = kind; }, { attention: researchAttention, onAttention: attention => { researchAttention = attention; } });
-    guidance = mountLeadGuidance($("leadGuidance"), detail);
+    if (!becameDeal || detail.do_not_contact || detail.suppressed) guidance = mountLeadGuidance($("leadGuidance"), detail);
     for (const button of $("detailBody").querySelectorAll("[data-load-history]")) button.addEventListener("click", () => loadHistory(button.dataset.loadHistory));
     $("detailStage").addEventListener("change", event => openReview(detail.id, event.target.value));
     $("activateProspect")?.addEventListener("submit", event => {
