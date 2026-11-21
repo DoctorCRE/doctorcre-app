@@ -1510,15 +1510,11 @@ function dealEmailSender({ sender_name, sender, happened_at }) {
   return Number.isFinite(date) ? `${from}, ${emailDay.format(date)}` : from;
 }
 
-function cleanEmailExcerpt(text) {
-  const body = text.trim()
-    .replace(/^Email from [^\n]+?:[^\n]*(?:\r?\n|$)/i, '')
-    .replace(/^(?:(?:from|to|cc|bcc|sent|date|subject):[^\n]*(?:\n[ \t]+[^\n]*)*\n?)+/i, '')
-    .split(/^[ \t]*(?:-+ Original Message -+|On .+ wrote:|--)[ \t]*\r?$/im, 1)[0];
-  return body.split(/(\s+)/).filter(word => {
-    const [local, domain] = word.split('@', 2);
-    return !local || !domain?.includes('.');
-  }).join('').trim();
+const bareEmailAddress = /(?:"(?:\\[^\r\n]|[^"\\\r\n])+"|[\p{L}\p{N}.!#$%&'*+\/=?^_`{|}~-]+)@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
+const emailAddressInText = new RegExp(String.raw`(?:"([^"\r\n]+)"[ \t]*)?<${bareEmailAddress.source}>|${bareEmailAddress.source}`, 'gu');
+
+function redactEmailAddresses(text) {
+  return text.replace(emailAddressInText, (_, name) => name?.replace(bareEmailAddress, '') ?? '');
 }
 
 function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_saves }) {
@@ -1527,13 +1523,14 @@ function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_sa
   const followups = email_follow_ups.filter(row => row.kind !== 'file_to_deal' || !filed.has(row.email?.activity_id));
   return `<h2>Email follow-ups</h2>${followups.map(row => {
     const email = row.email || {};
-    const subject = emailSubject(email.subject);
-    const evidence = cleanEmailExcerpt(row.evidence || '');
-    const preview = evidence || cleanEmailExcerpt(email.summary || '');
+    const subject = emailSubject(redactEmailAddresses(email.subject || ''));
+    const evidence = redactEmailAddresses(row.evidence || '');
+    const hasEvidence = Boolean(evidence.trim());
+    const preview = hasEvidence ? evidence : redactEmailAddresses(email.summary || '');
     const body = emailSubject(preview) === subject ? '' : preview;
     const title = subject === '(No subject)' ? concise(body, 72) || 'Email' : subject;
-    const showBody = body && title !== body.replace(/\s+/g, ' ');
-    const excerpt = evidence ? `<details><summary>Read email excerpt</summary><q>${esc(body)}</q></details>` : `<p>${esc(body)}</p>`;
+    const showBody = body.trim() && title.replace(/\s+/g, ' ') !== body.replace(/\s+/g, ' ').trim();
+    const excerpt = hasEvidence ? `<details><summary>Read email excerpt</summary><q>${esc(body)}</q></details>` : `<p>${esc(body)}</p>`;
     const change = row.kind === 'file_to_deal' ? 'File email to this deal'
       : row.kind === 'phase_move' ? `Move to ${columnBySlug(row.to_phase)?.label || 'the next phase'}`
       : row.what && emailPlaceholderText(row.what) || 'Review email';
@@ -1594,32 +1591,15 @@ const completeStepKey = id => `complete-step:${state.selfActor}:${id}`;
 
 function openDealStepsHtml(detail, steps, today) {
   const heading = isClosedDeal(detail.deal) && steps.length ? 'Open before this deal ended' : 'Next steps';
-  const groups = new Map();
-  const ids = new Set();
-  for (const step of steps) {
-    if (step.id && ids.has(step.id)) continue;
-    ids.add(step.id);
-    const key = JSON.stringify([step.description.trim(), calendarDay(step.due_on)]);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(step);
-  }
-  const rows = [...groups.values()].map(group => {
-    const [first] = group;
-    const shared = group.length > 1;
-    const title = `step-text-${esc(first.id)}`;
-    return `<li${shared ? '' : stepFocusAttrs(first)}><strong id="${title}">${esc(first.description.trim())}</strong>
-      ${group.map(step => {
-        const id = esc(step.id);
-        const canFinish = detail.next_deal_saves && Number.isSafeInteger(detail.deal.seen) && dealStepVersion(step);
-        const saving = pendingCommand(commandState, completeStepKey(step.id))?.status === 'pending';
-        const owner = `step-owner-${id}`;
-        const label = `${title} ${owner}`;
-        return `<div class="deal-step-assignment"${shared ? `${stepFocusAttrs(step)} role="group" aria-labelledby="${label}"` : ''}>
-          <div><p id="${owner}">${esc(actorName(step.owner))} · ${dueDateHtml(calendarDay(step.due_on), today)}</p>
-            ${stepOrigin(step)}</div>
-          ${canFinish ? `<button class="btn" type="button" data-complete-step="${id}" data-detail-focus="done-${id}" aria-describedby="${label}"${saving ? ' aria-disabled="true"' : ''}>Done</button>` : ''}
-        </div>`;
-      }).join('')}
+  const rows = steps.map(step => {
+    const id = esc(step.id);
+    const canFinish = detail.next_deal_saves && Number.isSafeInteger(detail.deal.seen) && dealStepVersion(step);
+    const saving = pendingCommand(commandState, completeStepKey(step.id))?.status === 'pending';
+    return `<li${stepFocusAttrs(step)}>
+      <div><strong id="step-text-${id}">${esc(step.description.trim())}</strong>
+        <p id="step-owner-${id}">${esc(actorName(step.owner))} · ${dueDateHtml(calendarDay(step.due_on), today)}</p>
+        ${stepOrigin(step)}</div>
+      ${canFinish ? `<button class="btn" type="button" data-complete-step="${id}" data-detail-focus="done-${id}" aria-describedby="step-text-${id} step-owner-${id}"${saving ? ' aria-disabled="true"' : ''}>Done</button>` : ''}
     </li>`;
   }).join('');
   return `<section class="deal-open-steps" aria-labelledby="deal-open-steps-heading">
