@@ -62,8 +62,13 @@ function dayHtml(cell, index) {
   const state = view.state;
   const rows = cell.inMonth ? view.byDay.get(cell.day) || [] : [];
   const week = state.view === "week";
-  const shown = week ? rows : rows.slice(0, MONTH_CHIP_LIMIT);
-  const more = rows.length - shown.length;
+  const lateCount = rows.filter(entry => entry.days_late > 0).length;
+  const dated = rows.filter(entry => !entry.days_late);
+  const lateChip = lateCount ? `<li><button class="cal-chip" type="button" data-entry="late" data-day="${cell.day}" data-band="overdue" aria-label="${lateCount} late step${lateCount === 1 ? "" : "s"}">
+    <span class="cal-chip-label">${lateCount} late</span>
+  </button></li>` : "";
+  const shown = week ? dated : dated.slice(0, MONTH_CHIP_LIMIT - Number(Boolean(lateCount)));
+  const more = dated.length - shown.length;
   const selected = (state.day || view.today) === cell.day && cell.inMonth;
   const isToday = cell.day === view.today;
   const readable = formatCalendarDate(cell.day);
@@ -74,7 +79,7 @@ function dayHtml(cell, index) {
     + `<span class="cal-day-num">${week ? `${WEEKDAYS[index % 7]} ${dayNumber}` : dayNumber}</span>`
     + (rows.length ? `<span class="cal-day-count" aria-hidden="true">${rows.length}</span>` : "")
     + "</button>"
-    + (shown.length ? `<ul class="cal-chips">${shown.map((entry) => chipHtml(entry, { withDeal: week })).join("")}</ul>` : "")
+    + (lateChip || shown.length ? `<ul class="cal-chips">${lateChip}${shown.map((entry) => chipHtml(entry, { withDeal: week })).join("")}</ul>` : "")
     + (more > 0 ? `<span class="cal-more">+${more} more</span>` : "")
     + "</div>";
 }
@@ -135,6 +140,19 @@ function itemCount(rows) {
     dates && `${dates} critical date${dates === 1 ? "" : "s"}`].filter(Boolean).join(" · ") || "0 items";
 }
 
+function dayList(rows) {
+  return `<ol class="cal-day-entries">${rows.map(entry => {
+    const near = approach(entry, view.today);
+    const owner = ownerSuffix(entry.owner);
+    const late = entry.days_late ? `<span class="cal-late">${entry.days_late} ${entry.days_late === 1 ? "day" : "days"} late · Due ${shortDay(entry.due_on, view.today)}</span>` : "";
+    return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}">
+      <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${owner}</small>
+      <h3>${escapeHtml(entry.label)}</h3>
+      ${entry.why ? `<p>${escapeHtml(entry.why)}</p>` : ""}
+      <p>${recordLink(entry)}</p>${late}</li>`;
+  }).join("")}</ol>`;
+}
+
 function paintDayPanel(day) {
   $("dayPanelTitle").textContent = day ? formatCalendarDate(day) : "Choose a day";
   const body = $("dayPanelBody");
@@ -143,16 +161,11 @@ function paintDayPanel(day) {
   if (phase === "unauthorized" || phase === "unavailable") {
     body.textContent = "Calendar temporarily unavailable.";
   } else if (rows.length) {
-    body.innerHTML = `<ol class="cal-day-entries">${rows.map(entry => {
-      const near = approach(entry, view.today);
-      const owner = ownerSuffix(entry.owner);
-      const late = entry.days_late ? `<span class="cal-late">${entry.days_late} ${entry.days_late === 1 ? "day" : "days"} late · Due ${shortDay(entry.due_on, view.today)}</span>` : "";
-      return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}">
-        <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${owner}</small>
-        <h3>${escapeHtml(entry.label)}</h3>
-        ${entry.why ? `<p>${escapeHtml(entry.why)}</p>` : ""}
-        <p>${recordLink(entry)}</p>${late}</li>`;
-    }).join("")}</ol>`;
+    const late = rows.filter(entry => entry.days_late > 0);
+    const dated = rows.filter(entry => !entry.days_late);
+    body.innerHTML = (late.length
+      ? `<section class="cal-day-late" aria-labelledby="calLateTitle"><h3 id="calLateTitle">Late</h3>${dayList(late)}</section>`
+      : "") + (dated.length ? dayList(dated) : "");
   } else {
     body.textContent = phase === "loading" || phase === "reading" ? "Reading Calendar…"
       : !day ? "Select a day to see its items." : "No critical dates or next steps on this day.";
