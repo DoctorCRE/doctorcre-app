@@ -400,7 +400,8 @@ for (const earlyPaid of [false, true]) test(earlyPaid
   finishSecondRead.resolve();
   await secondWrite.promise;
   try {
-    assert.match(await page.locator('#invoiceDetailFacts').innerText(), /7,201\.00/);
+    const amount = earlyPaid ? '$7,200.00' : '$7,201.00';
+    assert.equal(await page.locator('#invoiceDetailFacts').getByText(amount, { exact: true }).count(), 1);
     await close.click();
     await invoice(first.commission_id).click();
     assert.equal(await page.locator('.invoice-status-value').innerText(), 'Paid');
@@ -411,6 +412,62 @@ for (const earlyPaid of [false, true]) test(earlyPaid
     await invoice(first.commission_id).getByText('$9,402.00', { exact: true }).waitFor();
   } finally {
     finishSecondWrite.resolve(new Response(null, { status: 502 }));
+  }
+});
+
+for (const paid of [true, false]) test(paid
+  ? 'a stale payment preflight leaves a newer Paid refresh in place without writing'
+  : 'a stale payment preflight saves with the newer unpaid version', async t => {
+  const data = invoiceTrackerFixture(today);
+  const invoice = data.entries.find(row => row.name === 'Demo Cedar Expansion');
+  const preflightStarted = Promise.withResolvers();
+  const releasePreflight = Promise.withResolvers();
+  const releaseWrite = Promise.withResolvers();
+  let holdPreflight = false;
+  const { page, errors } = await open(t, { engine: async request => {
+    if (request.method === 'POST') return releaseWrite.promise;
+    const snapshot = structuredClone(data);
+    if (holdPreflight) {
+      holdPreflight = false;
+      preflightStarted.resolve();
+      await releasePreflight.promise;
+    }
+    return Response.json(snapshot);
+  } });
+  await page.locator(`[data-invoice="${invoice.commission_id}"]`).click();
+  const writes = [];
+  page.on('request', request => {
+    if (new URL(request.url()).pathname !== '/mcp') return;
+    const { name, arguments: args } = request.postDataJSON().params;
+    if (name === 'record-commission-receipt') writes.push(args);
+  });
+  const markPaid = page.getByRole('button', { name: 'Mark paid' });
+  try {
+    holdPreflight = true;
+    await markPaid.click();
+    await preflightStarted.promise;
+    Object.assign(invoice, { base_version: 2, gross_amount: '9401' });
+    if (paid) Object.assign(invoice, { status: 'received', received_on: today });
+    await page.evaluate(() => document.getElementById('refreshInvoices').click());
+    await page.locator('#invoiceDetailFacts').getByText('$9,401.00', { exact: true }).waitFor();
+
+    releasePreflight.resolve();
+    if (paid) {
+      await page.waitForFunction(() => !document.getElementById('markInvoicePaid').disabled ||
+        document.getElementById('invoicePaymentNotice').textContent === 'Confirming payment…');
+      assert.equal(await page.locator('.invoice-status-value').innerText(), 'Paid');
+      assert.equal(await markPaid.isVisible(), false);
+      assert.deepEqual(writes, []);
+    } else {
+      await page.waitForRequest(request => new URL(request.url()).pathname === '/mcp' &&
+        request.postDataJSON().params.name === 'record-commission-receipt');
+      assert.deepEqual(writes.map(args => args.base_version), [2]);
+      assert.equal(await page.locator('#invoiceDetailFacts').getByText('$9,401.00', { exact: true }).count(), 1);
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    releasePreflight.resolve();
+    releaseWrite.resolve(new Response(null, { status: 502 }));
   }
 });
 
