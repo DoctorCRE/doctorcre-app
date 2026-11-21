@@ -957,7 +957,7 @@ async function handleRequest(request, env) {
     return assetResponse(request, env, `/${APP_ROUTES.get(pathname)}`);
   }
 
-  const engineChat = pathname === '/doc-chats' && engineSignIn(env);
+  const engineChat = (pathname === '/doc-chats' || routeKey(pathname) === '/doc/conversations/:conversation_id/turns/:msg_id') && engineSignIn(env);
   const dealView = pathname === '/deals' ? url.searchParams.get('view') : null;
   const reviewView = dealView === 'review' || dealView === 'dropped-prospect';
   const routeAsset = engineChat ? 'doc-chats.html'
