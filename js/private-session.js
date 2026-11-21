@@ -95,15 +95,24 @@ export function privateSession() {
   const win = window;
   const returnTo = /^\/a\/al1_[A-Za-z0-9_-]{1,120}$/.test(win.location.pathname) ? win.location.pathname : null;
   const initialEpoch = sessionEpoch(win);
+  let engineSession = false;
   let anonymousDiagnostics = false;
   try { anonymousDiagnostics = win.location.pathname === '/status' && !win.localStorage.getItem('doctorcre-session-binding-v1'); } catch {}
-  browserBoundary = createSessionBoundary({ anonymousDiagnostics, fetchImpl: browserFetch, epoch: () => sessionEpoch(win),
+  browserBoundary = createSessionBoundary({ anonymousDiagnostics, epoch: () => sessionEpoch(win),
+    async fetchImpl(path, init) {
+      const response = await browserFetch(path, init);
+      if (path === '/auth/session') engineSession ||= response.headers.get('x-doctorcre-partner-sign-in') === 'engine';
+      return response;
+    },
     async acceptSession(session) {
       const bytes = await win.crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([session.actor.slug,session.csrf_token])));
       const digest = [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2,'0')).join('');
       try {
         const previous = win.localStorage.getItem('doctorcre-session-binding-v1');
-        if (previous && previous !== digest) return false;
+        if (previous && previous !== digest) {
+          if (engineSession) browserBoundary.revoke('reload-after-sign-in');
+          return false;
+        }
         // Unbound data from older app versions must never be adopted by the
         // first principal to bootstrap this browser.
         if (!previous) await clearPrivateStorage(win);
@@ -116,17 +125,23 @@ export function privateSession() {
       // disappear immediately, including detached dialogs and account labels.
       win.dispatchEvent(new win.Event('doctorcre-session-invalidated'));
       const retiredDocument = win.document;
-      const cleanup = offlineTourSession(win).revoke();
+      const cleanup = offlineTourSession(win).revoke({ expectedEpoch: engineSession ? initialEpoch : undefined });
+      const reload = reason === 'reload-after-sign-in';
       const view = win.document.createElement('main');
-      const title = win.document.createElement('h1'); title.textContent = reason === 'signed-out' ? 'Signed out' : 'Session ended';
+      const title = win.document.createElement('h1');
+      title.textContent = reload ? 'Opening your workspace' : reason === 'signed-out' ? 'Signed out' : 'Session ended';
       const loginHref = returnTo ? `/auth/login?return_to=${encodeURIComponent(returnTo)}` : '/auth/login';
       const link = win.document.createElement('a'); link.href = loginHref; link.textContent = 'Sign in again';
-      win.document.title = 'Session ended';
-      view.append(title,link); win.document.body.replaceChildren(view);
+      win.document.title = reload ? title.textContent : 'Session ended';
+      view.append(title);
+      if (!reload) view.append(link);
+      win.document.body.replaceChildren(view);
       // The new document releases controller closures, pending commands,
       // editor drafts, Doc context, media objects, and actor labels together.
       void cleanup.finally(() => {
-        if (win.document === retiredDocument) win.location.replace(returnTo ? `/public-shell/session-ended.html?return_to=${encodeURIComponent(returnTo)}` : '/public-shell/session-ended.html');
+        if (win.document !== retiredDocument) return;
+        if (reload) win.location.reload();
+        else win.location.replace(returnTo ? `/public-shell/session-ended.html?return_to=${encodeURIComponent(returnTo)}` : '/public-shell/session-ended.html');
       });
     },
   });

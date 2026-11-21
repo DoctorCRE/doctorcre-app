@@ -12,9 +12,11 @@ test("production can reach CARR without making the app publicly routable", () =>
   assert.deepEqual(config.services, [
     { binding: "CARR", service: "carr-mcp" },
     { binding: "ENGINE", service: "doctorcre-engine" },
+    { binding: "PARTNER_APP", service: "doctorcre-engine", entrypoint: "PartnerApp" },
   ]);
   assert.deepEqual(config.kv_namespaces, [{ binding: "ENGINE_ROUTING", id: "1b69f9569abb4f33b22356bd621349d4" }]);
   assert.equal(config.vars.APP_ENV, "production");
+  assert.equal(config.vars.PARTNER_SIGN_IN, "carr");
 });
 
 test("staging remains isolated from production CARR and production hostnames", () => {
@@ -25,10 +27,12 @@ test("staging remains isolated from production CARR and production hostnames", (
   assert.deepEqual(staging.services, [
     { binding: "CARR", service: "carr-mcp-staging" },
     { binding: "ENGINE", service: "doctorcre-engine-staging" },
+    { binding: "PARTNER_APP", service: "doctorcre-engine-staging", entrypoint: "PartnerApp" },
   ]);
   assert.deepEqual(staging.kv_namespaces.map(({ binding }) => binding), ["ENGINE_ROUTING"]);
   assert.notEqual(staging.kv_namespaces[0].id, config.kv_namespaces[0].id, "staging read switches must not flip production");
   assert.equal(staging.vars.APP_ENV, "staging");
+  assert.equal(staging.vars.PARTNER_SIGN_IN, "carr");
 });
 
 test("a CPU cap bounds every invocation in both environments", () => {
