@@ -44,10 +44,25 @@ async function open(t, width = 1440) {
         payload.nodes.find(n => n.kind === "deal").name = JSON.stringify({value:"Demo Dental Relocation"});
       }
       if (mode === "duplicate") payload.edges[0].detail = payload.edges[0].summary;
-      if (mode === "connections") {
+      if (mode === "connections" || mode === "reciprocal" || mode === "connection-ties") {
         const contact = { id: "party:demo-contact", name: "Demo Contact (TBD)", kind: "contact", verticals: [] };
         payload.nodes.push(contact, { ...contact, id: "party:demo-isolated", name: "Demo Isolated" });
-        for (let i = 1; i <= 45; i++) {
+        const tied = mode === "connection-ties";
+        if (tied && version) contact.summary = "Demo contact refreshed";
+        for (let i = 1; i <= (tied ? 22 : 45); i++) {
+          if (tied) {
+            const id = String(i).padStart(2, "0");
+            const name = i === 22 ? "Demo Aardvark" : `Demo Link ${i === 21 ? "20" : id}`;
+            payload.nodes.push({ ...contact, id: `party:demo-tied-${id}`, name });
+            payload.edges.push({
+              id: `link:demo-tied-${id}`,
+              from: contact.id,
+              to: `party:demo-tied-${id}`,
+              kind: "knows",
+              when: i === 22 ? null : i === 1 ? "2026-02-01" : "2026-01-01",
+            });
+            continue;
+          }
           const other = { ...contact, id: `party:demo-linked-${i}`, name: `Demo Link ${i}` };
           payload.nodes.push(other);
           payload.edges.push({
@@ -60,6 +75,15 @@ async function open(t, width = 1440) {
           });
         }
       }
+      if (mode === "reciprocal") {
+        payload.edges.push(
+          { id: "link:demo-reverse", from: "party:demo-linked-2", to: "party:demo-contact",
+            kind: "works_with", when: "2026-02-02", summary: "Demo project notes" },
+          { id: "link:demo-repeat", from: "party:demo-linked-2", to: "party:demo-contact",
+            kind: "knows", when: "2026-01-01" },
+        );
+      }
+      if (mode === "connection-ties" && version) payload.edges.reverse();
       if (mode === "connector") {
         payload.edges[0].via = "party:demo-build";
         payload.suggestions[0].via = "party:demo-build";
@@ -433,6 +457,45 @@ test("A contact's connections show newest first in batches", async (t) => {
   assert.equal(await entries.count(), 45);
   assert.match(await entries.last().innerText(), /Demo Link 1\b/);
   assert.equal(await more.count(), 0);
+});
+
+test("Reciprocal links show one connection with every label and the latest date", async (t) => {
+  const { page, setMode } = await open(t);
+  setMode("reciprocal");
+  await page.goto("http://localhost/relationships?mode=live&q=Demo+Contact");
+  const contact = page.locator("#networkNodes").getByRole("button", { name: /Demo Contact/ });
+  await contact.waitFor();
+  assert.match(await contact.innerText(), /45 connections/);
+  await contact.click();
+  const dialog = page.getByRole("dialog");
+  assert.equal(await dialog.getByRole("heading", { name: "Connections 45", exact: true }).count(), 1);
+  const link = dialog.getByRole("button", { name: "Demo Link 2", exact: true });
+  const entry = dialog.locator(".relationship-entry").filter({ has: link });
+  assert.equal(await entry.count(), 1);
+  assert.deepEqual((await entry.locator(":scope > span").innerText()).split(" · ").sort(), ["Knows", "Works with"]);
+  assert.deepEqual(await entry.locator("time").evaluateAll(times => times.map(time => time.dateTime)), ["2026-02-02"]);
+  assert.match(await entry.innerText(), /Demo project notes/);
+  await link.click();
+  assert.equal(await dialog.getByRole("heading", { name: "Connections 1", exact: true }).count(), 1);
+});
+
+test("Tied connections keep the same first 20 when a refresh reverses the links", async (t) => {
+  const { page, setMode, setVersion } = await open(t);
+  setMode("connection-ties");
+  await page.goto("http://localhost/relationships?mode=live&q=Demo+Contact");
+  await page.locator("#networkNodes").getByRole("button", { name: /Demo Contact/ }).click();
+  const dialog = page.getByRole("dialog");
+  const linkedIds = () => dialog.locator("[data-open-node]").evaluateAll(
+    buttons => buttons.map(button => button.dataset.openNode),
+  );
+  const expected = Array.from({ length: 20 }, (_, i) => `party:demo-tied-${String(i + 1).padStart(2, "0")}`);
+  assert.deepEqual(await linkedIds(), expected);
+  setVersion(1);
+  await page.clock.fastForward(61000);
+  await dialog.getByText("Demo contact refreshed", { exact: true }).waitFor();
+  assert.deepEqual(await linkedIds(), expected);
+  await dialog.getByRole("button", { name: "Show more", exact: true }).click();
+  assert.deepEqual(await linkedIds(), [...expected, "party:demo-tied-21", "party:demo-tied-22"]);
 });
 
 test("A failed Connections read shows Retry even while an empty contact is open", async (t) => {
