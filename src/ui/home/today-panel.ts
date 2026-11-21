@@ -206,7 +206,8 @@ export async function mountHomeTodayPanel(
       schedule,
       section.items.length
         ? section.items.map(meetingRow).join("")
-        : status(section.state === "partial" ? "Couldn't load meetings." : "No meetings today."),
+        : status("No meetings today.") +
+            (section.meetings_may_be_missing === true ? status("Calendar may be incomplete") : ""),
     );
     return true;
   };
