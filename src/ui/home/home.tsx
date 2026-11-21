@@ -22,6 +22,7 @@ import {
   type TaskReceipt,
   taskCommand,
 } from "./inbox";
+import { MeetingReview, MeetingTile, readMeetings } from "./meetings";
 import { type DraftEdits, ReviewCard } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays, readDashboard } from "./sections";
@@ -103,6 +104,18 @@ function Inbox({ client }: { client: InboxClient }) {
     refetchInterval: () =>
       navigator.onLine && document.visibilityState === "visible" && !inFlight.current ? 60_000 : false,
   });
+  const meetings = useQuery({
+    queryKey: ["home-meetings"],
+    queryFn: ({ signal }) => readMeetings(signal),
+    enabled: home && engineHome,
+    // eslint-disable-next-line no-restricted-syntax -- The calendar reads once a minute while visible and online.
+    refetchInterval: () => (navigator.onLine && document.visibilityState === "visible" ? 60_000 : false),
+  });
+  const [handledMeetings, setHandledMeetings] = useState<ReadonlySet<string>>(() => new Set());
+  const finishMeeting = useCallback((key: string, message: string) => {
+    setHandledMeetings((handled) => new Set([...handled, key]));
+    setNotice(message);
+  }, []);
   useEffect(() => {
     const host = document.getElementById("homeRoot");
     if (home && !query.isPending && host) markHomeReady(host);
@@ -160,6 +173,7 @@ function Inbox({ client }: { client: InboxClient }) {
         return;
       lastRefresh = Date.now();
       void query.refetch({ cancelRefetch: false });
+      if (home && engineHome) void meetings.refetch({ cancelRefetch: false });
     };
     const update = () => {
       setOnline(navigator.onLine);
@@ -182,7 +196,7 @@ function Inbox({ client }: { client: InboxClient }) {
       removeEventListener("online", update);
       removeEventListener("offline", update);
     };
-  }, [cache, home, query.refetch]);
+  }, [cache, engineHome, home, meetings.refetch, query.refetch]);
   const snoozeOpener = useRef<HTMLElement | null>(null);
   const [snoozeCancelled, setSnoozeCancelled] = useState(0);
   function openSnooze(items: readonly InboxItem[]) {
@@ -1032,12 +1046,22 @@ function Inbox({ client }: { client: InboxClient }) {
         </>
       )}
       {home && (
-        <HomeGrid snapshot={query.data}>
+        <HomeGrid snapshot={query.data} calendar={meetings.data}>
           <CardTile
             title="Reminders"
             items={tiles.reminders}
             pinned={pinnedTile === "reminders" ? reviewing : null}
             current={reviewing?.item_id || item_id}
+            after={
+              meetings.data?.reviews
+                .filter(
+                  (review) =>
+                    !handledMeetings.has(review.key) && day(new Date(review.start)) < (meetings.data?.today ?? today),
+                )
+                .map((review) => (
+                  <MeetingReview key={review.key} data={meetings.data} review={review} finish={finishMeeting} />
+                )) ?? []
+            }
             row={row}
           />
           <CardTile
@@ -1047,7 +1071,20 @@ function Inbox({ client }: { client: InboxClient }) {
             current={reviewing?.item_id || item_id}
             row={row}
           />
+          {meetings.data && (
+            <MeetingTile
+              data={meetings.data}
+              stale={meetings.isError}
+              handled={handledMeetings}
+              finish={finishMeeting}
+            />
+          )}
         </HomeGrid>
+      )}
+      {home && meetings.isError && (
+        <p className="home-read-status" role="status">
+          Meetings unavailable.
+        </p>
       )}
       {home && ((query.isError && query.data) || !online) && (
         <p className="home-read-status" role="status">

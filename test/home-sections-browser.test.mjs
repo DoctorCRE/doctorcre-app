@@ -1119,4 +1119,98 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   }
 });
 
+
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home meeting tile at ${width}px in ${theme}`, async t => {
+  const { page, open } = await dashboard(t, width, theme);
+  const deal = { id: id(99), name: 'Example Dental', owner: 'joe' };
+  const current = { title: 'Tour Cedar Suite', start: '2026-11-03T13:30:00Z', end: '2026-11-03T14:30:00Z',
+    context_label: deal.name, attendees: [{ name: 'Pat Example' }], open_url: `/deals?deal=${deal.id}` };
+  const later = ['Review sample terms', 'Visit Elm Suite', 'Tour Pine Suite'].map((title, index) => ({
+    title, start: `2026-11-03T${18 + index}:00:00Z`, end: `2026-11-03T${19 + index}:00:00Z`,
+  }));
+  const laterDay = { ...current, title: 'Tour tomorrow', start: '2026-11-04T18:00:00Z', end: '2026-11-04T19:00:00Z' };
+  const completed = { ...current, key: 'aaaaaaaaaaaaaaaa', state: 'needs_review' };
+  const earlier = { ...completed, key: 'bbbbbbbbbbbbbbbb', title: 'Yesterday’s site visit',
+    start: '2026-11-02T19:00:00Z', end: '2026-11-02T20:00:00Z' };
+  let items = [current, current, ...later, laterDay];
+  let reviews = [completed, earlier];
+  let meetingError = false;
+  const writes = [];
+  await page.route(request => request.pathname === '/mcp', route => {
+    const { id, params } = route.request().postDataJSON();
+    if (params.name !== 'deal-room-board') return route.fallback();
+    return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({
+      actor: 'joe', deals: [deal],
+    }) }] } } });
+  });
+  await page.route('**/api/engine/home/today', route => meetingError ? route.fulfill({ status: 503 }) : route.fulfill({ json: {
+    ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe',
+    meetings: { state: items.length ? 'partial' : 'empty', observed_at: '2026-11-03T14:00:00Z', items, follow_up_reviews: reviews },
+  } }));
+  await page.route('**/api/engine/activities', route => {
+    writes.push(route.request().postDataJSON());
+    reviews = reviews.filter(review => review.key !== completed.key);
+    return route.fulfill({ status: 201, json: { activity_id: id(91), existing: false } });
+  });
+  await page.route('**/api/engine/calendar/reviews/*/dismissal', route => {
+    const key = new URL(route.request().url()).pathname.split('/').at(-2);
+    reviews = reviews.filter(review => review.key !== key);
+    return route.fulfill({ json: { key, dismissed_at: NOW.toISOString() } });
+  });
+
+  await page.clock.install({ time: NOW });
+  await open('/?mode=live');
+  const meetings = page.getByRole('region', { name: "Today's meetings", exact: true });
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  await meetings.getByRole('heading', { name: "Today's meetings 4" }).waitFor();
+  await reminders.getByRole('heading', { name: 'Reminders 5' }).waitFor();
+  await meetings.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
+  assert.equal(await meetings.getByText(current.title, { exact: true }).count(), 1);
+  assert.equal(await meetings.getByText(laterDay.title, { exact: true }).count(), 0);
+  assert.equal(await meetings.locator('summary').count(), 3);
+  assert.equal(await meetings.getByText('7:30 AM', { exact: true }).count(), 1);
+  await meetings.getByRole('button', { name: 'See all 4' }).click();
+  await meetings.getByText(later[2].title, { exact: true }).waitFor();
+  await meetings.getByRole('button', { name: 'Show less' }).click();
+  assert.equal(await meetings.getByText(earlier.title, { exact: true }).count(), 0);
+  assert.equal(await page.locator('#appToday').isVisible(), false);
+  assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+  if (process.env.HOME_MEETING_SCREENSHOTS) {
+    await mkdir(process.env.HOME_MEETING_SCREENSHOTS, { recursive: true });
+    if (width === 390) await page.setViewportSize({ width, height: 1400 });
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await page.screenshot({ path: join(process.env.HOME_MEETING_SCREENSHOTS, `home-meetings-${width}-${theme}.png`), fullPage: true });
+    if (width === 390) await page.setViewportSize({ width, height: 760 });
+  }
+  await meetings.locator('summary').filter({ hasText: current.title }).press('Enter');
+  await meetings.getByText('Pat Example', { exact: true }).waitFor();
+  assert.equal(await meetings.getByRole('link', { name: 'Open deal' }).getAttribute('href'), current.open_url);
+  const choose = meetings.getByRole('combobox', { name: 'Deal', exact: true });
+  await choose.selectOption(deal.id);
+  await choose.focus();
+  meetingError = true;
+  await page.clock.fastForward(60_000);
+  await page.getByText('Meetings unavailable.', { exact: true }).waitFor();
+  assert.equal(await choose.inputValue(), deal.id);
+  assert.equal(await choose.evaluate(node => node === document.activeElement), true);
+  assert.equal(await reminders.getByRole('heading', { name: 'Reminders 5' }).count(), 1);
+  await meetings.getByRole('button', { name: 'It happened', exact: true }).click();
+  await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].calendar_review_key, completed.key);
+  assert.deepEqual(writes[0].about, [{ deal_id: deal.id }]);
+
+  await reminders.getByRole('button', { name: 'See all 5' }).click();
+  const earlierReview = reminders.locator(`[data-review="${earlier.key}"]`);
+  await earlierReview.getByRole('heading', { name: /Yesterday’s site visit/ }).waitFor();
+  await earlierReview.getByRole('button', { name: /Confirm Yesterday’s site visit/ }).press('Enter');
+  await earlierReview.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await earlierReview.waitFor({ state: 'detached' });
+  meetingError = false;
+  items = [];
+  await page.clock.fastForward(60_000);
+  await meetings.waitFor({ state: 'detached' });
+  assert.equal(await reminders.getByRole('heading', { name: 'Reminders 4' }).count(), 1);
+});
+
 });
