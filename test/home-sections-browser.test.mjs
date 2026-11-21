@@ -1213,9 +1213,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
 
 
 const scheduledMeeting = {
-  title: 'Tour Cedar Suite', start: '2026-11-03T13:30:00Z', end: '2026-11-03T14:30:00Z',
+  key: 'aaaaaaaaaaaaaaaa', title: 'Tour Cedar Suite', start: '2026-11-03T13:30:00Z', end: '2026-11-03T14:30:00Z',
 };
-const meetingOutcome = { ...scheduledMeeting, key: 'aaaaaaaaaaaaaaaa', state: 'needs_review' };
+const meetingOutcome = { ...scheduledMeeting, state: 'needs_review' };
 const meetingDeal = { id: id(99), name: 'Example Dental', owner: 'joe' };
 
 async function meetingDashboard(t, calendar, time = NOW) {
@@ -1298,61 +1298,36 @@ test('Home puts an overnight outcome on its meeting', async t => {
   assert.equal(await page.getByRole('button', { name: `Confirm ${overnight.title}` }).count(), 0);
 });
 
-test('Home keeps separate invites with the same title and times', async t => {
-  const pat = { ...scheduledMeeting, attendees: [{ name: 'Pat Example' }] };
-  const lee = { ...scheduledMeeting, key: meetingOutcome.key, attendees: [{ name: 'Lee Example' }] };
-  const { meetings } = await meetingDashboard(t, {
-    items: [pat, pat, lee], follow_up_reviews: [meetingOutcome],
-  });
-  await meetings.getByRole('heading', { name: "Today's meetings 3" }).waitFor();
-  for (const summary of await meetings.locator('summary').all()) await summary.press('Enter');
-  const matches = meetings.locator('details').filter({ hasText: 'Pat Example' });
-  assert.equal(await matches.count(), 2);
-  assert.equal(await matches.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
-  await meetings.locator('details').filter({ hasText: 'Lee Example' })
-    .getByRole('button', { name: 'It happened', exact: true }).waitFor();
-});
-
-test('Home keeps both invites when the keyed invite becomes review-only', async t => {
-  const pat = { ...scheduledMeeting, attendees: [{ name: 'Pat Example' }] };
-  const lee = { ...scheduledMeeting, key: meetingOutcome.key, attendees: [{ name: 'Lee Example' }] };
-  const calendar = { items: [pat, lee] };
-  const { page, meetings } = await meetingDashboard(t, calendar);
-  await meetings.getByRole('heading', { name: "Today's meetings 2" }).waitFor();
-  for (const summary of await meetings.locator('summary').all()) await summary.press('Enter');
-  const patRow = meetings.locator('details').filter({ hasText: 'Pat Example' });
-  const leeRow = meetings.locator('details').filter({ hasText: 'Lee Example' });
-  await leeRow.getByText('Lee Example', { exact: true }).waitFor();
-
-  calendar.items = [pat];
-  calendar.follow_up_reviews = [meetingOutcome];
-  calendar.state = 'partial';
-  calendar.observed_at = '2026-11-03T14:01:00Z';
-  await page.clock.fastForward(60_000);
-  await meetings.getByText('Last synced Nov 3, 8:01 AM Central').waitFor();
-  assert.equal(await meetings.locator('summary').count(), 2);
-  await leeRow.getByRole('button', { name: 'It happened', exact: true }).waitFor();
-  assert.equal(await patRow.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
-});
-
-test('Home keeps an outcome separate when two unkeyed invites could match it', async t => {
-  const pat = { ...scheduledMeeting, attendees: [{ name: 'Pat Example' }] };
+test('Home keeps same-time Outlook invites separate when attendees and outcomes change', async t => {
+  const pat = { ...scheduledMeeting, key: 'bbbbbbbbbbbbbbbb', attendees: [{ name: 'Pat Example' }] };
   const lee = { ...scheduledMeeting, attendees: [{ name: 'Lee Example' }] };
   const calendar = { items: [pat, lee] };
   const { page, meetings } = await meetingDashboard(t, calendar);
   await meetings.getByRole('heading', { name: "Today's meetings 2" }).waitFor();
-  calendar.items = [pat];
-  calendar.follow_up_reviews = [meetingOutcome];
-  calendar.state = 'partial';
-  await page.clock.fastForward(60_000);
-  await meetings.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
-  assert.equal(await meetings.locator('summary').count(), 2);
-
   for (const summary of await meetings.locator('summary').all()) await summary.press('Enter');
-  const patRow = meetings.locator('details').filter({ hasText: 'Pat Example' });
-  await patRow.getByText('Pat Example', { exact: true }).waitFor();
+  await meetings.getByText('Lee Example', { exact: true }).waitFor();
+
+  calendar.items = [pat, { ...lee, attendees: [{ name: 'Sam Example' }] }];
+  calendar.follow_up_reviews = [meetingOutcome];
+  await page.clock.fastForward(60_000);
+  const samRow = meetings.locator('details').filter({ hasText: 'Sam Example' });
+  await samRow.getByRole('button', { name: 'It happened', exact: true }).waitFor();
+  assert.equal(await meetings.locator('summary').count(), 2);
+  assert.equal(await meetings.locator('details').filter({ hasText: 'Pat Example' })
+    .getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+});
+
+test('Home keeps a legacy invite separate from an outcome with the same title and times', async t => {
+  const legacy = { ...scheduledMeeting, key: undefined, attendees: [{ name: 'Pat Example' }] };
+  const { meetings } = await meetingDashboard(t, {
+    items: [legacy], follow_up_reviews: [meetingOutcome],
+  });
+  await meetings.locator('summary').first().waitFor();
+  for (const summary of await meetings.locator('summary').all()) await summary.press('Enter');
+  const legacyRow = meetings.locator('details').filter({ hasText: 'Pat Example' });
   await meetings.getByRole('button', { name: 'It happened', exact: true }).waitFor();
-  assert.equal(await patRow.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+  assert.equal(await legacyRow.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+  assert.equal(await meetings.locator('summary').count(), 2);
 });
 
 test('Home keeps the open meeting outcome and its focus when earlier meetings arrive', async t => {
@@ -1363,7 +1338,8 @@ test('Home keeps the open meeting outcome and its focus when earlier meetings ar
   await choice.selectOption(meetingDeal.id);
   await choice.focus();
   const earlier = Array.from({ length: 3 }, (_, index) => ({
-    title: `Earlier sample meeting ${index + 1}`, start: '2026-11-03T12:00:00Z', end: '2026-11-03T13:00:00Z',
+    key: `000000000000000${index}`, title: `Earlier sample meeting ${index + 1}`,
+    start: '2026-11-03T12:00:00Z', end: '2026-11-03T13:00:00Z',
   }));
   calendar.items = [...earlier, scheduledMeeting];
   await page.clock.fastForward(60_000);

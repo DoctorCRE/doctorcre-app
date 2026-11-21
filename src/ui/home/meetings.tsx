@@ -20,7 +20,7 @@ const href = (value: unknown) =>
     ? value
     : undefined;
 type Event = Record<string, unknown> & { title: string; start: string; end: string };
-function event(value: unknown): Event {
+function event(value: unknown): Event & { key: string | null } {
   if (
     !object(value) ||
     !text(value.title) ||
@@ -29,7 +29,8 @@ function event(value: unknown): Event {
     Date.parse(value.end) < Date.parse(value.start)
   )
     throw Error("Meetings unavailable");
-  return { ...value, title: value.title, start: value.start, end: value.end };
+  const key = typeof value.key === "string" && /^[a-f0-9]{16}$/.test(value.key) ? value.key : null;
+  return { ...value, key, title: value.title, start: value.start, end: value.end };
 }
 
 export async function readMeetings(signal: AbortSignal) {
@@ -138,71 +139,33 @@ export function earlierMeetingReviews(data: MeetingRead | undefined, today: stri
 }
 
 type Review = MeetingRead["reviews"][number];
-type MeetingRow = { id: string; item: Event; outcome: { key: string; pending: Review | null } | null };
+type MeetingRow = { id: string; item: Event; outcome: { pending: Review | null } | null };
 
-const outlookKey = (item: Event, outcome?: MeetingRow["outcome"]) => (text(item.key) ? item.key : outcome?.key);
-const slot = (item: Event) => JSON.stringify([Date.parse(item.start), Date.parse(item.end), item.title.trim()]);
-function personKey(person: unknown) {
-  if (!object(person)) return null;
-  return text(person.email) ? person.email : text(person.name) ? person.name : null;
-}
-
-function scheduledRows(items: Event[]) {
-  const occurrences = new Map<string, number>();
+function meetingRows(data: MeetingRead, today: string, revision: number, previous: MeetingRow[]) {
   const rows = new Map<string, MeetingRow>();
-  for (const item of items) {
-    const key = outlookKey(item);
-    if (key) {
-      rows.set(`event:${key}`, { id: `event:${key}`, item, outcome: null });
-      continue;
-    }
-    const attendees = Array.isArray(item.attendees) ? item.attendees.map(personKey).sort() : [];
-    const fingerprint = JSON.stringify([slot(item), personKey(item.organizer), attendees, item.location]);
-    const count = occurrences.get(fingerprint) ?? 0;
-    occurrences.set(fingerprint, count + 1);
-    const id = `schedule:${fingerprint}:${count}`;
+  for (const [index, item] of data.items.entries()) {
+    if (!onMeetingDay(item, today)) continue;
+    const id = item.key ?? `unkeyed:${revision}:${index}`;
     rows.set(id, { id, item, outcome: null });
   }
-  return rows;
-}
 
-function matchReview(candidates: MeetingRow[], review: Review, reviews: Review[]) {
-  const exact = candidates.find(({ item, outcome }) => outlookKey(item, outcome) === review.key);
-  if (exact) return exact;
-
-  const reviewSlot = slot(review);
-  if (reviews.some((other) => other.key !== review.key && slot(other) === reviewSlot)) return;
-  const fallback = candidates.filter(({ item, outcome }) => !outlookKey(item, outcome) && slot(item) === reviewSlot);
-  if (fallback.length === 1) return fallback[0];
-}
-
-function meetingRows(data: MeetingRead, today: string, previous: MeetingRow[]) {
-  const rows = scheduledRows(data.items.filter((item) => onMeetingDay(item, today)));
-  const reviews = data.reviews.filter((review) => onMeetingDay(review, today));
-  const candidates = new Map(rows);
-  for (const old of previous) {
-    const current = candidates.get(old.id);
-    candidates.set(old.id, current ? { ...current, outcome: old.outcome } : old);
-  }
-  const meetings = [...candidates.values()];
-  for (const review of reviews) {
-    const match = matchReview(meetings, review, reviews);
-    const id = match?.id ?? `event:${review.key}`;
-    rows.set(id, { id, item: match?.item ?? review, outcome: { key: review.key, pending: review } });
+  const previousById = new Map(previous.map((row) => [row.id, row]));
+  for (const review of data.reviews) {
+    if (!onMeetingDay(review, today)) continue;
+    const id = review.key;
+    const prior = previousById.get(id)?.item;
+    const item = rows.get(id)?.item ?? (prior && onMeetingDay(prior, today) ? prior : review);
+    rows.set(id, { id, item, outcome: { pending: review } });
   }
 
-  const linkedReviews = new Set([...rows.values()].map((row) => row.outcome?.key));
   const retained: MeetingRow[] = [];
   for (const old of previous) {
-    const row = rows.get(old.id);
+    const current = rows.get(old.id);
     rows.delete(old.id);
     // Outlook's next snapshot can omit an ended meeting and its answered review.
-    const outcome =
-      old.outcome && !linkedReviews.has(old.outcome.key) && onMeetingDay(old.item, today)
-        ? { key: old.outcome.key, pending: null }
-        : null;
-    if (row) retained.push({ ...row, outcome: row.outcome ?? outcome });
-    else if (outcome) retained.push({ ...old, outcome });
+    if (old.outcome && !current?.outcome && onMeetingDay(old.item, today))
+      retained.push({ ...(current ?? old), outcome: { pending: null } });
+    else if (current) retained.push(current);
   }
   return [...retained, ...rows.values()];
 }
@@ -222,12 +185,14 @@ export function MeetingTile({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const [view, setView] = useState(() => ({ data, today, rows: meetingRows(data, today, []) }));
-  const changed = view.data !== data || view.today !== today;
+  const [view, setView] = useState(() => ({ data, today, revision: 0, rows: meetingRows(data, today, 0, []) }));
+  const newRead = view.data !== data;
+  const changed = newRead || view.today !== today;
   const sameActor = view.data.actor === data.actor;
-  const events = changed ? meetingRows(data, today, sameActor ? view.rows : []) : view.rows;
+  const revision = newRead ? view.revision + 1 : view.revision;
+  const events = changed ? meetingRows(data, today, revision, sameActor ? view.rows : []) : view.rows;
   if (changed) {
-    setView({ data, today, rows: events });
+    setView({ data, today, revision, rows: events });
     const stillOpen = sameActor ? events.filter(({ id }) => open.has(id)).map(({ id }) => id) : [];
     if (stillOpen.length !== open.size) setOpen(new Set(stillOpen));
   }
