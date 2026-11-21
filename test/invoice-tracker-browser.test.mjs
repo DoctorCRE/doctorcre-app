@@ -181,6 +181,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.match(await owed.innerText(), /\$12,500.00/);
     assert.match(await owed.innerText(), /1 without a recorded amount/);
     assert.match(await age.innerText(), /\$12,500.00/);
+    assert.match(await age.innerText(), /2 invoices · 1 without a recorded amount/);
 
     await page.locator('#invoiceOwner').selectOption('dell');
     assert.match(await owed.innerText(), /No invoice amounts recorded yet/);
@@ -200,19 +201,42 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.match(await page.locator('#invoiceDetailFacts').innerText(), /Owed to DoctorCRE\s+Amount not recorded/);
     assert.match(await page.locator('#invoiceOriginalFacts').innerText(), /Owner\s+Dell/);
     assert.match(await page.locator('#invoiceOriginalFacts').innerText(), /Due date not recorded/);
-    const doc = page.locator('#invoiceDetail').getByRole('button', { name: 'Open Doc' });
+    const drawer = page.getByRole('dialog');
+    const doc = drawer.getByRole('button', { name: 'Open Doc' });
+    const close = drawer.getByRole('button', { name: 'Close invoice' });
+    const openDeal = drawer.getByRole('link', { name: 'Open deal', exact: true });
     await doc.waitFor();
     await page.screenshot({ path: new URL(`missing-amount-${width}-${theme}.png`, evidence).pathname });
     await page.setViewportSize({ width, height: 360 });
-    const scrollTop = await page.locator('#invoiceDetail').evaluate(dialog => {
-      dialog.scrollTo(0, dialog.scrollHeight);
-      return dialog.scrollTop;
-    });
-    assert.ok(scrollTop > 0, 'the drawer is scrolled');
+    await close.focus();
+    const panel = await drawer.boundingBox();
+    const heading = drawer.locator('.invoice-detail-heading');
+    const header = await heading.boundingBox();
+    const headerBottom = header.y + header.height;
+    const dealBeforeScroll = await openDeal.boundingBox();
+    const scrollPastDeal = Math.ceil(dealBeforeScroll.y + dealBeforeScroll.height - headerBottom) + 4;
+    await page.mouse.move(panel.x + panel.width / 2, panel.y + panel.height - 20);
+    await page.mouse.wheel(0, scrollPastDeal);
+    await page.waitForFunction(([link, bottom]) => link.getBoundingClientRect().bottom <= bottom,
+      [await openDeal.elementHandle(), headerBottom]);
     await page.screenshot({ path: new URL(`scrolled-${width}-${theme}.png`, evidence).pathname });
-    const icon = await doc.boundingBox();
-    const label = await page.getByText('Commission', { exact: true }).first().boundingBox();
-    assert.ok(icon.x >= label.x + label.width, 'Doc stays beside the header label while scrolling');
+
+    const label = await heading.getByText('Commission', { exact: true }).boundingBox();
+    for (const control of [doc, close]) {
+      const box = await control.boundingBox();
+      assert.ok(box.x >= label.x + label.width, 'header actions stay beside the label');
+      assert.ok(box.x + box.width <= panel.x + panel.width, 'header actions fit inside the drawer');
+      assert.ok(box.y >= panel.y && box.y + box.height <= panel.y + panel.height,
+        'header actions stay fully visible while scrolling');
+    }
+    await page.keyboard.press('Tab');
+    assert.ok(await openDeal.evaluate(link => link === document.activeElement), 'Tab from Close focuses Open deal');
+    const focusedDeal = await openDeal.boundingBox();
+    const focusedHeader = await heading.boundingBox();
+    assert.ok(focusedDeal.y >= focusedHeader.y + focusedHeader.height,
+      'the header leaves the focused Open deal link visible');
+    assert.ok(focusedDeal.y + focusedDeal.height <= panel.y + panel.height,
+      'the focused Open deal link fits inside the drawer');
     assert.deepEqual(h.errors, []);
   });
 }

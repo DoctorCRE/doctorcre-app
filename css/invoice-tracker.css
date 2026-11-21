@@ -100,13 +100,15 @@ body { background: var(--ground); color: var(--fg); }
 #invoiceRows > p { padding: var(--space-6) var(--space-5); color: var(--fg-muted); font-size: var(--font-size-1); }
 
 /* --- the invoice dialog -------------------------------------------------------- */
-.invoice-detail { --invoice-detail-padding: var(--space-6); width: min(1000px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); margin: auto; overflow: auto; padding: 0; border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--panel-radius); background: var(--surface-1); color: var(--fg); font-family: var(--font-text); font-size: var(--font-size-1); line-height: var(--line-height-body); box-shadow: var(--shadow-overlay); }
+.invoice-detail { --invoice-detail-padding: var(--space-6); width: min(1000px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); margin: auto; overflow: hidden; padding: 0; border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--panel-radius); background: var(--surface-1); color: var(--fg); font-family: var(--font-text); font-size: var(--font-size-1); line-height: var(--line-height-body); box-shadow: var(--shadow-overlay); }
+.invoice-detail[open], .invoice-detail > article { display: flex; flex-direction: column; }
+.invoice-detail > article { min-height: 0; }
 .invoice-detail::backdrop { background: var(--scrim); }
 .invoice-detail a { display: inline-flex; align-items: center; min-height: var(--touch); color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
-.invoice-detail-heading { position: sticky; top: 0; z-index: 2; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--invoice-detail-padding); border-bottom: var(--hairline-width) solid var(--hairline); background: var(--surface-1); }
+.invoice-detail-heading { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--invoice-detail-padding); border-bottom: var(--hairline-width) solid var(--hairline); background: var(--surface-1); }
 .invoice-detail-actions { display: flex; gap: var(--space-2); flex: none; }
 .invoice-detail-actions > .doc-presence { position: static; }
-.invoice-detail-body { padding: var(--space-5) var(--invoice-detail-padding) var(--invoice-detail-padding); }
+.invoice-detail-body { overflow: auto; padding: var(--space-5) var(--invoice-detail-padding) var(--invoice-detail-padding); }
 .invoice-detail-heading h2 { margin-top: var(--space-1); font-size: var(--font-size-4); overflow-wrap: anywhere; }
 .invoice-eyebrow { color: var(--fg-muted); font-size: var(--font-size-1); }
 .invoice-detail-heading #closeInvoiceDetail { min-width: var(--touch); padding: 0; border-color: var(--hairline); background: transparent; color: var(--fg-muted); font-size: var(--font-size-3); line-height: 1; }
