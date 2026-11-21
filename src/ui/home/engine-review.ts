@@ -71,6 +71,41 @@ export function draftReference(item: InboxItem) {
 export const hasEngineReview = (item: InboxItem) =>
   Boolean(item.engine_marks && (draftReference(item) || proposalIds(item).length));
 
+export type EmailThread = {
+  subject: string | null;
+  messages: { id: string; sender: string | null; occurredAt: string; body: string }[];
+};
+
+function emailThread(value: Record<string, unknown>): EmailThread {
+  const messages = Array.isArray(value.thread)
+    ? value.thread.flatMap((message: unknown) => {
+        if (!object(message)) return [];
+        const { activity_id: id, happened_at: occurredAt, body, sender_name } = message;
+        if (
+          typeof id !== "string" ||
+          !id ||
+          typeof occurredAt !== "string" ||
+          !Number.isFinite(Date.parse(occurredAt)) ||
+          typeof body !== "string"
+        )
+          return [];
+        return [{ id, occurredAt, body, sender: string(sender_name)?.trim().split(/\s+/, 1)[0] || null }];
+      })
+    : [];
+  return {
+    messages,
+    subject: messages.length && object(value.source_activity) ? string(value.source_activity.subject) : null,
+  };
+}
+
+function combineThreads(threads: EmailThread[]): EmailThread {
+  const messages = new Map(threads.flatMap(({ messages }) => messages.map((message) => [message.id, message])));
+  return {
+    subject: threads.find(({ subject }) => subject)?.subject ?? null,
+    messages: [...messages.values()].sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt)),
+  };
+}
+
 function source(value: unknown) {
   if (!object(value)) return null;
   const happened = string(value.happened_at);
@@ -86,10 +121,8 @@ function source(value: unknown) {
             : "From this email"
           : "From this note";
   return {
-    sender,
     from,
-    subject: string(value.subject),
-    excerpt: string(value.body) || string(value.summary) || "",
+    excerpt: value.kind === "email" ? "" : string(value.body) || string(value.summary) || "",
     occurredAt: happened && Number.isFinite(Date.parse(happened)) ? happened : null,
   };
 }
@@ -135,8 +168,7 @@ export type Suggestion = {
   id: string;
   label: string;
   target: string | null;
-  evidence: string;
-  evidenceQuote: string | null;
+  reason: string | null;
   emailLead: boolean;
   senderAddress: string | null;
   source: ReturnType<typeof source>;
@@ -158,28 +190,38 @@ export async function loadEngineReview(rpc: Rpc, item: InboxItem, signal?: Abort
       if (value.proposal_id !== id || typeof value.evidence !== "string" || !label) throw unreadable();
       const change = string(value.to_phase) || string(value.to_stage);
       const review = "completion_review" in item && object(item.completion_review) ? item.completion_review : null;
-      return {
+      const activity = object(value.source_activity) ? value.source_activity : null;
+      const leadCandidate = value.kind === "email_lead" && activity?.id === null && !Array.isArray(value.thread);
+      const thread =
+        !leadCandidate && (Array.isArray(value.thread) || activity?.kind === "email") ? emailThread(value) : null;
+      const proposal: Suggestion = {
         id,
         label,
         target: string(value.target_name),
-        evidence: value.evidence,
-        evidenceQuote: string(value.evidence_quote),
+        // Imported proposals can store raw email quotes in evidence.
+        reason: thread ? string(value.reason) : value.evidence,
         emailLead: value.kind === "email_lead",
-        senderAddress: object(value.source_activity) ? string(value.source_activity.sender) : null,
-        source: source(value.source_activity),
+        senderAddress: leadCandidate ? string(activity?.sender) : null,
+        source: thread ? null : source(activity),
         what: string(value.what) || change?.replaceAll("_", " ") || null,
         dueOn: string(value.due_on),
         editable: value.kind === "next_step",
         completion: value.kind === "next_step_done",
         canAccept: review?.can_resolve !== false,
       };
+      return { proposal, thread };
     }),
   );
-  if (draft) {
-    const [reply, proposals] = await Promise.all([loadDraft(rpc, item, draft, signal), pending]);
-    return { ...reply, proposals };
-  }
-  return { kind: "suggestions", operations: [], proposals: await pending };
+  const [reply, details] = await Promise.all([draft && loadDraft(rpc, item, draft, signal), pending]);
+  const threads = details.flatMap(({ thread }) => (thread ? [thread] : []));
+  const proposals = details.map(({ proposal }) => proposal);
+  if (reply) return { ...reply, proposals, thread: combineThreads([reply.thread, ...threads]) };
+  return {
+    kind: "suggestions",
+    operations: [],
+    proposals,
+    ...(threads.length && { thread: combineThreads(threads) }),
+  };
 }
 
 async function loadDraft(
@@ -187,7 +229,7 @@ async function loadDraft(
   item: InboxItem,
   draft: { id: string; version: string },
   signal?: AbortSignal,
-): Promise<Extract<CardReview, { kind: "reply_draft" }>> {
+): Promise<Extract<CardReview, { kind: "reply_draft" }> & { thread: EmailThread }> {
   const { id } = draft;
   const value = await answer(rpc, "read-engine-home-draft", { id }, signal);
   const { subject, body, version, status, to, cc } = value;
@@ -228,7 +270,7 @@ async function loadDraft(
     reference: {
       kind: "reply_draft",
       item_id: item.item_id,
-      source_version: item.source_version,
+      source_version: String(version),
       operations: operations.map((op) => op.verb),
     },
     subject,
@@ -236,7 +278,7 @@ async function loadDraft(
     recipients,
     operations,
     sendUnavailableReason: statusMessage || "A reply needs the sender and the other partner’s work email.",
-    email: source(value.source_activity),
+    thread: emailThread(value),
     attachments,
     addresses: { to: string(to), cc: string(cc) },
     statusMessage,

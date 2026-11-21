@@ -362,16 +362,18 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   details.set(log, { ...evidence, proposal_id: log, kind: 'log_call', target_name: 'Example Dental', what: 'Log the sample call' });
   details.set(next, { ...evidence, proposal_id: next, kind: 'next_step', what: 'Share the plan', due_on: '2026-11-04' });
   details.set(phase, { ...evidence, proposal_id: phase, kind: 'phase_move', to_phase: 'legal' });
-  details.set(leading, { ...evidence, proposal_id: leading, kind: 'possible_new_deal', source_activity: {
-    kind: 'email', body: '&amp;lt; is a literal reference. Our R&D team said &lt;strong&gt;Ready&#33;&lt;/strong&gt;',
-  } });
+  details.set(leading, { ...evidence, proposal_id: leading, kind: 'possible_new_deal',
+    source_activity: { kind: 'email' },
+    thread: [{ activity_id: leading, happened_at: NOW.toISOString(), sender_name: null,
+      body: '&amp;lt; is a literal reference. Our R&D team said &lt;strong&gt;Ready&#33;&lt;/strong&gt;' }] });
   details.set(nested, { ...evidence, proposal_id: nested, kind: 'next_step', what: 'Share the sample plan', due_on: '2026-11-04' });
   details.set(remaining, { ...evidence, proposal_id: remaining, kind: 'possible_new_deal' });
   details.set(dismissNested, { ...evidence, proposal_id: dismissNested, kind: 'file_to_deal' });
   details.set(draft, { draft_id: draft, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
     to: 'sender@example.test', cc: 'partner@example.test', attachments: [{ document_id: dealId, name: 'Sample plan' }],
-    source_activity: { sender: 'sender@example.test', subject: 'Sample email',
-      body: '&#65279;Tom &amp; Pat&#39;s &lt;sample&gt;&nbsp;plan.', happened_at: NOW.toISOString() } });
+    source_activity: { kind: 'email', subject: 'Sample email' },
+    thread: [{ activity_id: draft, sender_name: 'Pat Example', happened_at: NOW.toISOString(),
+      body: '&#65279;Tom &amp; Pat&#39;s &lt;sample&gt;&nbsp;plan.' }] });
   const lead = '00000000-0000-0000-0000-000000000030';
   state.items.push({ ...notice, title: 'New Example · Possible lead', item_id: `suggestion:${lead}`, source_id: lead,
     source_type: 'email_proposal', deal_id: null, open_url: null, source_activity: null,
@@ -388,7 +390,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await leadCard.getByRole('button', { name: 'Open', exact: true }).click();
   await leadCard.getByRole('heading', { name: 'Possible lead · New Example' }).waitFor();
   await leadCard.getByText('Asked about leasing a suite.', { exact: true }).waitFor();
-  await leadCard.getByText('I am looking to lease a suite.', { exact: true }).waitFor();
+  assert.equal(await leadCard.getByText('I am looking to lease a suite.', { exact: true }).count(), 0);
   await leadCard.getByText(/new@example.test/).waitFor();
   await leadCard.getByText(/Jan 8, 2026/).waitFor();
   const leadReview = leadCard.getByRole('region', { name: /Details for New Example/ });
@@ -434,7 +436,8 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await suggestions.getByRole('button', { name: 'Review suggestions', exact: true }).click();
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
-  await reply.getByRole('region', { name: 'Their email', exact: true }).waitFor();
+  await reply.getByRole('region', { name: 'Email thread', exact: true }).waitFor();
+  await reply.getByRole('button', { name: 'Edit', exact: true }).click();
   assert.equal(await suggestions.getByRole('region', { name: /Details for Call suggestions/ }).count(), 0);
   await reply.getByRole('textbox', { name: 'Subject', exact: true }).fill('Revised sample reply');
   await reply.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited reply.');
@@ -466,13 +469,14 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(await subjectLinks.first().locator('xpath=ancestor::article').getAttribute('data-inbox-row'), `suggestion:${otherEmail}`);
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
   await email.getByRole('link', { name: /Sample Sender · Floor plan/ }).press('Enter');
-  assert.equal(await reply.getByRole('textbox', { name: 'Message', exact: true }).count(), 0);
+  await reply.getByRole('region', { name: /Details for Reply to the sample email/ }).waitFor({ state: 'detached' });
   await email.getByText('Suggestion', { exact: true }).waitFor();
   assert.equal(await email.getByText(/days late/).count(), 0);
   assert.equal(await email.getByRole('button', { name: 'Mark done', exact: true }).count(), 0);
   const possibleDeal = email.getByRole('region', { name: 'Possible new deal', exact: true });
   await possibleDeal.getByRole('button', { name: 'Accept', exact: true }).waitFor();
-  const suggestionExcerpt = possibleDeal.locator('blockquote').filter({ hasText: 'is a literal reference' });
+  const suggestionExcerpt = email.getByRole('region', { name: 'Email thread', exact: true })
+    .getByText(/is a literal reference/);
   assert.equal(await suggestionExcerpt.textContent(), '&lt; is a literal reference. Our R&D team said <strong>Ready!</strong>');
   assert.equal(await suggestionExcerpt.locator('strong').count(), 0);
   await possibleDeal.getByRole('button', { name: 'Drop', exact: true }).waitFor();
@@ -495,7 +499,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.deepEqual(writes.at(-1)[1].edits, { what: 'Share the revised plan', due_on: '2026-11-04' });
   assert.equal(await reply.getByText(/days late/).count(), 0);
   await reply.getByRole('button', { name: 'Open', exact: true }).click();
-  const replyExcerpt = reply.getByRole('region', { name: 'Their email', exact: true }).locator('blockquote');
+  const replyExcerpt = reply.getByRole('region', { name: 'Email thread', exact: true }).getByText(/Tom & Pat/);
   await replyExcerpt.waitFor();
   assert.equal(await replyExcerpt.textContent(), "Tom & Pat's <sample>\u00a0plan.");
   await reply.getByRole('link', { name: 'Sample plan', exact: true }).waitFor();
@@ -522,7 +526,8 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await reply.getByRole('link', { name: `Reply to the sample email (updated) (${reader})`, exact: true }).waitFor();
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
   const message = reply.getByRole('textbox', { name: 'Message', exact: true });
-  assert.equal(await message.inputValue(), 'Saved again from another tab.');
+  await reply.getByText('Saved again from another tab.', { exact: true }).waitFor();
+  await reply.getByRole('button', { name: 'Edit', exact: true }).click();
   await message.fill('Final edited reply.');
   await email.getByRole('button', { name: 'Open', exact: true }).click();
   await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
@@ -563,6 +568,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await page.clock.fastForward(60_000);
   const declined = cardFor(/Another sample draft/);
   await declined.getByRole('button', { name: 'Open', exact: true }).click();
+  await declined.getByRole('button', { name: 'Edit', exact: true }).click();
   const declinedMessage = declined.getByRole('textbox', { name: 'Message', exact: true });
   assert.equal(await declinedMessage.inputValue(), 'Final edited reply.');
   await declinedMessage.fill('Unsaved text to drop.');
@@ -977,6 +983,10 @@ async function dashboard(t, width, theme) {
     oldEngine: false,
     dashboardReads: 0,
     draft: { draft_id: id(20), version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.' },
+    thread: mailThread,
+    draftThread: undefined,
+    proposalEvidence: undefined,
+    draftWrites: [],
     unavailable: false,
   };
   await page.route('**/api/engine/home/inbox?view=dashboard', route => {
@@ -1000,18 +1010,28 @@ async function dashboard(t, width, theme) {
     const { name, arguments: args } = request.params;
     let result = { ok: true, items: [], deals: [] };
     if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item));
+    if (name === 'read-engine-home-proposal') result = {
+      proposal_id: args.id, kind: args.id === id(41) ? 'file_to_deal' : 'next_step',
+      target_name: 'Example Dental',
+      evidence: state.proposalEvidence ?? (args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.'),
+      reason: args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.',
+      what: args.id === id(42) ? 'Send the floor plan' : null,
+      source_activity: mailSource, thread: state.thread,
+    };
     if (name === 'read-engine-home-draft') result = {
-      ...state.draft,
-      to: 'sender@example.test', cc: 'partner@example.test', attachments: [], source_activity: { sender: 'sender@example.test', subject: 'Sample email',
-        body: 'Can you share the floor plan?', happened_at: now.toISOString() },
+      ...state.draft, to: 'sender@example.test', cc: 'partner@example.test', attachments: [],
+      source_activity: mailSource, thread: state.draftThread ?? state.thread,
     };
     if (name === 'edit-engine-home-draft') {
+      state.draftWrites.push(args);
       assert.equal(args.id, state.draft.draft_id);
-      assert.equal(args.version, state.draft.version);
-      state.draft = { ...state.draft, version: args.version + 1, body: args.body, subject: args.subject };
-      state.items = state.items.map(item => item.reply_draft_id === args.id
-        ? { ...item, source_version: String(state.draft.version) } : item);
-      result = state.draft;
+      if (args.version !== state.draft.version) result = { error: 'version_conflict', http_status: 409 };
+      else {
+        state.draft = { ...state.draft, version: args.version + 1, body: args.body, subject: args.subject };
+        state.items = state.items.map(item => item.reply_draft_id === args.id
+          ? { ...item, source_version: String(state.draft.version) } : item);
+        result = state.draft;
+      }
     }
     if (name === 'save-engine-home-mark') {
       assert.equal(args.action, 'snooze');
@@ -1030,6 +1050,187 @@ async function dashboard(t, width, theme) {
   });
   return { page, open, state };
 }
+
+const mailSource = { kind: 'email', sender: 'sender@example.test', subject: 'Sample email',
+  body: 'Quoted text outside the returned thread.', happened_at: '2026-11-03T02:00:00Z' };
+const mailThread = [
+  { activity_id: id(40), sender_name: 'Maya Example', happened_at: mailSource.happened_at, body: 'Can you send the plan?' },
+  { activity_id: id(41), sender_name: 'Pat Example', happened_at: '2026-11-03T16:00:00Z', body: 'The east suite also works.' },
+];
+const mailSuggestions = [{ id: id(41) }, { id: id(42) }];
+const mailCard = { ...step(40, 'Review the floor plan request'), item_id: `suggestion:${id(40)}`,
+  source_type: 'email_proposal', kind_label: 'Suggestion', suggestions: mailSuggestions, card_id: 'conversation:2',
+  action_id: null, action_version: null, open_url: null, deal_id: null, primary_action: null };
+
+for (const available of [true, false]) test(`Home email suggestions ${available ? 'share one thread' : 'hide a missing mailbox source'}`, async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  state.dashboard = true;
+  state.items = [mailCard];
+  if (!available) state.thread = [];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${mailCard.title}` });
+  if (available) {
+    const thread = review.getByRole('region', { name: 'Email thread' });
+    await thread.waitFor();
+    assert.deepEqual(await thread.locator('time').allTextContents(), ['Nov 2', 'Nov 3']);
+    assert.match(await thread.innerText(), /From Maya · Nov 2[\s\S]+From Pat · Nov 3/);
+    await thread.getByText(mailSource.subject, { exact: true }).waitFor();
+    for (const message of mailThread) assert.equal(await review.getByText(message.body, { exact: true }).count(), 1);
+  } else {
+    await review.getByText('The original email is unavailable.', { exact: true }).waitFor();
+    assert.equal(await review.getByText(mailSource.subject, { exact: true }).count(), 0);
+  }
+  await review.getByText('The email names the suite.', { exact: true }).waitFor();
+  await review.getByText('The manager needs the floor plan.', { exact: true }).waitFor();
+  assert.equal(await review.getByText(mailSource.body, { exact: true }).count(), 0);
+  assert.equal(await review.getByRole('button', { name: 'Accept', exact: true }).count(), 2);
+});
+
+for (const draftHasMail of [false, true]) test(`Home combines a draft with its proposal threads when draft mail is ${draftHasMail ? 'partial' : 'missing'}`, async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  const draft = { ...draftCard(), suggestions: mailSuggestions };
+  const extra = { ...mailThread[0], activity_id: id(43), happened_at: '2026-11-02T16:00:00Z', body: 'The draft source.' };
+  state.dashboard = true;
+  state.items = [draft];
+  state.draftThread = draftHasMail ? [mailThread[1], extra] : [];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Edit', exact: true }).waitFor();
+  const thread = review.getByRole('region', { name: 'Email thread' });
+  assert.equal(await thread.count(), 1);
+  const expected = draftHasMail ? [extra, ...mailThread] : mailThread;
+  assert.deepEqual(await thread.getByRole('paragraph').allTextContents(), [mailSource.subject, ...expected.map(row => row.body)]);
+  assert.equal(await review.getByText('The original email is unavailable.', { exact: true }).count(), 0);
+});
+
+test('Home shows the email once and keeps the reasons and targets of its suggestions', async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.proposalEvidence = 'From: maya@example.test\n' + mailThread[0].body;
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${mailCard.title}` });
+  await review.getByRole('heading', { name: 'File this email · Example Dental' }).waitFor();
+  assert.equal(await review.getByText(mailThread[0].body).count(), 1);
+  assert.equal(await review.getByText('From: maya@example.test', { exact: false }).count(), 0);
+  await review.getByText('The email names the suite.', { exact: true }).waitFor();
+  await review.getByText('The manager needs the floor plan.', { exact: true }).waitFor();
+});
+
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home draft Edit saves once at ${width}px in ${theme}`, async t => {
+  const { page, open, state } = await dashboard(t, width, theme);
+  const draft = { ...draftCard(), suggestions: mailSuggestions };
+  state.dashboard = true;
+  state.items = [draft];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  const edit = review.getByRole('button', { name: 'Edit', exact: true });
+  await edit.waitFor();
+  assert.equal(await review.getByRole('textbox', { name: 'Message' }).count(), 0);
+  assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
+  assert.equal(await review.getByText('Current saved reply').count(), 0);
+  for (const message of mailThread) assert.equal(await review.getByText(message.body, { exact: true }).count(), 1);
+  assert.equal(await review.getByText(mailSource.body, { exact: true }).count(), 0);
+  if (process.env.HOME_THREAD_SCREENSHOTS) {
+    await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
+    await page.setViewportSize({ width, height: 1100 });
+    await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `reply-${width}-${theme}.png`), fullPage: true });
+  }
+  await edit.click();
+  const subject = review.getByRole('textbox', { name: 'Subject', exact: true });
+  assert.equal(await subject.evaluate(node => node === document.activeElement), true);
+  await subject.fill('Updated sample subject');
+  await review.getByRole('textbox', { name: 'Message' }).fill('Edited sample draft.');
+  await review.getByRole('button', { name: 'Save draft' }).click();
+  await review.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
+  assert.equal(await review.getByText('Edited sample draft.', { exact: true }).count(), 1);
+  assert.equal(await review.getByRole('textbox', { name: 'Message' }).count(), 0);
+  assert.equal(state.draftWrites.length, 1);
+  assert.equal(state.draftWrites[0].version, 1);
+  assert.equal(state.draft.subject, 'Updated sample subject');
+  assert.equal(state.draft.body, 'Edited sample draft.');
+});
+
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home shows a stale edit alongside the saved draft at ${width}px in ${theme}`, async t => {
+  const { page, open, state } = await dashboard(t, width, theme);
+  const draft = draftCard();
+  state.dashboard = true;
+  state.items = [draft];
+  await open('/?mode=live');
+  const title = page.getByRole('link', { name: draft.title });
+  await title.click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  const edit = review.getByRole('button', { name: 'Edit', exact: true });
+  const send = review.getByRole('button', { name: 'Send reply', exact: true });
+  await edit.click();
+  const message = review.getByRole('textbox', { name: 'Message' });
+  const subject = review.getByRole('textbox', { name: 'Subject' });
+  await subject.fill('My sample subject');
+  await message.fill('Keep this local edit.');
+  Object.assign(state.draft, { version: 2, subject: 'New saved subject', body: 'Saved somewhere else.' });
+  state.items = [{ ...draft, source_version: '2' }];
+  const save = review.getByRole('button', { name: 'Save draft' });
+  const close = review.getByRole('button', { name: 'Close review' });
+  if (width === 390) {
+    await save.click();
+    await review.getByRole('alert').filter({ hasText: 'Your edits are kept.' }).waitFor();
+    assert.equal(await message.inputValue(), 'Keep this local edit.');
+    assert.equal(await save.isDisabled(), true);
+    await review.getByRole('button', { name: 'Review updated card' }).click();
+    await review.getByText(/Updated evidence loaded/).waitFor();
+  } else {
+    await close.click();
+    await title.click();
+    await send.waitFor();
+  }
+
+  assert.equal(await send.isDisabled(), true);
+  assert.equal(await save.isDisabled(), true);
+  await review.getByText('New saved subject', { exact: true }).waitFor();
+  await review.getByText('Saved somewhere else.', { exact: true }).waitFor();
+  const unsaved = review.getByRole('region', { name: 'Your unsaved edit' });
+  await unsaved.getByText('My sample subject', { exact: true }).waitFor();
+  await unsaved.getByText('Keep this local edit.', { exact: true }).waitFor();
+  assert.equal(await message.count(), 0);
+  const attemptedVersions = width === 390 ? [1] : [];
+  assert.deepEqual(state.draftWrites.map(write => write.version), attemptedVersions);
+
+  if (process.env.HOME_THREAD_SCREENSHOTS) {
+    await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
+    if (width === 390) await unsaved.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `stale-reply-${width}-${theme}.png`), fullPage: width !== 390 });
+  }
+
+  if (theme === 'dark') {
+    await unsaved.getByRole('button', { name: 'Discard' }).click();
+    await edit.waitFor();
+    assert.equal(await send.isEnabled(), true);
+    assert.equal(await unsaved.count(), 0);
+    await close.click();
+    await title.click();
+    await edit.click();
+    assert.equal(await subject.inputValue(), 'New saved subject');
+    assert.equal(await message.inputValue(), 'Saved somewhere else.');
+    assert.deepEqual(state.draftWrites.map(write => write.version), attemptedVersions);
+    return;
+  }
+
+  await unsaved.getByRole('button', { name: 'Use my edit' }).click();
+  assert.equal(await subject.inputValue(), 'My sample subject');
+  assert.equal(await message.inputValue(), 'Keep this local edit.');
+  assert.equal(await send.isEnabled(), true);
+  await close.click();
+  await title.click();
+  assert.equal(await message.inputValue(), 'Keep this local edit.');
+  await save.click();
+  await review.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
+  assert.deepEqual(state.draftWrites.map(write => write.version), [...attemptedVersions, 2]);
+  assert.equal(state.draft.body, 'Keep this local edit.');
+});
 
 test('Home uses the flat inbox when the older engine refuses the dashboard view', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
@@ -1143,6 +1344,7 @@ for (const save of ['single', 'bulk', 'review']) test(`Home keeps grouped cards 
   if (save === 'review') {
     await reminders.getByRole('link', { name: draft.title }).click();
     const review = reminders.getByRole('region', { name: `Details for ${draft.title}` });
+    await review.getByRole('button', { name: 'Edit', exact: true }).click();
     await review.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited sample draft.');
     await review.getByRole('button', { name: 'Save draft', exact: true }).click();
     await review.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
@@ -1168,6 +1370,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const draftTitle = reminders.getByRole('link', { name: draft.title });
   await draftTitle.click();
   const review = reminders.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Edit', exact: true }).click();
   const message = review.getByRole('textbox', { name: 'Message', exact: true });
   await message.fill('Unsaved edit for the floor plan.');
   await message.scrollIntoViewIfNeeded();

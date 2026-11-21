@@ -2,6 +2,7 @@ import { type BatchRequest, type BatchResult, parseBatch } from "./batch.ts";
 import { cardKey, type MarkUndo, markArgs, markTarget } from "./engine-marks.ts";
 import {
   draftReference,
+  type EmailThread,
   hasEngineReview,
   loadEngineReview,
   proposalIds,
@@ -535,9 +536,10 @@ export type ReviewRequest =
     };
 export type CardReview =
   | Exclude<Review, { kind: "reply_draft" }>
-  | { kind: "suggestions"; operations: []; proposals: Suggestion[] }
+  | { kind: "suggestions"; operations: []; proposals: Suggestion[]; thread?: EmailThread }
   | (Extract<Review, { kind: "reply_draft" }> & {
-      email: IncomingEmail | null;
+      email?: IncomingEmail | null;
+      thread?: EmailThread;
       proposals?: Suggestion[];
       addresses?: { to: string | null; cc: string | null };
       attachments?: { id: string; name: string }[];
