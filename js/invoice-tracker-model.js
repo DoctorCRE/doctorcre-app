@@ -24,9 +24,15 @@ export function validInvoiceTracker(payload) {
 }
 // One projection decides status, invoice age and Home attention. Client-benefit
 // values are deliberately outside this contract, including unknown amounts.
-export function projectInvoices(payload, { today = localToday(), scope = 'team' } = {}) {
+export function projectInvoices(payload, { today = localToday(), scope = 'team', receipts } = {}) {
   if (!validInvoiceTracker(payload) || !date(today)) return null;
   return payload.entries.filter(row => scope !== 'mine' || row.owner === payload.actor).map(row => {
+    const receipt = receipts?.get(row.commission_id);
+    // Keep a confirmed save visible while the tracker is behind its version.
+    if (receipt && receipt.base_version > row.base_version && row.commission_invoiced_on
+      && receipt.received_on >= row.commission_invoiced_on) {
+      row = { ...row, status: 'received', base_version: receipt.base_version, received_on: receipt.received_on };
+    }
     const invoiceDay = row.commission_id ? row.commission_invoiced_on : row.invoiced_on;
     const status = row.status === 'received' ? 'paid' : invoiceDay && row.status !== 'expected' ? 'unpaid' : 'awaiting';
     const age = status === 'awaiting' ? null : Math.max(0, Math.floor((Date.parse(status === 'paid' ? row.received_on : today) - Date.parse(invoiceDay)) / DAY));

@@ -52,6 +52,32 @@ async function open(t, { width = 1440, theme = 'dark', reducedMotion = 'no-prefe
   await page.waitForFunction(home ? () => document.querySelector('#homeInvoices a[data-home-key]') : () => document.querySelector('[data-invoice]'));
   return { page, errors, attempts, setReceipt(value) { receipt = value; }, get reads() { return reads; }, get writes() { return writes; }, setFailed(value) { failed = value; }, setDenied(value) { denied = value; }, update(fn) { fn(data); } };
 }
+test('phone invoice keeps its title and actions in view while details scroll', async t => {
+  const { page } = await open(t, { width: 390 });
+  await page.setViewportSize({ width: 390, height: 560 });
+  const row = page.locator('[data-invoice]').first();
+  await row.click();
+  const heading = page.locator('#invoiceDetail .invoice-detail-heading');
+  const deal = page.getByRole('link', { name: 'Open deal', exact: true });
+  assert.equal(await heading.getByRole('link', { name: 'Open deal', exact: true }).count(), 1);
+  assert.equal(await deal.getAttribute('href'), '/deals?deal=demo-invoice-deal-4');
+  const doc = heading.getByRole('button', { name: 'Open Doc', exact: true });
+  const close = heading.getByRole('button', { name: 'Close invoice', exact: true });
+  await doc.waitFor({ state: 'visible' });
+  await page.locator('#invoiceOriginal summary').click();
+  const before = await heading.boundingBox();
+  const scrolled = await page.locator('.invoice-detail-body').evaluate(body => {
+    body.scrollTop = body.scrollHeight;
+    return body.scrollTop;
+  });
+  assert.ok(scrolled > 0);
+  assert.deepEqual(await heading.boundingBox(), before);
+  await doc.click();
+  await page.locator('#docDetail[open]').waitFor();
+  await page.getByRole('button', { name: 'Close Doc', exact: true }).click();
+  await close.click();
+  assert.equal(await row.evaluate(node => node === document.activeElement), true);
+});
 for (const width of [1440, 390, 320]) test(`invoice layout and wide detail at ${width}px`, async t => {
   const { page, errors } = await open(t, { width }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.equal(await page.locator('#appMainSlot .app-layout-page-tools #invoiceSearch').count(), 1);
@@ -206,37 +232,30 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     const close = drawer.getByRole('button', { name: 'Close invoice' });
     const openDeal = drawer.getByRole('link', { name: 'Open deal', exact: true });
     await doc.waitFor();
+    assert.equal(await drawer.getByRole('button', { name: 'Mark paid' }).isVisible(), false);
     await page.screenshot({ path: new URL(`missing-amount-${width}-${theme}.png`, evidence).pathname });
     await page.setViewportSize({ width, height: 360 });
     await close.focus();
     const panel = await drawer.boundingBox();
     const heading = drawer.locator('.invoice-detail-heading');
     const header = await heading.boundingBox();
-    const headerBottom = header.y + header.height;
-    const dealBeforeScroll = await openDeal.boundingBox();
-    const scrollPastDeal = Math.ceil(dealBeforeScroll.y + dealBeforeScroll.height - headerBottom) + 4;
     await page.mouse.move(panel.x + panel.width / 2, panel.y + panel.height - 20);
-    await page.mouse.wheel(0, scrollPastDeal);
-    await page.waitForFunction(([link, bottom]) => link.getBoundingClientRect().bottom <= bottom,
-      [await openDeal.elementHandle(), headerBottom]);
+    await page.mouse.wheel(0, 300);
+    await page.waitForFunction(() => document.querySelector('.invoice-detail-body').scrollTop > 0);
     await page.screenshot({ path: new URL(`scrolled-${width}-${theme}.png`, evidence).pathname });
 
     const label = await heading.getByText('Commission', { exact: true }).boundingBox();
-    for (const control of [doc, close]) {
+    for (const control of [openDeal, doc, close]) {
       const box = await control.boundingBox();
       assert.ok(box.x >= label.x + label.width, 'header actions stay beside the label');
       assert.ok(box.x + box.width <= panel.x + panel.width, 'header actions fit inside the drawer');
-      assert.ok(box.y >= panel.y && box.y + box.height <= panel.y + panel.height,
-        'header actions stay fully visible while scrolling');
+      assert.ok(box.y >= header.y && box.y + box.height <= header.y + header.height,
+        'header actions stay within the visible header while scrolling');
     }
-    await page.keyboard.press('Tab');
-    assert.ok(await openDeal.evaluate(link => link === document.activeElement), 'Tab from Close focuses Open deal');
-    const focusedDeal = await openDeal.boundingBox();
-    const focusedHeader = await heading.boundingBox();
-    assert.ok(focusedDeal.y >= focusedHeader.y + focusedHeader.height,
-      'the header leaves the focused Open deal link visible');
-    assert.ok(focusedDeal.y + focusedDeal.height <= panel.y + panel.height,
-      'the focused Open deal link fits inside the drawer');
+    await page.keyboard.press('Shift+Tab');
+    assert.ok(await doc.evaluate(button => button === document.activeElement));
+    await page.keyboard.press('Shift+Tab');
+    assert.ok(await openDeal.evaluate(link => link === document.activeElement));
     assert.deepEqual(h.errors, []);
   });
 }
@@ -258,12 +277,14 @@ test('payment uncertainty offers explicit immutable replay across close, polling
  h.setReceipt('ok');await page.locator('#markInvoicePaid').click();await page.waitForFunction(()=>document.querySelector('#invoicePayment').hidden);
  assert.equal(h.writes,2);assert.deepEqual(h.attempts[1],h.attempts[0]);assert.deepEqual(h.errors,[]);
 });
-test('with the engine switch on, retry displays one payment with its date', async t => {
-  const fixture = createInvoiceFixture({ today: () => today });
+test('engine receipt confirms one payment even while tracker reads are stale', async t => {
+  const data = invoiceTrackerFixture(today);
+  data.entries.find(row => row.name === 'Demo Cedar Expansion').gross_amount = null;
+  const fixture = createInvoiceFixture({ entries: data.entries, today: () => today });
   const before = await fixture.getInvoiceTracker();
   const attempts = [];
   const engine = async request => {
-    if (request.method === 'GET') return Response.json(attempts.length < 2 ? before : await fixture.getInvoiceTracker());
+    if (request.method === 'GET') return Response.json(before);
     assert.equal(new URL(request.url).pathname, '/api/engine/invoices/mark-paid');
     assert.equal(request.headers.get('x-carr-csrf'), 'synthetic-session');
     const args = await request.json();
@@ -282,10 +303,22 @@ test('with the engine switch on, retry displays one payment with its date', asyn
   }
   const invoice = page.locator('[data-invoice]').filter({ hasText: 'Demo Cedar Expansion' });
   await invoice.click();
-  await page.locator('#invoicePaidDate').fill('2026-09-30');
+  await page.clock.setSystemTime(new Date(today + 'T04:30:00Z'));
+  await page.evaluate(() => document.getElementById('refreshInvoices').click());
+  const date = page.locator('#invoicePaidDate');
+  await page.waitForFunction(() => document.getElementById('invoicePaidDate').max === '2026-10-01');
+  const invoiced = before.entries.find(row => row.name === 'Demo Cedar Expansion').commission_invoiced_on;
+  assert.equal(await date.getAttribute('min'), invoiced);
+  for (const invalid of ['2026-01-01', today]) {
+    await date.fill(invalid);
+    await page.getByRole('button', { name: 'Mark paid' }).click();
+    assert.equal(await date.evaluate(input => input.validity.valid), false);
+  }
+  assert.deepEqual(attempts, []);
+  await date.fill('2026-09-30');
   await page.getByRole('button', { name: 'Mark paid' }).click();
   await page.getByRole('button', { name: 'Retry payment' }).click();
-  await page.locator('.invoice-status-value').getByText('Paid', { exact: true }).waitFor();
+  await page.locator('.invoice-status-value').getByText('Paid', { exact: true }).waitFor({ timeout: 5000 });
   assert.equal(await page.locator('#invoiceTimeline time[datetime="2026-09-30"]').innerText(), 'Sep 30, 2026');
   assert.equal(await page.locator('#invoicePayment').isVisible(), false);
   assert.equal(await page.locator('[data-invoice]').count(), before.entries.length);
@@ -297,6 +330,9 @@ test('with the engine switch on, retry displays one payment with its date', asyn
   const evidence = new URL('out/test-artifacts/w15/', root);
   await mkdir(evidence, { recursive: true });
   await page.screenshot({ path: new URL('engine-payment.png', evidence).pathname });
+  await page.getByRole('button', { name: 'Close invoice' }).click();
+  await page.locator('[data-status="paid"]').click();
+  assert.equal(await invoice.isVisible(), true);
 });
 test('hung payment becomes recoverable after the write deadline without an automatic write',async t=>{
  const h=await open(t,{receipt:'hung'});await h.page.locator('[data-invoice]').first().click();await h.page.locator('#markInvoicePaid').click();
