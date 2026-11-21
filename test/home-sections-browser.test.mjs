@@ -1095,6 +1095,76 @@ for (const available of [true, false]) test(`Home email suggestions ${available 
   assert.equal(await review.getByRole('button', { name: 'Accept', exact: true }).count(), 2);
 });
 
+test('Home reveals earlier text only for the selected email message', async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  const earlier = ['Can we use the east entrance?\n\nPat Example', 'The sample suite is open.'];
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.thread = [
+    ...mailThread.map((message, index) => ({ ...message, folded: earlier[index] })),
+    { ...mailThread[1], activity_id: id(43), body: 'This message has nothing folded.', folded: null },
+    { ...mailThread[1], activity_id: id(44), body: 'This message uses the old response.' },
+  ];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+
+  const thread = page.getByRole('region', { name: 'Email thread' });
+  await thread.waitFor();
+  const [first, second, noFold, legacy] = await thread.getByRole('article').all();
+  for (const [index, article] of [first, second, noFold, legacy].entries()) {
+    assert.equal(await article.getByText(state.thread[index].body, { exact: true }).isVisible(), true);
+  }
+  assert.deepEqual(await legacy.getByRole('paragraph').allTextContents(), [state.thread[3].body]);
+  assert.equal(await noFold.getByRole('button').count(), 0);
+  assert.equal(await legacy.getByRole('button').count(), 0);
+
+  const firstToggle = first.getByRole('button', { name: /earlier text/ });
+  const secondToggle = second.getByRole('button', { name: /earlier text/ });
+  assert.equal(await thread.getByRole('button', { name: 'Show earlier text', exact: true }).count(), 2);
+  const firstText = first.getByText('Can we use the east entrance?', { exact: false });
+  const secondText = second.getByText(earlier[1], { exact: true });
+  assert.equal(await firstText.isVisible(), false);
+  assert.equal(await firstToggle.getAttribute('aria-expanded'), 'false');
+
+  await firstToggle.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await firstToggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(await first.getByRole('button', { name: 'Hide earlier text', exact: true }).isVisible(), true);
+  assert.equal(await firstText.innerText(), earlier[0]);
+  assert.equal(await firstText.evaluate(node => getComputedStyle(node).whiteSpace), 'pre-wrap');
+  assert.equal(await secondToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(await secondText.isVisible(), false);
+
+  await secondToggle.click();
+  assert.equal(await secondText.isVisible(), true);
+  assert.equal(await firstText.isVisible(), true);
+  await firstToggle.focus();
+  await page.keyboard.press('Space');
+  assert.equal(await firstToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(await first.getByRole('button', { name: 'Show earlier text', exact: true }).isVisible(), true);
+  assert.equal(await firstText.isVisible(), false);
+  assert.equal(await secondText.isVisible(), true);
+});
+
+test('Home separates Your reply from the email thread', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'dark');
+  const draft = draftCard();
+  state.dashboard = true;
+  state.items = [draft];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Edit', exact: true }).waitFor();
+  const thread = review.getByRole('region', { name: 'Email thread' });
+  const label = review.getByText('Your reply', { exact: true });
+  assert.equal(await label.isVisible(), true);
+  assert.equal(await thread.getByText(state.draft.body, { exact: true }).count(), 0);
+  assert.equal(await review.getByText(state.draft.body, { exact: true }).isVisible(), true);
+  assert.ok((await label.boundingBox()).y > (await thread.boundingBox()).y + (await thread.boundingBox()).height);
+  assert.equal(await label.evaluate(node => getComputedStyle(node).borderTopWidth), '1px');
+});
+
 for (const draftHasMail of [false, true]) test(`Home combines a draft with its proposal threads when draft mail is ${draftHasMail ? 'partial' : 'missing'}`, async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
   const draft = { ...draftCard(), suggestions: mailSuggestions };

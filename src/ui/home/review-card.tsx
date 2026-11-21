@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { DropReason } from "./drop-reason.tsx";
 import { draftReference, proposalRefusal, type Suggestion } from "./engine-review.ts";
 import type { InboxClient, InboxItem, CardReview as Review, ReviewRequest, Snapshot, TaskReceipt } from "./inbox";
@@ -39,6 +39,21 @@ const threadDate = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
 });
+function EarlierText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const id = useId();
+  return (
+    <>
+      <button type="button" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(!expanded)}>
+        {expanded ? "Hide earlier text" : "Show earlier text"}
+      </button>
+      <p id={id} className="home-email-earlier-text" hidden={!expanded}>
+        {expanded && sourceExcerptText(text)}
+      </p>
+    </>
+  );
+}
+
 export type DraftEdit = Pick<Extract<Review, { kind: "reply_draft" }>, "subject" | "body"> & {
   baseVersion: string;
 };
@@ -149,6 +164,7 @@ export function ReviewCard({
   const proposalLed = item.item_id.startsWith("suggestion:");
   const operations = readOnly ? [] : review?.operations;
   const savedDraft = review?.kind === "reply_draft" ? review : null;
+  const engineReply = Boolean(item.engine_marks && savedDraft);
   const canSaveDraft = savedDraft?.operations.some((op) => op.verb === "edit-email-draft");
   const staleEdit =
     item.engine_marks && draftEdits && savedDraft && draftEdits.baseVersion !== savedDraft.reference.source_version
@@ -471,13 +487,14 @@ export function ReviewCard({
           <section className="home-email-thread" aria-label="Email thread">
             <h4>Email thread</h4>
             {thread.subject && <p>{sourceExcerptText(thread.subject)}</p>}
-            {thread.messages.map(({ id, sender, occurredAt, body }) => (
+            {thread.messages.map(({ id, sender, occurredAt, body, folded }) => (
               <article key={id}>
                 <h5>
                   From {sender || "unknown sender"} ·{" "}
                   <time dateTime={occurredAt}>{threadDate.format(new Date(occurredAt))}</time>
                 </h5>
                 <p>{sourceExcerptText(body)}</p>
+                {folded && <EarlierText text={folded} />}
               </article>
             ))}
           </section>
@@ -513,13 +530,16 @@ export function ReviewCard({
             setMessage("");
           }}
         >
+          {engineReply && proposalLed && proposals.length > 0 && (
+            <fieldset disabled={!editable}>{suggestionFields}</fieldset>
+          )}
           <fieldset disabled={!editable}>
-            <legend>
+            <legend className={engineReply ? "home-reply-label" : undefined}>
               {review.kind === "reply_draft"
-                ? proposalLed
-                  ? "Suggestions and reply draft"
-                  : item.engine_marks
-                    ? "Reply draft"
+                ? engineReply
+                  ? "Your reply"
+                  : proposalLed
+                    ? "Suggestions and reply draft"
                     : "Exact reply for review"
                 : review.kind === "fact_review"
                   ? "Evidence and decision"
@@ -528,7 +548,7 @@ export function ReviewCard({
                     : "Task"}
             </legend>
             {review.kind === "action" && <p>{review.title}</p>}
-            {proposalLed && suggestionFields}
+            {proposalLed && !engineReply && suggestionFields}
             {review.kind === "reply_draft" && draft && (
               <>
                 {review.addresses ? (
