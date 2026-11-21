@@ -790,3 +790,42 @@ for (const scenario of ["note", "next step", "reply", "unavailable"] as const) {
     await expect(field).toHaveCount(0);
   });
 }
+
+test("Doc identifies refused reply fields and keeps edits", async (t) => {
+  const proposal = {
+    kind: "reply_draft",
+    target: { ref: { kind: "email", id }, label: "Example email", href: "/inbox" },
+    subject: "Subject",
+    body: "Reply",
+  };
+  const turn = {
+    ...answeredTurn,
+    idempotency_key: "00000000-0000-4000-8000-000000000003",
+    answer: { ...answeredTurn.answer, proposal },
+  };
+  const { page, origin } = await docChatFixture(t, async (request) => {
+    switch (new URL(request.url).pathname) {
+      case "/api/engine/doc/conversations":
+        return Response.json({ conversations: [conversation], next_before: null });
+      case detailPath:
+        return Response.json({ conversation, turns: [turn] });
+      case confirmationPath:
+        return Response.json(
+          { error: "invalid_field_value", fields: ["body"], hint: "Please correct the reply." },
+          { status: 400 },
+        );
+      default:
+        return Response.json({}, { status: 404 });
+    }
+  });
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  const subject = page.getByLabel("Subject");
+  await expect(subject).toHaveAttribute("maxlength", "998");
+  await subject.fill("Edited subject");
+  const reply = page.getByLabel("Reply", { exact: true });
+  await reply.fill("Edited reply");
+  await page.getByRole("button", { name: "Save draft and open review" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Please correct the reply.");
+  await expect(reply).toHaveValue("Edited reply");
+  await expect(subject).toHaveValue("Edited subject");
+});

@@ -202,12 +202,21 @@ const saveResponse = z.object({ result: confirmation });
 const saveRefusal = z.object({
   error: z.string(),
   href: z.string().optional(),
+  fields: z.array(z.string()).optional(),
+  hint: z.string().optional(),
   next_step_id: z.guid().nullish(),
 });
 const saveUncertain = "Doc couldn’t tell if this saved. Try again.";
 
 function proposalRefusal(error: DocRequestFailed) {
   const refusal = saveRefusal.safeParse(error.payload).data;
+  if (
+    refusal?.fields?.length &&
+    refusal.hint &&
+    refusal.fields.every((field) => ["text", "what", "due_on", "subject", "body"].includes(field))
+  ) {
+    return { text: refusal.hint, fields: refusal.fields };
+  }
   if (error.status === 404) return { text: "This record is no longer available." };
   switch (refusal?.error) {
     case "open_step_exists": {
@@ -258,6 +267,10 @@ function ProposalEditor({
 
   async function save() {
     if (request.current) return;
+    if ("body" in edits && !edits.body.trim()) {
+      setNotice({ text: "Enter a reply.", fields: ["body"] });
+      return;
+    }
     const controller = new AbortController();
     request.current = controller;
     const body = { edits, idempotency_key: idempotency_key ?? crypto.randomUUID() };
@@ -289,6 +302,10 @@ function ProposalEditor({
     }
   }
 
+  function fieldNotice(field: string) {
+    return notice?.fields?.includes(field) ? <p role="alert">{notice.text}</p> : null;
+  }
+
   return (
     <form
       className="doc-chat__proposal"
@@ -309,6 +326,7 @@ function ProposalEditor({
               value={edits.text}
               onChange={(event) => writeDraft({ edits: { text: event.currentTarget.value } })}
             />
+            {fieldNotice("text")}
           </>
         ) : "what" in edits ? (
           <>
@@ -320,6 +338,7 @@ function ProposalEditor({
               value={edits.what}
               onChange={(event) => writeDraft({ edits: { ...edits, what: event.currentTarget.value } })}
             />
+            {fieldNotice("what")}
             <p>Owner: You</p>
             <label htmlFor={`${fieldId}-date`}>Due date</label>
             <input
@@ -328,6 +347,7 @@ function ProposalEditor({
               value={edits.due_on ?? ""}
               onChange={(event) => writeDraft({ edits: { ...edits, due_on: event.currentTarget.value || null } })}
             />
+            {fieldNotice("due_on")}
           </>
         ) : (
           <>
@@ -336,9 +356,11 @@ function ProposalEditor({
               id={`${fieldId}-subject`}
               required
               type="text"
+              maxLength={998}
               value={edits.subject}
               onChange={(event) => writeDraft({ edits: { ...edits, subject: event.currentTarget.value } })}
             />
+            {fieldNotice("subject")}
             <label htmlFor={fieldId}>Reply</label>
             <textarea
               id={fieldId}
@@ -346,10 +368,11 @@ function ProposalEditor({
               value={edits.body}
               onChange={(event) => writeDraft({ edits: { ...edits, body: event.currentTarget.value } })}
             />
+            {fieldNotice("body")}
           </>
         )}
       </fieldset>
-      {notice && (
+      {notice && !notice.fields && (
         <p role="alert">
           {notice.text} {notice.link && <a href={notice.link.href}>{notice.link.label}</a>}
         </p>
