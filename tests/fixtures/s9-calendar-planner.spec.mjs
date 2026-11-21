@@ -10,12 +10,17 @@ async function assets(page) {
     const url = new URL(route.request().url());
     if (!['http://localhost', 'https://app.doctorcre.com'].includes(url.origin)) return route.abort();
     if (url.pathname === '/auth/session') return route.fulfill({json:{actor:{slug:'joe'},csrf_token:'synthetic-fixture'}});
-    if (url.pathname === '/mcp') {
-      const name = route.request().postDataJSON().params.name;
-      const data = name === 'deal-room-board' ? { actor: 'joe', deals: [{ id: 'synthetic-deal', name: 'Synthetic dental office' }] }
-        : name === 'get-deal-room' ? { deal_id: 'synthetic-deal', critical_dates: [{ id: 'synthetic-date', note: 'Option window', kind: 'option_window', due_on: '2026-10-20', status: 'open' }] } : {};
-      return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(data) }] } } });
-    }
+    if (url.pathname === '/api/engine/calendar/critical-dates') return route.fulfill({ json: {
+      schema_version: 'calendar-critical-dates.v1',
+      critical_dates: [{
+        id: 'synthetic-date',
+        deal_id: 'synthetic-deal',
+        deal_name: 'Synthetic dental office',
+        kind: 'Option notice',
+        due_on: '2026-10-20',
+        done: false,
+      }],
+    } });
     if (url.pathname.startsWith('/api/')) return route.fulfill({ json: { data: { tours: [], clients: [] }, actor: { slug: 'joe' }, csrf_token: 'synthetic-fixture', items: [], counts: {} } });
     const file = url.pathname === '/calendar' ? 'calendar.html' : url.pathname === '/tours' ? 'tours/index.html' : url.pathname.slice(1);
     try {
@@ -31,10 +36,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ca
   await assets(page);
   await page.goto('https://app.doctorcre.com/calendar?view=month&d=2026-10-18');
   await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
-  const label = page.locator('.cal-chip-label').filter({ hasText: 'Option window' });
+  const label = page.locator('.cal-chip-label').filter({ hasText: 'Option notice' });
   await expect(label).toBeVisible();
   expect(await label.evaluate(node => node.scrollWidth <= node.clientWidth && getComputedStyle(node).whiteSpace !== 'nowrap')).toBe(true);
-  await page.locator('.cal-chip').filter({ hasText: 'Option window' }).click();
-  await expect(page.locator('#dayPanelBody')).toContainText('Option window');
+  await page.locator('.cal-chip').filter({ hasText: 'Option notice' }).click();
+  await expect(page.locator('#dayPanelBody')).toContainText('Option notice');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

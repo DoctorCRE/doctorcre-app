@@ -268,7 +268,9 @@ export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onP
       try {
         const detail = await client.getDeal(deal.id);
         if (!Array.isArray(detail?.critical_dates)) throw new Error("critical_dates unreadable");
-        const read = criticalDateEntries(deal, detail);
+        const read = criticalDateEntries(deal, {
+          critical_dates: detail.critical_dates.filter(row => row?.status === "open"),
+        });
         entries.push(...read.entries);
         undated.push(...read.undated);
         readCount += 1;
