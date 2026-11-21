@@ -13,6 +13,7 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
   let actor = "joe";
   let state = "queued";
   let firstKey = "";
+  let malformed = false;
   const first = () => ({
     id: "first",
     position: 1,
@@ -35,7 +36,7 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
             return Response.json({ conversations: firstKey && actor === "joe" ? [conversation] : [] });
           if (path === `/api/engine/doc/conversations/${id}`)
             return actor === "joe"
-              ? Response.json({ conversation, turns: [first()] })
+              ? Response.json(malformed ? { conversation } : { conversation, turns: [first()] })
               : Response.json({}, { status: 404 });
           if (path !== "/api/engine/doc/turns") return Response.json({}, { status: 404 });
           assert.equal(request.headers.get("x-carr-csrf"), "joe-test");
@@ -49,7 +50,16 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
           return Response.json(
             {
               conversation_id: id,
-              turn: { id: "second", position: 2, question: "Any follow-ups?", state: "working" },
+              turn: {
+                id: "second",
+                position: 2,
+                question: "Any follow-ups?",
+                state: "working",
+                idempotency_key: ask.idempotency_key,
+                context: null,
+                answer: null,
+                waiting_reason: null,
+              },
             },
             { status: 202 },
           );
@@ -65,6 +75,15 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
     await expect(composer).toBeEnabled();
     await composer.fill(question);
     await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByText("Doc isn't set up on your Mac yet.")).toBeVisible();
+    assert.match(page.url(), /[?&]chat=/);
+    await page.reload();
+    await expect(page.getByText("Doc isn't set up on your Mac yet.")).toBeVisible();
+    malformed = true;
+    await page.reload();
+    await expect(page.getByText("Chats couldn’t be loaded.")).toBeVisible();
+    malformed = false;
+    await page.getByRole("button", { name: "Retry loading" }).click();
     await expect(page.getByText("Doc isn't set up on your Mac yet.")).toBeVisible();
     await page.getByRole("link", { name: "New chat" }).click();
     state = "failed";

@@ -22,7 +22,7 @@ type Session = {
 };
 
 const api = "/api/engine/doc";
-const initialId = new URLSearchParams(location.search).get("id");
+const initialId = new URLSearchParams(location.search).get("chat");
 const signIn = "Sign in again to open your chats.";
 const loadError = "Chats couldn’t be loaded.";
 const stateText = {
@@ -34,9 +34,50 @@ const stateText = {
 
 function chatHref(id: string | null) {
   const query = new URLSearchParams(location.search);
-  if (id) query.set("id", id);
-  else query.delete("id");
+  if (id) query.set("chat", id);
+  else query.delete("chat");
   return location.pathname + (query.size ? `?${query}` : "");
+}
+
+function object(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function conversation(value: unknown): value is Conversation {
+  return object(value) && typeof value.id === "string" && typeof value.title === "string";
+}
+
+function turn(value: unknown): value is Turn {
+  return (
+    object(value) &&
+    typeof value.id === "string" &&
+    typeof value.position === "number" &&
+    typeof value.question === "string" &&
+    typeof value.idempotency_key === "string" &&
+    (value.state === "queued" || value.state === "working" || value.state === "answered" || value.state === "failed") &&
+    (value.context === null ||
+      (object(value.context) && typeof value.context.kind === "string" && typeof value.context.id === "string")) &&
+    (value.answer === null || (object(value.answer) && typeof value.answer.text === "string")) &&
+    (value.waiting_reason === null || typeof value.waiting_reason === "string")
+  );
+}
+
+async function parse<T>(response: Response, valid: (value: unknown) => value is T): Promise<T> {
+  const value: unknown = await response.json();
+  if (!valid(value)) throw Error();
+  return value;
+}
+
+function conversations(value: unknown): value is { conversations: Conversation[] } {
+  return object(value) && Array.isArray(value.conversations) && value.conversations.every(conversation);
+}
+
+function validDetail(value: unknown): value is { turns: Turn[] } {
+  return object(value) && Array.isArray(value.turns) && value.turns.every(turn);
+}
+
+function sent(value: unknown): value is { conversation_id: string; turn: Turn } {
+  return object(value) && typeof value.conversation_id === "string" && turn(value.turn);
 }
 
 async function docFetch(path: string, ask?: Ask) {
@@ -114,7 +155,7 @@ function DocChat() {
         async () => {
           const response = await docFetch("/conversations");
           if (!response.ok) throw Error();
-          const data: { conversations: Conversation[] } = await response.json();
+          const data = await parse(response, conversations);
           if (retired.current) return;
           setRecent(data.conversations);
           if (chatId) {
@@ -126,7 +167,7 @@ function DocChat() {
               return;
             }
             if (!detail.ok) throw Error();
-            const { turns: saved }: { turns: Turn[] } = await detail.json();
+            const { turns: saved } = await parse(detail, validDetail);
             if (retired.current) return;
             setTurns(saved);
           }
@@ -165,7 +206,7 @@ function DocChat() {
           return;
         }
         if (!response.ok) throw Error();
-        const { conversation_id, turn }: { conversation_id: string; turn: Turn } = await response.json();
+        const { conversation_id, turn } = await parse(response, sent);
         if (retired.current) return;
         if (id !== conversation_id) {
           history.replaceState(history.state, "", chatHref(conversation_id));
