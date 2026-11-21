@@ -1628,7 +1628,7 @@ function workspaceHtml(detail) {
     ).join('')}</ul>` : ''}`;
   const route = new URLSearchParams(location.search);
   const stepId = route.get('focus') === 'next-step' ? route.get('step') : null;
-  const completedStep = fromEngine && stepId && detail.next_actions?.find(step => step.id === stepId && step.status === 'done' && !step.title);
+  const completedStep = fromEngine && stepId && detail.next_actions?.find(step => step.id === stepId && step.status === 'done');
   const itemOwners = fromEngine ? new Map(detail.next_actions?.map(step => [step.id, step.owner])) : undefined;
   const prospect = state.deals.get(d.id);
   const pendingProspect = engagementWriterFor(state.client).get(prospect?.client_id, state.selfActor);

@@ -708,7 +708,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
     if (name === 'read-home-inbox-v5') result = { ...result, schema_version: 'home-inbox.v5', engine_marks: true, home_mark_drop: true,
       home_proposal_drop: true, truncated: false, limit: 1000, working_collapsed: true, items };
     if (name === 'get-deal-room') result = { deal_id: args.deal, name: 'Example Dental', email_follow_ups: [],
-      next_actions: [{ id: step, description: 'Send the signed lease', owner: 'joe', status: 'done' }],
+      next_actions: [{ id: step, description: 'Send the signed lease', owner: 'joe', status: 'done',
+        ...(width === 1440 && { title: 'Signed lease' }) }],
       items: [{ id: checklist, title: 'Review lease clauses', status: 'open', bullets: [] }],
       checklist: { schema_version: 'deal-checklist.v1', template_state: 'current', due_items: [], phases: [
         { label: 'Legal', items: [{ id: 'attorney_comments', label: 'Read attorney comments', status: 'due',
