@@ -708,7 +708,12 @@ export function createInboxClient(
       return { state: value.state, reason: text(value.reason) ? value.reason : null };
     }
     const item = parseEngineDashboardCard(value, { home_proposal_drop: true });
-    if (kind === "reply_draft" ? draftReference(item)?.id !== id : !proposalIds(item).includes(id)) throw unavailable();
+    if (
+      kind === "reply_draft"
+        ? draftReference(item)?.id !== id
+        : value.requested_item_id !== key && !proposalIds(item).includes(id)
+    )
+      throw unavailable();
     return { state: "active", item };
   }
   return {
