@@ -40,7 +40,7 @@ export function proposalIds(item: InboxItem) {
     ? suggestions.flatMap((row: unknown) => (object(row) && typeof row.id === "string" ? [row.id] : []))
     : [];
 }
-export function matchesProposal(item: InboxItem, id: string) {
+function matchesProposal(item: InboxItem, id: string) {
   return proposalIds(item).includes(id);
 }
 

@@ -1,7 +1,7 @@
 import { test } from "@e2e-dev/web";
 import { expect } from "e2e";
 
-// Home shows when Today last updated and remembers display settings.
+// The shell shows when Today last updated and remembers display settings.
 test("W1 shell shows freshness and keeps its controls across a reload", async ({ app, browser, screen }) => {
   const expectTodayUpdate = async () => {
     const today = browser.locator("#appToday");
@@ -15,6 +15,8 @@ test("W1 shell shows freshness and keeps its controls across a reload", async ({
   await app.open("/?actor=dell");
 
   await expect(browser.locator("#selfAvatar")).toHaveText("D");
+  await expect(browser.locator("#appToday")).toBeHidden();
+  await app.open("/invoices?actor=dell");
   await expectTodayUpdate();
   if (!(await browser.locator("[data-pref=theme]").isVisible())) await browser.locator("#selfAvatar").tap();
   await expect(screen.getByLabel("Dark mode", { exact: true })).toHaveAttribute("aria-pressed", "true");

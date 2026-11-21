@@ -138,7 +138,6 @@ test('switcher matrix is accessible in both themes', async () => {
       await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
       await page.goto(server.url);
       await page.locator('#homeRoot[data-home-ready]').waitFor();
-      await page.locator('#appCalendarSlot .calendar-panel').waitFor({ state: 'attached' });
       await page.addScriptTag({ path: 'node_modules/axe-core/axe.min.js' });
       const homeViolations = await page.evaluate(async () => (await axe.run(document)).violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => n.target) })));
       assert.deepEqual(homeViolations, [], `closed Home ${width} ${theme}`);

@@ -1,14 +1,14 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import axe from 'axe-core';
-import { rm } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { temporaryDirectory } from '../scripts/temp-directory.mjs';
 import { chromium, webkit } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
 let outDir;
-before(async () => { outDir = await temporaryDirectory('home-bulk-'); await buildArtifact({ root: process.cwd(), outDir }); });
+before(async () => { outDir = temporaryDirectory('home-bulk-'); await mkdir('test-artifacts/home-bulk', { recursive: true }); await buildArtifact({ root: process.cwd(), outDir }); });
 after(async () => { if (outDir) await rm(outDir, { recursive: true, force: true }); });
 async function open(t, { width = 390, theme = 'light', mixed = true, stale = false, lost = false, missing = false, hold = false, undoLost = false, engine = chromium, height = 900, longTitles = false } = {}) {
   const { createBatchFake, makeItem } = await import('./fixtures/home-bulk-fake.mjs');
@@ -62,7 +62,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`sn
   assert.deepEqual(fake.items.map(item => item.disposition), ['inbox', 'snoozed', 'snoozed', 'snoozed']);
   assert.equal(await page.getByRole('checkbox', { name: 'Undo Synthetic b', exact: true }).count(), 1);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.getByRole('region', { name: 'Batch results' }).screenshot({ path: `/tmp/wr617-s12-j4-${width}-${theme}.png` });
+  await page.getByRole('region', { name: 'Batch results' }).screenshot({ path: `test-artifacts/home-bulk/wr617-s12-j4-${width}-${theme}.png` });
 });
 test('stale undo refuses plainly and retains remaining undo choices', async t => {
   const { page, fake } = await open(t, { mixed: false, stale: true });
@@ -149,7 +149,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) for (con
   await finish.focus();
   await page.keyboard.press('Enter');
   await page.getByRole('region', { name: 'Batch results' }).waitFor({ state: 'detached' });
-  const target = outcome === 'empty' ? page.getByRole('region', { name: 'Needs your attention', exact: true }).getByRole('heading') : page.getByRole('region', { name: 'Needs your attention', exact: true }).getByRole('link', { name: `Synthetic ${outcome === 'restored' ? 'a' : 'c'}`, exact: true });
+  const target = outcome === 'empty' ? page.getByRole('region', { name: 'Inbox cards', exact: true }) : page.getByRole('region', { name: 'Reminders', exact: true }).getByRole('link').first();
   assert.equal(await target.evaluate(node => node === document.activeElement), true, 'Finishing batch review must focus the next Home card or the inbox heading');
   await page.addScriptTag({ content: axe.source });
   assert.deepEqual(await page.evaluate(async () => (await window.axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] } })).violations), []);
@@ -174,7 +174,7 @@ for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]])
         });
         assert.ok(geometry.x >= 0 && geometry.y >= 0 && geometry.right <= geometry.width && geometry.bottom <= geometry.height && geometry.exposed, `Undo must be inside viewport and unoccluded: ${JSON.stringify(geometry)}`);
       };
-      await page.screenshot({ path: `/tmp/WR617.S12.J15-${engineName}-${width}-${theme}-${action}.png` });
+      await page.screenshot({ path: `test-artifacts/home-bulk/WR617.S12.J15-${engineName}-${width}-${theme}-${action}.png` });
       await visible();
       await page.clock.install();
       await page.clock.fastForward(10_000);
@@ -182,5 +182,5 @@ for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]])
       await activate(undo);
       await page.locator('[data-batch-state="undone"]').waitFor();
       assert.equal(fake.items.every(item => item.disposition === 'inbox'), true);
-      for (const item of fake.items.slice(0, 2)) await page.getByRole('region', { name: 'Needs your attention', exact: true }).getByRole('link', { name: item.title, exact: true }).waitFor();
+      for (const item of fake.items.slice(0, 2)) await page.getByRole('region', { name: 'Reminders', exact: true }).getByRole('link', { name: item.title, exact: true }).waitFor();
     });

@@ -47,7 +47,8 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   const title = pathname === '/' ? 'Home' : progressPage ? 'Progress' : pathname.startsWith('/control-room') ? 'Control Room' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .room-wordmark, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
   const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine');
   const layout = createAppLayout(root, title, engineToday);
-  const hasWorkingList = !vendorDirectory && pathname !== '/';
+  const pagesWithoutWorkingList = ['/', '/vendors', '/deals', '/pipeline'];
+  const hasWorkingList = !pagesWithoutWorkingList.includes(pathname);
   if (!hasWorkingList) layout.querySelector('.app-layout-working').remove();
   else if (homeOrInbox || engineToday) layout.querySelector('.app-layout-working').hidden = true;
   host.after(layout);
@@ -193,6 +194,13 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     tabs.closest('.app-layout-tabbar').remove();
     return;
   }
+  if (pathname === '/' && new URLSearchParams(win.location.search).get('view') !== 'charts') {
+    today = false;
+    paint();
+    todayToggle.remove();
+    layout.querySelector('#appToday').hidden = true;
+    return;
+  }
   const boot = resolveDealroomBoot(globalThis.location);
   const homeToday = engineToday
     ? import('./ui-home-today.generated.js').then(module => module.mountHomeTodayPanel(layout.querySelector('#appToday'), async signal => {
@@ -205,11 +213,9 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       layout.querySelector('#appTodayNext').textContent = "Couldn't load dated reminders.";
       return null;
     }) : null;
-  const weekHost = pathname === '/' && !homeToday ? root.createElement('div') : null;
-  if (weekHost) main.prepend(weekHost);
   const calendarPanels = homeToday ? Promise.resolve(null) : ready.then(() => import('./ui-calendar-panels.generated.js')).then(module => {
     if (!layout.isConnected) return null;
-    return module.mountCalendarPanels(layout.querySelector('#appCalendarSlot'), layout.querySelector('#appScheduleSlot'), weekHost);
+    return module.mountCalendarPanels(layout.querySelector('#appCalendarSlot'), layout.querySelector('#appScheduleSlot'), null);
   }).catch(() => {
     for (const id of ['#appCalendarSlot', '#appScheduleSlot']) layout.querySelector(id).textContent = 'Calendar unavailable. Reload to try again.';
     return null;
@@ -343,7 +349,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     if (signal.aborted) return;
     const interaction = preparation.capture();
     const preparationSignal = AbortSignal.any([signal, interaction.signal]);
-    const [board, triage, meetings, agenda] = await Promise.allSettled([
+    const [board, triage, meetings] = await Promise.allSettled([
       readWithDeadline(() => client.getBoard({ workspace:'all' }), { signal }),
       readWithDeadline(async () => {
         const brief = normalizeBrief(await client.morningBrief());
@@ -352,12 +358,11 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
         return client.todayTriage();
       }, { signal }),
       readWithDeadline(() => client.calendarMeetingPrep({ signal: preparationSignal }), { signal: preparationSignal }),
-      weekHost ? import('./home-dashboard-model.js').then(({ readHomeAgenda }) => readHomeAgenda(client, { signal })) : Promise.resolve(null),
     ]);
     if (signal?.aborted || win.navigator.onLine === false) return;
     const panels = await calendarPanels;
     if (signal.aborted) return;
-    const scheduleValid = interaction.current() ? panels?.render(meetings.status === 'fulfilled' ? meetings.value : null, agenda.status === 'fulfilled' ? agenda.value : null) : true;
+    const scheduleValid = interaction.current() ? panels?.render(meetings.status === 'fulfilled' ? meetings.value : null, null) : true;
     const connected = board.status === 'fulfilled' && validBoard(board.value);
     const triageValid = triage.status === 'fulfilled' && validTriage(triage.value);
     connection(connected && triageValid && !failedReads.length);

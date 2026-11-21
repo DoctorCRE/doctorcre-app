@@ -23,7 +23,7 @@ const legacyVerbs = new Set(["morning-brief", "today-triage", "calendar-meeting-
 const id = "00000000-0000-4000-8000-000000000001";
 const pages = [
   ...Object.keys(routeContract.routes)
-    .filter((path) => !["/share", "/client-portal", "/calendar"].includes(path))
+    .filter((path) => !["/", "/share", "/client-portal", "/calendar"].includes(path))
     .map((path) => path.replace(":boardId", "carr-v5").replace(/:\w+/g, id)),
   "/?view=charts",
   "/deals?view=national",
@@ -97,6 +97,18 @@ async function open(
           : { items: [] };
     return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
   });
+  await page.route("**/api/engine/home/inbox?view=dashboard", (route) =>
+    route.fulfill({
+      json: {
+        ok: true,
+        schema_version: "home-inbox.v5",
+        home_mark_drop: true,
+        home_proposal_drop: true,
+        reminders: { count: 1, items: [{ item_id: "example-reminder", card_id: "example-reminder" }] },
+        waiting: { count: 0, items: [] },
+      },
+    }),
+  );
   await page.route("**/api/engine/home/today", (route) => {
     readToday.push(route.request().method());
     return route.fulfill({
@@ -143,6 +155,14 @@ async function open(
             {
               kind: "step",
               owner: "joe",
+              title: "Call the example lead",
+              due_on: "2026-11-16",
+              home_item_id: "example-lead-step",
+              open_url: "/leads?lead=example",
+            },
+            {
+              kind: "step",
+              owner: "joe",
               title: "Check the former office",
               due_on: "2026-11-15",
               days_late: 4,
@@ -177,6 +197,13 @@ async function open(
   return { page, today: page.getByRole("complementary", { name: "Today", exact: true }), legacy, readToday };
 }
 
+test("Today links a reminder missing from the Home grid to its record", async (t) => {
+  const { today } = await open(t, "/invoices");
+  const link = today.getByRole("link", { name: /Call the example lead/ });
+  await link.waitFor();
+  assert.equal(await link.getAttribute("href"), "/leads?lead=example");
+});
+
 for (const path of pages)
   test(`Engine Today on ${path}`, async (t) => {
     const { page, today, legacy, readToday } = await open(t, path);
@@ -203,10 +230,8 @@ for (const path of pages)
     assert.deepEqual(legacy, []);
   });
 
-test("Today keeps an ended deal's reminder on Home and leaves it out on Deals", async (t) => {
-  const home = await open(t, "/");
+test("Today leaves an ended deal's reminder out on Deals", async (t) => {
   const deals = await open(t, "/deals?view=national");
-  await home.today.getByText("Check the former office", { exact: true }).waitFor();
   await deals.today.getByText("Send sample floor plan", { exact: true }).waitFor();
   assert.equal(await deals.today.getByText("Check the former office", { exact: true }).count(), 0);
   assert.equal(await deals.today.getByText("Joe · 4 days late", { exact: true }).count(), 0);
@@ -241,7 +266,7 @@ test("Doc keeps Morning brief with the switch off and drops it with the switch o
 for (const width of [390, 1440])
   for (const theme of ["light", "dark"]) {
     test(`Today shows meetings and last sync at ${width}px in ${theme}`, async (t) => {
-      const { page, today } = await open(t, "/", { width, theme, meetingState: "partial" });
+      const { page, today } = await open(t, "/invoices", { width, theme, meetingState: "partial" });
       if (width === 390) await page.getByRole("button", { name: "Today sidebar", exact: true }).click();
       const meetings = today.getByRole("region", { name: "Meetings", exact: true });
       await meetings.getByText("Example site visit", { exact: true }).waitFor();
@@ -261,7 +286,7 @@ for (const width of [390, 1440])
   }
 
 test("Today says when the calendar is empty", async (t) => {
-  const { today } = await open(t, "/", { meetingState: "empty" });
+  const { today } = await open(t, "/invoices", { meetingState: "empty" });
   await today.getByText("No meetings today.", { exact: true }).waitFor();
 });
 
