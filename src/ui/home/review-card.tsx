@@ -38,7 +38,6 @@ export type DraftEdits = Pick<Extract<Review, { kind: "reply_draft" }>, "subject
 
 type Props = {
   item: InboxItem;
-  focusedSuggestionId: string | undefined;
   readOnly: boolean;
   client: InboxClient["review"];
   draftEdits: DraftEdits | undefined;
@@ -47,11 +46,10 @@ type Props = {
   close(): void;
   blockSwitching(value: boolean): void;
   busy(value: boolean): void;
-  confirmed(item: InboxItem | null, receipt?: TaskReceipt, snapshot?: Snapshot): void;
+  confirmed(item: InboxItem | null, receipt?: TaskReceipt, snapshot?: Snapshot): void | Promise<void>;
 };
 export function ReviewCard({
   item,
-  focusedSuggestionId,
   readOnly,
   client,
   draftEdits,
@@ -75,7 +73,6 @@ export function ReviewCard({
   const host = useRef<HTMLElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const anchor = useRef(item);
-  const focusSuggestion = useCallback((section: HTMLElement | null) => section?.focus(), []);
   const reconcileFacts = useCallback((detail: Review) => {
     if (detail.kind !== "fact_review") return;
     const choices = detail.operations[0] ? availableDecisions(detail.operations[0], detail) : [];
@@ -146,7 +143,8 @@ export function ReviewCard({
       if (!alive.current) return;
       reconcileFacts(updated);
       anchor.current = current;
-      confirmed(current);
+      await confirmed(current);
+      if (!alive.current) return;
       setState({ phase: "ready", review: updated });
       setMessage(
         "Updated evidence loaded. Your edits are kept. Review the evidence and recipients before submitting again.",
@@ -168,7 +166,8 @@ export function ReviewCard({
       const result = await client.run(anchor.current, request);
       if (!alive.current) return;
       if (request.verb === "submit-email-draft" || request.verb === "dismiss-email-proposal") updateDraftEdits(null);
-      confirmed(result.item, result.receipt, result.snapshot);
+      await confirmed(result.item, result.receipt, result.snapshot);
+      if (!alive.current) return;
       if (request.verb === "decide-engine-home-proposal" && detail.kind === "reply_draft" && result.item) {
         const before = draftReference(anchor.current);
         const after = draftReference(result.item);
@@ -321,12 +320,7 @@ export function ReviewCard({
       {review?.kind === "reply_draft" && proposals.length > 0 && <h4>Suggestions</h4>}
       {proposals.length > 0 &&
         proposals.map((proposal) => (
-          <section
-            key={proposal.id}
-            aria-label={proposal.label}
-            tabIndex={focusedSuggestionId === proposal.id ? -1 : undefined}
-            ref={focusedSuggestionId === proposal.id ? focusSuggestion : undefined}
-          >
+          <section key={proposal.id} aria-label={proposal.label}>
             <h4>
               {proposal.label}
               {proposal.target ? ` · ${proposal.target}` : ""}

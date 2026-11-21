@@ -38,7 +38,7 @@ for (const path of ['/', '/leads', '/deals']) for (const fonts of ['held', 'avai
     assert.ok(fontRequests > 0, 'the font request really started');
     assert.equal(fontCompleted, fonts === 'available', 'held CSS has not completed at first contentful paint');
     await page.getByRole('button', { name: 'Joe: account and settings', exact: true }).waitFor();
-    const primary = page.locator(path === '/' ? '.inbox-header > button' : path === '/leads' ? '#leadSearch' : '#boardView');
+    const primary = page.locator(path === '/' ? '.home-slice [data-inbox-row] h3 a:visible' : path === '/leads' ? '#leadSearch' : '#boardView').first();
     await primary.waitFor();
     assert.ok(await primary.isEnabled());
     if (fonts === 'available') {

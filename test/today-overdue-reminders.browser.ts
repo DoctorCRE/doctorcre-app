@@ -96,7 +96,7 @@ async function mountToday(t: test.TestContext, path: string) {
   return { root, cards, listsOverdue };
 }
 
-for (const path of ["/", "/example"])
+for (const path of ["/example"])
   test(`Today on ${path} lists past reminders as overdue and keeps today and later as dated`, async (t) => {
     const { root, cards } = await mountToday(t, path);
     assert.equal(root.querySelector("#appTodayNeeds")?.closest("section")?.hidden, false);
@@ -114,20 +114,6 @@ for (const path of ["/", "/example"])
       },
     ]);
   });
-
-test("Today on Home leaves out a late action that Home's Overdue slice already shows", async (t) => {
-  const { cards, listsOverdue } = await mountToday(t, "/");
-  listsOverdue(["action-past"]);
-  assert.deepEqual(
-    cards("#appTodayNeeds").map((card) => card.deal),
-    ["d2"],
-  );
-  listsOverdue([]);
-  assert.deepEqual(
-    cards("#appTodayNeeds").map((card) => card.deal),
-    ["d2", "d1"],
-  );
-});
 
 test("Today on the review page leaves out a deal the Overdue deals board already shows", async (t) => {
   const { cards, listsOverdue } = await mountToday(t, "/review-workflows");

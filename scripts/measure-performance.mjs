@@ -40,6 +40,7 @@ export async function measurePerformance({ root = fileURLToPath(new URL('../', i
   launchBrowser = () => chromium.launch({ args: [...CHROMIUM_SAFETY_ARGS] }),
   startServer = startFixtureServer } = {}) {
   const output = join(root, 'test-artifacts/performance');
+  const fixtureTime = new Date('2026-11-04T18:00:00Z');
   let currentScreen = 'setup';
   try {
     await mkdir(output, { recursive: true });
@@ -78,6 +79,7 @@ export async function measurePerformance({ root = fileURLToPath(new URL('../', i
           // Reuse the directory journey's populated fixture; no CARR endpoint is used.
           if (screen.id === 'vendors') await page.route('**/api/v1/business/**', route =>
             route.fulfill({ json: directoryFixture(route.request().url()) }));
+          await page.clock.setFixedTime(fixtureTime);
           await applyPhoneProfile(context, page);
           const responses = collectScriptResponses(page);
           const failures = [];
@@ -145,6 +147,7 @@ export async function measurePerformance({ root = fileURLToPath(new URL('../', i
           try {
             const page = await context.newPage();
             page.setDefaultTimeout(30000);
+            await page.clock.setFixedTime(fixtureTime);
             const cdp = await applyPhoneProfile(context, page);
             samples.push({ ...await runTaskScenario({ page, context, origin: url, task, cdp }), trace });
           } finally {

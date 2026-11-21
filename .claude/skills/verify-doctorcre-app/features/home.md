@@ -1,6 +1,12 @@
 # Home
 
-Home shows current work and deal attention, with personal and team scopes and links to matching deal rooms.
+Home at `/` shows **Reminders** and **In motion and waiting** in a responsive grid. Open a card by its title. **See all** expands the tile's remaining work. Empty tiles and finished work stay off Home.
+
+Run `node --test test/home-sections-browser.test.mjs` against synthetic data at 390px and 1440px in both themes. Check that a scheduled refresh adds and removes cards while retaining the scroll position, active control, and unsaved review text. Set `HOME_GRID_SCREENSHOTS` to retain the four captures.
+
+## Review workflows
+
+The checks below describe the legacy tools at `/review-workflows` and the shared layout on other screens.
 
 ## Sub-features
 
@@ -8,7 +14,7 @@ Home shows current work and deal attention, with personal and team scopes and li
 
 ## How to get to it (user POV)
 
-Open `/` or choose Home in Primary navigation. Use Just me, Team view, Refresh Home, or a deal in the attention region.
+Open `/review-workflows` on the legacy route. Use Just me, Team view, Refresh Home, or a deal in the attention region.
 
 ## Driving it with Playwright
 

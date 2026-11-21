@@ -10,7 +10,7 @@ type Props = {
   selected: ReadonlySet<string>;
   locked: boolean;
   select(ids: Set<string>): void;
-  snapshot(value: Snapshot): void;
+  snapshot(value: Snapshot | null): Promise<void>;
   prepare(): Promise<void>;
   lock(value: boolean): void;
   finish(): void;
@@ -79,8 +79,9 @@ export function BulkControls({
         (operation.kind === "undoing" ? operation.batch.items.map((item) => item.item_id) : []);
       const result = await client.batch(operation.request, expected);
       if (!mounted.current) return;
+      await snapshot(result.snapshot);
+      if (!mounted.current) return;
       send({ kind: "received", result });
-      if (result.snapshot) snapshot(result.snapshot);
       if (operation.kind === "applying")
         select(new Set(result.results.filter((row) => row.status !== "applied").map((row) => row.item_id)));
       const applied = result.results.filter((row) => row.status === "applied").length;

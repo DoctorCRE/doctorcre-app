@@ -20,7 +20,7 @@ class ResultsTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / 'test').mkdir()
         self.files = sorted({s.split('::')[0] for s in results.CRITICAL})
-        self.assertEqual(len(results.CRITICAL), 23)
+        self.assertEqual(len(results.CRITICAL), 20)
 
     def produce(self, change=None):
         for file in self.files:
@@ -98,7 +98,7 @@ class ResultsTest(unittest.TestCase):
             self.assertIn(f'file={self.root.name}/test/failing.test.mjs,line=4,endLine=4', annotation)
             print(annotation)
 
-    def test_native_pass_and_nested_identity_all_23_once(self):
+    def test_native_pass_and_nested_identity_all_20_once(self):
         self.produce()
         for shard in range(1, 5):
             run, output = self.run_node(shard)

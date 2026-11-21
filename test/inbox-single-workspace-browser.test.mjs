@@ -46,8 +46,8 @@ async function open(t, { path = '/inbox', width = 1280, theme = 'light', saved =
     return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
   });
   await page.goto(`${server.origin}${path}?mode=live`);
-  const reminders = ['/', '/deals', '/vendors'].includes(path) ? '#appTodayNeeds' : '#appWorkingList';
-  await page.locator(`${reminders} [data-layout-deal]`).first().waitFor({ state: 'attached' });
+  const reminders = path === '/' ? '#homeRoot[data-home-ready]' : ['/deals', '/vendors'].includes(path) ? '#appTodayNeeds [data-layout-deal]' : '#appWorkingList [data-layout-deal]';
+  await page.locator(reminders).first().waitFor({ state: 'attached' });
   return { page, calls, releaseInbox };
 }
 
@@ -115,7 +115,8 @@ for (const path of ['/', '/deals', '/calendar', '/vendors']) test(`${path} retai
   const { page } = await open(t, { path });
   if (path === '/') {
     assert.equal(await page.locator('.app-layout-working').count(), 0);
-    assert.equal(await page.locator('#appScheduleSlot a').count(), 1);
+    assert.equal(await page.locator('#appToday').isVisible(), false);
+    return;
   } else {
     assert.equal(await page.locator('.app-layout-working').count(), ['/deals', '/vendors'].includes(path) ? 0 : 1);
   }
