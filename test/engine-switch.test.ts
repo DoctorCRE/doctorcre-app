@@ -991,6 +991,24 @@ test("Mark paid keeps the original CARR call with the invoice switch off", async
   assert.deepEqual(f.engine, []);
 });
 
+test("Mark paid strips the engine receipt marker from the legacy reply", async () => {
+  const f = fixture(new Map([["invoices-from-engine", "off"]]));
+  const receipt = { ok: true, id: markPaidArgs.commission_id, received_on: markPaidArgs.received_on, base_version: 1 };
+  f.env.CARR.fetch = async () =>
+    Response.json(
+      {
+        jsonrpc: "2.0",
+        id: markPaid.id,
+        result: { content: [{ type: "text", text: JSON.stringify({ ...receipt, engine_receipt: true }) }] },
+      },
+      { headers: { "set-cookie": "session=synthetic; HttpOnly" } },
+    );
+  const response = await f.send(markPaid);
+  assert.equal(response.headers.get("set-cookie"), "session=synthetic; HttpOnly");
+  assert.deepEqual((await response.json()).result.content, [{ type: "text", text: JSON.stringify(receipt) }]);
+  assert.deepEqual(f.engine, []);
+});
+
 for (const [status, error] of [
   [400, "invalid_field_value"],
   [409, "version_conflict"],

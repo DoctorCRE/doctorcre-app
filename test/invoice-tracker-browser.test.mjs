@@ -334,7 +334,9 @@ test('engine receipt confirms one payment even while tracker reads are stale', a
   await page.locator('[data-status="paid"]').click();
   assert.equal(await invoice.isVisible(), true);
 });
-test('an earlier read for another invoice preserves the confirmed payment', async t => {
+for (const earlyPaid of [false, true]) test(earlyPaid
+  ? 'a refresh before the engine receipt cannot let an older read undo Paid'
+  : 'a delayed payment check for another invoice cannot overwrite a confirmed row', async t => {
   const data = invoiceTrackerFixture(today);
   const first = data.entries.find(row => row.name === 'Demo Cedar Expansion');
   const second = data.entries.find(row => row.name === 'Demo Bay Relocation');
@@ -351,6 +353,7 @@ test('an earlier read for another invoice preserves the confirmed payment', asyn
       if (delayRead) {
         delayRead = false;
         snapshot.entries.find(row => row.commission_id === second.commission_id).gross_amount = '7201';
+        if (!earlyPaid) snapshot.entries.find(row => row.commission_id === first.commission_id).gross_amount = '9400';
         secondRead.resolve();
         await finishSecondRead.promise;
       }
@@ -373,13 +376,27 @@ test('an earlier read for another invoice preserves the confirmed payment', asyn
   await invoice(first.commission_id).click();
   await markPaid.click();
   await firstWrite.promise;
+  if (!earlyPaid) {
+    confirmFirst.resolve();
+    await invoice(first.commission_id).getByText('$9,401.00', { exact: true }).waitFor();
+  }
   await close.click();
   await invoice(second.commission_id).click();
   delayRead = true;
   await markPaid.click();
   await secondRead.promise;
-  confirmFirst.resolve();
-  await invoice(first.commission_id).getByText('$9,401.00', { exact: true }).waitFor();
+  if (earlyPaid) {
+    Object.assign(first, { status: 'received', base_version: 2, received_on: today, gross_amount: '9401' });
+    second.gross_amount = '7200';
+    await page.evaluate(() => document.getElementById('refreshInvoices').click());
+    await invoice(second.commission_id).getByText('$7,200.00', { exact: true }).waitFor();
+    const receipt = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/mcp' &&
+      response.request().postDataJSON().params.name === 'record-commission-receipt');
+    confirmFirst.resolve();
+    await receipt;
+    await invoice(first.commission_id).getByText('$9,401.00', { exact: true }).waitFor();
+  }
   finishSecondRead.resolve();
   await secondWrite.promise;
   try {
@@ -397,32 +414,53 @@ test('an earlier read for another invoice preserves the confirmed payment', asyn
   }
 });
 
-test('with the engine switch off a payment receipt waits for the tracker read', async t => {
+test('with the engine switch off only a read started after the save can clear Retry', async t => {
   const data = invoiceTrackerFixture(today);
+  const invoice = data.entries.find(row => row.name === 'Demo Cedar Expansion');
+  const other = data.entries.find(row => row.name === 'Demo Bay Relocation');
+  const readStarted = Promise.withResolvers();
+  const releaseRead = Promise.withResolvers();
+  const freshRead = Promise.withResolvers();
+  let holdRead = false;
   let saved;
   const { page } = await open(t, { carr: async request => {
     const { id, params } = await request.json();
+    let answer = structuredClone(data);
     if (params.name === 'record-commission-receipt') {
       const { commission_id, base_version, received_on } = params.arguments;
-      saved = { ok: true, id: commission_id, base_version: base_version + 1, received_on };
+      answer = saved = { ok: true, id: commission_id, base_version: base_version + 1, received_on };
+    } else if (holdRead) {
+      holdRead = false;
+      readStarted.resolve();
+      await releaseRead.promise;
+      Object.assign(answer.entries.find(row => row.commission_id === saved.id), {
+        status: 'received', base_version: saved.base_version, received_on: saved.received_on,
+      });
+      answer.entries.find(row => row.commission_id === other.commission_id).gross_amount = '7200';
+    } else if (saved) {
+      answer = await freshRead.promise;
     }
-    const answer = params.name === 'read-invoice-tracker' ? data : saved;
     return Response.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(answer) }] } });
   } });
-  await page.locator('[data-invoice]').filter({ hasText: 'Demo Cedar Expansion' }).click();
-  const reconciliation = page.waitForResponse(response =>
+  await page.locator(`[data-invoice="${invoice.commission_id}"]`).click();
+  const refresh = () => page.evaluate(() => document.getElementById('refreshInvoices').click());
+  holdRead = true;
+  await refresh();
+  await readStarted.promise;
+  const receipt = page.waitForResponse(response =>
     new URL(response.url()).pathname === '/mcp' &&
-    response.request().postDataJSON().params.name === 'read-invoice-tracker' && Boolean(saved));
+    response.request().postDataJSON().params.name === 'record-commission-receipt');
   await page.getByRole('button', { name: 'Mark paid' }).click();
-  await reconciliation;
+  await receipt;
+  releaseRead.resolve();
+  await page.locator(`[data-invoice="${other.commission_id}"]`).getByText('$7,200.00', { exact: true }).waitFor();
   assert.equal(await page.locator('.invoice-status-value').innerText(), 'Overdue');
   const retry = page.getByRole('button', { name: 'Retry payment' });
   await retry.waitFor();
   assert.equal(await retry.isEnabled(), true);
-  Object.assign(data.entries.find(row => row.commission_id === saved.id), {
-    status: 'received', base_version: saved.base_version, received_on: saved.received_on,
-  });
-  await page.evaluate(() => document.getElementById('refreshInvoices').click());
+  Object.assign(invoice, { status: 'received', base_version: saved.base_version, received_on: saved.received_on });
+  freshRead.resolve(data);
+  await refresh();
   await page.locator('.invoice-status-value').getByText('Paid', { exact: true }).waitFor();
   assert.equal(await retry.isVisible(), false);
 });

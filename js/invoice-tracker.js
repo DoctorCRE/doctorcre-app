@@ -25,10 +25,9 @@ const paymentRefusals = new Map([
 ]);
 export function mountInvoiceTracker({ document, window, client, today=localToday, intervalMs }) {
   const $=id=>document.getElementById(id);
-  let rows=null,status='all',age=null,selected=null,opener=null,disposed=false,updatedAt=null;
+  let rows=null,status='all',age=null,selected=null,opener=null,disposed=false;
   let snapshot=null, readSequence=0;
-  const payments=new Map();
-  const confirmedPayments=new Map();
+  let payments = new Map();
   const preparingPayments=new Set();
   let paymentStore=null;
   let paymentActor=null;
@@ -41,37 +40,45 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     for(const args of saved){
       if(!args || typeof args.commission_id!=='string' || !Number.isInteger(args.base_version) || args.base_version<1
         || !isCalendarDay(args.received_on) || typeof args.idempotency_key!=='string' || !args.idempotency_key)throw new Error('Invalid payment recovery');
-      restored.set(args.commission_id,{args:Object.freeze(args),state:'uncertain'});
+      restored.set(args.commission_id, { confirmedAt: null, pending: { args: Object.freeze(args), readAfter: 0 } });
     }
-    paymentStore=key;paymentActor=actor;payments.clear();confirmedPayments.clear();
-    for(const [id,intent] of restored)payments.set(id,intent);
+    paymentStore=key;paymentActor=actor;payments=restored;
   }
   function savePayments() {
-    window.sessionStorage.setItem(paymentStore,JSON.stringify([...payments.values()].map(intent=>intent.args)));
+    const requests = [...payments.values()].flatMap(({ pending }) => pending ? [pending.args] : []);
+    window.sessionStorage.setItem(paymentStore, JSON.stringify(requests));
   }
-  function forgetPayment(key) {
-    if(payments.delete(key))savePayments();
+  function confirmPayment(payment) {
+    payment.confirmedAt = readSequence;
+    payment.pending = null;
+    savePayments();
   }
-  function applyRead(next, sequence) {
-    if (confirmedPayments.size) {
-      const entries = new Map(next.entries.map(entry => [entry.commission_id ?? entry, entry]));
-      for (const [id, payment] of confirmedPayments) {
-        const entry = entries.get(id);
-        if (sequence <= payment.sequence ||
-          (entry ? entry.base_version < (payment.entry?.base_version ?? 0) : payment.awaitingRead)) {
-          if (payment.entry) entries.set(id, payment.entry);
-          else entries.delete(id);
-        } else {
-          confirmedPayments.set(id, { sequence, entry, awaitingRead: false });
-        }
-      }
-      next = { ...next, entries: [...entries.values()] };
+  function withEntry(tracker, id, entry) {
+    const entries = tracker.entries.filter(row => row.commission_id !== id);
+    if (entry) entries.push(entry);
+    return { ...tracker, entries };
+  }
+  function applyRead(next, sequence, invoiceId) {
+    // A save checks only its own invoice, even though the tracker returns the whole list.
+    if (invoiceId) next = withEntry(snapshot, invoiceId, next.entries.find(entry => entry.commission_id === invoiceId));
+    for (const [id, payment] of payments) {
+      if (invoiceId && id !== invoiceId) continue;
+      const entry = next.entries.find(row => row.commission_id === id);
+      const current = snapshot?.entries.find(row => row.commission_id === id);
+      const stale = payment.confirmedAt !== null &&
+        (sequence <= payment.confirmedAt || entry?.base_version < current?.base_version);
+      const received = entry?.status === 'received' && payment.pending;
+      const checksSave = received && received.readAfter !== null && sequence > received.readAfter;
+      if (stale || (received && !checksSave)) next = withEntry(next, id, current);
+      else if (checksSave) confirmPayment(payment);
     }
+    setSnapshot(next);
+  }
+  function setSnapshot(next) {
     const projected = projectInvoices(next, { today: today() });
     if (!projected) throw new Error('Invalid invoice snapshot');
     snapshot = next;
     rows = projected;
-    updatedAt = next.observed_at;
   }
   const requested=new URL(window.location.href).searchParams.get('invoice');
   let requestHandled=false;
@@ -86,7 +93,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
   function render() {
     const owned=scoped();
     $('invoiceRows').setAttribute('aria-busy',String(!rows));
-    $('invoiceUpdated').textContent=updatedLabel(updatedAt);
+    $('invoiceUpdated').textContent=updatedLabel(snapshot?.observed_at);
     if(!owned){paint($('invoiceTotals'),'');paint($('invoiceAging'),'');paint($('invoiceRows'),'<p>Updating…</p>');return;}
     const totals=invoiceSummary(owned);
     const hasOwedAmount = totals.unpaid > totals.unknown;
@@ -144,12 +151,13 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     paint($('invoiceOriginalFacts'),[['Owner',ownerLabel(row.owner)],['Closed',invoiceDate(row.closed_on)],['Invoiced',invoiceDate(row.invoiceDay)],['Commission',amountLabel(row.amount)],['Due',row.due_on?invoiceDate(row.due_on):'Due date not recorded'],['Paid',invoiceDate(row.received_on)]].map(([label,value])=>`<dt>${label}</dt><dd>${E(value)}</dd>`).join(''));
     $('invoicePayment').hidden=!row.canMarkPaid;
     $('invoicePaidDate').min=row.invoiceDay || '';$('invoicePaidDate').max=today();
-    const intent=payments.get(row.key);
+    const intent=payments.get(row.key)?.pending;
+    const sending = intent?.readAfter === null;
     $('invoicePaidDate').disabled=Boolean(intent);
     if(intent)$('invoicePaidDate').value=intent.args.received_on;
-    $('markInvoicePaid').disabled=preparingPayments.has(row.key) || intent?.state==='sending';
-    $('markInvoicePaid').textContent=intent?.state==='uncertain'?'Retry payment':'Mark paid';
-    if(intent){$('invoicePaymentNotice').hidden=false;$('invoicePaymentNotice').textContent=intent.state==='sending'?'Confirming payment…':'Payment confirmation pending.';}
+    $('markInvoicePaid').disabled=preparingPayments.has(row.key) || sending;
+    $('markInvoicePaid').textContent=intent && !sending?'Retry payment':'Mark paid';
+    if(intent){$('invoicePaymentNotice').hidden=false;$('invoicePaymentNotice').textContent=sending?'Confirming payment…':'Payment confirmation pending.';}
     else $('invoicePaymentNotice').hidden=true;
   }
   function openDetail(key,element) {
@@ -180,7 +188,6 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       if (!validInvoiceTracker(next)) throw new Error('Invalid invoice snapshot');
       loadPayments(next.actor);
       applyRead(next, sequence);
-      for (const row of rows) if (row.status === 'paid') forgetPayment(row.key);
       $('invoiceNotice').hidden = true;
       const owner=$('invoiceOwner').value;const owners=[...new Set([...rows.map(row=>row.owner),owner].filter(Boolean))].sort();
       const options='<option value="">Everyone</option>'+owners.map(value=>`<option value="${E(value)}">${E(ownerLabel(value))}</option>`).join('');
@@ -189,7 +196,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     }catch(error){if(disposed||signal?.aborted)return;$('invoiceNotice').hidden=false;
       const signedOut=[401,403].includes(error?.status);
       $('invoiceNotice').innerHTML=signedOut?'<a href="/auth/login?return_to=%2Finvoices">Sign in</a>':'Invoices temporarily unavailable';
-      if(signedOut){snapshot=null;rows=null;updatedAt=null;confirmedPayments.clear();closeDetail();render();}
+      if(signedOut){snapshot=null;rows=null;payments.clear();paymentStore=null;closeDetail();render();}
       else if(!rows){$('invoiceRows').innerHTML='<p>Invoices unavailable</p>';$('invoiceRows').setAttribute('aria-busy','false');}
     }
   }
@@ -198,9 +205,10 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
   $('invoicePayment').addEventListener('submit',async event=>{
     event.preventDefault();const row=rows?.find(row=>row.key===selected);
     if(!row?.canMarkPaid || disposed || preparingPayments.has(row.key))return;
-    let intent=payments.get(row.key);
-    const replay=Boolean(intent);
-    if(intent?.state==='sending' || (!intent&&!$('invoicePayment').reportValidity()))return;
+    const payment = payments.get(row.key) ?? { confirmedAt: null, pending: null };
+    let intent = payment.pending;
+    const replay = Boolean(intent);
+    if (intent?.readAfter === null || (!intent && !$('invoicePayment').reportValidity())) return;
     if(!intent){
       const receivedOn=$('invoicePaidDate').value;
       preparingPayments.add(row.key);$('markInvoicePaid').disabled=true;
@@ -210,11 +218,11 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
         const next = await client.getInvoiceTracker();
         if (disposed) return;
         if (!validInvoiceTracker(next)) throw new Error('Invalid invoice snapshot');
-        if(next.actor!==paymentActor){snapshot=null;rows=null;confirmedPayments.clear();closeDetail();render();throw new Error('Account changed');}
-        applyRead(next, sequence);
+        if(next.actor!==paymentActor){snapshot=null;rows=null;payments.clear();paymentStore=null;closeDetail();render();throw new Error('Account changed');}
+        if (!snapshot || selected !== row.key) return;
+        applyRead(next, sequence, row.key);
         current = rows.find(item => item.key === row.key);
         render();
-        if(selected!==row.key)return;
         if(!current?.canMarkPaid || current.base_version!==row.base_version){
           $('invoicePaymentNotice').hidden=false;
           $('invoicePaymentNotice').textContent='Invoice changed. Review its current details before recording payment.';
@@ -224,13 +232,16 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
         if(!disposed){$('invoicePaymentNotice').hidden=false;$('invoicePaymentNotice').textContent='Payment not sent. Current invoice could not be verified.';}
         return;
       }finally{preparingPayments.delete(row.key);if(!disposed && selected===row.key)$('markInvoicePaid').disabled=false;}
-      intent={args:Object.freeze({commission_id:current.commission_id,base_version:current.base_version,received_on:receivedOn,idempotency_key:uuidv4()}),state:'sending'};
-      payments.set(row.key,intent);
+      intent = { args: Object.freeze({ commission_id: current.commission_id, base_version: current.base_version,
+        received_on: receivedOn, idempotency_key: uuidv4() }), readAfter: null };
+      payment.pending = intent;
+      payments.set(row.key, payment);
       try{savePayments();}catch{
-        payments.delete(row.key);renderDetail();$('invoicePaymentNotice').hidden=false;$('invoicePaymentNotice').textContent='Payment not recorded. Recovery storage unavailable.';return;
+        payment.pending=null;renderDetail();$('invoicePaymentNotice').hidden=false;$('invoicePaymentNotice').textContent='Payment not recorded. Recovery storage unavailable.';return;
       }
     }
-    intent.state='sending';renderDetail();
+    intent.readAfter = null;
+    renderDetail();
     const paymentEntry = snapshot.entries.find(entry => entry.commission_id === row.key);
     let receipt,refusalMessage;
     try{receipt=await client.markInvoicePaid(intent.args);}
@@ -242,24 +253,24 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       if(!replay&&[401,403].includes(error?.status))refusalMessage='Payment not recorded.';
     }
     if(disposed)return;
-    if(payments.get(row.key)===intent){
+    if (payments.get(row.key)?.pending === intent) {
       if(receipt?.engine_receipt === true && receipt.ok === true && receipt.id === intent.args.commission_id
         && receipt.received_on === intent.args.received_on && Number.isSafeInteger(receipt.base_version)
         && receipt.base_version > intent.args.base_version && receipt.base_version >= paymentEntry.base_version
         && receipt.received_on >= paymentEntry.commission_invoiced_on){
         const paid = { ...paymentEntry, status: 'received', base_version: receipt.base_version, received_on: receipt.received_on };
-        confirmedPayments.set(row.key, { sequence: readSequence, entry: paid, awaitingRead: true });
-        forgetPayment(row.key);
-        if (snapshot) {
-          const entries = [...snapshot.entries.filter(entry => entry.commission_id !== row.key), paid];
-          snapshot = { ...snapshot, entries };
-          rows = projectInvoices(snapshot, { today: today() });
-          render();
-        }
-      }else if(refusalMessage)forgetPayment(row.key);
-      else intent.state='uncertain';
+        confirmPayment(payment);
+        setSnapshot(withEntry(snapshot, row.key, paid));
+        render();
+      } else if (refusalMessage) {
+        payment.pending = null;
+        savePayments();
+      } else {
+        intent.readAfter = readSequence;
+        if (selected === row.key) renderDetail();
+      }
     }
-    await auto.refresh();
+    await auto.revalidate();
     if(disposed || selected!==row.key)return;
     renderDetail();
     if(refusalMessage){$('invoicePaymentNotice').hidden=false;$('invoicePaymentNotice').textContent=refusalMessage;}

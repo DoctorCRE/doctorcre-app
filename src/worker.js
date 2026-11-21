@@ -295,6 +295,22 @@ function mcpReply(call, response, text, isError) {
   return copySessionCookies(response, json({ jsonrpc: '2.0', id: call.id ?? null, result: isError ? { isError, content } : { content } }));
 }
 
+async function legacyInvoiceReceipt(response) {
+  if (!response.ok) return response;
+  try {
+    const envelope = await response.clone().json();
+    const content = envelope?.result?.content?.[0];
+    const receipt = JSON.parse(content?.text);
+    if (!isObject(receipt) || !Object.hasOwn(receipt, 'engine_receipt')) return response;
+    delete receipt.engine_receipt;
+    content.text = JSON.stringify(receipt);
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    headers.delete('content-encoding');
+    return new Response(JSON.stringify(envelope), { status: response.status, statusText: response.statusText, headers });
+  } catch { return response; }
+}
+
 // The registered read a request asks for: a business GET, or a tool call with its arguments.
 async function engineRead(request, url) {
   if (request.method === 'GET') {
@@ -1060,7 +1076,11 @@ async function handleRequest(request, env) {
       delete call.params.arguments.ref;
       request = new Request(request, { body: JSON.stringify(call) });
     }
-    return await refuseFrozenSave(request, env, url, call) ?? carrResponse(request, env);
+    const refusal = await refuseFrozenSave(request, env, url, call);
+    if (refusal) return refusal;
+    const legacy = await carrResponse(request, env);
+    return call?.method === 'tools/call' && call.params?.name === 'record-commission-receipt'
+      ? legacyInvoiceReceipt(legacy) : legacy;
   }
   return json({ error: "not_found" }, 404);
 }
