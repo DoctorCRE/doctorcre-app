@@ -273,24 +273,3 @@ export function docAnswer(context, { recordId, kind, question }) {
   const value = question === 'Name' ? row.title : row.fields.find(item => item.label === question)?.value ?? null;
   return { state: value === null || value === '' ? 'unknown' : 'answered', value: value === '' ? null : value, recordId: row.id, version: row.version };
 }
-
-export function contextualSuggestions(context, payload, { evaluatedPages = [], now = Date.now() } = {}) {
-  if (!evaluatedPages.includes(context.page) || !context.ready || !context.observedAt
-    || now - Date.parse(context.observedAt) >= DOC_CONTEXT_TTL_MS || !Array.isArray(payload?.suggestions) || payload.ok !== true) return [];
-  return payload.suggestions.filter(row => {
-    if (!row?.id || !Number.isInteger(row.version) || row.disposition !== 'open') return false;
-    const facts = row.material_facts;
-    // Existing material_facts can hold exact bindings. No title, fuzzy name,
-    // obligation-key parsing, or undocumented page inference is accepted.
-    if (context.page === 'chats' && context.selected?.kind === 'conversation')
-      return (row.source_conversation_id || row.conversation_id) === context.selected.id
-        && context.active?.activityComplete !== false && payload.coverage?.state === 'complete' && context.active?.latestSequence !== null
-        && payload.coverage?.latest_sequence === context.active?.latestSequence
-        && payload.coverage?.scanned_through >= context.active?.latestSequence;
-    if (!facts || !text(facts.record_kind) || !text(facts.record_id) || facts.record_version === undefined) return false;
-    const record = context.records.find(item => item.kind === facts.record_kind && item.id === facts.record_id);
-    if (facts.page !== context.page) return false;
-    return !!record && record.version !== null && String(record.version) === String(facts.record_version)
-      && (!context.selected || (context.selected.kind === record.kind && context.selected.id === record.id));
-  });
-}

@@ -40,11 +40,6 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
       await page.screenshot({ path: `${process.env.PARTNER_MENU_SCREENSHOT_DIR}/menu-${width}-${theme}.png` });
     }
     await page.keyboard.press('Escape');
-    if (width === 390) await page.getByRole('button', { name: 'Account and settings' }).click();
-    await page.getByRole('button', { name: 'Open Doc' }).click();
-    const doc = page.getByRole('dialog', { name: 'Doc', exact: true });
-    assert.equal(await doc.getByRole('link', { name: /^Doc Chats/ }).count(), 0);
-    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Quick switcher' }).click();
     const switcher = page.getByRole('dialog', { name: 'Quick switcher' });
     const options = switcher.getByRole('option');

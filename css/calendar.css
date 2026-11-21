@@ -63,7 +63,8 @@
 @media (hover: hover) { .cal-chip:hover { background: var(--hairline); } }
 .cal-chip:active { background: var(--hairline-strong); }
 .cal-chip:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
-.cal-chip-label { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; white-space: normal; }
+.cal-chip-label { overflow-wrap: anywhere; white-space: normal; }
+.cal-chip:not([data-entry^="step:"]) .cal-chip-label { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .cal-chip-deal { grid-column: 2; overflow: hidden; color: var(--fg-muted); text-overflow: ellipsis; white-space: nowrap; }
 .cal-grid[data-view="month"] .cal-chip-deal { display: none; }
 .cal-chip[data-entry="late"] { display: block; }

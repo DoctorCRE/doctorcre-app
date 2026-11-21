@@ -69,7 +69,7 @@ async function fixture(t, mode='equal') {
   const mutations = {
     'date-text': ['{entry.closed_on}</time>', '1{entry.closed_on}</time>'],
     'date-value': ['dateTime={entry.closed_on}', 'dateTime={`1${entry.closed_on}`}'],
-    'deal-label': ["{entry.deal_name || 'Won deal'}", "1{entry.deal_name || 'Won deal'}"],
+    'deal-label': ['{entry.deal_name || "Won deal"}', '1{entry.deal_name || "Won deal"}'],
   };
   if (mutations[mode]) {
     const source = await readFile(new URL('../src/ui/ideal-client-profile.tsx', import.meta.url), 'utf8');

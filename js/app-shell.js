@@ -70,16 +70,13 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
     }, true);
     root.defaultView.addEventListener('doctorcre-session-invalidated', () => { retired = true; toggle.disabled = true; void history().then(({ clearRecents }) => clearRecents()).catch(() => {}); }, { once: true });
   }
-  let disposeDocPresence = () => {}, resolveAssistant;
-  const assistantReady = new Promise(resolve => { resolveAssistant = resolve; });
+  const home = pathname === '/' && root.getElementById('homeRoot');
+  const ready = home && !home.dataset.homeReady
+    ? new Promise(resolve => home.addEventListener('doctorcre:home-ready', resolve, { once: true }))
+    : Promise.resolve();
   const reactWorkspace = new URLSearchParams(location?.search || "").get("ui") === "react";
-  if (!base) mountAccount(root, host, pathname, () => disposeDocPresence(), reactWorkspace, assistantReady);
+  if (!base) mountAccount(root, host, pathname, reactWorkspace, ready);
   if (!base && pathname !== "/share") {
-    const home = pathname === '/' && root.getElementById('homeRoot');
-    const ready = home ? new Promise(resolve => {
-      if (home.dataset.homeReady) resolve();
-      else home.addEventListener('doctorcre:home-ready', resolve, { once: true });
-    }) : Promise.resolve();
     mountAppLayout(root, host, pathname, { ready });
     const topbar = root.getElementById("appTopbar");
     const workspace = root.getElementById("accountWorkspaceControls");
@@ -87,7 +84,7 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
     const controls = host.querySelector(".app-shell-controls");
     const callButton = root.getElementById("callModeButton");
     const displayControls = [host.querySelector('[data-pref="theme"]'), host.querySelector("#colorAssistButton")];
-    topbar.append(host.querySelector(".app-shell-search"));
+    topbar.append(host.querySelector(".app-shell-search"), host.querySelector("#askDocLink"));
     const phone = root.defaultView.matchMedia(TOUCH_LAYOUT);
     const arrangeControls = () => {
       (phone.matches ? workspace : topbar).append(...displayControls);
@@ -96,12 +93,15 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
     };
     phone.addEventListener("change", arrangeControls);
     arrangeControls();
-    let docPresence = null, docRetired = false;
-    disposeDocPresence = () => { docRetired = true; docPresence?.dispose(); };
-    void ready.then(() => import('./doc-presence.js')).then(({ mountDocPresence }) => {
-      if (!docRetired && host.isConnected) docPresence = mountDocPresence({ document:root, window:root.defaultView });
-      resolveAssistant();
-    }).catch(() => resolveAssistant());
+    if (!root.documentElement.hasAttribute('data-home-today-from-engine')) {
+      let brief, retired = false;
+      const dispose = () => { retired = true; brief?.dispose(); };
+      root.defaultView.addEventListener('doctorcre-session-invalidated', dispose, { once: true });
+      root.defaultView.addEventListener('pagehide', event => { if (!event.persisted) dispose(); });
+      void ready.then(() => import('./morning-brief.js')).then(({ mountMorningBriefLauncher }) => {
+        if (!retired && host.isConnected) brief = mountMorningBriefLauncher(root);
+      }).catch(() => {});
+    }
   }
 }
 
@@ -174,10 +174,11 @@ function mountFlaggedWorkspace(root, pathname, sessionIsValid) {
   };
 }
 
-function mountAccount(root, host, pathname, beforeSignOutReplace = () => {}, reactWorkspaceRequested = false, assistantReady = Promise.resolve()) {
+function mountAccount(root, host, pathname, reactWorkspaceRequested, ready) {
   const preferences = mountPrefs();
   const avatar = host.querySelector("#selfAvatar");
   const panel = host.querySelector("#accountMenu");
+  const askDoc = host.querySelector("#askDocLink");
   root.body.append(panel);
   let session = null;
   const showPartner = (identity) => {
@@ -227,7 +228,7 @@ function mountAccount(root, host, pathname, beforeSignOutReplace = () => {}, rea
   const boot = resolveDealroomBoot(globalThis.location);
   const boundary = privateSession();
   const workspace = reactWorkspaceRequested && pathname !== "/share" ? mountFlaggedWorkspace(root, pathname, () => !boundary?.revoked) : null;
-  globalThis.window?.addEventListener("doctorcre-session-invalidated", () => { workspace?.dispose(); beforeSignOutReplace(); }, {once:true});
+  if (workspace) root.defaultView.addEventListener("doctorcre-session-invalidated", () => workspace.dispose(), { once: true });
   let lastVerified = null;
   const sessionStatus = root.createElement('p');
   sessionStatus.setAttribute('role','status'); sessionStatus.hidden = true;
@@ -238,6 +239,7 @@ function mountAccount(root, host, pathname, beforeSignOutReplace = () => {}, rea
       else {
         session = await boundary.verify();
         panel.querySelector("#accountDocLink").hidden = !boundary.engineSignIn;
+        if (askDoc) askDoc.hidden = !boundary.engineSignIn;
         lastVerified = new Date().toLocaleTimeString(); sessionStatus.hidden = true;
         panel.querySelector("#accountStatus").textContent = "";
       }
@@ -245,8 +247,8 @@ function mountAccount(root, host, pathname, beforeSignOutReplace = () => {}, rea
       showPartner(identity);
       workspace?.setIdentity(identity);
       if (boot.mode === "live" && pathname === "/" && identity && help && !preferences.hasSeenWalkthrough(identity.slug)) {
-        void Promise.all([assistantReady, import("./app-walkthrough.js")]).then(([, { openWalkthrough }]) => {
-          if (boundary.revoked || !panel.hidden || root.querySelector('dialog:modal') || !root.getElementById('docOpen') || preferences.hasSeenWalkthrough(identity.slug)) return;
+        void Promise.all([ready, import("./app-walkthrough.js")]).then(([, { openWalkthrough }]) => {
+          if (boundary.revoked || !panel.hidden || root.querySelector('dialog:modal') || preferences.hasSeenWalkthrough(identity.slug)) return;
           openWalkthrough(root);
           preferences.rememberWalkthrough(identity.slug);
         }).catch(() => {});

@@ -4,14 +4,15 @@ const allSteps = [
   { target: '[data-app-nav-item][href="/deals"]', text: 'Follow each deal through its phase, next step, and next date. Open a deal to review its details.' },
   { target: '[data-app-nav-item][href="/leads"]', text: 'Search and review potential clients in Leads. Open a lead to see its details before deciding what comes next.' },
   { target: '.app-shell-more-toggle', title: 'Calendar', text: 'Open More, then Calendar to see meetings and important deal dates.' },
-  { target: '#docOpen', title: 'Doc', text: 'Doc is the assistant inside DoctorCRE. Open Doc to ask about the current page or record. Review its suggestions before taking action.' },
+  { target: '#askDocLink', title: 'Ask Doc', text: 'Open Ask Doc to ask about deals, leads, clients, or your mail.' },
   { target: '#callModeButton', title: 'Call mode', text: 'Use Call Mode to record and review your weekly pipeline call.' },
 ];
 
 export function openWalkthrough(root) {
   if (root.querySelector('[data-walkthrough]')) return;
   const callButton = root.querySelector('#callModeButton');
-  let steps = allSteps.filter(step => step.target !== '#callModeButton' || (callButton && !callButton.hidden));
+  const availableSteps = () => allSteps.filter(({ target }) => root.querySelector(`${target}:not([hidden])`));
+  let steps = availableSteps();
   const win = root.defaultView;
   const avatar = root.getElementById('selfAvatar');
   const account = root.getElementById('accountMenu');
@@ -60,11 +61,13 @@ export function openWalkthrough(root) {
     place();
   };
   const availability = new win.MutationObserver(() => {
-    steps = allSteps.filter(step => step.target !== '#callModeButton' || (callButton && !callButton.hidden));
+    steps = availableSteps();
     index = Math.min(index, steps.length - 1);
     paint();
   });
-  if (callButton) availability.observe(callButton, { attributes: true, attributeFilter: ['hidden'] });
+  for (const control of [callButton, root.getElementById('askDocLink')]) {
+    if (control) availability.observe(control, { attributes: true, attributeFilter: ['hidden'] });
+  }
   const close = (reason = 'dismiss') => {
     availability.disconnect();
     target?.classList.remove('app-walkthrough-target');
@@ -82,7 +85,7 @@ export function openWalkthrough(root) {
   const keydown = event => {
     if (isTextEntry(event)) return;
     if (root.querySelector('dialog:modal')) { close('retire'); return; }
-    if ((event.ctrlKey || event.metaKey) && ['k', 'd'].includes(event.key.toLowerCase())) { close(); return; }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { close(); return; }
     if (event.key !== 'Escape') return;
     event.preventDefault(); event.stopImmediatePropagation(); close();
   };

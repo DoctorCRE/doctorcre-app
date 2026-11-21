@@ -34,7 +34,6 @@ for (const scenario of [
     const open = scenario === "already open disclosures";
     const embedded = scenario === "embedded" || scenario === "unavailable frame";
     const captures: string[] = [];
-    let pages = 0;
     await page.route("http://walk.test/**", (route) => {
       const url = new URL(route.request().url());
       let body = '<button class="inbox-row">Inbox</button>';
@@ -62,9 +61,21 @@ for (const scenario of [
         body = `<a class="tour-button" href="${embedded ? "/deals?tour=1" : "/tours/route-editor.html"}">Tour</a>`;
       else if (url.pathname === "/tours/route-editor.html")
         body = `<button class="tour-button">Open Tour</button>${open ? tour.replace("<details ", "<details open ") : tour}`;
-      else if (url.pathname === "/vendors")
+      else if (url.pathname === "/vendors") {
         body = `<details ${open ? "open" : ""} class="vendor-meetings"><summary>People</summary><section role="region" aria-label="People worth meeting"><button role="tab">Suggested</button><button role="tab">Research</button></section></details><ul id="recordList"><li><button>Vendor</button></li></ul><div id="scrollSentinel" ${scenario.includes("pagination") ? "" : "hidden"}>More</div>`;
-      else if (url.pathname === "/relationships") body = '<button id="networkRefresh">Refresh</button>';
+        if (scenario.includes("pagination"))
+          body += `<style>#recordList { overflow-anchor: none } #scrollSentinel { margin-top: 1200px }</style><script>
+            const marker = document.querySelector("#scrollSentinel");
+            window.addEventListener("scroll", () => {
+              if (marker.hidden || marker.getBoundingClientRect().top >= innerHeight) return;
+              const item = document.createElement("li");
+              item.style.minHeight = "1000px";
+              item.innerHTML = "<button>Next vendor</button>";
+              document.querySelector("#recordList").append(item);
+              if (${scenario === "pagination"}) marker.hidden = true;
+            });
+          </script>`;
+      } else if (url.pathname === "/relationships") body = '<button id="networkRefresh">Refresh</button>';
       else if (url.pathname === "/leads") body = '<button class="lead-card">Lead</button>';
       return route.fulfill({
         contentType: "text/html",
@@ -74,17 +85,6 @@ for (const scenario of [
     const locate = page.locator.bind(page);
     page.locator = (selector, options) => {
       const locator = locate(selector, options);
-      if (selector === "#scrollSentinel" && scenario.includes("pagination")) {
-        locator.scrollIntoViewIfNeeded = async () => {
-          pages++;
-          await page.evaluate((hide) => {
-            const item = document.createElement("li");
-            item.innerHTML = "<button>Next vendor</button>";
-            document.querySelector("#recordList")?.append(item);
-            if (hide) document.querySelector("#scrollSentinel")?.setAttribute("hidden", "");
-          }, scenario === "pagination");
-        };
-      }
       if (selector === 'iframe[title="Tour shortlist, route and packet"]' && scenario === "unavailable frame") {
         const handle = locator.elementHandle.bind(locator);
         locator.elementHandle = async (options) => {
@@ -98,6 +98,8 @@ for (const scenario of [
     const walk = () =>
       walkV2Accessibility(page, "http://walk.test", async (name) => {
         captures.push(name);
+        if (name === "Vendors Suggested")
+          assert.equal(await page.locator("#recordList > li").count(), scenario === "pagination" ? 2 : 1);
         if (name === "Tour and cheat sheet") {
           const frame = embedded ? page.frames().find((frame) => frame.url().endsWith("/frame")) : page.mainFrame();
           assert.ok(frame);
@@ -112,7 +114,7 @@ for (const scenario of [
       assert.deepEqual(captures, names.slice(0, 4));
     } else if (scenario === "incomplete pagination") {
       await assert.rejects(walk, /incomplete after 20 pages/);
-      assert.equal(pages, 20);
+      assert.equal(await page.locator("#recordList > li").count(), 21);
       assert.deepEqual(captures, names.slice(0, 5));
     } else if (scenario === "unavailable surface") {
       await assert.rejects(walk, /Timeout 10000ms exceeded/);
@@ -124,7 +126,6 @@ for (const scenario of [
         names,
       );
       assert.deepEqual(captures, names);
-      assert.equal(pages, scenario === "pagination" ? 1 : 0);
       for (const row of rows) {
         assert.deepEqual(row.small, []);
         assert.deepEqual(row.covered, []);

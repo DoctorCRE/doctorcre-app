@@ -29,9 +29,9 @@ test('declared command and assertions match CLI and registered response contract
 });
 test('exact CLI flags prove fetched head and reject recoverable invalidation; unavailable and timeout exit 78', async t => {
   const source = await readFile('src/ui/ideal-client-profile.tsx', 'utf8');
-  const listener = "addEventListener('doctorcre-session-invalidated', retire)";
+  const listener = 'addEventListener("doctorcre-session-invalidated", retire)';
   assert.ok(source.includes(listener), 'mutation must replace the session retirement listener');
-  const recoverableInvalidation = source.replace(listener, "addEventListener('doctorcre-session-invalidated', clear)");
+  const recoverableInvalidation = source.replace(listener, 'addEventListener("doctorcre-session-invalidated", clear)');
   const bundled = await build({ stdin: { contents: recoverableInvalidation, loader: 'tsx', resolveDir: root }, bundle: true, write: false, format: 'esm', jsx: 'automatic' });
   const assets = await uiAssets(path => readFile(path));
   async function snapshot(mode) {

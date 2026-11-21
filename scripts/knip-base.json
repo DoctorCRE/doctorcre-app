@@ -78,7 +78,6 @@
     "tests/regressions/qa-015-search-button-contrast.e2e.ts",
     "tests/regressions/qa-016-leads-sign-in.e2e.ts",
     "tests/regressions/qa-017-vendor-error-semantics.e2e.ts",
-    "tests/regressions/qa-018-doc-recovery.e2e.ts",
     "tests/regressions/qa-019-client-failure-review.e2e.ts",
     "tests/regressions/qa-020-cleared-search-address.e2e.ts",
     "tests/regressions/qa-021-singular-lead-count.e2e.ts",

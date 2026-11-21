@@ -182,7 +182,7 @@ test("Morning brief removes overnight activity when the feed retires", async ({ 
   const requests = await mockReads(page, { engine: false, overnight: true });
   await page.clock.install({ time: new Date("2026-11-20T16:00:00Z") });
   await page.goto(server.url + "/search?mode=live");
-  await page.getByRole("button", { name: "Open Doc", exact: true }).click();
+  await page.locator("#docOpen").click();
   await page.locator("#docMorning").click();
   const overnight = page.locator("#morningContent h3").filter({ hasText: /^Overnight$/ });
   await expect(overnight).toBeVisible();

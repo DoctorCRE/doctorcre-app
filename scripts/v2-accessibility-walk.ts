@@ -38,9 +38,15 @@ export async function walkV2Accessibility(page: Page, origin: string, capture: (
       await region.getByRole("tab", { name: "Suggested", exact: true }).waitFor();
       await region.getByText("Loading people…", { exact: true }).waitFor({ state: "hidden" });
       const sentinel = page.locator("#scrollSentinel");
-      for (let loaded = 0; loaded < 20 && (await sentinel.isVisible()); loaded++) {
-        const count = await page.locator("#recordList > li").count();
-        await sentinel.scrollIntoViewIfNeeded();
+      for (let loaded = 0; loaded < 20; loaded++) {
+        const count = await sentinel.evaluate((node) => {
+          if (node.hasAttribute("hidden")) return null;
+          const count = document.querySelectorAll("#recordList > li").length;
+          // Automatic pagination can hide the marker while Playwright waits for it to settle.
+          node.scrollIntoView({ block: "end", behavior: "instant" });
+          return count;
+        });
+        if (count === null) break;
         await page.waitForFunction(
           (count) =>
             document.querySelector("#scrollSentinel")?.hasAttribute("hidden") ||
@@ -48,7 +54,8 @@ export async function walkV2Accessibility(page: Page, origin: string, capture: (
           count,
         );
       }
-      if (await sentinel.isVisible()) throw Error("Vendor target discovery incomplete after 20 pages");
+      if ((await sentinel.getAttribute("hidden")) === null)
+        throw Error("Vendor target discovery incomplete after 20 pages");
       await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     }
     await inspect(name);

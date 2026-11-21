@@ -471,6 +471,7 @@ function renderSuggestions() {
 }
 
 function render() {
+  if (!$("listScope")) return;
   renderAskComposer();
   renderHero();
   renderTurns();
@@ -862,10 +863,12 @@ function mountDock() {
 /* ------------------------------------------------------------------------ boot */
 
 async function boot() {
+  const listScope = $("listScope");
+  if (!listScope) return;
   mountPrefs();
 
   mountDock();
-  $("listScope").textContent = LIST_SCOPE;
+  listScope.textContent = LIST_SCOPE;
   $("sharingCaveat").textContent = SHARING_CAVEAT;
   $("composerAbsent").textContent = COMPOSER_ABSENT;
   $("docReplyPending").textContent = DOC_REPLY_PENDING;
@@ -980,6 +983,7 @@ async function boot() {
   client = boot_.mode === "live"
     ? createLiveClient()
     : await (await import("./fixture-client.js")).createFixtureClient({ ...boot_.options, ...(outage ? { outage } : {}) });
+  if (!listScope.isConnected) return;
   suggestionGate = mountFeatureGate({ document, window: globalThis.window, name: "doc-suggestion-actions",
     read: signal => client.listFeatureSwitches({ signal }),
     onChange: enabled => {
@@ -990,6 +994,7 @@ async function boot() {
   });
   mountNotificationBadge(client);
   await load();
+  if (!listScope.isConnected) return;
   mountAutoRefresh({ document, window: globalThis.window, shouldRefresh: () => !suggestionEditorActive(), refresh: ({ signal }) => load({ background: true, signal }) });
 }
 
