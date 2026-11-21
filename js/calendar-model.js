@@ -1,28 +1,9 @@
 import { createPageBudget } from './read-budget.mjs';
 import { businessDay } from './business-date.js';
-// V5-UX-B04 — the critical-dates Calendar: every decision, no DOM.
-//
-// WHERE THE DATES COME FROM. A critical_date is a deal's own row (LOI expiry,
-// lease expiration, option window, earnout). The record layer returns them per
-// deal, from `get-deal-room`, at every horizon; `today-triage` only carries the
-// next fourteen days, which is a to-do list and not a calendar. So the calendar
-// reads the board once (`deal-room-board`) and then each deal's own record,
-// with a small bound on how many are in flight. Both verbs were already pinned
-// in contracts/carr-interface.v1; this surface adds no verb.
-//
-// HONESTY RULES, the reason most of this file exists:
-//   - A deal whose record could not be read is NAMED and the page is partial.
-//     Its dates are not guessed and it is never shown as "no dates".
-//   - A row whose date cannot be read as a calendar day is kept as UNDATED, so
-//     missing is never shown as empty.
-//   - A 401/403 on any read ends the whole read with nothing shown.
-//
-// CALENDAR ARITHMETIC IS DONE ON YYYY-MM-DD STRINGS, through UTC, so a date can
-// never slide across midnight on a viewer's clock. "Today" uses America/Chicago.
+// Calendar days use UTC arithmetic. Today uses America/Chicago.
 
 export const CALENDAR_VIEWS = Object.freeze(["month", "week"]);
 const READ_CONCURRENCY = 4;
-const UPCOMING_LIMIT = 40;
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const SHORT_MONTHS = MONTHS.map((name) => name.slice(0, 3));
@@ -233,24 +214,30 @@ export function entriesByDay(entries) {
   return map;
 }
 
-/** Open dates from the oldest overdue forward, nearest first. */
-export function upcomingEntries(entries, today, limit = UPCOMING_LIMIT) {
-  return entries
-    .filter((entry) => !entry.settled)
-    .sort((a, b) => a.day.localeCompare(b.day) || a.label.localeCompare(b.label))
-    .slice(0, limit);
-}
-
 /* ------------------------------------------------------------------- the read */
 
 const endedSession = (error) => error?.status === 401 || error?.status === 403;
 
-/**
- * Read the board, then every deal's own record, at most `concurrency` at a
- * time. Returns what was read and what was not; it never throws.
- */
 export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onProgress } = {}) {
   const empty = { entries: [], undated: [], failed: [], dealCount: 0, readCount: 0 };
+  if (client.getCalendarDates) {
+    try {
+      const dates = await client.getCalendarDates();
+      const entries = dates.map(row => {
+        const day = toDay(row.due_on);
+        if (!day || !row.id || !row.deal_id || typeof row.deal_name !== "string" ||
+            typeof row.kind !== "string" || typeof row.done !== "boolean")
+          throw new Error("Calendar date unreadable");
+        return {
+          key: row.id, deal_id: row.deal_id, deal_name: row.deal_name, day,
+          label: row.kind, kind_label: row.kind, status: row.done ? "done" : "open", settled: row.done,
+        };
+      });
+      return { ...empty, status: "ready", entries };
+    } catch (error) {
+      if (error?.status !== 404) return { ...empty, status: endedSession(error) ? "unauthorized" : "unavailable" };
+    }
+  }
   let board;
   try {
     board = await client.getBoard({ workspace: "all" });
@@ -281,7 +268,9 @@ export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onP
       try {
         const detail = await client.getDeal(deal.id);
         if (!Array.isArray(detail?.critical_dates)) throw new Error("critical_dates unreadable");
-        const read = criticalDateEntries(deal, detail);
+        const read = criticalDateEntries(deal, {
+          critical_dates: detail.critical_dates.filter(row => row?.status === "open"),
+        });
         entries.push(...read.entries);
         undated.push(...read.undated);
         readCount += 1;
