@@ -1,4 +1,4 @@
-import { sessionFetch } from '../js/private-session.js';
+import { fetchPartnerIdentity, sessionFetch } from '../js/private-session.js';
 import { readWithDeadline } from "../js/auto-refresh.mjs";
 import { validateTourDetail } from "./planner-client.js";
 
@@ -6,7 +6,8 @@ export function createDayClient({ fetchImpl = sessionFetch } = {}) {
   let scope = null;
   async function read(path, options = {}) {
     return readWithDeadline(async signal => {
-      const response = await fetchImpl(path, { credentials: "same-origin", cache: "no-store", signal });
+      const init = { credentials: "same-origin", cache: "no-store", signal };
+      const response = await (path === '/auth/session' ? fetchPartnerIdentity(init, fetchImpl) : fetchImpl(path, init));
       if ([401, 403].includes(response.status)) { scope = null; const e = new Error("sign_in_required"); e.authentication = true; throw e; }
       if (!response.ok) throw Object.assign(new Error("unavailable"), { transport: response.status >= 500 });
       return response.json();
@@ -18,7 +19,7 @@ export function createDayClient({ fetchImpl = sessionFetch } = {}) {
     // pinned. This surface supports local capture only.
     capabilities: Object.freeze({ voiceNotes: false }),
     async session(options) {
-      const session = await read("/api/system-work/session", options);
+      const session = await read("/auth/session", options);
       if (!session.csrf_token || !session.actor?.slug) { scope = null; throw Object.assign(new Error("session_invalid"), { authentication: true }); }
       const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(session.csrf_token));
       scope = [...new Uint8Array(hash)].map(n => n.toString(16).padStart(2, "0")).join("");

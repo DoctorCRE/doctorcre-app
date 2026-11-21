@@ -1,3 +1,5 @@
+import { withoutRecordCodes } from "./visual-system.js";
+
 export const BOARD_STAGES = Object.freeze([
   ["new", "New"], ["qualified", "Qualified"], ["outreach_active", "Outreach Active"],
   ["engaged", "Engaged"], ["nurture_drip", "Nurture"], ["opportunity", "Opportunity"],
@@ -15,14 +17,17 @@ export function eligibleLead(lead) {
   if (lead.client_id || lead.linked_client || lead.is_client || lead.is_past_client || lead.is_deal || lead.deal_id) return false;
   return !["active_deal", "closed_won"].includes(lead.stage);
 }
+const leadNames = lead => [lead.doctor_name, lead.practice_name, lead.entity_name, lead.name];
+
 function cleanTitle(value) {
   return String(value || "").replace(/\s*\((?:via|referral|referred)[^)]*\)/gi, "").trim();
 }
 export function leadTitle(lead) {
-  const named = [lead.doctor_name, lead.practice_name, lead.entity_name, lead.name].map(cleanTitle).find(Boolean);
-  return named || `${lead.specialty || lead.vertical || "Practice"} ${lead.plan_type || "startup"}${lead.city ? ` in ${lead.city}` : ""}`;
+  const named = leadNames(lead).map(cleanTitle).find(Boolean);
+  return named ? withoutRecordCodes(named) : `${lead.specialty || lead.vertical || "Practice"} ${lead.plan_type || "startup"}${lead.city ? ` in ${lead.city}` : ""}`;
 }
-export const marketKey = lead => lead.market || [lead.city, lead.state].filter(Boolean).join(", ") || "Market pending";
+export const leadMarket = lead => lead.market?.trim() || [lead.city, lead.state].filter(Boolean).join(", ");
+export const marketKey = lead => leadMarket(lead) || "Leads without a market";
 export const specialtyKey = lead => lead.specialty?.trim() || lead.vertical?.trim() || "Specialty pending";
 export const leadReachability = lead => lead.reachability === undefined ? "research" : lead.reachability?.classification;
 export function visibleLeads(leads, filters = {}) {
@@ -33,7 +38,8 @@ export function visibleLeads(leads, filters = {}) {
       (!filters.reachability || leadReachability(lead) === filters.reachability) &&
       (!filters.owner || (filters.owner === "unclaimed" ? !lead.owner : lead.owner === filters.owner)) && (!filters.market || marketKey(lead) === filters.market) &&
       (!filters.specialty || specialtyKey(lead) === filters.specialty) &&
-      (!search || [leadTitle(lead), lead.specialty, marketKey(lead), lead.party_id].join(" ").toLowerCase().includes(search));
+      (!search || [leadTitle(lead), lead.specialty, marketKey(lead), lead.party_id].join(" ").toLowerCase().includes(search) ||
+        leadNames(lead).some(name => name?.toLowerCase().includes(search)));
   });
 }
 export function marketCounts(leads, filters = {}, locate = () => null) {

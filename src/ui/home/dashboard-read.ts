@@ -1,4 +1,4 @@
-import { type InboxItem, object, parseInboxCard } from "./inbox";
+import { type InboxItem, object, parseEngineDashboardCard } from "./inbox";
 
 const dashboardTiles = ["reminders", "waiting"] as const;
 type DashboardCard = Record<string, unknown> & { card_id: string; item_id: string };
@@ -60,7 +60,7 @@ export async function readDashboard(signal: AbortSignal) {
   if (!groups) return null;
   const items = dashboardTiles.flatMap((tile) =>
     groups[tile].map((item): InboxItem => {
-      const parsed = parseInboxCard(item, { settlement: true, completion: true, waiting: true }, true, groups);
+      const parsed = parseEngineDashboardCard(item, groups);
       return { ...parsed, dashboard_tile: tile, days_late: parsed.days_late ?? 0 };
     }),
   );

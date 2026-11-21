@@ -28,8 +28,26 @@ test("accepted route order, stable property identity, safe call links and honest
   const calls = [], client = createDayClient({ fetchImpl: async path => { calls.push(path); return Response.json({ actor: { slug: "synthetic-partner" }, csrf_token: "synthetic-token" }); } });
   const session = await client.session(); assert.match(session.scope, /^[a-f0-9]{64}$/); assert.equal(client.scope, session.scope);
   assert.equal(client.capabilities.voiceNotes, false); assert.equal(client.submitNote, undefined);
-  assert.deepEqual(calls, ["/api/system-work/session"]);
+  assert.deepEqual(calls, ["/auth/session", "/api/system-work/session"]);
   assert.match(noteState(base()), /Saved on phone.*Filing unavailable/);
+});
+
+test("the tour day uses the engine session and keeps its local scope bound to that session", async () => {
+  const calls = [];
+  let token = "first";
+  const client = createDayClient({ fetchImpl: async path => {
+    calls.push(path);
+    return Response.json({ actor: { slug: "synthetic-partner" }, csrf_token: token }, {
+      headers: { "x-doctorcre-partner-sign-in": "engine" },
+    });
+  } });
+  const first = await client.session();
+  assert.equal(first.user_ref, "synthetic-partner");
+  token = "second";
+  const second = await client.session();
+  assert.notEqual(second.scope, first.scope);
+  assert.equal(client.scope, second.scope);
+  assert.deepEqual(calls, ["/auth/session", "/auth/session"]);
 });
 
 test("mic denial and storage failure release capture; delayed consent cannot start after disposal", async () => {

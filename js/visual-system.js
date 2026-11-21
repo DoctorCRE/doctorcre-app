@@ -119,6 +119,12 @@ export function orderWork(items, now) {
     .map(({ item, priority, reason }) => Object.freeze({ ...item, priority, reason }));
 }
 
+const RECORD_CODE_PATTERNS = [/\s*\(V-SUP-\d{3}\)/g];
+
+export function withoutRecordCodes(text) {
+  return RECORD_CODE_PATTERNS.reduce((name, pattern) => name.replace(pattern, ""), text).trim() || text;
+}
+
 /**
  * Clock and calendar formatting. Every time DoctorCRE prints is a 12-hour
  * AM/PM time; 24-hour clocks are not in this product's vocabulary. Dates are
@@ -127,6 +133,13 @@ export function orderWork(items, now) {
  */
 const WEEKDAYS = Object.freeze(["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]);
 const MONTHS = Object.freeze(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]);
+
+export function phoneLabel(phone) {
+  return phone.replace(
+    /^(?:\+?1[ .-]?)?(?:\(([2-9]\d{2})\)|([2-9]\d{2}))[ .-]?(\d{3})[ .-]?(\d{4})(?= +x\d+$|$)/i,
+    (_, parenthesizedArea, area, exchange, line) => `(${parenthesizedArea || area}) ${exchange}-${line}`,
+  );
+}
 
 function asDate(value) {
   const date = value instanceof Date ? value : new Date(typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value);

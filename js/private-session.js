@@ -6,6 +6,7 @@ import { clearPrivateStorage, offlineTourSession, sessionEpoch, SESSION_EPOCH_KE
 // end the view at once, and every /mcp POST carries the verified CSRF token,
 // which the server refuses once the cookie changes.
 export const SESSION_TRUST_MS = 2 * 60_000;
+const PARTNER_SIGN_IN_HEADER = 'x-doctorcre-partner-sign-in';
 
 export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '', acceptSession = async () => true, anonymousDiagnostics = false, now = () => performance.now() }) {
   let binding = null, generation = 0, revoked = false, checking = null, trusted = null;
@@ -25,13 +26,13 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
   }
   async function verify({ fresh = false, waitForBudget = false } = {}) {
     if (revoked) throw failure();
-    if (!fresh && trusted && now() - trusted.at < SESSION_TRUST_MS) return trusted.session;
+    if (!fresh && trusted && now() - trusted.at < SESSION_TRUST_MS) return trusted;
     if (!fresh && checking) return checking;
     const ticket = generation, startedEpoch = epoch(), startedAt = now();
     const pending = (async () => {
       const response = await fetchImpl('/auth/session', { credentials: 'same-origin', cache: 'no-store', redirect: 'error', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000) }, { waitForBudget });
-      const engineSignIn = response.headers.get('x-doctorcre-partner-sign-in') === 'engine';
-      engineSessionSeen ||= engineSignIn;
+      const signIn = response.headers.get(PARTNER_SIGN_IN_HEADER);
+      engineSessionSeen ||= signIn === 'engine';
       if ([401,403].includes(response.status)) { if (!(anonymousDiagnostics && !binding)) revoke(); throw failure(); }
       if (!response.ok) throw new Error('Session verification unavailable');
       const session = await response.json();
@@ -41,25 +42,30 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
       if (binding && next !== binding) { revoke('session-changed'); throw failure(); }
       if (!await acceptSession(session, engineSessionSeen)) { revoke('session-changed'); throw failure(); }
       current(ticket, startedEpoch);
-      binding = next; trusted = { session, at: startedAt, engineSignIn, epoch: startedEpoch };
-      return session;
+      binding = next;
+      trusted = { session, at: startedAt, signIn, epoch: startedEpoch };
+      return trusted;
     })().finally(() => { if (checking === pending) checking = null; });
     checking = pending;
     return pending;
   }
   return {
-    revoke, verify,
+    revoke,
+    async verify(options) { return (await verify(options)).session; },
     get revoked() { return revoked; },
     get verified() { return Boolean(trusted); },
-    get engineSignIn() { return !revoked && trusted?.engineSignIn === true; },
+    get engineSignIn() { return !revoked && trusted?.signIn === 'engine'; },
     async fetch(path, init = {}, { boundRead = false, waitForBudget = false } = {}) {
       // Writes read the session to scope themselves; that read is a fresh, bound check.
-      if (path === '/auth/session') return Response.json(await verify({ fresh: true, waitForBudget }));
+      if (path === '/auth/session') {
+        const { session, signIn } = await verify({ fresh: true, waitForBudget });
+        return Response.json(session, signIn ? { headers: { [PARTNER_SIGN_IN_HEADER]: signIn } } : undefined);
+      }
       // Bound reads are for URLs whose records belong to the already verified partner.
       if (boundRead && (!trusted || (init.method ?? 'GET') !== 'GET')) throw failure();
       const ticket = generation, startedEpoch = boundRead ? trusted.epoch : epoch();
       current(ticket, startedEpoch);
-      const session = boundRead ? trusted.session : await verify({ waitForBudget });
+      const { session } = boundRead ? trusted : await verify({ waitForBudget });
       current(ticket, startedEpoch);
       const controller = new AbortController(); active.add(controller);
       const cancel = () => controller.abort();
@@ -225,4 +231,12 @@ export async function sessionFetch(path, init) {
     if (boundary?.revoked) return new Promise(() => {});
     throw error;
   }
+}
+
+export async function fetchPartnerIdentity(init, fetchImpl = sessionFetch) {
+  const response = await fetchImpl('/auth/session', init);
+  if (!response.ok || response.headers.get(PARTNER_SIGN_IN_HEADER) === 'engine') return response;
+  void response.body?.cancel().catch(() => {});
+  init.signal?.throwIfAborted();
+  return fetchImpl('/api/system-work/session', init);
 }

@@ -131,7 +131,7 @@ for (const interruption of ['visibility', 'bfcache']) test(`Lead resumes the sam
   release('example-partner');await tick();assert.equal(typeof releaseDetail,'function');
   assert.doesNotMatch(s.d.getElementById('detailBody').textContent,/example@example.test/);
   releaseDetail({detail:{...detail(s.board.leads[0]),phone:'+1-555-010-0099'}});await tick();
-  assert.equal(s.d.querySelector('#detailBody a[href="tel:+1-555-010-0099"]').textContent,'+1-555-010-0099');
+  assert.equal(s.d.querySelector('#detailBody a[href="tel:+1-555-010-0099"]').textContent,'(555) 010-0099');
   assert.equal(s.d.getElementById('leadDetail').open,true);assert.match(s.d.getElementById('detailTitle').textContent,/Example 1/);
   assert.equal(s.d.querySelector(`[data-entry-key="${key}"]`).open,true);assert.equal(s.d.getElementById('leadDetail').scrollTop,173);
   assert.equal(s.d.querySelector('.lead-card[data-selected="true"]').dataset.leadId,id(1));assert.equal(s.writes.length,0);
@@ -388,6 +388,7 @@ test('blocking 2: shared transport clears private workspace on authorization hea
  for (const status of [401, 403]) for (const surface of ['actor', 'workspace', 'detail', 'review', 'mutation']) {
   const board = workspace(); let deny = false, bodyReads = 0;
   const client = createLeadBoardClient({ timeoutMs: 20, fetchImpl: async (_path, init) => {
+   if (_path === '/auth/session') return Response.json({ actor: { slug: 'example-partner' } });
    const session = _path === '/api/system-work/session';
    const { name, arguments: args } = session ? { name: 'session', arguments: {} } : JSON.parse(init.body).params;
    const denied = deny && (surface === 'mutation' ? name === 'update-lead' : surface === 'actor' ? session :
@@ -763,7 +764,7 @@ for (const failure of ['internal_error','unclassified_error']) test(`Leads activ
  Object.assign(row,{client_id:'synthetic-client',is_client:true,is_deal:true,prospect_client_id:'synthetic-client',
   prospect_client_version:7,prospect_engagement_status:'inactive'});
  const client=createLeadBoardClient({docContext:false,fetchImpl:async(_path,init)=>{
-  if (_path === '/api/system-work/session') return Response.json({actor:{slug:'example-partner'}});
+  if (['/auth/session', '/api/system-work/session'].includes(_path)) return Response.json({actor:{slug:'example-partner'}});
   const {name,arguments:args}=JSON.parse(init.body).params;
   let payload,isError=false;
   if(name==='set-prospect-engagement-status'){
@@ -853,7 +854,7 @@ test('authenticated session controls claim identity and clears owner scope acros
  let actor = 'example-partner';
  const board = { ...workspace(), actor: 'untrusted-board-actor' }, calls = [];
  const client = createLeadBoardClient({ docContext: false, fetchImpl: async (path, init) => {
-  if (path === '/api/system-work/session') return Response.json({ actor: { slug: actor } });
+  if (['/auth/session', '/api/system-work/session'].includes(path)) return Response.json({ actor: { slug: actor } });
   const request = JSON.parse(init.body).params;
   calls.push(request);
   assert.notEqual(request.name, 'deal-room-board');
@@ -958,7 +959,7 @@ test('the drawer formats North American numbers and keeps other phone text as sa
    ['8505550100', '(850) 555-0100'],
    ['+1 850-555-0100 x123', '(850) 555-0100 x123'],
    ['(850) 555-0100', '(850) 555-0100'],
-   ['+1-555-010-0099', '+1-555-010-0099'],
+   ['+1-555-010-0099', '(555) 010-0099'],
    ['0207946099', '0207946099'],
    ['+44 20 7946 0958', '+44 20 7946 0958'],
    ['(850-555-0100', '(850-555-0100'],
@@ -1111,4 +1112,27 @@ test('Link recovery stays in the drawer and retries the same request', async () 
   assert.deepEqual(calls[1], calls[0]);
   assert.equal(s.d.getElementById('leadDetail').open, false);
  } finally { s.close(); }
+});
+
+test('Lead details keep names and plans readable and omit absent facts', async t => {
+  const board = workspace();
+  Object.assign(board.leads[0], { doctor_name: '(TBD: office contact) (V-SUP-901)', city: null, state: null, score: null });
+  const s = await setup({
+    getWorkspace: async () => board,
+    getLeadDetail: async ({ id }) => ({ detail: {
+      ...detail(board.leads.find(row => row.id === id)),
+      plans: 'Tour confirmed (V-SUP-901). T2 closed.\n\nCheck access (V-SUP-902).',
+      phone: '+15550102000', email: null,
+    } }),
+  });
+  t.after(s.close);
+  await s.app.readDetail(id(1));
+  const body = s.d.querySelector('#detailBody');
+  assert.equal(s.d.querySelector('#detailTitle').textContent, '(TBD: office contact)');
+  assert.doesNotMatch(body.textContent, /V-SUP-|T2|Market pending|Lead score/);
+  assert.deepEqual([...body.querySelectorAll('.detail-overview dt')].map(dt => dt.textContent), ['Owner', 'Phone', 'Vertical', 'Estimated lease date']);
+  assert.equal(body.querySelector('a[href="tel:+15550102000"]').textContent, '(555) 010-2000');
+  await s.app.readDetail(id(2));
+  assert.match(body.querySelector('.detail-summary').textContent, /Lead score78\/ 100/);
+  assert.match(body.querySelector('.detail-overview').textContent, /MarketPensacola, FL/);
 });
