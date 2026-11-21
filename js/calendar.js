@@ -150,6 +150,7 @@ function paintDayPanel(day) {
       return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}">
         <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${owner}</small>
         <h3>${escapeHtml(entry.label)}</h3>
+        ${entry.why ? `<p>${escapeHtml(entry.why)}</p>` : ""}
         <p>${recordLink(entry)}</p>${late}</li>`;
     }).join("")}</ol>`;
   } else {
@@ -218,7 +219,9 @@ function render() {
   paintNotices(phase);
   const layout = calendarLayout(view.state);
   const periodRows = layout.days.flatMap(cell => cell.inMonth ? view.byDay.get(cell.day) || [] : []);
-  $("calCount").textContent = ["ready", "partial", "empty"].includes(phase) ? itemCount(periodRows) : "";
+  const count = $("calCount");
+  const total = ["ready", "partial", "empty"].includes(phase) ? itemCount(periodRows) : "";
+  if (count.textContent !== total) count.textContent = total;
   paintState(phase, periodRows);
   const gridNode = $("calGrid");
   gridNode.setAttribute("aria-busy", String(phase === "loading" || phase === "reading"));
@@ -330,12 +333,7 @@ async function load() {
   if (["ready", "partial"].includes(result.status)) view.updatedAt = new Date().toISOString();
   view.painted = null;
   render();
-  const phase = calendarPhase(result);
-  if (phase === "ready" || phase === "partial" || phase === "empty") {
-    announce($("calCount").textContent);
-  } else {
-    announce(STATE_COPY[phase] || "");
-  }
+  announce(STATE_COPY[calendarPhase(result)] || "");
   return result.status === "ready";
 }
 
