@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
+import { directoryFixture } from './fixtures/vendor-directory.synthetic.mjs';
+import { detail, emptyQuietFollowUps, leads, workspace } from './leads-workspace-fixture.mjs';
 import { SAVED_VIEWS_KEY } from '../js/search-model.js';
 const scopedViewsKey = `${SAVED_VIEWS_KEY}:joe`;
 
@@ -25,7 +27,7 @@ test('S2 saved search stays under the keyboard while its results update', async 
         localStorage.setItem(key, JSON.stringify([{ name, query: 'Demo Dental', kinds: [] }]));
       }, { theme, key: scopedViewsKey, name });
       await page.route('**/api/**', route => route.fulfill({ json: {} }));
-      await page.goto(`${server.origin}/search?mode=fixture`);
+      await page.goto(`${server.origin}/search?mode=fixture&q=Demo`);
       const saved = page.getByRole('link', { name, exact: true });
       await saved.waitFor({ state: 'visible' });
       await saved.focus();
@@ -64,7 +66,7 @@ for (const answer of ['Demo renamed', null]) {
       {name: 'Other saved search', query: 'Demo', kinds: []},
     ])), scopedViewsKey);
     await page.route('**/api/**', route => route.fulfill({json: {}}));
-    await page.goto(`${server.origin}/search?mode=fixture`);
+    await page.goto(`${server.origin}/search?mode=fixture&q=Demo`);
     const rename = page.locator('[data-rename="Demo saved search"]');
     await rename.focus();
     page.once('dialog', dialog => answer === null ? dialog.dismiss() : dialog.accept(answer));
@@ -86,7 +88,7 @@ test('Search Rename keeps duplicate names and queries consistent without replaci
     {name: 'Second', query: 'Second query', kinds: []},
   ])), scopedViewsKey);
   await page.route('**/api/**', route => route.fulfill({json: {}}));
-  await page.goto(`${server.origin}/search?mode=fixture`);
+  await page.goto(`${server.origin}/search?mode=fixture&q=Demo`);
   for (const name of ['Second', `Shared 'name' <&>`]) {
     page.once('dialog', dialog => dialog.accept(name));
     await page.locator('[data-rename]').first().focus();
@@ -99,4 +101,114 @@ test('Search Rename keeps duplicate names and queries consistent without replaci
     {name: `Shared 'name' <&>`, text: `Shared 'name' <&>`, query: 'Second query'},
   ]);
   assert.equal(await page.evaluate(() => document.activeElement.dataset.rename), `Shared 'name' <&>`);
+});
+
+test('Global Search shows openable records with one count in both themes', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const artifacts = new URL('../out/test-artifacts/global-search/', import.meta.url);
+  await mkdir(artifacts, { recursive: true });
+  const id = n => `00000000-0000-4000-8000-00000000000${n}`;
+  const deal = { id: 'd01', name: 'Demo Dental North', phase: 'site_selection', owner: 'joe' };
+  const [lead] = leads;
+  const record = (n, name, roles, kind = 'person') => ({ id: id(n), name, roles, kind, city: null, lead_id: roles.includes("lead") ? id(n) : null, deals: [] });
+  const parties = [
+    { ...record(2, 'Demo Practice 02', ['client', 'lead']), deals: [{ id: deal.id, name: deal.name }] },
+    { ...record(3, lead.doctor_name, ['lead']), id: lead.party_id, lead_id: lead.id },
+    { ...record(4, 'Demo Therapy Group', [], 'company'), id: 'demo-therapy' },
+    record(5, 'Demo Partner 05', ['vendor'], 'company'),
+  ];
+  const legacy = {
+    parties: [], deals: [], organizations: [], lead_client_links: [],
+    connections: [{ from_name: parties[0].name, to_name: parties[2].name, from_ref: 'C-DEMO-2', to_ref: 'demo-therapy', kind: 'knows', note: null }],
+    deals_via_link: [{ name: deal.name, phase: deal.phase, owner: deal.owner, client_ref: null, invoiced_on: null, closed_on: null, lane: null, outcome: null }],
+    note: 'Synthetic search results.',
+  };
+  for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+    await t.test(`${width} ${theme}`, async t => {
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      page.setDefaultTimeout(4000);
+      t.after(() => page.close());
+      await page.addInitScript(({ theme, key }) => {
+        localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme }));
+        localStorage.setItem(key, JSON.stringify([
+          { name: 'Linked deals', query: 'Versioned linked', kinds: ['deals_via_link'] },
+          { name: 'Legacy linked deals', query: 'Legacy linked', kinds: ['deals_via_link'] },
+          { name: 'Connections', query: 'Legacy connections', kinds: ['connections'] },
+        ]));
+      }, { theme, key: scopedViewsKey });
+      const reads = [];
+      await page.route('**/mcp', route => {
+        const { id, params } = route.request().postDataJSON();
+        if (['find', 'find-and-catch-up'].includes(params.name)) reads.push(params.name);
+        let payload = {};
+        if (params.name === 'find') {
+          const query = params.arguments.query;
+          assert.equal(route.request().headers()['x-doctorcre-search'], query === 'Legacy connections' ? undefined : 'search.v1');
+          payload = query.startsWith('Legacy ') ? legacy
+            : { schema_version: 'search.v1', parties, deals: query === 'Versioned linked' ? [] : [deal] };
+        }
+        if (params.name === 'lead-board') {
+          payload = { ...workspace(), ...(params.arguments.lead_id === lead.id && { detail: detail(lead) }) };
+        }
+        if (params.name === 'quiet-follow-ups') payload = emptyQuietFollowUps();
+        return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
+      });
+      await page.route('**/{auth/session,api/system-work/session}', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+      await page.route('**/api/v1/business/{clients,vendors}**', route => route.fulfill({ json: directoryFixture(route.request().url()) }));
+      await page.goto(`${server.origin}/search?mode=live`);
+      assert.deepEqual(reads, []);
+      for (const label of ['Search by name', 'Scope', 'Saved views', 'Search coverage']) {
+        assert.equal(await page.getByText(label, { exact: true }).isVisible(), false);
+      }
+      await page.locator('#searchQuery').fill('practice.example');
+      await page.locator('#searchQuery').press('Enter');
+      try {
+        await page.locator('#searchCount').filter({ hasText: /^5 results$/ }).waitFor();
+      } catch (error) {
+        throw new Error(JSON.stringify({reads, screen: await page.locator('main').innerText()}), { cause: error });
+      }
+      assert.deepEqual(reads, ['find']);
+      assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+      assert.equal(await page.getByRole('link', { name: parties[0].name, exact: true }).count(), 1);
+      assert.match(await page.locator('#searchResults').innerText(), /Client · Lead/);
+      assert.match(await page.locator('#searchResults').innerText(), /Site Selection · Joe/);
+      assert.doesNotMatch(await page.locator('main').innerText(), /Ref |00000000|site_selection|Multiple matches|retired aliases/);
+      const links = [
+        [parties[0].name, `/clients?record=${id(2)}`, '#recordTitle'],
+        [lead.doctor_name, `/leads?lead=${lead.id}`, '#leadDetail #detailTitle'],
+        [parties[2].name, '/relationships?node=party%3Ademo-therapy', 'dialog[open] #relationshipTitle'],
+        [parties[3].name, `/vendors?record=${id(5)}`, '#recordTitle'],
+        [deal.name, `/deals?deal=${deal.id}`, '#panelTitle'],
+      ];
+      await page.screenshot({ path: new URL(`search-${width}-${theme}.png`, artifacts).pathname, fullPage: true });
+      const searchUrl = `${server.origin}/search?mode=live&q=practice.example`;
+      for (const [name, href, title] of links) {
+        await t.test(`opens ${name} from Search`, async () => {
+          await page.goto(searchUrl);
+          await page.getByRole('heading', { name, exact: true }).getByRole('link').click();
+          await page.waitForURL(`${server.origin}${href}`);
+          await page.locator(title).and(page.getByRole('heading', { name, exact: true })).waitFor();
+        });
+      }
+      await t.test('opens scopes saved by the prior app', async () => {
+        await page.goto(searchUrl);
+        const results = page.locator('#searchResults');
+        await page.locator('[data-view="Linked deals"]').click();
+        await results.getByRole('link', { name: deal.name, exact: true }).waitFor();
+        assert.equal(await results.getByRole('heading', { name: lead.doctor_name, exact: true }).count(), 0);
+        const savedAddress = new URL(page.url());
+        savedAddress.searchParams.set('mode', 'live');
+        await page.goto(savedAddress.href);
+        await results.getByRole('link', { name: deal.name, exact: true }).waitFor();
+        await page.locator('[data-view="Legacy linked deals"]').click();
+        await results.getByRole('heading', { name: deal.name, exact: true }).waitFor();
+        await page.locator('[data-view="Connections"]').click();
+        await results.getByRole('link', { name: parties[2].name, exact: true }).waitFor();
+        assert.equal(await results.getByRole('heading', { name: deal.name, exact: true }).count(), 0);
+      });
+    });
+  }
 });

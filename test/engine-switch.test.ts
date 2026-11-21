@@ -1010,6 +1010,15 @@ test("search switch routes find with its untrimmed query as query text", async (
   assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
 });
 
+test("Global Search forwards its version without changing the find arguments", async () => {
+  const f = fixture(searchOn);
+  await f.send(find, { origin, "x-doctorcre-search": "search.v1" });
+  const forwarded = f.engine[0];
+  assert.ok(forwarded);
+  assert.equal(forwarded.headers.get("x-doctorcre-search"), "search.v1");
+  assert.deepEqual(Object.fromEntries(new URL(forwarded.url).searchParams), { query: " Example & Clinic " });
+});
+
 for (const value of [
   null,
   "off",

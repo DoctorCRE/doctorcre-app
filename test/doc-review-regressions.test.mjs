@@ -23,12 +23,18 @@ test('Leads workspace accepts doctor_name and base_version',()=>{
  const rows=normalizeDocRead('getWorkspace',{leads:[{id:'example-lead',doctor_name:'Sample lead',base_version:2}]});
  assert.equal(rows?.[0].title,'Sample lead');assert.equal(rows?.[0].version,2);
 });
-test('R11 Search catch-up completed/empty/disambiguation/not-found states preserve a successful find',()=>{
- const c=createDocContext({page:'search'});c.finish(c.begin('find'),{parties:[{ref:'sample',name:'Sample'}]});
- for(const payload of [{state:'completed',match:{kind:'client',target:'sample'},catch_up:{timeline:[]}},{state:'needs_disambiguation',candidates:[],candidate_count:0,candidates_truncated:false,hint:'Choose'},{state:'not_found',candidates:[],retired_matches:0,hint:'None'}]){
-  assert.equal(c.finish(c.begin('findAndCatchUp'),payload),true);assert.equal(c.snapshot().ready,true);
- }
- assert.equal(normalizeDocRead('findAndCatchUp',{state:'completed',match:{kind:'client',target:'sample'}}),null);
+test('R11 Search context uses versioned results and ignores retired catch-up reads', () => {
+ const c = createDocContext({page:'search'});
+ const result = {id:'sample',kind:'company',name:'Sample',city:null,lead_id:null,roles:['client'],deals:[]};
+ const payload = {schema_version:'search.v1',parties:[result],deals:[]};
+ assert.equal(c.finish(c.begin('find'),payload),true);
+ assert.equal(c.begin('findAndCatchUp'),null);
+ assert.equal(c.snapshot().ready,true);
+ assert.deepEqual(c.snapshot().records.map(({id,title}) => ({id,title})),[{id:'sample',title:'Sample'}]);
+
+ assert.equal(c.finish(c.begin('find'),{...payload,parties:[]}),true);
+ assert.equal(c.snapshot().ready,true);
+ assert.deepEqual(c.snapshot().records,[]);
 });
 test('R12 directory list/detail/activity preserve recorded labels',()=>{
  for(const dataset of ['clients','vendors']) for(const method of ['businessList','businessRecord','businessActivity']) {

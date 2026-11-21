@@ -251,20 +251,6 @@ test("B05-9 all nine states carry their own rendered text and are reachable thro
 
 /* ----------------------------------------------------------------------- B05-10 */
 
-test("B05-10 disambiguation renders the producer's count and candidates with guidance the UI can fulfill", async () => {
-  const client = await fixture();
-  const answer = await client.findAndCatchUp({ query: "Pensacola" });
-  assert.equal(answer.state, "needs_disambiguation");
-  assert.equal(answer.candidate_count, answer.candidates.length + (answer.candidates_truncated ? answer.candidate_count - answer.candidates.length : 0));
-  assert.ok(answer.candidates.length > 1);
-  assert.equal(answer.hint, "Choose one exact target and call catch-me-up; this verb never guesses.");
-  assert.doesNotMatch(pageJs, /escapeHtml\(payload\.hint\)/, "raw verb instructions are not human UI guidance");
-  assert.match(pageJs, /Choose a matching result below and select Open where available/);
-  const disambiguationBody = pageJs.slice(pageJs.indexOf("function renderDisambiguation()"), pageJs.indexOf("function renderRetired()"));
-  assert.doesNotMatch(disambiguationBody, /location\.|href=|client\./, "the page opens no candidate on its own");
-  assert.match(disambiguationBody, /escapeHtml\(String\(payload\.candidate_count\)\)/, "the producer's own count is what is shown");
-});
-
 /* ----------------------------------------------------------------------- B05-11 */
 
 test("B05-11 each refusal names its code, and no rendered string carries the error body", async () => {

@@ -1,29 +1,14 @@
 import { privateSession } from './private-session.js';
 import { setDocFilters } from './doc-context.js';
 import { createCurrentRead } from "./current-read.mjs";
-import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
-// V5-UX-B05 — Authorized global search: DOM wiring only.
-//
-// Every decision this file paints is made in ./search-model.js. Nothing here
-// sorts, ranks, counts, filters by authority, or writes a sentence of its own:
-//
-//   1. Each number rendered is a field of the ONE payload in hand. There is no
-//      second read anywhere in the render path, and no total computed over
-//      anything the verb did not return.
-//   2. A ref is filtered to a non-empty string before it becomes a chip or a
-//      link, because `organizations[].refs` aggregates a nullable column and a
-//      null element was observed in two real payloads.
-//   3. A response only paints if no newer read has been started since it left.
-//      An older answer that overtakes a newer one renders NOTHING.
-//   4. `?q=` and `?kinds=` are the address. Back restores both from the URL and
-//      re-renders without a read of its own.
+import { mountAutoRefresh } from "./auto-refresh.mjs";
+import { columnBySlug, columnByValue, dealName } from "./pipeline-model.js";
+import { partnerName } from "./task-records-model.js";
 import {
-  AUTHORIZATION_SENTENCE, EXPOSURE_STATEMENT, FIND_CATCH_UP_LIMIT_DEFAULT, NOT_SEARCHED_SENTENCE,
-  SAVED_VIEW_SENTENCE, SCOPE_CHIP_SENTENCE, SEARCH_STATE_COPY, applyScope,
-  buildFindAndCatchUpArguments, buildFindArguments, classifySearchFailure, groupSearchResults,
-  parseSearchAddress, queryIsSendable, readSavedViews, refusalDetail, renameView, retiredSummary,
-  saveView, scopeChips, toggleSearchScope, searchAddress, searchPhase, truncationNotes, validCatchUpPayload,
-  validSearchPayload, visibleCount, writeSavedViews,
+  SAVED_VIEW_SENTENCE, SEARCH_STATE_COPY, applyScope, buildFindArguments,
+  classifySearchFailure, displaySearchGroups, parseSearchAddress, queryIsSendable,
+  readSavedViews, renameView, saveView, scopeChips, toggleSearchScope, searchAddress,
+  usesLegacyRelationScope, validSearchPayload, validSearchRecords, visibleCount, writeSavedViews,
 } from "./search-model.js";
 
 const IDLE_REREAD_MS = 300;
@@ -35,8 +20,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 
 /** One place holds what the Search tab believes; nothing else keeps a copy. */
 const view = {
-  status: "idle", query: "", kinds: [], payload: null, catchUp: null,
-  refusal: null, submitted: false, views: [],
+  status: "idle", query: "", kinds: [], payload: null, views: [],
 };
 
 let client = null;
@@ -47,36 +31,20 @@ const searchReads = createCurrentRead();
 
 /* -------------------------------------------------------------------- painting */
 
-function factLine(facts) {
-  // A null never reaches this: the model dropped it upstream, so the word
-  // "null" cannot be printed even if the producer sends one.
-  return facts.map((fact) => `<span>${escapeHtml(fact.label)}: ${escapeHtml(fact.value)}</span>`).join("");
-}
-
-function refChipHtml(refs, label) {
-  if (refs.length === 0) return "";
-  return `<span class="chip-label">${escapeHtml(label)}</span>${refs.map((ref) => `<code class="ref-chip">${escapeHtml(ref)}</code>`).join("")}`;
-}
-
-function rowHtml(row) {
-  const open = row.link
-    ? `<a class="btn" href="${escapeHtml(row.link)}">Open</a>`
-    : `<p class="small quiet">${escapeHtml(row.note)}</p>`;
-  const counts = row.counts
-    ? row.counts.map((entry) => `<span>${escapeHtml(String(entry.value))} ${escapeHtml(entry.label)}</span>`).join("")
-    : factLine(row.facts || []);
-  const retiredRefs = row.retiredRefs ? refChipHtml(row.retiredRefs, "Retired") : "";
-  const roleRefs = row.roleRefs ? refChipHtml(row.roleRefs, "As a role") : "";
-  return `<li class="work-item search-row" data-kind="${escapeHtml(row.kind)}"${row.retired ? ' data-retired="true"' : ""}>
-    <div>
-      <h3>${escapeHtml(row.name ?? "unnamed record")}</h3>
-      ${row.retired ? '<p class="small quiet">retired alias</p>' : ""}
-      <div class="work-meta">${counts}</div>
-      <div class="chip-list">${refChipHtml(row.refs, "Ref")}${roleRefs}${retiredRefs}</div>
-      ${row.retiredRefsTruncated ? '<p class="small quiet">More previous references available</p>' : ""}
-      ${row.allRetired ? '<p class="small quiet">Every record behind this name is retired.</p>' : ""}
+function rowHtml(row, group) {
+  const isDeal = ["deals", "deals_via_link"].includes(group.id);
+  const title = escapeHtml(isDeal ? dealName(row.name) : row.name);
+  const phase = row.phase ?? row.facts?.find(fact => fact.label === "Phase")?.value;
+  const owner = row.owner ?? row.facts?.find(fact => fact.label === "Owner")?.value;
+  const meta = isDeal
+    ? ["Deal", phase === "dead" ? "Lost" : (columnBySlug(phase) || columnByValue(phase))?.label, ["joe", "dell"].includes(owner) && partnerName(owner)]
+    : row.meta || [({ clients: "Client", leads: "Lead", vendors: "Vendor", organizations: "Company", people: "Person" })[group.id],
+      ...((row.facts || []).map(fact => fact.value))];
+  return `<li class="search-row">
+    <div><h3>${row.link ? `<a href="${escapeHtml(row.link)}">${title}</a>` : title}</h3>
+    <p class="work-meta">${meta.filter(Boolean).map(escapeHtml).join(" · ")}</p>
+    ${row.deals?.length ? `<ul class="search-deal-links">${row.deals.map(deal => `<li><a href="${escapeHtml(deal.link)}">${escapeHtml(dealName(deal.name))}</a></li>`).join("")}</ul>` : ""}
     </div>
-    <div class="stack-end">${open}</div>
   </li>`;
 }
 
@@ -85,7 +53,7 @@ function renderChips(groups) {
   if (!bar) return;
   const focusKey = bar.contains(document.activeElement) ? document.activeElement.dataset.chip : null;
   const chips = scopeChips(groups, view.kinds);
-  bar.innerHTML = chips.map((chip) => `<button class="chip" type="button" data-chip="${escapeHtml(chip.id)}" aria-pressed="${chip.selected}">${escapeHtml(chip.label)} · ${escapeHtml(String(chip.count))}</button>`).join("");
+  bar.innerHTML = chips.map((chip) => `<button class="chip" type="button" data-chip="${escapeHtml(chip.id)}" aria-pressed="${chip.selected}">${escapeHtml(chip.label)}</button>`).join("");
   if (focusKey) [...bar.querySelectorAll("[data-chip]")].find(node => node.dataset.chip === focusKey)?.focus();
 }
 
@@ -95,78 +63,22 @@ function renderSavedViews() {
   list.innerHTML = view.views.map((saved) => `<span class="saved-view"><a class="chip" href="${escapeHtml(searchAddress(saved))}" data-view="${escapeHtml(saved.name)}">${escapeHtml(saved.name)}</a><button class="chip" type="button" data-rename="${escapeHtml(saved.name)}">Rename</button></span>`).join("");
 }
 
-function renderRefusal() {
-  const block = $("searchRefusal");
-  if (!block) return;
-  const detail = view.refusal;
-  if (!detail) { block.hidden = true; block.innerHTML = ""; return; }
-  block.hidden = false;
-  // The CODE is named. The body of the answer is never read and never printed.
-  const parts = [`<h3>${escapeHtml(SEARCH_STATE_COPY.refused.title)}</h3>`, `<p class="small">Refusal code: <code>${escapeHtml(detail.code)}</code></p>`];
-  if (detail.operation) parts.push(`<p class="small">Operation: <code>${escapeHtml(detail.operation)}</code></p>`);
-  if (detail.fields.length > 0) parts.push(`<p class="small">Fields: ${detail.fields.map((field) => `<code>${escapeHtml(field)}</code>`).join(", ")}</p>`);
-  if (detail.missing.length > 0) parts.push(`<p class="small">Missing: ${detail.missing.map((field) => `<code>${escapeHtml(field)}</code>`).join(", ")}</p>`);
-  if (detail.hint) parts.push(`<p class="small">${escapeHtml(detail.hint)}</p>`);
-  block.innerHTML = parts.join("");
-}
-
-function renderDisambiguation() {
-  const block = $("searchCandidates");
-  if (!block) return;
-  const payload = view.catchUp;
-  if (!payload || payload.state !== "needs_disambiguation") { block.hidden = true; block.innerHTML = ""; return; }
-  block.hidden = false;
-  block.innerHTML = [
-    `<h3>${escapeHtml(SEARCH_STATE_COPY.disambiguation.title)}</h3>`,
-    `<p class="small">${escapeHtml(String(payload.candidate_count))} candidates found.</p>`,
-    '<p class="small">Choose a matching result below and select Open where available. Candidates include all scopes and are not filtered by the scope buttons.</p>',
-    `<ul class="work-list">${payload.candidates.map((row) => `<li class="work-item"><div><h3>${escapeHtml(row.name)}</h3><div class="work-meta"><span>${escapeHtml(row.kind)}</span></div></div></li>`).join("")}</ul>`,
-  ].join("");
-}
-
-function renderRetired() {
-  const block = $("searchRetired");
-  if (!block) return;
-  const summary = view.payload ? retiredSummary(view.payload) : null;
-  if (!summary) { block.hidden = true; block.innerHTML = ""; return; }
-  block.hidden = false;
-  block.innerHTML = [
-    "<h3>Retired aliases</h3>",
-    // The producer's own sentence, printed rather than paraphrased.
-    `<p class="small">${escapeHtml(summary.note)}</p>`,
-    summary.retiredParties > 0 ? `<p class="small">${escapeHtml(String(summary.retiredParties))} matched names are retired aliases and open nothing.</p>` : "",
-    summary.organizations.map((row) => `<p class="small">${escapeHtml(row.name)}: ${escapeHtml(String(row.retiredAliases))} retired aliases${row.truncated ? ", additional aliases omitted" : ""}${row.allRetired ? ", every record behind the name retired" : ""}.</p>`).join(""),
-  ].join("");
-}
-
 function renderState(phase) {
   const block = $("searchState");
-  if (!block) return;
-  const copy = SEARCH_STATE_COPY[phase] || SEARCH_STATE_COPY.empty;
-  const shows = phase !== "ready";
-  block.hidden = !shows;
+  const copy = SEARCH_STATE_COPY[phase];
+  block.hidden = phase === "idle" || phase === "ready";
   block.setAttribute("data-state", phase);
-  if (!shows) { block.innerHTML = ""; }
-  else {
-    const notes = truncationNotes(view.payload, view.catchUp);
-    block.innerHTML = [
-      `<h3>${escapeHtml(view.catchUp?.state === "unavailable" ? "Search context unavailable" : copy.title)}</h3>`,
-      `<p class="small">${escapeHtml(copy.copy)}</p>`,
-      phase === "refused" ? '<a href="/auth/login">Sign in</a>' : "",
-      phase === "partial" ? notes.map((note) => `<p class="small">${escapeHtml(note)}</p>`).join("") : "",
-      // Retry is offered by ONE state. A no-match has nothing to retry: the
-      // record layer answered, and it answered with nothing.
-      (copy.retry || view.catchUp?.state === "unavailable") ? '<button class="btn" type="button" id="searchRetry" aria-label="Refresh" title="Refresh"><span aria-hidden="true">↻</span></button>' : "",
-    ].join("");
-  }
-  const live = $("searchLive");
-  if (live && live.textContent !== copy.title) live.textContent = copy.title;
+  block.innerHTML = block.hidden ? "" : `<p>${escapeHtml(copy.title)}</p>${
+    phase === "refused" ? '<a href="/auth/login">Sign in</a>' : ""}`;
+  $("searchLive").textContent = block.hidden ? $("searchCount").textContent : copy.title;
 }
 
 function render() {
-  const groups = view.payload ? groupSearchResults(view.payload) : [];
+  const groups = view.payload ? displaySearchGroups(view.payload, view.kinds) : [];
   const shown = applyScope(groups, view.kinds);
-  const phase = searchPhase({ status: view.status, payload: view.payload, catchUp: view.catchUp, submitted: view.submitted });
+  const phase = view.status === "ready" && !groups.length ? "no_match" : view.status;
+  document.querySelector('[data-search="scope"]').hidden = !groups.length;
+  document.querySelector('[data-search="views"]').hidden = !view.query.trim();
 
   const input = $("searchQuery");
   if (input && input.value !== view.query) input.value = view.query;
@@ -174,60 +86,45 @@ function render() {
   const results = $("searchResults");
   if (results) {
     results.setAttribute("aria-busy", String(phase === "loading"));
-    results.innerHTML = shown.map((group) => `<section class="card glass" data-group="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.label)}">
-      <div class="card-heading"><div><h2>${escapeHtml(group.label)} · ${escapeHtml(String(group.count))}</h2></div></div>
-      <ul class="work-list">${group.rows.map((row) => rowHtml(row)).join("")}</ul>
+    results.innerHTML = shown.map((group) => `<section data-group="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.label)}">
+      <h2 class="search-group-title">${escapeHtml(group.label)}</h2>
+      <ul class="work-list">${group.rows.map(row => rowHtml(row, group)).join("")}</ul>
     </section>`).join("");
   }
 
   const total = $("searchCount");
-  // The only total this page prints is the sum of the rows it is showing.
-  if (total) total.textContent = view.payload ? `${visibleCount(shown)} grouped results in scope` : "";
-
+  const count = visibleCount(shown);
+  total.textContent = view.payload ? `${count} ${count === 1 ? "result" : "results"}` : "";
   renderChips(groups);
-  renderRefusal();
-  renderDisambiguation();
-  renderRetired();
   renderState(phase);
-  $("searchRetry")?.addEventListener("click", () => read({ push: false }));
 }
 
-/* --------------------------------------------------------------------- reading */
-
-// One lifetime covers the result and its optional catch-up context.
 async function read({ push = true, signal } = {}) {
   const query = view.query;
   setDocFilters({query, kinds:view.kinds});
   if (!queryIsSendable(query)) {
     searchReads.invalidate();
     if (push) pushAddress();
-    view.status = "idle"; view.payload = null; view.catchUp = null; view.refusal = null; view.submitted = false;
+    view.status = "idle"; view.payload = null;
     render();
     return;
   }
   view.status = "loading";
-  view.submitted = true;
+  if (push) view.payload = null;
   render();
   if (push) pushAddress();
+  const searchRecords = !usesLegacyRelationScope(view.kinds);
   return searchReads.run(async ({ signal, read: step }) => {
-    const payload = await step(client.find(buildFindArguments(query), { signal }));
-    if (!validSearchPayload(payload)) return { status: "unknown", payload: null, catchUp: null };
-    let catchUp = null;
-    try {
-      const answer = await step(client.findAndCatchUp(buildFindAndCatchUpArguments(query, FIND_CATCH_UP_LIMIT_DEFAULT), { signal }));
-      catchUp = validCatchUpPayload(answer) ? answer : {state:"unavailable"};
-    } catch (error) {
-      if ([401,403].includes(error?.status)) throw error;
-      catchUp = {state:"unavailable"};
-    }
-    return { status: "ready", payload, catchUp };
+    const payload = await step(client.find(buildFindArguments(query), { signal, searchRecords }));
+    return validSearchRecords(payload) || validSearchPayload(payload)
+      ? { status: "ready", payload }
+      : { status: "unknown", payload: null };
   }, {
     signal,
-    success(result) { Object.assign(view, result, { refusal: null }); render(); },
+    success(result) { Object.assign(view, result); render(); },
     failure(error) {
       view.status = classifySearchFailure(error);
-      view.refusal = refusalDetail(error);
-      view.payload = null; view.catchUp = null;
+      view.payload = null;
       render();
     },
   });
@@ -251,9 +148,9 @@ function replaceAddress() {
  */
 function restoreFromAddress({ reread = true } = {}) {
   const address = parseSearchAddress(globalThis.location?.search || "");
+  if (view.query !== address.query) view.payload = null;
   view.query = address.query;
   view.kinds = [...address.kinds];
-  view.submitted = address.present && queryIsSendable(address.query);
   if (reread) read({ push: false });
   else render();
   return address;
@@ -265,6 +162,7 @@ function wire() {
   $("searchForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     view.query = $("searchQuery")?.value ?? "";
+    clearTimeout(idleTimer);
     read({ push: true });
   });
 
@@ -272,8 +170,13 @@ function wire() {
   $("searchQuery")?.addEventListener("input", () => {
     view.query = $("searchQuery")?.value ?? "";
     searchReads.invalidate();
+    setDocFilters({ query: view.query });
     if (idleTimer) clearTimeout(idleTimer);
-    // eslint-disable-next-line no-restricted-syntax -- Search input keeps one 300ms debounce and cancels its predecessor; each accepted query makes at most two sequential search reads.
+    view.payload = null;
+    view.status = "idle";
+    if (!view.query.trim()) { read({ push: true }); return; }
+    render();
+    // eslint-disable-next-line no-restricted-syntax -- Search keeps one 300ms debounce and cancels its predecessor.
     idleTimer = setTimeout(() => read({ push: false }), IDLE_REREAD_MS);
   });
 
@@ -283,7 +186,8 @@ function wire() {
     const id = chip.dataset.chip;
     // A chip hides rows from the answer already in hand. Nothing is re-read and
     // the outgoing argument object is untouched.
-    view.kinds = toggleSearchScope(view.kinds, id);
+    const available = [...$("searchChips").querySelectorAll("[data-chip]")].map(node => node.dataset.chip);
+    view.kinds = toggleSearchScope(view.kinds, id, available);
     replaceAddress();
     render();
   });
@@ -348,21 +252,13 @@ export function mountSearch({ client: searchClient, storage: storageImpl } = {})
     renderSavedViews();
   }).catch(() => {});
   globalThis.addEventListener?.('doctorcre-session-invalidated', () => {
-    savedViewActor = null; view.views = []; view.query = ''; view.payload = null; view.catchUp = null; view.refusal = null;
+    savedViewActor = null; view.views = []; view.query = ''; view.payload = null; view.status = 'idle';
     searchReads.invalidate(); clearTimeout(idleTimer);
     renderSavedViews();
+    render();
   }, {once:true});
   renderSavedViews();
-  for (const [id, text] of [
-    ["searchAuthorization", AUTHORIZATION_SENTENCE],
-    ["searchScopeNote", SCOPE_CHIP_SENTENCE],
-    ["savedViewNote", SAVED_VIEW_SENTENCE],
-    ["searchNotSearched", NOT_SEARCHED_SENTENCE],
-    ["searchExposure", EXPOSURE_STATEMENT],
-  ]) {
-    const node = $(id);
-    if (node) node.textContent = text;
-  }
+  $("savedViewNote").textContent = SAVED_VIEW_SENTENCE;
   wire();
   const address = restoreFromAddress({ reread: true });
   mountAutoRefresh({ document, window: globalThis.window, refresh: ({ signal }) => view.query ? read({ push: false, signal }) : undefined });
