@@ -79,7 +79,6 @@ const statusText = {
   loadFailed: "Chats couldn’t be loaded.",
   sendFailed: "The question couldn’t be sent. Try again.",
   unavailable: "Conversation unavailable",
-  refreshPaused: "Open this chat again to see Doc's answer",
 };
 const stateText = {
   queued: "Doc is waiting.",
@@ -132,8 +131,10 @@ async function docFetch<T>(
     { boundRead },
   );
   signal?.throwIfAborted();
-  if (!boundRead) await session.verify({ fresh: true });
-  if (response.status === 404 && path.startsWith("/conversations/")) throw new ConversationUnavailable();
+  const unavailable = response.status === 404 && path.startsWith("/conversations/");
+  if (!boundRead || unavailable) await session.verify({ fresh: true });
+  signal?.throwIfAborted();
+  if (unavailable) throw new ConversationUnavailable();
   if (!response.ok) throw Error(`Doc request failed with status ${response.status}`);
   const result = schema.safeParse(await response.json());
   if (!result.success) throw Error("Invalid Doc response");
@@ -251,7 +252,6 @@ function DocChat() {
             boundRead: true,
           });
           if (signal.aborted || retired.current) return;
-          setStatus((current) => (current === "refreshPaused" ? null : current));
           const turn = saved.find((row) => row.id === waitingTurnId);
           if (!turn) return;
           waitingReason = turn.waiting_reason;
@@ -260,15 +260,10 @@ function DocChat() {
         } catch (error) {
           if (signal.aborted || retired.current) return;
           if (error instanceof ConversationUnavailable) {
-            setRecent([]);
-            setQuestion("");
             showUnavailable();
             return "stop";
           }
-          if (error instanceof Error && "code" in error && error.code === "request_budget_exhausted") {
-            setStatus("refreshPaused");
-            return "stop";
-          }
+          if (error instanceof Error && "code" in error && error.code === "request_budget_exhausted") return "stop";
         }
       },
       {
@@ -380,7 +375,8 @@ function DocChat() {
               id="docQuestion"
               rows={3}
               value={question}
-              disabled={!ready || !!pendingAsk}
+              disabled={(!ready && status !== "unavailable") || !!pendingAsk}
+              readOnly={status === "unavailable"}
               onChange={(event) => setQuestion(event.currentTarget.value)}
             />
             <div className="doc-chat__actions">

@@ -219,10 +219,10 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
   await composer.fill("An unsent follow-up");
   actor = "dell";
   await page.clock.fastForward(5_000);
-  await expect(page.getByRole("status")).toHaveText("Conversation unavailable");
+  await expect(page).toHaveURL(`${origin}/public-shell/session-ended.html`);
   await expect(page.getByText(question, { exact: true })).toHaveCount(0);
   await expect(page.getByText("One example deal is open.")).toHaveCount(0);
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveCount(0);
   const foreign = await page.request.get(`${origin}/api/engine/doc/conversations/${id}`);
   assert.equal(foreign.status(), 404);
   assert.deepEqual(evalViolations, []);
@@ -381,6 +381,33 @@ test("A visible Ask Doc chat can receive its answer after three idle hours", asy
   }
 });
 
+test("An unavailable chat keeps the unsent question and other recent chats for the same account", async (t) => {
+  const other = { ...conversation, id: answeredTurn.id, title: "Another example chat" };
+  let unavailable = false;
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/engine/doc/conversations")
+      return Response.json({ conversations: [conversation, other], next_before: null });
+    if (path === detailPath && !unavailable) return Response.json({ conversation, turns: [queuedTurn] });
+    return Response.json({}, { status: 404 });
+  });
+  await pausedClock(page, new Date(created_at));
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
+  const composer = page.getByLabel("Question for Doc");
+  const otherChat = page.getByRole("link", { name: other.title });
+  await expect(otherChat).toBeVisible();
+  await composer.fill("An unsent follow-up");
+
+  unavailable = true;
+  await page.clock.runFor(5_000);
+  await expect(page.getByRole("status")).toHaveText("Conversation unavailable");
+  await expect(composer).toHaveValue("An unsent follow-up");
+  await expect(composer).toBeEnabled();
+  await expect(otherChat).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+});
+
 test("Ask Doc pauses on budget exhaustion and checks again when the tab returns", async (t) => {
   const { page, origin } = await waitingChat(t);
   await pausedClock(page, new Date(created_at));
@@ -408,20 +435,23 @@ test("Ask Doc pauses on budget exhaustion and checks again when the tab returns"
   );
 
   await page.clock.runFor(5_000);
-  const paused = page.getByText("Open this chat again to see Doc's answer", { exact: true });
+  const paused = page.getByText(/paused|open this chat again/i);
+  await expect(paused).toHaveCount(1);
+  await expect(paused).toHaveText("Automatic reads paused. Interact with this page to continue.", {
+    useInnerText: true,
+  });
   await expect(paused).toBeVisible();
   assert.deepEqual(await ticks.jsonValue(), []);
 
-  await page.keyboard.press("Shift");
-  await page.clock.runFor(3 * 60_000);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.runFor(3 * 60 * 60_000);
   assert.deepEqual(await ticks.jsonValue(), []);
   await page.evaluate(() => {
-    const setVisibility = (value: DocumentVisibilityState) => {
-      Object.defineProperty(document, "visibilityState", { configurable: true, value });
-      document.dispatchEvent(new Event("visibilitychange"));
-    };
-    setVisibility("hidden");
-    setVisibility("visible");
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
   });
   await page.clock.runFor(5_000);
   await expect(page.getByText(answered.answer.text)).toBeVisible();

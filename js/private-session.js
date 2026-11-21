@@ -91,16 +91,56 @@ export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '',
   };
 }
 
-let browserBoundary, browserRequests;
+function mountSessionPause(win) {
+  const { document } = win;
+  const paused = document.createElement('aside'), refresh = document.createElement('button');
+  const message = document.createTextNode('');
+  const fenced = new Map();
+  let budgetNotice = null, restoreUnavailable = false;
+  paused.setAttribute('role', 'status');
+  paused.style.cssText = 'position:fixed;inset:1rem 1rem auto;z-index:2147483647;padding:1rem;border:1px solid;background:Canvas;color:CanvasText';
+  refresh.type = 'button'; refresh.textContent = 'Refresh page'; refresh.onclick = () => win.location.reload();
+  paused.append(message, refresh);
+  function render() {
+    paused.toggleAttribute('data-session-restore-paused', restoreUnavailable);
+    refresh.hidden = !restoreUnavailable;
+    if (restoreUnavailable) {
+      Array.from(document.body.children).forEach(node => {
+        if (node === paused) return;
+        if (!fenced.has(node)) fenced.set(node, node.inert);
+        node.inert = true;
+      });
+    } else {
+      fenced.forEach((inert, node) => { node.inert = inert; });
+      fenced.clear();
+    }
+    if (budgetNotice || restoreUnavailable) {
+      message.textContent = (budgetNotice ?? 'Updates paused. Showing last loaded data.') + (restoreUnavailable ? ' ' : '');
+      if (!paused.isConnected) document.body.prepend(paused);
+    } else paused.remove();
+  }
+  return {
+    budget(notice) { budgetNotice = notice; render(); },
+    restore(unavailable) { restoreUnavailable = unavailable; render(); },
+  };
+}
+
+let browserBoundary, browserRequests, browserPause;
 function browserFetch(path, init) {
   if (typeof window === 'undefined' || globalThis !== window || resolveDealroomBoot(window.location).mode !== 'live') return globalThis.fetch(path, init);
-  browserRequests ||= createRequestBudget({ document: window.document, fetchImpl: (...args) => window.fetch(...args) });
+  const pause = browserPause ??= mountSessionPause(window);
+  browserRequests ||= createRequestBudget({
+    document: window.document,
+    fetchImpl: (...args) => window.fetch(...args),
+    onPauseChange: pause.budget,
+  });
   return browserRequests.fetch(path, init);
 }
 export function privateSession() {
   if (browserBoundary) return browserBoundary;
   if (typeof window === 'undefined' || globalThis !== window || resolveDealroomBoot(window.location).mode !== 'live') return null;
   const win = window;
+  const pause = browserPause ??= mountSessionPause(win);
   const returnTo = /^\/a\/al1_[A-Za-z0-9_-]{1,120}$/.test(win.location.pathname) ? win.location.pathname : null;
   const initialEpoch = sessionEpoch(win);
   let anonymousDiagnostics = false;
@@ -126,6 +166,7 @@ export function privateSession() {
     invalidate(reason, engineSession) {
       // Clear before async cleanup/navigation so private text and controls
       // disappear immediately, including detached dialogs and account labels.
+      browserRequests?.dispose();
       win.dispatchEvent(new win.Event('doctorcre-session-invalidated'));
       const retiredDocument = win.document;
       const cleanup = offlineTourSession(win).revoke({ expectedEpoch: engineSession ? initialEpoch : undefined });
@@ -148,29 +189,10 @@ export function privateSession() {
       });
     },
   });
-  const paused = win.document.createElement('aside'), refresh = win.document.createElement('button');
-  const fenced = new Map();
-  paused.dataset.sessionRestorePaused = ''; paused.setAttribute('role', 'status');
-  paused.style.cssText = 'position:fixed;inset:1rem 1rem auto;z-index:2147483647;padding:1rem;border:1px solid;background:Canvas;color:CanvasText';
-  refresh.type = 'button'; refresh.textContent = 'Refresh page'; refresh.onclick = () => win.location.reload();
-  paused.append('Updates paused. Showing last loaded data. ', refresh);
-  const renderRestore = unavailable => {
-    if (unavailable && !browserBoundary.revoked) {
-      Array.from(win.document.body.children).forEach(node => {
-        if (node === paused) return;
-        if (!fenced.has(node)) fenced.set(node, node.inert);
-        node.inert = true;
-      });
-      win.document.body.prepend(paused);
-    } else {
-      fenced.forEach((inert, node) => { node.inert = inert; });
-      fenced.clear(); paused.remove();
-    }
-  };
   let restoreGeneration = 0;
   const finishRestore = (generation, unavailable) => {
     if (generation !== restoreGeneration) return;
-    renderRestore(unavailable);
+    if (!browserBoundary.revoked) pause.restore(unavailable);
     win.document.documentElement.style.visibility = '';
   };
   const restore = mountVisibilityPoll({ document: win.document, window: win, periodic: false, poll: async () => {
