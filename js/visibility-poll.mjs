@@ -45,10 +45,9 @@ export function mountVisibilityPoll({
   // eslint-disable-next-line no-restricted-syntax -- 20 automatic reads shared by clocks and lifecycle events; only trusted input can renew attempts. Rejected/false results double the delay; every five attempts also doubles it; ceiling 15 minutes Hidden or 30-minute idle; no lifecycle or scroll renewal. Live recorder keepAlive is still capped at 20
   setTimeout = (fn, ms) => window.setTimeout(fn, ms), clearTimeout = id => window.clearTimeout(id),
 }) {
-  let timer = null, disposed = false, running = null, attempts = 0, failures = 0, requested = false;
+  let timer = null, disposed = false, running = null, attempts = 0, failures = 0, requested = false, nextReadAt;
   const asked = () => typeof intervalMs === 'function' ? intervalMs() : intervalMs;
   const delay = () => Math.min(MAX_BACKOFF_MS, (keepAlive() ? asked() : Math.max(MIN_POLL_MS, asked())) * 2 ** Math.max(failures, Math.floor(attempts / 5)));
-  let nextReadAt;
   const stop = () => { if (timer !== null) clearTimeout(timer); timer = null; };
   const eligible = () => !disposed && attempts < MAX_POLL_ATTEMPTS
     && document.documentElement?.style?.visibility !== 'hidden' && (presence.active() || keepAlive());
@@ -74,20 +73,22 @@ export function mountVisibilityPoll({
   const restartFromInput = callback => {
     attempts = 0; failures = 0; nextReadAt = now(); return run(false, callback, true);
   };
+  const lifecycleRead = () => run(false, onResume, true);
   const presence = watchPresence({ document, window, idleMs, now,
-    onResume: () => run(false, onResume, true),
+    onResume: lifecycleRead,
     onWake: () => restartFromInput(onWake),
     onInput: () => { if (attempts >= MAX_POLL_ATTEMPTS) restartFromInput(() => {}); } });
   const visibility = () => { if (document.visibilityState === 'hidden' && !keepAlive()) stop(); };
   // eslint-disable-next-line no-restricted-syntax -- Visibility callback will stop the poll timer when hidden; 0 HTTP reads in this listener.
   document.addEventListener('visibilitychange', visibility);
-  const lifecycleRead = () => run(false, onResume, true);
   // eslint-disable-next-line no-restricted-syntax -- Lifecycle dispatches share a max of 20 poll attempts and failure backoff; hidden or 30-minute idle state stops reads, and events never replenish attempts.
   if (lifecycle) { window.addEventListener('online', lifecycleRead); window.addEventListener('focus', lifecycleRead); }
-  const start = () => {
+  const start = event => {
+    const resume = event?.detail?.cached && presence.active();
     presence.restart();
     attempts = 0; failures = 0; nextReadAt = now() + (periodic ? delay() : 0);
-    if (periodic) arm();
+    if (resume) void lifecycleRead();
+    else if (periodic) arm();
   };
   window.addEventListener('doctorcre-session-ready', start);
   start();

@@ -136,7 +136,7 @@ function browserFetch(path, init, budgetOptions) {
 export function privateSession() {
   if (browserBoundary) return browserBoundary;
   if (typeof window === 'undefined' || globalThis !== window || resolveDealroomBoot(window.location).mode !== 'live') return null;
-  const win = window;
+  const win = window, root = win.document.documentElement;
   const { pathname } = win.location;
   const returnQuery = /^\/a\/al1_[A-Za-z0-9_-]{1,120}$/.test(pathname) ? `?return_to=${encodeURIComponent(pathname)}` : '';
   const sessionEndedUrl = '/public-shell/session-ended.html' + returnQuery;
@@ -186,7 +186,6 @@ export function privateSession() {
     },
   });
   const { verify, fetch } = browserBoundary;
-  const root = win.document.documentElement;
   let starting, restart;
   browserBoundary.verify = options => starting ?? verify(options);
   browserBoundary.fetch = (...args) => starting ? starting.then(() => fetch(...args)) : fetch(...args);
@@ -207,7 +206,7 @@ export function privateSession() {
       root.style.visibility = '';
       if (cached && !browserBoundary.revoked) (browserPause ??= mountSessionPause(win)).setUnavailable(!session);
       if (!session) throw new Error('Session verification unavailable');
-      win.dispatchEvent(new win.Event('doctorcre-session-ready'));
+      win.dispatchEvent(new win.CustomEvent('doctorcre-session-ready', { detail: { cached } }));
       return session;
     })();
     void starting.catch(() => {});
