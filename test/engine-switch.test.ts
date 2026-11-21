@@ -979,13 +979,33 @@ test("Mark paid follows the invoice tracker switch", async () => {
   assert.deepEqual(await request.json(), markPaidArgs);
   assert.deepEqual(f.kv, [["invoices-from-engine", { cacheTtl: 30 }]]);
   assert.deepEqual(f.carr, []);
-  assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: JSON.stringify(receipt) }] });
+  assert.deepEqual((await response.json()).result, {
+    content: [{ type: "text", text: JSON.stringify({ ...receipt, engine_receipt: true }) }],
+  });
 });
 
 test("Mark paid keeps the original CARR call with the invoice switch off", async () => {
   const f = fixture(new Map([["invoices-from-engine", "off"]]));
   assert.equal(await (await f.send(markPaid)).text(), "old");
   assert.deepEqual(f.carr, [JSON.stringify(markPaid)]);
+  assert.deepEqual(f.engine, []);
+});
+
+test("Mark paid strips the engine receipt marker from the legacy reply", async () => {
+  const f = fixture(new Map([["invoices-from-engine", "off"]]));
+  const receipt = { ok: true, id: markPaidArgs.commission_id, received_on: markPaidArgs.received_on, base_version: 1 };
+  f.env.CARR.fetch = async () =>
+    Response.json(
+      {
+        jsonrpc: "2.0",
+        id: markPaid.id,
+        result: { content: [{ type: "text", text: JSON.stringify({ ...receipt, engine_receipt: true }) }] },
+      },
+      { headers: { "set-cookie": "session=synthetic; HttpOnly" } },
+    );
+  const response = await f.send(markPaid);
+  assert.equal(response.headers.get("set-cookie"), "session=synthetic; HttpOnly");
+  assert.deepEqual((await response.json()).result.content, [{ type: "text", text: JSON.stringify(receipt) }]);
   assert.deepEqual(f.engine, []);
 });
 
