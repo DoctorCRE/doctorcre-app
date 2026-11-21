@@ -232,6 +232,26 @@ const toolsCall = (name: string, args: Record<string, unknown>) => ({
   body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
 });
 
+test("Search returns versioned results through PartnerApp with only the engine cookie", async () => {
+  const results = { schema_version: "search.v1", parties: [], deals: [] };
+  const { send, calls } = fixture(
+    (input) => {
+      assert.equal(input.headers.get("cookie"), cookie);
+      const url = new URL(input.url);
+      assert.equal(url.pathname, "/api/engine/find");
+      assert.equal(url.searchParams.get("query"), " Example & Clinic ");
+      return Response.json(input.headers.get("x-doctorcre-search") === "search.v1" ? results : { clients: [] });
+    },
+    { ENGINE_ROUTING: { get: async (key: string) => (key === "search-from-engine" ? "on" : null) } },
+  );
+  const call = toolsCall("find", { query: " Example & Clinic " });
+  const response = await send("/mcp", { ...call, headers: { ...proofs, "x-doctorcre-search": "search.v1" } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse((await response.json()).result.content[0].text), results);
+  assert.deepEqual(calls.carr, []);
+  assert.deepEqual(calls.engine, []);
+});
+
 test("engine browser reads and writes stay on PartnerApp with CARR down", async () => {
   const { send, calls } = fixture(
     async (input: Request) => {

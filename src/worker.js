@@ -33,7 +33,7 @@ const WORKSPACE_GATES = new Set([
   '/control-room', '/incidents', '/notifications', '/conversations',
 ]);
 const PARTNER_HEADERS = ['accept', 'content-type', 'content-length', 'cookie', 'origin',
-  'sec-fetch-site', 'x-carr-csrf', 'x-correlation-id', 'user-agent'];
+  'sec-fetch-site', 'x-carr-csrf', 'x-correlation-id', 'x-doctorcre-search', 'user-agent'];
 
 function gateRequestFor(request, pathname) {
   const gatePath = GATE_PATHS.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));

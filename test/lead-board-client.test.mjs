@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {workspace,detail} from "./leads-workspace-fixture.mjs";
 import { createLeadBoardClient } from "../js/leads-client.js";
+import { createSessionBoundary } from "../js/private-session.js";
+import worker from "../src/worker.js";
 
 function jsonResponse(body, ok = true, status = 200) {
   return { ok, status, json: async () => body, text: async () => JSON.stringify(body) };
@@ -27,20 +29,73 @@ test("getActor reads a fresh authenticated session without loading deals", async
   let slug = "joe";
   const client = createLeadBoardClient({ fetchImpl: async (path, init) => {
     calls.push({ path, init });
-    return jsonResponse({ actor: { slug } });
+    return Response.json({ actor: { slug: path === "/auth/session" ? "auth-fixture" : slug } });
   } });
   assert.equal(await client.getActor(), "joe");
   slug = "dell";
   assert.equal(await client.getActor(), "dell");
-  assert.equal(calls.length, 2);
-  for (const { path, init } of calls) {
-    assert.equal(path, "/api/system-work/session");
+  assert.deepEqual(calls.map(({ path }) => path), [
+    "/auth/session", "/api/system-work/session", "/auth/session", "/api/system-work/session",
+  ]);
+  for (const { init } of calls) {
     assert.equal(init.credentials, "same-origin");
     assert.equal(init.cache, "no-store");
     assert.equal(init.body, undefined);
   }
-  const missing = createLeadBoardClient({ fetchImpl: async () => jsonResponse({}) });
+  const missing = createLeadBoardClient({ fetchImpl: async () => Response.json({}) });
   assert.equal(await missing.getActor(), null);
+});
+
+test("a Leads claim uses the actor from the engine cookie without asking System Work", async () => {
+  const origin = "https://app.doctorcre.com";
+  const cookie = "__Host-doctorcre_session=synthetic";
+  const session = { actor: { slug: "fixture-partner" }, csrf_token: "synthetic-csrf" };
+  const leadId = "00000000-0000-4000-8000-000000000010";
+  const key = "00000000-0000-4000-8000-000000000012";
+  const browserPaths = [];
+  const carrPaths = [];
+  const saves = [];
+  const env = {
+    PARTNER_SIGN_IN: "engine",
+    ENGINE_ROUTING: { get: async name => ["leads-from-engine", "deals-saves-from-engine"].includes(name) ? "on" : null },
+    CARR: { fetch: async request => {
+      carrPaths.push(new URL(request.url).pathname);
+      return new Response(null, { status: 503 });
+    } },
+    PARTNER_APP: { fetch: async request => {
+      assert.equal(request.headers.get("cookie"), cookie);
+      const path = new URL(request.url).pathname;
+      if (path === "/auth/session") return Response.json(session);
+      assert.equal(path, `/api/engine/leads/${leadId}/changes`);
+      assert.equal(request.headers.get("x-carr-csrf"), session.csrf_token);
+      saves.push(await request.json());
+      return Response.json({ ok: true, lead_id: leadId });
+    } },
+  };
+  const boundary = createSessionBoundary({
+    invalidate() { assert.fail("The engine session should stay valid"); },
+    fetchImpl(path, init) {
+      browserPaths.push(path);
+      const headers = new Headers(init.headers);
+      headers.set("cookie", cookie);
+      if (init.method === "POST") {
+        headers.set("origin", origin);
+        headers.set("sec-fetch-site", "same-origin");
+      }
+      return worker.fetch(new Request(origin + path, { ...init, headers }), env);
+    },
+  });
+  const client = createLeadBoardClient({ docContext: false, fetchImpl: boundary.fetch });
+  const actor = await client.getActor();
+  assert.equal(actor, "fixture-partner");
+  assert.deepEqual(await client.claimLead({ id: leadId, registry_ref: "L-1", base_version: 42 }, key, actor), {
+    ok: true, lead_id: leadId,
+  });
+  assert.deepEqual(browserPaths, ["/auth/session", "/mcp"]);
+  assert.deepEqual(carrPaths, []);
+  assert.deepEqual(saves, [{
+    action: "claim", base_version: 42, expected_actor: "fixture-partner", idempotency_key: key,
+  }]);
 });
 
 test("typed tool errors preserve code and payload", async () => {
@@ -152,7 +207,7 @@ test('Leads client owns the pending request when a caller supplies a replacement
 
 for (const stalled of ['headers', 'body']) test(`session identity deadline covers stalled ${stalled}`, async () => {
   const client = createLeadBoardClient({ timeoutMs: 15, fetchImpl: async () => stalled === 'headers'
-    ? new Promise(() => {}) : { ok: true, json: () => new Promise(() => {}) } });
+    ? new Promise(() => {}) : { ok: true, headers: new Headers(), json: () => new Promise(() => {}) } });
   await assert.rejects(client.getActor(), { code: 'read_timeout' });
 });
 

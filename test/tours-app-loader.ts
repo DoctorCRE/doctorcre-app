@@ -35,7 +35,8 @@ export async function buildToursAppScript(source?: string): Promise<string> {
           });
           builder.onLoad({ filter: /[/\\]js[/\\](private-session|app-shell)\.js$/ }, (args) => ({
             contents: args.path.endsWith("private-session.js")
-              ? "export const sessionFetch = (...args) => fetch(...args);"
+              ? `export const sessionFetch = (...args) => fetch(...args);
+                 export const fetchPartnerIdentity = (init) => sessionFetch('/api/system-work/session', init);`
               : "",
             loader: "js",
           }));

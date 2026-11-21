@@ -1,6 +1,6 @@
 import { leadTimestamp } from "./leads-model.js";
 import { readWithDeadline } from "./current-read.mjs";
-import { sessionFetch } from './private-session.js';
+import { fetchPartnerIdentity, sessionFetch } from './private-session.js';
 import { observeDocClient } from './doc-context.js';
 import { createMcpRequests, unknownMcpOutcome } from "./mcp-requests.mjs";
 import { createEngagementWriter } from './prospect-engagement.mjs';
@@ -60,8 +60,8 @@ export function createLeadBoardClient(options = {}) {
 
   return observeDocClient({
     getActor: () => readWithDeadline(async signal => {
-      const response = await fetchImpl("/api/system-work/session", { signal,
-        credentials: "same-origin", cache: "no-store", headers: { accept: "application/json" } });
+      const response = await fetchPartnerIdentity({ signal,
+        credentials: "same-origin", cache: "no-store", headers: { accept: "application/json" } }, fetchImpl);
       if (!response.ok) throw typedError({ error: response.status === 401 ? "not_authenticated" :
         response.status === 403 ? "forbidden" : "session_unavailable" }, "Sign-in required", response.status);
       const session = await response.json();
