@@ -1,20 +1,68 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { z } from "zod";
 
-type Conversation = { id: string; title: string };
-type Ask = {
-  question: string;
-  idempotency_key: string;
+// The app's Content Security Policy blocks dynamic code evaluation.
+z.config({ jitless: true });
+
+const recordRef = z.object({
+  kind: z.enum(["deal", "lead", "client", "email"]),
+  id: z.uuid(),
+});
+const source = z.object({
+  ref: recordRef,
+  label: z.string(),
+  href: z.string(),
+});
+const proposal = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("note"), target: source, text: z.string() }),
+  z.object({ kind: z.literal("next_step"), target: source, what: z.string(), due_on: z.iso.date().nullable() }),
+  z.object({ kind: z.literal("reply_draft"), target: source, subject: z.string(), body: z.string() }),
+]);
+const answer = z.object({
+  kind: z.enum(["answer", "clarification", "refusal"]),
+  text: z.string(),
+  sources: z.array(source),
+  proposal: proposal.nullable(),
+});
+const confirmation = z.discriminatedUnion("kind", [
+  z.object({ kind: z.enum(["note", "next_step"]), id: z.uuid(), href: z.string() }),
+  z.object({ kind: z.literal("reply_draft"), id: z.uuid(), href: z.string(), existing: z.boolean() }),
+]);
+const conversation = z.object({
+  id: z.uuid(),
+  title: z.string(),
+  created_at: z.iso.datetime({ offset: true }),
+});
+const chatTurn = z.object({
+  id: z.uuid(),
+  position: z.int().positive(),
+  created_at: z.iso.datetime({ offset: true }),
+  question: z.string(),
+  idempotency_key: z.uuid(),
+  context: recordRef.nullable(),
+  state: z.enum(["queued", "working", "failed", "answered"]),
+  answer: answer.nullable(),
+  confirmation: confirmation.nullable(),
+  waiting_reason: z
+    .enum([
+      "Doc isn't set up on your Mac yet.",
+      "Doc answers when your Mac is on.",
+      "Sign in to Claude Code on your Mac.",
+      "Doc is paused until your Claude plan resets.",
+      "Doc is waiting for a free slot on your Mac.",
+    ])
+    .nullable(),
+});
+const conversationList = z.object({ conversations: z.array(conversation), next_before: z.uuid().nullable() });
+const conversationDetail = z.object({ conversation, turns: z.array(chatTurn) });
+const sendResponse = z.object({ conversation_id: z.uuid(), turn: chatTurn });
+
+type Conversation = Pick<z.infer<typeof conversation>, "id" | "title">;
+type Turn = z.infer<typeof chatTurn>;
+type Ask = Pick<Turn, "question" | "idempotency_key"> & {
   conversation_id?: string;
-  context?: { kind: string; id: string };
-};
-type Turn = Pick<Ask, "question" | "idempotency_key"> & {
-  id: string;
-  position: number;
-  context: NonNullable<Ask["context"]> | null;
-  state: "queued" | "working" | "answered" | "failed";
-  answer: { text: string } | null;
-  waiting_reason: string | null;
+  context?: z.infer<typeof recordRef>;
 };
 type Session = {
   verify(options: { fresh: boolean }): Promise<unknown>;
@@ -43,60 +91,9 @@ function chatHref(id: string | null) {
   return location.pathname + (query.size ? `?${query}` : "");
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function isConversation(value: unknown): value is Conversation {
-  return (
-    isObject(value) &&
-    typeof value.id === "string" &&
-    typeof value.title === "string" &&
-    typeof value.created_at === "string"
-  );
-}
-
-function isTurn(value: unknown): value is Turn {
-  return (
-    isObject(value) &&
-    typeof value.id === "string" &&
-    typeof value.created_at === "string" &&
-    typeof value.position === "number" &&
-    Number.isInteger(value.position) &&
-    value.position > 0 &&
-    typeof value.question === "string" &&
-    typeof value.idempotency_key === "string" &&
-    (value.state === "queued" || value.state === "working" || value.state === "answered" || value.state === "failed") &&
-    (value.context === null ||
-      (isObject(value.context) && typeof value.context.kind === "string" && typeof value.context.id === "string")) &&
-    (value.answer === null || (isObject(value.answer) && typeof value.answer.text === "string")) &&
-    (value.confirmation === null || isObject(value.confirmation)) &&
-    (value.waiting_reason === null || typeof value.waiting_reason === "string")
-  );
-}
-
-function isConversationList(value: unknown): value is { conversations: Conversation[] } {
-  return (
-    isObject(value) &&
-    Array.isArray(value.conversations) &&
-    value.conversations.every(isConversation) &&
-    (value.next_before === null || typeof value.next_before === "string")
-  );
-}
-
-function isConversationDetail(value: unknown): value is { turns: Turn[] } {
-  return (
-    isObject(value) && isConversation(value.conversation) && Array.isArray(value.turns) && value.turns.every(isTurn)
-  );
-}
-
-function isTurnResponse(value: unknown): value is { conversation_id: string; turn: Turn } {
-  return isObject(value) && typeof value.conversation_id === "string" && isTurn(value.turn);
-}
-
 class ConversationUnavailable extends Error {}
 
-async function docFetch<T>(path: string, isResponse: (value: unknown) => value is T, ask?: Ask): Promise<T> {
+async function docFetch<T>(path: string, schema: z.ZodType<T>, ask?: Ask): Promise<T> {
   const { privateSession }: { privateSession: () => Session | null } = await import(
     new URL("./private-session.js", import.meta.url).href
   );
@@ -114,9 +111,9 @@ async function docFetch<T>(path: string, isResponse: (value: unknown) => value i
   await session.verify({ fresh: true });
   if (response.status === 404 && path.startsWith("/conversations/")) throw new ConversationUnavailable();
   if (!response.ok) throw Error(`Doc request failed with status ${response.status}`);
-  const value: unknown = await response.json();
-  if (!isResponse(value)) throw Error("Invalid Doc response");
-  return value;
+  const result = schema.safeParse(await response.json());
+  if (!result.success) throw Error("Invalid Doc response");
+  return result.data;
 }
 
 function DocChat() {
@@ -179,11 +176,11 @@ function DocChat() {
   const load = useCallback(
     async (chatId: string | null) => {
       await run("load", async () => {
-        const { conversations } = await docFetch("/conversations", isConversationList);
+        const { conversations } = await docFetch("/conversations", conversationList);
         if (retired.current) return;
         setRecent(conversations);
         if (chatId) {
-          const { turns: saved } = await docFetch(`/conversations/${encodeURIComponent(chatId)}`, isConversationDetail);
+          const { turns: saved } = await docFetch(`/conversations/${encodeURIComponent(chatId)}`, conversationDetail);
           if (retired.current) return;
           setTurns(saved);
         }
@@ -212,7 +209,7 @@ function DocChat() {
   function send(ask: Ask) {
     void run("send", async () => {
       setPendingAsk(ask);
-      const { conversation_id, turn } = await docFetch("/turns", isTurnResponse, ask);
+      const { conversation_id, turn } = await docFetch("/turns", sendResponse, ask);
       if (retired.current) return;
       if (id !== conversation_id) {
         history.replaceState(history.state, "", chatHref(conversation_id));

@@ -70,24 +70,28 @@ for (const path of ["list", "detail"] as const) {
   });
 }
 
-for (const path of ["send", "retry"] as const) {
-  test(`A malformed 200 from Doc ${path} keeps the question and offers a send retry`, async (t) => {
+for (const scenario of ["send", "retry", "send with an empty conversation ID"] as const) {
+  test(`A malformed 200 from Doc ${scenario} keeps the question and offers a send retry`, async (t) => {
     const asks: unknown[] = [];
-    const malformedAttempt = path === "send" ? 1 : 2;
+    const malformedAttempt = scenario === "retry" ? 2 : 1;
+    const emptyId = scenario === "send with an empty conversation ID";
     const { page, origin } = await docChatFixture(t, async (request) => {
       switch (new URL(request.url).pathname) {
         case "/api/engine/doc/conversations":
-          return Response.json({ conversations: [], next_before: null });
+          return Response.json({ conversations: emptyId ? [conversation] : [], next_before: null });
+        case `/api/engine/doc/conversations/${id}`:
+          return Response.json({ conversation, turns: [] });
         case "/api/engine/doc/turns": {
           const ask: unknown = await request.json();
           asks.push(ask);
           assert.ok(ask && typeof ask === "object" && "idempotency_key" in ask);
           if (asks.length < malformedAttempt) return Response.json({}, { status: 503 });
+          const malformed = asks.length === malformedAttempt;
           return Response.json({
-            conversation_id: id,
+            conversation_id: malformed && emptyId ? "" : id,
             turn: {
               ...answeredTurn,
-              position: asks.length === malformedAttempt ? 0 : 1,
+              position: malformed && !emptyId ? 0 : 1,
               idempotency_key: ask.idempotency_key,
             },
           });
@@ -96,18 +100,20 @@ for (const path of ["send", "retry"] as const) {
           return Response.json({}, { status: 404 });
       }
     });
-    await page.goto(`${origin}/doc-chats?mode=live`);
+    const chatUrl = `${origin}/doc-chats?mode=live${emptyId ? `&chat=${id}` : ""}`;
+    await page.goto(chatUrl);
     const composer = page.getByLabel("Question for Doc");
     const status = page.getByRole("status");
     const retry = page.getByRole("button", { name: "Retry", exact: true });
     await composer.fill(question);
     await page.getByRole("button", { name: "Send", exact: true }).click();
-    if (path === "retry") {
+    if (scenario === "retry") {
       await expect(status).toHaveText("The question couldn’t be sent. Try again.");
       await retry.click();
     }
     await expect(status).toHaveText("The question couldn’t be sent. Try again.");
     await expect(composer).toHaveValue(question);
+    await expect(page).toHaveURL(chatUrl);
     await retry.click();
     await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
     assert.equal(asks.length, malformedAttempt + 1);
@@ -165,7 +171,17 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
     },
     () => actor,
   );
-  await page.goto(`${origin}/doc-chats?mode=live`);
+  const evalViolations: string[] = [];
+  await page.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (event) => {
+      if (event.blockedURI === "eval") console.error("Doc chat attempted to evaluate JavaScript");
+    });
+  });
+  page.on("console", (message) => {
+    if (message.text() === "Doc chat attempted to evaluate JavaScript") evalViolations.push(message.text());
+  });
+  const navigation = await page.goto(`${origin}/doc-chats?mode=live`);
+  assert.match(navigation?.headers()["content-security-policy"] ?? "", /script-src 'self'/);
   const composer = page.getByLabel("Question for Doc");
   await expect(composer).toBeEnabled();
   await composer.fill(question);
@@ -204,4 +220,5 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
   await expect(page.getByText("One example deal is open.")).toHaveCount(0);
   const foreign = await page.request.get(`${origin}/api/engine/doc/conversations/${id}`);
   assert.equal(foreign.status(), 404);
+  assert.deepEqual(evalViolations, []);
 });
