@@ -59,8 +59,7 @@ test('V01 shared directory has neutral loading identity before its module starts
 for (const width of [1440, 390]) test(`V01 vendor search destination keeps Vendors identity at ${width}px`, async t => {
   const { page, errors } = await open(t, width);
   await page.goto(`${origin}/search?q=Demo&mode=fixture`);
-  const result = page.getByRole('listitem').filter({ hasText: 'Demo Pensacola Buildout Contractors' });
-  await result.getByRole('link', { name: 'Open', exact: true }).click();
+  await page.getByRole('link', { name: 'Demo Pensacola Buildout Contractors', exact: true }).click();
   await page.waitForURL(/\/vendors\?/);
   await page.waitForFunction(() => document.querySelector('#pageTitle').textContent === 'Vendors');
   assert.equal(await page.title(), 'Vendors · DoctorCRE');
