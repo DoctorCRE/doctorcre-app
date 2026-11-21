@@ -412,7 +412,7 @@ test('detail reads recover without losing an update draft', async t => {
  assert.deepEqual(errors,[]);
 });
 
-test('S8 the move toast never covers the Today column or the status band', async t => {
+test('S8 the move toast clears Today and phone navigation', async t => {
   for (const width of [1440, 1000, 390]) await t.test(String(width), async t => {
     const { page } = await open(t, { width });
     const overlap = (a, b) => !!a && !!b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
@@ -420,7 +420,7 @@ test('S8 the move toast never covers the Today column or the status band', async
       document.querySelectorAll('.toast').forEach(node => node.remove());
       const toast = document.createElement('div'); toast.className = 'toast show'; toast.textContent = 'Moved Demo deal to Negotiation'; document.body.append(toast);
       const box = node => { if (!node) return null; const r = node.getBoundingClientRect(); return r.width && r.height && getComputedStyle(node).visibility !== 'hidden' && getComputedStyle(node).display !== 'none' ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom } : null; };
-      return { toast: box(toast), today: box(document.querySelector('#appToday')), status: box(document.querySelector('.app-layout-status')) };
+      return { toast: box(toast), today: box(document.querySelector('#appToday')), phoneNav: innerWidth <= 760 ? box(document.querySelector('#appShell')) : null };
     });
     await page.locator('#appTodayToggle').click();
     await page.locator('#appToday').evaluate(n => n.getAnimations().forEach(a => a.finish()));
@@ -428,26 +428,13 @@ test('S8 the move toast never covers the Today column or the status band', async
     if (width === 390) assert.ok(r.today?.left < 390, 'Today is open in the viewport');
     if (width !== 390) assert.ok(r.toast, 'toast renders');
     assert.equal(overlap(r.toast, r.today), false, `${width}: toast clears Today`);
-    assert.equal(overlap(r.toast, r.status), false, `${width}: toast clears the status band`);
+    assert.equal(overlap(r.toast, r.phoneNav), false, `${width}: toast clears phone navigation`);
     if (width === 1440) {
       await page.locator('#appTodayToggle').click();
       r = await rects();
       assert.ok(r.toast.right > 1440 - 120, 'with Today closed the toast returns to the right edge');
     }
   });
-});
-
-test('S8 phone status strip scrolls inside its own lane, never under the workspace controls or Doc', async t => {
-  const { page } = await open(t, { width: 390 });
-  const lanes = await page.evaluate(() => {
-    const status = document.querySelector('.app-layout-status');
-    const r = status.getBoundingClientRect(), s = getComputedStyle(status);
-    const clipRight = r.right - parseFloat(s.borderRightWidth);
-    const blockers = [...document.querySelectorAll('.app-shell-controls, #docPresence')]
-      .map(node => node.getBoundingClientRect()).filter(box => box.width && box.top < r.bottom && box.bottom > r.top);
-    return { clipRight, blockerLeft: Math.min(...blockers.map(box => box.left)) };
-  });
-  assert.ok(lanes.clipRight <= lanes.blockerLeft + 1, `status clips at ${lanes.clipRight}, controls start at ${lanes.blockerLeft}`);
 });
 
 for (const theme of ['dark', 'light']) {
@@ -1158,9 +1145,9 @@ test('parked deals sit in the closed Parked lane at every width, the headline co
   });
 });
 
-test('the status band shows one clock and one refresh, and that refresh also updates the rails', async t => {
+test('the Deals heading shows one update time and a refresh that also updates Today', async t => {
   const { page, errors } = await open(t, { width: 1440 });
-  const band = await page.locator('.app-layout-status').evaluate(node => {
+  const band = await page.locator('.dealroom-heading').evaluate(node => {
     const visible = [...node.querySelectorAll('button, time, .as-of')].filter(n => n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden');
     return { refresh: visible.filter(n => n.textContent.trim() === '↻').length, clocks: visible.filter(n => /\d:\d\d/.test(n.textContent)).length };
   });

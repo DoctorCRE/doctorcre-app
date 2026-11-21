@@ -60,6 +60,7 @@ for (const deployment of ['fixture', 'deployed-origin']) for (const path of ['/'
       await page.goto(`${deployment === 'fixture' ? origin : 'https://app.doctorcre.com'}${path}`);
       await page.locator(path === '/' ? '#homeRoot[data-home-ready]' : '#refreshHome[aria-busy="false"]').waitFor();
       if (path === '/') await page.evaluate(async () => (await import('/js/global-call-mode.js')).mountGlobalCallMode(document));
+      await page.locator('#selfAvatar').click();
       await page.locator('#callModeRetry').waitFor({ state: 'visible' });
       assert.deepEqual(errors, [], 'Home emits zero console or page errors');
       assert.deepEqual(requests, [], 'Home does not contact an optional recorder');

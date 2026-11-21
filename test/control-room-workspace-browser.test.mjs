@@ -233,7 +233,9 @@ test('finding 10: System Map restores selected node on initial load and history 
  await waitForAsync(page,async()=> (await import('/js/atlas.js')).view.selected==='service:demo-exporter');
 });
 test('finding 11: sidebar overdue scope excludes adapter-normalized Closed and inactive states',async t=>{
- const {page,state}=await open(t);state.dealStates=true;await page.locator('#appSyncRefresh').click();
+ const {page,state}=await open(t);state.dealStates=true;
+ await page.locator('#selfAvatar').click();
+ await page.locator('#appSyncRefresh').click();
  await page.waitForFunction(()=>document.querySelector('#appTodayNeeds').textContent.includes('Demo active'));
  for(const id of ['appTodayNeeds','appWorkingList']){assert.deepEqual(await page.locator(`#${id} [data-layout-deal] strong`).allTextContents(),['Demo active']);}
 });
@@ -404,8 +406,8 @@ for(const width of [1440,390])for(const theme of ['dark','light']){
   assert.equal(await page.locator('.directory-panel').evaluate(n=>n.open),true);
   assert.ok(await page.locator('#board-directory a').count()>0);
   const first=await page.locator('#board-stages .board-card').first().boundingBox();
-  const bottom=await page.locator(width===390?'#appShell':'.app-layout-status').boundingBox();
-  assert.ok(first.y+Math.min(first.height,80)<bottom.y,`pipeline card starts at ${first.y}, content ends at ${bottom.y}`);
+  const bottom=width===390?(await page.locator('#appShell').boundingBox()).y:page.viewportSize().height;
+  assert.ok(first.y+Math.min(first.height,80)<bottom,`pipeline card starts at ${first.y}, content ends at ${bottom}`);
   assert.equal(await page.locator('#board-data-mode').count(),1,'data mode is labeled beside board state');
   assert.match(await page.locator('#board-data-mode').textContent(),/Live work.*pipeline/i);
   assert.match(await page.locator('.cr-board-state').textContent(),/No published snapshot/);
@@ -421,8 +423,9 @@ for(const width of [1440,390])for(const theme of ['dark','light']){
   assert.ok((await empty.boundingBox()).height<=48,'empty ledger stays a compact row');
   assert.ok(await page.locator('#attentionTitle').evaluate(n=>getComputedStyle(n).fontSize===getComputedStyle(document.querySelector('.cr-views li')).fontSize),'ledger heading matches view summary scale');
   await empty.scrollIntoViewIfNeeded();
-  const box=await empty.boundingBox(),bottom=await page.locator(width===390?'#appShell':'.app-layout-status').boundingBox();
-  assert.ok(box.y+box.height<bottom.y,'empty ledger remains reachable below attention work');
+  const box=await empty.boundingBox();
+  const bottom=width===390?(await page.locator('#appShell').boundingBox()).y:page.viewportSize().height;
+  assert.ok(box.y+box.height<bottom,'empty ledger remains reachable below attention work');
   assert.equal(await empty.evaluate(n=>getComputedStyle(n).backgroundColor),'rgba(0, 0, 0, 0)');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   assert.deepEqual(errors,[]);
@@ -661,7 +664,7 @@ for(const route of ['room','standalone'])for(const width of [320,390,1280])for(c
   const title=page.locator(`[data-hierarchy-id="${id}"] > button`);
   await title.scrollIntoViewIfNeeded();
   const check=await title.evaluate(node=>{
-   const boundary=document.querySelector(innerWidth<761?'#appShell':'.app-layout-status').getBoundingClientRect().top;
+   const boundary=innerWidth<761?document.querySelector('#appShell').getBoundingClientRect().top:innerHeight;
    let r=node.getBoundingClientRect();
    window.scrollBy(0,r.top+r.height/2-boundary-2);
    r=node.getBoundingClientRect();
@@ -701,7 +704,7 @@ for(const width of [320,390,1280])for(const theme of ['light','dark'])test(`hier
   assert.equal(columns.count,2);
   assert.ok(columns.widths.every(w=>w>=300),JSON.stringify(columns));
   assert.ok(await page.evaluate(()=>document.querySelector('.app-layout-center').clientWidth>document.querySelector('#appSidebar').clientWidth+document.querySelector('#appToday').clientWidth));
-  assert.ok(await page.evaluate(()=>document.querySelector('.app-layout-center').getBoundingClientRect().bottom<=document.querySelector('.app-layout-status').getBoundingClientRect().top));
+  assert.ok(await page.evaluate(()=>document.querySelector('.app-layout-center').getBoundingClientRect().bottom<=innerHeight));
  }
  await card('WR14.S2.J1.app#316').focus();await page.keyboard.press('Enter');
  await page.locator('#jobDialog').waitFor({state:'visible'});

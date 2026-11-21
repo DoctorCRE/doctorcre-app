@@ -2,10 +2,9 @@ import { expect, test } from "@playwright/test";
 
 const screens = [
   { name: "Leads", path: "/leads", title: "Leads · DoctorCRE", more: false },
-  { name: "Tours", path: "/tours", title: "Tours · DoctorCRE", more: false },
-  { name: "Local Deals", path: "/deals", title: "Deals · DoctorCRE", more: false },
+  { name: "Deals", path: "/deals", title: "Deals · DoctorCRE", more: false },
   { name: "Vendors", path: "/vendors", title: "Vendors · DoctorCRE", more: false },
-  { name: "Clients", path: "/clients", title: "Clients · DoctorCRE", more: false },
+  { name: "Clients", path: "/clients", title: "Clients · DoctorCRE", more: true },
   { name: "Relationships", path: "/relationships", title: "Relationships · DoctorCRE", more: true },
   { name: "Invoices", path: "/invoices", title: "Invoices · DoctorCRE", more: true },
   { name: "Home", path: "/", title: "Home · DoctorCRE", more: false },

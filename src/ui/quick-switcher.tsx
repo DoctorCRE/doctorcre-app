@@ -386,6 +386,7 @@ function Switcher({ pages, read, close }: Omit<Options, "opener"> & { close: () 
           </div>
         ))}
       </div>
+      <a href={query.trim() ? `/search?q=${encodeURIComponent(query.trim())}` : "/search"}>Search all records</a>
       <footer>↑ ↓ to move · Enter to open · Esc to close</footer>
     </div>
   );

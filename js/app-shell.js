@@ -33,12 +33,13 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
     const toggle = root.createElement('button');
     toggle.type = 'button';
     toggle.className = 'app-shell-search quick-switcher-toggle';
-    toggle.setAttribute('aria-label', 'Quick switcher');
+    toggle.setAttribute('aria-label', 'Search and quick switcher');
     toggle.setAttribute('aria-haspopup', 'dialog');
     toggle.setAttribute('aria-keyshortcuts', 'Meta+Alt+K Control+Alt+K');
-    toggle.title = 'Quick switcher (⌘/Ctrl+Alt+K)';
+    toggle.title = 'Search (⌘/Ctrl+Alt+K)';
     toggle.innerHTML = search.innerHTML;
-    search.after(toggle);
+    if (search.hasAttribute("aria-current")) toggle.setAttribute("aria-current", "page");
+    search.replaceWith(toggle);
     let opening = false, retired = false;
     const open = async () => {
       if (opening || retired) return;
@@ -80,41 +81,21 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
       else home.addEventListener('doctorcre:home-ready', resolve, { once: true });
     }) : Promise.resolve();
     mountAppLayout(root, host, pathname, { ready });
-    const status = root.querySelector(".app-layout-status");
-    const availability = host.querySelector(".app-shell-call-availability");
-    status.append(availability);
+    const topbar = root.getElementById("appTopbar");
     const workspace = root.getElementById("accountWorkspaceControls");
-    const connection = root.getElementById("appConnection");
+    workspace.hidden = false;
     const controls = host.querySelector(".app-shell-controls");
-    const settings = [...controls.querySelectorAll(":scope > button")];
-    const search = host.querySelector(".app-shell-search");
-    const refresh = status.querySelector("#appSyncRefresh");
-    const freshness = refresh.parentElement;
+    const callButton = root.getElementById("callModeButton");
+    const displayControls = [host.querySelector('[data-pref="theme"]'), host.querySelector("#colorAssistButton")];
+    topbar.append(host.querySelector(".app-shell-search"));
     const phone = root.defaultView.matchMedia(TOUCH_LAYOUT);
-    // Tours and Vendors move into More to fit the phone bar.
-    const moreToggle = host.querySelector(".app-shell-more-toggle"), moreList = host.querySelector(".app-shell-more-list");
-    const overflow = ["/tours", "/vendors"].map(href => host.querySelector(`[data-app-nav-item][href$="${href}"]`)).filter(Boolean);
-    const moreCurrent = moreToggle.classList.contains("app-shell-more-current");
-    const arrangeNavigation = () => {
-      if (phone.matches) moreList.prepend(...overflow);
-      else moreToggle.parentElement.before(...overflow);
-      moreToggle.classList.toggle("app-shell-more-current", moreCurrent || phone.matches && overflow.some(link => link.hasAttribute("aria-current")));
-    };
     const arrangeControls = () => {
-      workspace.hidden = !phone.matches;
-      if (phone.matches) workspace.append(search, ...settings, refresh, availability, connection);
-      else {
-        controls.before(search);
-        controls.prepend(...settings);
-        freshness.append(refresh);
-        status.insertBefore(connection, root.getElementById("appStatusSlot"));
-        status.append(availability);
-      }
+      (phone.matches ? workspace : topbar).append(...displayControls);
+      if (phone.matches) workspace.append(callButton);
+      else controls.prepend(callButton);
     };
     phone.addEventListener("change", arrangeControls);
-    phone.addEventListener("change", arrangeNavigation);
     arrangeControls();
-    arrangeNavigation();
     let docPresence = null, docRetired = false;
     disposeDocPresence = () => { docRetired = true; docPresence?.dispose(); };
     void ready.then(() => import('./doc-presence.js')).then(({ mountDocPresence }) => {
@@ -231,7 +212,6 @@ function mountAccount(root, host, pathname, beforeSignOutReplace = () => {}, rea
       event.preventDefault(); close(); avatar.focus();
     }
   });
-  panel.querySelector("#accountTheme").onclick = () => root.querySelector('[data-pref="theme"]').click();
   const help = panel.querySelector("#accountHelp");
   if (help) help.onclick = async () => {
     close();

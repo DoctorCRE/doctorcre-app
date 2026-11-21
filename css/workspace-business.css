@@ -250,8 +250,6 @@ body.record-open { overflow: hidden; }
 @media (max-width: 767px) {
   body[data-directory="vendors"] #secondaryFilters > summary { display: list-item; min-height: var(--touch); align-content: center; color: var(--fg-muted); cursor: pointer; font-size: var(--font-size-1); }
   body[data-directory="vendors"] #secondaryFilters[open] > summary { margin-bottom: var(--space-2); }
-  body[data-directory="vendors"].has-app-layout { --layout-bottom: calc(var(--tabbar-height) + var(--space-6)); }
-  body[data-directory="vendors"] .app-layout-status { height: var(--space-6); }
   body[data-directory="vendors"] .record-row { grid-template-areas: "head" "facts" "tier" "foot"; gap: var(--space-1); padding-block: var(--space-2); }
   body[data-directory="vendors"] .record-row > .contact-note,
   body[data-directory="vendors"] .record-row .row-last-contact,
