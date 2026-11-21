@@ -408,6 +408,9 @@ button.client-portal-link:disabled { cursor: wait; }
 .deal-open-steps li {
   padding-block: var(--space-2);
   overflow-wrap: anywhere;
+}
+.deal-step-owner {
+  max-inline-size: 36rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
