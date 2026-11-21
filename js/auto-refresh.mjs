@@ -17,8 +17,8 @@ export function mountAutoRefresh({ document, window, refresh, onResume, onWake, 
     dispose() { reads.dispose(); poller.dispose(); } };
 }
 
-export function updatedLabel(value) {
+export function updatedLabel(value, timeZone) {
   if (!value) return "Updating…";
   const date = new Date(value);
-  return Number.isFinite(date.valueOf()) ? `Updated ${date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true })}` : "Updating…";
+  return Number.isFinite(date.valueOf()) ? `Updated ${date.toLocaleTimeString(undefined, { timeZone, hour: "numeric", minute: "2-digit", hour12: true })}` : "Updating…";
 }

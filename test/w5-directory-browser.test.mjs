@@ -82,6 +82,7 @@ for (const width of [1440, 390]) test(`V01 vendor search destination keeps Vendo
 });
 for(const width of [1440,390])test(`W5 rendered directories and wide dialog at ${width}px`,async t=>{
   const h=await open(t,width),{page}=h;await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row').catch(async e=>{assert.fail(JSON.stringify({errors:h.errors,body:await page.locator('main').innerText()}));});
+  assert.doesNotMatch(await page.locator('.record-row').first().innerText(), /Yours|Proven|Not recorded/);
   assert.equal(await page.locator('#pager').count(),0);assert.doesNotMatch(await page.locator('main').innerText(),/Checked a while ago|About this list|source|No filters|read again/i);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/vendors-${width}.png`});
@@ -96,8 +97,8 @@ for(const width of [1440,390])test(`W5 rendered directories and wide dialog at $
   await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/vendor-detail-${width}.png`});
   await page.locator('[data-details-key="trust"] summary').click();await page.locator('[name="reason"]').fill('Synthetic reviewed exception');await page.locator('[name="tier"]').selectOption('Trial');
   await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForTimeout(80);assert.equal(await page.locator('[name="reason"]').inputValue(),'Synthetic reviewed exception');
-  await page.locator('#trustForm button').click();await page.waitForFunction(()=>document.querySelector('.relationship-section').textContent.includes('Computed:'));
-  assert.equal(h.writes,1);assert.match(await page.locator('.relationship-section').innerText(),/Trial.*Computed: Proven/s);
+  await page.locator('#trustForm button').click();await page.getByText('Rating saved', { exact: true }).waitFor();
+  assert.equal(h.writes,1);assert.equal(await page.locator('[name="tier"] option:checked').textContent(), 'New working relationship');
   await page.keyboard.press('Escape');assert.equal(await page.locator('#recordPanel').isVisible(),false);assert.equal(await page.locator('#appShell').evaluate(el=>el.inert),false);
   await page.goto(origin+'/clients', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/clients-${width}.png`});assert.deepEqual(h.errors,[]);
 });
@@ -171,7 +172,7 @@ for(const mode of ['lost','rejected','uncertain','unknown200','unknownAck','unkn
   const h=await open(t);h.setWriteMode(mode);const {page}=h;await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('#trustForm',{state:'attached'});await page.locator('[data-details-key="trust"] summary').click();await page.locator('[name="tier"]').selectOption('Trial');await page.locator('[name="reason"]').fill('Demo exception');await page.locator('#trustForm button').click();
   if(mode==='rejected'){await page.waitForURL('**/public-shell/session-ended.html');assert.equal(h.writes,1);assert.equal(await page.locator('#trustForm').count(),0);assert.deepEqual(h.errors,[]);return;}
   await page.waitForFunction(()=>['Rating confirmed','Rating not confirmed'].includes(document.querySelector('#trustStatus')?.textContent));assert.equal(h.writes,1);
-  if(mode==='lost'){assert.match(await page.locator('.relationship-section').innerText(),/Computed: Proven/);assert.equal(await page.locator('#trustStatus').textContent(),'Rating confirmed');assert.equal(await page.locator('#trustForm button').isDisabled(),false);}
+  if(mode==='lost'){assert.equal(await page.locator('[name="tier"]').inputValue(), 'Trial');assert.equal(await page.locator('#trustStatus').textContent(),'Rating confirmed');assert.equal(await page.locator('#trustForm button').isDisabled(),false);}
   else assert.equal(await page.locator('#trustForm button').isDisabled(),['uncertain','unknown200','unknownAck','unknownTool'].includes(mode));
   await page.clock.fastForward(31000);await page.waitForTimeout(80);assert.equal(h.writes,1,'polling never repeats a write');assert.deepEqual(h.errors,[]);
 });
@@ -337,7 +338,8 @@ for(const width of [1440,390]) test(`vendor Conversations show newest notes firs
  assert.deepEqual(await conversations.locator('.note-summary').allTextContents(),['Synthetic latest conversation','Synthetic earlier conversation','Synthetic undated conversation']);
  await conversations.locator('[data-details-key="entry-latest"] summary').click();
  assert.equal(await conversations.locator('.entry-detail').first().textContent(),'Synthetic latest original');
- assert.equal(await conversations.locator('li').last().locator('time').textContent(),'an unknown time');
+ assert.equal(await conversations.locator('li').last().locator('time').count(),0);
+ assert.equal(await conversations.locator('time').count(),2);
  assert.equal(h.writes,0);
  assert.deepEqual(h.errors,[]);
 });

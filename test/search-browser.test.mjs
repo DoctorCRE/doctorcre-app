@@ -28,6 +28,8 @@ test('S2 saved search stays under the keyboard while its results update', async 
       }, { theme, key: scopedViewsKey, name });
       await page.route('**/api/**', route => route.fulfill({ json: {} }));
       await page.goto(`${server.origin}/search?mode=fixture&q=Demo`);
+      const title = await page.getByRole('heading', { level: 1, name: 'Search' }).boundingBox();
+      assert.ok(title.y < (await page.getByRole('searchbox', { name: 'Name, email or domain' }).boundingBox()).y);
       const saved = page.getByRole('link', { name, exact: true });
       await saved.waitFor({ state: 'visible' });
       await saved.focus();

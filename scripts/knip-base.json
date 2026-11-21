@@ -171,6 +171,7 @@
     "js/invoice-tracker-model.d.ts",
     "js/leads-client.d.ts",
     "js/leads-model.d.ts",
+    "js/visual-system.d.ts",
     "js/routes.d.ts",
     "src/worker.d.ts",
     "scripts/prove-*.{mjs,ts}",

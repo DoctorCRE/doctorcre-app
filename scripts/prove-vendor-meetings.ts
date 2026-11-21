@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import type { Browser, Page } from "playwright";
 import { chromium as driver } from "playwright";
+import { withoutRecordCodes } from "../js/visual-system.js";
 import type { MeetingQuery } from "../src/ui/vendor-meetings-client.ts";
 import { parseMeetingPage, researchReason } from "../src/ui/vendor-meetings-client.ts";
 import { launchProofBrowser, readAppRelease } from "./app-release-reader.mjs";
@@ -11,6 +12,7 @@ import { CHROMIUM_SAFETY_ARGS } from "./chromium-safety-args.mjs";
 import { requireContainingRelease } from "./containing-release.ts";
 import { chromium } from "./proof-browser.mjs";
 
+const phoneDigits = (text: string) => text.replace(/\D/g, "").replace(/^1(?=\d{10,}$)/, "");
 const insufficient = (message: string) => Object.assign(Error(message), { exitCode: 78 });
 export async function prove({
   origin,
@@ -160,59 +162,46 @@ export async function prove({
               .getAttribute("aria-selected"),
             "true",
           );
-          assert.equal(
-            await section
-              .getByText(
-                `${snapshot.total} ${view === "suggested" ? "suggested people" : "people needing research"}. Showing ${snapshot.items.length}.`,
-                { exact: true },
-              )
-              .count(),
-            1,
-          );
           const rows = section.locator("[data-meeting-person]");
           assert.equal(await rows.count(), snapshot.items.length);
           assert.equal(
-            await section
-              .getByText("Calendar unavailable. People and office details are still shown.", { exact: true })
-              .count(),
-            snapshot.calendar.state === "unavailable" ? 1 : 0,
+            await section.getByText("Calendar incomplete", { exact: true }).count(),
+            snapshot.calendar.state === "partial" ? 1 : 0,
           );
-          for (const note of snapshot.calendar.notes ?? [])
-            assert.equal(await section.getByText(note, { exact: true }).count(), 1);
           for (const [index, item] of snapshot.items.entries()) {
             const row = rows.nth(index);
             assert.equal(await row.getAttribute("data-meeting-person"), item.contact?.id ?? "");
             assert.equal(
               await row.locator(":scope > a").textContent(),
-              item.contact?.name || "Named contact not recorded",
+              withoutRecordCodes(item.contact?.name || item.company?.name || "Open vendor"),
             );
-            assert.equal(
-              await row.locator("[data-meeting-office]").textContent(),
-              item.office
-                ? `${item.office.street_address}, ${item.office.city}, ${item.office.state}`
-                : "Verified office not recorded",
+            assert.deepEqual(
+              await row.locator("[data-meeting-office]").allTextContents(),
+              item.office ? [`${item.office.street_address}, ${item.office.city}, ${item.office.state}`] : [],
             );
-            assert.equal(
-              await row.locator("[data-meeting-reason]").textContent(),
-              item.reason || "Meeting reason not recorded",
+            assert.deepEqual(
+              await row.locator("[data-meeting-reason]").allTextContents(),
+              item.reason ? [withoutRecordCodes(item.reason)] : [],
             );
-            if (item.office)
-              assert.equal(await row.getByText(`Office source: ${item.office.source}`, { exact: true }).count(), 1);
             assert.deepEqual(
               await row.locator('[aria-label="Research needed"] > li').allTextContents(),
               item.missing.map(researchReason),
             );
+            const phone = item.contact?.phone || item.contact?.cell;
             for (const value of [
-              item.company?.name || "Company not recorded",
-              item.contact?.email || "Email not recorded",
-              item.contact?.phone || item.contact?.cell || "Phone not recorded",
-            ])
-              assert.equal(await row.getByText(value, { exact: true }).count(), 1);
+              item.contact && item.company && withoutRecordCodes(item.company.name),
+              item.contact?.email,
+            ].filter(Boolean))
+              assert.equal(await row.getByText(String(value), { exact: true }).count(), 1);
             assert.deepEqual(
-              await row.locator("h3 + ul > li").allTextContents(),
-              item.possible_meetings.map(
-                (m) => `${m.title} · ${m.start} to ${m.end}${m.location ? ` · ${m.location}` : ""}`,
-              ),
+              (await row.locator("[data-meeting-phone]").allTextContents()).map(phoneDigits),
+              phone ? [phoneDigits(phone)] : [],
+            );
+            assert.deepEqual(
+              await row
+                .locator("h3 + ul time")
+                .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("datetime"))),
+              item.possible_meetings.flatMap((meeting) => [meeting.start, meeting.end]),
             );
           }
           assert.equal(

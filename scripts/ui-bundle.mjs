@@ -62,6 +62,7 @@ export const UI_ENTRIES = {
   'ui-calendar-panels': 'calendar-panels',
   'ui-deal-prospects': 'deal-prospects',
   'ui-deal-documents': 'deal-documents',
+  'ui-doc-chat': 'doc-chat',
   'ui-checklist': 'deal-checklist',
   'ui-client-publications': 'client-publications',
   'ui-deal-tours': 'deal-tours',
