@@ -23,6 +23,16 @@ type WaitingIdentity = Readonly<{
   display_name: string | null;
 }>;
 type Waiting = Readonly<{ identity: WaitingIdentity; reason: string; evidence: string[]; version: number }>;
+const primaryActions = [
+  "Mark done",
+  "Open",
+  "Review completion",
+  "Review suggestions",
+  "Open checklist item",
+  "Review feedback",
+] as const;
+type PrimaryAction = (typeof primaryActions)[number];
+
 type BaseItem = Readonly<{
   item_id: string;
   source_type: string;
@@ -43,6 +53,8 @@ export type InboxItem = BaseItem &
   Readonly<{
     waiting_version?: number;
     engine_marks?: true;
+    presentation?: { why: string; primaryAction: PrimaryAction };
+    checklistItemRef?: string;
     undo_completion?: true;
     home_mark_drop?: true;
     home_proposal_drop?: true;
@@ -318,11 +330,16 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   )
     throw Error("Inbox returned unreadable completion time. Refresh to try again.");
   const reference = v3 ? parseReference(value.review_reference) : null;
-  const { explicit_unsettle, auto_settled, undo_completion, ...fields } = value;
+  const { explicit_unsettle, auto_settled, undo_completion, why, primary_action, checklist_item_ref, ...fields } =
+    value;
+  const primaryAction = engineMarks && primaryActions.find((action) => action === primary_action);
+  const presentation = primaryAction && text(why) ? { why, primaryAction } : undefined;
   // Version-specific checks above validate the item before normalized optional fields are added.
   return {
     ...fields,
-    title: task ? legacy.title.replace(/\*\*([^*]+)\*\*/g, "$1") : legacy.title,
+    title: task && !presentation ? legacy.title.replace(/\*\*([^*]+)\*\*/g, "$1") : legacy.title,
+    ...(presentation && { presentation }),
+    ...(engineMarks && text(checklist_item_ref) && { checklistItemRef: checklist_item_ref }),
     ...(engineMarks ? { engine_marks: true } : { explicit_unsettle, auto_settled: v3 ? auto_settled : false }),
     ...(engineMarks &&
       task &&

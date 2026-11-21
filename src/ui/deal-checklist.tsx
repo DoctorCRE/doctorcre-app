@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
@@ -28,7 +28,7 @@ type Snapshot = {
   phases: { label: string; items: Item[] }[];
   due_items: Row[];
 };
-type Props = { dealId: string; checklist: unknown; showProgress?: boolean };
+type Props = { dealId: string; checklist: unknown; showProgress?: boolean; focusedItem?: string | null };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === "string" && !!v.trim();
 const optionalText = (v: unknown) => v == null || typeof v === "string";
@@ -63,10 +63,16 @@ const date = (value: string) => {
     ? value
     : parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 };
-function Checklist({ checklist, showProgress = false }: Props) {
+function Checklist({ checklist, showProgress = false, focusedItem }: Props) {
   const [selection, select] = useState("all");
-  const [expanded, setExpanded] = useState(false);
-  const [evidence, setEvidence] = useState<Set<string>>(() => new Set());
+  const [expanded, setExpanded] = useState(Boolean(focusedItem));
+  const [evidence, setEvidence] = useState<Set<string>>(() => new Set(focusedItem ? [focusedItem] : []));
+  const focus = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!focusedItem) return;
+    focus.current?.focus();
+    focus.current?.scrollIntoView({ block: "center" });
+  }, [focusedItem]);
   const unavailable = object(checklist) && checklist.template_state === "unavailable";
   const unsupported = !object(checklist) || checklist.schema_version !== "deal-checklist.v1";
   const changed = object(checklist) && checklist.template_state === "source_changed";
@@ -141,6 +147,9 @@ function Checklist({ checklist, showProgress = false }: Props) {
       <p data-checklist-count role="status">
         {progress}
       </p>
+      {focusedItem && !items.some((item) => item.id === focusedItem) && (
+        <p role="status">This checklist item is unavailable.</p>
+      )}
       {emptyMessage && <p>{emptyMessage}</p>}
       {phases.map((phase) => (
         <section key={phase.label}>
@@ -164,7 +173,9 @@ function Checklist({ checklist, showProgress = false }: Props) {
                     });
                   }}
                 >
-                  <summary>{showProgress ? "Details" : "Evidence and source"}</summary>
+                  <summary ref={i.id === focusedItem ? focus : undefined}>
+                    {showProgress ? "Details" : "Evidence and source"}
+                  </summary>
                   <p>{i.evidence_ref || (showProgress ? "No details yet." : "No completion evidence recorded.")}</p>
                   {!showProgress && (
                     <p>

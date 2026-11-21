@@ -66,7 +66,7 @@ async function saveEngineReview({ args, key, action, deal }) {
 }
 
 export function mountHomeMeetingReviews({ document, client, host, engine = false }) {
-  let view = {}, actor = null, handled = new Set(), generation = 0, disposed = false, notice = '', commands;
+  let view = {}, actor = null, handled = new Set(), generation = 0, disposed = false, notice = '', commands, openKey = null;
   const decisions = new Map(), choices = new Map();
   const deals = () => {
     const rows = (view.deals || []).filter(deal => text(deal?.id) && text(deal?.name) && (!engine || uuid(deal.id)));
@@ -93,10 +93,14 @@ export function mountHomeMeetingReviews({ document, client, host, engine = false
         ? `<label>Deal <select data-review-deal="${E(review.key)}" data-home-key="review:${E(review.key)}:deal"${busy || uncertain ? ' disabled' : ''}><option value="">Choose a deal</option>${options.map(deal => `<option value="${E(deal.id)}"${deal.id === chosen ? ' selected' : ''}>${E(deal.name)}</option>`).join('')}</select></label>`
         : view.deals === null ? '<span>Couldn’t load deals. Retry Today to choose a deal.</span>'
           : '<span>No open deals to log this meeting on.</span>';
+      const expanded = openKey === review.key;
+      const answerControls = `${select}<button type="button" class="home-outline" data-review-log="${E(review.key)}" data-home-key="review:${E(review.key)}:log"${busy || dismissing || !chosen ? ' disabled' : ''}>${decision?.action === 'log' && uncertain ? 'Check meeting log' : decision?.action === 'log' && busy ? 'Logging…' : 'It happened'}</button><button type="button" class="home-outline" data-review-dismiss="${E(review.key)}" data-home-key="review:${E(review.key)}:dismiss"${busy || uncertain && !dismissing ? ' disabled' : ''}>${dismissing && uncertain ? 'Check dismissal' : dismissing && busy ? 'Saving…' : 'Dismiss'}</button>`;
       return workCard({ className: 'home-call-task home-meeting-review', attributes: `data-review="${E(review.key)}"`,
-        title: E(review.title), meta: `<time datetime="${E(review.start)}">${E(when(review))}</time>`, status: uncertain ? 'Unconfirmed' : '',
+        title: E(engine ? `${review.title} was scheduled — confirm it happened` : review.title), meta: `${engine ? 'Scheduled for ' : ''}<time datetime="${E(review.start)}">${E(when(review))}</time>`, status: uncertain ? 'Unconfirmed' : '',
         body: `${decision?.error ? `<p class="home-call-task-error" role="alert">${E(decision.error)}</p>` : ''}`,
-        actions: `${select}<button type="button" class="home-outline" data-review-log="${E(review.key)}" data-home-key="review:${E(review.key)}:log"${busy || dismissing || !chosen ? ' disabled' : ''}>${decision?.action === 'log' && uncertain ? 'Check meeting log' : decision?.action === 'log' && busy ? 'Logging…' : 'It happened'}</button><button type="button" class="home-outline" data-review-dismiss="${E(review.key)}" data-home-key="review:${E(review.key)}:dismiss"${busy || uncertain && !dismissing ? ' disabled' : ''}>${dismissing && uncertain ? 'Check dismissal' : dismissing && busy ? 'Saving…' : 'Dismiss'}</button>` });
+        actions: engine
+          ? `<button type="button" class="home-outline" data-review-open="${E(review.key)}" data-home-key="review:${E(review.key)}:open" aria-expanded="${expanded}" aria-controls="meeting-review-${E(review.key)}">Review meeting</button><div class="home-meeting-decision" id="meeting-review-${E(review.key)}"${expanded ? '' : ' hidden'}>${answerControls}</div>`
+          : answerControls });
     }).join('');
     const heading = engine ? '<h3>Did these meetings happen?</h3>' : '<header class="home-panel-head"><h2>Did these meetings happen?</h2><span class="home-period">Last 24 hours</span></header><p class="home-empty">From your Outlook calendar. Pick the deal and log the meeting, or dismiss it.</p>';
     host.innerHTML = `${heading}${notice ? `<p class="home-call-task-notice" role="status">${E(notice)}</p>` : ''}${rows}`;
@@ -140,6 +144,7 @@ export function mountHomeMeetingReviews({ document, client, host, engine = false
       }, action);
       if (disposed || ticket !== generation || actor !== binding) return;
       decisions.delete(review.key); handled.add(review.key);
+      if (openKey === review.key) openKey = null;
       notice = engine ? receipt.notice : action === 'dismiss' ? '' : `Meeting logged on ${deal.name}.`;
     } catch (error) {
       if (disposed || ticket !== generation || actor !== binding) return;
@@ -149,6 +154,12 @@ export function mountHomeMeetingReviews({ document, client, host, engine = false
     render();
   };
   const onClick = event => {
+    const requested = event.target.closest('[data-review-open]')?.dataset.reviewOpen;
+    if (requested) {
+      openKey = openKey === requested ? null : requested;
+      render();
+      return;
+    }
     const logButton = event.target.closest('[data-review-log]'), dismiss = event.target.closest('[data-review-dismiss]');
     const key = logButton?.dataset.reviewLog || dismiss?.dataset.reviewDismiss;
     const review = key && visible().find(row => row.key === key);
@@ -163,7 +174,7 @@ export function mountHomeMeetingReviews({ document, client, host, engine = false
     if (decisions.get(select.dataset.reviewDeal)?.state === 'failed') decisions.delete(select.dataset.reviewDeal);
     render();
   };
-  const retire = () => { generation++; decisions.clear(); choices.clear(); notice = ''; actor = null; handled = new Set(); commands = null; host.replaceChildren(); host.hidden = true; };
+  const retire = () => { generation++; decisions.clear(); choices.clear(); notice = ''; actor = null; handled = new Set(); commands = null; openKey = null; host.replaceChildren(); host.hidden = true; };
   host.addEventListener('click', onClick);
   host.addEventListener('change', onChange);
   return {

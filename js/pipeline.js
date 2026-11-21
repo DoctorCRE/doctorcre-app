@@ -1451,7 +1451,9 @@ function mountChecklist(detail) {
   disposeChecklist();
   const host = $('panelBody').querySelector('[data-detail-read="checklist"]');
   let retired = false, mounted, latest = detail;
-  const props = value => ({dealId: value.deal.id, checklist: value.checklist, showProgress: isEngineDealDetail(value)});
+  const params = new URL(location.href).searchParams;
+  const props = value => ({dealId: value.deal.id, checklist: value.checklist, showProgress: isEngineDealDetail(value),
+    focusedItem: params.get('deal') === value.deal.id ? params.get('checklist') : null});
   checklistPanel = {
     update(value) { latest = value; mounted?.update(props(value)); },
     dispose() { retired = true; mounted?.dispose(); },
@@ -1935,6 +1937,9 @@ function paintPanel(detail) {
     refresh() { return marketTermsViews.get(detail.deal.id)?.mounted.refresh(); },
     dispose() { marketDisposed = true; },
   };
+  const toursParams = new URLSearchParams(location.search);
+  const property = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;
+  const propertyRead = new AbortController();
   let toursDisposed = false, toursLoading = false, toursMounted;
   dealToursPanel = {
     async load() {
@@ -1942,6 +1947,33 @@ function paintPanel(detail) {
       toursLoading = true;
       const root = $('workspace-tours');
       root.textContent = 'Loading tours…';
+      if (property && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(property)) {
+        const toursUrl = `/deals?deal=${encodeURIComponent(detail.deal.id)}&tab=tours`;
+        root.innerHTML = `<section aria-label="Property from tour feedback"><h2 tabindex="-1">Property from tour feedback</h2><p role="status">Loading property…</p><a href="${esc(toursUrl)}">See deal tours</a></section>`;
+        const section = root.firstElementChild;
+        section.querySelector('h2').focus();
+        const params = new URLSearchParams({ property_id: property, as_of: new Date().toISOString() });
+        try {
+          const [{ propertyPanelView }, { data }] = await Promise.all([
+            import('../tours/property-panel.js'),
+            readWithDeadline(async signal => {
+              const response = await sessionFetch(`/api/tours/property-evidence/v1?${params}`, { signal });
+              if (!response.ok) throw Error('Property unavailable');
+              return response.json();
+            }, { signal: propertyRead.signal }),
+          ]);
+          if (toursDisposed) return;
+          if (data?.schema !== 'tour-property-evidence.v1' || data.property_id !== property) throw Error('Property unavailable');
+          const facts = propertyPanelView(data).filter(fact => fact.status === 'reviewed');
+          section.querySelector('[role="status"]').remove();
+          section.insertAdjacentHTML('beforeend', facts.length
+            ? `<dl>${facts.map(fact => `<dt>${esc(fact.label)}</dt><dd>${esc(fact.value)}</dd>`).join('')}</dl>`
+            : '<p>No reviewed property details are recorded.</p>');
+        } catch {
+          if (!toursDisposed) section.querySelector('[role="status"]').textContent = 'Property details are unavailable.';
+        }
+        return;
+      }
       try {
         const [{ mountDealTours }, { createPlannerClient }] = await Promise.all([
           import('./ui-deal-tours.generated.js'), import('../tours/planner-client.js'),
@@ -1960,7 +1992,7 @@ function paintPanel(detail) {
     refresh() { return toursMounted?.refresh(); },
     hasUnsavedChanges() { return toursMounted?.hasUnsavedChanges() || false; },
     confirmLeave() { return toursMounted?.confirmLeave() ?? Promise.resolve(true); },
-    dispose() { toursDisposed = true; toursMounted?.dispose(); },
+    dispose() { toursDisposed = true; propertyRead.abort(); toursMounted?.dispose(); },
   };
   let documentsDisposed = false, documentsLoading = false, documentsMounted;
   const fromEngine = isEngineDealDetail(detail);
@@ -2050,10 +2082,15 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   disposePanelEmailFollowups();
   setContextOpenVisible(false);
   if (!state.panelDeal) boardScroll = history.state?.boardScroll ?? scrollY;
-  workspaceTab = ['tours','client-view'].includes(new URLSearchParams(location.search).get('tab')) ? new URLSearchParams(location.search).get('tab') : 'overview'; timelineType = '';
+  const scope = new URLSearchParams(location.search);
+  workspaceTab = scope.get('deal') === dealId && scope.has('property') ? 'tours'
+    : ['tours','client-view'].includes(scope.get('tab')) ? scope.get('tab') : 'overview';
+  timelineType = '';
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
   const url = new URL(location.href);
   if (!fromHistory && url.searchParams.get('deal') !== dealId) {
+    url.searchParams.delete('checklist');
+    url.searchParams.delete('property');
     url.searchParams.set('deal',dealId);
     writeWorkspaceHistory({...history.state, boardScroll:scrollY}, location.href);
     writeWorkspaceHistory({doctorcreDealWorkspace:true},url,true);
@@ -2119,7 +2156,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   const id = state.panelReturnTo;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
-  if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); writeWorkspaceHistory({},url); }
+  if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); url.searchParams.delete('checklist'); url.searchParams.delete('property'); writeWorkspaceHistory({},url); }
   $('recordPanel').hidden = true; $('main').hidden = false;
   document.body.classList.remove('workspace-open');
   state.panelDeal = null; state.panelDetail = null;
