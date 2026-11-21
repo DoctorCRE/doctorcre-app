@@ -66,9 +66,8 @@
 .pref-form input[type="time"], .pref-form input[type="text"] { box-sizing: border-box; width: 100%; min-height: var(--touch); padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: var(--font-weight-regular) var(--font-size-2)/1.2 var(--font-text); font-variant-numeric: tabular-nums; }
 .pref-form input:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .pref-form input:disabled { color: var(--fg-quiet); border-style: dashed; }
-.switch-field { display: flex; align-items: center; gap: var(--space-3); min-height: var(--touch); }
+.pref-form .switch-field { display: flex; align-items: center; gap: var(--space-3); min-height: var(--touch); color: var(--fg); font-size: var(--font-size-2); font-weight: var(--font-weight-regular); }
 .switch-field input { flex: 0 0 auto; width: 22px; height: 22px; accent-color: var(--fg); }
-.switch-field label { color: var(--fg); font-size: var(--font-size-2); font-weight: var(--font-weight-regular); }
 .pref-summary { padding: var(--space-2) var(--space-3); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); }
 .pref-form[data-quiet="set"] .pref-summary { border-left: 3px solid var(--status-warn); }
 .pref-form[data-quiet="set"] .pref-summary::before { content: "\263E  "; color: var(--status-warn-ink); }
@@ -82,6 +81,10 @@
 @media (min-width: 560px) {
   .pref-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pref-grid .field:last-child { grid-column: 1 / -1; }
+}
+
+@media (max-width: 640px) {
+  .note-link a { display: inline-flex; align-items: center; min-height: var(--touch); }
 }
 
 @media (max-width: 480px) {
