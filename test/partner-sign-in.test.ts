@@ -297,6 +297,136 @@ test("engine browser reads and writes stay on PartnerApp with CARR down", async 
   assert.equal(calls.engine.length + calls.carr.length, 0);
 });
 
+test("Deals actions carry only the engine session to PartnerApp", async (t) => {
+  const deal = "11111111-1111-4111-8111-111111111111";
+  const step = "22222222-2222-4222-8222-222222222222";
+  const key = "33333333-3333-4333-8333-333333333333";
+  const browserHeaders = { ...proofs, cookie: `__Host-dealroom_session=stale; ${cookie}; __Host-dealroom_oauth=stale` };
+  const command = { deal, seen_change_id: 7, idempotency_key: key };
+  const actions = [
+    {
+      name: "board move",
+      requestPath: "/mcp",
+      init: toolsCall("patch-deal-field", {
+        ...command,
+        field: "phase",
+        phase_from: "pending",
+        value: "research",
+        change_reason: "Review complete",
+      }),
+      enginePath: `/api/engine/deals/${deal}/changes`,
+      payload: {
+        idempotency_key: key,
+        seen_change_id: 7,
+        phase: { from: "pending", to: "research", reason: "Review complete" },
+      },
+      receipt: { deal_id: deal, change_id: 8 },
+    },
+    {
+      name: "deal page note",
+      requestPath: "/mcp",
+      init: toolsCall("add-deal-note", { ...command, text: "Confirm the site visit" }),
+      enginePath: "/api/engine/activities",
+      payload: { idempotency_key: key, kind: "note", about: [{ deal_id: deal }], summary: "Confirm the site visit" },
+      receipt: { activity_id: key },
+    },
+    {
+      name: "step done",
+      requestPath: `/api/engine/next-steps/${step}/end`,
+      init: { method: "POST", body: JSON.stringify({ resolution: "done", base_version: 7, idempotency_key: key }) },
+      enginePath: `/api/engine/next-steps/${step}/end`,
+      payload: { resolution: "done", base_version: 7, idempotency_key: key },
+      receipt: { next_step_id: step, status: "done", change_id: 8 },
+    },
+    {
+      name: "deal Updates load",
+      requestPath: "/mcp",
+      init: toolsCall("get-deal-room", { deal }),
+      enginePath: `/api/engine/deals/${deal}`,
+      payload: null,
+      receipt: { deal_id: deal, activities: [{ id: key, summary: "Confirm the site visit" }] },
+    },
+  ];
+  for (const { name, requestPath, init, enginePath, payload, receipt } of actions) {
+    await t.test(name, async () => {
+      const { send, calls } = fixture(
+        (input) => {
+          if (input.headers.get("cookie") !== cookie) return new Response(null, { status: 401 });
+          return Response.json(receipt);
+        },
+        {
+          ENGINE_ROUTING: {
+            get: async (switchKey: string) =>
+              ["deals-from-engine", "deals-saves-from-engine"].includes(switchKey) ? "on" : null,
+          },
+        },
+      );
+      const response = await send(requestPath, { ...init, headers: browserHeaders });
+      assert.equal(response.status, 200);
+      const answer = await response.json();
+      assert.deepEqual(
+        requestPath === "/mcp" ? JSON.parse(answer.result.content[0].text) : answer,
+        requestPath === "/mcp" && payload ? { ...receipt, ok: true } : receipt,
+      );
+      assert.equal(calls.partner.length, 1);
+      const [forwarded] = calls.partner;
+      assert.ok(forwarded);
+      assert.equal(forwarded.url, staging + enginePath);
+      assert.equal(forwarded.method, payload ? "POST" : "GET");
+      assert.equal(forwarded.headers.get("cookie"), cookie);
+      if (payload) {
+        for (const name of ["origin", "sec-fetch-site", "x-carr-csrf"]) {
+          assert.equal(forwarded.headers.get(name), new Headers(proofs).get(name), name);
+        }
+        assert.deepEqual(await forwarded.json(), payload);
+      }
+      assert.equal(calls.carr.length + calls.engine.length, 0);
+    });
+  }
+});
+
+test("the board polling feed uses the engine session until the switched board retires the feed", async () => {
+  for (const boardSwitch of [null, "off", "on"]) {
+    const path = "/pipeline/changes?cursor=example";
+    const feed = { events: [], cursor: "example" };
+    const { send, calls } = fixture(() => Response.json(feed), {
+      ENGINE_ROUTING: { get: async (key: string) => (key === "deals-from-engine" ? boardSwitch : null) },
+    });
+    const response = await send(path, { headers: { cookie: `__Host-dealroom_session=stale; ${cookie}` } });
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    if (boardSwitch === "on") {
+      assert.equal(response.status, 204);
+      assert.equal(calls.partner.length, 0);
+    } else {
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), feed);
+      assert.equal(calls.partner.length, 1);
+      assert.equal(calls.partner[0]?.url, staging + "/api/engine" + path);
+      assert.equal(calls.partner[0]?.headers.get("cookie"), cookie);
+    }
+    assert.equal(calls.carr.length + calls.engine.length, 0);
+  }
+});
+
+test("an expired engine session returns to an old deal link after sign-in", async () => {
+  const { send, calls } = fixture(status);
+  const oldLink = "/pipeline?deal=11111111-1111-4111-8111-111111111111&tab=timeline";
+  const denied = await send(oldLink, { headers: { cookie: "__Host-doctorcre_session=expired" } });
+  assert.equal(denied.status, 302);
+  const login = new URL(denied.headers.get("location") ?? "", staging);
+  assert.equal(login.pathname, "/auth/login");
+  assert.equal(login.searchParams.get("return_to"), oldLink);
+  assert.deepEqual(calls.assets, []);
+  const redirect = await send(oldLink, { headers: { cookie } });
+  assert.equal(redirect.status, 308);
+  const deal = new URL(redirect.headers.get("location") ?? "", staging);
+  assert.equal(deal.pathname, "/deals");
+  assert.equal(deal.searchParams.get("deal"), "11111111-1111-4111-8111-111111111111");
+  assert.equal(deal.searchParams.get("tab"), "timeline");
+  assert.equal(await (await send(deal.pathname + deal.search, { headers: { cookie } })).text(), "/pipeline.html");
+  assert.equal(calls.carr.length + calls.engine.length, 0);
+});
+
 test("engine partner saves refuse an old-system handoff", async () => {
   const { send, calls } = fixture(() => Response.json({ error: "old_system_required" }, { status: 501 }), {
     ENGINE_ROUTING: {
@@ -319,6 +449,19 @@ test("CARR mode keeps its existing auth, page and API destinations", async () =>
   assert.equal(await (await send("/leads")).text(), "/leads.html");
   assert.deepEqual(await (await send("/api/engine/leads")).json(), { legacy: true });
   assert.equal(calls.partner.length, 0);
+});
+
+test("missing, off and carr sign-in settings keep CARR's board feed", async () => {
+  const legacyCookie = "__Host-dealroom_session=synthetic";
+  for (const setting of [undefined, "off", "carr"]) {
+    const { send, calls } = fixture(null, {
+      PARTNER_SIGN_IN: setting,
+      CARR: { fetch: async (input: Request) => Response.json({ events: [], session: input.headers.get("cookie") }) },
+    });
+    const response = await send("/pipeline/changes", { headers: { cookie: legacyCookie } });
+    assert.deepEqual(await response.json(), { events: [], session: legacyCookie });
+    assert.equal(calls.partner.length + calls.engine.length, 0);
+  }
 });
 
 test("Ask Doc uses the engine page gate and forwards writes only to PartnerApp", async () => {

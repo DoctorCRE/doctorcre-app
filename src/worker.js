@@ -34,6 +34,7 @@ const WORKSPACE_GATES = new Set([
 ]);
 const PARTNER_HEADERS = ['accept', 'content-type', 'content-length', 'cookie', 'origin',
   'sec-fetch-site', 'x-carr-csrf', 'x-correlation-id', 'user-agent'];
+const PARTNER_SESSION_COOKIE = '__Host-doctorcre_session=';
 
 function gateRequestFor(request, pathname) {
   const gatePath = GATE_PATHS.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
@@ -85,7 +86,14 @@ async function engineFetch(request, env) {
     const value = request.headers.get(key);
     if (value !== null) headers.set(key, value);
   }
-  if ((request.method === 'GET' || request.method === 'HEAD') && new URL(request.url).pathname === '/api/engine/find' &&
+  const path = new URL(request.url).pathname;
+  if (path.startsWith('/api/engine/') && headers.has('cookie')) {
+    const session = headers.get('cookie').split(';').map(cookie => cookie.trim())
+      .filter(cookie => cookie.startsWith(PARTNER_SESSION_COOKIE)).join('; ');
+    if (session) headers.set('cookie', session);
+    else headers.delete('cookie');
+  }
+  if ((request.method === 'GET' || request.method === 'HEAD') && path === '/api/engine/find' &&
       request.headers.get('x-doctorcre-search') === 'search.v1')
     headers.set('x-doctorcre-search', 'search.v1');
   return noStore(await env.PARTNER_APP.fetch(new Request(request, { headers, redirect: 'manual' })));
@@ -1079,8 +1087,13 @@ async function handleRequest(request, env) {
     return response;
   }
 
-  if (pathname === '/pipeline/changes' && await switchedOn(env, DEALS)) {
-    return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+  if (pathname === '/pipeline/changes') {
+    if (await switchedOn(env, DEALS))
+      return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+    if (engineSignIn(env)) {
+      url.pathname = '/api/engine/pipeline/changes';
+      return engineFetch(new Request(url, request), env).catch(() => json({ error: 'engine_unavailable' }, 503));
+    }
   }
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     const call = await mcpCall(request, url);

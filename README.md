@@ -129,6 +129,12 @@ the app release adds the binding. In engine mode, keep
 `WORKSPACE_COMMAND_CENTER_READ_ENABLED` aligned with the corresponding CARR
 environment until the old gate is removed. See the
 [partner sign-in cutover plan](https://github.com/DoctorCRE/doctorcre-engine/blob/main/docs/sign-in.md#switch-after-hours-with-advance-notice).
+
+In engine sign-in mode, the app forwards only the engine session cookie on
+engine API requests. PartnerApp serves the board's polling feed when
+`deals-from-engine` is off. When that switch is on, the app retires the
+polling feed with a 204 response.
+
 `npm run release:production` consumes the prepared artifact, replaces `dist/site`
 from its verified source bytes, and runs only provider upload, promotion and
 readback commands. It refuses a missing `CLOUDFLARE_API_TOKEN`. Run publication from a clean
