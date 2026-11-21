@@ -62,8 +62,9 @@ for (const scenario of [
         body = `<button class="tour-button">Open Tour</button>${open ? tour.replace("<details ", "<details open ") : tour}`;
       else if (url.pathname === "/vendors") {
         body = `<details ${open ? "open" : ""} class="vendor-meetings"><summary>People</summary><section role="region" aria-label="People worth meeting"><label>Search people and offices <input type="search"></label></section></details><ul id="recordList"><li><button>Vendor</button></li></ul><div id="scrollSentinel" ${scenario.includes("pagination") ? "" : "hidden"}>More</div>`;
+        // Anchoring to the sentinel can trigger another scroll when a row is appended.
         if (scenario.includes("pagination"))
-          body += `<style>#recordList { overflow-anchor: none } #scrollSentinel { margin-top: 1200px }</style><script>
+          body += `<style>html { overflow-anchor: none } #scrollSentinel { margin-top: 1200px }</style><script>
             const marker = document.querySelector("#scrollSentinel");
             window.addEventListener("scroll", () => {
               if (marker.hidden || marker.getBoundingClientRect().top >= innerHeight) return;
