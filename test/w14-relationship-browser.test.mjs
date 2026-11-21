@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { readFile, mkdir } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { componentDocument, animationsSettled, chromium, waitForAsync } from "./browser-harness.mjs";
+import { isUiAsset, uiAssets } from "../scripts/ui-bundle.mjs";
 import { relationshipNetworkFixture } from "../js/relationship-network-fixture.js";
 import axe from "axe-core";
 const root = new URL("../", import.meta.url);
+const assets = await uiAssets(path => readFile(new URL(path, root)));
 async function open(t, width = 1440) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
@@ -123,8 +125,10 @@ async function open(t, width = 1440) {
           ? "relationships.html"
           : url.pathname.slice(1);
     try {
+      const body = isUiAsset(file) ? assets.get(file) : await readFile(new URL(file, root));
+      if (!body) return r.fulfill({ status: 404, body: "" });
       return r.fulfill({
-        body: await readFile(new URL(file, root)),
+        body,
         contentType: /\.m?js$/.test(file)
           ? "text/javascript"
           : file.endsWith(".css")
@@ -183,10 +187,10 @@ for (const width of [1440, 390])
     const h = await open(t, width),
       { page } = h;
     await page.goto("http://localhost/relationships?mode=live");
-    const title = await page.getByRole("heading", { level: 1, name: "Relationships" }).boundingBox();
-    assert.ok(title.y < (await page.getByRole("tab", { name: "Network" }).boundingBox()).y);
-    await page.waitForSelector(width === 390 ? "#networkNodes button" : ".relationship-node");
     await page.waitForSelector("#appTabsSlot #graphTab");
+    const title = await page.getByRole("heading", { level: 1, name: "Relationships" }).boundingBox();
+    assert.ok(title.y < (await page.getByRole("tab", { name: "Network" }).boundingBox()).y, "Relationships title is above the Network tab");
+    await page.waitForSelector(width === 390 ? "#networkNodes button" : ".relationship-node");
     assert.equal(await page.locator("#appLayout").count(), 1);
     assert.equal(await page.locator("#appTabsSlot #graphTab").count(), 1);
     assert.equal(
