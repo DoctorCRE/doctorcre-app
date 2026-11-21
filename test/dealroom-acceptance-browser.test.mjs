@@ -338,7 +338,7 @@ for (const width of [1440, 390]) {
     assert.equal(await card(flagged).getByText('Needs attention', { exact: true }).isVisible(), true);
 
     await page.goto(url);
-    await card(late).getByRole('img', { name: 'Needs attention: Step 1 day late', exact: true }).waitFor();
+    await card(late).getByRole('button', { name: 'Needs attention: Step 1 day late', exact: true }).waitFor();
     const phases = ['Prospective Client', 'Research', 'Site Selection', 'Negotiating', 'Legal', 'Due Diligence', 'Closing'];
     for (const name of phases) {
       assert.equal(await page.getByRole('region', { name: `${name}, ${name === 'Research' ? 2 : 0} cards`, exact: true }).isVisible(), true);
@@ -959,12 +959,12 @@ for (const width of [1440, 390]) {
       const onlyStep = page.locator(`article[data-id="${singleStep.id}"]`);
       if (view === 'Board') {
         assert.equal(visibleText.replace(/\s+/g, ' '), `${deal.name} Dell Needs attention`);
-        assert.equal(await card.getByRole('img', { name: 'Needs attention: Step 1 day late', exact: true }).count(), 1);
+        assert.equal(await card.getByRole('button', { name: 'Needs attention: Step 1 day late', exact: true }).count(), 1);
         assert.equal((await empty.innerText()).replace(/\s+/g, ' '), `${checklistOnly.name} Dell`);
         assert.equal((await onlyStep.innerText()).replace(/\s+/g, ' '), `${singleStep.name} Dell`);
         const flaggedCard = page.locator(`article[data-id="${flagged.id}"]`);
         assert.equal((await flaggedCard.innerText()).replace(/\s+/g, ' '), `${flagged.name} Dell Needs attention`);
-        assert.equal(await flaggedCard.getByRole('img', { name: 'Needs attention: Flagged by a partner', exact: true }).count(), 1);
+        assert.equal(await flaggedCard.getByRole('button', { name: 'Needs attention: Flagged by a partner', exact: true }).count(), 1);
       } else {
         assert.match(visibleText, /Send the floor plan.*Due Wed, Nov 18.*1 day late/);
         assert.doesNotMatch(visibleText, /Call the architect|\d+ days late|overdue|Still needed|Last:/);
@@ -3010,8 +3010,10 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   const fixtureOrigin = await dealFixtureOrigin(t);
   const deal = crypto.randomUUID();
   const row = { id: deal, deal_id: deal, name: 'Example Deal', owner: 'joe', phase: 'research', seen: 23 };
-  const own = { id: crypto.randomUUID(), description: 'Send the sample plan', owner: 'joe', due_on: '2026-11-24', status: 'open', change_id: 10 };
-  const other = { id: crypto.randomUUID(), description: 'Check the sample lease', owner: 'dell', due_on: '2026-11-25', status: 'open', change_id: 11 };
+  const own = { id: crypto.randomUUID(), description: 'Send the sample plan', owner: 'joe', due_on: '2026-11-24', status: 'open', change_id: 10,
+    set_by: 'Example Partner', set_at: '2026-10-29T13:51:00Z' };
+  const other = { id: crypto.randomUUID(), description: 'Check the sample lease', owner: 'dell', due_on: '2026-11-25', status: 'open', change_id: 11,
+    set_by: null, set_at: '2026-10-30T14:30:00Z' };
   const writes = [];
   let ownReceipt;
   const env = {
@@ -3056,13 +3058,22 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
 
   await page.goto(`${fixtureOrigin}/deals?deal=${deal}&mode=live`);
   const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
-  await snapshot.getByText(own.description, { exact: true }).waitFor();
+  const steps = snapshot.getByRole('region', { name: 'Next steps' });
+  const stepRow = step => steps.getByRole('listitem').filter({ hasText: step.description });
+  await stepRow(own).getByText('Set by Example Partner · Oct 29, 8:51 AM CDT', { exact: true }).waitFor();
+  await stepRow(other).getByText('Set Oct 30, 9:30 AM CDT', { exact: true }).waitFor();
   const capture = (region, stage) => region.screenshot({ path: join(evidence, `deal-step-${stage}-${width}-${theme}.png`), animations: 'disabled' });
   await capture(snapshot, 'open');
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
-  const done = snapshot.getByRole('button', { name: 'Done', exact: true });
+  const done = steps.getByRole('button', { name: 'Done', exact: true });
+  const buttonStyle = button => button.evaluate(el => {
+    const { backgroundColor, borderTopColor, borderTopStyle, borderTopWidth, borderRadius, color } = getComputedStyle(el);
+    return { backgroundColor, borderTopColor, borderTopStyle, borderTopWidth, borderRadius, color };
+  });
+  const secondaryStyle = await buttonStyle(page.getByRole('button', { name: 'Mark needs attention', exact: true }));
   assert.equal(await done.count(), 2);
   for (const button of await done.all()) {
+    assert.deepEqual(await buttonStyle(button), secondaryStyle, 'Done matches the bordered secondary action');
     await button.scrollIntoViewIfNeeded();
     assert.ok(await button.evaluate(el => {
       const { x, y, width, height } = el.getBoundingClientRect();
@@ -3070,6 +3081,13 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
     }), 'Done has an unobstructed 44 px touch target');
   }
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await done.first().focus();
+  await page.keyboard.press('Tab');
+  assert.ok(await done.last().evaluate(el => {
+    const { outlineStyle, outlineWidth } = getComputedStyle(el);
+    return el.matches(':focus-visible') && outlineStyle === 'solid' && parseFloat(outlineWidth) > 0;
+  }), 'Tab reaches Done and shows a focus ring');
+  await capture(page, 'focus');
 
   other.description = 'Check the revised sample lease';
   other.change_id = 15;

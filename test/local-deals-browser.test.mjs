@@ -1225,8 +1225,8 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     await page.locator('#recordPanel').waitFor({ state: 'hidden' });
     await page.locator('#parkedToggle').click();
     const parked = page.locator('.parked-card[data-id="d14"]');
-    await parked.getByText('Other', { exact: true }).waitFor();
-    assert.equal((await parked.innerText()).replace(/\s+/g, ' '), `${dealName} Joe Other`);
+    await parked.getByText('Parked', { exact: true }).waitFor();
+    assert.equal((await parked.innerText()).replace(/\s+/g, ' '), `${dealName} Joe Parked`);
     assert.equal(await originalColumn.locator('[data-id="d14"]').count(), 0);
     await parked.screenshot({ path: new URL(`${width}-card.png`, artifacts).pathname });
     await parked.getByRole('button', { name: dealName, exact: true }).press('Enter');

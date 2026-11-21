@@ -109,6 +109,9 @@
 .deal-attention-label { display: block; flex-basis: 100%; color: var(--status-warn-ink); }
 .deal-board-badge, #prospectsLane .work-card--tile .work-card-status { padding: 2px var(--space-1); border-radius: var(--radius-1); background: color-mix(in srgb, var(--status-warn) 12%, var(--surface-2)); color: var(--status-warn-ink); }
 .parked-card .deal-board-badge { background: color-mix(in srgb, var(--status-hold) 12%, var(--surface-2)); color: var(--status-hold-ink); }
+.deal-board-attention { min-width: var(--touch); min-height: var(--touch); padding: 0; border: 0; background: transparent; font: inherit; cursor: pointer; }
+.deal-board-attention .deal-board-badge { display: inline-block; text-decoration: underline; text-underline-offset: 3px; }
+.deal-board-reason { flex-basis: 100%; padding-bottom: var(--space-1); color: var(--fg); cursor: text; }
 .attention-flag { display: inline-flex; align-items: center; min-width: var(--touch); min-height: var(--touch); padding: 0 var(--space-1); border: 0; background: transparent; color: var(--status-warn-ink); font: inherit; font-size: var(--font-size-1); font-weight: var(--font-weight-strong); white-space: nowrap; text-decoration: underline; text-decoration-color: var(--hairline); text-underline-offset: 4px; cursor: pointer; }
 .attention-flag:hover { text-decoration-color: currentColor; }
 .stages-hidden { display: none; }
@@ -416,6 +419,5 @@ button.client-portal-link:disabled { cursor: wait; }
 }
 .deal-open-steps li + li { border-top: var(--hairline-width) solid var(--hairline); }
 .deal-open-steps :is(p, small) { margin: 0; color: var(--fg-muted); }
-.deal-open-steps button { color: var(--accent-ink); }
 .deal-open-steps button[aria-disabled="true"] { color: var(--fg-muted); cursor: wait; }
 #detailStepStatus:empty { margin: 0; }
