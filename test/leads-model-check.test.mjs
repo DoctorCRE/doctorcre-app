@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BOARD_STAGES,FILTER_STAGES,eligibleLead,leadTitle,visibleLeads,marketCounts,stageReview,undoReview } from '../js/leads-model.js';
 import {marketFeatures,marketLocation} from '../js/leads-territory-map.js';
-import {lead,leads,detail,workspace,id} from './leads-workspace-fixture.mjs';
-import { chromium } from './browser-harness.mjs';
-import { routeLeads } from './leads-browser-fixture.mjs';
+import {lead,leads,detail,workspace,id,emptyQuietFollowUps} from './leads-workspace-fixture.mjs';
+import { readFile } from 'node:fs/promises';
+import { JSDOM } from 'jsdom';
+import { mountLeadsWorkspace } from '../js/leads-workspace-app.js';
 const projectMarkets = (rows, places) => marketFeatures(marketCounts(rows, {}, row => marketLocation(row, places)));
 test('six stages, filter-only archive, exact lifecycle exclusions, suppression everywhere',()=>{
  assert.deepEqual(BOARD_STAGES.map(x=>x[1]),['New','Qualified','Outreach Active','Engaged','Nurture','Opportunity']);
@@ -146,28 +147,24 @@ test('stage clock orders exact fractional instants before limiting evidence', ()
  assert.deepEqual(stageReview({correspondence:entries},'engaged').evidence.map(row=>row.id),['1','3','0']);
 });
 
-test('source email shows its saved summary and original, including outside the correspondence page', async t => {
-  const browser = await chromium.launch();
-  t.after(() => browser.close());
-  const page = await browser.newPage();
-  const row = lead(1);
-  const source = { id: id(800), kind: 'email', occurred_at: '2020-01-01T10:00:00Z', summary: 'Saved summary', detail: 'Full original email\nSecond paragraph' };
-  await routeLeads(page, { getBoard: () => ({ ...workspace(), leads: [row] }), getDetail: () => ({ ...detail(row), correspondence_page: { total: 3, has_more: true, next_cursor: { occurred_at: '2026-09-30T12:00:00Z', id: id(601) } }, source_email: source }) });
-  await page.goto('http://localhost/leads');
-  await page.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
-  const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Source email', exact: true }) });
-  await panel.getByText('Saved summary', { exact: true }).waitFor();
-  await panel.getByText('Details', { exact: true }).click();
-  assert.equal(await panel.getByText('Full original email Second paragraph', { exact: true }).isVisible(), true);
-});
 
-test('source email falls back to its body when no summary exists', async t => {
-  const browser = await chromium.launch();
-  t.after(() => browser.close());
-  const page = await browser.newPage();
-  const row = lead(1);
-  await routeLeads(page, { getBoard: () => ({ ...workspace(), leads: [row] }), getDetail: () => ({ ...detail(row), source_email: { id: id(800), kind: 'email', occurred_at: '2020-01-01T10:00:00Z', summary: '', detail: 'Original email body' } }) });
-  await page.goto('http://localhost/leads');
-  await page.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
-  await page.locator('p').getByText('Original email body', { exact: true }).waitFor();
+test('source email displays the saved summary and original outside the current page, with a body fallback', async () => {
+ const dom = new JSDOM(await readFile(new URL('../leads.html', import.meta.url), 'utf8'), { url: 'https://example.test/leads', pretendToBeVisual: true });
+ const w = dom.window, d = w.document, board = workspace();
+ w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+ w.HTMLDialogElement.prototype.close = function () { this.open = false; };
+ const source = { id: id(800), kind: 'email', occurred_at: '2020-01-01T10:00:00Z', summary: 'Saved summary', detail: 'Original email body' };
+ const client = { getActor: async () => 'example-partner', getWorkspace: async () => board, getQuietFollowUps: async () => emptyQuietFollowUps(), getLeadDetail: async () => ({ detail: { ...detail(board.leads[0]), correspondence_page: { total: 3, has_more: true, next_cursor: { occurred_at: '2026-09-30T12:00:00Z', id: id(601) } }, source_email: source } }) };
+ const app = mountLeadsWorkspace(d, client, { mapFactory: async () => ({ update() {}, dispose() {} }) });
+ try {
+  await app.refresh();
+  await app.readDetail(board.leads[0].id);
+  let panel = [...d.querySelectorAll('.detail-panel')].find(node => node.querySelector('h3')?.textContent === 'Source email');
+  assert.equal(panel.querySelector('p').textContent, 'Saved summary');
+  assert.equal(panel.querySelector('details .original-entry').textContent, 'Original email body');
+  source.summary = '';
+  await app.readDetail(board.leads[0].id);
+  panel = [...d.querySelectorAll('.detail-panel')].find(node => node.querySelector('h3')?.textContent === 'Source email');
+  assert.equal(panel.querySelector('p').textContent, 'Original email body');
+ } finally { app.dispose(); w.close(); }
 });
