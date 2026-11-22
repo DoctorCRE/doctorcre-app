@@ -24,3 +24,27 @@ test('linked drafts keep Leads selected in the shared navigation', async () => {
   const { activeDestination } = await import('../js/navigation.js');
   assert.equal(activeDestination(path), '/leads');
 });
+
+test('retired action links show the unavailable page after the Home gate', async () => {
+  for (const kind of ['cr', 'fe']) {
+    const ref = `al1_${Buffer.from(`${kind}:11111111-1111-4111-8111-111111111111:1`).toString('base64url')}`;
+    const response = await handleDoctorcreRequest(new Request(`https://app.doctorcre.com/a/${ref}`), {
+      CARR: { fetch: async () => new Response(null, {status: 200}) },
+      ASSETS: { fetch: async () => new Response('legacy page') },
+    });
+    assert.equal(response.status, 404);
+    const html = await response.text();
+    assert.match(html, /This link is no longer available/);
+    assert.match(html, /href="\/"/);
+  }
+});
+
+test('unknown and malformed refs retain the legacy route', async () => {
+  for (const ref of ['unknown', 'al1_Y3I6invalid', `al1_${Buffer.from('xx:11111111-1111-4111-8111-111111111111:1').toString('base64url')}`]) {
+    const response = await handleDoctorcreRequest(new Request(`https://app.doctorcre.com/a/${ref}`), {
+      CARR: { fetch: async () => new Response(null, {status: 200}) },
+      ASSETS: { fetch: async () => new Response('legacy page') },
+    });
+    assert.equal(await response.text(), 'legacy page');
+  }
+});

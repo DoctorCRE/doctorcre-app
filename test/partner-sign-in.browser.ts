@@ -76,6 +76,10 @@ const dealDetail = {
   activities: [{ id: activityId, kind: "call", summary: callSummary, occurred_at: "2026-01-01T12:00:00Z" }],
   thread: [{ id: noteId, kind: "note", actor: "joe", text: noteSummary, created_at: "2026-01-02T12:00:00Z" }],
 };
+const closingAnniversaries = "/api/engine/closing-anniversaries";
+const carrAnniversaries = "/api/v1/intelligence/client-anniversary-read";
+const anniversaryClientId = "00000000-0000-4000-8000-000000000001";
+const anniversaryClientName = "Demo Practice 01";
 const invoiceDay = "2026-10-02";
 const invoiceName = "Demo Harbor Renewal";
 const invoicePath = "/api/engine/invoices";
@@ -143,6 +147,7 @@ async function app(
     documentText,
     documents = [filedDocument],
     tourDeal,
+    readAnniversaries,
     tourFeedback = false,
     callReview,
   }: {
@@ -153,6 +158,7 @@ async function app(
     switchDay?: boolean;
     holdDocIssue?: Promise<void>;
     tourDeal?: () => object;
+    readAnniversaries?: (request: Request) => Response;
     tourFeedback?: boolean;
     callReview?: (request: Request) => Response | Promise<Response>;
     readAttribution?: (request: Request) => Response | Promise<Response>;
@@ -216,6 +222,7 @@ async function app(
         const call = path === "/mcp" ? await input.json() : null;
         if (call) carrTools.push(call.params.name);
         if (signIn === "carr") {
+          if (path === carrAnniversaries && readAnniversaries) return readAnniversaries(input);
           if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
           if (path.startsWith("/api/v1/business/vendors")) return Response.json(directoryFixture(input.url));
           if (path === "/api/v1/market-terms/read") {
@@ -284,6 +291,7 @@ async function app(
         const token = input.headers.get("cookie")?.match(/__Host-doctorcre_session=([^;]+)/)?.[1];
         if (!token || !live.has(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
         partnerReads.set(url.pathname + url.search, input.headers.get("cookie"));
+        if (path === closingAnniversaries && readAnniversaries) return readAnniversaries(input);
         if (path === expiredPath) return Response.json({ error: "unauthorized" }, { status: 401 });
         const csrfToken = "fixture-" + token;
         if (path === "/auth/session")
@@ -476,7 +484,7 @@ async function app(
           return documentText === "missing"
             ? Response.json({ error: "not_found" }, { status: 404 })
             : Response.json({ pages: documentText });
-        if (path.startsWith("/api/engine/vendors")) {
+        if (/^\/api\/engine\/(clients|vendors)(?:\/|$)/.test(path)) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
           url.pathname = path.replace("/api/engine", "/api/v1/business");
           return Response.json(directoryFixture(url.href));
@@ -557,6 +565,139 @@ async function app(
     },
   };
 }
+
+test("Closing anniversaries shows all 21 engine matches and opens records with blank names", async (t) => {
+  const rows = Array.from({ length: 21 }, (_, index) => ({
+    client_id: anniversaryClientId,
+    client_name: index === 1 ? "" : anniversaryClientName,
+    deal_id: index === 0 ? dealId : `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
+    deal_name: index === 0 ? "  " : `Demo closing ${index + 1}`,
+    closed_on: "2024-12-01",
+    anniversary_on: "2026-12-01",
+    years: 2,
+    days_until: 10,
+  }));
+  const { server, context, partnerReads, carrChecks } = await app(t, {
+    readAnniversaries: () => Response.json(rows),
+  });
+  const page = await context.newPage();
+  // Loopback pages need an explicit live mode to exercise the destination reads.
+  await page.addInitScript(() => {
+    const url = new URL(location.href);
+    if (url.searchParams.has("record") || url.searchParams.has("deal")) {
+      url.searchParams.set("mode", "live");
+      history.replaceState(history.state, "", url);
+    }
+  });
+  const oldRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === carrAnniversaries) oldRequests.push(request.url());
+  });
+
+  await page.goto(server.origin + "/leases?mode=live");
+  const panel = page.getByRole("region", { name: "Closing anniversaries" });
+  await panel.getByRole("link", { name: "Demo closing 21" }).or(panel.getByRole("alert")).waitFor({ timeout: 5000 });
+  assert.equal(await panel.getByRole("listitem").count(), 21);
+  assert.equal(await panel.getByText(/covers deals closed before|showing the next 20|first slice/i).count(), 0);
+  assert.equal(partnerReads.get(closingAnniversaries), `${cookieName}=first`);
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  assert.equal(
+    await page.getByRole("link", { name: "Closing anniversaries", exact: true }).getAttribute("href"),
+    "/leases",
+  );
+  await panel.getByRole("link", { name: "Unnamed client", exact: true }).click();
+  await page.getByRole("dialog", { name: anniversaryClientName }).waitFor({ timeout: 5000 });
+  assert.equal(new URL(page.url()).searchParams.get("record"), anniversaryClientId);
+
+  await page.goto(server.origin + "/leases?mode=live");
+  await panel.getByRole("link", { name: "Unnamed deal", exact: true }).click();
+  await page
+    .getByRole("main", { name: "Deal Workspace" })
+    .getByRole("heading", { name: dealName })
+    .waitFor({ timeout: 5000 });
+  assert.equal(new URL(page.url()).searchParams.get("deal"), dealId);
+  assert.equal(carrChecks(), 0);
+  assert.deepEqual(oldRequests, []);
+});
+
+test("Closing anniversaries shows the plain empty state with an empty engine window", async (t) => {
+  const { server, context, partnerReads } = await app(t, { readAnniversaries: () => Response.json([]) });
+  const page = await context.newPage();
+  await page.goto(server.origin + "/leases?mode=live");
+  const panel = page.getByRole("region", { name: "Closing anniversaries" });
+  await panel.getByText("No closing anniversaries in the next 30 days.", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(await panel.getByText(/covers deals closed before|showing the next 20|first slice/i).count(), 0);
+  assert.equal(await panel.getByRole("listitem").count(), 0);
+  assert.equal(partnerReads.get(closingAnniversaries), `${cookieName}=first`);
+});
+
+test("Closing anniversaries retries a failed engine read", async (t) => {
+  let reads = 0;
+  const { server, context } = await app(t, {
+    readAnniversaries: () => (++reads === 1 ? new Response(null, { status: 503 }) : Response.json([])),
+  });
+  const page = await context.newPage();
+  await page.goto(server.origin + "/leases?mode=live");
+  const panel = page.getByRole("region", { name: "Closing anniversaries" });
+  await panel
+    .getByRole("alert")
+    .getByText("Closing anniversaries could not be loaded. Try again.")
+    .waitFor({ timeout: 5000 });
+  assert.equal(reads, 1);
+  await panel.getByRole("button", { name: "Retry closing anniversaries" }).click();
+  await panel.getByText("No closing anniversaries in the next 30 days.", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(reads, 2);
+});
+
+test("Closing anniversaries rejects an engine response with a missing record ID or date", async (t) => {
+  const row = {
+    client_id: anniversaryClientId,
+    client_name: anniversaryClientName,
+    deal_id: dealId,
+    deal_name: dealName,
+    closed_on: "2024-12-01",
+    anniversary_on: "2026-12-01",
+    years: 2,
+    days_until: 10,
+  };
+  for (const missing of ["client_id", "anniversary_on"]) {
+    await t.test(`missing ${missing}`, async (t) => {
+      const { server, context } = await app(t, {
+        readAnniversaries: () => Response.json([row, { ...row, [missing]: undefined }]),
+      });
+      const page = await context.newPage();
+      await page.goto(server.origin + "/leases?mode=live");
+      const panel = page.getByRole("region", { name: "Closing anniversaries" });
+      await panel.getByRole("button", { name: "Retry closing anniversaries" }).waitFor({ timeout: 5000 });
+      assert.equal(await panel.getByRole("listitem").count(), 0);
+    });
+  }
+});
+
+test("Closing anniversaries on CARR keeps its bounded Lease Radar snapshot", async (t) => {
+  const { more } = JSON.parse(
+    await readFile(new URL("./fixtures/client-anniversary-panel/recordings.json", import.meta.url), "utf8"),
+  );
+  const requests: string[] = [];
+  const { server, context, partnerReads } = await app(t, {
+    signIn: "carr",
+    readAnniversaries: (request) => {
+      const url = new URL(request.url);
+      requests.push(url.pathname + url.search);
+      return Response.json(more.output);
+    },
+  });
+  const page = await context.newPage();
+  await page.goto(server.origin + "/leases?mode=live");
+  const panel = page.getByRole("region", { name: "Closing anniversaries" });
+  await panel
+    .getByText("More anniversary rows exist. This first slice shows at most 20.", { exact: true })
+    .waitFor({ timeout: 5000 });
+  assert.equal(await panel.getByRole("listitem").count(), 20);
+  await panel.getByText(/As of .* Scanned .* Skipped invalid/).waitFor({ timeout: 5000 });
+  assert.deepEqual(requests, [carrAnniversaries + "?horizon_days=30&limit=20&offset=0"]);
+  assert.equal(partnerReads.size, 0);
+});
 
 test("Home and the old Updates link load on the engine session and handle expiry", async (t) => {
   const { server, context, partnerReads, carrChecks, expireOn } = await app(t);
@@ -695,7 +836,7 @@ test("unavailable engine action links show the same page for missing and retired
   const { server, context, partnerReads, carrChecks } = await app(t);
   const page = await context.newPage();
   const id = "44444444-4444-4444-8444-444444444444";
-  for (const ref of ["missing", actionLinkRef(`cr:${id}:1`), actionLinkRef(`fe:${id}`)]) {
+  for (const ref of ["missing", actionLinkRef(`fe:${id}`)]) {
     const response = await page.goto(server.origin + `/a/${ref}?mode=live`);
     assert.ok(response);
     assert.equal(response.status(), 404);
@@ -705,6 +846,23 @@ test("unavailable engine action links show the same page for missing and retired
     assert.equal(partnerReads.get(actionResolver + ref), `${cookieName}=first`);
   }
   assert.equal(carrChecks(), 0);
+});
+
+test("retired action links show Home at both screen sizes and sign-ins", async (t) => {
+  const id = "44444444-4444-4444-8444-444444444444";
+  for (const signIn of ["engine", "carr"] as const) {
+    const { server, context } = await app(t, { signIn });
+    const page = await context.newPage();
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const kind of ["cr", "fe"]) {
+        const response = await page.goto(server.origin + `/a/${actionLinkRef(`${kind}:${id}:1`)}?mode=live`);
+        assert.equal(response?.status(), 404);
+        await page.getByRole("heading", { name: "This link is no longer available", exact: true }).waitFor();
+        assert.equal(await page.getByRole("link", { name: "Back to Home" }).getAttribute("href"), "/");
+      }
+    }
+  }
 });
 
 test("a CARR action link still opens the approval screen through its legacy resolver", async (t) => {

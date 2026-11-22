@@ -12,14 +12,13 @@ type Row = {
   anniversary_on: string;
   days_until: number;
   years: number;
-  evidence_ref: string;
 };
 type Snapshot = {
   schema_version: "client-anniversary-read.v1";
   state: "ready" | "empty" | "unavailable" | "needs_input";
   as_of: string;
   timezone: "America/Chicago";
-  rows: Row[];
+  rows: (Row & { evidence_ref: string })[];
   coverage: { scanned: number; skipped_invalid: number; complete: boolean };
   next_offset: number | null;
 };
@@ -33,6 +32,22 @@ const date = (v: unknown): v is string =>
   Number.isFinite(Date.parse(v + "T00:00:00Z")) &&
   new Date(v + "T00:00:00Z").toISOString().slice(0, 10) === v;
 const label = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
+function isAnniversaryRow(v: unknown): v is Row & Record<string, unknown> {
+  return (
+    object(v) &&
+    label(v.client_id) &&
+    typeof v.client_name === "string" &&
+    label(v.deal_id) &&
+    typeof v.deal_name === "string" &&
+    date(v.closed_on) &&
+    date(v.anniversary_on) &&
+    integer(v.days_until) &&
+    v.days_until <= 30 &&
+    integer(v.years) &&
+    v.years >= 1
+  );
+}
+
 function parseClientAnniversaries(v: unknown): Snapshot {
   if (
     !object(v) ||
@@ -64,18 +79,10 @@ function parseClientAnniversaries(v: unknown): Snapshot {
     throw Error("Anniversary coverage unavailable");
   const rows = v.rows.map((r: unknown) => {
     if (
-      !object(r) ||
-      !label(r.client_id) ||
+      !isAnniversaryRow(r) ||
       !label(r.client_name) ||
-      !label(r.deal_id) ||
       !label(r.deal_name) ||
-      !date(r.closed_on) ||
       r.closed_on > String(v.as_of) ||
-      !date(r.anniversary_on) ||
-      !integer(r.days_until) ||
-      r.days_until > 30 ||
-      !integer(r.years) ||
-      r.years < 1 ||
       !integer(r.deal_version) ||
       r.deal_version < 1 ||
       !integer(r.client_version) ||
@@ -113,16 +120,32 @@ function parseClientAnniversaries(v: unknown): Snapshot {
   };
 }
 
+async function fetchAnniversaries(path: string, signal?: AbortSignal, fetchImpl?: typeof fetch): Promise<Response> {
+  const { fetchRead } = await sibling("./auto-refresh.mjs");
+  const request = fetchImpl ?? (await sibling("./private-session.js")).sessionFetch;
+  return fetchRead(
+    path,
+    { credentials: "same-origin", cache: "no-store", signal, headers: { accept: "application/json" } },
+    { fetchImpl: request },
+  );
+}
+
+async function readEngineAnniversaries(signal: AbortSignal): Promise<Row[]> {
+  const response = await fetchAnniversaries("/api/engine/closing-anniversaries", signal);
+  if (!response.ok) throw Error("Closing anniversaries unavailable");
+  const payload: unknown = await response.json();
+  if (!Array.isArray(payload) || !payload.every(isAnniversaryRow)) throw Error("Anniversary response unavailable");
+  return payload;
+}
+
 export { parseClientAnniversaries };
 export function createClientAnniversariesClient({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
   return {
     async read({ signal }: { signal?: AbortSignal } = {}): Promise<Snapshot> {
-      const { fetchRead } = await sibling("./auto-refresh.mjs");
-      const request = fetchImpl ?? (await sibling("./private-session.js")).sessionFetch;
-      const response = await fetchRead(
+      const response = await fetchAnniversaries(
         "/api/v1/intelligence/client-anniversary-read?horizon_days=30&limit=20&offset=0",
-        { credentials: "same-origin", cache: "no-store", signal, headers: { accept: "application/json" } },
-        { fetchImpl: request },
+        signal,
+        fetchImpl,
       );
       if (!response.ok && response.status !== 503) throw Error("Closing anniversaries unavailable");
       const payload: unknown = await response.json();
@@ -135,18 +158,21 @@ export function createClientAnniversariesClient({ fetchImpl }: { fetchImpl?: typ
   };
 }
 
+type AnniversaryRead = Snapshot | Row[];
+
 type State =
   | { kind: "idle" | "loading" }
   | { kind: "refusal"; message: string }
-  | { kind: "snapshot"; value: Snapshot };
+  | { kind: "loaded"; value: AnniversaryRead };
 type PanelProps = {
-  load: (signal: AbortSignal) => Promise<Snapshot>;
+  load: (signal: AbortSignal) => Promise<AnniversaryRead>;
+  fromEngine: boolean;
   cutover: ReturnType<typeof dealCutover>;
   win: Window | null;
   dispose: () => void;
 };
 
-function Panel({ load, cutover, win, dispose }: PanelProps) {
+function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
   const [state, setState] = useState<State>({ kind: "idle" });
   const pending = useRef<AbortController | null>(null);
   const cancel = useCallback(() => {
@@ -164,7 +190,7 @@ function Panel({ load, cutover, win, dispose }: PanelProps) {
     setState({ kind: "loading" });
     try {
       const value = await load(controller.signal);
-      if (pending.current === controller) setState({ kind: "snapshot", value });
+      if (pending.current === controller) setState({ kind: "loaded", value });
     } catch {
       if (pending.current === controller)
         setState({ kind: "refusal", message: "Closing anniversaries could not be loaded. Try again." });
@@ -182,6 +208,12 @@ function Panel({ load, cutover, win, dispose }: PanelProps) {
       cancel();
     };
   }, [win, dispose, open, cancel]);
+  const result = state.kind === "loaded" ? state.value : null;
+  const snapshot = Array.isArray(result) ? null : result;
+  const rows = Array.isArray(result)
+    ? result.map((row) => ({ row, key: row.deal_id }))
+    : snapshot?.rows.map((row) => ({ row, key: row.evidence_ref }));
+  const empty = snapshot ? snapshot.state === "empty" : rows?.length === 0;
   return (
     <section aria-label="Closing anniversaries" style={{ overflowWrap: "anywhere" }}>
       {cutover && <p>Covers deals closed before {cutover.label}.</p>}
@@ -203,7 +235,7 @@ function Panel({ load, cutover, win, dispose }: PanelProps) {
         aria-live="polite"
         aria-busy={state.kind === "loading"}
       >
-        {state.kind !== "idle" && (
+        {!fromEngine && state.kind !== "idle" && (
           <p>
             {cutover
               ? "Upcoming anniversaries in the next 30 days."
@@ -219,27 +251,29 @@ function Panel({ load, cutover, win, dispose }: PanelProps) {
             </button>
           </>
         )}
-        {state.kind === "snapshot" && (
+        {rows && (
           <>
-            {state.value.state === "empty" && (
+            {empty && (
               <p>
-                {cutover ? "No closing anniversaries in the next 30 days." : "No closing anniversaries in this slice."}
+                {fromEngine || cutover
+                  ? "No closing anniversaries in the next 30 days."
+                  : "No closing anniversaries in this slice."}
               </p>
             )}
-            {state.value.state === "unavailable" && <p role="alert">Closing anniversaries are unavailable.</p>}
-            {state.value.state === "needs_input" && <p role="alert">Closing anniversaries need input.</p>}
-            {(state.value.state === "unavailable" || state.value.state === "needs_input") && (
+            {snapshot?.state === "unavailable" && <p role="alert">Closing anniversaries are unavailable.</p>}
+            {snapshot?.state === "needs_input" && <p role="alert">Closing anniversaries need input.</p>}
+            {(snapshot?.state === "unavailable" || snapshot?.state === "needs_input") && (
               <button type="button" className="action" onClick={() => void open()}>
                 Retry closing anniversaries
               </button>
             )}
-            {!cutover && (
+            {snapshot && !cutover && (
               <p>
-                As of {state.value.as_of}. Scanned {state.value.coverage.scanned}. Skipped invalid{" "}
-                {state.value.coverage.skipped_invalid}.
+                As of {snapshot.as_of}. Scanned {snapshot.coverage.scanned}. Skipped invalid{" "}
+                {snapshot.coverage.skipped_invalid}.
               </p>
             )}
-            {state.value.next_offset !== null && (
+            {snapshot && snapshot.next_offset !== null && (
               <p>
                 {cutover
                   ? "Showing the next 20 closing anniversaries."
@@ -247,11 +281,15 @@ function Panel({ load, cutover, win, dispose }: PanelProps) {
               </p>
             )}
             <ol>
-              {state.value.rows.map((r) => (
-                <li key={r.evidence_ref}>
-                  <a href={`/clients?record=${encodeURIComponent(r.client_id)}`}>{r.client_name}</a>
+              {rows.map(({ row: r, key }) => (
+                <li key={key}>
+                  <a href={`/clients?record=${encodeURIComponent(r.client_id)}`}>
+                    {r.client_name.trim() ? r.client_name : "Unnamed client"}
+                  </a>
                   {" · "}
-                  <a href={`/deals?deal=${encodeURIComponent(r.deal_id)}`}>{r.deal_name}</a>
+                  <a href={`/deals?deal=${encodeURIComponent(r.deal_id)}`}>
+                    {r.deal_name.trim() ? r.deal_name : "Unnamed deal"}
+                  </a>
                   <p>
                     Closed <time dateTime={r.closed_on}>{r.closed_on}</time>
                     {" · "}Anniversary <time dateTime={r.anniversary_on}>{r.anniversary_on}</time>
@@ -269,7 +307,7 @@ function Panel({ load, cutover, win, dispose }: PanelProps) {
   );
 }
 
-export function mountClientAnniversaries(host: HTMLElement, { load }: Pick<PanelProps, "load">) {
+export function mountClientAnniversaries(host: HTMLElement, { load }: Partial<Pick<PanelProps, "load">> = {}) {
   const root = createRoot(host);
   let disposed = false;
   const dispose = () => {
@@ -277,8 +315,15 @@ export function mountClientAnniversaries(host: HTMLElement, { load }: Pick<Panel
     disposed = true;
     flushSync(() => root.unmount());
   };
-  const win = host.ownerDocument.defaultView;
-  const cutover = dealCutover(host.ownerDocument);
-  flushSync(() => root.render(<Panel load={load} cutover={cutover} win={win} dispose={dispose} />));
+  const document = host.ownerDocument;
+  const fromEngine = document.documentElement.getAttribute("data-partner-sign-in") === "engine";
+  const cutover = fromEngine ? null : dealCutover(document);
+  const read =
+    load ?? (fromEngine ? readEngineAnniversaries : (signal) => createClientAnniversariesClient().read({ signal }));
+  flushSync(() =>
+    root.render(
+      <Panel load={read} fromEngine={fromEngine} cutover={cutover} win={document.defaultView} dispose={dispose} />,
+    ),
+  );
   return { dispose };
 }
