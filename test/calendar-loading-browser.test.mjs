@@ -97,6 +97,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await page.locator('.cal-day-open[data-select-day="2026-10-21"]').click();
         await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
         await expect(page.locator('#dayPanelBody')).not.toContainText('No critical dates');
+        await expect(page.locator('#calLive')).toContainText('may be incomplete');
         await page.locator('.cal-day-open[data-select-day="2026-10-20"]').click();
         const updated = await page.locator('#calAsOf').textContent();
         await page.clock.setSystemTime(new Date('2026-10-20T15:01:00Z'));
@@ -118,10 +119,11 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
         await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
         await expect(page.locator('#calAsOf')).toHaveText(retriedAt);
+        await page.locator('.cal-day-open[data-select-day="2026-10-21"]').click();
+        await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
         failAll = false;
         slowFails = false;
         await page.getByRole('button', { name: 'Retry', exact: true }).click();
-        await page.locator('.cal-day-open[data-select-day="2026-10-21"]').click();
         await expect(page.locator('#dayPanelBody')).toContainText('No critical dates or next steps on this day.');
       } else {
         await page.waitForURL('**/public-shell/session-ended.html');

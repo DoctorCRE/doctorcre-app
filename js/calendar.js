@@ -289,7 +289,8 @@ function selectDay(day, { entry = null, focus = false } = {}) {
     button?.scrollIntoView({ block: "nearest", behavior: motionReduced() ? "auto" : "smooth" });
   }
   const rows = view.byDay.get(day) || [];
-  announce(`${formatCalendarDate(day)}: ${itemCount(rows)}.`);
+  const incomplete = calendarPhase(view.result) === "partial" ? " This day may be incomplete." : "";
+  announce(`${formatCalendarDate(day)}: ${itemCount(rows)}.${incomplete}`);
 }
 
 const ARROW_STEP = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
