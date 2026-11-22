@@ -25,8 +25,8 @@ test("Deals switches board and list views and opens the rehearsal deal", async (
   await expect(page.locator("#recordPanel")).toBeHidden();
 });
 
-test("Local Deals shows parked records and recent changes read-only", async ({ page }) => {
-  await parkedDeals(page);
+test("Deals opens the parked section and Today sidebar", async ({ page, rehearsal }) => {
+  await parkedDeals(page, page.locator(`.card-open[data-open="${rehearsal.deal_id}"]:visible`));
 });
 
 test("Deal detail expands update history and preserves it through refresh", async ({ page, rehearsal }) => {

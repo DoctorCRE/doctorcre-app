@@ -7,11 +7,14 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("V2-F03: Charts navigation opens, selects and returns to Overview", async ({ page }) => {
+test("Charts selects Research, opens Deals and returns to Overview", async ({ page, rehearsal }) => {
   await page.goto("/?view=charts");
-  await expect(page.locator(".chart-card").first()).toBeVisible();
-  await page.locator(".chart-pick").first().click();
-  await expect(page.locator('.chart-pick[aria-pressed="true"]').first()).toBeVisible();
+  const research = page.locator("#chartPhase").getByRole("button", { name: "Research", exact: true });
+  await research.click();
+  await expect(research).toHaveAttribute("aria-pressed", "true");
+  await page.locator("#chartsSelection a").click();
+  await expect(page.locator(`.card-open[data-open="${rehearsal.deal_id}"]:visible`)).toHaveText(rehearsal.deal_name);
+  await page.goBack();
   await page.getByRole("link", { name: "Overview", exact: true }).click();
   await expect(page).toHaveURL("/");
   await expect(page.getByRole("region", { name: "Reminders", exact: true })).toBeVisible();

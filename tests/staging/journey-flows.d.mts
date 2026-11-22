@@ -1,3 +1,3 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
-export function parkedDeals(page: Page): Promise<void>;
+export function parkedDeals(page: Page, deal?: Locator): Promise<void>;
