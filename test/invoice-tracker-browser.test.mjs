@@ -49,7 +49,7 @@ async function open(t, { width = 1440, theme = 'dark', reducedMotion = 'no-prefe
     catch { return route.fulfill({ status: 404, body: '' }); }
   });
   await page.goto(`http://localhost/${home ? 'review-workflows' : 'invoices'}?mode=live${query}`);
-  await page.waitForFunction(home ? () => document.querySelector('#homeInvoices a[data-home-key]') : () => document.querySelector('[data-invoice]'));
+  await page.waitForFunction(home ? () => document.querySelector('#homeInvoices a[data-home-key]') : () => document.querySelector('[data-invoice], #invoiceNotice:not([hidden])'));
   return { page, errors, attempts, setReceipt(value) { receipt = value; }, get reads() { return reads; }, get writes() { return writes; }, setFailed(value) { failed = value; }, setDenied(value) { denied = value; }, update(fn) { fn(data); } };
 }
 test('phone invoice keeps its title and actions in view while details scroll', async t => {
@@ -279,6 +279,44 @@ test('payment uncertainty offers explicit immutable replay across close, polling
  h.setReceipt('ok');await page.locator('#markInvoicePaid').click();await page.waitForFunction(()=>document.querySelector('#invoicePayment').hidden);
  assert.equal(h.writes,2);assert.deepEqual(h.attempts[1],h.attempts[0]);assert.deepEqual(h.errors,[]);
 });
+test('copied invoice without a change stamp stays visible and can be marked paid', async t => {
+  const data = invoiceTrackerFixture(today);
+  const copied = data.entries.find(row => row.name === 'Demo Harbor Renewal');
+  copied.base_version = null;
+  const fixture = createInvoiceFixture({ entries: data.entries, today: () => today });
+  const before = await fixture.getInvoiceTracker();
+  const attempts = [];
+  const { page } = await open(t, { engine: async request => {
+    if (request.method === 'GET') {
+      return Response.json(attempts.length < 2 ? before : await fixture.getInvoiceTracker());
+    }
+    assert.equal(new URL(request.url).pathname, '/api/engine/invoices/mark-paid');
+    const args = await request.json();
+    attempts.push(args);
+    const receipt = await fixture.markInvoicePaid(args);
+    return attempts.length === 1 ? new Response(null, { status: 502 }) : Response.json({ ...receipt, replayed: true });
+  } });
+
+  const rows = page.locator('[data-invoice]');
+  assert.equal(await rows.count(), data.entries.length, await page.locator('#invoiceNotice').textContent());
+  const row = page.getByRole('button', { name: /Demo Harbor Renewal/ });
+  await row.click();
+  await page.getByLabel('Paid on').fill(today);
+  await page.getByRole('button', { name: 'Mark paid', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry payment' }).waitFor();
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].base_version, null);
+  assert.equal(attempts[0].commission_id, copied.commission_id);
+  await page.reload();
+  await row.click();
+  await page.getByRole('button', { name: 'Retry payment' }).click();
+  await row.getByText('Paid', { exact: true }).waitFor();
+  assert.deepEqual(attempts, [attempts[0], attempts[0]]);
+  await page.reload();
+  await row.getByText('Paid', { exact: true }).waitFor();
+  assert.equal(await rows.count(), data.entries.length);
+});
+
 test('engine receipt confirms one payment even while tracker reads are stale', async t => {
   const data = invoiceTrackerFixture(today);
   data.entries.find(row => row.name === 'Demo Cedar Expansion').gross_amount = null;
