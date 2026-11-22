@@ -1134,7 +1134,7 @@ function disposeActivityAttribution() { activityAttribution?.dispose(); activity
 function mountPanelActivityAttribution() {
   disposeActivityAttribution();
   const root = $('panelBody').querySelector('.deal-updates');
-  if (root?.querySelector('[data-attribution-id]')) activityAttribution = mountActivityAttribution(root, { onDenied: refusePanelDetail });
+  if (root?.querySelector('[data-attribution-id]')) activityAttribution = mountActivityAttribution(root, { engineSignIn: privateSession()?.engineSignIn, onDenied: refusePanelDetail });
 }
 let watchControl = null, watchElement = null, watchSubject = null;
 let panelEmailFollowups = null;
@@ -1721,8 +1721,8 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <h2>Critical dates</h2>
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
-    <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { attributionAvailable: !engineMode })}</div></section>
-    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
+    <div data-detail-read="updates">${renderDealUpdates(detail)}</div></section>
+    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>No comparable terms match these filters.</p>' : ''}</section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
