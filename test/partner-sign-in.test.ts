@@ -78,7 +78,7 @@ const status = async (input: Request) =>
 const signInCookies = {
   carr: ["__Host-dealroom_session=current", "__Host-dealroom_oauth=carr-state"],
   engine: [cookie, "__Host-doctorcre_oauth_state=engine-state"],
-};
+} as const;
 
 for (const [outgoing, incoming] of [
   ["carr", "engine"],
@@ -87,7 +87,7 @@ for (const [outgoing, incoming] of [
   for (const method of ["GET", "HEAD"]) {
     test(`switching from ${outgoing} to ${incoming} expires the outgoing cookies on ${method}`, async () => {
       const jar = new CookieJar(undefined, { prefixSecurity: "strict" });
-      const unrelated = "__Host-other=fixture";
+      const unrelated = "__Host-doctorcre_session_backup=fixture";
       for (const value of [...signInCookies.carr, ...signInCookies.engine, unrelated]) {
         jar.setCookieSync(value + "; Path=/; Secure; HttpOnly; SameSite=Lax", staging);
       }
@@ -214,7 +214,10 @@ test("auth forwards the app URL and preserves Google redirects and individual co
       assert.equal(response.status, init.method === "POST" ? 303 : 302);
       assert.equal(response.headers.get("cache-control"), "no-store");
       assert.equal(response.headers.get("location"), "/leads?owner=partner");
-      assert.deepEqual(response.headers.getSetCookie(), cookies);
+      assert.deepEqual(response.headers.getSetCookie(), [
+        ...cookies,
+        "__Host-dealroom_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax",
+      ]);
       const forwarded = calls.partner.at(-1);
       assert.ok(forwarded);
       assert.equal(forwarded.url, staging + path);
