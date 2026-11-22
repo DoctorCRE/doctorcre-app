@@ -3,6 +3,7 @@ const DAY = 86_400_000;
 export const AGES = ['0–30 days', '31–60 days', '61–90 days', '91+ days'];
 export const invoiceHref = key => `/invoices?invoice=${encodeURIComponent(key)}`;
 const nullableDate = value => value === null || date(value);
+export const isInvoiceBaseVersion = value => value === null || (Number.isInteger(value) && value > 0);
 export function validInvoiceTracker(payload) {
   const ids = new Set();
   return payload?.schema_version === 'invoice-tracker.v1' && typeof payload.actor === 'string'
@@ -12,7 +13,7 @@ export function validInvoiceTracker(payload) {
         || !['closed_on', 'invoiced_on', 'commission_invoiced_on', 'received_on', 'due_on'].every(key => nullableDate(row[key]))
         || !date(row.as_of) || !['owner','lane','outcome'].every(key => row[key] === null || typeof row[key] === 'string')) return false;
       if (row.commission_id !== null && (typeof row.commission_id !== 'string' || !row.commission_id
-        || !['expected','invoiced','received'].includes(row.status) || !Number.isInteger(row.base_version) || row.base_version < 1)) return false;
+        || !['expected','invoiced','received'].includes(row.status) || !isInvoiceBaseVersion(row.base_version))) return false;
       if (row.gross_amount !== null && !(typeof row.gross_amount === 'number' || typeof row.gross_amount === 'string')) return false;
       if (row.gross_amount !== null && (!/^\d+(\.\d{1,2})?$/.test(String(row.gross_amount)) || !Number.isFinite(Number(row.gross_amount)))) return false;
       if (row.status === 'received' && (!date(row.received_on) || !date(row.commission_invoiced_on) || row.received_on < row.commission_invoiced_on)) return false;

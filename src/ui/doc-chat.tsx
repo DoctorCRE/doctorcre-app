@@ -68,6 +68,7 @@ const chatTurn = z.object({
   draft_review: draftReview.nullable(),
   state: z.enum(["queued", "working", "failed", "answered"]),
   answer: answer.nullable(),
+  answered_by: z.string().nullable().optional(),
   confirmation: confirmation.nullable(),
   waiting_reason: z
     .enum([
@@ -722,6 +723,7 @@ function DocChat() {
                 <li key={turn.id}>
                   <p className="doc-chat__question">{turn.question}</p>
                   <p className="doc-chat__reply">{turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}</p>
+                  {turn.state === "answered" && turn.answered_by === "backup" && <small>Answered by the backup.</small>}
                   {sources.length > 0 && (
                     <ul className="doc-chat__sources" aria-label="Sources">
                       {sources.map(({ ref, label, href }) => {

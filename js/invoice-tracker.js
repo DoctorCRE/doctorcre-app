@@ -6,11 +6,12 @@ import { mountAutoRefresh, updatedLabel } from './auto-refresh.mjs';
 import { localToday, isCalendarDay } from './calendar-model.js';
 import { partnerName } from './task-records-model.js';
 import { uuidv4 } from './uuid.js';
-import { AGES, projectInvoices, validInvoiceTracker, invoiceSummary, invoiceMoney, invoiceDate } from './invoice-tracker-model.js';
+import { AGES, projectInvoices, validInvoiceTracker, isInvoiceBaseVersion, invoiceSummary, invoiceMoney, invoiceDate } from './invoice-tracker-model.js';
 const E=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const ownerLabel = owner => partnerName(owner) || 'Unassigned';
 const missingAmounts = count => count ? ` · ${count} without a recorded amount` : '';
 const statusLabel=row=>row.status==='paid'?'Paid':row.status==='awaiting'?'Awaiting invoice':row.overdue?'Overdue':'Unpaid';
+const isEarlierVersion = (version, current) => current != null && (version === null || version < current);
 const paymentRefusals = new Map([
   ['version_conflict', 'Invoice changed before the payment could be saved.'],
   ['invoice_not_unpaid', 'Only unpaid invoices can be marked paid.'],
@@ -38,7 +39,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     const saved=JSON.parse(window.sessionStorage.getItem(key) || '[]');
     if(!Array.isArray(saved))throw new Error('Invalid payment recovery');
     for(const args of saved){
-      if(!args || typeof args.commission_id!=='string' || !Number.isInteger(args.base_version) || args.base_version<1
+      if(!args || typeof args.commission_id!=='string' || !isInvoiceBaseVersion(args.base_version)
         || !isCalendarDay(args.received_on) || typeof args.idempotency_key!=='string' || !args.idempotency_key)throw new Error('Invalid payment recovery');
       restored.set(args.commission_id, { sequence: 0, confirmed: false, pending: { args: Object.freeze(args), readAfter: 0 } });
     }
@@ -71,7 +72,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       const state = invoiceStates.get(id) ?? { sequence: 0, confirmed: false, pending: null };
       const entry = entries.get(id);
       const current = currentEntries.get(id);
-      const stale = sequence <= state.sequence || (state.confirmed && entry?.base_version < current?.base_version);
+      const stale = sequence <= state.sequence || (state.confirmed && isEarlierVersion(entry?.base_version, current?.base_version));
       const received = entry?.status === 'received' && state.pending;
       const checksSave = received && received.readAfter !== null && sequence > received.readAfter;
       if (stale || (received && !checksSave)) {
@@ -269,7 +270,8 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     if (payment?.pending === intent) {
       if(receipt?.engine_receipt === true && receipt.ok === true && receipt.id === intent.args.commission_id
         && receipt.received_on === intent.args.received_on && Number.isSafeInteger(receipt.base_version)
-        && receipt.base_version > intent.args.base_version && receipt.base_version >= paymentEntry.base_version
+        && receipt.base_version > 0 && isEarlierVersion(intent.args.base_version, receipt.base_version)
+        && !isEarlierVersion(receipt.base_version, paymentEntry.base_version)
         && receipt.received_on >= paymentEntry.commission_invoiced_on){
         const paid = { ...paymentEntry, status: 'received', base_version: receipt.base_version, received_on: receipt.received_on };
         confirmPayment(payment);

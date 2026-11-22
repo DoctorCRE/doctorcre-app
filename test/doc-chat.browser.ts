@@ -361,6 +361,44 @@ test("Doc accepts engine IDs without RFC version or variant bits", async (t) => 
   await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
 });
 
+test("Backup answers are marked while Mac answers and waiting questions are not", async (t) => {
+  let source: string | null = "backup";
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/engine/doc/conversations")
+      return Response.json({ conversations: [conversation], next_before: null });
+    if (path === `/api/engine/doc/conversations/${id}`)
+      return Response.json({
+        conversation,
+        turns: [
+          {
+            ...answeredTurn,
+            idempotency_key: id,
+            answered_by: source,
+            state: source ? "answered" : "queued",
+            answer: source ? answeredTurn.answer : null,
+            waiting_reason: source ? null : "Doc answers when your Mac is on.",
+          },
+        ],
+      });
+    return Response.json({}, { status: 404 });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByText("Answered by the backup.")).toBeVisible();
+  source = "mac";
+  await page.reload();
+  await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+  await expect(page.getByText("Answered by the backup.")).toHaveCount(0);
+  source = "future-source";
+  await page.reload();
+  await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+  await expect(page.getByText("Answered by the backup.")).toHaveCount(0);
+  source = null;
+  await page.reload();
+  await expect(page.getByText("Doc answers when your Mac is on.")).toBeVisible();
+  await expect(page.getByText("Answered by the backup.")).toHaveCount(0);
+});
+
 test("A reopened Doc question keeps its place and lets the partner draft a follow-up as it refreshes", async (t) => {
   const waitingLines = [
     "Doc answers when your Mac is on.",
