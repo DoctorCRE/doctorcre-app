@@ -9,7 +9,6 @@ const names = [
   "Deal",
   "Tours library",
   "Tour and cheat sheet",
-  "Vendors Suggested",
   "Vendors Research",
   "Relationships",
   "Leads",
@@ -62,9 +61,10 @@ for (const scenario of [
       else if (url.pathname === "/tours/route-editor.html")
         body = `<button class="tour-button">Open Tour</button>${open ? tour.replace("<details ", "<details open ") : tour}`;
       else if (url.pathname === "/vendors") {
-        body = `<details ${open ? "open" : ""} class="vendor-meetings"><summary>People</summary><section role="region" aria-label="People worth meeting"><button role="tab">Suggested</button><button role="tab">Research</button></section></details><ul id="recordList"><li><button>Vendor</button></li></ul><div id="scrollSentinel" ${scenario.includes("pagination") ? "" : "hidden"}>More</div>`;
+        body = `<details ${open ? "open" : ""} class="vendor-meetings"><summary>People</summary><section role="region" aria-label="People worth meeting"><label>Search people and offices <input type="search"></label></section></details><ul id="recordList"><li><button>Vendor</button></li></ul><div id="scrollSentinel" ${scenario.includes("pagination") ? "" : "hidden"}>More</div>`;
+        // Anchoring to the sentinel can trigger another scroll when a row is appended.
         if (scenario.includes("pagination"))
-          body += `<style>#recordList { overflow-anchor: none } #scrollSentinel { margin-top: 1200px }</style><script>
+          body += `<style>html { overflow-anchor: none } #scrollSentinel { margin-top: 1200px }</style><script>
             const marker = document.querySelector("#scrollSentinel");
             window.addEventListener("scroll", () => {
               if (marker.hidden || marker.getBoundingClientRect().top >= innerHeight) return;
@@ -79,7 +79,7 @@ for (const scenario of [
       else if (url.pathname === "/leads") body = '<button class="lead-card">Lead</button>';
       return route.fulfill({
         contentType: "text/html",
-        body: `<!doctype html><html lang="en"><head><title>Walk</title><style>button,a,summary{display:block;min-width:60px;min-height:60px}iframe{width:100%;height:500px}</style></head><body><main><h1>Walk</h1>${body}</main></body></html>`,
+        body: `<!doctype html><html lang="en"><head><title>Walk</title><style>button,a,summary,input{display:block;min-width:60px;min-height:60px}iframe{width:100%;height:500px}</style></head><body><main><h1>Walk</h1>${body}</main></body></html>`,
       });
     });
     const locate = page.locator.bind(page);
@@ -98,7 +98,7 @@ for (const scenario of [
     const walk = () =>
       walkV2Accessibility(page, "http://walk.test", async (name) => {
         captures.push(name);
-        if (name === "Vendors Suggested")
+        if (name === "Vendors Research")
           assert.equal(await page.locator("#recordList > li").count(), scenario === "pagination" ? 2 : 1);
         if (name === "Tour and cheat sheet") {
           const frame = embedded ? page.frames().find((frame) => frame.url().endsWith("/frame")) : page.mainFrame();

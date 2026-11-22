@@ -11,11 +11,11 @@ state Workspace {
     Loading --> Empty: current empty response arrives
     Loading --> Failed: current read fails
     Ready --> Loading: next page
-    Ready --> Loading: change tab or search
-    Empty --> Loading: change tab or search
+    Ready --> Loading: change search
+    Empty --> Loading: change search
     Failed --> Loading: retry
-    Failed --> Loading: change tab or search
-    Loading --> Loading: change tab or search
+    Failed --> Loading: change search
+    Loading --> Loading: change search
     Loading --> Loading: obsolete response arrives
     Loading --> Cleared: session ends
     Ready --> Cleared: session ends

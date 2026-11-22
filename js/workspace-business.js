@@ -172,7 +172,7 @@ async function syncQuietVendors() {
       phoneLabel,
       timeLabel: formatMoment,
       load: async (query, signal) => {
-        const result = await requestMeetings('read-vendor-meetings', query, { signal, timeoutMs: 15000 });
+        const result = await requestMeetings('read-vendor-meetings', { ...query, view: 'research' }, { signal, timeoutMs: 15000 });
         if (result.kind !== 'payload' || result.isError) throw new Error('Vendor meetings unavailable');
         return result.payload;
       },

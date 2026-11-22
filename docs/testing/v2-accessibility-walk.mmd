@@ -13,11 +13,9 @@ stateDiagram-v2
     Standalone --> Sheet: open cheat sheet
     Embedded --> Sheet: open cheat sheet
     Sheet --> Vendors: open Vendors
-    Vendors --> Suggested: expand people
-    Suggested --> Suggested: load another page
-    Suggested --> Incomplete: twenty pages remain incomplete
-    Suggested --> SuggestedObserved: finish Suggested
-    SuggestedObserved --> Research: open Research
+    Vendors --> Research: expand people
+    Research --> Research: load another page
+    Research --> Incomplete: twenty pages remain incomplete
     Research --> Relationships: open Relationships
     Relationships --> Leads: open Leads
     Leads --> Complete: finish observations
@@ -30,16 +28,14 @@ stateDiagram-v2
     state "Embedded Tour visible" as Embedded
     state "Tour and cheat sheet visible" as Sheet
     state "Vendors visible" as Vendors
-    state "Suggested people visible" as Suggested
-    state "Suggested observation recorded" as SuggestedObserved
     state "Research people visible" as Research
     state "Relationships visible" as Relationships
     state "Leads visible" as Leads
-    state "Nine observations returned" as Complete
+    state "Eight observations returned" as Complete
     state "Inspection refused" as Incomplete
   --
   [*] --> ObservationsPending
-  state "Fewer than nine observations recorded" as ObservationsPending {
+  state "Fewer than eight observations recorded" as ObservationsPending {
     [*] --> Observed0
     Observed0 --> Observed1: open Home [while Ready]
     %% when Ready
@@ -53,12 +49,10 @@ stateDiagram-v2
     %% when Standalone
     Observed4 --> Observed5: open cheat sheet [while Embedded]
     %% when Embedded
-    Observed5 --> Observed6: finish Suggested [while Suggested]
-    %% when Suggested
-    Observed6 --> Observed7: open Research [while SuggestedObserved]
-    %% when SuggestedObserved
-    Observed7 --> Observed8: open Relationships [while Research]
+    Observed5 --> Observed6: open Relationships [while Research]
     %% when Research
+    Observed6 --> Observed7: open Leads [while Relationships]
+    %% when Relationships
     state "0 observations recorded" as Observed0
     state "1 observations recorded" as Observed1
     state "2 observations recorded" as Observed2
@@ -67,11 +61,10 @@ stateDiagram-v2
     state "5 observations recorded" as Observed5
     state "6 observations recorded" as Observed6
     state "7 observations recorded" as Observed7
-    state "8 observations recorded" as Observed8
   }
-  Observed8 --> Observed9: open Leads [while Relationships]
-  %% when Relationships
-  state "All nine observations recorded" as Observed9
+  Observed7 --> Observed8: finish observations [while Leads]
+  %% when Leads
+  state "All eight observations recorded" as Observed8
   --
   [*] --> Discovering
   Discovering --> DiscoveryIncomplete: target identity remains unstable [while Ready]
@@ -80,13 +73,13 @@ stateDiagram-v2
   %% when Ready
   Discovering --> DiscoveryIncomplete: frame unavailable [while Embedded]
   %% when Embedded
-  Discovering --> DiscoveryIncomplete: twenty pages remain incomplete [while Suggested]
-  %% when Suggested
+  Discovering --> DiscoveryIncomplete: twenty pages remain incomplete [while Research]
+  %% when Research
   Discovering --> DiscoveryComplete: open Leads [while Relationships]
   %% when Relationships
   state "Discovery underway" as Discovering
   state "Discovery incomplete" as DiscoveryIncomplete
   state "Discovery complete" as DiscoveryComplete
   }
-  %% never CompletionRequiresNine: Nine observations returned & Fewer than nine observations recorded -- Completion requires all nine surface observations.
-  %% never IncompleteDiscoveryRefusesCompletion: Nine observations returned & Discovery incomplete -- Incomplete discovery refuses completion.
+  %% never CompletionRequiresEight: Eight observations returned & Fewer than eight observations recorded -- Completion requires all eight surface observations.
+  %% never IncompleteDiscoveryRefusesCompletion: Eight observations returned & Discovery incomplete -- Incomplete discovery refuses completion.
