@@ -350,26 +350,53 @@ export async function performFieldWrite({ deal, field, value, base = null, extra
   };
 }
 export function prepareAutomaticPhaseUndo(options) {
-  const feedbackByDeal = new Map();
+  const stateByDeal = new Map();
+  const idle = { status: 'idle' };
+  let detail;
   let session = 0;
   let loading;
+  const feedback = (state, detailView = false) => {
+    if (state?.status === 'pending') return { busy: true };
+    if (state?.status === 'refreshed' || state?.status === 'failed') {
+      return { ...state, busy: detailView && state.status === 'failed' && state.needsRefresh };
+    }
+  };
   return {
-    feedback: deal => feedbackByDeal.get(deal),
+    feedback: deal => feedback(stateByDeal.get(deal)),
+    detailFeedback: deal => detail?.deal === deal ? feedback(detail.state, true) : undefined,
+    setOpenDeal(deal) {
+      if (detail) detail.state = idle;
+      detail = deal ? { deal, state: idle, refresh: options.refreshDetail, render: options.renderDetail } : undefined;
+    },
+    detailReadApplied(deal) {
+      if (detail?.deal === deal && detail.state.status === 'failed' && detail.state.needsRefresh) detail.state = idle;
+    },
     clear() {
       session++;
-      feedbackByDeal.clear();
+      stateByDeal.clear();
+      if (detail) detail.state = idle;
     },
-    async undo(button, refreshDetail) {
+    async undo(button, onDetail = false) {
       const clickedIn = session;
+      const view = onDetail ? detail : undefined;
+      if (onDetail && !view) return;
+      const previous = view?.state;
       loading ||= import('./ui-automatic-phase-undo.generated.js')
-        .then(({ createAutomaticPhaseUndo }) => createAutomaticPhaseUndo({ ...options, feedbackByDeal }))
+        .then(({ createAutomaticPhaseUndo }) => createAutomaticPhaseUndo({ ...options, stateByDeal }))
         .catch(() => {
           loading = null;
-          options.report('Undo could not be loaded. Try again.');
           return null;
         });
       const controller = await loading;
-      if (clickedIn === session) await controller?.undo(button, refreshDetail);
+      if (clickedIn !== session || (view && (view !== detail || view.state !== previous))) return;
+      if (controller) await controller.undo(button, view);
+      else {
+        const message = 'Undo could not be loaded. Try again.';
+        if (view) {
+          view.state = { status: 'failed', message };
+          view.render();
+        } else options.report(message);
+      }
     },
   };
 }

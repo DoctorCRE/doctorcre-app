@@ -1409,6 +1409,140 @@ test('keyboard Undo on the deal page returns the deal to the previous phase', as
   assert.deepEqual(oldReads, []);
 });
 
+async function openDealForUndoConflict(t, { archived = false } = {}) {
+  const page = await browser.newPage();
+  t.after(() => page.close());
+  await page.request.post(`${origin}/api/test/seed`, { data: { namespace: 'undo-refresh-conflict', viewer: 'joe', reset: true } });
+  const id = crypto.randomUUID();
+  const name = 'Example Undo Refresh Deal';
+  const eventId = crypto.randomUUID();
+  let changed = false;
+  let unavailable = false;
+  let nextDetail;
+  const deal = () => ({ id, deal_id: id, name, owner: 'joe', seen: changed ? 24 : 23,
+    phase: changed ? 'negotiation' : archived ? 'closed' : 'legal',
+    ...(!changed && archived ? { outcome: 'won', closed_on: '2026-10-20' } : {}),
+    phase_change: changed ? null : { source: 'copied', automatic: true, event_id: eventId, prior_phase: 'research',
+      phase: archived ? 'closed' : 'legal', evidence_date: '2026-10-19', recorded_at: '2026-10-20T00:00:00Z' },
+    email_follow_ups: [] });
+  const env = {
+    ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      if (path === '/api/engine/deals') {
+        return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe',
+          deals: archived && !changed ? [] : [deal()], closed_deals: archived && !changed ? [deal()] : [], lost_deals: [] });
+      }
+      if (path === `/api/engine/deals/${id}/phase/undo`) {
+        changed = true;
+        return Response.json({ error: 'version_conflict', current_version: 24 }, { status: 409 });
+      }
+      assert.equal(path, `/api/engine/deals/${id}`);
+      const response = unavailable ? new Response(null, { status: 502 }) : Response.json(deal());
+      if (nextDetail) {
+        const { started, release } = nextDetail;
+        nextDetail = undefined;
+        started.resolve();
+        await release.promise;
+      }
+      return response;
+    } },
+  };
+  await page.route('**/mcp', async route => {
+    const request = route.request(), body = request.postDataJSON();
+    if (!['deal-room-board', 'get-deal-room', 'undo-automatic-phase-move'].includes(body?.params?.name)) return route.continue();
+    const response = await handleDoctorcreRequest(new Request(request.url(), {
+      method: request.method(), headers: await request.allHeaders(), body: JSON.stringify(body),
+    }), env);
+    await route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+  });
+  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  const undo = snapshot.getByRole('button', { name: 'Undo', exact: true });
+  const open = () => page.getByRole('button', { name, exact: true }).click();
+  await page.goto(`${origin}/deals?mode=live`);
+  if (archived) await page.getByRole('button', { name: 'Closed deals', exact: true }).click();
+  await open();
+  await undo.waitFor();
+  return {
+    page, undo, open,
+    refresh: page.getByRole('button', { name: 'Refresh deal', exact: true }),
+    refreshed: snapshot.getByText('This deal changed. The deal page was refreshed.', { exact: true }),
+    warning: snapshot.getByText('This deal changed. Refresh Deals to see the current phase.', { exact: true }),
+    phase: page.locator('#detailPhase'),
+    setDetailUnavailable(value) { unavailable = value; },
+    holdNextDetail() {
+      const started = Promise.withResolvers();
+      const release = Promise.withResolvers();
+      nextDetail = { started, release };
+      t.after(() => release.resolve());
+      return { started: started.promise, release: release.resolve };
+    },
+  };
+}
+
+test('Undo on the deal page waits for a read newer than the conflict', async t => {
+  const { page, undo, refresh, refreshed, phase, holdNextDetail } = await openDealForUndoConflict(t, { archived: true });
+  const older = holdNextDetail();
+  await refresh.click();
+  await older.started;
+  await undo.press('Space');
+  await page.locator('#closedDealsList').getByText('Example Undo Refresh Deal', { exact: true }).waitFor({ state: 'detached' });
+  older.release();
+  await refreshed.waitFor();
+  assert.equal(await undo.count(), 0, 'the refresh notice must not accompany a stale Undo');
+  assert.equal(await phase.inputValue(), 'negotiation');
+});
+
+test('Undo on the deal page discards feedback after leaving the deal', async t => {
+  const { page, undo, open, phase, warning, holdNextDetail } = await openDealForUndoConflict(t);
+  const pending = holdNextDetail();
+  await undo.press('Space');
+  await pending.started;
+  await page.getByRole('button', { name: 'Back to deals' }).click();
+  await page.locator('#recordPanel').waitFor({ state: 'hidden' });
+  pending.release();
+  await open();
+  await phase.waitFor();
+  assert.equal(await phase.inputValue(), 'negotiation');
+  assert.deepEqual({
+    announcement: await page.locator('#dragLive').textContent(),
+    warnings: await warning.count(),
+  }, { announcement: '', warnings: 0 });
+});
+
+test('Undo on the deal page clears the warning after a successful refresh retry', async t => {
+  const { page, undo, refresh, warning, holdNextDetail, setDetailUnavailable } = await openDealForUndoConflict(t);
+  setDetailUnavailable(true);
+  await undo.press('Space');
+  await warning.waitFor();
+  setDetailUnavailable(false);
+  const pending = holdNextDetail();
+  await refresh.click();
+  await pending.started;
+  pending.release();
+  await page.waitForFunction(() => document.querySelector('#detailPhase')?.value === 'negotiation');
+  assert.equal(await undo.count(), 0);
+  assert.equal(await warning.count(), 0, 'a successful retry must clear the refresh warning');
+});
+
+test('Undo on the deal page times out without blocking the workspace', async t => {
+  const { page, undo, warning, holdNextDetail } = await openDealForUndoConflict(t, { archived: true });
+  await page.clock.install();
+  const pending = holdNextDetail();
+  await undo.press('Space');
+  await pending.started;
+
+  const timeline = page.getByRole('tab', { name: 'Timeline', exact: true });
+  await timeline.click();
+  assert.equal(await timeline.getAttribute('aria-selected'), 'true');
+  await page.getByRole('tab', { name: 'Overview', exact: true }).click();
+  await page.clock.fastForward(11_000);
+
+  await warning.waitFor();
+  assert.equal(await undo.isEnabled(), false);
+  pending.release();
+});
+
 for (const width of [1440, 390]) {
   test(`National Accounts shows every closed deal in its account at ${width}px`, async t => {
     const fixture = await (await createQaServer({ buildRoot: join(outDir, 'site') })).start();
