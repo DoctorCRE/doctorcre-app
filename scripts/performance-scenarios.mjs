@@ -58,11 +58,11 @@ export const tasks = [
     ready: '.kanban-card[data-id="d23"] .card-open',
     async verify(page) {
       await page.locator('.kanban-card[data-id="d23"] .card-open').tap();
-      await page.locator('#detailUpdateForm textarea').fill('Synthetic unsent phone update');
+      await page.locator('#dealUpdate').fill('Synthetic unsent phone update');
       await page.goBack();
       await page.waitForFunction(() => document.querySelector('#recordPanel').hidden && !new URL(location.href).searchParams.has('deal'));
       await page.locator('.kanban-card[data-id="d23"] .card-open').tap();
-      await page.waitForFunction(() => !document.querySelector('#recordPanel').hidden && document.querySelector('#detailUpdateForm textarea')?.value === 'Synthetic unsent phone update');
+      await page.waitForFunction(() => !document.querySelector('#recordPanel').hidden && document.querySelector('#dealUpdate')?.value === 'Synthetic unsent phone update');
       if (!await page.locator('#detailUpdateStatus').textContent().then(text => text.includes('Unsent'))) throw Error('Restored draft is not labeled unsent');
     } },
   { id: 'task-tour-library', route: '/tours', fixture: 'tours', conditions: '40 synthetic saved tours; client directory delayed 250ms',

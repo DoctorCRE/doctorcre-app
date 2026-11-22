@@ -92,7 +92,7 @@ test('lost deals have a searchable view and open the shared snapshot',async t=>{
  await page.locator('#closedDealsList [data-open-deal="d14"]').click();
  await page.locator('#detailUpdateForm').waitFor();
  assert.match(await page.locator('.deal-snapshot-facts').textContent(),/OutcomeLost/);
- assert.equal(await page.locator('#detailUpdateForm textarea').inputValue(),'');
+ assert.equal(await page.locator('#dealUpdate').inputValue(),'');
 });
 
 

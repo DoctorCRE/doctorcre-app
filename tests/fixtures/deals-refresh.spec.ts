@@ -106,6 +106,30 @@ const dealName = (page: Page) => page.locator('.kanban-card[data-id="d14"] .card
 const updated = /^Updated \d{1,2}:\d{2} [AP]M$/i;
 test.use({ locale: "en-US", timezoneId: "America/Chicago" });
 
+test("an old Client view link keeps Overview selected when the deal read fails", async ({ page }) => {
+  await mockReads(page, { engine: false });
+  const detailRequested = Promise.withResolvers<void>();
+  const releaseDetail = Promise.withResolvers<void>();
+  await page.route("**/mcp", async (route) => {
+    if (route.request().postDataJSON().params.name !== "get-deal-room") return route.fallback();
+    detailRequested.resolve();
+    await releaseDetail.promise;
+    return route.fulfill({ status: 503 });
+  });
+  await page.goto(`${server.url}${local}&deal=d14&tab=client-view`);
+  await detailRequested.promise;
+  const room = page.getByRole("main", { name: "Deal Workspace" });
+  const overview = room.getByRole("tab", { name: "Overview", selected: true });
+  try {
+    await expect.soft(overview).toBeVisible({ timeout: 1000 });
+    await expect.soft(room.getByRole("tab", { name: "Client view" })).toHaveCount(0, { timeout: 1000 });
+  } finally {
+    releaseDetail.resolve();
+  }
+  await expect(room.getByRole("status")).toHaveText("Updates temporarily unavailable");
+  await expect(overview).toBeVisible();
+});
+
 for (const path of [local, national, "/search?mode=live", "/notifications?mode=live"]) {
   test(`switch on skips the legacy feed at ${path}`, async ({ page }) => {
     const requests = await mockReads(page);

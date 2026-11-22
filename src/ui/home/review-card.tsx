@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { type DocLinkRequest, type DocLinkStatus, docLinkMessages, readDocLinkStatus } from "../doc-link";
+import { submitOnEnter } from "../keyboard-input";
 import { DropReason } from "./drop-reason.tsx";
 import {
   draftReference,
@@ -452,6 +453,9 @@ export function ReviewCard<Item extends ReviewItem>({
       review,
     );
   }
+  function canAcceptSuggestion(proposal: Suggestion) {
+    return proposal.canAccept && !(state.phase === "proposal-refused" && state.id === proposal.id);
+  }
   function suggestionDecisions(proposal: Suggestion): readonly ("accept" | "dismiss")[] {
     if (readOnly || proposal.filingChoices) return [];
     return !item.engine_marks || proposal.completion || item.home_proposal_drop ? ["accept", "dismiss"] : ["accept"];
@@ -496,7 +500,16 @@ export function ReviewCard<Item extends ReviewItem>({
             {proposal.editable ? (
               <>
                 <label>
-                  Next step <input name={`${proposal.id}-what`} defaultValue={proposal.what ?? ""} />
+                  Next step
+                  <textarea
+                    className="home-suggestion-instruction"
+                    name={`${proposal.id}-what`}
+                    defaultValue={proposal.what ?? ""}
+                    onKeyDown={(event) => {
+                      if (editable && !proposal.filingChoices && canAcceptSuggestion(proposal))
+                        submitOnEnter(event.nativeEvent, () => decideSuggestion(proposal, "accept"));
+                    }}
+                  />
                 </label>
                 <label>
                   Due date <input type="date" name={`${proposal.id}-date`} defaultValue={proposal.dueOn ?? ""} />
@@ -523,10 +536,7 @@ export function ReviewCard<Item extends ReviewItem>({
                 <button
                   key={decision}
                   type="button"
-                  disabled={
-                    decision === "accept" &&
-                    (!proposal.canAccept || (state.phase === "proposal-refused" && state.id === proposal.id))
-                  }
+                  disabled={decision === "accept" && !canAcceptSuggestion(proposal)}
                   onClick={(event) => {
                     if (item.engine_marks && decision === "dismiss" && !proposal.completion) {
                       setDrop({

@@ -61,7 +61,7 @@ export async function readDashboard(signal: AbortSignal) {
   const items = dashboardTiles.flatMap((tile) =>
     groups[tile].map((item): InboxItem => {
       const parsed = parseEngineDashboardCard(item, groups);
-      return { ...parsed, dashboard_tile: tile, days_late: parsed.days_late ?? 0 };
+      return { ...parsed, dashboard_tile: tile };
     }),
   );
   return { grouped: true as const, engine_marks: true as const, items };
