@@ -947,9 +947,9 @@ function engineCall(value: unknown) {
   };
 }
 
-type EngineCallDecision = { proposal_id: string; decision: "accept" | "dismiss"; idempotency_key: string };
+type EngineCallDecision = { proposal_id: string; decision?: "accept" | "dismiss" };
 type EngineCallOptions = {
-  dealId: string;
+  dealIds: string[];
   activityId?: string;
   client: {
     readDealCallOutcomes(dealId: string): Promise<unknown>;
@@ -958,16 +958,18 @@ type EngineCallOptions = {
   dateLabel(value: string): string | null;
   phaseLabel(value: string): string;
   onChange?(): void;
+  onVisibilityChange?(visible: boolean): void;
 };
 
 export function mountEngineCallReview(container: HTMLElement, options: EngineCallOptions) {
   const root = createRoot(container);
   let disposed = false;
   let state: "loading" | "ready" | "saving" | "unavailable" = "ready";
-  let calls: ReturnType<typeof engineCall>[] = [];
+  let calls: (ReturnType<typeof engineCall> & { dealId: string; dealName: string | null })[] = [];
   const actions = { accept: "Accept", dismiss: "Dismiss" };
-  let pending: EngineCallDecision | undefined;
+  let pendingProposalId: string | undefined;
   let notice = "";
+  let readFailed = false;
   function title(proposal: ReturnType<typeof engineCall>["proposals"][number]) {
     if (proposal.kind === "phase_move" && proposal.phase) return `Move to ${options.phaseLabel(proposal.phase)}`;
     if (proposal.kind === "log_call") return "File a call note";
@@ -987,13 +989,14 @@ export function mountEngineCallReview(container: HTMLElement, options: EngineCal
         <link rel="stylesheet" href="/css/call-review.css" />
         {state === "loading" && <p role="status">Loading call review…</p>}
         {state === "saving" && <p role="status">Saving your decision…</p>}
-        {state === "unavailable" && <p role="alert">Could not load call review. Try refreshing.</p>}
+        {!busy && readFailed && <p role="alert">Could not load all of the call review. Try refreshing.</p>}
         {showNotice && <p role="alert">{notice}</p>}
         {ready && !calls.length && <p role="status">No recorded calls found.</p>}
-        {ready && calls.length > 0 && !needsDecision && <p role="status">Call review complete.</p>}
+        {ready && calls.length > 0 && !needsDecision && !readFailed && <p role="status">Call review complete.</p>}
         {calls.map((call) => (
-          <section key={call.id}>
+          <section key={`${call.dealId}:${call.id}`}>
             <h3>
+              {options.dealIds.length > 1 && call.dealName && <>{call.dealName} · </>}
               <time dateTime={call.date}>{options.dateLabel(call.date) ?? call.date}</time>
             </h3>
             {call.proposals.length === 0 && <p>No suggestions from this call.</p>}
@@ -1015,8 +1018,8 @@ export function mountEngineCallReview(container: HTMLElement, options: EngineCal
                           key={choice}
                           type="button"
                           className={choice === "accept" ? "primary" : undefined}
-                          disabled={!ready || !!pending || (choice === "accept" && !!proposal.block)}
-                          onClick={() => void decide(proposal.id, choice)}
+                          disabled={!ready || !!pendingProposalId || (choice === "accept" && !!proposal.block)}
+                          onClick={() => void send({ proposal_id: proposal.id, decision: choice })}
                         >
                           {actions[choice]}
                         </button>
@@ -1029,8 +1032,8 @@ export function mountEngineCallReview(container: HTMLElement, options: EngineCal
           </section>
         ))}
         <div className="call-review-actions">
-          {pending && (
-            <button type="button" disabled={busy} onClick={() => void send(pending)}>
+          {pendingProposalId && (
+            <button type="button" disabled={busy} onClick={() => void checkOutcome()}>
               Check outcome
             </button>
           )}
@@ -1044,51 +1047,51 @@ export function mountEngineCallReview(container: HTMLElement, options: EngineCal
   async function refresh() {
     if (disposed || state === "loading" || state === "saving") return;
     state = "loading";
-    render();
-    try {
-      const answer = object(await options.client.readDealCallOutcomes(options.dealId));
-      if (answer.deal_id !== options.dealId) throw new Error("Call deal does not match");
-      calls = list(answer.calls)
-        .map(engineCall)
-        .filter((call) => !options.activityId || call.id === options.activityId);
-      state = "ready";
-    } catch {
-      state = "unavailable";
+    if (options.onVisibilityChange) {
+      calls = [];
+      options.onVisibilityChange(false);
     }
     render();
+    const results = await Promise.allSettled(
+      options.dealIds.map(async (dealId) => {
+        const answer = object(await options.client.readDealCallOutcomes(dealId));
+        if (answer.deal_id !== dealId) throw new Error("Call deal does not match");
+        return list(answer.calls)
+          .filter((value) => !options.activityId || object(value).activity_id === options.activityId)
+          .map((value) => ({ ...engineCall(value), dealId, dealName: optionalText(answer.deal_name) }));
+      }),
+    );
+    if (disposed) return;
+    calls = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+    readFailed = results.some((result) => result.status === "rejected");
+    state = readFailed && !calls.length ? "unavailable" : "ready";
+    options.onVisibilityChange?.(calls.length > 0);
+    render();
   }
-  async function decide(proposal_id: string, decision: EngineCallDecision["decision"]) {
-    if (state !== "ready" || pending || disposed) return;
-    await send({ proposal_id, decision, idempotency_key: crypto.randomUUID() });
+  function checkOutcome() {
+    if (pendingProposalId) return send({ proposal_id: pendingProposalId });
   }
-  async function send(command: EngineCallDecision | undefined) {
-    if (!command || disposed || state === "loading" || state === "saving") return;
-    pending = command;
+  async function send(command: EngineCallDecision) {
+    if (disposed || state !== "ready") return;
     state = "saving";
+    pendingProposalId = undefined;
     notice = "";
     render();
     let saved = false;
     try {
-      const receipt = object(await options.client.decideCallProposal(command));
-      if (
-        receipt.proposal_id !== command.proposal_id ||
-        receipt.status !== (command.decision === "accept" ? "accepted" : "dismissed")
-      )
-        throw new Error("Call decision receipt unavailable");
-      pending = undefined;
-      saved = true;
+      saved = Boolean(await options.client.decideCallProposal(command));
     } catch (error) {
-      if (isObject(error) && typeof error.status === "number" && [400, 404, 409, 422].includes(error.status)) {
-        pending = undefined;
-        const code = isObject(error.payload) ? error.payload.error : null;
-        notice = acceptanceBlock(code) ?? "Could not save this decision. Check the updated call review.";
-      } else {
+      if (isObject(error) && error.pendingRequest) {
+        pendingProposalId = command.proposal_id;
         notice = "Could not confirm your decision. Choose Check outcome to try the same decision again.";
+      } else {
+        const code = isObject(error) && isObject(error.payload) ? error.payload.error : null;
+        notice = acceptanceBlock(code) ?? "Could not save this decision. Check the updated call review.";
       }
     }
     if (disposed) return;
     state = "ready";
-    if (pending) render();
+    if (pendingProposalId) render();
     else await refresh();
     if (saved && !disposed) options.onChange?.();
   }

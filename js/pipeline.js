@@ -1150,7 +1150,7 @@ async function openPanelCallReview(disclosure) {
     const { mountEngineCallReview } = await import('./ui-call.generated.js');
     if (!container.isConnected || !disclosure.open || panelCallReview || state.panelDeal !== id) return;
     panelCallReview = mountEngineCallReview(container, {
-      dealId: id, client: state.client, dateLabel: formatCalendarDate,
+      dealIds: [id], client: state.client, dateLabel: formatCalendarDate,
       phaseLabel: phase => columnBySlug(phase)?.label || phase,
       onChange: () => void refreshPanel({ changed: true }),
     });

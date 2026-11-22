@@ -1498,9 +1498,14 @@ test("Carr sign-in keeps its deal page and makes no engine call review request",
   assert.deepEqual(requests, []);
 });
 
-test("the Call Mode report opens review for its captured activity on the selected deal", async (t) => {
-  const { server, context } = await app(t, { callReview: () => callOutcomes("pending", null, true) });
-  const page = await context.newPage();
+const recorderSummary = "Private synthetic recorder summary.";
+const recorderReceipt = {
+  outcome: "stored",
+  activity_id: activityId,
+  about: [{ deal_id: dealId }],
+};
+
+async function routeRecorder(page: Page, status: () => object) {
   await page.route("http://127.0.0.1:4682/**", (route) => {
     const url = new URL(route.request().url());
     return route.fulfill({
@@ -1508,15 +1513,146 @@ test("the Call Mode report opens review for its captured activity on the selecte
       json:
         url.pathname === "/api/state"
           ? { state: "filed", session: "demo-local-session", mode: "weekly_deal_call" }
-          : { status: "filed", report: { engine_call: { activity_id: activityId } } },
+          : status(),
     });
   });
-  await page.goto(server.origin + dealPage);
-  await page.getByRole("region", { name: "Deal snapshot" }).waitFor();
+}
+
+async function openRecorder(page: Page) {
   await page.locator("#selfAvatar").click();
   await page.locator("#callModeRetry").click();
   await page.locator("#callModeButton").click();
-  const review = page.locator("#callModeDialog").getByRole("region", { name: "Review recorded calls" });
-  await review.getByText(callEvidence, { exact: true }).waitFor({ timeout: 5_000 });
-  assert.equal(await review.getByText("Nov 10", { exact: true }).count(), 0);
+  return page.locator("#callModeDialog");
+}
+
+test("the Call Mode report opens review for its captured activity on the selected deal", async (t) => {
+  const { server, context } = await app(t, { callReview: () => callOutcomes("pending", null, true) });
+  const page = await context.newPage();
+  await routeRecorder(page, () => ({ status: "filed", report: { engine_call: recorderReceipt } }));
+  await page.goto(server.origin + dealPage);
+  await page.getByRole("region", { name: "Deal snapshot" }).waitFor();
+  const dialog = await openRecorder(page);
+  await dialog.getByText(callEvidence, { exact: true }).waitFor({ timeout: 5_000 });
+  assert.equal(await dialog.getByText("Nov 10", { exact: true }).count(), 0);
+});
+
+test("the recorder hides the summary when the signed-in partner cannot see the activity", async (t) => {
+  let visible = true;
+  const { server, context } = await app(t, {
+    callReview: (request) =>
+      visible && request.headers.get("cookie") === cookieName + "=first"
+        ? callOutcomes("pending")
+        : Response.json({ deal_id: dealId, deal_name: dealName, calls: [] }),
+  });
+  const page = await context.newPage();
+  const report = { report: { summary: recorderSummary }, engine_call: recorderReceipt };
+  await routeRecorder(page, () => ({ status: "filed", report }));
+  await page.goto(server.origin + dealPage);
+  await page.getByRole("region", { name: "Deal snapshot" }).waitFor();
+  const dialog = await openRecorder(page);
+  await dialog.getByText(recorderSummary, { exact: true }).waitFor({ timeout: 5_000 });
+
+  visible = false;
+  await dialog.getByRole("button", { name: "Refresh", exact: true }).click();
+  await dialog.getByText("No recorded calls found.", { exact: true }).waitFor({ timeout: 5_000 });
+  assert.equal(await dialog.getByText(recorderSummary, { exact: true }).count(), 0);
+
+  visible = true;
+  await page.goto(server.origin + "/auth/callback/google?fixture=second&return_to=" + encodeURIComponent(dealPage));
+  await page.getByRole("region", { name: "Deal snapshot" }).waitFor();
+  const secondDialog = await openRecorder(page);
+  await secondDialog.getByText("No recorded calls found.", { exact: true }).waitFor({ timeout: 5_000 });
+  assert.equal(await secondDialog.getByText(recorderSummary, { exact: true }).count(), 0);
+});
+
+test("the recorder opens every filed deal from the Deals board", async (t) => {
+  const secondPath = `/api/engine/deals/${candidateDeal.id}/call-outcomes`;
+  const secondEvidence = "Please confirm the second demo location.";
+  const reads: string[] = [];
+  const { server, context } = await app(t, {
+    callReview: async (request) => {
+      const path = new URL(request.url).pathname;
+      reads.push(path);
+      const answer = await callOutcomes("pending").json();
+      if (path === secondPath) {
+        answer.deal_id = candidateDeal.id;
+        answer.deal_name = candidateDeal.name;
+        answer.calls[0].proposals[0].proposal_id = filingId;
+        answer.calls[0].proposals[0].evidence = secondEvidence;
+      }
+      return Response.json(answer);
+    },
+  });
+  const page = await context.newPage();
+  const engine_call = { ...recorderReceipt, about: [...recorderReceipt.about, { deal_id: candidateDeal.id }] };
+  await routeRecorder(page, () => ({ status: "filed", report: { engine_call } }));
+  await page.goto(server.origin + "/deals?mode=live");
+  await page.getByRole("heading", { name: dealName }).waitFor();
+  const dialog = await openRecorder(page);
+  await dialog.getByText(callEvidence, { exact: true }).waitFor({ timeout: 5_000 });
+  await dialog.getByText(secondEvidence, { exact: true }).waitFor({ timeout: 5_000 });
+  assert.deepEqual(reads.sort(), [callOutcomesPath, secondPath].sort());
+});
+
+test("the recorder waits for engine filing with either Deals save setting", async (t) => {
+  for (const callSavesOn of [false, true]) {
+    await t.test(callSavesOn ? "engine saves on" : "engine saves off", async (t) => {
+      let statusReads = 0;
+      const { server, context } = await app(t, { callReview: () => callOutcomes("pending") });
+      const page = await context.newPage();
+      if (callSavesOn)
+        await page.route("**/deals?*", async (route) => {
+          const response = await route.fetch();
+          await route.fulfill({
+            response,
+            body: (await response.text()).replace("<html ", "<html data-deals-saves-from-engine "),
+          });
+        });
+      await page.clock.install();
+      await routeRecorder(page, () => ({
+        status: { state: "ready_review" },
+        report: ++statusReads > 1 ? { engine_call: recorderReceipt } : { report: { summary: recorderSummary } },
+      }));
+      await page.goto(server.origin + dealPage);
+      await page.getByRole("region", { name: "Deal snapshot" }).waitFor();
+      assert.equal(await page.locator("html[data-deals-saves-from-engine]").count(), Number(callSavesOn));
+      const firstStatus = page.waitForResponse((response) => response.url().includes("/api/post-call?"));
+      const dialog = await openRecorder(page);
+      await firstStatus;
+      await page.clock.runFor(61_000);
+      await dialog.getByText(callEvidence, { exact: true }).waitFor({ timeout: 6_000 });
+      assert.ok(statusReads > 1);
+    });
+  }
+});
+
+test("an uncertain call decision keeps its key after leaving and reopening the deal", async (t) => {
+  const writes: unknown[] = [];
+  let state = "pending";
+  const { server, context } = await app(t, {
+    callReview: async (request) => {
+      if (request.method === "GET") return callOutcomes(state);
+      writes.push(await request.json());
+      if (writes.length === 1) return new Response(null, { status: 503 });
+      state = "accepted";
+      return Response.json({ proposal_id: callProposalId, status: state });
+    },
+  });
+  const page = await context.newPage();
+  await page.goto(server.origin + "/deals?mode=live");
+  const openDeal = page.getByRole("heading", { name: dealName });
+  const disclosure = page.getByText("Call review", { exact: true });
+  const review = page.getByRole("region", { name: "Review recorded calls" });
+  const accept = review.getByRole("button", { name: "Accept", exact: true });
+  await openDeal.click();
+  await disclosure.click();
+  await accept.click();
+  await review.getByRole("button", { name: "Check outcome", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Back to deals" }).click();
+  await openDeal.click();
+  await disclosure.click();
+  await accept.click();
+  await review.getByText("Accepted", { exact: true }).waitFor();
+  assert.equal(writes.length, 2);
+  assert.deepEqual(writes[1], writes[0]);
 });
