@@ -130,8 +130,8 @@ test('Vendors show recorded facts and keep names, phones and notes readable', ()
   const { document, app, row, payload } = setup('vendors');
   row.name = payload.record.name = '(TBD: intake contact) (V-SUP-901)';
   row.owner_label = 'Example Owner';
-  Object.assign(row.relationship, { computed_tier: 'Trial', win_rate: null, last_contact_note: 'Recovered from CARR calendar history' });
-  Object.assign(payload.record, { phone: '+15550102000', intro_notes: row.relationship.last_contact_note });
+  Object.assign(row.relationship, { computed_tier: 'Trial', win_rate: null });
+  Object.assign(payload.record, { phone: '+15550102000', intro_notes: 'Recovered from CARR calendar history' });
   document.querySelector('#recordList').innerHTML = app.rowHtml('vendors', row, row.id);
   const link = document.querySelector('.record-row');
   assert.equal(link.querySelector('.row-name').textContent, '(TBD: intake contact)');

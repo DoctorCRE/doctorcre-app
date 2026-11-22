@@ -425,20 +425,9 @@ const metric = value => Number.isInteger(value) ? String(value) : '—';
 const winRate = stats => Number.isFinite(stats?.win_rate) ? `${Math.round(stats.win_rate * 100)}%` : '—';
 const vendorNote = value => withoutRecordCodes((value || '').replace(/\bCARR calendar history\b/gi, 'calendar history'));
 const shortNote = value => typeof value === 'string' ? value.split(/\n/)[0].slice(0, 140) : '';
-function vendorContactSummary(stats) {
-  const date = stats?.last_contacted_at && formatDay(stats.last_contacted_at);
-  const title = withoutRecordCodes((stats?.last_contact_note || '').split('\n', 1)[0])
-    .replace(/\(\s*recovered from [^()]*\bcalendar history\s*\)/gi, ' ')
-    .replace(/\(\s*[^()\s@]+@[^()\s@]+\s*\)/g, ' ')
-    .replace(/\bCARR(?:['’]s)?\b/gi, ' ')
-    .replace(/\(\s*\)/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/^[ .,;:·–—-]+|[ ,;:·–—-]+$/g, '');
-  const parts = [
-    date ? `Last contacted <time datetime="${escapeHtml(stats.last_contacted_at)}">${escapeHtml(date)}</time>` : '',
-    /@|\brecovered from\b|\bcalendar history\b/i.test(title) ? '' : escapeHtml(shortNote(title)),
-  ].filter(Boolean);
-  return parts.length ? `<span class="contact-note">${parts.join(' · ')}</span>` : '';
+function vendorContactDate(contactedAt) {
+  const date = contactedAt && formatDay(contactedAt);
+  return date ? `<span class="contact-note">Last contacted <time datetime="${escapeHtml(contactedAt)}">${escapeHtml(date)}</time></span>` : '';
 }
 
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
@@ -643,7 +632,7 @@ function rowHtml(dataset, row, selectedId) {
   const vendor = dataset === "vendors";
   const facts = rowFacts(dataset, row).filter((fact) => fact.known).map((fact) =>
     `<span class="row-fact${fact.unresolved ? " unresolved" : ""}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("");
-  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactSummary(row.relationship) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
+  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
 }
 
 function paintList(html, { busy = false } = {}) {

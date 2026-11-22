@@ -104,17 +104,13 @@ let assets: ReturnType<typeof appAssetSnapshot> | undefined;
 let browser: ReturnType<typeof chromium.launch> | undefined;
 after(async () => (await browser)?.close());
 
-const vendorContactExamples = [
-  ["Recovered from Example Partner’s calendar history", "Last contacted Sep 30, 2026"],
-  ["Site tour (agent@example.test)", "Last contacted Sep 30, 2026 · Site tour"],
-  ["CARR Financing review", "Last contacted Sep 30, 2026 · Financing review"],
-  ["Carroll planning call", "Last contacted Sep 30, 2026 · Carroll planning call"],
-  ["Site planning with agent@example.test", "Last contacted Sep 30, 2026"],
-  [
-    "Lease discussion (recovered from Example Partner's calendar history)",
-    "Last contacted Sep 30, 2026 · Lease discussion",
-  ],
-] as const;
+const vendorContactNotes = [
+  "Imported from Outlook archive",
+  "Site tour (agent@example.test)",
+  "CARR Financing review",
+  "Discussed a site visit",
+  null,
+];
 
 const switchDayKeys = new Set([
   "deals-from-engine",
@@ -195,8 +191,10 @@ async function app(
           const payload = directoryFixture(url.href);
           if (path === "/api/engine/vendors" && Array.isArray(payload.rows)) {
             for (const row of payload.rows) {
-              const example = vendorContactExamples[Number(row.ref.split("-").at(-1)) - 1];
-              if (example) row.relationship.last_contact_note = example[0];
+              const note = vendorContactNotes[Number(row.ref.split("-").at(-1)) - 1];
+              if (note === undefined) continue;
+              row.relationship.last_contacted_at = note === null ? null : "2026-10-01T01:30:00Z";
+              row.relationship.last_contact_note = note;
             }
           }
           return Response.json(payload);
@@ -1652,15 +1650,18 @@ test("a saved Leads link with a second copied UUID opens the lead and supports c
 });
 
 for (const width of [390, 1440]) {
-  test(`Vendor rows show plain contact summaries on switched CARR sign-in at ${width}px`, async (t) => {
+  test(`Vendor rows show only the contact date on switched CARR sign-in at ${width}px`, async (t) => {
     const { context, server } = await app(t, { width, signIn: "carr", switchDay: true });
     const page = await context.newPage();
     await page.goto(server.origin + "/vendors");
-    for (const [index, [, expected]] of vendorContactExamples.entries()) {
+    for (const [index, note] of vendorContactNotes.entries()) {
       const row = page.getByRole("link", { name: new RegExp(`^Demo Partner 0${index + 1}\\b`) });
-      const text = await row.textContent({ timeout: 5000 });
-      assert.doesNotMatch(text ?? "", /recovered from|calendar history|@|\bCARR\b/i);
-      assert.ok(await row.getByText(expected, { exact: true }).isVisible(), text ?? "Missing vendor row");
+      const text = (await row.textContent({ timeout: 5000 })) ?? "";
+      if (note === null) {
+        assert.doesNotMatch(text, /Last contacted/);
+      } else {
+        assert.ok(await row.getByText("Last contacted Sep 30, 2026", { exact: true }).isVisible(), text);
+      }
     }
   });
 
