@@ -132,6 +132,7 @@ test("the saved cart and reviewed route preserve property identities and require
           await page.locator("[data-open-tour]").click();
           const editor = page.frameLocator("iframe");
           await editor.locator("#tour-name").filter({ hasText: detail.name }).waitFor();
+          await editor.locator("#selection-version").getByText("Saved version 1", { exact: true }).waitFor();
           await editor.getByRole("button", { name: "Find properties", exact: true }).click();
           const candidateResult = editor.locator(`button[data-property-id="${candidate}"]`);
           await candidateResult.click();
@@ -172,6 +173,7 @@ test("the saved cart and reviewed route preserve property identities and require
           await page.locator("[data-open-tour]").waitFor();
           await page.locator("[data-open-tour]").click();
           await editor.locator("#composer-badge").filter({ hasText: "Accepted" }).waitFor({ state: "attached" });
+          await editor.locator("#selection-version").getByText("Saved version 3", { exact: true }).waitFor();
           assert.equal(await editor.locator("#selection-list li").count(), 2);
           await editor.locator("#route-editing > summary").click();
           assert.deepEqual(
