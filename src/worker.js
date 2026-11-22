@@ -1085,6 +1085,8 @@ async function handleRequest(request, env) {
     const gate = await pageGate(request, env, new Request(destination, request));
     return noStore(gate.status === 200 ? copySessionCookies(gate, Response.redirect(destination, 308)) : gate);
   }
+  if (engineSignIn(env) && /^\/api\/v1\/call-sessions(?:\/|$)/.test(pathname))
+    return json({ error: 'phone_capture_retired' }, 410);
   if (RETIRED_API.test(pathname)) return json({ error: 'not_found' }, 404);
   if (pathname === "/app-release") return request.method === "GET" ? release(env) : json({ error: "method_not_allowed" }, 405);
   if (REDIRECTS.has(pathname)) {
@@ -1128,6 +1130,8 @@ async function handleRequest(request, env) {
       url.searchParams.delete('view');
       return gatedResponse(gate, new Response(null, { status: 302, headers: { location: url.pathname + url.search, 'cache-control': 'no-store' } }), env);
     }
+    if (route === '/calls' && engineSignIn(env))
+      return gatedResponse(gate, await assetResponse(request, env, '/phone-capture-retired.html', switches), env);
     if (routeAsset === 'review-workflows.html' && switches.homeToday)
       return gatedResponse(gate, await assetResponse(request, env, '/review-workflows-moved.html', switches), env);
     if (routeAsset === 'client-portal.html' && (engineSignIn(env) || switches.dealSavesFromEngine)) {

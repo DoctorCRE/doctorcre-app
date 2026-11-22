@@ -18,6 +18,7 @@ export const UI_ENTRIES = {
   'ui-tour-stop-drag': 'tour-stop-drag',
   'ui-broker-cheat-sheet': 'broker-cheat-sheet',
   'ui-phone-push': 'phone-push',
+  'ui-phone-call-recovery': 'phone-call-recovery',
   'ui-doc-link-settings': 'doc-link-settings',
   'ui-action-session-return': 'action-session-return',
   'ui-watches': 'watches/control',

@@ -6,13 +6,17 @@ Recording import, Tours microphone capture, scoped pending audio, authenticated 
 
 ## How to get to it (user POV)
 
+With engine sign-in, open the old `/calls` bookmark on the device and browser where the audio was saved. Sign in with the same partner account, then download the recordings. Open the deal page for the recorder and Call review.
+
+With CARR sign-in:
+
 Open More, then Phone capture. Confirm recording consent, choose a native recording or voice memo, and enter the original recording and consent times. Save recording keeps audio on this device. Transfer recording retries admission and transfer without clearing audio until confirmed. Record microphone captures in-person audio or a post-call recap. Stop recording leaves audio available to review before transfer.
 
 Open the review link on another device signed in to the same authorized partner account. Refresh review checks processing and filing. Open review questions accept a written answer and retain the same request for retries until a session read removes them. Pending single-track items need partner confirmation. Undo uses the current applied change and deal version.
 
 ## Driving it with Playwright
 
-Run `node --test test/phone-call-browser.test.mjs`. It uses the existing fixture server and browser harness with synthetic WAV bytes and a synthetic microphone. It drives import, reload, unavailable transfer, queued and expired uploads, verified transfer, server errors, partner isolation, microphone interruption, review links, explicit confirmations and Undo. Four review screenshots cover 390 and 1440 pixels in light and dark under `out/test-artifacts/phone-calls/`. Question screenshots are under `.github/pr-evidence/WR572.S8.J45/`.
+Run `node --test --test-name-pattern="phone capture|the Call Mode report opens review" test/partner-sign-in.browser.ts` for the retirement, downloads and deal recorder. For CARR sign-in, run `node --test test/phone-call-browser.test.mjs`. It uses the existing fixture server and browser harness with synthetic WAV bytes and a synthetic microphone. It drives import, reload, unavailable transfer, queued and expired uploads, verified transfer, server errors, partner isolation, microphone interruption, review links, explicit confirmations and Undo. Four review screenshots cover 390 and 1440 pixels in light and dark under `out/test-artifacts/phone-calls/`. Question screenshots are under `.github/pr-evidence/WR572.S8.J45/`.
 
 ## Gotchas
 
