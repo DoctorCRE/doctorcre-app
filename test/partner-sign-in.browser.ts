@@ -2666,7 +2666,8 @@ for (const signIn of ["engine", "carr"] as const) {
       signIn,
       switchDay: signIn === "carr",
       tourPlans: true,
-      readAnniversaries: () => Response.json(signIn === "engine" ? anniversaries.ready.output.rows : anniversaries.ready.output),
+      readAnniversaries: () =>
+        Response.json(signIn === "engine" ? anniversaries.ready.output.rows : anniversaries.ready.output),
     });
     const page = await context.newPage();
     page.setDefaultTimeout(5000);
