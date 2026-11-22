@@ -109,6 +109,7 @@ function sessionModule(): Promise<{
 }
 
 const api = "/api/engine/doc";
+const questionLimit = 4000;
 const params = new URLSearchParams(location.search);
 const legacyPath = /^\/doc\/conversations\/([^/]+)\/turns\/([^/]+)$/.exec(location.pathname);
 const legacyLink = params.has("id") || Boolean(legacyPath);
@@ -120,6 +121,18 @@ const initialDraft = initialId
       id: params.get("draft"),
       version: Number(params.get("version")),
     }).data;
+const invoiceDeal = recordRef.safeParse({ kind: "deal", id: params.get("deal") }).data;
+const invoiceKey = params.get("invoice");
+const initialInvoice =
+  !initialId &&
+  !initialDraft &&
+  invoiceDeal &&
+  invoiceKey &&
+  (z.guid().safeParse(invoiceKey).success || invoiceKey === `awaiting:${invoiceDeal.id}`)
+    ? { key: invoiceKey, deal: invoiceDeal }
+    : undefined;
+const initialContext = initialDraft ?? initialInvoice?.deal;
+const composerId = initialDraft?.id ?? initialInvoice?.key ?? null;
 const draftChangeText = {
   changed: "This draft has a newer revision.",
   gone: "This draft is no longer pending.",
@@ -143,6 +156,8 @@ function chatHref(id: string | null) {
   query.delete("id");
   query.delete("draft");
   query.delete("version");
+  query.delete("invoice");
+  query.delete("deal");
   if (id) query.set("chat", id);
   else query.delete("chat");
   return "/doc-chats" + (query.size ? `?${query}` : "");
@@ -493,7 +508,7 @@ function DocChat() {
             : latest.context && { context: latest.context }),
         }
       : null);
-  const text = question.trim();
+  const questionLength = [...question].length;
   const canSend =
     ready &&
     !busy &&
@@ -501,9 +516,9 @@ function DocChat() {
     !reviewReason &&
     status !== "loadFailed" &&
     !pendingAsk &&
-    text.length > 0 &&
-    [...text].length <= 4000 &&
-    !text.includes("\0");
+    question.trim().length > 0 &&
+    questionLength <= questionLimit &&
+    !question.includes("\0");
 
   const showUnavailable = useCallback(() => {
     setTurns([]);
@@ -550,7 +565,13 @@ function DocChat() {
         const storage = (field: DraftField, id: string | null) => privateTextDraft(window, actor, field, id);
         privateDraft.current = storage;
         setTurns(saved);
-        setQuestion(storage("doc-question", chatId ?? initialDraft?.id ?? null).read());
+        const draft = storage("doc-question", chatId ?? composerId);
+        const prefill = !chatId && initialInvoice ? new URLSearchParams(location.hash.slice(1)).get("question") : null;
+        if (prefill) {
+          draft.write(prefill);
+          history.replaceState(history.state, "", location.pathname + location.search);
+        }
+        setQuestion(prefill || draft.read());
         setReady(true);
       });
     },
@@ -660,7 +681,7 @@ function DocChat() {
       setTurns((rows) => [...rows.filter((row) => row.id !== turn.id), turn]);
       setPendingAsk(null);
       if (latest?.idempotency_key !== ask.idempotency_key) {
-        privateDraft.current?.("doc-question", id ?? initialDraft?.id ?? null).write("");
+        privateDraft.current?.("doc-question", id ?? composerId).write("");
         setQuestion("");
       }
     });
@@ -712,6 +733,11 @@ function DocChat() {
           {ready && draftId && (
             <p>
               <a href={draftReviewHref(draftId)}>{reviewReason ? "Open fresh review" : "Open reply review"}</a>
+            </p>
+          )}
+          {ready && initialInvoice && (
+            <p>
+              <a href={`/invoices?invoice=${encodeURIComponent(initialInvoice.key)}`}>Open invoice</a>
             </p>
           )}
           <ol className="doc-chat__turns" aria-live="polite">
@@ -778,26 +804,30 @@ function DocChat() {
               event.preventDefault();
               if (canSend)
                 send({
-                  question: text,
+                  question,
                   idempotency_key: crypto.randomUUID(),
-                  ...(id ? { conversation_id: id } : initialDraft && { context: initialDraft }),
+                  ...(id ? { conversation_id: id } : initialContext && { context: initialContext }),
                 });
             }}
           >
             <label htmlFor="docQuestion">Question for Doc</label>
             <textarea
               id="docQuestion"
+              aria-describedby="docQuestionLength"
               rows={3}
               value={question}
               disabled={(!ready && status !== "unavailable" && status !== "older") || !!pendingAsk}
               readOnly={status === "unavailable" || status === "older"}
               onChange={(event) => {
                 const value = event.currentTarget.value;
-                privateDraft.current?.("doc-question", id ?? initialDraft?.id ?? null).write(value);
+                privateDraft.current?.("doc-question", id ?? composerId).write(value);
                 setQuestion(value);
               }}
             />
             <div className="doc-chat__actions">
+              <small id="docQuestionLength">
+                {questionLength.toLocaleString("en-US")} / {questionLimit.toLocaleString("en-US")}
+              </small>
               <button className="btn btn-primary" type="submit" disabled={!canSend}>
                 Send
               </button>
