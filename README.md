@@ -54,26 +54,28 @@ npx e2e run
 npm run test:regressions
 ```
 
-The signed-in staging smoke uses [Playwright Test](https://playwright.dev/docs/intro)
-and its [authentication setup project](https://playwright.dev/docs/auth).
-Provide `E2E_SESSION_SECRET` through the environment, then run:
+For the signed-in smoke in engine mode, set `E2E_ENGINE_STORAGE_STATE` to the
+path of an approved Playwright storage state file for the staging test actor
+(`joe`). Keep the file outside the checkout and out of logs. Then run:
 
 ```bash
-npx playwright test --project=chromium
+./node_modules/.bin/playwright test --config=tests/staging/playwright.config.ts --project=staging-engine
 ```
 
-The setup exchanges that secret at staging's `/auth/e2e-session` for the
-synthetic `e2e-joe` account and saves `storageState` under ignored
-`playwright/.auth/`. The Chromium journey visits Home, Leads, Tours, Local Deals,
-Vendors, Clients, Relationships and Invoices. It reloads each screen and
-checks the account menu. It uses the fixed staging origin in `playwright.config.ts`.
-Keep the secret and saved browser state out of logs and commits. The existing
-fixture suites continue to run separately.
+Setup checks the session and sign-in mode at the fixed staging origin before
+the smoke opens any screens. If the session has expired, replace the file with
+fresh approved state. Keep Playwright traces and debug logging off for this
+project. The Google sign-in round trip is a separate manual check.
 
-`npx playwright test --project=fixtures` runs migrated, credential-free browser
-tests with Playwright's page and context fixtures. Known staging failures stay
-as individual `test.fixme` cases tagged `@fixme`; list them with
-`npx playwright test --project=chromium --list --grep @fixme`.
+For CARR rollback runs, the disabled staging workflow still uses the
+`chromium` project and `E2E_SESSION_SECRET`. Its setup exchanges the secret
+for the synthetic `e2e-joe` session and saves state in the ignored
+`playwright/.auth/` directory. Keep the secret and state out of logs and commits.
+List known rollback failures with
+`./node_modules/.bin/playwright test --project=chromium --list --grep @fixme`.
+
+`./node_modules/.bin/playwright test --project=fixtures` runs credential-free
+browser tests with Playwright's page and context fixtures.
 
 The Home section browser tests open step links on Prospects and Relationships
 at phone and desktop widths. Each link brings the selected step into view
