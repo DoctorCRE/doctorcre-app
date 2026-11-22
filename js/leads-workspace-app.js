@@ -21,6 +21,7 @@ import { mountTerritoryMap } from "./leads-territory-map.js";
 
 const validateLeadWorkspace = value => validateWorkspace(value, parseOpportunityTiming);
 const validateLeadDetail = (value, id) => validateDetail(value, id, parseOpportunityTiming);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const yearIfNeeded = date => businessDay(date).slice(0, 4) !== businessDay().slice(0, 4) ? "numeric" : undefined;
 const shortDate = (value, calendarDate = false) => {
@@ -290,13 +291,27 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       paint();
     });
   }
-  function openRequestedLead() {
+  async function openRequestedLead() {
     if (state.openedRequestedLead || !state.board) return;
     const ref = new URL(win.location.href).searchParams.get("lead");
     if (!ref) return;
     state.openedRequestedLead = true;
     const lead = state.board.leads.find(row => row.registry_ref === ref || row.id === ref);
-    if (lead && eligibleLead(lead)) readDetail(lead.id);
+    if (lead) {
+      if (eligibleLead(lead)) return readDetail(lead.id);
+      return;
+    }
+    if (!UUID.test(ref)) return;
+    const { actor, detailEpoch } = state;
+    try {
+      const { detail } = await client.getLeadDetail({ id: ref });
+      if (detailEpoch !== state.detailEpoch || actor !== state.actor || !state.identityReady || !detail?.party_id) return;
+      // The engine echoes the requested UUID; party_id identifies the board record.
+      const row = state.board?.leads.find(lead => lead.party_id === detail.party_id && eligibleLead(lead));
+      if (row && eligibleLead(detail)) return readDetail(row.id, { resolvedDetail: { ...detail, id: row.id } });
+    } catch (error) {
+      if (detailEpoch === state.detailEpoch && actor === state.actor) authorizationFailure(error);
+    }
   }
   async function refresh() {
     if (disposed) return false;
@@ -353,10 +368,10 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       }
       const resumeDetail = state.resumeDetail;
       if (resumeDetail && (resumeDetail.actor !== state.actor || !leadById(resumeDetail.id))) state.resumeDetail = null;
-      if (state.resumeDetail) await readDetail(resumeDetail.id, true, resumeDetail);
+      if (state.resumeDetail) await readDetail(resumeDetail.id, { intent: resumeDetail });
       else if (state.detailId && $("leadDetail").open) {
         if (leadById(state.detailId)) {
-          await readDetail(state.detailId, false);
+          await readDetail(state.detailId, { open: false });
           const dialog = $("leadDetail");
           if (dialog.open && detailFocus?.container === "detailBody" && detailFocus.value === state.detailId &&
               (doc.activeElement === doc.body || doc.activeElement === dialog)) restoreFocus(detailFocus);
@@ -510,17 +525,18 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       if (emailAcknowledgements.get(lead.id) === attempt) emailAcknowledgements.delete(lead.id);
     }
   }
-  async function readDetail(id, open = true, intent = null) {
+  async function readDetail(id, { open = true, intent = null, resolvedDetail = null } = {}) {
     const lead = leadById(id), epoch = ++state.detailEpoch, actor = state.actor;
     state.historyRequest = null; state.historyError = null;
     if (!lead || !state.identityReady) return;
     if (open && !intent) drawerEmailAttempted = false;
     if (open) { clearGuidance(); state.resumeDetail = intent; state.selectedId = id; render(); selectDocRecord("lead", id); state.detailId = id; state.detail = null; paintDetailFollowUp(); state.trigger = focusIdentity(doc.activeElement); $("detailTitle").textContent = leadTitle(lead); $("detailBody").innerHTML = '<p class="empty">Updating…</p>'; $("leadDetail").showModal(); }
     try {
-      const response = await client.getLeadDetail(lead);
+      const response = resolvedDetail ? { detail: resolvedDetail } : await client.getLeadDetail(lead);
       if (epoch !== state.detailEpoch || actor !== state.actor) return;
       if (!leadById(id) || !response.detail || response.detail.id !== id || !eligibleLead(response.detail)) { state.resumeDetail = null; $("leadDetail").close(); state.detail = null; return; }
       validateLeadDetail(response.detail, id);
+      if (resolvedDetail) publishDocRead("getLeadDetail", response, [lead]);
       selectDocRecord("lead", id);
       // eslint-disable-next-line no-restricted-syntax -- History visits only correspondence and stage_history; each kind has its own 100-page takePage budget.
       for (const kind of ["correspondence", "stage_history"]) {

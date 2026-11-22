@@ -34,6 +34,8 @@ It captures every view and its publication footer at 1440px and 390px in both th
 
 ## Gotchas
 
+Old Observatory links go to Home. Room and Queue links still open Progress work.
+
 Hierarchy, work-queue, Orchestrator and embedded boards keep their existing
 navigation. Status membership uses the current producer-derived stage and
 health. These tests do not prove production delivery, authoritative work

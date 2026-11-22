@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-Vendor detail reads named contacts through `vendor-directory.v2`. List reads retain v1. Office evidence, research status, and recorded territory remain separate.
+Vendor detail reads named contacts through `vendor-directory.v2`. List reads retain v1. Office evidence, research status, and recorded territory remain separate. The drawer shows the vendor’s track record. The Trust rating editor is available with CARR sign-in.
 
 ## How to get to it (user POV)
 

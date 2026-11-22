@@ -14,6 +14,14 @@ test('System Job Board task selection opens the shared popup', async () => {
   assert.match(board, /id="jobDialog"/);
 });
 
+test('Progress work uses the current room wire', async () => {
+  for (const retired of ['room.html', 'queue.html', 'js/progress-legacy.js', 'js/room.js']) {
+    await assert.rejects(readFile(new URL(`../${retired}`, import.meta.url)), { code: 'ENOENT' });
+  }
+  const page = await readFile(new URL('../js/progress-work.js', import.meta.url), 'utf8');
+  assert.match(page, /from ['"]\.\/progress-wire\.js['"]/);
+});
+
 test('canonical Engineering read accepts current-generation arrays and refuses a broken seal',()=>{
   const read=canonicalFixture();
   read.projection_digest=passportProjectionDigest(read);
@@ -22,7 +30,7 @@ test('canonical Engineering read accepts current-generation arrays and refuses a
   assert.equal(canonicalPassport({...read,current_receipts:null}),false);
 });
 
-test('Observatory URLs redirect into Progress and retain deep links', async () => {
+test('legacy Room and Queue URLs redirect into Progress and retain deep links', async () => {
   for (const [old, view] of [['/room.html','wire'], ['/agent-room','wire'], ['/queue.html','tasks'], ['/control-room/agents/queue','tasks']]) {
     const response = await handleDoctorcreRequest(new Request(`https://example.test${old}?board=synthetic&task=t_demo&session=s_demo#wireFeed`), {});
     assert.equal(response.status, 308);
