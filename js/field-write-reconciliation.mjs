@@ -359,7 +359,7 @@ export function prepareAutomaticPhaseUndo(options) {
       session++;
       feedbackByDeal.clear();
     },
-    async undo(button) {
+    async undo(button, refreshDetail) {
       const clickedIn = session;
       loading ||= import('./ui-automatic-phase-undo.generated.js')
         .then(({ createAutomaticPhaseUndo }) => createAutomaticPhaseUndo({ ...options, feedbackByDeal }))
@@ -369,7 +369,7 @@ export function prepareAutomaticPhaseUndo(options) {
           return null;
         });
       const controller = await loading;
-      if (clickedIn === session) return controller?.undo(button);
+      if (clickedIn === session) await controller?.undo(button, refreshDetail);
     },
   };
 }

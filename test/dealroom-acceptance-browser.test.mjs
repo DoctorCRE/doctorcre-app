@@ -1289,6 +1289,7 @@ test('keyboard Undo on the deal page returns the deal to the previous phase', as
   const invoiced = row('Example Formerly Invoiced Deal', 'invoiced');
   const refused = row('Example Refused Undo Deal');
   const stale = row('Example Changed Deal');
+  const staleRefresh = Promise.withResolvers();
   const manual = row('Example Manual Deal', 'research', false);
   const parked = { ...row('Example Parked Deal'), operating_state: 'parked', parking_reason: 'client_paused' };
   const deals = [success, closed, lost, invoiced, refused, stale, manual, parked];
@@ -1303,6 +1304,7 @@ test('keyboard Undo on the deal page returns the deal to the previous phase', as
         if (path === '/api/engine/deals') return Response.json(board());
         const deal = deals.find(item => path === `/api/engine/deals/${item.id}`);
         assert.ok(deal);
+        if (deal === stale && !deal.phase_change) await staleRefresh.promise;
         return Response.json({ ...deal, deal_id: deal.id, email_follow_ups: [] });
       }
       const deal = deals.find(item => path === `/api/engine/deals/${item.id}/phase/undo`);
@@ -1375,9 +1377,22 @@ test('keyboard Undo on the deal page returns the deal to the previous phase', as
     await back();
   }
   await open(stale);
-  await undo.press('Space');
-  await snapshot.getByText('This deal changed. The deal page was refreshed.', { exact: true }).waitFor();
+  const refreshed = snapshot.getByText('This deal changed. The deal page was refreshed.', { exact: true });
+  try {
+    await Promise.all([
+      page.waitForRequest(request => {
+        const params = request.method() === 'POST' && request.postDataJSON()?.params;
+        return !stale.phase_change && params?.name === 'get-deal-room' && params.arguments.deal === stale.id;
+      }),
+      undo.press('Space'),
+    ]);
+    assert.deepEqual({ notices: await refreshed.count(), undoEnabled: await undo.isEnabled() }, { notices: 0, undoEnabled: false });
+  } finally {
+    staleRefresh.resolve();
+  }
+  await refreshed.waitFor();
   assert.equal(await undo.count(), 0);
+  assert.equal(await page.locator('#detailPhase').inputValue(), 'negotiation');
   await page.screenshot({ path: join(evidence, 'automatic-phase-undo.png') });
   await back();
   await page.locator('[data-column="negotiation"]').getByRole('button', { name: stale.name, exact: true }).waitFor();

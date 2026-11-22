@@ -1927,7 +1927,7 @@ async function registerClientPortal(id, form) {
 }
 function refreshPanel({ changed = false } = {}) {
   const id = state.panelDeal;
-  if (!id) return Promise.resolve();
+  if (!id) return Promise.resolve(false);
   if (panelRead?.id === id && panelRead.sequence === panelReadSequence) {
     if (changed) panelRead.again = true;
     return panelRead.promise;
@@ -1935,9 +1935,10 @@ function refreshPanel({ changed = false } = {}) {
   const reading = readPanel(id);
   const current = { id, sequence: panelReadSequence, again: false, promise: null };
   panelRead = current;
-  current.promise = reading.then(() => {
+  current.promise = reading.then(applied => {
     if (panelRead === current) panelRead = null;
     if (current.again && state.panelDeal === id && current.sequence === panelReadSequence) return refreshPanel();
+    return applied;
   });
   return current.promise;
 }
@@ -1945,7 +1946,7 @@ async function readPanel(id) {
   const seq = ++panelReadSequence;
   try {
     const detail = await readDealDetail(id);
-    if (state.panelDeal !== id || seq !== panelReadSequence || panelRead?.again) return;
+    if (state.panelDeal !== id || seq !== panelReadSequence || panelRead?.again) return false;
     const wasEngineDetail = isEngineDealDetail(state.panelDetail);
     const savesChanged = state.panelDetail?.next_deal_saves !== detail.next_deal_saves;
     state.panelDetail = detail;
@@ -2007,15 +2008,17 @@ async function readPanel(id) {
       void dealDocumentsPanel?.refresh();
       if ($('panelEvidenceSection')?.open) await refreshEvidence(detail, id, seq);
     }
-    if (state.panelDeal === id && seq === panelReadSequence) setContextOpenVisible(true);
+    if (state.panelDeal !== id || seq !== panelReadSequence) return false;
+    setContextOpenVisible(true);
+    return true;
   } catch (error) {
-    if (state.panelDeal !== id || seq !== panelReadSequence) return;
-    if (refusePanelDetail(error)) return;
+    if (state.panelDeal !== id || seq !== panelReadSequence || refusePanelDetail(error)) return false;
     setContextOpenVisible(false);
     const message = 'Updates temporarily unavailable';
     const status = $('detailReadStatus');
     if (status) status.textContent = message;
     else $('panelBody').innerHTML = `<p role="status">${message}</p>`;
+    return false;
   }
 }
 function updateDetailTimestamp() {
@@ -2623,10 +2626,10 @@ function wire() {
     if (retry) { retryFieldWrite(retry.dataset.retryWrite); return; }
     const phaseUndo = event.target.closest('button[data-undo-phase], #closedDealsView button[data-undo-invoice]');
     if (phaseUndo) {
-      const onDealPage = $('panelBody').contains(phaseUndo);
-      const result = await automaticPhase.undo(phaseUndo);
-      if (onDealPage && state.panelDeal === phaseUndo.dataset.undoPhase
-          && (result?.status === 'ok' || result?.code === 'version_conflict')) await refreshPanel();
+      const refreshDetail = $('panelBody').contains(phaseUndo)
+        ? () => state.panelDeal === phaseUndo.dataset.undoPhase ? refreshPanel() : Promise.resolve(false)
+        : undefined;
+      await automaticPhase.undo(phaseUndo, refreshDetail);
       return;
     }
     const undo = event.target.closest('button[data-undo]');

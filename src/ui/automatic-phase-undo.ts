@@ -39,7 +39,7 @@ export function createAutomaticPhaseUndo({
 }: Options) {
   let commands: Commands = {};
 
-  async function undo(button: HTMLButtonElement) {
+  async function undo(button: HTMLButtonElement, refreshDetail?: () => Promise<boolean>) {
     const { client, boardSync, nextDealSaves, selfActor } = state;
     if (!client || !boardSync || !nextDealSaves || button.getAttribute("aria-disabled") === "true") return;
     const { undoPhase, undoInvoice, eventId, baseVersion } = button.dataset;
@@ -69,11 +69,13 @@ export function createAutomaticPhaseUndo({
     });
     if (feedbackByDeal.get(deal) !== feedback) return;
     if (result.status === "ok" || result.code === "version_conflict") {
-      const refreshed = await boardSync.requestRefresh("after-phase-undo");
+      const board = await boardSync.requestRefresh("after-phase-undo");
+      if (feedbackByDeal.get(deal) !== feedback) return;
+      const refreshed = refreshDetail ? await refreshDetail() : board.applied;
       if (feedbackByDeal.get(deal) !== feedback) return;
       feedback.message =
         result.status === "ok"
-          ? refreshed.applied
+          ? refreshed
             ? ""
             : "Move undone. Refresh Deals to see the current phase."
           : ([
@@ -82,7 +84,7 @@ export function createAutomaticPhaseUndo({
             ].includes(result.hint || "")
               ? null
               : result.hint) ||
-            (refreshed.applied
+            (refreshed
               ? `This deal changed. ${refreshedMessage}`
               : "This deal changed. Refresh Deals to see the current phase.");
     } else {
@@ -98,7 +100,6 @@ export function createAutomaticPhaseUndo({
     if (!feedback.message) feedbackByDeal.delete(deal);
     render();
     if (feedback.message) report(feedback.message);
-    return result;
   }
 
   return { undo };
