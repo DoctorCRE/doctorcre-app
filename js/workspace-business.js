@@ -425,6 +425,22 @@ const metric = value => Number.isInteger(value) ? String(value) : '—';
 const winRate = stats => Number.isFinite(stats?.win_rate) ? `${Math.round(stats.win_rate * 100)}%` : '—';
 const vendorNote = value => withoutRecordCodes((value || '').replace(/\bCARR calendar history\b/gi, 'calendar history'));
 const shortNote = value => typeof value === 'string' ? value.split(/\n/)[0].slice(0, 140) : '';
+function vendorContactSummary(stats) {
+  const date = stats?.last_contacted_at && formatDay(stats.last_contacted_at);
+  const title = withoutRecordCodes((stats?.last_contact_note || '').split('\n', 1)[0])
+    .replace(/\(\s*recovered from [^()]*\bcalendar history\s*\)/gi, ' ')
+    .replace(/\(\s*[^()\s@]+@[^()\s@]+\s*\)/g, ' ')
+    .replace(/\bCARR(?:['’]s)?\b/gi, ' ')
+    .replace(/\(\s*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[ .,;:·–—-]+|[ ,;:·–—-]+$/g, '');
+  const parts = [
+    date ? `Last contacted <time datetime="${escapeHtml(stats.last_contacted_at)}">${escapeHtml(date)}</time>` : '',
+    /@|\brecovered from\b|\bcalendar history\b/i.test(title) ? '' : escapeHtml(shortNote(title)),
+  ].filter(Boolean);
+  return parts.length ? `<span class="contact-note">${parts.join(' · ')}</span>` : '';
+}
+
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
 const trustRatings = { Proven: 'Strong track record', Established: 'Ongoing working relationship', Trial: 'New working relationship' };
 function vendorContactsHtml(record) {
@@ -605,8 +621,6 @@ function rowFacts(dataset, row) {
     facts.push({ label: 'Referred', value: metric(stats?.deals_referred), known: stats?.deals_referred != null });
     facts.push({ label: 'Worked', value: metric(stats?.deals_worked), known: stats?.deals_worked != null });
     facts.push({ label: 'Win rate', value: winRate(stats), known: stats?.win_rate != null });
-    facts.push({ label: 'Last contacted', value: stats?.last_contacted_at ? formatMoment(stats.last_contacted_at) : 'Not recorded', known: Boolean(stats?.last_contacted_at) });
-
   }
   const place = [row.city, row.state].filter(Boolean).join(", ");
   facts.push({ label: dataset === "clients" ? "Territory" : "Location", value: place || "Not recorded", known: Boolean(place) });
@@ -628,9 +642,8 @@ function rowHtml(dataset, row, selectedId) {
   const selected = row.id === selectedId;
   const vendor = dataset === "vendors";
   const facts = rowFacts(dataset, row).filter((fact) => fact.known).map((fact) =>
-    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}${fact.label === "Last contacted" ? " row-last-contact" : ""}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("");
-  const note = vendor ? shortNote(vendorNote(row.relationship?.last_contact_note)) : '';
-  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${note ? `<span class="contact-note">${escapeHtml(note)}</span>` : ""}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
+    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("");
+  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactSummary(row.relationship) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
 }
 
 function paintList(html, { busy = false } = {}) {
