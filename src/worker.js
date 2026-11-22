@@ -47,8 +47,10 @@ const WORKSPACE_GATES = new Set([
 ]);
 const PARTNER_HEADERS = ['accept', 'content-type', 'content-length', 'origin',
   'sec-fetch-site', 'x-carr-csrf', 'x-correlation-id', 'user-agent'];
-const PARTNER_SESSION_COOKIE = '__Host-doctorcre_session=';
-const PARTNER_OAUTH_STATE_COOKIE = '__Host-doctorcre_oauth_state=';
+const PARTNER_SESSION_COOKIE = '__Host-doctorcre_session';
+const PARTNER_OAUTH_STATE_COOKIE = '__Host-doctorcre_oauth_state';
+const ENGINE_SIGN_IN_COOKIES = [PARTNER_SESSION_COOKIE, PARTNER_OAUTH_STATE_COOKIE];
+const CARR_SIGN_IN_COOKIES = ['__Host-dealroom_session', '__Host-dealroom_oauth'];
 
 function gateRequestFor(request, pathname) {
   const gatePath = GATE_PATHS.get(routeKey(actionLinkRoute(pathname)));
@@ -94,6 +96,23 @@ function noStore(response) {
   return copy;
 }
 
+function requestCookies(request) {
+  const header = request.headers.get('cookie');
+  return header ? header.split(';').map(cookie => cookie.trim()) : [];
+}
+
+function clearInactiveSignInCookies(request, response, env) {
+  const cookies = requestCookies(request);
+  const inactive = engineSignIn(env) ? CARR_SIGN_IN_COOKIES : ENGINE_SIGN_IN_COOKIES;
+  const expired = inactive.filter(name => cookies.some(cookie => cookie.startsWith(`${name}=`)));
+  if (!expired.length) return response;
+
+  const result = noStore(response);
+  for (const name of expired)
+    result.headers.append('set-cookie', `${name}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax`);
+  return result;
+}
+
 async function engineFetch(request, env) {
   if (!engineSignIn(env)) return env.ENGINE.fetch(request);
   const headers = new Headers();
@@ -104,9 +123,9 @@ async function engineFetch(request, env) {
   const path = new URL(request.url).pathname;
   const googleCallback = request.method === 'GET' && path === '/auth/callback/google';
   // Better Auth checks the browser's OAuth state on the Google return.
-  const cookies = (request.headers.get('cookie') ?? '').split(';').map(cookie => cookie.trim())
-    .filter(cookie => cookie.startsWith(PARTNER_SESSION_COOKIE) ||
-      (googleCallback && cookie.startsWith(PARTNER_OAUTH_STATE_COOKIE)));
+  const cookies = requestCookies(request)
+    .filter(cookie => cookie.startsWith(`${PARTNER_SESSION_COOKIE}=`) ||
+      (googleCallback && cookie.startsWith(`${PARTNER_OAUTH_STATE_COOKIE}=`)));
   if (cookies.length) headers.set('cookie', cookies.join('; '));
   if ((request.method === 'GET' || request.method === 'HEAD') && path === '/api/engine/find' &&
       request.headers.get('x-doctorcre-search') === 'search.v1')
@@ -1248,8 +1267,9 @@ async function handleRequest(request, env) {
 }
 
 export async function handleDoctorcreRequest(request, env) {
-  try { return await handleRequest(request, env); }
-  catch { return json({ error: 'internal_error' }, 500); }
+  try {
+    return clearInactiveSignInCookies(request, await handleRequest(request, env), env);
+  } catch { return json({ error: 'internal_error' }, 500); }
 }
 
 export default { fetch: handleDoctorcreRequest };

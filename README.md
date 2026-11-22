@@ -123,7 +123,12 @@ Run `npm run deployment:check:production` to validate it locally.
 
 `PARTNER_SIGN_IN` is `carr` in production and `engine` in staging. Setting it
 to `engine` switches auth routes, protected page gates and engine partner calls
-together. The app binds `PARTNER_APP` to the matching engine
+together. After either switch, the app expires the inactive sign-in's session
+and Google callback cookies that the browser sends on this host. On rollback,
+keep the CARR issuance cutoff and end the engine sessions and pending Google
+flows created during the failed window before switching again.
+
+The app binds `PARTNER_APP` to the matching engine
 environment's `PartnerApp` entrypoint. That entrypoint must be deployed before
 the app release adds the binding. In engine mode, keep
 `WORKSPACE_COMMAND_CENTER_READ_ENABLED` aligned with the corresponding CARR
