@@ -1046,7 +1046,13 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
         <div className="inbox-empty" role="alert">
           <h2>{home ? "Reminders and waiting items unavailable" : "Inbox unavailable"}</h2>
           <p>{message(query.error)}</p>
-          {!home && <p>Refresh to try again.</p>}
+          {home ? (
+            <button type="button" disabled={!online || query.isFetching} onClick={() => void query.refetch()}>
+              Retry
+            </button>
+          ) : (
+            <p>Refresh to try again.</p>
+          )}
         </div>
       ) : (
         <>

@@ -24,6 +24,7 @@ test('direct Doc Chats route checks the gate and serves the asset', async () => 
   const destination = new URL('/doc-chats', 'https://example.test/deals');
   const gates = [], assets = [];
   const response = await handleDoctorcreRequest(new Request(destination), {
+    ENGINE_ROUTING: new Map([['home-from-engine', 'off']]),
     CARR: { fetch: async (request) => { gates.push(new URL(request.url).pathname); return new Response('signed in'); } },
     ASSETS: { fetch: async (request) => {
       assets.push(new URL(request.url).pathname);
@@ -193,6 +194,7 @@ test('honest controls fit 320px, 390px and iPad in both motion settings with 44p
   const routes=new Map();
   for(const path of [...snapshot.keys(),'/deals','/doc-chats','/auth/session','/api/system-work/session']) {
     const response=await handleDoctorcreRequest(new Request('https://example.test'+path),{
+      ENGINE_ROUTING: new Map([['home-from-engine', 'off']]),
       CARR:{fetch:async()=>new Response('signed in')},
       ASSETS:{fetch:async request=>{
         const entry=snapshot.get(new URL(request.url).pathname);

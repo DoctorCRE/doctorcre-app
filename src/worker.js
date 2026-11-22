@@ -302,7 +302,7 @@ const ENGINE_READS = new Map([
   ['quiet-follow-ups', { key: LEADS, path: '/api/engine/quiet-follow-ups', args: { lead_days: Number.isFinite, vendor_days: Number.isFinite, owner_slug: isString } }],
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
   [HOME_TODAY, { key: HOME, path: HOME_TODAY, engineOnly: true }],
-  ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {} }],
+  ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {}, engineOnly: true }],
   ['/api/v1/intelligence/mail-needs-partner', { key: HOME, path: '/api/engine/home/mail-priorities', forwardQuery: false, engineOnly: true }],
   ['read-engine-home-proposal', homeDetail('proposals', { deal_id: value => isUuid(value) })],
   ['read-engine-home-draft', homeDetail('reply-drafts')],
@@ -365,9 +365,14 @@ function engineRead(request, url, call) {
   return { read, args };
 }
 
-// A switch that can't be read is off.
 async function switchedOn(env, key) {
-  try { return await env?.ENGINE_ROUTING?.get(key, { cacheTtl: 30 }) === 'on'; } catch { return false; }
+  const defaultOn = key === HOME || key === FRAME;
+  try {
+    const value = await env?.ENGINE_ROUTING?.get(key, { cacheTtl: 30 });
+    return value == null ? defaultOn : value === 'on';
+  } catch {
+    return defaultOn;
+  }
 }
 
 function routeToEngine(env, key, usedOnDeals = false) {

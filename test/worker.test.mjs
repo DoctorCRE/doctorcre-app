@@ -113,6 +113,7 @@ function environment({ carr, assets } = {}) {
     GIT_SHA: "1".repeat(40),
     CF_VERSION_METADATA: { id: "version-one", tag: "staging-one", timestamp: "2026-09-14T00:00:00Z" },
     CARR: carr,
+    ENGINE_ROUTING: new Map([["home-from-engine", "off"]]),
     ASSETS: assets || { fetch: async (assetRequest) => new Response(`asset:${new URL(assetRequest.url).pathname}`) },
   };
 }
@@ -389,7 +390,7 @@ test('switched linked routes serve guidance through their existing auth gates', 
     for (const on of [false, true]) {
       const env = {
         ...environment({ carr: { fetch: async () => new Response(null) } }),
-        ENGINE_ROUTING: { get: async name => on && name === key ? 'on' : null },
+        ENGINE_ROUTING: { get: async name => name === key ? (on ? 'on' : 'off') : null },
       };
       const response = await handleDoctorcreRequest(request(path, { method: 'HEAD' }), env);
       assert.equal(response.status, 200, path);

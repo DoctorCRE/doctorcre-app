@@ -71,6 +71,7 @@ test("shared producer stage, health, blocked and stale fixtures match the publis
 test("progress board route requires the existing signed-in CARR page gate", async () => {
   const gated = [];
   const env = {
+    ENGINE_ROUTING: new Map([["home-from-engine", "off"]]),
     CARR: { fetch: async (request) => {
       gated.push(request);
       return new Response(null, { status: 302, headers: { location: `${host}/auth/login` } });

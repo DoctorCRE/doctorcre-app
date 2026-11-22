@@ -79,7 +79,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     return { ok: true, item_id, base_version, previous, item: snapshot(reader).items.find(item => item.item_id === item_id) };
   }
   const env = {
-    ENGINE_ROUTING: { get: async key => key === 'home-from-engine' && enabled ? 'on' : null },
+    ENGINE_ROUTING: { get: async key => key === 'home-from-engine' ? (enabled ? 'on' : 'off') : null },
     ENGINE: { fetch: async request => {
       const path = new URL(request.url).pathname;
       if (path === '/api/engine/home/inbox') {

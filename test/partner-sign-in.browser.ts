@@ -51,6 +51,37 @@ const dealDetail = {
   thread: [{ id: noteId, kind: "note", actor: "joe", text: noteSummary, created_at: "2026-01-02T12:00:00Z" }],
 };
 const pages = ["/invoices?mode=live", "/control-room/progress?mode=live", "/pipeline?mode=live"];
+const filingCard = {
+  card_id: `conversation:${filingId}`,
+  item_id: `suggestion:${filingId}`,
+  source_id: filingId,
+  source_type: "email_proposal",
+  source_version: "1",
+  source_state: "needs_attention",
+  base_version: "1:0:inbox",
+  section: "inbox",
+  disposition: "inbox",
+  activity_at: "2026-11-21T12:00:00Z",
+  hold_until: null,
+  snoozed_until: null,
+  completed_at: null,
+  unseen: false,
+  context_label: null,
+  due_on: null,
+  open_url: null,
+  kind_label: "Suggestion",
+  merged_source_ids: [filingId],
+  deal_id: null,
+  action_id: null,
+  action_version: null,
+  waiting_version: 0,
+  waiting_on: null,
+  title: filingTitle,
+  why: "The sender asked for a floor plan.",
+  primary_action: "Choose vendor",
+  filing_choices: filingChoices,
+  suggestions: [{ id: filingId }],
+};
 const artifacts = "out/test-artifacts/partner-sign-in";
 let assets: ReturnType<typeof appAssetSnapshot> | undefined;
 let browser: ReturnType<typeof chromium.launch> | undefined;
@@ -223,40 +254,9 @@ async function app(
           });
         if (path === "/api/engine/home/inbox" || path === linkedCardRead) {
           const empty = { count: 0, items: [] };
-          const item = {
-            card_id: `conversation:${filingId}`,
-            item_id: `suggestion:${filingId}`,
-            source_id: filingId,
-            source_type: "email_proposal",
-            source_version: "1",
-            source_state: "needs_attention",
-            base_version: "1:0:inbox",
-            section: "inbox",
-            disposition: "inbox",
-            activity_at: "2026-11-21T12:00:00Z",
-            hold_until: null,
-            snoozed_until: null,
-            completed_at: null,
-            unseen: false,
-            context_label: null,
-            due_on: null,
-            open_url: null,
-            kind_label: "Suggestion",
-            merged_source_ids: [filingId],
-            deal_id: null,
-            action_id: null,
-            action_version: null,
-            waiting_version: 0,
-            waiting_on: null,
-            title: filingTitle,
-            why: "The sender asked for a floor plan.",
-            primary_action: "Choose vendor",
-            filing_choices: filingChoices,
-            suggestions: [{ id: filingId }],
-          };
           if (path === linkedCardRead)
             return Response.json({
-              ...item,
+              ...filingCard,
               card_id: `conversation:${successorDraft}`,
               item_id: linkedItem,
               kind_label: "Reply draft",
@@ -271,7 +271,7 @@ async function app(
           return Response.json({
             ok: true,
             schema_version: "home-inbox.v5",
-            reminders: { count: 1, items: [item] },
+            reminders: { count: 1, items: [filingCard] },
             waiting: empty,
           });
         }
@@ -372,6 +372,75 @@ async function app(
       loseIssueResponse = true;
     },
   };
+}
+
+for (const lookup of ["failed", "missing", "on"]) {
+  const title =
+    lookup === "on"
+      ? "Home retries an engine read outage in place"
+      : `Home uses the engine when the switch lookup is ${lookup === "failed" ? "rejected" : "missing"}`;
+  test(title, async (t) => {
+    let unavailable = lookup === "on";
+    const legacyReads: string[] = [];
+    assets ??= appAssetSnapshot();
+    const server = await startWorkerFixture({
+      assets: await assets,
+      env: {
+        PARTNER_SIGN_IN: "carr",
+        ENGINE_ROUTING: {
+          async get(key: string) {
+            if (key !== "home-from-engine") return null;
+            if (lookup === "failed") throw Error("Synthetic KV failure");
+            return lookup === "on" ? "on" : null;
+          },
+        },
+        CARR: {
+          async fetch(request: Request) {
+            const path = new URL(request.url).pathname;
+            if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "synthetic" });
+            if (path === "/mcp") return Response.json({ error: "legacy_read" }, { status: 503 });
+            return new Response(null, { status: request.headers.get("sec-fetch-mode") === "navigate" ? 200 : 404 });
+          },
+        },
+        ENGINE: {
+          async fetch(request: Request) {
+            const url = new URL(request.url);
+            if (url.pathname === "/api/engine/home/inbox" && url.searchParams.get("view") === "dashboard")
+              return unavailable
+                ? Response.json({ error: "engine_unavailable" }, { status: 503 })
+                : Response.json({
+                    ok: true,
+                    schema_version: "home-inbox.v5",
+                    reminders: { count: 1, items: [filingCard] },
+                    waiting: { count: 0, items: [] },
+                  });
+            return new Response(null, { status: 404 });
+          },
+        },
+      },
+    });
+    t.after(() => server.close());
+    browser ??= chromium.launch();
+    const page = await (await browser).newPage();
+    t.after(() => page.context().close());
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname !== "/mcp") return;
+      const name = request.postDataJSON()?.params?.name;
+      if (["calendar-meeting-prep", "today-triage", "read-home-inbox-v5"].includes(name)) legacyReads.push(name);
+    });
+
+    assert.ok((await page.goto(server.origin + "/?mode=live"))?.ok());
+    if (unavailable) {
+      const failure = page.getByRole("alert").filter({ hasText: "Reminders and waiting items unavailable" });
+      await failure.waitFor({ timeout: 5000 });
+      unavailable = false;
+      await failure.getByRole("button", { name: "Retry", exact: true }).click({ timeout: 5000 });
+    }
+    await page.getByText(filingTitle, { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await page.getByRole("button", { name: "Prepare meetings", exact: true }).count(), 0);
+    assert.equal(await page.getByText("A LITTLE LOOK AHEAD", { exact: true }).count(), 0);
+    assert.deepEqual(legacyReads, []);
+  });
 }
 
 test("Home and the old Updates link load on the engine session and handle expiry", async (t) => {

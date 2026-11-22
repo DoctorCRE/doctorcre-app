@@ -75,6 +75,7 @@ export function createQaDispatcher({ seed, assets: snapshot }) {
 
   const namespaces = new Map();
   const identities = new Map();
+  const engineRouting = new Map([['home-from-engine', 'off']]);
   const stateFor = namespace => {
     if(!namespaces.has(namespace)) namespaces.set(namespace,makeState('realistic'));
     return namespaces.get(namespace);
@@ -205,7 +206,7 @@ export function createQaDispatcher({ seed, assets: snapshot }) {
       return json({synthetic:true,namespace,viewer,variant,counts:{deals:state.dealStore.deals.size,leads:state.leads.length,invoices:(await state.invoices.getInvoiceTracker()).entries.length},cookie:{name:cookieName,value,url:url.origin,httpOnly:true,sameSite:'Lax'}},200,{'set-cookie':`${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax`});
     }
     if(url.pathname==='/api/test/identity')return identify(request)?json({synthetic:true,...identify(request)}):json({error:'not_authenticated'},401);
-    return handleDoctorcreRequest(request,{ASSETS:{fetch:assets},CARR:{fetch:carr},APP_ENV:'fixture',GIT_SHA:'0'.repeat(40)});
+    return handleDoctorcreRequest(request,{ASSETS:{fetch:assets},CARR:{fetch:carr},ENGINE_ROUTING:engineRouting,APP_ENV:'fixture',GIT_SHA:'0'.repeat(40)});
   }
   return dispatch;
 }

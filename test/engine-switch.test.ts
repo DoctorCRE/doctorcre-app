@@ -646,15 +646,21 @@ for (const [name, path] of [
   ["today-triage", "/api/engine/today-triage"],
   ["calendar-meeting-prep", "/api/engine/calendar-meeting-prep"],
 ] as const) {
-  test(`frame switch routes ${name} to its engine read`, async () => {
-    const f = fixture(frameOn);
-    const response = await f.send(call(name));
-    assert.equal(f.engine[0]?.url, `${origin}${path}`);
-    assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
-    assert.deepEqual(f.kv, [["frame-from-engine", { cacheTtl: 30 }]]);
-    assert.equal(f.carr.length, 0);
-    assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
-  });
+  for (const [lookup, value] of [
+    ["on", frameOn],
+    ["missing", new Map()],
+    ["unavailable", new Error("KV failed")],
+  ] as const) {
+    test(`frame routes ${name} to its engine read when the switch is ${lookup}`, async () => {
+      const f = fixture(value);
+      const response = await f.send(call(name));
+      assert.equal(f.engine[0]?.url, `${origin}${path}`);
+      assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
+      assert.deepEqual(f.kv, [["frame-from-engine", { cacheTtl: 30 }]]);
+      assert.equal(f.carr.length, 0);
+      assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
+    });
+  }
 
   test(`frame read ${name} falls back when the engine answers 500`, async () => {
     const f = fixture(frameOn, async () => new Response("down", { status: 500 }));
@@ -664,16 +670,7 @@ for (const [name, path] of [
     assert.deepEqual(f.carr, [JSON.stringify(body)]);
   });
 
-  for (const value of [
-    null,
-    "off",
-    "ON",
-    new Error("KV failed"),
-    new Map([
-      ["deals-from-engine", "on"],
-      ["leads-from-engine", "on"],
-    ]),
-  ]) {
+  for (const value of ["off", "ON"]) {
     test(`${name} stays on CARR while the frame switch is not on (${String(value)})`, async () => {
       const f = fixture(value);
       const body = call(name);
@@ -843,6 +840,14 @@ const remainingScreens = [
   ["national-deals-from-engine", "capture-queue", "/api/engine/capture-queue"],
 ] as const;
 
+test("Home inbox reports engine failure when the Home switch cannot be read", async () => {
+  const f = fixture(new Error("KV failed"), async () => new Response(null, { status: 503 }));
+  const response = await f.send(call("read-home-inbox-v5"));
+  assert.equal(response.status, 503);
+  assert.equal(f.engine[0]?.url, origin + "/api/engine/home/inbox");
+  assert.deepEqual(f.carr, []);
+});
+
 test("Home keeps legacy completion and review calls on CARR for their other callers", async () => {
   const f = fixture(new Map([["home-from-engine", "on"]]));
   const bodies = [
@@ -884,7 +889,8 @@ for (const [key, name, path] of remainingScreens) {
     assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
   });
 
-  for (const value of [null, "off", "ON", "", new Error("KV failed")]) {
+  const offValues = key === "home-from-engine" ? ["off", "ON", ""] : [null, "off", "ON", "", new Error("KV failed")];
+  for (const value of offValues) {
     test(`${name} keeps the original CARR body when its switch is ${String(value)}`, async () => {
       const f = fixture(value);
       const body = call(name);
@@ -902,7 +908,9 @@ for (const [key, name, path] of remainingScreens) {
     ...remainingScreens.map(([screenKey]) => screenKey).filter((screenKey) => screenKey !== key),
   ]) {
     test(`${enabled} alone leaves ${name} on CARR`, async () => {
-      const f = fixture(new Map([[enabled, "on"]]));
+      const switches = new Map([[enabled, "on"]]);
+      if (key === "home-from-engine") switches.set(key, "off");
+      const f = fixture(switches);
       const body = call(name);
       assert.equal(await (await f.send(body)).text(), "old");
       assert.deepEqual(f.carr, [JSON.stringify(body)]);
@@ -2019,7 +2027,7 @@ test("the Home switch gates the single-card engine marks door", async () => {
     isError: true,
     content: [{ type: "text", text: JSON.stringify(refused) }],
   });
-  const off = fixture(null);
+  const off = fixture(new Map([["home-from-engine", "off"]]));
   const offReply = await off.send(call("save-engine-home-mark", args));
   assert.equal((await offReply.json()).result.isError, true);
   assert.equal(off.engine.length + off.carr.length, 0);
@@ -2131,7 +2139,7 @@ test("switched Mail priorities use the engine's unfiltered read", async () => {
   assert.equal(f.engine[0]?.url, `${origin}/api/engine/home/mail-priorities`);
   assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
   assert.deepEqual(f.carr, []);
-  const off = fixture(null);
+  const off = fixture(new Map([["home-from-engine", "off"]]));
   assert.equal(await (await worker.fetch(request, off.env)).text(), "old");
   assert.equal(off.engine.length, 0);
 });
@@ -2469,7 +2477,12 @@ test("workspace HTML selects engine switches independently", async (t) => {
 test("Home Today reads only the engine when the Home switch is on", async () => {
   const path = "/api/engine/home/today?owner=dell";
   const request = () => new Request(origin + path, { headers: { cookie: "session=synthetic" } });
-  const off = fixture(new Map([["frame-from-engine", "on"]]));
+  const off = fixture(
+    new Map([
+      ["home-from-engine", "off"],
+      ["frame-from-engine", "on"],
+    ]),
+  );
   assert.equal((await worker.fetch(request(), off.env)).status, 404);
   assert.deepEqual(off.engine, []);
   assert.deepEqual(off.carr, []);
@@ -2520,7 +2533,7 @@ test("Home meeting answers switch from legacy writes to the signed-in engine rou
       headers: { "content-type": "application/json", "x-carr-csrf": "synthetic" },
       body: JSON.stringify(body),
     });
-  const off = fixture(new Map());
+  const off = fixture(new Map([["home-from-engine", "off"]]));
   for (const request of legacy) assert.equal(await (await off.send(request)).text(), "old");
   for (const [path, body] of writes) assert.equal((await worker.fetch(post(path, body), off.env)).status, 404);
   assert.equal(off.carr.length, legacy.length);
@@ -2824,7 +2837,8 @@ test("the cutover preserves the local report and read-only Tour search", async (
 
 test("Home-only legacy saves use the Home switch independently", async () => {
   for (const name of ["review-deal-update", "snooze-home-inbox", "settle-home-inbox", "unsettle-home-inbox"]) {
-    assert.equal(await (await fixture(nextDealsOn).send(call(name))).text(), "old", name);
+    const off = fixture(new Map([...nextDealsOn, ["home-from-engine", "off"]]));
+    assert.equal(await (await off.send(call(name))).text(), "old", name);
     const home = fixture(new Map([["home-from-engine", "on"]]));
     const reply = await (await home.send(call(name))).json();
     assert.match(JSON.parse(reply.result.content[0].text).hint, /Home/);

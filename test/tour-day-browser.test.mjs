@@ -187,7 +187,7 @@ test('R3: real synthetic audio encodes under Worker headers; other documents den
   assert.deepEqual(await page.evaluate(() => window.syntheticMicEvents), ['requested', 'granted']);
   assert.equal(await page.evaluate(() => window.syntheticRecorders[0].stream.getAudioTracks().length), 1);
   assert.ok(await page.evaluate(() => new Blob(window.syntheticChunks).size > 100), 'the browser encoder must produce audio');
-  const other = await handleDoctorcreRequest(new Request('https://doctorcre.com/tours/index.html'), { ASSETS: { fetch: async () => new Response('synthetic') } });
+  const other = await handleDoctorcreRequest(new Request('https://doctorcre.com/tours/index.html'), { ENGINE_ROUTING: new Map([['home-from-engine', 'off']]), ASSETS: { fetch: async () => new Response('synthetic') } });
   assert.match(other.headers.get('permissions-policy'), /microphone=\(\)/);
   await page.goto(`${origin}/tours/index.html`);
   assert.equal(await page.evaluate(() => document.featurePolicy.allowsFeature('microphone')), false);

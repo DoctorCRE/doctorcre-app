@@ -26,7 +26,7 @@ export async function routeLeads(page,{getBoard=workspace,getQuiet=emptyQuietFol
  const snapshot = await (assetSnapshot ||= appAssetSnapshot(undefined, fileURLToPath(new URL('../', import.meta.url))));
  await page.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url());if(url.origin!=='http://localhost')return route.abort();
-  const env={APP_ENV:'staging',...(url.pathname === '/mcp' ? engine : {}),CARR:{fetch:async request=>{
+  const env={APP_ENV:'staging',ENGINE_ROUTING:new Map([['home-from-engine','off']]),...(url.pathname === '/mcp' ? engine : {}),CARR:{fetch:async request=>{
    const path=new URL(request.url).pathname;
    if(path==='/mcp'){
     const p=(await request.json()).params;let value={ok:true};
