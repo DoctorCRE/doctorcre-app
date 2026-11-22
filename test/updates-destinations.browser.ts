@@ -350,14 +350,20 @@ test("opening an unread update uses the saved read time and returned badge count
 
 test("Mark all read reuses the key after an unanswered save", async (t) => {
   const second = { ...seen, read_at: null, unseen: true };
+  const shown = [unread, second];
+  const readAt = "2026-11-21T12:00:00Z";
+  const updates = shown.map(({ source_id: id }) => ({ id, read_at: readAt }));
   let attempts = 0;
-  const updates = [unread, second].map(({ source_id: id }) => ({ id, read_at: "2026-11-21T12:00:00Z" }));
   const { page, sent } = await open(t, 390, "dark", {
-    "GET /api/engine/updates": () => ({ json: { unread_count: 2, updates: [unread, second] } }),
+    "GET /api/engine/updates": () => ({
+      json: attempts
+        ? { unread_count: 0, updates: shown.map((row) => ({ ...row, read_at: readAt })) }
+        : { unread_count: 2, updates: shown },
+    }),
     "POST /api/engine/updates/read": () =>
       ++attempts === 1
         ? { status: 503, json: { error: "unavailable" } }
-        : { json: { ok: true, unread_count: 0, updates } },
+        : { json: { ok: true, replayed: true, unread_count: 0, updates } },
   });
   await page.goto(updatesPath);
   await page.getByRole("button", { name: "Mark all read", exact: true }).click({ timeout: 2500 });
@@ -481,7 +487,7 @@ test("checking a settings save outcome keeps newer preferences on screen", async
   await check.press("Enter");
   await saveButton(page).waitFor();
   assert.equal(await timeZone.inputValue(), newer.time_zone);
-  assert.match(await summary.textContent() ?? "", /America\/New_York/);
+  assert.match((await summary.textContent()) ?? "", /America\/New_York/);
 });
 
 test("notification settings explain a refused time zone and an unpaired quiet hour", async (t) => {

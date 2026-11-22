@@ -75,11 +75,12 @@ for (const width of [360, 390, 500]) {
           json: {
             unread_count: 2,
             updates: ["Open deal", "Open checklist item"].map((action, index) => ({
-              source_id: `update-${index}`,
+              source_id: `00000000-0000-4000-8000-00000000000${index + 1}`,
               title: `Demo update ${index + 1}`,
               primary_action: action,
               open_url: index ? "/deals?deal=d14&focus=next-step" : "/deals?deal=d14",
               activity_at: "2026-10-18T16:00:00Z",
+              read_at: null,
             })),
           },
         }),

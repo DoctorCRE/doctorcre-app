@@ -401,6 +401,7 @@ async function load() {
 /* --------------------------------------------------------------------- writing */
 
 async function dispatch(operationKey, args, summary) {
+  const feedAtDispatch = view.feed;
   let failure;
   const result = await performCommand({
     operationKey,
@@ -430,11 +431,17 @@ async function dispatch(operationKey, args, summary) {
     const { readTimes, unread_count } = result.response;
     const payload = view.feed.payload;
     if (!payload) return takeFeed();
-    const updates = payload.updates.map((row) => readTimes.has(row.id)
+    const needsFreshCount = result.replayed || view.feed !== feedAtDispatch;
+    const updates = payload.updates.map((row) => row.reading.kind === "unread" && readTimes.has(row.id)
       ? { ...row, reading: { kind: "read", at: readTimes.get(row.id) } }
       : row);
-    view.feed = { state: "read", payload: { updates, unread_count }, observed_at: new Date().toISOString() };
-    renderFeed();
+    view.feed = {
+      state: "read",
+      payload: { updates, unread_count: needsFreshCount ? payload.unread_count : unread_count },
+      observed_at: needsFreshCount ? view.feed.observed_at : new Date().toISOString(),
+    };
+    if (needsFreshCount) await takeFeed();
+    else renderFeed();
   }
 }
 
@@ -561,8 +568,11 @@ async function savePreference(form) {
   showPreferenceMessage(sentence || "");
   if (result.status === "ok") {
     if (source === sources.engine) {
-      ++preferenceSequence;
-      view.preference = { state: "read", payload: result.response.preference, observed_at: new Date().toISOString() };
+      const preference = result.response.preference;
+      if (preference.version >= (preferenceModel()?.version ?? 0)) {
+        ++preferenceSequence;
+        view.preference = { state: "read", payload: preference, observed_at: new Date().toISOString() };
+      }
       await takeFeed();
     } else await load();
   }
