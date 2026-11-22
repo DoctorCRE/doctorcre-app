@@ -64,8 +64,10 @@ path of an approved Playwright storage state file for the staging test actor
 
 Setup checks the session and sign-in mode at the fixed staging origin before
 the smoke opens any screens. If the session has expired, replace the file with
-fresh approved state. Keep Playwright traces and debug logging off for this
-project. The Google sign-in round trip is a separate manual check.
+fresh approved state. If staging has rolled back to CARR, setup reports the
+mode and stops. The engine smoke refuses Playwright traces, recordings,
+screenshots, and debug logging. The Google sign-in round trip is a separate
+manual check.
 
 For CARR rollback runs, the disabled staging workflow still uses the
 `chromium` project and `E2E_SESSION_SECRET`. Its setup exchanges the secret

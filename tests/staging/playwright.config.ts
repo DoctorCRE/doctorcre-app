@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import base from "../../playwright.config.ts";
+import { stagingEngineProject } from "./engine-session.ts";
 
 export default defineConfig({
   ...base,
@@ -10,10 +11,9 @@ export default defineConfig({
   globalSetup: "./engine.global-setup.ts",
   projects: [
     {
-      name: "staging-engine",
+      name: stagingEngineProject,
       use: {
         ...devices["Desktop Chrome"],
-        storageState: process.env.E2E_ENGINE_STORAGE_STATE,
         trace: "off",
       },
     },
