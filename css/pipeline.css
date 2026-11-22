@@ -392,6 +392,8 @@ html:has(#workspace-tours:not([hidden]) .tour-editor) { scroll-padding-bottom: v
 .deal-document-list h3 { margin: 0; }
 .deal-document-list dd { margin-inline-start: 0; overflow-wrap: anywhere; }
 .deal-document-list summary { cursor: pointer; }
+.deal-document-text [role="status"]:empty { display: none; }
+.deal-document-text pre { min-block-size: 1lh; margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .has-app-layout .deal-tour-departure { width: min(480px, calc(100vw - 32px)); padding: var(--space-5); }
 .deal-tour-departure .btn { margin-inline-end: var(--space-2); }
 
