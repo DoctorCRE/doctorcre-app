@@ -3337,6 +3337,29 @@ for (const width of [1440, 390]) {
   });
 }
 
+test('the switched Deals editor submits once on Enter and adds a line on Shift+Enter at 390px', async t => {
+  const nextActions = [{ id: crypto.randomUUID(), owner: 'joe', status: 'open', description: 'Check the floor plan' }];
+  const { page, deal } = await clientWebsitePage(t, { width: 390, nextActions });
+  await page.goto(`${origin}/deals?deal=${deal}&focus=next-step&mode=live`);
+  const form = page.locator('#detailUpdateForm');
+  await form.evaluate(node => {
+    node.dataset.submissionCount = '0';
+    node.addEventListener('submit', event => {
+      node.dataset.submissionCount = String(Number(node.dataset.submissionCount) + 1);
+      event.preventDefault();
+      event.stopPropagation();
+    });
+  });
+  const field = page.getByLabel('Your next step', { exact: true });
+  await field.fill('Send the floor plan');
+  await field.press('Shift+Enter');
+  assert.equal(await field.inputValue(), 'Send the floor plan\n');
+  assert.equal(await form.getAttribute('data-submission-count'), '0');
+  await field.press('Enter');
+  assert.equal(await form.getAttribute('data-submission-count'), '1');
+  assert.equal(await field.inputValue(), 'Send the floor plan\n');
+});
+
 for (const width of [1440, 390]) {
   test(`the switched Deals editor wraps the saved instruction at ${width}px`, async t => {
     const instruction = 'Confirm the revised floor plan with the site manager. '.repeat(8).trim();

@@ -1095,14 +1095,20 @@ const mailCard = { ...step(40, 'Review the floor plan request'), item_id: `sugge
   source_type: 'email_proposal', kind_label: 'Suggestion', suggestions: mailSuggestions, card_id: 'conversation:2',
   action_id: null, action_version: null, open_url: null, deal_id: null, primary_action: null };
 
-for (const grouped of [true, false]) test(`Home keeps undated filing outside Late on the ${grouped ? 'grouped' : 'fallback'} read`, async t => {
+for (const grouped of [true, false]) test(`Home uses reported lateness on the ${grouped ? 'grouped' : 'fallback'} read`, async t => {
   const { page, open, state } = await dashboard(t, 390, 'light', 'UTC');
   state.dashboard = grouped;
   await page.clock.setSystemTime(new Date('2026-11-04T02:00:00Z'));
   state.items = [
-    step(1, 'Send the signed lease', { card_id: 'lease', due_on: '2026-10-31', ...(grouped && { days_late: 3 }) }),
+    step(1, 'Send the signed lease', { card_id: 'lease', due_on: '2026-10-31', days_late: 3 }),
+    step(3, 'Check in with the surveyor', { card_id: 'vendor', due_on: '2026-11-01', days_late: 2,
+      deal_id: null, open_url: `/relationships?node=party:${id(90)}&step=${id(3)}` }),
+    step(4, 'Review the completed site visit', { card_id: 'completion', due_on: '2026-11-02', days_late: 1,
+      source_type: 'notification', source_id: id(44), merged_source_ids: [id(44)], action_id: null,
+      why: 'A meeting note says the visit happened.', primary_action: 'Review completion',
+      completion_review: { proposal_id: id(44), next_step_id: id(4), can_resolve: true } }),
     { ...mailCard, title: 'Review where to file the email', primary_action: 'Choose vendor', filing_choices: [vendorChoice] },
-    step(2, 'Ask the surveyor for pricing', { card_id: 'pricing' }),
+    step(2, 'Ask the surveyor for pricing', { card_id: 'pricing', due_on: '2026-11-02' }),
   ];
   await open('/?mode=live');
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
@@ -1111,8 +1117,12 @@ for (const grouped of [true, false]) test(`Home keeps undated filing outside Lat
   assert.ok(await filing.evaluate(node => node.getBoundingClientRect().bottom <
     node.closest('.home-slice').querySelector('.home-late').getBoundingClientRect().top));
   const late = reminders.getByRole('region', { name: 'Late', exact: true });
-  assert.ok(await late.getByText(/3 days late$/).isVisible(), await reminders.innerText());
-  assert.deepEqual(await late.locator('article h3').allTextContents(), ['Send the signed lease']);
+  assert.deepEqual(await late.locator('article h3').allTextContents(), [
+    'Send the signed lease', 'Check in with the surveyor', 'Review the completed site visit',
+  ]);
+  for (const label of ['3 days late', '2 days late', '1 day late']) {
+    assert.ok(await late.getByText(new RegExp(`${label}$`)).isVisible(), await reminders.innerText());
+  }
 });
 
 for (const width of [390, 1440]) test(`Home review shows the whole next-step instruction at ${width}px`, async t => {
@@ -1129,6 +1139,26 @@ for (const width of [390, 1440]) test(`Home review shows the whole next-step ins
     node.scrollWidth <= node.clientWidth, node.scrollHeight <= node.clientHeight,
     node.clientHeight > 44,
   ]), [true, true, true]);
+});
+
+test('Home suggestion instructions submit on Enter and add a line on Shift+Enter', async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.filingWrites = [];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const field = page.getByRole('textbox', { name: 'Next step', exact: true });
+  await field.fill('Check the floor plan');
+  await field.press('Shift+Enter');
+  assert.equal(await field.inputValue(), 'Check the floor plan\n');
+  assert.deepEqual(state.filingWrites, []);
+  await field.press('S');
+  await field.press('Enter');
+  await field.waitFor({ state: 'hidden' });
+  assert.deepEqual(state.filingWrites.map(({ decision, edits }) => ({ decision, edits })), [
+    { decision: 'accept', edits: { what: 'Check the floor plan\nS', due_on: null } },
+  ]);
 });
 
 for (const available of [true, false]) test(`Home email suggestions ${available ? 'share one thread' : 'hide a missing mailbox source'}`, async t => {
