@@ -33,8 +33,6 @@ for (const width of [390, 1280]) for (const theme of ['dark', 'light']) {
 
 for (const width of [390, 1280]) for (const theme of ['dark', 'light']) for (const [route, listId, attribute] of [
   ['/doc-chats', 'outcomeCardsList', 'data-copy-outcome-session'],
-  ['/doc-chats/work', 'taskList', 'data-task'],
-  ['/doc-chats/work', 'taskList', 'data-handover'],
 ]) {
   test(`${route} keeps its focused ${attribute} action through a background refresh at ${width}px in ${theme}`, async t => {
     const server = await fixtureServer();
@@ -54,7 +52,6 @@ for (const width of [390, 1280]) for (const theme of ['dark', 'light']) for (con
       dispatchEvent(new Event('online'));
     }, listId);
     await page.waitForFunction(() => window.listRefreshed);
-    if (route === '/doc-chats/work') await page.waitForFunction(() => document.getElementById('taskStatusLabel').textContent === 'Current');
     assert.equal(await page.evaluate(attribute => document.activeElement.getAttribute(attribute), attribute), key);
   });
 }

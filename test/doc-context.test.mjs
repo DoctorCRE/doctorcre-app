@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDocContext, docAnswer, DOC_PAGES, docPage, DOC_CONTEXT_TTL_MS, normalizeDocRead } from '../js/doc-context-model.js';
+import { createDocContext, docAnswer, docPage, DOC_CONTEXT_TTL_MS, normalizeDocRead } from '../js/doc-context-model.js';
 import { observeDocClient, observeDocRead } from '../js/doc-context.js';
 import { docEvaluationSet, unsupportedDocPages } from './fixtures/doc-context-evaluations.mjs';
 
@@ -21,7 +21,6 @@ for (const item of docEvaluationSet) test(`Doc accuracy: ${item.page} — ${item
 
 test('Doc context uses the active page and starts unavailable without records',()=>{
  for(const page of unsupportedDocPages) assert.equal(createDocContext({page}).snapshot().ready,false);
- assert.equal(docPage({pathname:'/ideas-events',search:'?tab=events'}),'events');
  assert.equal(docPage({pathname:'/vendors'}),'vendors');
  assert.equal(docPage({pathname:'/',search:'?view=charts'}),'charts');
  assert.equal(docPage({pathname:'/tours/route-editor.html'}),'tours');
@@ -50,7 +49,6 @@ test('detail records keep inert notes, sort actual activity by timestamp, and ne
  assert.equal(docAnswer(c.snapshot(),{recordId:'demo-a',question:'Due'}).state,'unknown');
  assert.equal(normalizeDocRead('businessRecord',{record:{id:'wrong',name:'Demo'}},[{dataset:'clients',id:'wanted'}]),null);
  assert.equal(normalizeDocRead('tourDetail',{id:'wrong',name:'Demo'},['wanted']),null);
- assert.equal(normalizeDocRead('readLoop',{loop:{loop_id:'wrong',number:'1',title:'Demo'}},[{loop_id:'wanted'}]),null);
 });
 
 test('observing authorized reads returns the original response and never observes or performs writes',async()=>{
@@ -65,8 +63,8 @@ test('existing synthetic adapter responses normalize at the real client seam',as
  const {readFile}=await import('node:fs/promises');const{createFixtureClient}=await import('../js/fixture-client.js');
  const seed=Buffer.from(await readFile(new URL('../data/board-seed.json',import.meta.url))).toString('base64');
  const client=await createFixtureClient({seedUrl:`data:application/json;base64,${seed}`});
- const board=await client.getBoard(),loops=await client.loopBoard(),incidents=await client.incidentBoard();
- const cases=[['getBoard',board,[]],['getDeal',await client.getDeal(board.deals[0].id),[board.deals[0].id]],['loopBoard',loops,[]],['readLoop',await client.readLoop({number:loops.loops[0].number,kind:loops.loops[0].kind}),[{number:loops.loops[0].number,kind:loops.loops[0].kind}]],['incidentBoard',incidents,[]],['getIncident',await client.getIncident({ref:incidents.incidents[0].ref}),[{ref:incidents.incidents[0].ref}]],['currentWorkItem',await client.currentWorkItem(),[]],['currentWorkRequests',await client.currentWorkRequests(),[]],['notificationFeed',await client.notificationFeed(),[]],['listDocConversations',await client.listDocConversations(),[]],['readDocConversation',await client.readDocConversation({conversation_id:'0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c01'}),[{conversation_id:'0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c01'}]],['docOutcomeCards',await client.docOutcomeCards(),[]],['roomQueue',await client.roomQueue(),[]],['roomTurns',await client.roomTurns(),[]]];
+ const board=await client.getBoard();
+ const cases=[['getBoard',board,[]],['getDeal',await client.getDeal(board.deals[0].id),[board.deals[0].id]],['notificationFeed',await client.notificationFeed(),[]],['listDocConversations',await client.listDocConversations(),[]],['readDocConversation',await client.readDocConversation({conversation_id:'0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c01'}),[{conversation_id:'0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c01'}]]];
  for(const [method,payload,args] of cases) assert.notEqual(normalizeDocRead(method,payload,args),null,method);
 });
 
@@ -77,17 +75,10 @@ test('a newer row revision outranks older detailed activity; stale auth refusals
  const old=c.begin('getBoard');c.filter({owner:'demo-new-partner'});c.finish(c.begin('getBoard'),{deals:[deal()]});c.fail(old,{status:401});assert.equal(c.snapshot().ready,false);
 });
 
-test('system record cannot answer for a different requested work identity',()=>assert.equal(normalizeDocRead('systemRecord',{human_ref:'WR-DEMO-B',title:'Demo B'},['WR-DEMO-A']),null));
-
-test('page selection hooks use recorded IDs for Calendar, Events and Control Room', async () => {
+test('Calendar selection uses the recorded deal ID', async () => {
  const {readFile}=await import('node:fs/promises');
  const calendar=await readFile(new URL('../js/calendar.js',import.meta.url),'utf8');
- const ideas=await readFile(new URL('../js/ideas.js',import.meta.url),'utf8');
- const control=await readFile(new URL('../js/control-room.js',import.meta.url),'utf8');
  assert.match(calendar,/selectDocRecord\(currentEntry\?\.deal_id \? "deal" : null, currentEntry\?\.deal_id\)/);
- assert.match(ideas,/selectDocRecord\(row \? 'event' : null, row\?\.id\)/);
- assert.match(control,/selectDocRecord\("incident", row\.ref\)/);
- assert.ok(DOC_PAGES.control.reads.includes('workRequestCard'));
 });
 
 test('versioned Leads workspace and detail preserve canonical identity and original correspondence', () => {

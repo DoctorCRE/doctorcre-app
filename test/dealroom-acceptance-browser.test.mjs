@@ -753,19 +753,16 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`si
   await page.evaluate(() => scrollTo(0,220));
   await page.screenshot({ path: join(evidence, `${width}-${theme}-scrolled.png`), animations: 'disabled' });
   const titleHitTest = await page.locator('#panelTitle').evaluate(title => {
-    const orb = document.querySelector('#recordPanel .doc-presence').getBoundingClientRect();
     const range = document.createRange(); range.selectNodeContents(title);
     const text = range.getBoundingClientRect();
     const hits = [...range.getClientRects()].flatMap(rect => [rect.left + 1, (rect.left + rect.right) / 2, rect.right - 1].map(x => {
       const hit = document.elementFromPoint(x, (rect.top + rect.bottom) / 2);
       return {x, visible: hit === title || title.contains(hit)};
     }));
-    return {scrollTop: scrollY, orb: orb.toJSON(), text: text.toJSON(), hits,
-      overlaps: orb.left < text.right && orb.right > text.left && orb.top < text.bottom && orb.bottom > text.top};
+    return {scrollTop: scrollY, text: text.toJSON(), hits};
   });
   await writeFile(join(evidence, `${width}-${theme}-hit-test.json`), JSON.stringify({...titleHitTest, header}, null, 2));
   assert.ok(titleHitTest.scrollTop > 100, 'exercise the sticky header after scrolling');
-  assert.equal(titleHitTest.overlaps, false, JSON.stringify(titleHitTest));
   assert.ok(titleHitTest.hits.length > 0 && titleHitTest.hits.every(hit => hit.visible), JSON.stringify(titleHitTest));
   assert.deepEqual(errors, []);
 });

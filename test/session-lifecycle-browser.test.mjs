@@ -116,7 +116,7 @@ test('S1 browser: simultaneous public links keep their own context and a refresh
 });
 test('S1 browser: Back reloads private pages once and checks the current session', async t => {
  const app = await open(t);
- for (const path of ['/', '/deals', '/leads', '/leases', '/doc-chats', '/doc-chats/work', '/control-room', '/updates']) {
+ for (const path of ['/', '/deals', '/leads', '/leases', '/doc-chats', '/updates']) {
   await app.page.goto(`${app.origin}${path}?mode=live`);
   await app.page.waitForFunction(() => document.querySelector('#selfAvatar')?.textContent === 'J');
   const url = app.page.url();

@@ -175,8 +175,7 @@ test('repeated hide and show leaves exactly one timer per poller', async () => {
 
 test('every network poller in the app goes through the shared helper', async () => {
   const read = file => readFile(new URL(`../js/${file}`, import.meta.url), 'utf8');
-  for (const file of ['app.js', 'pipeline.js', 'progress-board.js',
-    'progress-wire.js', 'progress-work.js', 'queue.js', 'call-mode.js']) {
+  for (const file of ['app.js', 'pipeline.js', 'call-mode.js']) {
     const source = await read(file);
     assert.match(source, /mountVisibilityPoll\(|mountLocalClock\(/, `${file} polls through the helper`);
     assert.doesNotMatch(source, /document\.hidden \?|POLL_HIDDEN_MS/, `${file} has no hidden-tab cadence of its own`);

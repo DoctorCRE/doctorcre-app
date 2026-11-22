@@ -17,7 +17,7 @@ const screenshot = async (page, name) => {
   await page.screenshot({ path: join(process.env.W2_SCREENSHOT_DIR, `${name}.png`), fullPage: !name.includes('detail') });
 };
 
-async function open(t, { preparationResponse, calendarPanelsGate, actionCompletion, calendar, initialBriefFailure = false, theme = 'dark', delayHome = false, width = 1440, height = 1000, invoiceAttention = false, motion = 'reduce', leads = true, delayDetails = false, hangDetails = false, longLead = false, tasksOnly = false, heldTasks = false, malformedTasks = false, delayBoard = false, delayInitialFeed = false, freezeTime = false, origin = 'http://localhost', malformedBoard = false, firstOpen = false, freshBrief = false, emptyAgenda = false, initialDetailFailure = null, blockUi = false } = {}) {
+async function open(t, { preparationResponse, calendarPanelsGate, actionCompletion, calendar, initialBriefFailure = false, theme = 'dark', width = 1440, height = 1000, invoiceAttention = false, motion = 'reduce', leads = true, delayDetails = false, hangDetails = false, longLead = false, tasksOnly = false, heldTasks = false, malformedTasks = false, delayBoard = false, delayInitialFeed = false, freezeTime = false, origin = 'http://localhost', malformedBoard = false, freshBrief = false, emptyAgenda = false, initialDetailFailure = null, blockUi = false } = {}) {
   const client = await createFixtureClient({ seedUrl: `data:application/json;base64,${Buffer.from(await readFile(new URL('../data/board-seed.json', import.meta.url))).toString('base64')}` });
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width, height }, timezoneId: 'UTC', reducedMotion: motion });
@@ -26,7 +26,7 @@ async function open(t, { preparationResponse, calendarPanelsGate, actionCompleti
   // actionability cannot wait on a hover transition the clock never advances.
   if (freezeTime) await pausedClock(page, NOW);
   else await page.clock.install({ time: NOW });
-  if (!firstOpen && !freshBrief) await page.addInitScript(() => {
+  if (!freshBrief) await page.addInitScript(() => {
     if (!localStorage.getItem('doctorcre:morning:joe')) localStorage.setItem('doctorcre:morning:joe', JSON.stringify({ day: '2026-10-01', lastShownAt: '2026-10-01T14:00:00Z', since: '2026-09-30T17:00:00Z' }));
   });
   const resources = []; page.on('request', request => resources.push(new URL(request.url()).pathname));
@@ -100,52 +100,13 @@ async function open(t, { preparationResponse, calendarPanelsGate, actionCompleti
     if (blockUi && url.pathname === '/js/ui-next-step.generated.js') return route.abort();
     if (calendarPanelsGate && url.pathname === '/js/ui-calendar-panels.generated.js') await calendarPanelsGate;
     const file = url.pathname === '/deals' && url.searchParams.get('view') === 'national' ? 'index.html' : routes[url.pathname] || url.pathname.slice(1);
-    if (delayHome && file === 'js/workspace-command-center.js') await page.waitForFunction(() => document.querySelector('#morningUpdated')?.hasAttribute('datetime'));
     try { return route.fulfill({ body: await readFile(new URL(`../${file}`, import.meta.url)), contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' }); }
     catch { return route.fulfill({ status: 404, body: '' }); }
   });
   await page.goto(`${origin}/review-workflows?mode=live`);
   if (!hangDetails) await page.waitForFunction(() => /Active deals: \d/.test(document.querySelector('#dealCounts')?.textContent || '') || /unavailable/i.test(document.querySelector('#observedAt')?.textContent || ''));
-  if (firstOpen) { await page.locator('#docOpen[data-brief-unseen]').waitFor(); await page.locator('#docOpen').click(); await page.locator('#docMorning').click(); await page.locator('#docMorningBrief[open]').waitFor(); await page.waitForFunction(() => document.getElementById('morningUpdated').hasAttribute('datetime')); await page.locator('#morningClose').click(); }
   return { page, client, errors, calls, resources, completionRequests, releaseInitialFeed, responses, blockUi(value) { blockUi = value; }, failBrief(value) { briefFailure = value; }, get boardReads() { return boardReads; }, malformBoard(value) { boardMalformed = value; }, failLeads(value) { leadFailure = value; }, failDetails(value) { detailFailure = value; }, failBoard(value) { failBoard = value; }, updateLead(id, score) { liveLeads.find(row => row.id === id).score = score; } };
 }
-
-test('PR123 R1: Home models the daily morning brief and rejects unknown operations', async t => {
-  const { page, calls, errors } = await open(t, { firstOpen: true });
-  const preference = () => page.evaluate(() => JSON.parse(localStorage.getItem('doctorcre:morning:joe')));
-  assert.equal((await preference())?.day, '2026-10-01');
-  assert.ok(calls.includes('morning-brief'));
-  assert.equal(await page.locator('#docMorningBrief').evaluate(dialog => dialog.open), false);
-  assert.equal(await page.locator('#morningCoverage').textContent(), '');
-  const loaded = page.waitForResponse(response => response.url().endsWith('/mcp') && response.request().postDataJSON()?.params?.name === 'morning-brief');
-  await page.reload(); await loaded;
-  await page.waitForFunction(() => document.querySelector('#morningUpdated')?.hasAttribute('datetime'));
-  assert.equal(await page.locator('#docMorningBrief').evaluate(dialog => dialog.open), false);
-  await page.locator('#docOpen').click(); await page.locator('#docMorning').click();
-  await page.locator('#docMorningBrief[open]').waitFor(); await page.waitForFunction(() => document.getElementById('morningUpdated').hasAttribute('datetime'));
-  await page.locator('#morningClose').click();
-  await page.clock.setSystemTime(new Date('2026-10-02T15:00:00Z'));
-  // A day without input is idle: coming back online reads nothing until the
-  // person returns, and that first input reads the new day's brief.
-  const briefReads = calls.filter(name => name === 'morning-brief').length;
-  await page.evaluate(() => dispatchEvent(new Event('online')));
-  await page.waitForTimeout(200);
-  assert.equal(calls.filter(name => name === 'morning-brief').length, briefReads);
-  assert.equal(await page.locator('#docMorningBrief').evaluate(dialog => dialog.open), false);
-  assert.equal((await preference()).day, '2026-10-01');
-  await page.mouse.move(10, 10); await page.mouse.move(20, 20);
-  await page.locator('#docOpen[data-brief-unseen]').waitFor();
-  assert.equal(await page.locator('#docMorningBrief').evaluate(dialog => dialog.open), false);
-  assert.equal((await preference()).day, '2026-10-01');
-  await page.locator('#docOpen').click(); await page.locator('#docMorning').click();
-  await page.locator('#docMorningBrief[open]').waitFor(); await page.waitForFunction(() => document.getElementById('morningUpdated').hasAttribute('datetime'));
-  assert.ok(calls.filter(name => name === 'morning-brief').length > briefReads);
-  assert.equal((await preference()).day, '2026-10-02');
-  assert.deepEqual(errors, []);
-  const status = await page.evaluate(async () => (await fetch('/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'unknown-operation', arguments: {} } }) })).status);
-  assert.equal(status, 500);
-  assert.deepEqual(errors, ['Unexpected MCP operation: unknown-operation']);
-});
 
 test('PR123 finding 8: malformed and mixed live reads settle unavailable and recover', async t => {
   const state = await open(t); const { page, responses } = state;
@@ -713,7 +674,7 @@ for (const width of [1440, 390]) test(`Home calendar filters dates while tasks s
 });
 
 test('Home shows upcoming meeting time, title, place and attendee count', async t => {
-  const { page, errors } = await open(t, { delayHome: true, calendar: { state: 'ready', notes: [], items: [
+  const { page, errors } = await open(t, { calendar: { state: 'ready', notes: [], items: [
     { start: '2026-10-01T16:00:00Z', end: '2026-10-01T17:00:00Z', title: 'Demo practice meeting', location: 'Demo office', attendee_count: 3, all_day: false },
   ] } });
   const card = page.getByRole('region', { name: 'Upcoming meetings', exact: true });

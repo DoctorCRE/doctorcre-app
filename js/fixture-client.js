@@ -1645,6 +1645,7 @@ export async function createFixtureClient(opts = {}) {
       const section = items => ({ state: items.length ? 'ready' : 'empty', items });
       const board = await this.getBoard();
       const sections = {
+        ...(seed.calendar && { calendar: seed.calendar }),
         ...(selfActor === 'joe' ? { needs_joe: section([]) } : {}),
         claim_card: section([]), renewals: section([]), assurance_cadence: section([]), costs: { ...section([]), providers: [] },
         today: section((await this.todayTriage()).items),

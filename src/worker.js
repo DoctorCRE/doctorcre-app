@@ -1040,7 +1040,9 @@ async function handleRequest(request, env) {
   const staging = env?.APP_ENV === 'staging' && url.origin === STAGING_ORIGIN;
   if (isRetiredPage(pathname)) {
     if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
-    return Response.redirect(new URL('/', url), 308);
+    const destination = new URL('/', url);
+    const gate = await pageGate(request, env, new Request(destination, request));
+    return gate.status === 200 ? gatedResponse(gate, Response.redirect(destination, 308), env) : gate;
   }
   if (RETIRED_API.test(pathname)) return json({ error: 'not_found' }, 404);
   if (pathname === "/app-release") return request.method === "GET" ? release(env) : json({ error: "method_not_allowed" }, 405);

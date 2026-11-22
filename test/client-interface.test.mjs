@@ -5,7 +5,7 @@ import { createFixtureClient } from "../js/fixture-client.js";
 import { createLiveClient } from "../js/live-client.js";
 import { confirmedEngagementRefusal, engagementWriterFor } from "../js/prospect-engagement.mjs";
 
-const required = ["listPracticeOrigination", "setProspectEngagementStatus", "getInvoiceTracker", "markInvoicePaid", "getBoard", "getDeal", "getJevDealReading", "getChanges", "patchDealField", "resolveConflict", "addDealNote", "setNextStep", "addCriticalDate", "createDeal", "loopBoard", "todayTriage", "readLoop", "addLoop", "updateLoop", "closeLoop", "loopHeaders", "listIndustryEvents", "addIndustryEvent", "updateIndustryEvent", "commandCenter", "engineeringPassport", "readPortfolio", "workRequestCard", "declineWorkRequest", "supersedeWorkRequest", "setWorkShapeDisposition", "incidentBoard", "currentWorkItem", "currentWorkRequests", "governanceQueue", "getIncident", "linkIncidentWorkRequest", "notificationFeed", "acknowledgeNotification", "notificationPreferences", "setNotificationPreference", "readDocConversation", "listDocConversations", "createDocConversation", "renameDocConversation", "shareDocConversation", "docOutcomeCards"];
+const required = ["listPracticeOrigination", "setProspectEngagementStatus", "getInvoiceTracker", "markInvoicePaid", "getBoard", "getDeal", "getJevDealReading", "getChanges", "patchDealField", "resolveConflict", "addDealNote", "setNextStep", "addCriticalDate", "createDeal", "todayTriage", "commandCenter", "notificationFeed", "acknowledgeNotification", "notificationPreferences", "setNotificationPreference", "readDocConversation", "listDocConversations", "createDocConversation", "renameDocConversation", "shareDocConversation"];
 
 test('live board, archived rows and detail preserve explicit vendor cards', async () => {
   const vendors = [{ party_id: 'demo-vendor', role: 'attorney', company: { id: 'demo-company', name: 'Demo Legal' },
@@ -20,27 +20,6 @@ test('live board, archived rows and detail preserve explicit vendor cards', asyn
   const board = await client.getBoard();
   for (const key of ['deals', 'closed_deals', 'lost_deals']) assert.deepEqual(board[key][0].vendors, vendors);
   assert.deepEqual((await client.getDeal(row.id)).deal.vendors, vendors);
-});
-
-test("industry events use the authenticated read and versioned writes", async () => {
-  const calls = [];
-  const live = createLiveClient({ fetchImpl: async (path, init) => {
-    if (path === '/auth/session') return new Response(JSON.stringify({ actor: { slug: 'joe' }, csrf_token: 'synthetic-session' }));
-    calls.push({ path, init });
-    return new Response(JSON.stringify({ result: { content: [{ text: JSON.stringify({ ok: true, events: [], count: 0 }) }] } }), { status: 200 });
-  } });
-  await live.listIndustryEvents({ limit: 100 });
-  await live.addIndustryEvent({ title: "Demo forum", source: "Organizer", idempotency_key: "11111111-1111-4111-8111-111111111111" });
-  await live.updateIndustryEvent({ event_id: "22222222-2222-4222-8222-222222222222", base_version: 7,
-    title: "Demo forum revised", idempotency_key: "33333333-3333-4333-8333-333333333333" });
-  assert.deepEqual(calls.map(({ init }) => JSON.parse(init.body).params.name),
-    ["list-industry-events", "add-industry-event", "update-industry-event"]);
-  assert.deepEqual(calls.map(({ init }) => JSON.parse(init.body).params.arguments), [
-    { limit: 100 }, { title: "Demo forum", source: "Organizer", idempotency_key: "11111111-1111-4111-8111-111111111111" },
-    { event_id: "22222222-2222-4222-8222-222222222222", base_version: 7,
-      title: "Demo forum revised", idempotency_key: "33333333-3333-4333-8333-333333333333" },
-  ]);
-  assert.ok(calls.every(({ path, init }) => path === "/mcp" && init.credentials === "same-origin"));
 });
 
 test("synthetic and live adapters satisfy the same DealRoomClient interface", async () => {
@@ -81,7 +60,7 @@ test("Jev reading sends one deal id to the same-origin CARR API", async () => {
   assert.deepEqual(JSON.parse(calls[0].init.body), { deal: "00000000-0000-4000-8000-000000000001" });
 });
 
-for(const method of ['engineeringPassport','workRequestCard','sessionIdentity','dispatchHistory'])test(`${method} bounds the response body and aborts on expiry`,async t=>{
+for(const method of ['readDocConversation','find'])test(`${method} bounds the response body and aborts on expiry`,async t=>{
   t.mock.timers.enable({apis:['setTimeout']});
   let signal;
   const live=createLiveClient({fetchImpl:async(_path,init)=>{signal=init.signal;return {ok:true,json:()=>new Promise(()=>{})};}});
@@ -90,7 +69,7 @@ for(const method of ['engineeringPassport','workRequestCard','sessionIdentity','
   assert.equal(signal.aborted,true);
 });
 
-for (const method of ['engineeringPassport', 'workRequestCard', 'sessionIdentity', 'dispatchHistory', 'unfinishedWork', 'listProgressBoards', 'readProgressBoard']) test(`${method} uses the shared read deadline and caller cancellation`, async t => {
+for (const method of ['readDocConversation', 'listDocConversations', 'find', 'findAndCatchUp']) test(`${method} uses the shared read deadline and caller cancellation`, async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let signal;
   const live = createLiveClient({ readTimeoutMs: 25, fetchImpl: async (_path, init) => {
@@ -112,7 +91,7 @@ for (const method of ['engineeringPassport', 'workRequestCard', 'sessionIdentity
 test('confirmed authentication denial survives a stalled error body',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});
   const live=createLiveClient({fetchImpl:async()=>({ok:false,status:401,text:()=>new Promise(()=>{})})});
-  const read=live.engineeringPassport({});const rejected=assert.rejects(read,error=>error.status===401);
+  const read=live.readDocConversation({});const rejected=assert.rejects(read,error=>error.status===401);
   await Promise.resolve();t.mock.timers.tick(10001);await rejected;
 });
 

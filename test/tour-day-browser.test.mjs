@@ -122,13 +122,6 @@ test("W16 desktop and phone renders: reachable capture, wide Details, full width
       const rect = button.getBoundingClientRect();
       return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
     }), true, `The shared shell must leave ${id} reachable`);
-    if (width <= 760) {
-      await page.locator('#selfAvatar').click();
-      await page.locator('#docOpen').click();
-      assert.equal(await page.locator('#docDetail').isVisible(), true);
-      await page.keyboard.press('Escape');
-      assert.equal(await page.locator('#selfAvatar').evaluate(button => document.activeElement === button), true);
-    }
     assert.equal(await page.locator(".day-stop").count(), 2);
     assert.match(await page.locator("#day-current").textContent(), /100 Example Way.*Demo listing contact.*West entrance/s);
     assert.equal(await page.locator(".property-actions a").getAttribute("href"), "tel:+12025550100");

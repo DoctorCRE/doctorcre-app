@@ -911,7 +911,10 @@ for (const mode of ["engine", "carr"]) {
   test(`${mode} sign-in sends retired app bookmarks to Home`, async () => {
     const { send, calls } = fixture(status, {
       ...signIn,
-      CARR: { fetch: async () => new Response("Admitted by CARR") },
+      CARR: {
+        fetch: async (input: Request) =>
+          input.headers.has("cookie") ? new Response("Admitted by CARR") : Response.redirect(origin + "/auth/login"),
+      },
     });
     for (const path of [
       "/work-requests?work_request=WR-000042",
@@ -936,6 +939,9 @@ for (const mode of ["engine", "carr"]) {
       "/doc-chats/work",
       "/doc-activity",
     ]) {
+      const signedOut = await send(path, undefined, origin);
+      assert.equal(signedOut.status, 302, path);
+      assert.equal(new URL(signedOut.headers.get("location") ?? "").searchParams.get("return_to"), path);
       for (const method of ["GET", "HEAD"]) {
         const response = await send(path, { method, headers }, origin);
         assert.equal(response.status, 308, path);
@@ -944,33 +950,6 @@ for (const mode of ["engine", "carr"]) {
       }
     }
     assert.deepEqual(calls.assets, []);
-  });
-
-  test(`${mode} sign-in serves the business pages`, async () => {
-    const { send, calls } = fixture(status, {
-      ...signIn,
-      CARR: {
-        fetch: async (input: Request) => {
-          assert.equal(input.headers.get("cookie"), headers.cookie);
-          return new Response("Admitted by CARR", { headers: { "set-cookie": "fixture_gate=admitted" } });
-        },
-      },
-    });
-    for (const [path, asset] of [
-      ["/", "/workspace.html"],
-      ["/deals", "/pipeline.html"],
-      ["/leads", "/leads.html"],
-      ["/vendors", "/business.html"],
-      ["/clients", "/business.html"],
-      ["/calendar", "/calendar.html"],
-      ["/invoices", "/invoices.html"],
-      ["/doc-chats", mode === "engine" ? "/doc-chats.html" : "/conversations.html"],
-    ] as const) {
-      const response = await send(path, { headers }, origin);
-      assert.equal(response.status, 200, path);
-      assert.equal(calls.assets.at(-1), asset);
-      if (mode === "carr") assert.equal(response.headers.get("set-cookie"), "fixture_gate=admitted");
-    }
   });
 
   test(`${mode} sign-in closes retired HTTP and MCP proxies`, async () => {

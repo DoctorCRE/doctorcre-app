@@ -38,7 +38,7 @@ test('a missing MCP result is an unknown mutation outcome through both domain cl
   const fetchImpl = async () => ({ ok: true, json: async () => ({ jsonrpc: '2.0', id: 1 }) });
   const live = createLiveClient({ fetchImpl, docContext: false });
   const leads = createLeadBoardClient({ fetchImpl, docContext: false });
-  await assert.rejects(live.addLoop({ idempotency_key: 'same-key' }), { code: 'unknown_outcome' });
+  await assert.rejects(live.createDocConversation({ title: 'Synthetic chat', idempotency_key: 'same-key' }), { code: 'unknown_outcome' });
   await assert.rejects(leads.claimLead({ id: 'synthetic-lead', base_version: 1 }, 'same-key'), { code: 'unknown_outcome' });
 });
 
@@ -94,7 +94,7 @@ test('domain clients preserve distinct command knowledge for the same confirmed 
 
 test('Live retains its first-item content contract while Leads requires typed text content', async () => {
   const fetchImpl = async () => ({ ok: true, json: async () => ({ result: { content: [{ text: '{"ok":true}' }] } }) });
-  assert.deepEqual(await createLiveClient({ fetchImpl, docContext: false }).addLoop({ idempotency_key: 'same-key' }), { ok: true });
+  assert.deepEqual(await createLiveClient({ fetchImpl, docContext: false }).createDocConversation({ title: 'Synthetic chat', idempotency_key: 'same-key' }), { ok: true });
   await assert.rejects(createLeadBoardClient({ fetchImpl, docContext: false }).claimLead({ id: 'synthetic-lead', base_version: 1 }, 'same-key'), { code: 'unknown_outcome' });
 });
 
@@ -102,7 +102,6 @@ test('Live read methods carry the caller signal to transport and leave MCP argum
   const calls = [
     ['find', client => (signal => client.find({ query: 'synthetic' }, { signal })), { query: 'synthetic' }],
     ['find-and-catch-up', client => (signal => client.findAndCatchUp({ query: 'synthetic', limit: 3 }, { signal })), { query: 'synthetic', limit: 3 }],
-    ['loop-board', client => (signal => client.loopBoard({ kind: 'task', status: 'open' }, { signal })), { kind: 'task', status: 'open' }],
     ['deal-room-board', client => (signal => client.getBoard({ workspace: 'all', signal })), { workspace: 'all' }],
   ];
   for (const [verb, call, args] of calls) {

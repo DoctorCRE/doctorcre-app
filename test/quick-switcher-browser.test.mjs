@@ -226,9 +226,7 @@ test('deal and contact choices navigate to the exact fixture records', async () 
     await page.getByRole('button', { name: 'Quick switcher' }).waitFor();
     await page.keyboard.press('Control+Alt+k');
     await page.getByRole('combobox', { name: 'Jump to' }).waitFor();
-    assert.equal(await page.locator('[data-quick-switcher] #docOpen').count(), 0);
     await page.getByRole('combobox', { name: 'Jump to' }).press('Escape');
-    assert.equal(await page.locator('#docOpen').count(), 1);
   } finally { await browser.close(); }
 });
 

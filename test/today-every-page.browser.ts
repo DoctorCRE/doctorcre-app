@@ -273,14 +273,11 @@ test("Today rejects a reminder with a malformed ended-deal marker", async (t) =>
   assert.equal(await today.getByText("Check the former office", { exact: true }).count(), 0);
 });
 
-test("The shell keeps Morning brief with the switch off and drops it with the switch on", async (t) => {
+test("The shell drops Morning brief in both routing modes", async (t) => {
   const off = await open(t, "/invoices", { enabled: false });
   await off.today.getByRole("heading", { name: "Your schedule", exact: true }).waitFor();
   assert.equal(await off.page.getByRole("button", { name: "Workspace sidebar", exact: true }).isVisible(), true);
-  await off.page.locator("#docOpen").click();
-  await off.page.locator("#docMorning").click();
-  await off.page.getByRole("dialog", { name: /^Morning brief/ }).waitFor();
-  assert.deepEqual([...new Set(off.legacy)].sort(), [...legacyVerbs].sort());
+  assert.equal(await off.page.locator("#docOpen").count(), 0);
   assert.deepEqual(off.readToday, []);
 
   const on = await open(t, "/invoices");
