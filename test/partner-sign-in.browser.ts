@@ -653,7 +653,7 @@ test("unavailable engine action links show the same page for missing and retired
   const { server, context, partnerReads, carrChecks } = await app(t);
   const page = await context.newPage();
   const id = "44444444-4444-4444-8444-444444444444";
-  for (const ref of ["missing", actionLinkRef(`cr:${id}:1`), actionLinkRef(`fe:${id}`)]) {
+  for (const ref of ["missing", actionLinkRef(`fe:${id}`)]) {
     const response = await page.goto(server.origin + `/a/${ref}?mode=live`);
     assert.ok(response);
     assert.equal(response.status(), 404);
@@ -663,6 +663,23 @@ test("unavailable engine action links show the same page for missing and retired
     assert.equal(partnerReads.get(actionResolver + ref), `${cookieName}=first`);
   }
   assert.equal(carrChecks(), 0);
+});
+
+test("retired action links show Home at both screen sizes and sign-ins", async (t) => {
+  const id = "44444444-4444-4444-8444-444444444444";
+  for (const signIn of ["engine", "carr"] as const) {
+    const { server, context } = await app(t, { signIn });
+    const page = await context.newPage();
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const kind of ["cr", "fe"]) {
+        const response = await page.goto(server.origin + `/a/${actionLinkRef(`${kind}:${id}:1`)}?mode=live`);
+        assert.equal(response?.status(), 404);
+        await page.getByRole("heading", { name: "This link is no longer available", exact: true }).waitFor();
+        assert.equal(await page.getByRole("link", { name: "Back to Home" }).getAttribute("href"), "/");
+      }
+    }
+  }
 });
 
 test("a CARR action link still opens the approval screen through its legacy resolver", async (t) => {
