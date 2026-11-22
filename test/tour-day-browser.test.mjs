@@ -191,7 +191,7 @@ test('R2: shared shell sign-out revokes the offline account binding', async t =>
   await record(page);
   await page.locator('#selfAvatar').click(); await page.locator('#accountSignOut').click();
   await page.waitForURL('**/public-shell/session-ended.html');
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('doctorcre-tour-day-session-v1')),null);
+  assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('doctorcre-tour-day-session-v1')).epoch), null);
   await context.setOffline(true); await page.goto(`${origin}/tours/day.html?tour=${tourId}`).catch(()=>null);
   assert.equal(await page.locator('.note-card,.day-stop,#day-record').count(),0);
   assert.doesNotMatch(await page.locator('body').textContent(),/Synthetic tour/);
@@ -286,7 +286,7 @@ test('saved tour survives HTTP-cache eviction, failed shell responses and an onl
   await page.locator('#day-refresh').click();
   await page.waitForFunction(() => document.querySelector('#day-status').textContent === 'Sign in to continue');
   assert.equal(await page.locator('.day-stop').count(), 0);
-  assert.equal(await page.evaluate(() => sessionStorage.getItem('doctorcre-tour-day-session-v1')), null);
+  assert.equal(await page.evaluate(() => JSON.parse(sessionStorage.getItem('doctorcre-tour-day-session-v1')).epoch), null);
 });
 
 test('revoked shell cache can reopen online and becomes ready only after its files are restored', async t => {

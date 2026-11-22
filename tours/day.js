@@ -5,7 +5,7 @@ import { createDayClient } from "./day-client.js";
 import { createDayStore, noteState } from "./day-store.js";
 import { createDayRecorder } from "./day-recorder.js";
 import { mountAutoRefresh, updatedLabel, readWithDeadline } from "../js/auto-refresh.mjs";
-import { offlineTourSession, SESSION_EPOCH_KEY } from "../js/offline-tour-session.js";
+import { offlineTourSession, SESSION_EPOCH_KEY, TOUR_SIGN_IN_EPOCH_KEY } from "../js/offline-tour-session.js";
 
 export async function prepareOfflineShell(window, { signal } = {}) {
   if (!window.navigator.serviceWorker || !window.isSecureContext) throw new Error("offline_app_unavailable");
@@ -232,7 +232,7 @@ export function mountTourDay({ document, window, api = createDayClient(), store 
     scope = userRef = tour = selected = null; notes = []; volatileNote = null; recordingMessage = itineraryError = "";
     itineraryReady = shellReady = false; shellError = ""; preparingShell = null; ++shellGeneration;
     $("#day-current").replaceChildren(); $("#day-stops").replaceChildren(); $("#day-notes").replaceChildren(); $("#day-title").textContent = "Tour day";
-    try { offlineSession.clear(); } catch {}
+    offlineSession.retireBinding();
     showState("unavailable", EMPTY_COPY.signedOut); $("#day-updated").textContent = "Not loaded";
     renderControls();
   }
@@ -314,7 +314,9 @@ export function mountTourDay({ document, window, api = createDayClient(), store 
   const hide = () => { if (document.visibilityState === "hidden") recorder.stop(); };
   const leave = () => recorder.stop();
   const revoked = () => { reset(); status("Sign in to continue"); };
-  const storageRevoked = event => { if (event.key === SESSION_EPOCH_KEY) revoked(); };
+  const storageRevoked = event => {
+    if (event.key === SESSION_EPOCH_KEY || event.key === TOUR_SIGN_IN_EPOCH_KEY) revoked();
+  };
   window.addEventListener("storage", storageRevoked);
   window.addEventListener("doctorcre-offline-session-revoked", revoked);
   // eslint-disable-next-line no-restricted-syntax -- Hidden/pagehide handlers only close private content and release recording resources; they perform no HTTP reads.
