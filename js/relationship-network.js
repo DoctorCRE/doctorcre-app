@@ -35,6 +35,7 @@ export function mountRelationshipNetwork({
       document,
       onReviewIntroduction: id => intro.open(snapshot, id),
       onRefresh: () => auto.refresh(),
+      onOpenNode: id => open(id),
     });
   let snapshot = null,
     epoch = 0,
@@ -56,7 +57,7 @@ export function mountRelationshipNetwork({
   const step = params.get("step");
   let stepId = focus?.startsWith("party:") && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(step ?? "") ? step : null;
   let openLinkedRecord = Boolean(focus);
-  const address = () => {
+  const address = (push = false) => {
     const url = new URL(window.location.href);
     for (const [key, value] of Object.entries({
       ...currentFilters,
@@ -70,13 +71,14 @@ export function mountRelationshipNetwork({
       if (value) url.searchParams.set(key, value);
       else url.searchParams.delete(key);
     }
-    window.history.replaceState(null, "", url);
+    window.history[push ? "pushState" : "replaceState"](null, "", url);
   };
-  const open = (id, trigger) => {
-    if (focus !== id) stepId = null;
+  const open = (id, trigger, push = true) => {
+    const changed = focus !== id;
+    if (changed) stepId = null;
     focus = id;
     returnId = id;
-    address();
+    address(push && changed);
     highlight(id);
     dialog.open(snapshot, id, trigger);
   };
@@ -318,7 +320,7 @@ export function mountRelationshipNetwork({
       $("networkUpdated").textContent = updatedLabel(next.observed_at, BUSINESS_TIME_ZONE);
       render();
       dialog.update(snapshot);
-      if (openLinkedRecord && snapshot.nodes.some(node => node.id === focus)) open(focus);
+      if (openLinkedRecord && snapshot.nodes.some(node => node.id === focus)) open(focus, undefined, false);
       openLinkedRecord = false;
     } catch (error) {
       if (disposed || seq !== epoch) return;
@@ -423,6 +425,13 @@ export function mountRelationshipNetwork({
     positions.clear();
     render();
   };
+  window.addEventListener("popstate", () => {
+    const params = new URLSearchParams(window.location.search);
+    focus = params.get("node");
+    stepId = params.get("step");
+    if (focus && snapshot?.nodes.some(node => node.id === focus)) open(focus, undefined, false);
+    else { dialog.clear(); highlight(null); }
+  }, { signal: localEvents.signal });
   const resize = () => render();
   window.addEventListener("resize", resize);
   const expiry = mountLocalTicker({ document, window, intervalMs: 1000, tick: () => {

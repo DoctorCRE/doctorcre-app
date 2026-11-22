@@ -33,7 +33,7 @@ function renderConnection({ other, links }) {
   return `<article class="relationship-entry"><span>${E(labels)}</span><button type="button" data-open-node="${E(other.id)}" data-card-key="connection:${E(other.id)}">${E(withoutRecordCodes(other.name))} <span aria-hidden="true">↗</span></button>${date}${evidence}</article>`;
 }
 
-export function mountRelationshipDialog({ document, onReviewIntroduction, onRefresh }) {
+export function mountRelationshipDialog({ document, onReviewIntroduction, onRefresh, onOpenNode }) {
   const dialog = document.createElement("dialog");
   dialog.className = "relationship-dialog";
   dialog.setAttribute("aria-labelledby", "relationshipTitle");
@@ -99,10 +99,13 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
     dialog.querySelectorAll("[data-open-node]").forEach(
       (b) =>
         (b.onclick = () => {
-          selected = b.dataset.openNode;
-          visibleConnections = PAGE_SIZE;
-          paint();
-          dialog.querySelector("h2").focus();
+          if (onOpenNode) onOpenNode(b.dataset.openNode);
+          else {
+            selected = b.dataset.openNode;
+            visibleConnections = PAGE_SIZE;
+            paint();
+            dialog.querySelector("h2").focus();
+          }
         }),
     );
     dialog.querySelectorAll("details").forEach((d) => {
@@ -134,7 +137,7 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
       setSnapshot(value);
       selected = id;
       visibleConnections = PAGE_SIZE;
-      returnFocus = trigger;
+      if (!dialog.open) returnFocus = trigger;
       paint();
       if (selected) {
         if (!dialog.open) dialog.showModal();

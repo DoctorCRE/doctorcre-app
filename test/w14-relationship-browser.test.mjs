@@ -730,3 +730,26 @@ for (const width of [1440, 390]) test(`Relationship records open by ID at ${widt
   await dialog.getByText('No connections recorded').waitFor();
   assert.equal(await dialog.getByRole('link', { name: /Open .* record/ }).count(), 0);
 });
+
+test('Following a connection updates the link and browser history while keeping the opener', async t => {
+  const { page } = await open(t);
+  await page.goto('http://localhost/relationships?mode=live');
+  const opener = page.locator('.relationship-node[data-node="party:demo-build"]');
+  await opener.click();
+  const dialog = page.getByRole('dialog');
+  const connection = dialog.locator('[data-open-node="party:demo-client"]');
+  const next = await connection.getAttribute('data-open-node');
+  await connection.click();
+  assert.equal(new URL(page.url()).searchParams.get('node'), next);
+  const title = await dialog.locator('h2').innerText();
+  const record = await dialog.locator('a[data-card-key="record"]').getAttribute('href');
+  await dialog.locator('[data-close-card]').click();
+  assert.equal(await opener.evaluate(el => el === document.activeElement), true);
+  await page.reload();
+  await dialog.waitFor();
+  assert.equal(await dialog.locator('h2').innerText(), title);
+  assert.equal(await dialog.locator('a[data-card-key="record"]').getAttribute('href'), record);
+  await page.goBack();
+  await page.waitForURL(url => url.searchParams.get('node') === 'party:demo-build');
+  await dialog.locator('h2').getByText('Demo Practice Builders').waitFor();
+});
