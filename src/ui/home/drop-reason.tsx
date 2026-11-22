@@ -2,10 +2,12 @@ import { useState } from "react";
 
 export function DropReason({
   title,
+  heading = "Drop this card?",
   cancel,
   confirm,
 }: {
   title: string;
+  heading?: string;
   cancel(): void;
   confirm(reason: string): void;
 }) {
@@ -22,7 +24,7 @@ export function DropReason({
         else cancel();
       }}
     >
-      <h2>Drop this card?</h2>
+      <h2>{heading}</h2>
       <p>{title}</p>
       <form method="dialog">
         <label>

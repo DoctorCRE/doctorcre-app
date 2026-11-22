@@ -146,9 +146,12 @@ export function ReviewCard<Item extends ReviewItem>({
 }: Props<Item>) {
   const [state, setState] = useState<State>({ phase: "loading" });
   const [reason, setReason] = useState("");
-  const [drop, setDrop] = useState<{ title: string; opener: HTMLButtonElement; confirm(reason: string): void } | null>(
-    null,
-  );
+  const [drop, setDrop] = useState<{
+    title: string;
+    heading?: string;
+    opener: HTMLButtonElement;
+    confirm(reason: string): void;
+  } | null>(null);
   const [decision, setDecision] = useState("approve");
   const [observation, setObservation] = useState("");
   const [message, setMessage] = useState("");
@@ -300,6 +303,7 @@ export function ReviewCard<Item extends ReviewItem>({
         if (!alive.current) return;
         anchor.current = result.item;
         setState({ phase: "ready", review: refreshed });
+        if (request.args.decision === "dismiss") host.current?.focus();
         setMessage(
           result.alreadyResolved
             ? ""
@@ -531,6 +535,7 @@ export function ReviewCard<Item extends ReviewItem>({
                 dismiss={(opener) =>
                   setDrop({
                     title: proposal.label.toLowerCase(),
+                    heading: "Drop this filing suggestion?",
                     opener,
                     confirm: (reason) => decideSuggestion(proposal, "dismiss", reason),
                   })
@@ -576,7 +581,7 @@ export function ReviewCard<Item extends ReviewItem>({
       tabIndex={-1}
       aria-label={`Details for ${item.title}`}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && !waiting && state.phase !== "uncertain") {
+        if (event.key === "Escape" && !drop && !waiting && state.phase !== "uncertain") {
           event.preventDefault();
           close();
         }
@@ -956,6 +961,7 @@ export function ReviewCard<Item extends ReviewItem>({
       {drop && (
         <DropReason
           title={drop.title}
+          {...(drop.heading && { heading: drop.heading })}
           cancel={() => {
             drop.opener.focus();
             setDrop(null);
