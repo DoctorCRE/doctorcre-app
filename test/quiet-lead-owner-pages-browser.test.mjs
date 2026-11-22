@@ -111,7 +111,7 @@ test('quiet badges and research clear on hidden, reject delayed reads, resume an
   const holdReads = async () => {
     await page.evaluate(() => {
       fixture.held = true;
-      window.lateDetail = app.readDetail(fixture.research.detail.id, false);
+      window.lateDetail = app.readDetail(fixture.research.detail.id, { open: false });
       window.lateBoard = app.refresh();
     });
     await page.waitForFunction(() => ['board', 'detail', 'quiet'].every(kind => fixture.pending.some(read => read.kind === kind)));

@@ -67,7 +67,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await panel.getByLabel('Finding kind', { exact: true }).selectOption('');
     await attention.focus(); await attention.press('n'); await attention.press('Tab');
     assert.equal(await attention.inputValue(), 'nothing');
-    await page.evaluate(() => window.researchApp.readDetail(window.researchApp.state.detailId, false));
+    const subsetCount = full.filter(e => e.found === false).length;
+    await panel.getByRole('status').filter({ hasText: `${subsetCount} of ${full.length} loaded findings` }).waitFor();
+    await page.evaluate(() => window.researchApp.readDetail(window.researchApp.state.detailId, { open: false }));
     assert.equal(await attention.inputValue(), 'nothing', 'same lead refresh retains attention');
     assert.equal(reads, initialReads + 1, 'only explicit refresh reads');
     await page.evaluate(() => window.researchApp.refresh());
@@ -167,7 +169,7 @@ test('attention disposal clears rendered dates and ignores a late detail respons
   await app.readDetail(recording.detail.id);
   assert.ok(w.document.querySelector('#sourcedResearch'));
   late = true;
-  const pending = app.readDetail(recording.detail.id, false);
+  const pending = app.readDetail(recording.detail.id, { open: false });
   app.dispose();
   assert.equal(w.document.querySelector('#sourcedResearch'), null);
   resolveLate(structuredClone(recording));
@@ -212,7 +214,7 @@ for (const boundary of ['lead change', 'authorization retirement', 'disposal', '
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual([...w.document.querySelectorAll('#sourcedResearch li')].map(node => node.dataset.flagId), recording.detail.research.evidence.filter(e => e.expired && e.kind === kind.value).map(e => e.flag_id));
     delayed = true;
-    const pending = app.readDetail(recording.detail.id, false);
+    const pending = app.readDetail(recording.detail.id, { open: false });
     delayed = false;
     if (boundary === 'lead change') {
       await app.readDetail(recording.leads[1].id);

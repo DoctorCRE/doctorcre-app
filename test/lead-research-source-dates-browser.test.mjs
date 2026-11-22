@@ -110,7 +110,7 @@ test('disposal clears rendered dates and ignores a late detail response', async 
   await app.readDetail(recording.detail.id);
   assert.ok(w.document.querySelector('#sourcedResearch'));
   late = true;
-  const pending = app.readDetail(recording.detail.id, false);
+  const pending = app.readDetail(recording.detail.id, { open: false });
   app.dispose();
   assert.equal(w.document.querySelector('#sourcedResearch'), null);
   resolveLate(structuredClone(recording));
