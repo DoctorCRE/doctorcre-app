@@ -37,6 +37,8 @@ async function open(t, width = 1440) {
       const payload = relationshipNetworkFixture(
         await page.evaluate(() => new Date().toISOString()),
       );
+      if (url.searchParams.get("step") === "11111111-1111-4111-8111-111111111111")
+        payload.focused_step = { id: "11111111-1111-4111-8111-111111111111", party_id: "demo-build", what: "Demo next step", status: "open" };
       if (version) payload.nodes[0].summary = "Demo refreshed summary";
       if (mode === "malformed") payload.edges[0].from = "missing";
       if (mode === "territory") payload.nodes[0].territory = 123;
@@ -752,4 +754,46 @@ test('Following a connection updates the link and browser history while keeping 
   await page.goBack();
   await page.waitForURL(url => url.searchParams.get('node') === 'party:demo-build');
   await dialog.locator('h2').getByText('Demo Practice Builders').waitFor();
+});
+
+
+test('A filtered connection remains open after reload', async t => {
+  const { page } = await open(t);
+  await page.goto('http://localhost/relationships?mode=live');
+  await page.locator('#networkKind').selectOption('vendor');
+  await page.locator('#networkNodes [data-node="party:demo-build"]').click();
+  await page.getByRole('dialog').locator('[data-open-node="party:demo-client"]').click();
+  await page.reload();
+  await page.getByRole('dialog').getByRole('link', { name: 'Open client record' }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get('node'), 'party:demo-client');
+});
+
+test('Next step follows the active history entry', async t => {
+  const { page } = await open(t);
+  const step = '11111111-1111-4111-8111-111111111111';
+  await page.goto(`http://localhost/relationships?mode=live&node=party:demo-build&step=${step}`);
+  const dialog = page.getByRole('dialog');
+  await dialog.getByText('Demo next step', { exact: false }).waitFor();
+  await dialog.locator('[data-open-node="party:demo-client"]').click();
+  await dialog.locator('[data-open-node="party:demo-build"]').click();
+  assert.equal(await dialog.locator('[data-card-key="next-step"]').count(), 0);
+  await page.goBack();
+  await page.reload();
+  await dialog.waitFor();
+  await page.goBack();
+  await dialog.getByText('Demo next step', { exact: false }).waitFor();
+});
+
+test('Back restores filters from the previous entry', async t => {
+  const { page } = await open(t);
+  await page.goto('http://localhost/relationships?mode=live');
+  await page.locator('#networkNodes [data-node="party:demo-build"]').click();
+  const dialog = page.getByRole('dialog');
+  await dialog.locator('[data-open-node="party:demo-client"]').click();
+  await dialog.locator('[data-close-card]').click();
+  await page.locator('#networkKind').selectOption('client');
+  await page.goBack();
+  await dialog.locator('h2').getByText('Demo Practice Builders').waitFor();
+  assert.equal(await page.locator('#networkKind').inputValue(), '');
+  assert.equal(new URL(page.url()).searchParams.has('kind'), false);
 });

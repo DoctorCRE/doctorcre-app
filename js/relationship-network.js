@@ -36,6 +36,7 @@ export function mountRelationshipNetwork({
       onReviewIntroduction: id => intro.open(snapshot, id),
       onRefresh: () => auto.refresh(),
       onOpenNode: id => open(id),
+      activeStep: () => stepId,
     });
   let snapshot = null,
     epoch = 0,
@@ -122,7 +123,7 @@ export function mountRelationshipNetwork({
     const directory = $("networkNodes").parentElement, graphView = $("graphView");
     if (phone && graphView.firstElementChild !== directory) graphView.prepend(directory);
     else if (!phone && graphView.lastElementChild !== directory) graphView.append(directory);
-    if (focus && !view.nodes.some(n => n.id === focus)) {
+    if (focus && !snapshot.nodes.some(n => n.id === focus)) {
       focus = null;
       stepId = null;
       returnId = null;
@@ -347,7 +348,7 @@ export function mountRelationshipNetwork({
     }
   };
   const auto = mountAutoRefresh({ document, window, refresh, intervalMs });
-  const selectTab = (value) => {
+  const selectTab = (value, updateAddress = true) => {
     const refs = value === "referrals";
     for (const id of ["graphTab", "referralsTab"]) {
       const active = (id === "referralsTab") === refs;
@@ -356,7 +357,7 @@ export function mountRelationshipNetwork({
     }
     $("graphView").hidden = refs;
     $("referralsView").hidden = !refs;
-    address();
+    if (updateAddress) address();
   };
   ["graphTab", "referralsTab"].forEach((id) => {
     $(id).onclick = () => selectTab(id === "referralsTab" ? "referrals" : "");
@@ -427,10 +428,24 @@ export function mountRelationshipNetwork({
   };
   window.addEventListener("popstate", () => {
     const params = new URLSearchParams(window.location.search);
+    Object.assign(currentFilters, {
+      q: params.get("q") || "",
+      territory: params.get("territory") || "",
+      vertical: params.get("vertical") || "",
+      kind: relationshipKind(params.get("kind")),
+    });
+    $("networkSearch").value = currentFilters.q;
+    kindControl.setValue(currentFilters.kind);
+    facets();
+    selectTab(params.get("view"), false);
     focus = params.get("node");
-    stepId = params.get("step");
-    if (focus && snapshot?.nodes.some(node => node.id === focus)) open(focus, undefined, false);
-    else { dialog.clear(); highlight(null); }
+    const step = params.get("step");
+    stepId = focus?.startsWith("party:") && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(step ?? "") ? step : null;
+    render();
+    if (focus && snapshot?.nodes.some(node => node.id === focus)) {
+      open(focus, undefined, false);
+      if (stepId && snapshot.focused_step?.id !== stepId) auto.refresh();
+    } else { dialog.clear(); highlight(null); }
   }, { signal: localEvents.signal });
   const resize = () => render();
   window.addEventListener("resize", resize);
