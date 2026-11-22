@@ -61,6 +61,7 @@ test('a suggestion review with the Home switch off dismisses without a Drop dial
   const reviewBundle = await build({
     stdin: { contents: `
       export { ReviewCard } from './src/ui/home/review-card.tsx';
+      export { createDraftEdits } from './src/ui/home/draft-edits.ts';
     `, resolveDir: process.cwd() },
     bundle: true, write: false, platform: 'node', format: 'esm', jsx: 'automatic',
     plugins: [{ name: 'react-runtime', setup(builder) {
@@ -69,7 +70,7 @@ test('a suggestion review with the Home switch off dismisses without a Drop dial
       }));
     } }],
   });
-  const { ReviewCard } =
+  const { ReviewCard, createDraftEdits } =
     await import(`data:text/javascript;base64,${Buffer.from(reviewBundle.outputFiles[0].text).toString('base64')}`);
   const { act, createElement } = await import('react');
   const { createRoot } = await import('react-dom/client');
@@ -89,6 +90,7 @@ test('a suggestion review with the Home switch off dismisses without a Drop dial
   try {
     await act(async () => root.render(createElement(ReviewCard, {
       item,
+      drafts: createDraftEdits(),
       client: {
         load: async () => ({ kind: 'suggestions', operations: [], proposals: [{
           id: bound.proposal_id, label: 'Next step', evidence: 'Synthetic note', canAccept: true,

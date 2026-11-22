@@ -16,12 +16,13 @@ export function privateTextDraft(win, actor, ...scope) {
       try { return key ? win.sessionStorage.getItem(key) ?? '' : ''; }
       catch { return ''; }
     },
-    write(text) {
+    write(text, { evictOnFailure = false } = {}) {
       if (!key) return;
       try {
         if (text) win.sessionStorage.setItem(key, text);
         else win.sessionStorage.removeItem(key);
       } catch {
+        if (!evictOnFailure) return;
         try { win.sessionStorage.removeItem(key); }
         catch { /* Storage may be blocked even for deletion. */ }
       }

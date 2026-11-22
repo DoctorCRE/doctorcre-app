@@ -1,7 +1,10 @@
 import { object } from "./inbox";
 
 export type DraftEdit = { subject: string; body: string; baseVersion: string };
-type TextDraft = { read(): string; write(text: string): void };
+type TextDraft = {
+  read(): string;
+  write(text: string, options?: { evictOnFailure: boolean }): void;
+};
 export type PrivateReplyDraft = (id: string) => TextDraft;
 
 function draftEdits(privateDraft?: PrivateReplyDraft) {
@@ -25,7 +28,7 @@ function draftEdits(privateDraft?: PrivateReplyDraft) {
     write(id: string, edit: DraftEdit | null) {
       if (edit) edits.set(id, edit);
       else edits.delete(id);
-      privateDraft?.(id).write(edit ? JSON.stringify(edit) : "");
+      privateDraft?.(id).write(edit ? JSON.stringify(edit) : "", { evictOnFailure: true });
     },
   };
 }
