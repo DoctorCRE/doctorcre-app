@@ -26,6 +26,7 @@ const view = {
   result: { status: "loading" },
   byDay: new Map(),
   sequence: 0,
+  refreshFailed: false,
 };
 
 let client = null;
@@ -212,11 +213,13 @@ function paintState(phase, periodRows) {
 function paintNotices(phase) {
   const region = $("calNotices");
   if (!region) return;
-  if (phase !== "partial" && !(phase === "reading" && view.result.failed.length)) { region.innerHTML = ""; return; }
+  const retry = view.refreshFailed
+    ? `<div class="notice" role="status"><p>Calendar could not refresh. Try again.</p><button type="button" id="calRetry">Retry</button></div>` : "";
+  if (phase !== "partial" && !(phase === "reading" && view.result.failed.length)) { region.innerHTML = retry; return; }
   const failed = view.result.failed;
   const names = failed.slice(0, 6).map((row) => escapeHtml(row.deal_name)).join(", ");
   const rest = failed.length > 6 ? ` and ${failed.length - 6} more` : "";
-  region.innerHTML = `<div class="notice notice-partial" role="status"><p class="notice-title">${failed.length} of ${view.result.dealCount} deals temporarily unavailable</p>`
+  region.innerHTML = retry + `<div class="notice notice-partial" role="status"><p class="notice-title">${failed.length} of ${view.result.dealCount} deals temporarily unavailable</p>`
     + `<p class="notice-copy">Their dates are not on this calendar: ${names}${rest}.</p></div>`;
 }
 
@@ -301,6 +304,9 @@ function wire() {
   $("calNext")?.addEventListener("click", () => go(stepAnchor(view.state, 1)));
   $("calToday")?.addEventListener("click", () => go({ ...view.state, anchor: view.today, day: view.today }));
   $("calRefresh")?.addEventListener("click", () => load());
+  $("calNotices")?.addEventListener("click", (event) => {
+    if (event.target.closest("#calRetry")) load();
+  });
 
   $("calGrid")?.addEventListener("click", (event) => {
     const chip = event.target.closest(".cal-chip");
@@ -328,7 +334,7 @@ function wire() {
 
 async function load() {
   const sequence = ++view.sequence;
-  const showingResults = view.result.status === "ready";
+  const showingResults = ["ready", "partial"].includes(view.result.status);
   if (!showingResults) {
     view.result = { status: "loading" };
     render();
@@ -340,6 +346,14 @@ async function load() {
     render();
   } });
   if (sequence !== view.sequence) return;
+  if (showingResults && (result.status === "unavailable" ||
+      (result.status === "ready" && result.failed.length > 0 && result.readCount === 0))) {
+    view.refreshFailed = true;
+    render();
+    announce("Calendar could not refresh. Try again.");
+    return false;
+  }
+  view.refreshFailed = false;
   view.result = result;
   const selected = pageDocContext?.snapshot().selected;
   if(selected?.kind === "deal" && result.status === "ready") void client.getDeal(selected.id).catch(() => {});
