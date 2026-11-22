@@ -13,6 +13,7 @@ import { handleDoctorcreRequest } from "../src/worker.js";
 import { validSystemWork, groupSystemWork, recentLive } from "../js/system-work-board-model.js";
 
 import { carrInterface } from "./carr-contract.mjs";
+import { committedTourWebModule } from "./tour-producer.mjs";
 
 const contract = carrInterface;
 
@@ -128,7 +129,7 @@ test("the exact pinned producer serves property evidence alongside the existing 
 }, async () => {
   const git = (...args) => execFileSync("git", ["-C", process.env.CARR_PRODUCER_CHECKOUT, ...args], { encoding: "utf8" });
   const pin = contract.producer.source_commit;
-  const { createTourInternalWebHandler, isTourInternalRequest } = await import(await producerModuleUrl("mcp-server/src/tour-internal-web.js"));
+  const { createTourInternalWebHandler, isTourInternalRequest } = await committedTourWebModule(path => git("show", `${pin}:${path}`));
   const propertyId = "10000000-0000-4000-8000-000000000001";
   const asOf = "2026-09-29T12:00:00.000Z";
   const data = { schema: "tour-property-evidence.v1", property_id: propertyId, as_of: asOf, facts: {} };
