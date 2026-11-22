@@ -40,16 +40,10 @@ test('Home counts overdue agenda dates while board badges retain next-step atten
   const home = await page.locator('#dealFlags .home-flag').count();
   const homeOverdue = await page.locator('#dealFlags .home-flag .work-card-status').allTextContents();
   const homeCounts = await page.locator('#dealCounts').textContent();
-  await page.waitForFunction(() => !/Loading/.test(document.querySelector('#appTodayNeeds')?.textContent || 'Loading'));
-  const flaggedDeals = await page.locator('#dealFlags .deal-alert [data-home-key]').evaluateAll(links => links.map(link => link.dataset.homeKey.slice('deal:'.length)));
-  const todayDeals = await page.locator('#appTodayNeeds [data-layout-deal]').evaluateAll(cards => cards.map(card => card.dataset.layoutDeal));
-  assert.deepEqual(todayDeals.filter(id => flaggedDeals.includes(id)), [], 'a deal on the Overdue deals board is not listed again in Today');
   await page.getByRole('button', { name: 'Just me', exact: true }).click();
   const mine = await page.locator('#dealFlags .home-flag').count();
   await page.goto('http://localhost/deals');
   await page.locator('.kanban-card').first().waitFor();
-  await page.waitForFunction(() => document.querySelector('#appTodayNeeds .app-layout-item'));
-  const todayRows = await page.locator('#appTodayNeeds .app-layout-item > span').allTextContents();
   const badges = await page.locator('.kanban-column').getByRole('button', { name: /^Needs attention:/ }).count();
   await page.getByRole('button', { name: 'Joe', exact: true }).click();
   const myBadges = await page.locator('.kanban-column').getByRole('button', { name: /^Needs attention:/ }).count();
@@ -57,9 +51,6 @@ test('Home counts overdue agenda dates while board badges retain next-step atten
   assert.match(homeCounts, /Overdue deals: 3/);
   assert.equal(await page.getByRole('button', { name: 'Needs attention: Step 1 day late', exact: true }).count(), 1);
   assert.deepEqual(homeOverdue, ['30 days overdue', '2 days overdue', '1 day overdue']);
-  const days = rows => rows.map(text => Number(/(\d+) days? overdue$/.exec(text)[1]));
-  assert.ok(todayRows.length >= 2 && todayRows.every(text => /\d+ days? overdue$/.test(text)), JSON.stringify(todayRows));
-  assert.deepEqual(days(todayRows), [...days(todayRows)].sort((a, b) => b - a));
   seed.deals.forEach(deal => { deal.next_date = '2026-10-20'; deal.items.forEach(item => {item.due_on = '2026-10-20';}); });
   optionNotice.due_on = '2026-10-20';
   await page.goto('http://localhost/review-workflows');

@@ -50,6 +50,7 @@ export function mountAppLayout(root, host, pathname) {
     tabs: pageViews,
     actions: pageViews,
     sidebar: layout.querySelector('#appSidebarSlot'),
+    moves: !engineToday && layout.querySelector('#appToday'),
   };
   for (const node of [...root.querySelectorAll('[data-layout-slot]')]) {
     const slot = node.dataset.layoutSlot;
@@ -149,7 +150,7 @@ export function mountAppLayout(root, host, pathname) {
   paint();
   root.addEventListener('doctorcre:open-today', () => {
     if (calendarPanel) calendarPanel.scrollIntoView({ block: 'start' });
-    else if (pageMoves) pageMoves.scrollIntoView({ block: 'start' });
+    else if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
     else openRegion('today');
   });
   // Page tab controllers retain selection and lazy reads. Give groups without

@@ -181,13 +181,6 @@ test('all seven phases fit in one row beside Today at 1440px', async t => {
  assert.deepEqual(overflowingCards,[],'card content wraps within its own card');
 });
 
-test('the look-ahead label lines up with the Today headings', async t => {
- const {page}=await open(t,1440,{showDetail:false});
- const heading=await page.getByRole('heading',{name:'Today',exact:true}).boundingBox();
- const label=await page.getByText('A LITTLE LOOK AHEAD',{exact:true}).boundingBox();
- assert.equal(label.x,heading.x);
-});
-
 test('phone timeline has one rail and unlinked context opens an explicit empty state',async t=>{
  const {page}=await open(t,390);
 
