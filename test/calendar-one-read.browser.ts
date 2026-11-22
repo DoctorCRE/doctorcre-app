@@ -298,6 +298,49 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await panel.locator(".cal-day-entry").filter({ hasText: "LOI expiry" }).getByRole("link").click();
           await page.waitForURL((url) => url.pathname === "/deals" && url.searchParams.get("deal") === "qa-deal-1");
           await expect(page.locator("#recordPanel .deal-opening-snapshot")).toBeVisible();
+          await page.goBack();
+          await expect(updated).toContainText("Updated");
+          await t.test("failed refresh keeps dates until retry and session expiry clears them", async () => {
+            const previous = await updated.textContent();
+            await page.route(`**${calendarRead}`, async () => {});
+            await page.locator("#calRefresh").click();
+            await page.clock.fastForward(10_001);
+            await expect(page.locator("#calNotices").getByText("Calendar could not refresh. Try again.")).toBeVisible();
+            await expect(panel).toContainText("LOI expiry");
+            await expect(page.locator('[data-day="2026-10-20"][aria-selected="true"]')).toHaveCount(1);
+            await expect(updated).toHaveText(previous ?? "");
+            await page.unroute(`**${calendarRead}`);
+            await page.route(`**${calendarRead}`, (route) =>
+              route.fulfill({
+                json: {
+                  schema_version: "calendar-critical-dates.v1",
+                  critical_dates: [
+                    {
+                      id: "new",
+                      deal_id: "qa-deal-1",
+                      deal_name: "Example lease",
+                      kind: "New date",
+                      due_on: "2026-10-20",
+                      done: false,
+                    },
+                  ],
+                },
+              }),
+            );
+            await page.clock.setSystemTime(new Date("2026-10-20T15:10:00Z"));
+            await page.getByRole("button", { name: "Retry" }).click();
+            await expect(updated).not.toHaveText(previous ?? "");
+            await expect(panel).toContainText("New date");
+            await page.unroute(`**${calendarRead}`);
+            await expect(page.locator("#calNotices").getByText("Calendar could not refresh. Try again.")).toHaveCount(
+              0,
+            );
+            await page.route(`**${calendarRead}`, (route) => route.fulfill({ status: 401 }));
+            await page.locator("#calRefresh").click();
+            await expect(page.getByRole("heading", { name: "Session ended" })).toBeVisible();
+            await expect(page.locator("#calGrid .cal-chip")).toHaveCount(0);
+            await expect(updated).toHaveCount(0);
+          });
         } finally {
           await page.close();
         }
