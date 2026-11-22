@@ -35,7 +35,7 @@ test('all reachable deal details render without errors at phone and review width
     await page.waitForFunction(id=>document.querySelector('#detailUpdateForm')&&!document.querySelector('#recordPanel')?.hidden&&document.querySelector('#panelTitle')?.textContent,wire.deal_id);
     // Wait for the exact requested detail, not the previous dialog paint.
     await waitForAsync(page,async id=>(await import('/js/pipeline.js')).state.panelDetail?.deal.id===id,wire.deal_id);
-    const result=await page.locator('#recordPanel').evaluate(panel=>({empty:panel.querySelector('#detailUpdateForm textarea')?.value==='',rail:panel.querySelectorAll('.phase-rail').length,overflow:panel.scrollWidth>panel.clientWidth+1,placeholder:/threads unavailable|meeting evidence unavailable|not linked/i.test(panel.textContent),notes:[...panel.querySelectorAll('.deal-note')].map(n=>({author:n.querySelector('b')?.textContent,date:n.querySelector('time')?.dateTime}))}));
+    const result=await page.locator('#recordPanel').evaluate(panel=>({empty:panel.querySelector('#dealUpdate')?.value==='',rail:panel.querySelectorAll('.phase-rail').length,overflow:panel.scrollWidth>panel.clientWidth+1,placeholder:/threads unavailable|meeting evidence unavailable|not linked/i.test(panel.textContent),notes:[...panel.querySelectorAll('.deal-note')].map(n=>({author:n.querySelector('b')?.textContent,date:n.querySelector('time')?.dateTime}))}));
     assert.equal(result.empty,true);assert.equal(result.rail,1);assert.equal(result.overflow,false);assert.equal(result.placeholder,false);
     for(const note of result.notes){assert.ok(note.author);assert.ok(Number.isFinite(Date.parse(note.date)));}
     checked++;await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
