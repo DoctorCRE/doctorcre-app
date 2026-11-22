@@ -11,6 +11,7 @@ import { chromium } from "./browser-harness.mjs";
 import carrReply from "./fixtures/action-link-reply.v2.json" with { type: "json" };
 import anniversaries from "./fixtures/client-anniversary-panel/recordings.json" with { type: "json" };
 import carrDocumentText from "./fixtures/deal-document-text/produced.json" with { type: "json" };
+import legacyTourDay from "./fixtures/legacy-tour-day-0f52b2e2.json" with { type: "json" };
 import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
 import { detail, emptyQuietFollowUps, lead, workspace } from "./leads-workspace-fixture.mjs";
@@ -181,7 +182,8 @@ async function app(
   {
     width = 1440,
     port = 0,
-    keepDayWorker = false,
+    legacyDayAssets = false,
+    keepLegacyDayWorker = false,
     theme = "dark",
     signIn = "engine",
     switchDay = false,
@@ -198,7 +200,8 @@ async function app(
   }: {
     width?: number;
     port?: number;
-    keepDayWorker?: boolean;
+    legacyDayAssets?: boolean;
+    keepLegacyDayWorker?: boolean;
     touch?: boolean;
     theme?: "dark" | "light";
     signIn?: "engine" | "carr";
@@ -646,11 +649,20 @@ async function app(
   };
   assets ??= appAssetSnapshot();
   const site = new Map(await assets);
+  if (legacyDayAssets) {
+    for (const [path, body] of Object.entries(legacyTourDay)) {
+      const asset = site.get(path);
+      assert.ok(asset);
+      site.set(path, { ...asset, body: Buffer.from(body) });
+    }
+  }
   const routes = new Map();
-  if (keepDayWorker) {
+  if (keepLegacyDayWorker) {
     const workerPath = "/tours/day-sw.js";
-    routes.set(workerPath, site.get(workerPath));
+    const worker = site.get(workerPath);
+    assert.ok(worker);
     site.delete(workerPath);
+    routes.set(workerPath, { ...worker, body: Buffer.from(legacyTourDay[workerPath]) });
   }
   const server = await startWorkerFixture({ assets: site, env, port, routes });
   t.after(() => server.close());
@@ -3196,11 +3208,24 @@ test("an old deal bookmark opens the overview with the engine tour planner off",
 for (const openDay of [true, false]) {
   test(
     openDay
-      ? "engine sign-in in another tab keeps a CARR day recording"
+      ? "an in-flight CARR day refresh keeps the recording before the storage event"
       : "a first bookmark visit escapes the installed CARR day cache",
     async (t) => {
-      const carr = await app(t, { signIn: "carr" });
+      const carr = await app(t, { signIn: "carr", legacyDayAssets: !openDay });
       const day = await carr.context.newPage();
+      if (openDay) {
+        await day.addInitScript(() => {
+          window.addEventListener(
+            "storage",
+            (event) => {
+              if (event.key !== "doctorcre-tour-sign-in-epoch-v1") return;
+              event.stopImmediatePropagation();
+              document.documentElement.dataset.cutoverSignalHeld = "true";
+            },
+            true,
+          );
+        });
+      }
       const path = `/tours/day.html?tour=${tour}&mode=live`;
       await day.goto(carr.server.origin + (openDay ? path : "/tours/property-panel.css"));
       if (openDay) await day.getByText("Tour unavailable", { exact: true }).waitFor();
@@ -3249,15 +3274,30 @@ for (const openDay of [true, false]) {
             .digest("hex"),
         },
       );
-      if (!openDay) await day.waitForFunction(() => navigator.serviceWorker.controller);
-      const port = Number(new URL(carr.server.origin).port);
-      await carr.server.close();
-      const engine = await app(t, { port, keepDayWorker: !openDay });
-      assert.equal(engine.server.origin, carr.server.origin);
-      await day.request.get(engine.server.origin + "/auth/callback/google?fixture=first");
+      if (!openDay) {
+        await day.waitForFunction(() => navigator.serviceWorker.controller);
+        const cachedSession = await day.evaluate(async () => {
+          const cached = await caches.match("/js/private-session.js");
+          return await cached?.text();
+        });
+        assert.equal(cachedSession, legacyTourDay["/js/private-session.js"]);
+      }
+      const oldRead = Promise.withResolvers<void>();
+      const releaseRead = Promise.withResolvers<void>();
       if (openDay) {
         const partner = await carr.context.newPage();
-        await partner.goto(engine.server.origin + "/deals?mode=live");
+        await partner.goto(carr.server.origin + "/tours/property-panel.css");
+        await day.route("**/auth/session", async (route) => {
+          const response = await route.fetch();
+          oldRead.resolve();
+          await releaseRead.promise;
+          await route.fulfill({ response });
+        });
+        await day.locator("#day-refresh").click();
+        await oldRead.promise;
+        await partner.evaluate(() => localStorage.setItem("doctorcre-tour-sign-in-epoch-v1", "fixture-new-epoch"));
+        await day.locator('html[data-cutover-signal-held="true"]').waitFor({ state: "attached", timeout: 1500 });
+        releaseRead.resolve();
         await day.waitForURL("**/public-shell/session-ended.html", { timeout: 5000 });
         const saved = await day.evaluate(async () => {
           const binding = sessionStorage.getItem("doctorcre-tour-day-session-v1");
@@ -3280,15 +3320,27 @@ for (const openDay of [true, false]) {
         assert.ok(saved.binding);
         assert.ok(saved.draft);
       } else {
-        const response = day.waitForResponse((response) => new URL(response.url()).pathname === "/tours/day.html");
+        const port = Number(new URL(carr.server.origin).port);
+        await carr.server.close();
+        const engine = await app(t, { port, tourPlans: true, keepLegacyDayWorker: true });
+        assert.equal(engine.server.origin, carr.server.origin);
+        await day.request.get(engine.server.origin + "/auth/callback/google?fixture=first", { maxRedirects: 0 });
+        const navigation = day.waitForResponse((response) => new URL(response.url()).pathname === "/tours/day.html");
         await day.evaluate((path) => {
           location.href = path;
-        }, path);
-        assert.equal((await response).fromServiceWorker(), true);
-        await day
-          .getByText("Tour planning moved to Deals. Open a deal and choose Tours.", { exact: true })
-          .waitFor({ timeout: 5000 });
+        }, `${path}&deal=${dealId}`);
+        assert.equal((await navigation).fromServiceWorker(), true);
+        await day.waitForURL(
+          (url) =>
+            url.pathname === "/deals" &&
+            url.searchParams.get("deal") === dealId &&
+            url.searchParams.get("tab") === "tours",
+          { timeout: 5000 },
+        );
+        assert.ok(engine.server.requests.some(({ path }) => path === "/js/ui-switcher-history.generated.js"));
         assert.ok(!engine.server.requests.some(({ path }) => path.startsWith("/api/tours/")));
+        assert.equal(engine.carrChecks(), 0);
+        assert.ok(await day.evaluate(() => sessionStorage.getItem("doctorcre-tour-day-session-v1")));
       }
     },
   );

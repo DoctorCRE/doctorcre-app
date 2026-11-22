@@ -245,7 +245,15 @@ async function assetResponse(request, env, path, switches) {
     : path.endsWith(".html") || path.endsWith(".js") || path.endsWith(".css")
     ? "no-cache" : "public, max-age=300");
   if (path === "/public-shell/sw.js") headers.set("service-worker-allowed", "/");
-  const asset = secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
+  let body = response.body;
+  // The old offline Tour shell loads this module at startup but never caches it.
+  if (response.ok && engineSignIn(env) && path === '/js/ui-switcher-history.generated.js') {
+    headers.delete('content-length');
+    headers.delete('etag');
+    if (request.method === 'GET') body = `if (location.pathname === '/tours/day.html') location.replace('/tours' + location.search);
+${await response.text()}`;
+  }
+  const asset = secure(new Response(body, { status: response.status, statusText: response.statusText, headers }), path);
   if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html')) return asset;
   const { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine } = switches ?? await pageSwitches(env);
   const tourPlanner = path === '/pipeline.html' && dealToursFromEngine;
@@ -1140,13 +1148,13 @@ async function handleRequest(request, env) {
 self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
 self.addEventListener('activate', event => event.waitUntil((async () => {
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  await self.registration.unregister();
   await Promise.allSettled(windows.map(client => {
     const url = new URL(client.url);
     if (url.pathname !== '/tours/day.html') return;
-    url.pathname = '/tours/day';
+    url.pathname = '/tours';
     return client.navigate(url.href);
   }));
+  await self.registration.unregister();
 })()));
 `;
       return secure(new Response(body, { headers: {

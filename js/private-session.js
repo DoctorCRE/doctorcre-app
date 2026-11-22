@@ -160,8 +160,8 @@ export function privateSession() {
     async fetchImpl(path, init, budgetOptions) {
       const response = await browserFetch(path, init, budgetOptions);
       if (pathname === '/tours/day.html' && path === '/auth/session' && response.headers.get(PARTNER_SIGN_IN_HEADER) === 'engine') {
-        // The extensionless page is outside the old worker's cached file list.
-        win.location.replace('/tours/day' + win.location.search);
+        // The Tours entry is outside the old worker's scope.
+        win.location.replace('/tours' + win.location.search);
         void response.body?.cancel().catch(() => {});
         throw new Error('Tour day moved');
       }
@@ -178,26 +178,17 @@ export function privateSession() {
         }
         // Unbound data from older app versions must never be adopted by the
         // first principal to bootstrap this browser.
-        if (!previous) await clearPrivateStorage(win, { preserveTourDrafts: engineSession });
+        if (!previous) await clearPrivateStorage(win);
         win.localStorage.setItem('doctorcre-session-binding-v1',digest);
       } catch { /* Storage-denied browsers cannot restore private offline state. */ }
       return true;
     },
-    invalidate(reason, engineSession) {
+    invalidate(reason) {
       // Clear before async cleanup/navigation so private text and controls
       // disappear immediately, including detached dialogs and account labels.
       win.dispatchEvent(new win.Event('doctorcre-session-invalidated'));
       const retiredDocument = win.document;
-      const tourSignInChanged = reason === 'tour-sign-in-in-another-tab';
-      const endedInAnotherTab = reason === 'session-ended-in-another-tab';
-      const preserveTourDrafts = tourSignInChanged || (
-        reason !== 'signed-out' && !endedInAnotherTab &&
-        (engineSession || win.document.documentElement.dataset.partnerSignIn === 'engine')
-      );
-      const cleanup = offlineTourSession(win).revoke({
-        expectedEpoch: engineSession || tourSignInChanged || endedInAnotherTab ? initialEpoch : undefined,
-        preserveTourDrafts,
-      });
+      const cleanup = offlineTourSession(win).revoke({ expectedEpoch: initialEpoch });
       const reload = reason === 'reload-after-sign-in';
       const view = win.document.createElement('main');
       const title = win.document.createElement('h1');
@@ -219,7 +210,7 @@ export function privateSession() {
   win.addEventListener('storage', event => {
     if (event.key !== SESSION_EPOCH_KEY && event.key !== TOUR_SIGN_IN_EPOCH_KEY) return;
     if (sessionEpoch(win) === initialEpoch) return;
-    browserBoundary.revoke(event.key === TOUR_SIGN_IN_EPOCH_KEY ? 'tour-sign-in-in-another-tab' : 'session-ended-in-another-tab');
+    browserBoundary.revoke('session-changed');
   });
   // eslint-disable-next-line no-restricted-syntax -- A cached Back return navigates once and leaves session reads to normal boot.
   win.addEventListener('pageshow', event => { if (event.persisted) win.location.reload(); });

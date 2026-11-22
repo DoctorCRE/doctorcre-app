@@ -4,6 +4,13 @@ export const TOUR_DRAFT_KEYS = {
   other: 'doctorcre-tour-other-writes-v1',
 };
 const tourRecoveryKeys = [key, ...Object.values(TOUR_DRAFT_KEYS)];
+
+function retireDayBinding(window) {
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(key));
+    if (saved?.epoch != null) window.sessionStorage.setItem(key, JSON.stringify({ ...saved, epoch: null }));
+  } catch { /* Storage failure already prevents offline restore. */ }
+}
 export function hasTourDrafts(window) {
   try { return tourRecoveryKeys.some(name => window.sessionStorage.getItem(name) !== null); }
   catch { return false; }
@@ -24,7 +31,8 @@ export function sessionEpoch(window) {
     return tourSignIn ? `${epoch}:${tourSignIn}` : epoch;
   } catch { return null; }
 }
-export async function clearPrivateStorage(window, { shared = true, preserveTourDrafts = false } = {}) {
+export async function clearPrivateStorage(window, { shared = true } = {}) {
+  retireDayBinding(window);
   for (const name of shared ? ['localStorage','sessionStorage'] : ['sessionStorage']) {
     try {
       const storage = window[name];
@@ -32,7 +40,7 @@ export async function clearPrivateStorage(window, { shared = true, preserveTourD
       for (let i = storage.length - 1; i >= 0; i--) {
         const k = storage.key(i);
         if (/^doctorcre[.:-]/.test(k) && k !== SESSION_EPOCH_KEY && k !== TOUR_SIGN_IN_EPOCH_KEY && k !== 'doctorcre.visual-preferences' &&
-          !(preserveTourDrafts && name === 'sessionStorage' && tourRecoveryKeys.includes(k))) storage.removeItem(k);
+          !(name === 'sessionStorage' && tourRecoveryKeys.includes(k))) storage.removeItem(k);
       }
     } catch { /* Revocation remains fail-closed when browser storage is denied. */ }
   }
@@ -44,8 +52,7 @@ export async function clearPrivateStorage(window, { shared = true, preserveTourD
     request.onupgradeneeded = () => { request.result.createObjectStore('notes',{keyPath:['scope','id']}); request.result.createObjectStore('tours',{keyPath:['scope','id']}); };
     request.onerror = request.onblocked = () => resolve();
     request.onsuccess = () => {
-      const db = request.result, tx = db.transaction(['notes','tours'],'readwrite');
-      if (!preserveTourDrafts) tx.objectStore('notes').clear();
+      const db = request.result, tx = db.transaction('tours','readwrite');
       tx.objectStore('tours').clear();
       tx.oncomplete = tx.onerror = tx.onabort = () => { db.close(); resolve(); };
     };
@@ -54,12 +61,11 @@ export async function clearPrivateStorage(window, { shared = true, preserveTourD
   await Promise.allSettled(tasks);
 }
 export function offlineTourSession(window) {
-  const clear = () => window.sessionStorage.removeItem(key);
   return {
-    clear,
+    retireBinding: () => retireDayBinding(window),
     save(binding) {
       const epoch = sessionEpoch(window);
-      if (epoch === null) { clear(); return; }
+      if (epoch === null) return;
       window.sessionStorage.setItem(key,JSON.stringify({...binding,epoch}));
     },
     read(tourId) {
@@ -68,15 +74,13 @@ export function offlineTourSession(window) {
         return sessionEpoch(window) !== null && saved?.epoch === sessionEpoch(window) && saved?.tourId === tourId && typeof saved.scope === 'string' && saved.scope && typeof saved.userRef === 'string' ? saved : null;
       } catch { return null; }
     },
-    async revoke({ expectedEpoch, preserveTourDrafts = false } = {}) {
+    async revoke({ expectedEpoch } = {}) {
       const shared = expectedEpoch === undefined || expectedEpoch === sessionEpoch(window);
       if (shared) {
-        const epochKey = preserveTourDrafts ? TOUR_SIGN_IN_EPOCH_KEY : SESSION_EPOCH_KEY;
-        try { window.localStorage.setItem(epochKey, window.crypto.randomUUID()); } catch { /* Offline restore requires storage. */ }
+        try { window.localStorage.setItem(TOUR_SIGN_IN_EPOCH_KEY, window.crypto.randomUUID()); } catch { /* Offline restore requires storage. */ }
       }
-      if (!preserveTourDrafts) try { clear(); } catch { /* Private storage may be blocked. */ }
-      window.dispatchEvent(new window.CustomEvent('doctorcre-offline-session-revoked', { detail: { preserveTourDrafts } }));
-      await clearPrivateStorage(window, { shared, preserveTourDrafts });
+      window.dispatchEvent(new window.Event('doctorcre-offline-session-revoked'));
+      await clearPrivateStorage(window, { shared });
     },
   };
 }
