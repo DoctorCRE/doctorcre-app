@@ -14,7 +14,6 @@ export const FORM_ENTRY = `${UI_SOURCE}/deal-room-forms.tsx`;
 export const UI_ENTRIES = {
   'ui-vendor-client-needs': 'vendor-client-needs',
   'ui-lead-reachability': 'lead-reachability',
-  'ui-deal-space-searches': 'deal-space-searches',
   'ui-tour-coordinate-review': 'tour-coordinate-review',
   'ui-tour-navigation': 'tour-navigation',
   'ui-tour-stop-drag': 'tour-stop-drag',
@@ -62,7 +61,6 @@ export const UI_ENTRIES = {
   'ui-deal-documents': 'deal-documents',
   'ui-doc-chat': 'doc-chat',
   'ui-checklist': 'deal-checklist',
-  'ui-client-publications': 'client-publications',
   'ui-deal-tours': 'deal-tours',
   'ui-deal-tour-plans': 'deal-tour-plans',
   'ui-inbox': 'inbox-entry',

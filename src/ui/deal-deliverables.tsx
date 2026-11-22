@@ -5,10 +5,8 @@ import { createShareIntake, type IntakeState } from "./share-intake-model.ts";
 
 type Rows = ReturnType<typeof parseDeliverableList>;
 type Listing = { kind: "loading" } | { kind: "ready"; rows: Rows } | { kind: "failed"; message: string };
-type Designation = { kind: "idle" } | { kind: "saving"; id: string } | { kind: "unknown"; message: string };
 export function DealDeliverables({ dealId, pending }: { dealId: string; pending(value: boolean): void }) {
   const [listing, setListing] = useState<Listing>({ kind: "loading" });
-  const [designation, setDesignation] = useState<Designation>({ kind: "idle" });
   const [upload, setUpload] = useState<IntakeState | null>(null);
   const [failure, setFailure] = useState("");
   const chooser = useRef<HTMLInputElement>(null);
@@ -17,8 +15,8 @@ export function DealDeliverables({ dealId, pending }: { dealId: string; pending(
   const sessionToken = useRef<string | null>(null);
   const recoveryStorage = useRef<Storage | null>(null);
   const active = upload && ["receiving", "choosing", "ready", "filing", "uncertain"].includes(upload.kind);
-  const busy = !!active || designation.kind !== "idle";
-  async function request(path: string, body?: object) {
+  const busy = !!active;
+  async function request(path: string) {
     const signal = AbortSignal.any([life.current.signal, AbortSignal.timeout(15000)]);
     const session = await fetch("/auth/session", {
       credentials: "same-origin",
@@ -46,13 +44,6 @@ export function DealDeliverables({ dealId, pending }: { dealId: string; pending(
       cache: "no-store",
       redirect: "error",
       signal,
-      ...(body
-        ? {
-            method: "POST",
-            headers: { "content-type": "application/json", "x-carr-csrf": value.csrf_token },
-            body: JSON.stringify(body),
-          }
-        : {}),
     });
     if (!response.ok) throw Error("Request unavailable or version changed. Refresh before continuing.");
     const result: unknown = await response.json();
@@ -62,16 +53,11 @@ export function DealDeliverables({ dealId, pending }: { dealId: string; pending(
     setListing({ kind: "loading" });
     try {
       const rows = parseDeliverableList(await request(`/api/v1/deal-deliverables/${dealId}`), dealId);
-      if (!life.current.signal.aborted) {
-        setListing({ kind: "ready", rows });
-        setDesignation({ kind: "idle" });
-        return true;
-      }
+      if (!life.current.signal.aborted) setListing({ kind: "ready", rows });
     } catch (error) {
       if (!life.current.signal.aborted)
         setListing({ kind: "failed", message: error instanceof Error ? error.message : "Deliverables unavailable" });
     }
-    return false;
   }
   function start(file: File | null) {
     if (!recoveryStorage.current) {
@@ -130,13 +116,13 @@ export function DealDeliverables({ dealId, pending }: { dealId: string; pending(
     };
   }, []);
   useEffect(() => {
-    pending(!!active || designation.kind === "saving" || designation.kind === "unknown");
+    pending(!!active);
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
     };
     if (active) window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [active, designation.kind, pending]);
+  }, [active, pending]);
   function choose(files: File[]) {
     if (!files.length || busy || life.current.signal.aborted) return;
     try {
@@ -148,30 +134,10 @@ export function DealDeliverables({ dealId, pending }: { dealId: string; pending(
       setFailure(error instanceof Error ? error.message : "File refused");
     }
   }
-  async function visibility(row: Rows[number]) {
-    if (busy) return;
-    setDesignation({ kind: "saving", id: row.id });
-    try {
-      await request(`/api/v1/deal-deliverables/${dealId}/${row.id}/visibility`, {
-        idempotency_key: crypto.randomUUID(),
-        expected_version: row.version,
-        visibility: row.visibility === "private" ? "shared" : "private",
-      });
-      if (!(await refresh())) throw Error("Canonical designation unavailable");
-    } catch {
-      setDesignation({
-        kind: "unknown",
-        message: "Designation unconfirmed. Refresh to read the saved version before changing it again.",
-      });
-    }
-  }
   return (
     <section className="deal-deliverables" aria-label="Deal Deliverables">
       <h2>Deliverables</h2>
-      <p>
-        Partner files for this deal. Uploads start private. Shared files are ready for publication; they are not visible
-        to the client.
-      </p>
+      <p>Partner files for this deal. Uploads start private.</p>
       <button
         type="button"
         className="deliverable-drop"
@@ -236,16 +202,10 @@ export function DealDeliverables({ dealId, pending }: { dealId: string; pending(
             Discard pending file
           </button>
         )}
-        {designation.kind === "unknown" && <p>{designation.message}</p>}
         {listing.kind === "loading" && <p>Loading saved deliverables…</p>}
         {listing.kind === "failed" && <p>{listing.message}</p>}
       </div>
-      <button
-        type="button"
-        className="btn"
-        disabled={designation.kind === "saving" || listing.kind === "loading"}
-        onClick={() => void refresh()}
-      >
+      <button type="button" className="btn" disabled={listing.kind === "loading"} onClick={() => void refresh()}>
         Refresh deliverables
       </button>
       {listing.kind === "ready" &&
@@ -255,19 +215,12 @@ export function DealDeliverables({ dealId, pending }: { dealId: string; pending(
               <li key={row.id}>
                 <h3>{row.filename}</h3>
                 <p>
-                  {row.bytes.toLocaleString()} bytes ·{" "}
-                  {row.visibility === "private" ? "Private" : "Shared · ready for publication"} · Version {row.version}
+                  {row.bytes.toLocaleString()} bytes · {row.visibility === "private" ? "Private" : "Shared"} · Version{" "}
+                  {row.version}
                 </p>
                 <a className="btn" href={`/api/v1/deal-deliverables/${dealId}/${row.id}/download`}>
                   Download {row.filename}
-                </a>{" "}
-                <button type="button" className="btn" disabled={busy} onClick={() => void visibility(row)}>
-                  {designation.kind === "saving" && designation.id === row.id
-                    ? "Saving…"
-                    : row.visibility === "private"
-                      ? `Mark ${row.filename} shared`
-                      : `Make ${row.filename} private`}
-                </button>
+                </a>
                 <details>
                   <summary>File identity</summary>
                   <p>SHA-256 {row.sha256}</p>
