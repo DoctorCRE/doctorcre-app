@@ -371,10 +371,15 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       if (state.resumeDetail) await readDetail(resumeDetail.id, { intent: resumeDetail });
       else if (state.detailId && $("leadDetail").open) {
         if (leadById(state.detailId)) {
-          await readDetail(state.detailId, { open: false });
-          const dialog = $("leadDetail");
-          if (dialog.open && detailFocus?.container === "detailBody" && detailFocus.value === state.detailId &&
-              (doc.activeElement === doc.body || doc.activeElement === dialog)) restoreFocus(detailFocus);
+          const detailEpoch = state.detailEpoch, dialog = $("leadDetail");
+          const history = state.historyRequest;
+          if (history?.epoch === detailEpoch) await history.done;
+          if (epoch !== state.epoch) return;
+          if (detailEpoch === state.detailEpoch && dialog.open) {
+            await readDetail(state.detailId, { open: false });
+            if (dialog.open && detailFocus?.container === "detailBody" && detailFocus.value === state.detailId &&
+                (doc.activeElement === doc.body || doc.activeElement === dialog)) restoreFocus(detailFocus);
+          }
         } else if (leads.some(lead => lead.id === state.detailId)) { state.detail = null; $("leadDetail").close(); }
         else { clearGuidance(); state.detail = null; ++state.detailEpoch; $("detailTitle").textContent = "Lead unavailable"; $("detailBody").innerHTML = '<p class="empty">Unavailable</p>'; }
       }
@@ -481,16 +486,21 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     if (entries.size === detail[kind].length && next.has_more) throw new Error("History did not advance");
     return { ...detail, [kind]: [...entries.values()], [`${kind}_page`]: next };
   }
-  async function loadHistory(kind) {
+  function loadHistory(kind) {
     const detail = state.detail, page = detail?.[`${kind}_page`];
     if (!state.identityReady || !detail || !page?.has_more || !page.next_cursor || state.historyRequest) return;
-    const request = { kind, epoch: state.detailEpoch, actor: state.actor, detail };
+    // A click also supersedes a drawer refresh that already started reading.
+    const request = { kind, epoch: ++state.detailEpoch, actor: state.actor, detail };
     state.historyRequest = request; state.historyError = null;
+    request.done = readHistoryPage(request, page.next_cursor);
+  }
+  async function readHistoryPage(request, cursor) {
+    const { kind, detail } = request;
     paintDetail(detail);
     const current = () => request.epoch === state.detailEpoch && request.actor === state.actor &&
       state.detail === detail && state.detailId === detail.id && $("leadDetail").open;
     try {
-      const response = await client.getLeadDetail(detail, { [`${kind}_cursor`]: page.next_cursor });
+      const response = await client.getLeadDetail(detail, { [`${kind}_cursor`]: cursor });
       if (!current()) return;
       if (!response.detail || !leadById(detail.id) || !eligibleLead(response.detail)) {
         state.detail = null; $("leadDetail").close(); return;
