@@ -58,9 +58,11 @@ test('deal Tours lists, opens, starts and recovers on the fixture server', async
       await page.route('**/data/board-seed.json',route => route.fulfill({json:seed}));
       await page.route('**/auth/session',route => route.fulfill({json:{actor:{slug:'joe'},csrf_token:'synthetic-session'}}));
       let mode = 'populated', hidden = false, write, notes = '', revision = 0, creates = 0;
-      await page.route('**/api/tours/**',route => {
+      let libraryGate;
+      await page.route('**/api/tours/**',async route => {
         const url = new URL(route.request().url());
         if(url.pathname === '/api/tours/library') {
+          if(libraryGate) await libraryGate;
           if(mode === 'outage') return route.fulfill({status:503,json:{error:'database private diagnostic'}});
           return route.fulfill({json:{data:{tours:mode === 'empty' ? [] : [row,{...row,id:other,deal_id:other,name:'Other deal tour'}]},csrf_token:'synthetic-session'}});
         }
@@ -160,10 +162,21 @@ test('deal Tours lists, opens, starts and recovers on the fixture server', async
       await page.goto(`${server.url}/tours/route-editor.html?tour=${tour}`);
       await page.waitForURL(url => url.pathname === '/deals' && url.searchParams.get('tour') === tour);
       await editor.locator('#tour-name').filter({hasText:row.name}).waitFor();
-      await page.goto(`${server.url}/tours/route-editor.html`);
-      assert.equal(await page.locator('#create-tour-panel').isHidden(),true);
-      await page.locator('#create-tour-form').dispatchEvent('submit');
-      await page.getByText('Open a deal workspace to create a tour.',{exact:true}).waitFor();
+      const library = Promise.withResolvers();
+      libraryGate = library.promise;
+      try {
+        await Promise.all([
+          page.waitForRequest('**/api/tours/library'),
+          page.goto(`${server.url}/tours/route-editor.html`),
+        ]);
+        assert.equal(await page.locator('#create-tour-panel').isHidden(),true);
+        await page.locator('#create-tour-form').dispatchEvent('submit');
+        assert.equal(await page.locator('#status').textContent(),'Open a deal workspace to create a tour.');
+      } finally {
+        library.resolve();
+      }
+      await page.locator('#empty-tours').getByRole('button',{name:/Demo deal tour/}).waitFor();
+      assert.equal(await page.locator('#status').textContent(),'Open a deal workspace to create a tour.');
       assert.equal(creates,1);
       assert.deepEqual(errors,[]);
     } catch (error) { console.error('tour fixture failure', width, theme, page.url(), await page.locator('#workspace-tours').textContent().catch(() => ''), await Promise.all(page.frames().map(async f => [f.url(), await f.locator('body').innerText().catch(() => '')])), errors); throw error; }

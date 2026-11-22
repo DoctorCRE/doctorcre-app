@@ -22,7 +22,12 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
   let sheetGenerated = "", sheetRegenerating = false;
   let coordinatePanel = null, coordinatePanelSeq = 0, coordinatePanelBinding = "";
   const uuid = () => crypto.randomUUID();
-  const status = (message) => { $("#status").textContent = message; };
+  let statusRevision = 0;
+  function status(message, expectedRevision = statusRevision) {
+    if (expectedRevision !== statusRevision) return;
+    $("#status").textContent = message;
+    return ++statusRevision;
+  }
   const text = (value, fallback = "") => typeof value === "string" && value ? value : fallback;
   const digest = (value) => /^sha256:[0-9a-f]{64}$/i.test(value);
   const id = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -950,24 +955,29 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     else void renderCoordinateReview();
   }
   async function loadLibrary() {
+    if (state.sessionInvalidated) return;
+    const loadingRevision = status("Loading tours…");
     try { await request('/auth/session'); } catch { state.userRef = null; }
     if (state.sessionInvalidated) return;
-    status("Loading tours…");
     let data;
     try {
       data = await observeDocRead("tourLibrary", [], () => request("/api/tours/library"));
       if (!Array.isArray(data.tours) || !data.tours.every(tour => id(tour?.id))) throw new Error("read_invalid");
     } catch (error) {
       if (state.sessionInvalidated) throw error;
-      if (!libraryReady) $("#empty-copy").textContent = "The tour library did not load. Try again.";
+      const message = "The tour library did not load. Try again.";
+      if (!libraryReady) $("#empty-copy").textContent = message;
       $("#retry-library").hidden = false;
+      status(message, loadingRevision);
       throw error;
     }
     libraryReady = true;
     if (!readOnly) { restoreOtherWrites(); renderTourAction(); }
     $("#retry-library").hidden = true;
     if (!createPending && readPending()?.create) { createPending = readPending().create; createPhase = "unknown"; $("#create-tour-panel").open = true; $("#create-tour-state").textContent = "Creation outcome unknown after reload. Reconcile before retrying the retained request."; renderCreate(); }
-    state.tours = Array.isArray(data.tours) ? data.tours.filter((tour) => id(tour?.id) && (!dealContext || tour.deal_id === dealContext)) : []; renderLibrary(); if ($("#tour-recovery").hidden) status("Tour library ready.");
+    state.tours = Array.isArray(data.tours) ? data.tours.filter((tour) => id(tour?.id) && (!dealContext || tour.deal_id === dealContext)) : [];
+    renderLibrary();
+    if ($("#tour-recovery").hidden) status("Tour library ready.", loadingRevision);
     const retained = readPending()?.composer;
     if (!composer && retained?.plan && id(retained.tourId)) {
       restoredTourId = retained.tourId; renderCreate(); status("An unresolved route request must be reconciled before another Tour can be edited.");
@@ -1221,10 +1231,11 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     composer.endpointDraft = endpointValues(); composer.undo = null; composer.dirty = true; composer.message = "Last route edit undone. Save to keep this draft."; renderComposer();
   });
   $("#route-reviewed").addEventListener("change", renderComposerSummary);
-  $("#retry-library").addEventListener("click", () => void action(async () => {
+  $("#retry-library").addEventListener("click", async () => {
     $("#retry-library").disabled = true;
-    try { await loadLibrary(); } finally { $("#retry-library").disabled = false; }
-  }));
+    try { await loadLibrary(); } catch { /* loadLibrary shows its own read failure. */ }
+    finally { $("#retry-library").disabled = false; }
+  });
   $("#reload-composer").addEventListener("click", () => void action(async () => {
     if (!composer || navigationBusy || composer.busy || ["unknown", "reconciled"].includes(composer.phase)) return;
     const current = composer, plan = current.plan; current.busy = true; renderComposer();
@@ -1429,7 +1440,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       event.preventDefault(); event.returnValue = '';
     }
   });
-  $("#share-expiry").value = new Date(Date.now() + 7 * 86400000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); renderCreate(); void action(loadLibrary);
+  $("#share-expiry").value = new Date(Date.now() + 7 * 86400000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); renderCreate(); void loadLibrary().catch(() => {});
   mountAutoRefresh({ document, window, refresh: async () => {
     await loadLibrary();
     const draftOpen = stopDrag?.active() || state.selectionDirty || state.pendingSelection || state.selectionSave || state.cheatDirty || sheetPending || sheetConflict || sheetBusy || tourAction || composer?.dirty || composer?.plan || composer?.busy || state.shareBusy || navigationBusy;
