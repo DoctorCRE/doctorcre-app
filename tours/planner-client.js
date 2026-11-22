@@ -11,9 +11,8 @@ export function validateTourList(rows) {
   if (!Array.isArray(rows) || !rows.every(row => validRow(row) && validBinding(row))) throw new Error("Invalid tour list");
   return rows;
 }
-function validateClientRecord(record, id = record?.id) {
-  if (!validRow(record) || record.id !== id || !strings(record, ["city", "state", "vertical", "specialty", "notes"])) throw new Error("Invalid client record");
-  return record;
+function validateClientRecord(record) {
+  if (!validRow(record) || !strings(record, ["city", "state", "vertical", "specialty", "notes"])) throw new Error("Invalid client record");
 }
 function validateClientList(rows) {
   if (!Array.isArray(rows)) throw new Error("Invalid client list");
@@ -68,12 +67,6 @@ export function createPlannerClient({ fetchImpl = sessionFetch, timeoutMs = 10_0
       const data = await read(`/api/v1/business/clients?${params}`, { signal });
       if (!Array.isArray(data.rows) || data.rows.length > 25 || !Number.isInteger(data.page_count) || data.page_count < 0 || data.page !== 1) throw new Error("Invalid client list");
       return validateClientList(data.rows);
-    },
-    async client(id, options) {
-      if (!recordId.test(id)) throw new Error("Invalid client");
-      const data = await read(`/api/v1/business/clients/${encodeURIComponent(id)}`, options);
-      if (data.record?.id !== id) throw new Error("Client mismatch");
-      return validateClientRecord(data.record, id);
     },
     async tour(id, options) {
       if (!recordId.test(id)) throw new Error("Invalid tour");

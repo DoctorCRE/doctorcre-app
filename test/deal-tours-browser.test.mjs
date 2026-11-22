@@ -493,9 +493,6 @@ test('the save switch keeps saved tours viewable at 390 and 1440 pixels', async 
         assert.equal(await editor.getByRole('button', { name: 'Create Tour' }).count(), 0);
         assert.equal(await editor.getByRole('link', { name: 'Navigate tour' }).getAttribute('href'), `/tours/day.html?tour=${tour}`);
       });
-      await t.test(`Saved deal searches is absent at ${width}`, async () => {
-        assert.equal(await editor.locator('#saved-space-searches').isVisible(), false);
-      });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       const evidence = new URL('../out/test-artifacts/deal-tours/', import.meta.url);
       await mkdir(evidence, { recursive: true });

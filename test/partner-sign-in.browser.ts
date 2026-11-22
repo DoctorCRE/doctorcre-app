@@ -7,6 +7,7 @@ import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
 import carrReply from "./fixtures/action-link-reply.v2.json" with { type: "json" };
+import carrDocumentText from "./fixtures/deal-document-text/produced.json" with { type: "json" };
 import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
 import { detail, emptyQuietFollowUps, lead, workspace } from "./leads-workspace-fixture.mjs";
@@ -41,6 +42,30 @@ const callSummary = "Discussed the demo showing";
 const noteAttributionPath = `/api/engine/activities/${noteId}/deal-attribution`;
 const attributionPath = `/api/engine/activities/${activityId}/deal-attribution`;
 const dealPage = `/deals?mode=live&deal=${dealId}`;
+const filedDocument = { id: carrDocumentText.attachment_id, name: "Demo lease.pdf", version: 1 };
+const documentTextPath = `/api/engine/deals/${dealId}/documents/${filedDocument.id}/text`;
+const carrDocumentReads = new Map<string, object>([
+  [
+    "list-deal-documents",
+    {
+      ok: true,
+      schema_version: "deal-documents.v1",
+      documents: [
+        {
+          id: filedDocument.id,
+          display_name: filedDocument.name,
+          document_type: "application/pdf",
+          page_count: carrDocumentText.page_count,
+          content_hash: carrDocumentText.content_hash,
+          stored_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      has_more: false,
+      next_cursor: null,
+    },
+  ],
+  ["read-deal-document-text", { ...carrDocumentText, deal_id: dealId }],
+]);
 const creditedDeal = { id: dealId, name: dealName };
 const candidateDeal = { id: "33333333-3333-4333-8333-333333333333", name: "Example second deal" };
 const dealRow = { id: dealId, name: dealName, phase: "research", owner: "joe", operating_state: "active" };
@@ -79,15 +104,40 @@ let assets: ReturnType<typeof appAssetSnapshot> | undefined;
 let browser: ReturnType<typeof chromium.launch> | undefined;
 after(async () => (await browser)?.close());
 
+const vendorContactNotes = [
+  "Imported from Outlook archive",
+  "Site tour (agent@example.test)",
+  "CARR Financing review",
+  "Discussed a site visit",
+  null,
+];
+
+const switchDayKeys = new Set([
+  "deals-from-engine",
+  "leads-from-engine",
+  "invoices-from-engine",
+  "charts-from-engine",
+  "national-deals-from-engine",
+  "search-from-engine",
+  "clients-vendors-from-engine",
+  "relationships-from-engine",
+  "frame-from-engine",
+  "home-from-engine",
+  "deals-saves-from-engine",
+]);
+
 async function app(
   t: TestContext,
   {
     width = 1440,
     theme = "dark",
     signIn = "engine",
+    switchDay = false,
     holdDocIssue,
     touch = false,
     readAttribution,
+    documentText,
+    documents = [filedDocument],
     tourDeal,
     callReview,
   }: {
@@ -95,10 +145,13 @@ async function app(
     touch?: boolean;
     theme?: "dark" | "light";
     signIn?: "engine" | "carr";
+    switchDay?: boolean;
     holdDocIssue?: Promise<void>;
     tourDeal?: () => object;
     callReview?: (request: Request) => Response | Promise<Response>;
     readAttribution?: (request: Request) => Response | Promise<Response>;
+    documentText?: string[] | "missing";
+    documents?: (typeof filedDocument)[];
   } = {},
 ) {
   let unavailable = false;
@@ -123,6 +176,31 @@ async function app(
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
     PARTNER_SIGN_IN: signIn,
     WORKSPACE_COMMAND_CENTER_READ_ENABLED: "true",
+    ...(switchDay && {
+      ENGINE_ROUTING: {
+        get: async (key: string) => (key === "deal-cutover-date" ? "2026-11-20" : switchDayKeys.has(key) ? "on" : null),
+      },
+      ENGINE: {
+        async fetch(input: Request) {
+          const url = new URL(input.url);
+          const path = url.pathname;
+          if (path !== "/api/engine/clients" && path !== "/api/engine/vendors")
+            return new Response(null, { status: 404 });
+          assert.equal(input.headers.get("cookie"), "__Host-dealroom_session=directory-fixture");
+          url.pathname = path.replace("/api/engine", "/api/v1/business");
+          const payload = directoryFixture(url.href);
+          if (path === "/api/engine/vendors" && Array.isArray(payload.rows)) {
+            for (const row of payload.rows) {
+              const note = vendorContactNotes[Number(row.ref.split("-").at(-1)) - 1];
+              if (note === undefined) continue;
+              row.relationship.last_contacted_at = note === null ? null : "2026-10-01T01:30:00Z";
+              row.relationship.last_contact_note = note;
+            }
+          }
+          return Response.json(payload);
+        },
+      },
+    }),
     CARR: {
       fetch: async (input) => {
         const path = new URL(input.url).pathname;
@@ -141,27 +219,30 @@ async function app(
           }
           if (call) {
             const { id, params } = call;
+            const documentRead = documentText ? carrDocumentReads.get(params.name) : undefined;
             const screenTool = screenTools.get(params.name);
-            const payload = screenTool
-              ? await screenTool(params.arguments)
-              : params.name === "deal-room-board"
-                ? dealBoard
-                : params.name === "get-deal-room"
-                  ? dealDetail
-                  : params.name === "resolve-action-link-v2" && params.arguments.ref === carrReply.ref
-                    ? carrReply
-                    : params.name === "read-activity-deal-attribution"
-                      ? {
-                          schema: "activity-deal-attribution.v1",
-                          state: "empty",
-                          attribution: "unknown",
-                          activity: null,
-                          direct: null,
-                          candidates: [],
-                          credited_activity_count: 0,
-                          coverage: "unknown",
-                        }
-                      : {};
+            const payload =
+              documentRead ??
+              (screenTool
+                ? await screenTool(params.arguments)
+                : params.name === "deal-room-board"
+                  ? dealBoard
+                  : params.name === "get-deal-room"
+                    ? dealDetail
+                    : params.name === "resolve-action-link-v2" && params.arguments.ref === carrReply.ref
+                      ? carrReply
+                      : params.name === "read-activity-deal-attribution"
+                        ? {
+                            schema: "activity-deal-attribution.v1",
+                            state: "empty",
+                            attribution: "unknown",
+                            activity: null,
+                            direct: null,
+                            candidates: [],
+                            credited_activity_count: 0,
+                            coverage: "unknown",
+                          }
+                        : {});
             return Response.json({
               jsonrpc: "2.0",
               id,
@@ -343,7 +424,16 @@ async function app(
         if (callReview && (path.endsWith("/call-outcomes") || path.endsWith("/decision"))) return callReview(input);
         if (path === "/api/engine/deals") return Response.json(dealBoard);
         if (path === `/api/engine/deals/${dealId}`)
-          return Response.json({ ...dealDetail, email_follow_ups: [], ...tourDeal?.() });
+          return Response.json({
+            ...dealDetail,
+            email_follow_ups: [],
+            ...tourDeal?.(),
+            ...(documentText && { documents }),
+          });
+        if (path === documentTextPath && input.method === "GET" && documentText)
+          return documentText === "missing"
+            ? Response.json({ error: "not_found" }, { status: 404 })
+            : Response.json({ pages: documentText });
         if (path.startsWith("/api/engine/vendors")) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
           url.pathname = path.replace("/api/engine", "/api/v1/business");
@@ -392,6 +482,16 @@ async function app(
     colorScheme: theme,
   });
   t.after(() => context.close());
+  if (switchDay) {
+    await context.addCookies([
+      {
+        name: "__Host-dealroom_session",
+        value: "directory-fixture",
+        url: server.origin.replace("http:", "https:"),
+        secure: true,
+      },
+    ]);
+  }
   await context.addInitScript((theme) => localStorage.setItem("dealroom-theme", theme), theme);
   return {
     server,
@@ -792,6 +892,139 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
     false,
   );
   assert.deepEqual(legacyRequests, []);
+});
+
+for (const [scenario, documentText, message] of [
+  ["ordered pages with a blank gap", ["\nFirst page <draft>\nNew paragraph.", "", "Third page."], null],
+  ["no text", [], "No text found in this file."],
+  ["a missing document", "missing", "Document text is unavailable."],
+] satisfies [string, string[] | "missing", string | null][]) {
+  test(`engine deal Documents shows ${scenario}`, async (t) => {
+    const { server, context, partnerReads } = await app(t, { documentText, width: 390 });
+    const page = await context.newPage();
+    const legacyReads: string[] = [];
+    page.on("request", (request) => {
+      if (
+        new URL(request.url()).pathname === "/mcp" &&
+        request.postDataJSON()?.params?.name === "read-deal-document-text"
+      )
+        legacyReads.push(request.url());
+    });
+    await page.goto(server.origin + "/deals?mode=live");
+    const dealCard = page.getByRole("button", { name: dealName, exact: true });
+    await dealCard.click();
+    await page.getByRole("tab", { name: "Documents", exact: true }).click();
+    const panel = page.getByRole("tabpanel", { name: "Documents" });
+    assert.equal(
+      await panel.getByRole("link", { name: `${filedDocument.name}, Version 1` }).getAttribute("href"),
+      `/api/engine/documents/${filedDocument.id}`,
+    );
+    assert.equal(partnerReads.has(documentTextPath), false);
+    const openText = panel.getByRole("button", { name: `Open text for ${filedDocument.name}, Version 1` });
+    await openText.click({ timeout: 4000 });
+    const dialog = page.getByRole("dialog", { name: filedDocument.name });
+    if (message) {
+      await dialog.getByText(message, { exact: true }).waitFor();
+      assert.equal(await dialog.getByRole("region", { name: /Page/ }).count(), 0);
+      assert.equal(await dialog.getByRole("button", { name: "Retry" }).count(), documentText === "missing" ? 1 : 0);
+    } else {
+      await dialog.getByText("Third page.", { exact: true }).waitFor();
+      const sections = dialog.getByRole("region", { name: /Page/ });
+      assert.deepEqual(await sections.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label"))), [
+        "Page 1",
+        "Page 2",
+        "Page 3",
+      ]);
+      assert.deepEqual(await sections.locator("pre").allTextContents(), documentText);
+      assert.ok((await dialog.getByRole("region", { name: "Page 2" }).locator("pre").boundingBox())?.height);
+    }
+    assert.equal(partnerReads.get(documentTextPath), `${cookieName}=first`);
+    assert.deepEqual(legacyReads, []);
+    await dialog.getByRole("button", { name: "Close document text" }).click();
+    await dialog.waitFor({ state: "hidden" });
+  });
+}
+
+test("Back closes engine document text before leaving the deal", async (t) => {
+  const documents = Array.from({ length: 12 }, (_, index) => ({
+    ...filedDocument,
+    id: `80000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    name: `Demo attachment ${index + 1}.pdf`,
+  })).concat(filedDocument);
+  const { server, context } = await app(t, { documentText: ["Demo text"], documents, width: 390 });
+  const page = await context.newPage();
+  await page.goto(server.origin + "/deals?mode=live");
+  const dealCard = page.getByRole("button", { name: dealName, exact: true });
+  await dealCard.click();
+  const documentsTab = page.getByRole("tab", { name: "Documents", exact: true });
+  await documentsTab.click();
+  const openText = page.getByRole("button", { name: `Open text for ${filedDocument.name}, Version 1` });
+  await openText.scrollIntoViewIfNeeded();
+  const scroll = await page.evaluate(() => window.scrollY);
+  assert.ok(scroll > 0);
+  await openText.click();
+  const viewer = page.getByRole("dialog", { name: filedDocument.name });
+  await viewer.waitFor({ timeout: 4000 });
+
+  await page.goBack();
+  await viewer.waitFor({ state: "hidden" });
+  assert.equal(new URL(page.url()).searchParams.get("deal"), dealId);
+  const workspace = page.getByRole("main", { name: "Deal Workspace" });
+  assert.ok(await workspace.getByRole("heading", { name: dealName, exact: true }).isVisible());
+  assert.equal(await documentsTab.getAttribute("aria-selected"), "true");
+  assert.equal(await page.evaluate(() => window.scrollY), scroll);
+
+  await page.goBack();
+  await dealCard.waitFor({ timeout: 4000 });
+  assert.equal(new URL(page.url()).searchParams.has("deal"), false);
+
+  await page.goForward();
+  await page.goForward();
+  await viewer.waitFor({ timeout: 4000 });
+  await page.keyboard.press("Escape");
+  await viewer.waitFor({ state: "hidden" });
+  await page.goBack();
+  await dealCard.waitFor({ timeout: 4000 });
+});
+
+test("the engine document text close icon leaves Back ready to return to the board", async (t) => {
+  const { server, context } = await app(t, { documentText: ["Demo text"] });
+  const page = await context.newPage();
+  await page.goto(server.origin + "/deals?mode=live");
+  const dealCard = page.getByRole("button", { name: dealName, exact: true });
+  await dealCard.click();
+  await page.getByRole("tab", { name: "Documents", exact: true }).click();
+  await page.getByRole("button", { name: `Open text for ${filedDocument.name}, Version 1` }).click();
+  const viewer = page.getByRole("dialog", { name: filedDocument.name });
+  const close = viewer.getByRole("button", { name: "Close document text" });
+  assert.equal(await close.textContent(), "×");
+  await close.click();
+  await viewer.waitFor({ state: "hidden" });
+  assert.equal(new URL(page.url()).searchParams.get("deal"), dealId);
+
+  await page.goBack();
+  await dealCard.waitFor({ timeout: 4000 });
+  assert.equal(new URL(page.url()).searchParams.has("deal"), false);
+});
+
+test("CARR deal Documents still reads document text through the existing verb", async (t) => {
+  const { server, context, partnerReads } = await app(t, { signIn: "carr", documentText: [] });
+  const page = await context.newPage();
+  await page.goto(server.origin + dealPage);
+  await page.getByRole("tab", { name: "Documents", exact: true }).click();
+  const open = page.getByRole("button", { name: `Open text for ${filedDocument.name}`, exact: true });
+  const reading = page.waitForRequest(
+    (request) => request.url().endsWith("/mcp") && request.postDataJSON()?.params?.name === "read-deal-document-text",
+  );
+  await open.click();
+  assert.deepEqual((await reading).postDataJSON().params.arguments, {
+    deal_id: dealId,
+    attachment_id: filedDocument.id,
+    content_hash: carrDocumentText.content_hash,
+  });
+  const text = page.getByRole("region", { name: "Document text", exact: true });
+  await text.getByText("first", { exact: true }).waitFor();
+  assert.equal(partnerReads.has(documentTextPath), false);
 });
 
 const tour = "33333333-3333-4333-8333-333333333333";
@@ -1415,6 +1648,31 @@ test("a saved Leads link with a second copied UUID opens the lead and supports c
   await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
   assert.equal(writes(), 1);
 });
+
+for (const width of [390, 1440]) {
+  test(`Vendor rows show only the contact date on switched CARR sign-in at ${width}px`, async (t) => {
+    const { context, server } = await app(t, { width, signIn: "carr", switchDay: true });
+    const page = await context.newPage();
+    await page.goto(server.origin + "/vendors");
+    for (const [index, note] of vendorContactNotes.entries()) {
+      const row = page.getByRole("link", { name: new RegExp(`^Demo Partner 0${index + 1}\\b`) });
+      const text = (await row.textContent({ timeout: 5000 })) ?? "";
+      if (note === null) {
+        assert.doesNotMatch(text, /Last contacted/);
+      } else {
+        assert.ok(await row.getByText("Last contacted Sep 30, 2026", { exact: true }).isVisible(), text);
+      }
+    }
+  });
+
+  test(`Clients has one level-one heading on switched CARR sign-in at ${width}px`, async (t) => {
+    const { context, server } = await app(t, { width, signIn: "carr", switchDay: true });
+    const page = await context.newPage();
+    await page.goto(server.origin + "/clients");
+    await page.getByRole("link", { name: /^Demo Practice 01\b/ }).waitFor({ timeout: 5000 });
+    assert.deepEqual(await page.getByRole("heading", { level: 1 }).allTextContents(), ["Clients"]);
+  });
+}
 
 test("the Vendor drawer keeps the track record and shows the rating editor only in CARR mode", async (t) => {
   for (const signIn of ["engine", "carr"] as const) {

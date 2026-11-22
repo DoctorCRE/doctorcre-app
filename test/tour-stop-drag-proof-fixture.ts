@@ -1,4 +1,3 @@
-import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -8,8 +7,6 @@ import { promisify } from "node:util";
 import { JSDOM } from "jsdom";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { temporaryDirectory } from "../scripts/temp-directory.mjs";
-import { parseSearchResponse } from "../src/ui/deal-space-search-model.ts";
-import responses from "./fixtures/deal-space-searches/responses.json" with { type: "json" };
 import recorded from "./fixtures/tour-stop-drag.json" with { type: "json" };
 import registry from "./fixtures/walk-verb-registry.json" with { type: "json" };
 import { buildToursAppScript } from "./tours-app-loader.ts";
@@ -114,11 +111,7 @@ export async function runTourDragProofFixture(
 }
 
 export async function startTourDragFixture(routes: Awaited<ReturnType<typeof tourDragRoutes>>) {
-  const searches = { ...responses.reopened, searches: [] };
-  parseSearchResponse(searches, fixtureDeal, true);
-  const verbs = [...registry.response.verbs, { name: "read-deal-space-searches-v1", write: false }];
-  let rpcReads = 0;
-  const server = await startWorkerFixture({
+  return startWorkerFixture({
     routes,
     env: {
       APP_ENV: "fixture",
@@ -126,27 +119,14 @@ export async function startTourDragFixture(routes: Awaited<ReturnType<typeof tou
         fetch: async (request: Request) => {
           const body = await request.json();
           if (body.method !== "tools/call") return Response.json({ error: "unknown_rpc" }, { status: 400 });
-          let payload: unknown;
-          if (body.params?.name === "list-verbs") payload = { ...registry.response, count: verbs.length, verbs };
-          else if (body.params?.name === "read-deal-space-searches-v1") {
-            assert.equal(body.params.arguments.deal_id, fixtureDeal);
-            parseSearchResponse(searches, fixtureDeal, true);
-            rpcReads++;
-            payload = searches;
-          } else throw Error("Unexpected fixture RPC");
+          if (body.params?.name !== "list-verbs") throw Error("Unexpected fixture RPC");
           return Response.json({
             jsonrpc: "2.0",
             id: body.id,
-            result: { content: [{ type: "text", text: JSON.stringify(payload) }] },
+            result: { content: [{ type: "text", text: JSON.stringify(registry.response) }] },
           });
         },
       },
     },
   });
-  return {
-    ...server,
-    get rpcReads() {
-      return rpcReads;
-    },
-  };
 }

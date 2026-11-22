@@ -1,10 +1,9 @@
 import { dealsSaveToEngine } from "../js/boot-mode.js";
 import { navigationFromEvidence } from "../js/ui-tour-navigation.generated.js";
 import { mountStopDrag, reorderFlexibleStops } from "/js/ui-tour-stop-drag.generated.js";
-import { mountSavedSearches } from "/js/ui-deal-space-searches.generated.js";
-import { createMcpRequests } from "../js/mcp-requests.mjs";
 import { generatedSheet, sheetHistory, appendSheetSections } from "../js/ui-broker-cheat-sheet.generated.js";
 import { createPageBudget } from '../js/read-budget.mjs';
+import { createMcpRequests } from "../js/mcp-requests.mjs";
 import { fetchPartnerIdentity, sessionFetch } from '../js/private-session.js';
 import { observeDocRead, selectDocRecord } from '../js/doc-context.js';
 import { mountAutoRefresh } from "../js/auto-refresh.mjs";
@@ -20,37 +19,7 @@ import { cheatSheetText, itinerarySheetText, formatTourDate, tourDisplayName, to
   const state = { csrf: "", sessionGeneration: 0, sessionInvalidated: false, tours: [], tour: null, cheatDirty: false, cheatDraftTourId: "", cheatDraftRevision: null,
     searchItems: [], knownProperties: new Map(), searchCursor: null, searchKey: null, searchCompleted: false, searchSeq: 0, hydrationSeq: 0, cart: null, selectedIds: [], selectionDirty: false, selectionTourId: "", pendingSelection: null, selectionSave: null, undoSelectionIds: null };
   let sheetGenerated = "", sheetRegenerating = false;
-  let savedSearchPanel = null, coordinatePanel = null, coordinatePanelSeq = 0, coordinatePanelBinding = "";
-  const savedSearchRequest = createMcpRequests();
-  async function callSavedSearch(verb, args) {
-    if (state.sessionInvalidated || !state.csrf) throw new Error("session_changed");
-    const generation = state.sessionGeneration;
-    const result = await savedSearchRequest(verb, args, { timeoutMs: 15000, headers: { "x-carr-csrf": state.csrf } });
-    if (generation !== state.sessionGeneration || state.sessionInvalidated) throw new Error("session_changed");
-    if (result.kind === "authorization") { invalidateTourSession(); throw new Error("session_changed"); }
-    if (result.kind !== "payload") throw new Error("unconfirmed");
-    if (result.isError || result.payload?.error) throw new Error(result.payload?.error || "unconfirmed");
-    return result.payload;
-  }
-  function openSavedSearches() {
-    if (readOnly || !dealContext || state.sessionInvalidated) return;
-    if (savedSearchPanel) { savedSearchPanel.refresh(); return; }
-    const host = $("#saved-space-searches"); host.hidden = false;
-    savedSearchPanel = mountSavedSearches(host, {
-      dealId: dealContext, call: callSavedSearch,
-      describe: propertyId => { const item = knownProperty(propertyId); return item ? `${text(item.name, item.address)} · ${text(item.address, "Address unknown")}` : null; },
-      hydrate: ids => hydrateSelectedProperties(state.tour?.id, ids),
-      handoff: ids => {
-        if (!state.tour || state.tour.deal_id !== dealContext || state.selectionSave || state.sessionInvalidated) return false;
-        const merged = [...new Set([...state.selectedIds, ...ids])];
-        if (merged.length > 100) { $("#selection-state").textContent = "The Tour cart holds up to 100 properties. Remove some choices first."; return false; }
-        state.undoSelectionIds = [...state.selectedIds]; state.selectedIds = merged;
-        state.selectionDirty = true; state.pendingSelection = null; renderSearchResults();
-        $("#selection-state").textContent = "Saved search choices added to the cart draft. Save selection to keep them.";
-        return true;
-      },
-    });
-  }
+  let coordinatePanel = null, coordinatePanelSeq = 0, coordinatePanelBinding = "";
   const uuid = () => crypto.randomUUID();
   const status = (message) => { $("#status").textContent = message; };
   const text = (value, fallback = "") => typeof value === "string" && value ? value : fallback;
@@ -266,7 +235,7 @@ import { cheatSheetText, itinerarySheetText, formatTourDate, tourDisplayName, to
   function invalidateTourSession() {
     if (state.sessionInvalidated) return;
     state.sessionInvalidated = true; state.sessionGeneration++; sessionBinding = ""; state.csrf = "";
-    savedSearchPanel?.retire(); coordinatePanel?.retire(); ++coordinatePanelSeq;
+    coordinatePanel?.retire(); ++coordinatePanelSeq;
     notify({ type: 'deal-tour-invalidated' });
     ++tourLoadSeq; ++state.hydrationSeq; ++state.searchSeq;
     cancelSheetAutosave(); sheetComposing = false; createPending = null; createPhase = "ready"; restoredTourId = "";
@@ -578,6 +547,7 @@ import { cheatSheetText, itinerarySheetText, formatTourDate, tourDisplayName, to
   }
   function stops() { return Array.isArray(state.tour?.stops) ? state.tour.stops : []; }
   let composer = null, itineraryView = null, stopDrag = null;
+  const coordinateReviewRequest = createMcpRequests();
   async function renderCoordinateReview() {
     const tour = state.tour, binding = sessionBinding;
     const stamp = JSON.stringify([binding, tour?.id, tour?.route_version_id, stops().map(stop => stop.property_id)]);
@@ -599,7 +569,7 @@ import { cheatSheetText, itinerarySheetText, formatTourDate, tourDisplayName, to
       },
       write: async args => {
         if (binding !== sessionBinding || state.tour?.id !== tour.id || state.tour?.route_version_id !== routeId || state.sessionInvalidated) return "refused";
-        const result = await savedSearchRequest("append-tour-entrance-verification-receipt", args, { timeoutMs: 15000, headers: { "x-carr-csrf": state.csrf } });
+        const result = await coordinateReviewRequest("append-tour-entrance-verification-receipt", args, { timeoutMs: 15000, headers: { "x-carr-csrf": state.csrf } });
         if (binding !== sessionBinding || state.tour?.id !== tour.id || state.tour?.route_version_id !== routeId) return "unknown";
         if (result.kind === "authorization") return "refused";
         if (result.kind !== "payload") return "unknown";
@@ -940,7 +910,6 @@ import { cheatSheetText, itinerarySheetText, formatTourDate, tourDisplayName, to
       }
     }
     renderCreate();
-    openSavedSearches();
   }
   let tourLoadSeq = 0;
   async function loadTour(tourId, { requireComposerDetail = false, throwOnFailure = false, keepEditorVisible = false } = {}) {
@@ -1275,7 +1244,7 @@ import { cheatSheetText, itinerarySheetText, formatTourDate, tourDisplayName, to
     if (sheetReadback && !state.cheatDirty && event.detail && typeof event.detail === "object") {
       event.detail.readback = sheetReadback;
     }
-    if (savedSearchPanel?.dirty() || state.selectionDirty || state.cheatDirty || sheetBusy || sheetPending || sheetConflict || tourAction ||
+    if (state.selectionDirty || state.cheatDirty || sheetBusy || sheetPending || sheetConflict || tourAction ||
         composer?.dirty || composer?.plan || composer?.busy || createBusy || createPending ||
         (embedded && !state.tour && [...$('#create-tour-form').querySelectorAll('input')].some(input => input.value && !['create-subject-id', 'create-subject-type'].includes(input.id)))) {
       event.preventDefault(); event.returnValue = '';

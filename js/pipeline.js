@@ -1,4 +1,3 @@
-import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
 import {
@@ -1212,7 +1211,6 @@ function refusePanelDetail(error) {
   state.panelDetail = null;
   disposeChecklist();
   disposeWatchControl();
-  clientPublicationsPanel?.dispose(); clientPublicationsPanel = null;
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   bindDraftActor(null);
@@ -1410,13 +1408,15 @@ export const workspaceTabs = [
   {id:'client-view', label:'Client view'},
 ];
 let workspaceTab = 'overview';
+let requestedClientView = false;
 let boardScroll = 0;
 let timelineType = '';
 history.scrollRestoration = 'manual';
-let workspaceHistoryIndex = history.state?.doctorcreWorkspaceIndex ?? 0;
+let workspaceHistory = history.state;
 function writeWorkspaceHistory(data, url, push = false) {
-  if (push) ++workspaceHistoryIndex;
-  history[push ? 'pushState' : 'replaceState']({...data, doctorcreWorkspaceIndex:workspaceHistoryIndex}, '', url);
+  const index = (workspaceHistory?.doctorcreWorkspaceIndex ?? 0) + Number(push);
+  workspaceHistory = {...data, doctorcreWorkspaceIndex:index};
+  history[push ? 'pushState' : 'replaceState'](workspaceHistory, '', url);
 }
 writeWorkspaceHistory(history.state, location.href);
 function renderNextCriticalDate(date) {
@@ -1439,6 +1439,7 @@ function renderWorkspaceFacts(detail) {
 }
 function selectWorkspaceTab(id) {
   workspaceTab = id;
+  requestedClientView = false;
   for (const tab of workspaceTabs) {
     const selected = tab.id === id;
     $(`tab-${tab.id}`).setAttribute('aria-selected', String(selected));
@@ -1450,7 +1451,6 @@ function selectWorkspaceTab(id) {
   if (id === 'client-view') {
     const strip = $('workspaceTabs');
     strip.scrollLeft += $('tab-client-view').getBoundingClientRect().left - strip.getBoundingClientRect().left;
-    void clientPublicationsPanel?.load();
   }
   if (id === 'tours') void dealToursPanel?.load();
   $('panelContextOpenWrap').hidden = id !== 'overview' || !state.panelDetail;
@@ -1479,7 +1479,7 @@ function workspaceEventsHtml(detail, nextItem, fromEngine, planTours) {
   if (!events.some(event => event.type === timelineType)) timelineType = '';
   return `<h2>Dated events</h2><label for="timelineType">Filter by kind</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${esc(e.text)}</p></li>`).join('')}</ol>${events.length ? '' : fromEngine ? '<p>No dated events yet.</p>' : '<p>No dated events recorded.</p>'}`;
 }
-let factReviewPanel, marketTermsPanel, dealToursPanel, dealDocumentsPanel, clientPublicationsPanel;
+let factReviewPanel, marketTermsPanel, dealToursPanel, dealDocumentsPanel;
 let checklistPanel;
 function disposeChecklist() { checklistPanel?.dispose(); checklistPanel = null; }
 function disposeWatchControl() { watchControl?.dispose(); watchControl = null; watchElement = null; watchSubject = null; }
@@ -1520,12 +1520,87 @@ function undoInvoiceClose() {
   });
 }
 
-function filedDocumentsHtml(documents) {
+function filedDocumentsHtml(documents, engineSignIn) {
   return documents.length ? `<ul class="deal-document-list">${documents.map(file => {
     const version = `Version ${file.version}`;
     return `<li><h3><a href="/api/engine/documents/${encodeURIComponent(file.id)}" aria-label="${esc(`${file.name}, ${version}`)}" data-detail-focus="file-${esc(file.id)}">${esc(file.name)}</a></h3>
-      <p>${esc(version)}${file.prepared_at ? ` · ${esc(sourceTime(file.prepared_at))}` : ''}</p></li>`;
+      <p>${esc(version)}${file.prepared_at ? ` · ${esc(sourceTime(file.prepared_at))}` : ''}</p>${engineSignIn
+        ? `<button class="btn" type="button" data-open-document-text="${esc(file.id)}" data-detail-focus="text-${esc(file.id)}" aria-label="${esc(`Open text for ${file.name}, ${version}`)}">Open text</button>`
+        : ''}</li>`;
   }).join('')}</ul>` : '<p>No documents filed for this deal.</p>';
+}
+
+function closeFiledDocumentText() {
+  $('workspace-documents')?.querySelector('.deal-document-text[open]')?.close();
+}
+
+function openFiledDocumentText(documentId, { fromHistory = false } = {}) {
+  const detail = state.panelDetail;
+  if (!privateSession()?.engineSignIn || !isEngineDealDetail(detail)) return;
+  const file = detail.documents.find(file => file.id === documentId);
+  const documents = $('workspace-documents');
+  if (!file || !documents || documents.querySelector('.deal-document-text[open]')) return;
+
+  const dialog = document.createElement('dialog');
+  dialog.className = 'dialog deal-dialog deal-document-text';
+  dialog.setAttribute('aria-labelledby', 'filed-document-text-title');
+  dialog.innerHTML = `<article>
+    <header><h2 id="filed-document-text-title">${esc(file.name)}</h2>
+      <button class="btn icon-btn" type="button" aria-label="Close document text">×</button></header>
+    <div class="dialog-body"><p role="status"></p><button class="btn" type="button" hidden>Retry</button></div>
+  </article>`;
+  const status = dialog.querySelector('[role="status"]');
+  const retry = dialog.querySelector('.dialog-body button');
+  const lifetime = new AbortController();
+  const path = `/api/engine/deals/${encodeURIComponent(detail.deal.id)}/documents/${encodeURIComponent(file.id)}/text`;
+
+  async function load() {
+    status.textContent = 'Loading document text…';
+    retry.hidden = true;
+    try {
+      const pages = await readWithDeadline(async signal => {
+        const response = await sessionFetch(path, { signal });
+        if (!response.ok) throw Error('Document text is unavailable.');
+        const result = await response.json();
+        if (!Array.isArray(result?.pages) || !result.pages.every(page => typeof page === 'string'))
+          throw Error('Invalid document text');
+        return result.pages;
+      }, { signal: lifetime.signal });
+      if (!dialog.open || !dialog.isConnected) return;
+      status.textContent = pages.length ? '' : 'No text found in this file.';
+      for (const [index, text] of pages.entries()) {
+        const page = document.createElement('section');
+        const heading = document.createElement('h3');
+        heading.textContent = `Page ${index + 1}`;
+        page.setAttribute('aria-label', heading.textContent);
+        const content = document.createElement('pre');
+        content.textContent = text;
+        page.append(heading, content);
+        retry.before(page);
+      }
+    } catch {
+      if (!dialog.open || !dialog.isConnected) return;
+      status.textContent = 'Document text is unavailable.';
+      retry.hidden = false;
+    }
+  }
+
+  const close = dialog.querySelector('header button');
+  function dismiss(event) {
+    event.preventDefault();
+    if (close.disabled) return;
+    close.disabled = true;
+    history.back();
+  }
+  close.addEventListener('click', dismiss);
+  dialog.addEventListener('cancel', dismiss);
+  dialog.addEventListener('close', () => { lifetime.abort(); dialog.remove(); }, { once: true });
+  retry.addEventListener('click', () => void load());
+  if (fromHistory) selectWorkspaceTab('documents');
+  documents.append(dialog);
+  dialog.showModal();
+  if (!fromHistory) writeWorkspaceHistory({...history.state, doctorcreDocumentText:documentId}, location.href, true);
+  void load();
 }
 
 const emailDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: BUSINESS_TIME_ZONE });
@@ -1747,7 +1822,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode })}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>No comparable terms match these filters.</p>' : ''}</section>
-    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
+    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents, engineMode)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine, planTours)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
@@ -1991,7 +2066,6 @@ function paintPanel(detail) {
   factReviewPanel?.dispose();
   marketTermsPanel?.dispose();
   disposeChecklist();
-  clientPublicationsPanel?.dispose(); clientPublicationsPanel = null;
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose();
   const engineMode = privateSession()?.engineSignIn;
@@ -2145,35 +2219,9 @@ function paintPanel(detail) {
     confirmLeave() { return documentsMounted?.confirmLeave?.() ?? true; },
     dispose() { documentsDisposed = true; documentsMounted?.dispose(); },
   };
-  let clientDisposed = false, clientLoading = false, clientMounted;
-  clientPublicationsPanel = fromEngine ? null : {
-    async load() {
-      if (clientDisposed || clientLoading || clientMounted) return;
-      clientLoading = true;
-      const element = $('workspace-client-view');
-      element.textContent = 'Loading client view…';
-      try {
-        const { mountClientPublications, createPublicationFixture } = await import('./ui-client-publications.generated.js');
-        if (clientDisposed) return;
-        const mcp = createMcpRequests();
-        const request = resolveDealroomBoot(location).mode === 'fixture' ? createPublicationFixture() : async (name, args, { signal }) => {
-          const result = await mcp(name, args, { signal, timeoutMs: 10000 });
-          if (result.kind !== 'payload') throw Error('Client view unavailable');
-          return result.payload;
-        };
-        element.replaceChildren();
-        clientMounted = mountClientPublications(element, { dealId: detail.deal.id, request });
-      } catch {
-        if (!clientDisposed) {
-          element.textContent = 'Client view unavailable. ';
-          const retry = document.createElement('button'); retry.className = 'btn'; retry.textContent = 'Retry client view';
-          retry.addEventListener('click', () => void clientPublicationsPanel?.load()); element.append(retry);
-        }
-      } finally { clientLoading = false; }
-    },
-    dispose() { clientDisposed = true; clientMounted?.dispose(); },
-  };
-  selectWorkspaceTab(workspaceTab);
+  $('tab-client-view').hidden = !fromEngine;
+  selectWorkspaceTab(fromEngine && requestedClientView ? 'client-view'
+    : !fromEngine && workspaceTab === 'client-view' ? 'overview' : workspaceTab);
   mountPanelActivityAttribution();
   void mountPanelEmailFollowups(detail.deal.id);
 }
@@ -2182,13 +2230,13 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   if (!fromHistory && dealToursPanel && !await dealToursPanel.confirmLeave()) return;
   disposeChecklist();
   disposeWatchControl();
-  clientPublicationsPanel?.dispose(); clientPublicationsPanel = null;
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   factReviewPanel?.dispose();
   factReviewPanel = null;
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
+  closeFiledDocumentText();
   selectDocRecord('deal', dealId);
   const panel = $('recordPanel');
   disposeActivityAttribution();
@@ -2199,8 +2247,9 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   const scope = new URLSearchParams(location.search);
   const focusStep = scope.get('deal') === dealId && scope.get('focus') === 'next-step';
   state.panelStepId = focusStep ? scope.get('step') : null;
-  workspaceTab = scope.get('deal') === dealId && scope.has('property') ? 'tours'
-    : ['tours','client-view'].includes(scope.get('tab')) ? scope.get('tab') : 'overview';
+  const toursLink = (scope.get('deal') === dealId && scope.has('property')) || scope.get('tab') === 'tours';
+  workspaceTab = toursLink ? 'tours' : 'overview';
+  requestedClientView = !toursLink && scope.get('tab') === 'client-view';
   timelineType = '';
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
   const url = new URL(location.href);
@@ -2216,11 +2265,14 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   $('panelBody').innerHTML = '<p>Updating…</p>';
   $('workspaceFacts').replaceChildren();
   $('workspaceTabs').innerHTML = workspaceTabs.map(tab => `<button class="workspace-tab" type="button" role="tab" id="tab-${tab.id}" aria-controls="workspace-${tab.id}" aria-selected="${tab.id === workspaceTab}" tabindex="${tab.id === workspaceTab ? 0 : -1}" data-workspace-tab="${tab.id}">${tab.label}</button>`).join('');
+  $('tab-client-view').hidden = true;
   $('main').hidden = true; panel.hidden = false;
   document.body.classList.add('workspace-open');
   scrollTo({ top: 0, behavior: 'instant' });
   $('panelTitle').focus({preventScroll:true});
   await refreshPanel();
+  if (state.panelDeal === dealId && history.state?.doctorcreDocumentText)
+    openFiledDocumentText(history.state.doctorcreDocumentText, {fromHistory:true});
   if (focusStep && state.panelDeal === dealId) {
     if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
     await document.fonts.ready;
@@ -2253,7 +2305,6 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   if (!fromHistory && dealToursPanel && !await dealToursPanel.confirmLeave()) return;
   disposeChecklist();
   disposeWatchControl();
-  clientPublicationsPanel?.dispose(); clientPublicationsPanel = null;
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   factReviewPanel?.dispose();
@@ -2274,6 +2325,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   disposePanelCallReview();
   disposePanelEmailFollowups();
   if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); url.searchParams.delete('checklist'); url.searchParams.delete('property'); writeWorkspaceHistory({},url); }
+  closeFiledDocumentText();
   $('recordPanel').hidden = true; $('main').hidden = false;
   document.body.classList.remove('workspace-open');
   state.panelDeal = null; state.panelStepId = null; state.panelDetail = null;
@@ -2384,12 +2436,6 @@ async function openContextDrawer() {
 }
 
 
-function leasePhase(dealId) {
-  if (state.nextDealSaves) return;
-  state.client.presenceLease({ deal: dealId, field: 'phase', idempotency_key: uuidv4() })
-    .catch(() => { /* a courtesy, never a requirement */ });
-}
-
 function beginMove(dealId, toSlug, deal = state.deals.get(dealId), { wonOrLost = false } = {}) {
   const intent = moveIntent(deal, toSlug);
   state.lifted = null;
@@ -2452,7 +2498,6 @@ function wireBoard() {
     card.dataset.dragging = 'true';
     event.dataTransfer.setData('text/plain', card.dataset.id);
     event.dataTransfer.effectAllowed = 'move';
-    leasePhase(card.dataset.id);
   });
   board.addEventListener('dragend', () => {
     board.querySelectorAll('[data-dragging="true"]').forEach((card) => card.removeAttribute('data-dragging'));
@@ -2497,7 +2542,6 @@ function wireBoard() {
       event.preventDefault();
       state.lifted = id;
       state.target = here ? here.slug : COLUMNS[0].slug;
-      leasePhase(id);
       announce(`${dealTitle(deal)} lifted from ${columnLabel(deal.phase)}. Use the arrow keys to choose a column, Enter to drop, Escape to cancel.`);
       renderBoard();
       document.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`)?.focus();
@@ -2598,13 +2642,24 @@ function wire() {
 
   let restoreTourHistory = null, departurePending = false;
   addEventListener('popstate', async event => {
+    const workspaceHistoryIndex = workspaceHistory?.doctorcreWorkspaceIndex ?? 0;
     const destinationIndex = event.state?.doctorcreWorkspaceIndex ?? 0;
     if (restoreTourHistory) {
       if (destinationIndex !== workspaceHistoryIndex) { history.go(workspaceHistoryIndex - destinationIndex); return; }
       const restored = restoreTourHistory; restoreTourHistory = null; restored(); return;
     }
+    const deal = new URL(location.href).searchParams.get('deal');
+    const documentId = event.state?.doctorcreDocumentText;
+    const distance = destinationIndex - workspaceHistoryIndex;
+    const closingDocument = distance === -1 && workspaceHistory?.doctorcreDocumentText;
+    const openingDocument = distance === 1 && documentId;
+    if (deal && deal === state.panelDeal && (closingDocument || openingDocument)) {
+      workspaceHistory = event.state;
+      closeFiledDocumentText();
+      if (documentId) openFiledDocumentText(documentId, {fromHistory:true});
+      return;
+    }
     if (dealToursPanel?.hasUnsavedChanges() || dealDocumentsPanel?.hasUnsavedChanges()) {
-      const distance = destinationIndex - workspaceHistoryIndex;
       if (!distance) return;
       const restored = new Promise(resolve => { restoreTourHistory = resolve; });
       history.go(-distance);
@@ -2616,8 +2671,7 @@ function wire() {
       if (leave) history.go(distance);
       return;
     }
-    workspaceHistoryIndex = destinationIndex;
-    const deal = new URL(location.href).searchParams.get('deal');
+    workspaceHistory = event.state;
     if (deal) void openWorkspace(deal, null, {fromHistory:true});
     else closeWorkspace({fromHistory:true});
   });
@@ -2629,9 +2683,10 @@ function wire() {
   $('workspaceTabs').addEventListener('keydown', event => {
     if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
     event.preventDefault();
-    const index = workspaceTabs.findIndex(tab => tab.id === workspaceTab);
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? workspaceTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + workspaceTabs.length) % workspaceTabs.length;
-    selectWorkspaceTab(workspaceTabs[next].id);
+    const visibleTabs = workspaceTabs.filter(tab => !$(`tab-${tab.id}`).hidden);
+    const index = visibleTabs.findIndex(tab => tab.id === workspaceTab);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? visibleTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + visibleTabs.length) % visibleTabs.length;
+    selectWorkspaceTab(visibleTabs[next].id);
     $(`tab-${workspaceTab}`).focus();
     scrollTo(0,0);
   });
@@ -2716,6 +2771,8 @@ function wire() {
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
   $('panelBody').addEventListener('click', async e => {
+    const documentText = e.target.closest('[data-open-document-text]');
+    if (documentText) return openFiledDocumentText(documentText.dataset.openDocumentText);
     if (e.target.closest('[data-undo-invoice]')) void undoInvoiceClose();
     const done = e.target.closest('[data-complete-step]');
     if (done) return completeDealStep(done);

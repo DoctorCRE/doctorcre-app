@@ -6,7 +6,7 @@
 
 .business-shell { max-width: none; width: 100%; padding-top: var(--space-5); padding-inline: clamp(var(--space-4), 3vw, var(--space-7)); }
 .business-hero { position: relative; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
-.business-hero h1 { margin: 0; font-size: var(--font-size-5); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
+.business-hero #pageTitle { margin: 0; font-size: var(--font-size-5); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
 .back-home { color: var(--fg-muted); text-decoration: none; }
 .back-home:hover { color: var(--fg); text-decoration: underline; }
 .hero-meta { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
@@ -203,7 +203,7 @@ body.record-open { overflow: hidden; }
 @media (max-width: 767px) {
   .business-shell { padding-top: var(--space-3); padding-inline: var(--space-4); }
   .business-hero { margin-bottom: var(--space-3); }
-  .business-hero h1 { font-size: var(--font-size-4); }
+  .business-hero #pageTitle { font-size: var(--font-size-4); }
   .search-dock { top: calc(var(--tabbar-height) + var(--space-2)); padding: var(--space-2) var(--space-3); }
   .field input, .field select { font-size: var(--font-size-2); }
   .filter-form { gap: var(--space-2); padding: 0; }
@@ -236,9 +236,8 @@ body.record-open { overflow: hidden; }
 @media (max-width: 767px) {
   body[data-directory="vendors"] #secondaryFilters > summary { display: list-item; min-height: var(--touch); align-content: center; color: var(--fg-muted); cursor: pointer; font-size: var(--font-size-1); }
   body[data-directory="vendors"] #secondaryFilters[open] > summary { margin-bottom: var(--space-2); }
-  body[data-directory="vendors"] .record-row { grid-template-areas: "head" "facts" "tier" "foot"; gap: var(--space-1); padding-block: var(--space-2); }
-  body[data-directory="vendors"] .record-row > .contact-note,
-  body[data-directory="vendors"] .record-row .row-last-contact,
+  body[data-directory="vendors"] .record-row { grid-template-areas: "head" "facts" "foot"; gap: var(--space-1); padding-block: var(--space-2); }
+  body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-areas: "head" "facts" "note" "foot"; }
   body[data-directory="vendors"] .record-row .row-updated { display: none; }
 }
 
