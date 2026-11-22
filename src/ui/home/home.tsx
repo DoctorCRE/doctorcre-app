@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tan
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
+import type { DocLinkRequest } from "../doc-link";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
 import { readDashboard } from "./dashboard-read";
@@ -103,7 +104,7 @@ export function markHomeReady(host: HTMLElement) {
   host.dataset.homeReady = "true";
   host.dispatchEvent(new Event("doctorcre:home-ready"));
 }
-function Inbox({ client }: { client: InboxClient }) {
+function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest: DocLinkRequest | undefined }) {
   const route = useLocation();
   const home = route.pathname === "/";
   const engineHome = document.documentElement.hasAttribute("data-home-today-from-engine");
@@ -851,6 +852,7 @@ function Inbox({ client }: { client: InboxClient }) {
         {open && (
           <ReviewCard
             item={reviewing}
+            docLinkRequest={docLinkRequest}
             readOnly={waitingCard || finishedElsewhere}
             client={reviewClient}
             draftEdits={reviewingDraftId ? draftEdits.get(reviewingDraftId) : undefined}
@@ -1258,7 +1260,15 @@ function Inbox({ client }: { client: InboxClient }) {
     </section>
   );
 }
-function LinkedReview({ itemId, client }: { itemId: string; client: InboxClient["linkedReview"] }) {
+function LinkedReview({
+  itemId,
+  client,
+  docLinkRequest,
+}: {
+  itemId: string;
+  client: InboxClient["linkedReview"];
+  docLinkRequest: DocLinkRequest | undefined;
+}) {
   const [draftEdits, setDraftEdits] = useState<DraftEdit | undefined>();
   const { data, isPending } = useQuery({
     queryKey: ["home-linked-review", itemId],
@@ -1294,6 +1304,7 @@ function LinkedReview({ itemId, client }: { itemId: string; client: InboxClient[
       )}
       <ReviewCard
         item={data.item}
+        docLinkRequest={docLinkRequest}
         readOnly={waiting}
         client={client.client}
         draftEdits={draftEdits}
@@ -1304,14 +1315,14 @@ function LinkedReview({ itemId, client }: { itemId: string; client: InboxClient[
   );
 }
 
-function InboxCard({ client }: { client: InboxClient }) {
+function InboxCard({ client, docLinkRequest }: { client: InboxClient; docLinkRequest: DocLinkRequest | undefined }) {
   const { item_id } = useParams();
   if (item_id?.startsWith("suggestion:") || item_id?.startsWith("reply_draft:"))
-    return <LinkedReview key={item_id} itemId={item_id} client={client.linkedReview} />;
-  return <Inbox client={client} />;
+    return <LinkedReview key={item_id} itemId={item_id} client={client.linkedReview} docLinkRequest={docLinkRequest} />;
+  return <Inbox client={client} docLinkRequest={docLinkRequest} />;
 }
 
-export function mountInbox(host: HTMLElement, client: InboxClient) {
+export function mountInbox(host: HTMLElement, client: InboxClient, docLinkRequest?: DocLinkRequest) {
   const query = new QueryClient({
     defaultOptions: {
       queries: {
@@ -1329,7 +1340,7 @@ export function mountInbox(host: HTMLElement, client: InboxClient) {
     },
   });
   const root = createRoot(host);
-  const inbox: ReactNode = <Inbox client={client} />;
+  const inbox: ReactNode = <Inbox client={client} docLinkRequest={docLinkRequest} />;
   root.render(
     <QueryClientProvider client={query}>
       <BrowserRouter>
@@ -1337,7 +1348,7 @@ export function mountInbox(host: HTMLElement, client: InboxClient) {
           <Route path="/" element={inbox} />
           <Route path="/inbox" element={inbox} />
           <Route path="/inbox.html" element={inbox} />
-          <Route path="/inbox/card/:item_id" element={<InboxCard client={client} />} />
+          <Route path="/inbox/card/:item_id" element={<InboxCard client={client} docLinkRequest={docLinkRequest} />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>,
