@@ -50,6 +50,30 @@ test('legacy progress pages require sign-in before redirecting to the board', as
   }
 });
 
+test('old Observatory links lead to Home', async () => {
+  const env = environment({ carr: { fetch: async () => new Response('Old page') } });
+  for (const path of ['/control-room/observatory?thread=fixture-thread', '/observatory.html']) {
+    const response = await handleDoctorcreRequest(request(path), env);
+    assert.equal(response.status, 308, path);
+    assert.equal(new URL(response.headers.get('location')).pathname, '/', path);
+  }
+});
+
+test('room history no longer uses the app proxy while the remaining room routes still do', async () => {
+  const forwarded = [];
+  const env = environment({ carr: { fetch: async value => {
+    forwarded.push(new URL(value.url).pathname);
+    return new Response('Room response');
+  } } });
+  const removed = await handleDoctorcreRequest(request('/api/room/latest?limit=1'), env);
+  assert.equal(removed.status, 404);
+  for (const path of ['/api/room/turns', '/api/room/turn', '/api/room/queue']) {
+    const response = await handleDoctorcreRequest(request(path), env);
+    assert.equal(await response.text(), 'Room response');
+  }
+  assert.deepEqual(forwarded, ['/api/room/turns', '/api/room/turn', '/api/room/queue']);
+});
+
 test("Doc activity uses an admitted gate and restores signed-out return-to", async () => {
   let forwarded;
   const carr = { fetch: async value => {

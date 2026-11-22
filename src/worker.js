@@ -6,8 +6,11 @@ import { isEngineDealDetail } from '../js/local-deals-model.js';
 
 const APP_ROUTES = new Map(Object.entries(routeContract.routes));
 const REDIRECTS = new Map(Object.entries(routeContract.redirects || {}));
-const PROXY_EXACT = new Set(["/mcp", "/pipeline/changes", "/api/call-context", "/api/post-call"]);
-const PROXY_PREFIXES = ["/auth/", "/api/v1/", "/api/room/", "/api/system-work/", "/api/tours/", "/api/post-call/"];
+const PROXY_EXACT = new Set([
+  "/mcp", "/pipeline/changes", "/api/call-context", "/api/post-call",
+  "/api/room/turns", "/api/room/turn", "/api/room/queue",
+]);
+const PROXY_PREFIXES = ["/auth/", "/api/v1/", "/api/system-work/", "/api/tours/", "/api/post-call/"];
 const STATIC_EXACT = new Map([
   ["/share-intake.html", "/share-intake.html"],
   ["/artifact-manifest.json", "/artifact-manifest.json"],
