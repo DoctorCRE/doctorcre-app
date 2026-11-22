@@ -482,6 +482,8 @@ test('Opening a lead shows its exact source and clears the badge for both partne
   opening.resolve();
   const drawer = joe.locator('#leadDetail');
   await drawer.getByRole('heading', { name: 'Source email', exact: true }).waitFor();
+  assert.equal(await drawer.getByText('Original request for dental space', { exact: true }).isVisible(), true);
+  await drawer.locator('details[data-entry-key=source-email] summary').click();
   assert.equal(await drawer.getByText('Please help me find a new clinic.', { exact: true }).isVisible(), true);
   await badge(joe).waitFor({ state: 'hidden' });
   assert.equal(writes.length, 1);
