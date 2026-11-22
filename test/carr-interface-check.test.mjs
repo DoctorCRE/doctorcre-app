@@ -80,7 +80,7 @@ test("tests read moving pins and lists from the contract instead of copying them
   ];
   const offenders = [];
   for (const name of (await readdir(new URL("./", import.meta.url))).filter((file) => file.endsWith(".mjs"))) {
-    if (name === "carr-interface.test.mjs") continue;
+    if (name === "carr-interface-check.test.mjs") continue;
     const source = await read(`test/${name}`);
     for (const [pattern, what] of copies) if (pattern.test(source)) offenders.push(`${name}: ${what}`);
   }

@@ -4,7 +4,7 @@ The chart describes the consumer of CARR home-review.v1 at producer ce0169c9aa7a
 
 The active card stays in its original Home section until Close review. Its displayed canonical fields update after a receipt. This preserves editor focus, edits and confirmation while settlement changes the card placement.
 
-Run `node --test test/home-inline-review.test.mjs test/home-inline-review-browser.test.mjs`.
+Run `node --test test/home-inline-review-check.test.mjs test/home-inline-review-browser.test.mjs`.
 
 | Transition | Executed test |
 | --- | --- |
@@ -20,7 +20,7 @@ Run `node --test test/home-inline-review.test.mjs test/home-inline-review-browse
 | Task completion, exact readback, Undo | task review completes one canonical action |
 | Fact approve, correct, reject | fact review calls its existing owner |
 | Missing producer reference | older producer without references keeps a navigable card |
-| Wrong detail identity, unsupported operation, missing receipt/readback | home-inline-review.test.mjs |
+| Wrong detail identity, unsupported operation, missing receipt/readback | home-inline-review-check.test.mjs |
 
 The closing-a-loading-review test exercises Escape and a late response without a domain write. The keyboard test covers keyboard opening, duplicate activation suppression and returned focus. Session invalidation unmounts the entire inbox through its existing owner; the focused suite does not separately exercise session loss during a write.
 

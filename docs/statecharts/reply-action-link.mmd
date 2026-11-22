@@ -46,6 +46,6 @@ state Link {
 %% never NoRetiredWrite: Retired & Submitting -- Retired sessions cannot write.
 %% never NoLateRevival: Retired & Unconfirmed -- Late results cannot revive a retired view.
 %% never NoClosedWrite: Closed & Submitting -- Closing aborts owned requests.
-%% Payload invariants exercised through the parser and request seam in action-link.test.mjs:
+%% Payload invariants exercised through the parser and request seam in action-link-check.test.mjs:
 %% Displayed identity equals issued identity. Write identity, version, text and recipients equal review.
 %% One intent uses one key. Replay or expiry never authorizes another effect.
