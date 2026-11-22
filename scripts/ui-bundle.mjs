@@ -43,7 +43,6 @@ export const UI_ENTRIES = {
   'ui-market-cutover': 'market-terms-cutover',
   'ui-limit': 'home-list-limit',
   'ui-reasons': 'contact-reasons',
-  'ui-queue': 'brief-queues',
   'ui-action': 'action-link',
   'ui-call': 'call-review',
   'ui-board': 'deal-room-board',

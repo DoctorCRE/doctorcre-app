@@ -178,20 +178,6 @@ test("an open Notifications tab stops reaching CARR after the switch flips", asy
   expect(requests.feed).toBe(afterRetirement);
 });
 
-test("Morning brief removes overnight activity when the feed retires", async ({ page }) => {
-  const requests = await mockReads(page, { engine: false, overnight: true });
-  await page.clock.install({ time: new Date("2026-11-20T16:00:00Z") });
-  await page.goto(server.url + "/search?mode=live");
-  await page.locator("#docOpen").click();
-  await page.locator("#docMorning").click();
-  const overnight = page.locator("#morningContent h3").filter({ hasText: /^Overnight$/ });
-  await expect(overnight).toBeVisible();
-  requests.engine = true;
-  await page.locator("#morningRefresh").click();
-  await expect(overnight).toHaveCount(0);
-  await expect(page.locator("#morningCoverage")).not.toContainText("Overnight updates unavailable");
-});
-
 test("National Accounts loads pending captures even with the legacy feed down", async ({ page }) => {
   const requests = await mockReads(page);
   await page.goto(server.url + national);

@@ -1,9 +1,7 @@
 import { createPageBudget } from './read-budget.mjs';
-import { mountFeatureGate, FEATURE_DISABLED, SUGGESTION_ACTIONS_OFF } from './feature-switches.js';
 import { mountAnswerBlocks, disposeAnswerBlocks } from './ui-answers.generated.js';
 import { selectDocRecord } from './doc-context.js';
 import { mountAutoRefresh, readWithDeadline, updatedLabel } from "./auto-refresh.mjs";
-// Conversation reads and record controls stay here; the lazy React composer owns queued asks.
 import { createCommandDock } from "./command-dock.js";
 import { performCommand } from "./command-feedback.mjs";
 import { createLiveClient } from "./live-client.js";
@@ -11,21 +9,14 @@ import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge, mountPrefs } from "./shell.js";
 import { formatClock } from "./visual-system.js";
 import {
-  COMPOSER_ABSENT, DOC_REPLY_PENDING, EXPOSURE_STATEMENT, LIST_EMPTY, LIST_SCOPE,
+  EXPOSURE_STATEMENT, LIST_EMPTY, LIST_SCOPE,
   PARTNER_SLUGS, SHARING_CAVEAT, TITLE_HISTORY_UNREADABLE,
   accessRows, archiveOperationKey, classifyReadFailure, conversationState, createArgs,
   createOperationKey, conversationRoute, idFromSearch, identityHeader, listArgs, listPagingState, listRows,
   pagingState, pinOperationKey, renameArgs, renameOperationKey, shareArgs,
   shareCandidates, shareOperationKey, turnRows, visibleCountLine,
 } from "./conversations-model.js";
-import {
-  OUTCOME_CARDS_NO_OPEN_SENTENCE, changedFields, flowStages, outcomeCards,
-  outcomeCardsEmptyMessage, outcomeCardsPagingState, outcomeCardsRequest,
-  refuseDocOutcomeCards,
-} from "./doc-outcome-cards-model.js";
-import { codexCheckpoints, createOpenLinkGuard, reconcileOutcomeOpenAttempt } from './open-session-model.js';
 import { uuidv4 } from "./uuid.js";
-import { suggestionCards, decisionArgs, correctionArgs, correctionConflict, suggestionFlow, suggestionReadState, suggestionStatus, visibleSuggestionConflicts, reconcileSuggestionConflicts } from "./doc-suggestions-model.js";
 
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -36,24 +27,6 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 const LIMIT = 50;
 let focusedRoute = null;
 const renderedTurns = new Map();
-let askConversation = null, disposeAsk = null, askMount = 0;
-function renderAskComposer() {
-  const host = $('askComposer');
-  const id = payloadOf()?.identity?.id || null;
-  $('askComposerPanel').hidden = !id;
-  if (!host || id === askConversation) return;
-  const ticket = ++askMount;
-  disposeAsk?.(); disposeAsk = null; host.replaceChildren(); askConversation = id;
-  if (!id || !client) return;
-  const slot = document.createElement('div'); host.append(slot);
-  import('./ui-host.generated.js').then(async ({ mountAskComposer }) => {
-    if (ticket !== askMount) return;
-    const dispose = await mountAskComposer(slot, client, id);
-    if (ticket !== askMount) dispose();
-    else disposeAsk = dispose;
-  }).catch(() => { if (ticket === askMount) host.textContent = 'The ask composer could not open. Reload to try again.'; });
-}
-
 /** One place holds what this page believes; nothing else keeps a copy. */
 const view = {
   route: { state: "missing", id: null, given: null },
@@ -61,55 +34,23 @@ const view = {
   conversation: { state: "pending" },
   list: { state: "pending", payload: null, rows: [] },
   includeArchived: false,
-  // V5-UX-B09: an independent, actor-scoped read. It holds ITS OWN rows and
-  // its own sequence guard rather than sharing the conversation's, because a
-  // conversation open/close or a list refresh must never discard or race an
-  // in-flight outcome-cards page.
-  // `previousById` is the last render's `outcomeCard()` view per card_id, kept
-  // across reads (never reset by a fresh page) so a genuine re-read — the
-  // whole reason this section exists — can flash exactly the fields that
-  // changed rather than the whole card. New cards are compared against
-  // nothing and never flash; the entrance animation already says "new".
-  outcomeCards: { state: "pending", payload: null, rows: [], checkpoints: [], sequence: 0, previousById: new Map() },
-  suggestions: { state: "pending", rows: [], coverage: null, sequence: 0, includeParked: false, sentence: null,
-    drafts: new Map(), workNumbers: new Map(), snoozeDates: new Map(), conflicts: new Map() },
 };
 
 let client = null;
-let suggestionActionsEnabled = false;
-let suggestionGate = null;
-// Every suggestion send — first click, dock retry and dock reconcile — passes
-// through dispatch under one of these keys, so this is the one UI gate.
-const suggestionOperation = operationKey => operationKey.startsWith("doc-suggestion:");
-const sendAllowed = operationKey => suggestionActionsEnabled || !suggestionOperation(operationKey);
 // A cancelled traversal must settle even if its adapter ignores abort. Live
 // reads also forward the signal to the transport, outside the verb arguments.
 const readClient = (method, args, signal) => signal
   ? readWithDeadline(current => client[method](args, { signal: current }), { signal })
   : client[method](args);
-const loadedPages = { conversation: 1, list: 1, outcomes: 1 };
+const loadedPages = { conversation: 1, list: 1 };
 function invalidateConversations() {
   view.sequence++;
   view.conversation = {state:'refused'};
   view.list = {state:'unavailable',payload:null,rows:[],sentence:'Sign in to continue'};
-  view.outcomeCards = {state:'refused',payload:null,rows:[],checkpoints:[],sequence:view.outcomeCards.sequence+1,previousById:new Map()};
-  view.suggestions = {...view.suggestions,state:'refused',rows:[],coverage:null,sequence:view.suggestions.sequence+1,drafts:new Map(),workNumbers:new Map(),snoozeDates:new Map(),conflicts:new Map()};
   render();
 }
 globalThis.addEventListener?.('doctorcre-session-invalidated', invalidateConversations);
 
-let backgroundReads = 0;
-function suggestionEditorActive() {
-  const list = $("suggestionsList");
-  return list?.contains(document.activeElement)
-    || [...(list?.querySelectorAll("[data-suggestion]") || [])].some(card => {
-      const id = card.dataset.suggestion;
-      return Boolean(view.suggestions.drafts.get(id) || view.suggestions.workNumbers.get(id))
-        || view.suggestions.snoozeDates.has(id);
-    });
-}
-let pendingOutcomeOpen = null;
-const openLinks = createOpenLinkGuard();
 let commandState = {};
 let dock = { record: () => {}, mount: () => {}, render: () => {} };
 /** What each open operation would send again: the dock's buttons need it. */
@@ -117,11 +58,6 @@ const operations = new Map();
 
 function announce(text) {
   const live = $("conversationLive");
-  if (live && text && live.textContent !== text) live.textContent = text;
-}
-
-function announceOutcomeCards(text) {
-  const live = $("outcomeCardsLive");
   if (live && text && live.textContent !== text) live.textContent = text;
 }
 
@@ -289,196 +225,12 @@ function renderList() {
  * dashed where not), and `.is-changed` on any field that differed from the
  * previous read, which settles in rather than cutting.
  */
-function outcomeFlowSvg(card) {
-  const stages = flowStages(card);
-  const [recommendation, submission, outcome] = stages;
-  const cx = { recommendation: 14, submission: 80, outcome: 146 };
-  const nodes = stages.map((stage) => `<circle class="outcome-flow-node" data-stage="${escapeHtml(stage.id)}" data-reached="${stage.reached}" cx="${cx[stage.id]}" cy="12" r="6"></circle>`).join("");
-  return `<svg class="outcome-flow" viewBox="0 0 160 24" aria-hidden="true" focusable="false">
-    <path class="outcome-flow-path" data-active="${submission.reached}" d="M${cx.recommendation + 6} 12 H${cx.submission - 6}"></path>
-    <path class="outcome-flow-path" data-active="${outcome.reached}" d="M${cx.submission + 6} 12 H${cx.outcome - 6}"></path>
-    ${nodes}
-  </svg>
-  <p class="small outcome-flow-labels">${stages.map((stage) => `<span data-reached="${stage.reached}">${escapeHtml(stage.label)}</span>`).join('<span aria-hidden="true"> → </span>')}</p>`;
-}
-
-function outcomeFieldSpan(className, changed, text) {
-  return `<span class="outcome-field${changed ? " is-changed" : ""}" data-field="${escapeHtml(className)}">${escapeHtml(text)}</span>`;
-}
-
-function outcomeCardHtml(card, { changed = { phase: false, nextCheck: false, result: false, routingState: false } } = {}) {
-  const owner = card.owner ?? "unassigned";
-  const phase = card.phase ?? "unrecorded";
-  const nextCheck = card.nextCheck.available ? card.nextCheck.value : card.nextCheck.text;
-  const result = card.result.available ? card.result.value : card.result.text;
-  const entry = card.sessionEntry;
-  const sessionRefLine = entry.sessionRef
-    ? `<p class="small mono">session ref: ${escapeHtml(entry.sessionRef)}</p>`
-    : "";
-  return `<li class="work-item outcome-card" data-priority="ordinary" data-outcome-card="${escapeHtml(card.id)}" data-routing-state="${escapeHtml(card.routingState)}" data-intent="${escapeHtml(card.intentKind)}">
-    <div>
-      <h3 class="list-title">${escapeHtml(card.requestedOutcome ?? card.workRequestRef)}</h3>
-      <p class="list-meta">
-        <span class="outcome-live-dot" data-fresh="${escapeHtml(card.freshness.state)}" aria-hidden="true"></span>
-        <span class="chip" data-intent="${escapeHtml(card.intentKind)}">${escapeHtml(card.intentLabel)}</span>
-        <span class="chip" data-state="${escapeHtml(card.routingState)}">routing: ${outcomeFieldSpan("routingState", changed.routingState, card.routingStateLabel)}</span>
-        · owner ${escapeHtml(owner)} · phase ${outcomeFieldSpan("phase", changed.phase, phase)}
-        · <span class="mono">${escapeHtml(card.workRequestRef)}</span>
-      </p>
-      ${outcomeFlowSvg(card)}
-      <p class="small">Next check: ${outcomeFieldSpan("nextCheck", changed.nextCheck, String(nextCheck))}</p>
-      <p class="small" data-outcome="${String(card.result.available)}">Result: ${outcomeFieldSpan("result", changed.result, String(result))}</p>
-      <p class="small caption">${escapeHtml(card.freshness.text)}</p>
-      <p class="small session-host" data-open="${entry.open}">${escapeHtml(entry.reasonSentence)} ${escapeHtml(entry.scopedSolution ?? '')}</p>
-      ${entry.open && openLinks.allows(card.id) ? `<a class="btn btn-primary" data-open-outcome-session="${escapeHtml(card.id)}" href="${escapeHtml(entry.href)}">Open session</a>` : ''}
-      ${entry.sessionRef ? `<button class="btn btn-quiet" type="button" data-copy-outcome-session="${escapeHtml(card.id)}">Copy session ID</button>` : ''}
-      ${sessionRefLine}
-    </div>
-  </li>`;
-}
-
-function renderOutcomeCards() {
-  const list = $("outcomeCardsList");
-  const block = $("outcomeCardsState");
-  const focused = list?.contains(document.activeElement) ? document.activeElement : null;
-  const focusAttribute = focused?.hasAttribute("data-copy-outcome-session") ? "data-copy-outcome-session" : "data-open-outcome-session";
-  const focusKey = focused?.getAttribute(focusAttribute);
-  const paging = $("outcomeCardsPagingBlock");
-  if (!list || !block) return;
-  if (view.outcomeCards.state === "loading" && view.outcomeCards.rows.length === 0) {
-    list.innerHTML = "";
-    block.hidden = false;
-    block.dataset.state = "loading";
-    $("outcomeCardsStateTitle").textContent = "Updating…";
-    if (paging) paging.hidden = true;
-    return;
-  }
-  if (view.outcomeCards.state === "unavailable") {
-    list.innerHTML = "";
-    block.hidden = false;
-    block.dataset.state = "unavailable";
-    $("outcomeCardsStateTitle").textContent = view.outcomeCards.sentence
-      || "Updates temporarily unavailable.";
-    if (paging) paging.hidden = true;
-    return;
-  }
-  const cards = outcomeCards({ cards: view.outcomeCards.rows }, {
-    hostAvailable: /Mac/.test(globalThis.navigator?.platform || globalThis.navigator?.userAgent || ''),
-    checkpoints: view.outcomeCards.checkpoints,
-  });
-  // Every card's change flags come from comparing THIS read against the
-  // previous one; a new card (no prior entry) never marks a field changed.
-  list.innerHTML = cards.map((card) => outcomeCardHtml(card, {
-    changed: changedFields(view.outcomeCards.previousById.get(card.id) ?? null, card),
-  })).join("");
-  if (focusKey) [...list.querySelectorAll(`[${focusAttribute}]`)].find(node => node.getAttribute(focusAttribute) === focusKey)?.focus({ preventScroll: true });
-  for (const link of list.querySelectorAll('[data-open-outcome-session]')) {
-    link.addEventListener('click', () => {
-      const card = cards.find(item => item.id === link.dataset.openOutcomeSession);
-      pendingOutcomeOpen = card ? { cardId: card.id, target: card.sessionEntry.target, link } : null;
-      announceOutcomeCards('Opening the recorded Codex thread. The browser cannot confirm whether the host accepted it.');
-    });
-  }
-  // eslint-disable-next-line no-restricted-syntax -- Registers 1 clipboard callback per rendered session button; clipboard access occurs only on click.
-  for (const button of list.querySelectorAll('[data-copy-outcome-session]')) {
-    button.addEventListener('click', async () => {
-      const card = cards.find(item => item.id === button.dataset.copyOutcomeSession);
-      try { await navigator.clipboard.writeText(card.sessionEntry.sessionRef); announceOutcomeCards('Session ID copied.'); }
-      catch { announceOutcomeCards('Copy was unavailable; the session ID is shown on the card.'); }
-    });
-  }
-  view.outcomeCards.previousById = new Map(cards.map((card) => [card.id, card]));
-  const empty = outcomeCardsEmptyMessage({ cards: view.outcomeCards.rows });
-  block.hidden = !(cards.length === 0 && empty);
-  block.dataset.state = "empty";
-  $("outcomeCardsStateTitle").textContent = empty || "";
-  const pagingState = outcomeCardsPagingState(view.outcomeCards.payload);
-  if (paging) paging.hidden = !pagingState.more;
-}
-
-function suggestionFlowSvg(card) {
-  const stages = suggestionFlow(card);
-  return `<div class="suggestion-flow" role="img" aria-label="Original words flow to a suggestion, your decision, then work or a proposal">
-    <svg viewBox="0 0 640 54" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
-      <path class="suggestion-flow-line" d="M72 27H568"></path>
-      ${[72,237,403,568].map((x, i) => `<circle class="suggestion-flow-node" cx="${x}" cy="27" r="10" data-step="${stages[i].id}"></circle>`).join("")}
-    </svg><div class="suggestion-flow-labels">${stages.map(stage => `<span>${escapeHtml(stage.label)}</span>`).join("")}</div>
-  </div>`;
-}
-
-function renderSuggestions() {
-  if (backgroundReads && suggestionEditorActive()) return;
-  const state = view.suggestions;
-  const cards = state.state === "read" ? suggestionCards({ suggestions: state.rows }, { includeParked: state.includeParked }) : [];
-  const visibleConflicts = visibleSuggestionConflicts(state.conflicts, cards, view.route);
-  const block = $("suggestionsState");
-  const list = $("suggestionsList");
-  if (!block || !list) return;
-  $("suggestionsParked").setAttribute("aria-pressed", String(state.includeParked));
-  $("suggestionsParked").textContent = state.includeParked ? "Hide snoozed and dismissed" : "Show snoozed and dismissed";
-  const status = suggestionStatus(state, cards.length + visibleConflicts.length);
-  block.hidden = !status.visible;
-  block.dataset.state = status.state;
-  $("suggestionsStateTitle").textContent = status.title;
-  const today = new Date();
-  today.setDate(today.getDate() + 7);
-  const defaultSnooze = today.toISOString().slice(0, 10);
-  list.innerHTML = cards.map((card, index) => {
-    const source = card.sourceConversationId ? `/doc-chats?id=${encodeURIComponent(card.sourceConversationId)}` : null;
-    const draft = state.drafts.get(card.id) || "";
-    const workNumber = state.workNumbers.get(card.id) || "";
-    const current = state.conflicts.get(card.id);
-    const proposals = card.corrections.filter(item => item.status === "pending");
-    const conflictHtml = current ? `<div class="suggestion-conflict" role="alert"><strong>This suggestion changed.</strong>
-      <p>${current.source === "read" ? "Current record" : "Record at refusal"}: ${escapeHtml(current.current.polished || current.current.original || "unavailable")}</p>
-      <p>${current.choice ? `Your ${escapeHtml(current.choice)} choice was not saved.` : "Your correction is still below."} Review before trying again.</p></div>` : "";
-    return `<li class="work-item suggestion-card" data-suggestion="${escapeHtml(card.id)}" data-disposition="${escapeHtml(card.disposition)}" data-suggestion-index="${index}">
-      <div class="suggestion-content">
-        <div class="suggestion-heading"><span class="suggestion-beacon" aria-hidden="true"></span><h3>${escapeHtml(card.polished)}</h3></div>
-        <p class="work-meta">${escapeHtml(card.contributor)} · ${escapeHtml(formatClock(card.sourceAt) || "time unavailable")}
-          ${source ? ` · <a href="${source}">Open conversation</a>` : ""}</p>
-        ${card.uncertainty ? `<p class="suggestion-uncertainty">${escapeHtml(card.uncertainty)}</p>` : ""}
-        ${suggestionFlowSvg(card)}
-        <details class="suggestion-original"><summary>Original and contributions</summary>
-          <p>${escapeHtml(card.original)}</p><ul>${card.contributions.map(item => `<li>${escapeHtml(item.original)} <span>— ${escapeHtml(item.contributor)}, ${escapeHtml(formatClock(item.at) || "time unavailable")}</span></li>`).join("")}</ul>
-        </details>
-        <div ${suggestionActionsEnabled ? "" : "hidden"} class="suggestion-decisions" role="group" aria-label="Decide this suggestion">
-          <button class="btn btn-primary" type="button" data-choice="act">Act</button>
-          <button class="btn" type="button" data-choice="discuss">Discuss</button>
-          <button class="btn" type="button" data-choice="snooze">Snooze</button>
-          <button class="btn btn-quiet" type="button" data-choice="dismiss">Dismiss</button>
-        </div>
-        <div ${suggestionActionsEnabled ? "" : "hidden"} class="suggestion-fields">
-          <label>Work number for Act <input type="text" data-work-number="${escapeHtml(card.id)}" value="${escapeHtml(workNumber)}" placeholder="Number from Choose work"></label>
-          <a href="/doc-chats/work" target="_blank" rel="noopener">Choose work</a>
-          <label>Snooze until <input type="date" data-snooze-date="${escapeHtml(card.id)}" value="${escapeHtml(state.snoozeDates.get(card.id) ?? defaultSnooze)}"></label>
-        </div>
-        ${conflictHtml}
-        <div ${suggestionActionsEnabled ? "" : "hidden"} class="field suggestion-correction"><label for="correction-${escapeHtml(card.id)}">Correct this suggestion</label>
-          <textarea id="correction-${escapeHtml(card.id)}" data-correction="${escapeHtml(card.id)}" rows="3" placeholder="Type the narrow correction…">${escapeHtml(draft)}</textarea>
-          <button class="btn btn-secondary" type="button" data-propose="${escapeHtml(card.id)}">Propose correction</button>
-        </div>
-        ${proposals.length ? `<div class="suggestion-proposals"><strong>Correction awaiting review</strong><ul>${proposals.map(item => `<li><p>${escapeHtml(item.proposedText)}</p><span>Proposed ${escapeHtml(formatClock(item.proposedAt) || "time unavailable")} · based on version ${escapeHtml(item.baseVersion)}</span></li>`).join("")}</ul></div>` : ""}
-      </div>
-    </li>`;
-  }).join("") + visibleConflicts.map(([id, conflict]) =>
-    `<li class="work-item suggestion-conflict-only" data-conflict-suggestion="${escapeHtml(id)}" role="alert">
-      <div><strong>This suggestion changed.</strong>
-        <p>${conflict.source === "read" ? "Current record" : "Record at refusal"}: ${escapeHtml(conflict.current.polished || conflict.current.original || "unavailable")}</p>
-        ${conflict.choice ? `<p>Your ${escapeHtml(conflict.choice)} choice was not saved.</p>` : `<p>Your correction: ${escapeHtml(conflict.draft)}</p>`}
-        <p>Updating…</p></div>
-    </li>`).join("");
-}
-
 function render() {
   if (!$("listScope")) return;
-  renderAskComposer();
   renderHero();
   renderTurns();
   renderAccess();
   renderList();
-  renderOutcomeCards();
-  renderSuggestions();
 }
 
 /* --------------------------------------------------------------------- reading */
@@ -593,89 +345,14 @@ async function takeList({ cursor = null, background = false, signal } = {}) {
  * one sequence across pages and re-sorting the union would destroy the
  * `updated_at desc, id desc` ordering paging exists to preserve.
  */
-async function takeOutcomeCards({ cursor = null, background = false, signal } = {}) {
-  const sequence = ++view.outcomeCards.sequence;
-  const held = cursor ? view.outcomeCards.rows : [];
-  view.outcomeCards = { ...view.outcomeCards, state: "loading" };
-  render();
-  try {
-    let [payload, checkpointPayload] = await Promise.all([
-      readClient("docOutcomeCards", outcomeCardsRequest({ cursor }), signal),
-      readClient("codexSessions", {}, signal).catch(() => null),
-    ]);
-    if (view.outcomeCards.sequence !== sequence || signal?.aborted) return;
-    if (background && !refuseDocOutcomeCards(payload)) {
-      const takePage = createPageBudget();
-      // eslint-disable-next-line no-restricted-syntax -- Outcome-card catch-up has a max of 100 pages; takePage runs before each retained-page read.
-      for (let page = 1; page < loadedPages.outcomes && outcomeCardsPagingState(payload).more; page++) {
-        takePage();
-        const incoming = await readClient("docOutcomeCards", outcomeCardsRequest({ cursor: outcomeCardsPagingState(payload).cursor }), signal);
-        if (view.outcomeCards.sequence !== sequence || signal?.aborted) return;
-        if (refuseDocOutcomeCards(incoming)) throw new Error("Outcome page unavailable");
-        payload = { ...incoming, cards: [...payload.cards, ...incoming.cards] };
-      }
-    } else if (!background) loadedPages.outcomes = cursor ? loadedPages.outcomes + 1 : 1;
-    const refusal = refuseDocOutcomeCards(payload);
-    if (refusal) {
-      view.outcomeCards = { ...view.outcomeCards, state: "unavailable", payload: null, rows: held, checkpoints: [], sequence, sentence: `Updates temporarily unavailable.` };
-    } else {
-      view.outcomeCards = { ...view.outcomeCards, state: "read", payload, rows: [...held, ...payload.cards],
-        checkpoints: codexCheckpoints(checkpointPayload), sequence };
-      // A later page appends to cached earlier pages; only a new first-page
-      // read replaces the rows from which a retired Open link was rendered.
-      openLinks.refresh(!cursor && checkpointPayload?.ok === true);
-    }
-  } catch (error) {
-    if (view.outcomeCards.sequence !== sequence) return;
-    const failure = classifyReadFailure(error);
-    view.outcomeCards = { ...view.outcomeCards, state: "unavailable", payload: null, rows: held, checkpoints: [], sequence, sentence: failure.sentence };
-  }
-  render();
-  announceOutcomeCards(view.outcomeCards.state === "unavailable"
-    ? view.outcomeCards.sentence
-    : `${view.outcomeCards.rows.length} outcome card${view.outcomeCards.rows.length === 1 ? "" : "s"} shown.`);
-}
-
-async function takeSuggestions({ background = false, signal } = {}) {
-  const sequence = ++view.suggestions.sequence;
-  if (!background) {
-    view.suggestions = suggestionReadState(view.suggestions, { state: "loading" });
-    renderSuggestions();
-  }
-  try {
-    const payload = await readClient("listDocSuggestions", {
-      ...(view.route.state === "ok" ? { conversation_id: view.route.id } : {}),
-      include_parked: view.suggestions.includeParked,
-    }, signal);
-    if (sequence !== view.suggestions.sequence || signal?.aborted) return;
-    if (background && suggestionEditorActive()) return;
-    if (!Array.isArray(payload?.suggestions)) throw new Error("Invalid suggestion response");
-    view.suggestions = suggestionReadState(view.suggestions, { state: "read", payload });
-    view.suggestions.conflicts = reconcileSuggestionConflicts(view.suggestions.conflicts, payload.suggestions);
-  } catch (error) {
-    if (sequence !== view.suggestions.sequence) return;
-    if (background && suggestionEditorActive()) return;
-    const failure = classifyReadFailure(error);
-    view.suggestions = suggestionReadState(view.suggestions, { state: "unavailable", sentence: failure.sentence });
-  }
-  renderSuggestions();
-  const live = $("suggestionsLive");
-  if (live) live.textContent = view.suggestions.state === "read"
-    ? `${view.suggestions.rows.length} suggestions · ${suggestionStatus(view.suggestions, view.suggestions.rows.length).title}`
-    : view.suggestions.sentence;
-}
-
 async function load({ background = false, signal } = {}) {
   selectDocRecord('conversation', view.route.state === 'ok' ? view.route.id : null);
-  if (background && suggestionEditorActive()) return;
-  if (background) backgroundReads++;
-  try {
-    view.sequence += 1;
-    await Promise.all([takeConversation({ background, signal }), takeList({ background, signal }), takeOutcomeCards({ background, signal }), takeSuggestions({ background, signal })]);
-    if (signal?.aborted) return;
-    const state = conversationState(view.conversation, view.route);
-    announce(state.sentence || visibleCountLine(view.list.state === "read" ? view.list.payload : null));
-  } finally { if (background) backgroundReads--; }
+  view.sequence += 1;
+  await Promise.all([takeConversation({ background, signal }), takeList({ background, signal })]);
+  if (signal?.aborted) return;
+  const state = conversationState(view.conversation, view.route);
+  announce(state.sentence || visibleCountLine(view.list.state === "read" ? view.list.payload : null));
+
 }
 
 /** Opening one sets `?id=` so Back restores the list this page came from. */
@@ -695,12 +372,6 @@ function open(id) {
 /* --------------------------------------------------------------------- writing */
 
 async function dispatch(operationKey, args, summary, send) {
-  // A switched-off send is held, not dropped: the retained request, its key and
-  // its dock entry stay as they are, ready for when the switch returns.
-  if (!sendAllowed(operationKey)) {
-    announce(SUGGESTION_ACTIONS_OFF);
-    return { status: "disabled" };
-  }
   const result = await performCommand({
     operationKey,
     args,
@@ -716,7 +387,6 @@ async function dispatch(operationKey, args, summary, send) {
     retry: result.retry, undo: false, request: result.request,
   });
   if (result.message) announce(result.message);
-  if (result.code === FEATURE_DISABLED) suggestionGate?.refused();
   // Only the record layer knows what the store now holds, so a settled write
   // re-reads it rather than painting the answer this page hoped for.
   //
@@ -766,77 +436,6 @@ function share(slug, granted) {
     (request) => client.shareDocConversation(request));
 }
 
-function suggestionRow(id) {
-  return view.suggestions.rows.find(row => row.id === id) || null;
-}
-
-async function decideSuggestion(id, choice, card) {
-  if (view.suggestions.state !== "read") return;
-  const row = suggestionRow(id);
-  const workNumber = view.suggestions.workNumbers.get(id) || "";
-  const date = card.querySelector("[data-snooze-date]")?.value || null;
-  const built = decisionArgs(row, choice, undefined, date, workNumber);
-  if (!built) {
-    announce(choice === "act" ? "Choose or create a deal, then enter its number before choosing Act." : "Read this suggestion again before deciding.");
-    card.querySelector("[data-work-number]")?.focus();
-    return;
-  }
-  const summary = `${choice[0].toUpperCase()}${choice.slice(1)} this Doc suggestion`;
-  let refusedCurrent = null;
-  const outcome = await dispatch(`doc-suggestion:${id}:decision`, built, summary,
-    async request => {
-      try { return await client.decideDocSuggestion(request); }
-      catch (error) {
-        if (error?.payload?.error === "version_conflict") {
-          refusedCurrent = error?.payload?.current || null;
-          view.suggestions.includeParked = true;
-        }
-        throw error;
-      }
-    });
-  if (outcome.status === "conflict") {
-    const current = suggestionRow(id);
-    view.suggestions.conflicts.set(id, correctionConflict(view.suggestions.drafts.get(id) || "", current || refusedCurrent,
-      { choice, source: current ? "read" : "refusal", conversationId: row.source_conversation_id || row.conversation_id }));
-    renderSuggestions();
-  } else if (outcome.status === "ok") {
-    view.suggestions.conflicts.delete(id);
-    view.suggestions.drafts.delete(id);
-    view.suggestions.workNumbers.delete(id);
-    view.suggestions.snoozeDates.delete(id);
-  }
-}
-
-async function proposeSuggestionCorrection(id) {
-  if (view.suggestions.state !== "read") return;
-  const row = suggestionRow(id);
-  const draft = view.suggestions.drafts.get(id) || "";
-  const built = correctionArgs(row, draft);
-  if (!built) { announce("Type a correction before proposing it."); return; }
-  let refusedCurrent = null;
-  const outcome = await dispatch(`doc-suggestion:${id}:correction`, built,
-    "Propose a correction to this suggestion", async request => {
-      try { return await client.proposeDocCorrection(request); }
-      catch (error) {
-        if (error?.payload?.error === "version_conflict") {
-          refusedCurrent = error?.payload?.current || null;
-          view.suggestions.includeParked = true;
-        }
-        throw error;
-      }
-    });
-  if (outcome.status === "ok") {
-    view.suggestions.drafts.delete(id);
-    view.suggestions.conflicts.delete(id);
-    announce("Correction proposed. Original suggestion retained.");
-  } else if (outcome.status === "conflict") {
-    const current = suggestionRow(id);
-    view.suggestions.conflicts.set(id, correctionConflict(draft, current || refusedCurrent,
-      { source: current ? "read" : "refusal", conversationId: row.source_conversation_id || row.conversation_id }));
-  }
-  renderSuggestions();
-}
-
 function mountDock() {
   const root = $("receiptDock");
   if (!root) return;
@@ -855,7 +454,6 @@ function mountDock() {
       if (entry?.args) dispatch(operationKey, entry.args, entry.summary, entry.send);
     },
     onUndo: null,
-    actionable: sendAllowed,
   });
   dock.mount();
 }
@@ -870,67 +468,12 @@ async function boot() {
   mountDock();
   listScope.textContent = LIST_SCOPE;
   $("sharingCaveat").textContent = SHARING_CAVEAT;
-  $("composerAbsent").textContent = COMPOSER_ABSENT;
-  $("docReplyPending").textContent = DOC_REPLY_PENDING;
   $("titleHistoryLine").textContent = TITLE_HISTORY_UNREADABLE;
   $("exposureStatement").textContent = EXPOSURE_STATEMENT;
-  // Permanent, beside the outcome cards heading, matching sessions.js's own
-  // NO_OPEN_SENTENCE pattern: written from the model so deleting the element
-  // cannot leave a page that quietly implies it can open a session.
-  const outcomeCardsNoOpen = $("outcomeCardsNoOpen");
-  if (outcomeCardsNoOpen) outcomeCardsNoOpen.textContent = OUTCOME_CARDS_NO_OPEN_SENTENCE;
   const location = globalThis.location || { hostname: "", search: "" };
   const params = new URLSearchParams(location.search || "");
   view.route = conversationRoute(location);
   $("retryRead")?.addEventListener("click", () => load());
-  $("outcomeCardsRetry")?.addEventListener("click", () => takeOutcomeCards());
-  mountAutoRefresh({ document, window: globalThis.window, periodic: false, shouldRefresh: () => Boolean(pendingOutcomeOpen && client), refresh: async () => {
-    if (document.visibilityState !== 'visible' || !pendingOutcomeOpen || !client) return;
-    const attempt = pendingOutcomeOpen;
-    pendingOutcomeOpen = null;
-    openLinks.retire(attempt.cardId, attempt.link);
-    renderOutcomeCards();
-    try {
-      const [fresh, checkpointPayload] = await Promise.all([
-        client.docOutcomeCards({ limit: 50 }), client.codexSessions(),
-      ]);
-      const card = refuseDocOutcomeCards(fresh) ? null
-        : fresh.cards.find(item => item.card_id === attempt.cardId);
-      const result = reconcileOutcomeOpenAttempt(attempt.target, card,
-        { hostAvailable: /Mac/.test(globalThis.navigator?.platform || globalThis.navigator?.userAgent || ''),
-          checkpoints: codexCheckpoints(checkpointPayload) });
-      announceOutcomeCards(result.state === 'same_target_unconfirmed'
-        ? 'The recorded target is unchanged. Refresh this card before opening again.'
-        : 'The recorded target could not be confirmed. Refresh this card before opening.');
-    } catch {
-      announceOutcomeCards('The open result is unknown. Refresh this card before trying again.');
-    }
-  } });
-  $("suggestionsRetry")?.addEventListener("click", () => takeSuggestions());
-  $("suggestionsParked")?.addEventListener("click", () => {
-    view.suggestions.includeParked = !view.suggestions.includeParked;
-    takeSuggestions();
-  });
-  $("suggestionsList")?.addEventListener("input", event => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    if (target.matches("[data-correction]")) view.suggestions.drafts.set(target.getAttribute("data-correction"), target.value);
-    if (target.matches("[data-work-number]")) view.suggestions.workNumbers.set(target.getAttribute("data-work-number"), target.value);
-    if (target.matches("[data-snooze-date]")) view.suggestions.snoozeDates.set(target.getAttribute("data-snooze-date"), target.value);
-  });
-  $("suggestionsList")?.addEventListener("click", event => {
-    const target = event.target instanceof Element ? event.target : null;
-    const card = target?.closest("[data-suggestion]");
-    if (!card) return;
-    const id = card.getAttribute("data-suggestion");
-    const choice = target.closest("[data-choice]")?.getAttribute("data-choice");
-    if (choice) decideSuggestion(id, choice, card);
-    if (target.closest("[data-propose]")) proposeSuggestionCorrection(id);
-  });
-  $("outcomeCardsShowMore")?.addEventListener("click", () => {
-    const paging = outcomeCardsPagingState(view.outcomeCards.state === "read" ? view.outcomeCards.payload : null);
-    if (paging.more) takeOutcomeCards({ cursor: paging.cursor });
-  });
   $("showMore")?.addEventListener("click", () => {
     const paging = pagingState(payloadOf());
     if (view.conversation.catchup) takeConversation({ background: true });
@@ -984,18 +527,10 @@ async function boot() {
     ? createLiveClient()
     : await (await import("./fixture-client.js")).createFixtureClient({ ...boot_.options, ...(outage ? { outage } : {}) });
   if (!listScope.isConnected) return;
-  suggestionGate = mountFeatureGate({ document, window: globalThis.window, name: "doc-suggestion-actions",
-    read: signal => client.listFeatureSwitches({ signal }),
-    onChange: enabled => {
-      suggestionActionsEnabled = enabled;
-      for (const node of document.querySelectorAll(".suggestion-decisions,.suggestion-fields,.suggestion-correction")) node.hidden = !enabled;
-      dock?.render();
-    },
-  });
   mountNotificationBadge(client);
   await load();
   if (!listScope.isConnected) return;
-  mountAutoRefresh({ document, window: globalThis.window, shouldRefresh: () => !suggestionEditorActive(), refresh: ({ signal }) => load({ background: true, signal }) });
+  mountAutoRefresh({ document, window: globalThis.window, refresh: ({ signal }) => load({ background: true, signal }) });
 }
 
 boot();

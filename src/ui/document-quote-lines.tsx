@@ -1,16 +1,7 @@
 import { useState } from "react";
 import { type CompleteLine, type QuoteFragment, type QuoteSource, quoteBlock, selectLines } from "./document-quote";
-import { type QuoteAskClient, QuoteNextAsk } from "./document-quote-next-ask";
 
-export function QuoteLines({
-  source,
-  fragments,
-  client,
-}: {
-  source: QuoteSource;
-  fragments: QuoteFragment[];
-  client: QuoteAskClient | null;
-}) {
+export function QuoteLines({ source, fragments }: { source: QuoteSource; fragments: QuoteFragment[] }) {
   const [range, setRange] = useState<{ page: number; start: number; end: number } | null>(null);
   const [comment, setComment] = useState("");
   const lines: CompleteLine[] = fragments.filter((line) => line.offset === 0 && line.end_of_line);
@@ -108,11 +99,6 @@ export function QuoteLines({
             </section>
           )}
         </>
-      )}
-      {client ? (
-        <QuoteNextAsk client={client} block={block} />
-      ) : (
-        <p>Open a signed-in Dr. CRE conversation to use excerpts in an ask.</p>
       )}
     </section>
   );

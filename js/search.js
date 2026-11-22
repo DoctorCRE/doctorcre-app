@@ -4,7 +4,7 @@ import { setDocFilters } from './doc-context.js';
 import { createCurrentRead } from "./current-read.mjs";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
 import { columnBySlug, columnByValue, dealName } from "./pipeline-model.js";
-import { partnerName } from "./task-records-model.js";
+import { partnerName } from "./visual-system.js";
 import {
   SAVED_VIEW_SENTENCE, SEARCH_STATE_COPY, applyScope, buildFindArguments,
   classifySearchFailure, displaySearchGroups, parseSearchAddress, queryIsSendable,

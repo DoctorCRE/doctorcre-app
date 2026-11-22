@@ -14,7 +14,6 @@ import { uuidv4 } from './uuid.js';
 import { fetchRead, readWithDeadline } from './current-read.mjs';
 import { createMcpRequests, unknownMcpOutcome } from './mcp-requests.mjs';
 import { observeDocClient } from './doc-context.js';
-import { expandBoardRead } from './progress-board-model.js';
 import { createEngagementWriter } from './prospect-engagement.mjs';
 import { requireEmailActionReceipt } from './email-action-receipt.mjs';
 import { classifyCommandOutcome } from './command-feedback.mjs';
@@ -45,7 +44,7 @@ export { dealTypeLabel } from './client.js';
 // for the same board) share one request. Nothing is cached once it settles.
 const sharedReads = new WeakMap();
 let browserCallDecisions;
-const SHARED_READ_VERBS = new Set(['deal-room-board', 'morning-brief', 'list-feature-switches']);
+const SHARED_READ_VERBS = new Set(['deal-room-board', 'morning-brief']);
 
 export function createLiveClient(opts = {}) {
   const baseUrl = (opts.baseUrl || '').replace(/\/$/, '');
@@ -74,7 +73,7 @@ export function createLiveClient(opts = {}) {
   const sessionCommands = createRetainedCommands({ scope: commandSession });
   const sessionWrites = new Set(['link-parties', 'set-next-step', 'set-market-agent', 'set-national-account-owner', 'create-national-account',
     'create-national-market-deal', 'start-deal-review', 'review-deal', 'end-deal-review',
-    'resolve-candidate', 'resolve-post-call-candidate', 'answer-work-request-for-joe', 'add-industry-event', 'update-industry-event',
+    'resolve-candidate', 'resolve-post-call-candidate',
     'undo-call-change', 'review-call-outcome', 'review-deal-update', 'confirm-email-filing', 'confirm-email-next-step', 'confirm-email-deal-progress', 'dismiss-email-proposal', 'snooze-email-proposal', 'handle-email-proposal', 'edit-email-draft', 'submit-email-draft', 'register-client-portal', 'record-human-fact', 'resolve-fact-review', 'decide-engine-deal-email']);
 
   const readTimeoutMs = opts.readTimeoutMs || 10_000;
@@ -720,38 +719,8 @@ export function createLiveClient(opts = {}) {
       try { return await operation.inFlight; } finally { operation.inFlight = null; }
     },
 
-    // ---------------------------------------------------------------- loops
-    // Task records are loop records. The reads pass their arguments through
-    // untouched, and the writes keep the caller's idempotency key: the command
-    // kernel mints one key per logical operation and a client that replaced it
-    // would turn a reconcile into a second write.
-    //
-    // `read-loop` answers a miss IN the payload with `isError` false, so a
-    // not_found or an ambiguous number arrives here as an ordinary answer and
-    // is returned as one. Only a real refusal throws.
-    async loopBoard(args = {}, { signal } = {}) { return rpc('loop-board', args, signal); },
-    async readLoop(args = {}) { return rpc('read-loop', args); },
-    async loopHeaders(args = {}) { return rpc('loop-headers', args); },
-    async addLoop(args) { return write('add-loop', args); },
-    async updateLoop(args) { return write('update-loop', args); },
-    async closeLoop(args) { return write('close-loop', args); },
-
-    // Industry events are tenant-scoped by CARR. The version used for an edit
-    // comes from listIndustryEvents; this adapter never guesses a newer one.
-    async listIndustryEvents(args = {}) { return rpc('list-industry-events', args); },
-    async addIndustryEvent(args) { return write('add-industry-event', args); },
-    async updateIndustryEvent(args) { return write('update-industry-event', args); },
-
-    // Authenticated sponsor is resolved by CARR; callers cannot select a partner.
-    async listFeatureSwitches({ signal } = {}) { return rpc('list-feature-switches', {}, signal); },
     async calendarMeetingPrep({ signal } = {}) { return rpc('calendar-meeting-prep', {}, signal); },
     async morningBrief({ signal, fresh } = {}) { return fresh ? rawRpc('morning-brief', {}, signal, readTimeoutMs) : rpc('morning-brief', {}, signal); },
-    async morningBriefQueue(queue, {cursor,signal} = {}) {
-      if (!['today','loops','needs_joe','assurance_cadence'].includes(queue)) throw new Error('Unsupported morning queue.');
-      return rpc(queue === 'assurance_cadence' ? 'morning-assurance-queue' : 'morning-brief-queue',
-        {...(queue === 'assurance_cadence' ? {} : {queue}),...(cursor === undefined ? {} : {cursor})},signal);
-    },
-
     // ------------------------------------------------------------- triage
     // V5-UX-B01 — Home's This week. The verb takes no arguments, so none are
     // sent: which rows are due is the record layer's decision, not the page's.
@@ -781,69 +750,6 @@ export function createLiveClient(opts = {}) {
       return res.json();
     },
 
-    // ------------------------------------------------- delivery evidence (C11)
-    // Three reads and three writes, passed through untouched. The reads answer a
-    // miss by REFUSING, so a missing passport arrives as a thrown error with the
-    // payload the command kernel classifies; nothing here turns one into an
-    // empty answer, because an empty answer would paint as "no evidence" rather
-    // than "unknown".
-    async engineeringPassport(args = {}, { signal } = {}) { return rpc('engineering-passport', args, signal); },
-    async readPortfolio(args = {}) { return rpc('read-portfolio', args); },
-    async workRequestCard(args = {}, { signal } = {}) { return rpc('work-request-card', args, signal); },
-    async declineWorkRequest(args) { return write('decline-work-request', args); },
-    async supersedeWorkRequest(args) { return write('supersede-work-request', args); },
-    async setWorkShapeDisposition(args) { return write('set-work-shape-disposition', args); },
-
-    // ------------------------------------------------------ Control Room (C01)
-    // Three read-only verbs, passed through untouched. Two of them take NO
-    // arguments at all and refuse any field, so nothing is defaulted in here:
-    // a tenant, an owner or a filter invented by the browser is exactly what
-    // those verbs exist to refuse.
-    async incidentBoard(args = {}, { signal } = {}) { return rpc('incident-board', args, signal); },
-    async currentWorkItem({ signal } = {}) { return rpc('current-work-item', {}, signal); },
-    async readResourceDashboard({ signal } = {}) { return rpc('read-resource-dashboard', {}, signal); },
-    async currentWorkRequests({ signal } = {}) {
-      const res = await fetchReadImpl('/api/system-work/current', {
-        credentials: 'same-origin', headers: { accept: 'application/json' }, cache: 'no-store',
-        ...(signal ? { signal } : {}),
-      });
-      if (!res.ok) {
-        const error = new Error(`live current work requests -> HTTP ${res.status}`);
-        error.status = res.status;
-        throw error;
-      }
-      const envelope = await res.json();
-      if (envelope?.ok !== true || !envelope.data) throw new Error('live current work requests -> invalid response');
-      const data = envelope.data;
-      // Bind optional advice to the exact canonical array this client will render.
-      // A forged or stale digest is displayed as unavailable, never as a score.
-      let advisoryBindingVerified = false;
-      if (Array.isArray(data.items) && data.advisory?.snapshot_digest && globalThis.crypto?.subtle) {
-        try {
-          const bytes = new TextEncoder().encode(JSON.stringify(data.items));
-          const hash = await globalThis.crypto.subtle.digest('SHA-256', bytes);
-          const digest = `sha256:${[...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
-          advisoryBindingVerified = digest === data.advisory.snapshot_digest;
-        } catch { /* Advisory validation may fail; the canonical queue still reads. */ }
-      }
-      return { ...data, advisory_binding_verified: advisoryBindingVerified };
-    },
-
-    // ------------------------------------------------- Operations cards (C14)
-    // One read-only verb, passed through untouched. It takes NO arguments and
-    // refuses any field, so none is sent. It grants no authority: the decisions
-    // it lists are taken with their own verbs.
-    async readConnections({ signal } = {}) { return (await rpc('read-resource-dashboard', {}, signal)).connections; },
-    async governanceQueue() { return rpc('governance-queue', {}); },
-    async scheduleBoard({ signal } = {}) { return rpc('schedule-board', {}, signal); },
-
-    // ---------------------------------------------------- incident page (C14)
-    // One read and one write, passed through untouched. The write's arguments
-    // are exactly what the verb declares (it refuses any other field, and it
-    // takes no base version), so nothing is added here.
-    async getIncident(args = {}) { return rpc('get-incident', args); },
-    async linkIncidentWorkRequest(args) { return write('link-incident-work-request', args); },
-
     // ------------------------------------------------ notifications page (B12a)
     // One read and one write, passed through untouched. NEITHER takes a
     // recipient: `ops.notification_feed_facts` resolves the caller itself, and
@@ -872,49 +778,6 @@ export function createLiveClient(opts = {}) {
       return engineRead(`/api/engine/updates/changes${before ? `?before=${encodeURIComponent(before)}` : ''}`);
     },
 
-    // --------------------------------- session identity and dispatch (S02)
-    // Three reads, passed through untouched. None names an actor: their schemas
-    // declare additionalProperties:false with no actor property at all, and the
-    // acting actor is resolved server-side from a transaction-local setting the
-    // browser cannot reach. That absence is what makes the permission filtering
-    // these reads report unforgeable rather than merely unrequested. They go
-    // through `rpc` because they carry no idempotency key, and there is no
-    // matching write. Open is local navigation for a checkpoint-proved native
-    // target; no verb resumes, messages, or takes over a session.
-    async sessionIdentity(args = {}, { signal } = {}) { return rpc('read-session-identity', args, signal); },
-    async codexSessions(_args = {}, { signal } = {}) { return rpc('list-my-codex-sessions', {}, signal); },
-    async dispatchHistory(args, { signal } = {}) { return rpc('read-dispatch-history', args, signal); },
-
-    // ------------------------------- Model Room assignments and turns (C12)
-    // These reads derive the actor server-side. Assignment moves and dispatch
-    // acknowledgements have no supported write from this page.
-    async roomQueue(args = {}) { return rpc('read-room-queue', args); },
-    async roomTurns(args = {}) { return rpc('read-room', args); },
-    // V5-UX-C13b: the Model Room composer's one write. `add-room-turn`
-    // derives origin_channel/origin_actor server-side from this session and
-    // only requires the caller's own personal scope (mcp-server/src/
-    // identity.js personalScopeForActor) — true for Joe's or Dell's own
-    // authenticated browser session — so a human caller here is honest, not
-    // borrowed. It carries an idempotency key, so it goes through `write`.
-    async addRoomTurn(args) { return write('add-room-turn', args); },
-    // V5-UX-C13c: the Waiting-for-Joe answer form's one write. `answer-work-
-    // request-for-joe` (carr PR #1190) carries an idempotency key, so it goes
-    // through `write`, exactly like `addRoomTurn`. HUMAN-ONLY at the server
-    // (actor.human !== true is refused there, with no sponsored-agent route
-    // at all); this client passes no actor field of its own.
-    async answerWorkRequestForJoe(args) { return write('answer-work-request-for-joe', args); },
-    async unfinishedWork(args = {}, { signal } = {}) { return rpc('unfinished-work', args, signal); },
-    async triageSystemWork(verb, args) {
-      const allowed = new Set(['close-loop','update-loop','decline-work-request','review-and-triage',
-        'cancel-capability-session','triage-incident','cancel-workflow-cutover-plan',
-        'advance-workflow-cutover-stage','confirm-slice-completions','close-investigation',
-        'accept-ready-plan-amendment','approve-retrieval-proposals']);
-      if (!allowed.has(verb)) throw new Error('Unsupported system work action.');
-      return write(verb, args);
-    },
-    async listProgressBoards(_args = {}, { signal } = {}) { return rpc('list-progress-boards', {}, signal); },
-    async readProgressBoard(args, { signal } = {}) { return expandBoardRead(await rpc('read-progress-board', args, signal)); },
-    async workQueue(_args = {}, { signal } = {}) { return rpc('work-queue', {}, signal); },
     async answerBoardQuestion(args) { return write('answer-board-question', args); },
     async setNotificationPreference(args) { return write('set-notification-preference', args); },
 
@@ -928,36 +791,15 @@ export function createLiveClient(opts = {}) {
     // conversation — the kernel's retained request is what keeps that honest.
     async readDocConversation(args = {}, { signal } = {}) { return rpc('read-doc-conversation', args, signal); },
     async listDocConversations(args = {}, { signal } = {}) { return rpc('list-doc-conversations', args, signal); },
-    async listDocSuggestions(args = {}, { signal } = {}) { return rpc('list-doc-suggestions', args, signal); },
-    async decideDocSuggestion(args) { return write('decide-doc-suggestion', args); },
-    async proposeDocCorrection(args) { return write('propose-doc-correction', args); },
     async askSession() {
       const response = await fetchReadImpl('/auth/session', { credentials:'same-origin', cache:'no-store' });
       const session = await response.json();
       if (!response.ok || !session?.actor?.slug) throw Error('Sign in to continue.');
       return { actor:session.actor.slug };
     },
-    async submitDocRequest(args, actor) {
-      if (!online()) throw Error('Offline');
-      const response = await fetchReadImpl('/auth/session', { credentials:'same-origin', cache:'no-store' });
-      const session = await response.json();
-      if (!response.ok || session?.actor?.slug !== actor || !session.csrf_token) throw Error('Session changed.');
-      return rawRpc('submit-doc-request', args, undefined, opts.writeTimeoutMs || 10_000, { 'x-carr-csrf':session.csrf_token });
-    },
     async createDocConversation(args) { return write('create-doc-conversation', args); },
     async renameDocConversation(args) { return write('rename-doc-conversation', args); },
     async shareDocConversation(args) { return write('share-doc-conversation', args); },
-
-    // -------------------------------------------------- Doc outcome cards (B09)
-    // ONE READ, passed through untouched. It names no actor: the producer
-    // (mcp-server/src/tools.js docOutcomeCardsProjection, wrapping
-    // ops.read_doc_outcome_cards_successor from migration 0546) derives the
-    // acting actor and tenant server-side, and the verb's schema declares only
-    // `cursor`/`limit` under additionalProperties:false. It goes through `rpc`
-    // because it carries no idempotency key, and there is no matching write:
-    // this is a bounded projection that creates no writer, dispatcher, retry,
-    // task or native-session authority, and it never launches anything.
-    async docOutcomeCards(args = {}, { signal } = {}) { return rpc('read-doc-outcome-cards', args, signal); },
 
     // ------------------------------------------------ global search (B05)
     // Two READS, passed through untouched. NEITHER names an actor, a tenant or
@@ -1001,7 +843,6 @@ export function createLiveClient(opts = {}) {
     },
     async createNationalMarketDeal(args) { return write('create-national-market-deal', args); },
     async revertDealField(args) { return write('revert-deal-field', args); },
-    async readDocActivity(args = {}, { signal } = {}) { return rpc('read-doc-activity', args, signal); },
   };
   return opts.docContext === false ? client : observeDocClient(client);
 }

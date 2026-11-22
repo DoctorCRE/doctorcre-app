@@ -142,7 +142,7 @@ export function readableValue(field, value, options = {}) {
  * board's business. Everything on the receipt traces to the event: no deal,
  * actor, field, or value is inferred.
  */
-export function normalizeChangeEvent(event, options = {}) {
+function normalizeChangeEvent(event, options = {}) {
   if (!event || typeof event !== 'object') return null;
   const eventId = typeof event.id === 'string' ? event.id : '';
   const dealId = typeof event.subject_id === 'string' ? event.subject_id : '';
@@ -253,7 +253,7 @@ export function newestFirst(rows, instantOf) {
  * event id — the server's own tie-break, reversed. A timestamp that cannot be
  * placed sorts last rather than being guessed at.
  */
-export function compareReceipts(a, b) {
+function compareReceipts(a, b) {
   const order = compareInstants(a?.recorded_at, b?.recorded_at);
   if (order) return order;
   const ai = String(a?.event_id || '');
@@ -415,7 +415,7 @@ function declineOutcome(code, hint) {
  *               automatically, and the control stays available so a person can
  *               deliberately re-send under the SAME idempotency key.
  */
-export function classifyUndoOutcome({ response = null, error = null } = {}) {
+function classifyUndoOutcome({ response = null, error = null } = {}) {
   if (error) {
     const code = error?.payload?.error || null;
     if (code === 'offline') return { status: 'unknown', code, message: UNKNOWN_MESSAGE.offline };

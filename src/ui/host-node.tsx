@@ -1,7 +1,6 @@
-import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
 import { NodeHost } from "./node-host";
-export { mountAskComposer } from './ask-composer';
 
 // Puts a React-managed container where `node` stands and moves the node into
 // it before returning. The returned root's unmount() restores the page.

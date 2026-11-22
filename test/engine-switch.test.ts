@@ -2650,7 +2650,6 @@ test("every live client mutation is routed, refused, or accounted for after cuto
       "close-investigation",
       "accept-ready-plan-amendment",
       "approve-retrieval-proposals",
-      "answer-board-question",
     ].map((verb) => [verb, "Control Room work stays in CARR. Calendar answers are checked separately."] as const),
     ...[
       "decide-doc-suggestion",
@@ -2693,7 +2692,10 @@ test("every live client mutation is routed, refused, or accounted for after cuto
       const f = fixture(switches);
       const body = call(name);
       const response = await f.send(body);
-      if (keep.has(name) || outside.has(name)) {
+      if (name === "answer-board-question") {
+        assert.equal(response.status, 404);
+        assert.deepEqual(f.carr, []);
+      } else if (keep.has(name) || outside.has(name)) {
         assert.equal(await response.text(), "old", name);
         assert.deepEqual(f.carr, [JSON.stringify(body)], outside.get(name) ?? name);
       } else {

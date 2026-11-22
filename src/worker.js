@@ -1,16 +1,32 @@
 import carrSchema from "../contracts/carr-interface.v1/schema.json" with { type: "json" };
 import carrVersion from "../contracts/carr-interface.v1/version.json" with { type: "json" };
-import { routeContract, routeKey, actionLinkRoute } from "../js/routes.js";
-import { BOARD_ROUTE, boardIdFromPath, legacyBoardDestination } from '../js/progress-board-route.js';
+import { routeContract, routeKey, actionLinkRoute, isRetiredPage } from "../js/routes.js";
 import { isEngineDealDetail } from '../js/local-deals-model.js';
 
 const APP_ROUTES = new Map(Object.entries(routeContract.routes));
 const REDIRECTS = new Map(Object.entries(routeContract.redirects || {}));
 const PROXY_EXACT = new Set([
-  "/mcp", "/pipeline/changes", "/api/call-context", "/api/post-call",
-  "/api/room/turns", "/api/room/turn", "/api/room/queue",
+  "/mcp", "/pipeline/changes", "/api/call-context", "/api/post-call", "/api/system-work/session",
 ]);
-const PROXY_PREFIXES = ["/auth/", "/api/v1/", "/api/system-work/", "/api/tours/", "/api/post-call/"];
+const PROXY_PREFIXES = ["/auth/", "/api/v1/", "/api/tours/", "/api/post-call/"];
+const RETIRED_API = /^\/api\/v1\/(atlas-graph|work-inventory)(?:\/|$)/;
+const RETIRED_MCP_TOOLS = new Set([
+  "engineering-passport", "read-portfolio", "work-request-card", "unfinished-work",
+  "current-work-item", "current-work-requests", "decline-work-request", "supersede-work-request",
+  "set-work-shape-disposition", "report-problem", "review-and-triage", "answer-work-request-for-joe",
+  "complete-work-request", "append-work-request-scope", "propose-ready-plan", "accept-ready-plan",
+  "accept-ready-plan-amendment", "propose-outcome-feedback", "accept-outcome-feedback",
+  "incident-board", "get-incident", "link-incident-work-request", "triage-incident",
+  "read-resource-dashboard", "governance-queue", "schedule-board", "read-session-identity",
+  "list-my-codex-sessions", "read-dispatch-history", "read-room-queue", "read-room", "add-room-turn",
+  "list-progress-boards", "read-progress-board", "work-queue", "answer-board-question",
+  "approve-retrieval-proposals", "confirm-slice-completions", "cancel-capability-session",
+  "cancel-workflow-cutover-plan", "advance-workflow-cutover-stage", "close-investigation",
+  "loop-board", "read-loop", "loop-headers", "add-loop", "update-loop", "close-loop",
+  "list-industry-events", "add-industry-event", "update-industry-event", "read-doc-activity", "read-doc-outcome-cards",
+  "list-feature-switches", "list-doc-suggestions", "decide-doc-suggestion", "propose-doc-correction",
+  "submit-doc-request", "morning-brief-queue", "morning-assurance-queue",
+]);
 const STATIC_EXACT = new Map([
   ["/share-intake.html", "/share-intake.html"],
   ["/artifact-manifest.json", "/artifact-manifest.json"],
@@ -23,17 +39,14 @@ const STATIC_PREFIXES = ["/css/", "/data/", "/js/", "/public-shell/", "/tours/"]
 const STAGING_ORIGIN = 'https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev';
 const STAGING_REPORT_ASSETS = new Set(['/share.css', '/share.js', '/share-bootstrap.js',
   ...['maplibre-gl.mjs', 'maplibre-gl-shared.mjs', 'maplibre-gl-worker.mjs', 'maplibre-gl.css'].map(file => `/vendor/maplibre-gl-6.4.1/${file}`)]);
-// V5-UX-C15: the one page route served AHEAD of the CARR gate. Every other app
-// page is gated, so a CARR outage takes the Control Room with it and the gated
-// page cannot be its own fallback (CR-AC-26). This page reads nothing from CARR
-// on the server side; what it can and cannot say is decided in the browser.
+// Status stays reachable during a sign-in outage.
 const UNGATED_PAGES = new Set(["/status"]);
 // Each slice chooses an admitted CARR page gate through its route fragment.
 // Authentication and authorization remain entirely in the producer.
 const GATE_PATHS = new Map(Object.entries(routeContract.gatePaths));
 const WORKSPACE_GATES = new Set([
-  '/business', '/clients', '/vendors', '/work-inventory', '/tasks',
-  '/control-room', '/incidents', '/notifications', '/conversations',
+  '/business', '/clients', '/vendors',
+  '/control-room', '/notifications', '/conversations',
 ]);
 const PARTNER_HEADERS = ['accept', 'content-type', 'content-length', 'origin',
   'sec-fetch-site', 'x-carr-csrf', 'x-correlation-id', 'user-agent'];
@@ -41,7 +54,7 @@ const PARTNER_SESSION_COOKIE = '__Host-doctorcre_session=';
 const PARTNER_OAUTH_STATE_COOKIE = '__Host-doctorcre_oauth_state=';
 
 function gateRequestFor(request, pathname) {
-  const gatePath = GATE_PATHS.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
+  const gatePath = GATE_PATHS.get(routeKey(actionLinkRoute(pathname)));
   if (!gatePath || gatePath === pathname) return request;
   const url = new URL(request.url);
   url.pathname = gatePath;
@@ -322,6 +335,8 @@ const ENGINE_READS = new Map([
   ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {} }],
 ]);
 const BUSINESS_GET = /^(\/api\/v1\/business\/[a-z]+)(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
+
+const isCalendarAnswer = (verb, args) => verb === 'answer-board-question' && args?.board_id === 'calendar-agenda';
 
 async function mcpCall(request, url) {
   if (request.method !== 'POST' || url.pathname !== '/mcp') return null;
@@ -904,7 +919,7 @@ async function refuseFrozenSave(request, env, url, call) {
     if (wrapped && isString(args)) {
       try { args = JSON.parse(args); } catch { args = null; }
     }
-    const calendarAnswer = (verb === 'answer-board-question' && args?.board_id === 'calendar-agenda') ||
+    const calendarAnswer = isCalendarAnswer(verb, args) ||
       (verb === 'log-activity' && args?.kind === 'meeting' && Object.hasOwn(args, 'calendar_event_key'));
     if (calendarAnswer && await routeToEngine(env, HOME))
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and answer the question in Today.');
@@ -1022,13 +1037,11 @@ async function handleRequest(request, env) {
   const url = new URL(request.url);
   const pathname = url.pathname;
   const staging = env?.APP_ENV === 'staging' && url.origin === STAGING_ORIGIN;
-  const boardDestination = legacyBoardDestination(url);
-  if (boardDestination) {
+  if (isRetiredPage(pathname)) {
     if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
-    const gate = await pageGate(request, env, gateRequestFor(request, BOARD_ROUTE));
-    if (gate.status !== 200) return gate;
-    return gatedResponse(gate, Response.redirect(boardDestination, 308), env);
+    return Response.redirect(new URL('/', url), 308);
   }
+  if (RETIRED_API.test(pathname)) return json({ error: 'not_found' }, 404);
   if (pathname === "/app-release") return request.method === "GET" ? release(env) : json({ error: "method_not_allowed" }, 405);
   if (pathname === '/share' && staging) {
     if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
@@ -1069,7 +1082,7 @@ async function handleRequest(request, env) {
     : reviewView ? 'monday-review.html'
     : dealView === 'national' ? "index.html"
     : pathname === "/" && url.searchParams.get("view") === "charts" ? "charts.html"
-    : APP_ROUTES.get(boardIdFromPath(pathname) ? BOARD_ROUTE : route);
+    : APP_ROUTES.get(route);
   if (routeAsset) {
     if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method_not_allowed" }, 405);
     const gate = await pageGate(request, env, engineChat ? request : gateRequestFor(request, pathname));
@@ -1197,6 +1210,9 @@ async function handleRequest(request, env) {
   }
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     const call = await mcpCall(request, url);
+    if (call?.method === 'tools/call' && RETIRED_MCP_TOOLS.has(call.params?.name) &&
+        !isCalendarAnswer(call.params.name, call.params.arguments))
+      return json({ error: 'not_found' }, 404);
     const engine = await engineSave(request, env, call) ?? await engineResponse(request, env, call);
     if (engine) return engine;
     if (call?.method === 'tools/call' && call.params?.name === 'find-and-catch-up' && isObject(call.params.arguments) && Object.hasOwn(call.params.arguments, 'ref')) {

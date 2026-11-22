@@ -28,71 +28,6 @@ import { routeContract } from "../js/routes.js";
 const HOST = "doctorcre-app-staging.joe-bookout-carr-us.workers.dev";
 const request = (path, init) => new Request(`https://${HOST}${path}`, init);
 
-test('legacy progress pages require sign-in before redirecting to the board', async () => {
-  const carr = { fetch: async value => {
-    assert.equal(new URL(value.url).pathname, '/control-room');
-    return value.headers.has('cookie')
-      ? new Response(null, { headers: { 'set-cookie': '__Host-dealroom_session=fresh' } })
-      : new Response(null, { status: 302, headers: { location: request('/auth/login?return_to=%2Fcontrol-room%2Fprogress').url } });
-  } };
-  for (const path of ['/control-room/progress', '/progress-board', '/progress-board.html?board=old&mode=live']) {
-    const signedOut = await handleDoctorcreRequest(request(path), environment({ carr }));
-    assert.equal(signedOut.status, 302, path);
-    const login = new URL(signedOut.headers.get('location'));
-    assert.equal(login.pathname, '/auth/login');
-    assert.equal(login.searchParams.get('return_to'), path);
-    const signedIn = await handleDoctorcreRequest(request(path, { headers: { cookie: '__Host-dealroom_session=opaque' } }), environment({ carr }));
-    assert.equal(signedIn.status, 308);
-    const board = new URL(signedIn.headers.get('location'));
-    assert.equal(board.pathname, '/control-room/progress/board/carr-v5');
-    assert.equal(board.search, path.includes('?') ? '?mode=live' : '');
-    assert.equal(signedIn.headers.get('set-cookie'), '__Host-dealroom_session=fresh');
-  }
-});
-
-test('old Observatory links lead to Home', async () => {
-  const env = environment({ carr: { fetch: async () => new Response('Old page') } });
-  for (const path of ['/control-room/observatory?thread=fixture-thread', '/observatory.html']) {
-    const response = await handleDoctorcreRequest(request(path), env);
-    assert.equal(response.status, 308, path);
-    assert.equal(new URL(response.headers.get('location')).pathname, '/', path);
-  }
-});
-
-test('room history no longer uses the app proxy while the remaining room routes still do', async () => {
-  const forwarded = [];
-  const env = environment({ carr: { fetch: async value => {
-    forwarded.push(new URL(value.url).pathname);
-    return new Response('Room response');
-  } } });
-  const removed = await handleDoctorcreRequest(request('/api/room/latest?limit=1'), env);
-  assert.equal(removed.status, 404);
-  for (const path of ['/api/room/turns', '/api/room/turn', '/api/room/queue']) {
-    const response = await handleDoctorcreRequest(request(path), env);
-    assert.equal(await response.text(), 'Room response');
-  }
-  assert.deepEqual(forwarded, ['/api/room/turns', '/api/room/turn', '/api/room/queue']);
-});
-
-test("Doc activity uses an admitted gate and restores signed-out return-to", async () => {
-  let forwarded;
-  const carr = { fetch: async value => {
-    forwarded = value;
-    if (new URL(value.url).pathname !== "/control-room") return new Response("OAuth/API fallback", { status: 404 });
-    return value.headers.has("cookie") ? new Response(null, { headers: { "set-cookie": "__Host-dealroom_session=fresh" } })
-      : new Response(null, { status: 302, headers: { location: `https://${HOST}/auth/login?return_to=%2Fcontrol-room` } });
-  } };
-  const signedIn = await handleDoctorcreRequest(request("/doc-activity?partner=dell", { headers: { cookie: "__Host-dealroom_session=opaque" } }), environment({ carr }));
-  assert.equal(signedIn.status, 200);
-  assert.equal(await signedIn.text(), "asset:/activity.html");
-  assert.equal(new URL(forwarded.url).search, "");
-  assert.equal(forwarded.headers.get("cookie"), "__Host-dealroom_session=opaque");
-  assert.equal(signedIn.headers.get("set-cookie"), "__Host-dealroom_session=fresh");
-  const signedOut = await handleDoctorcreRequest(request("/doc-activity?partner=dell"), environment({ carr }));
-  assert.equal(signedOut.status, 302);
-  assert.equal(new URL(signedOut.headers.get("location")).searchParams.get("return_to"), "/doc-activity?partner=dell");
-});
-
 test('Invoices use an admitted gate and restore the original sign-in deep link', async () => {
   for (const outcome of [200, 302, 403]) {
     let forwarded, assets = 0;
@@ -193,52 +128,6 @@ test("the independent status page is served without a CARR call", async () => {
 // V5-UX-C14: the incident page is an ordinary GATED page. It is served through
 // the normal APP_ROUTES branch, so a signed-out request reaches the CARR gate
 // exactly as /control-room does; nothing about it is ungated.
-test("the incident page is served on the gated route", async () => {
-  let carrCalls = 0;
-  const env = environment({ carr: { fetch: async () => { carrCalls += 1; return new Response(); } } });
-  assert.equal(await (await handleDoctorcreRequest(request("/incidents"), env)).text(), "asset:/incidents.html");
-  assert.equal(carrCalls, 1, "the incident page goes through the CARR gate");
-  assert.equal((await handleDoctorcreRequest(request("/incidents", { method: "POST" }), env)).status, 405);
-});
-
-test("retired design prototypes redirect to gated Design Lab references", async () => {
-  const forwarded = [];
-  const env = environment({ carr: { fetch: async (value) => { forwarded.push(value); return new Response(); } } });
-  const legacy = await handleDoctorcreRequest(request("/design/operations?tab=atlas"), env);
-  assert.equal(legacy.status, 308);
-  assert.equal(new URL(legacy.headers.get("location")).pathname, "/design-lab");
-  assert.equal(new URL(legacy.headers.get("location")).searchParams.get("reference"), "operations");
-  assert.equal(await (await handleDoctorcreRequest(request("/design-lab?reference=operations", { headers: { cookie: "__Host-dealroom_session=opaque" } }), env)).text(), "asset:/design.html");
-  assert.equal(forwarded.length, 1, "the new reference page consults the CARR gate");
-  for (const value of forwarded) assert.equal(new URL(value.url).pathname, "/control-room");
-  assert.equal(new URL(forwarded[0].url).search, "");
-  assert.equal(forwarded[0].headers.get("cookie"), "__Host-dealroom_session=opaque");
-  const signedOut = await handleDoctorcreRequest(request("/design-lab?reference=operations"), environment({
-    carr: { fetch: async () => new Response(null, { status: 302, headers: { location: `https://${HOST}/auth/login` } }) },
-  }));
-  assert.equal(signedOut.status, 302);
-  // /designer is not a prototype path and must not borrow the Control Room gate.
-  let other;
-  await handleDoctorcreRequest(request("/leads"), environment({ carr: { fetch: async (value) => { other = value; return new Response(); } } }));
-  assert.equal(new URL(other.url).pathname, "/leads");
-});
-
-test("Ideas and Events use the admitted Control Room sign-in gate", async () => {
-  let forwarded;
-  const signedIn = await handleDoctorcreRequest(request("/ideas-events?tab=events", {
-    headers: { cookie: "__Host-dealroom_session=opaque" },
-  }), environment({ carr: { fetch: async (value) => { forwarded = value; return new Response(); } } }));
-  assert.equal(await signedIn.text(), "asset:/ideas.html");
-  assert.equal(new URL(forwarded.url).pathname, "/control-room");
-  assert.equal(new URL(forwarded.url).search, "");
-  assert.equal(forwarded.headers.get("cookie"), "__Host-dealroom_session=opaque");
-
-  const signedOut = await handleDoctorcreRequest(request("/ideas-events?tab=events"), environment({
-    carr: { fetch: async () => new Response(null, { status: 302, headers: { location: `https://${HOST}/auth/login` } }) },
-  }));
-  assert.equal(signedOut.status, 302);
-});
-
 test("lease radar uses the admitted Business gate and preserves the sign-in return path", async () => {
   let forwarded;
   const response = await handleDoctorcreRequest(request("/leases?quarter=2027-Q1", {
@@ -272,19 +161,6 @@ test("lease projection proxies the authenticated GET and CARR refusal unchanged"
   assert.deepEqual(await response.json(), { error: "unauthorized" });
 });
 
-test("signed-out Ideas Events visits return to the requested path and query", async () => {
-  const response = await handleDoctorcreRequest(request("/ideas-events?tab=events"), environment({
-    carr: { fetch: async () => new Response(null, {
-      status: 302,
-      headers: { location: `https://${HOST}/auth/login?return_to=%2Fcontrol-room` },
-    }) },
-  }));
-
-  assert.equal(response.status, 302);
-  assert.equal(response.headers.get("location"),
-    `https://${HOST}/auth/login?return_to=%2Fideas-events%3Ftab%3Devents`);
-});
-
 test("share links remain on the isolated reports host and release identity is explicit", async () => {
   const prod = environment(); prod.APP_ENV = 'production';
   const share = await handleDoctorcreRequest(request("/share?tour=T-1"), prod);
@@ -316,30 +192,6 @@ test('staging report stays signed in on the staging origin; production keeps its
   assert.equal((await handleDoctorcreRequest(request('/share.js'), env)).status, 404);
 });
 
-
-test("retired Work deep links redirect to Home and retain their query", async () => {
-  let carrCalls = 0;
-  const env = environment({ carr: { fetch: async () => { carrCalls++; return new Response(); } } });
-  for (const path of ["/tasks", "/work", "/tasks.html"]) {
-    const response = await handleDoctorcreRequest(request(`${path}?ref=synthetic-work&actor=dell`), env);
-    assert.equal(response.status, 308);
-    const destination = new URL(response.headers.get("location"));
-    assert.equal(destination.pathname, "/");
-    assert.equal(destination.search, "?ref=synthetic-work&actor=dell");
-  }
-  assert.equal(carrCalls, 0, "redirects have no business effect");
-});
-
-test('retired automation pages redirect to the Control Room tab without source reads', async () => {
-  for (const path of ['/control-room/automations', '/automations.html']) {
-    const response = await handleDoctorcreRequest(request(`${path}?mode=live&tab=boards`), environment());
-    assert.equal(response.status, 308);
-    const destination = new URL(response.headers.get('location'), `https://${HOST}`);
-    assert.equal(destination.pathname, '/control-room');
-    assert.equal(destination.searchParams.get('tab'), 'automations');
-    assert.equal(destination.searchParams.get('mode'), 'live');
-  }
-});
 
 test("app failures retain the generic response without invoking an unsupported sink", async () => {
   let captures = 0;

@@ -108,7 +108,6 @@
  * @property {(queue:'today'|'loops'|'needs_joe'|'assurance_cadence',args?:{cursor?:string,signal?:AbortSignal}) => Promise<Object>} morningBriefQueue authenticated stable queue page, no audience argument
  * @property {'fixture'|'live'} mode
  * @property {Actor} selfActor
- * @property {(args?:Object, options?:{signal?:AbortSignal}) => Promise<Object>} readDocActivity authenticated doc-activity.v1 projection
  * @property {(args?:{limit?:number,before_id?:string,signal?:AbortSignal}) => Promise<Object>} listPracticeOrigination read-only practice-origination.v1, current relationship routes and source coverage
  * @property {(args?:{signal?:AbortSignal}) => Promise<Object>} getHomeAgenda bounded home-agenda.v1 snapshot with dates and open actions
  * @property {(args?:{signal?:AbortSignal}) => Promise<Object>} getPostCallFollowups pending post-call-followups.v1 metadata; email bodies remain local
@@ -150,9 +149,6 @@
  * @property {(args:{dataset:'clients'|'vendors', id:string}) => Promise<{record:Object}>} [getPartyRecord] the pinned `/api/v1/business/{dataset}/<id>` single-record read (V5-UX-B04); `id` is that record's own uuid, never a participant's party_id
  * @property {(args:{query?:string, limit?:number, include_closed?:boolean}) => Promise<SessionIdentityResponse>} sessionIdentity
  * @property {(args:{session_id:string, cursor?:string, limit?:number}) => Promise<DispatchHistoryResponse>} dispatchHistory
- * @property {(args:{room?:string}) => Promise<RoomQueueResponse>} roomQueue the assignment projection for one room; the room is a constant in js/model-room-model.js and is never the tab's own name
- * @property {(args:{room?:string, after_seq?:number, limit?:number}) => Promise<RoomTurnsResponse>} roomTurns room turns exactly as written; `body` is untrusted prose and is never parsed
- * @property {() => Promise<{ok:boolean, items:Object[]}>} currentWorkRequests the shared Work Request queue; V5-UX-C13a's topic/work-item picker and the "Waiting for Joe" card share this one read
  * @property {() => Promise<{ok:boolean, pending_rule_approvals:Object[], pending_guidance_import_batches:Object[], pending_retrieval_proposals:Object[], counts:Object}>} governanceQueue every pending governance decision (V5-UX-C14's approvals card); read-only, grants no authority
  * @property {(args:{work_request:string}) => Promise<Object>} workRequestCard one Work Request card, live or withdrawn; V5-UX-C13a reads it for a work item's ledger history and the enriched "Waiting for Joe" fields
  * @property {(args:{conversation_id:string, after_sequence?:number, limit?:number}) => Promise<DocConversation>} readDocConversation
@@ -160,7 +156,6 @@
  * @property {(args:{idempotency_key:string, title:string, visibility?:'private'|'shared'}) => Promise<{ok:true, conversation_id:string}>} createDocConversation
  * @property {(args:{idempotency_key:string, conversation_id:string, base_version:number, title?:string, pinned?:boolean, archived?:boolean}) => Promise<{ok:true, version:number}>} renameDocConversation
  * @property {(args:{idempotency_key:string, conversation_id:string, grantee_slug:string, granted:boolean}) => Promise<{ok:true, already:boolean, granted:boolean}>} shareDocConversation
- * @property {(args:{cursor?:string, limit?:number}) => Promise<DocOutcomeCardsResponse>} docOutcomeCards actor- and tenant-scoped, page-atomic outcome cards (V5-UX-B09); the producer never launches a native task, and `session_entry.auto_launch` is always `false`
  *
  * The projection `read-doc-outcome-cards` returns (schema `doc-outcome-cards.v2`,
  * mcp-server/src/tools.js `docOutcomeCardsProjection`). Every card carries its

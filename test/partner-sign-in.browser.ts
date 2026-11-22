@@ -98,7 +98,7 @@ const clientFit = {
     },
   ],
 };
-const pages = ["/invoices?mode=live", "/control-room/progress?mode=live", "/pipeline?mode=live"];
+const pages = ["/invoices?mode=live", "/doc-chats?mode=live", "/pipeline?mode=live"];
 const artifacts = "out/test-artifacts/partner-sign-in";
 let assets: ReturnType<typeof appAssetSnapshot> | undefined;
 let browser: ReturnType<typeof chromium.launch> | undefined;
@@ -2322,3 +2322,20 @@ test("an uncertain call decision keeps its key after leaving and reopening the d
   assert.equal(writes.length, 2);
   assert.deepEqual(writes[1], writes[0]);
 });
+
+for (const signIn of ["engine", "carr"] as const) {
+  test(`${signIn} sign-in opens retired bookmarks on Home and keeps business pages reachable`, async (t) => {
+    const { server, context } = await app(t, { signIn, switchDay: signIn === "carr" });
+    const page = await context.newPage();
+    const paths = ["/work-requests?work_request=WR-000042", "/control-room/progress/board/example", "/doc-activity"];
+    for (const path of paths) {
+      assert.equal((await page.goto(server.origin + path))?.status(), 200);
+      assert.equal(new URL(page.url()).pathname, "/");
+    }
+    for (const path of ["/", "/deals", "/leads", "/vendors", "/clients", "/calendar", "/invoices", "/doc-chats"]) {
+      assert.equal((await page.goto(server.origin + path))?.status(), 200, path);
+      await page.locator("main").first().waitFor({ state: "attached" });
+      assert.equal(await page.locator("#docPresence, a[href='/doc-activity'], a[href^='/ideas-events']").count(), 0);
+    }
+  });
+}

@@ -118,12 +118,7 @@ test("W16 desktop and phone renders: reachable capture, wide Details, full width
     const bottom = width <= 760 ? (await page.locator('#appShell').boundingBox()).y : page.viewportSize().height;
     assert.ok(record.width >= 140 && record.height >= 60 && record.y + record.height < bottom,
       JSON.stringify({record,bottom,width}));
-    const dock = await page.locator('.capture-dock').boundingBox();
-    const docPresence = await page.locator(width <= 760 ? '#selfAvatar' : '#docPresence').boundingBox();
-    assert.ok(dock.x + dock.width <= docPresence.x || docPresence.x + docPresence.width <= dock.x ||
-      dock.y + dock.height <= docPresence.y || docPresence.y + docPresence.height <= dock.y,
-      `Capture and Morning brief must not overlap: ${JSON.stringify({ dock, docPresence, width })}`);
-    for (const id of ['day-record', 'day-previous', 'day-next', width <= 760 ? 'selfAvatar' : 'docOpen']) assert.equal(await page.locator('#' + id).evaluate(button => {
+    for (const id of ['day-record', 'day-previous', 'day-next', 'selfAvatar']) assert.equal(await page.locator('#' + id).evaluate(button => {
       const rect = button.getBoundingClientRect();
       return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
     }), true, `The shared shell must leave ${id} reachable`);

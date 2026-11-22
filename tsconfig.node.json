@@ -25,9 +25,7 @@
       ],
       "/js/ui-deal-tours.generated.js": [
         "./src/ui/deal-tours.tsx"
-      ],
-      "/js/ui-queue.generated.js": [
-        "./src/ui/brief-queues.tsx"
+
       ]
     },
     "jsx": "react-jsx",

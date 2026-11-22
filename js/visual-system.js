@@ -312,3 +312,10 @@ export function readTokens(css, selector) {
   for (const match of css.slice(open + 1, close).matchAll(/--([a-z0-9-]+)\s*:\s*([^;]+);/gi)) tokens[`--${match[1]}`] = match[2].trim();
   return tokens;
 }
+
+export function partnerName(slug) {
+  const value = String(slug || "").toLowerCase();
+  if (value === "joe") return "Joe";
+  if (value === "dell") return "Dell";
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+}

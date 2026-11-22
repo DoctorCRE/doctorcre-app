@@ -130,6 +130,13 @@ the app release adds the binding. In engine mode, keep
 environment until the old gate is removed. See the
 [partner sign-in cutover plan](https://github.com/DoctorCRE/doctorcre-engine/blob/main/docs/sign-in.md#switch-after-hours-with-advance-notice).
 
+Old engineering, Ideas, Events, and Doc Work or Activity bookmarks open Home.
+The app closes the matching CARR HTTP and MCP calls. CARR's own MCP endpoint
+still handles work requests and board answers. The app keeps the CARR session
+read for partner sign-in and the Calendar dismissal call for the legacy Home
+fallback. With CARR sign-in, Doc Chats serves existing conversations. New
+Ask Doc turns use PartnerApp with engine sign-in.
+
 In engine sign-in mode, PartnerApp serves the Deals board, deal detail, deal
 saves, board polling, client and vendor context, the national capture queue, and
 call recorder context regardless of the legacy routing switches. The app blocks

@@ -61,7 +61,7 @@ test("the shared navigation has one stable set of destinations, including every 
     assert.deepEqual(labels, expected, `${route}: same order and items`);
     assert.doesNotMatch(html, />Agent (?:Room|Queue)<\/a>/);
     const current = navigationItems.some(item => item.href === activeDestination(route))
-      || ["/search", "/doc-activity", "/doc-chats"].includes(route);
+      || ["/search", "/doc-chats"].includes(route);
     assert.equal((html.match(/aria-current="page"/g) || []).length, Number(current), `${route}: current when present in navigation`);
   }
 });
@@ -73,13 +73,6 @@ test("Deals has one global Deals link and local views are labelled as views", ()
   assert.match(html, /data-workspace="team"[^>]*>Local Deals<\/button>/);
   assert.match(html, /data-workspace="national_account"[^>]*>National Accounts<\/button>/);
   assert.match(html, /href="\/deals\?view=board">Board<\/a>/);
-});
-
-test("the task board belongs to Progress work detail", () => {
-  const room = readFileSync(new URL("progress-work.html", root), "utf8");
-  assert.match(room, /id="workTasks"/);
-  assert.match(room, /id="queueColumns"/);
-  assert.match(room, /src="\/js\/queue\.js"/);
 });
 
 test("public report navigation uses its sibling app origin", async () => {
