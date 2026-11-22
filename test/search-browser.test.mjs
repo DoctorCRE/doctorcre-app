@@ -306,3 +306,37 @@ test('Back restores typing when leaving before the search debounce', async t => 
   assert.equal(await page.evaluate(() => history.length), historyLength + 1);
   await page.waitForFunction(() => document.querySelector('#searchResults')?.getAttribute('aria-busy') === 'false');
 });
+
+test('Search keeps typing entered while the page loads', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  let releaseModule;
+  const moduleReady = new Promise(resolve => { releaseModule = resolve; });
+  t.after(() => releaseModule());
+  let moduleRequested;
+  const requested = new Promise(resolve => { moduleRequested = resolve; });
+  await page.route('**/js/search.js', async route => {
+    moduleRequested();
+    await moduleReady;
+    await route.continue();
+  });
+  const queries = [];
+  await page.route('**/mcp', route => {
+    const { id, params } = route.request().postDataJSON();
+    if (params.name === 'find') queries.push(params.arguments.query);
+    return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ schema_version: 'search.v1', parties: [], deals: [] }) }] } } });
+  });
+  await page.route('**/{auth/session,api/system-work/session}', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  const navigation = page.goto(`${server.origin}/search?mode=live`);
+  await requested;
+  await page.locator('#searchQuery').fill('Demo Dental');
+  releaseModule();
+  await navigation;
+  await page.waitForFunction(() => document.querySelector('#searchState')?.dataset.state === 'no_match');
+  assert.equal(await page.locator('#searchQuery').inputValue(), 'Demo Dental');
+  assert.deepEqual(queries, ['Demo Dental']);
+  assert.equal(new URL(page.url()).searchParams.get('q'), 'Demo Dental');
+});

@@ -262,8 +262,14 @@ export function mountSearch({ client: searchClient, storage: storageImpl } = {})
   }, {once:true});
   renderSavedViews();
   $("savedViewNote").textContent = SAVED_VIEW_SENTENCE;
+  const typedQuery = $("searchQuery")?.value ?? "";
   wire();
-  const address = restoreFromAddress({ reread: true });
+  const address = restoreFromAddress({ reread: !typedQuery });
+  if (typedQuery) {
+    view.query = typedQuery;
+    replaceAddress();
+    read({ push: false });
+  }
   mountAutoRefresh({ document, window: globalThis.window, refresh: ({ signal }) => view.query ? read({ push: false, signal }) : undefined });
   return { view, address };
 }
