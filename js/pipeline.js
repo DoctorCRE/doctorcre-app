@@ -2019,19 +2019,22 @@ function paintPanel(detail) {
   const toursParams = new URLSearchParams(location.search);
   const linkedProperty = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;
   const property = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(linkedProperty ?? '') ? linkedProperty : null;
-  const engineProperty = engineMode && property ? detail.properties?.find(({ id }) => id === property.toLowerCase()) : null;
-  const carrProperty = engineMode ? null : property;
   const planTours = dealToursFromEngine();
   const propertyRead = new AbortController();
   let toursDisposed = false, toursLoading = false, toursMounted;
-  dealToursPanel = engineMode && !planTours && !engineProperty ? null : {
+  dealToursPanel = engineMode && !planTours && !property ? null : {
     async load() {
       if (toursDisposed || toursLoading || toursMounted) return;
       toursLoading = true;
       const root = $('workspace-tours');
       root.textContent = 'Loading tours…';
       const toursUrl = `/deals?deal=${encodeURIComponent(detail.deal.id)}&tab=tours`;
-      if (engineProperty) {
+      if (engineMode && property) {
+        const engineProperty = detail.properties?.find(({ id }) => id === property.toLowerCase());
+        if (!engineProperty) {
+          root.innerHTML = '<p>This property is no longer on this deal.</p>';
+          return;
+        }
         const { name, address } = engineProperty;
         root.innerHTML = `<section aria-label="Property from tour feedback">
           <h2 tabindex="-1">${esc(name || address)}</h2>
@@ -2041,11 +2044,11 @@ function paintPanel(detail) {
         root.querySelector('h2').focus();
         return;
       }
-      if (carrProperty) {
+      if (property) {
         root.innerHTML = `<section aria-label="Property from tour feedback"><h2 tabindex="-1">Property from tour feedback</h2><p role="status">Loading property…</p><a href="${esc(toursUrl)}">See deal tours</a></section>`;
         const section = root.firstElementChild;
         section.querySelector('h2').focus();
-        const params = new URLSearchParams({ property_id: carrProperty, as_of: new Date().toISOString() });
+        const params = new URLSearchParams({ property_id: property, as_of: new Date().toISOString() });
         try {
           const [{ propertyPanelView }, { data }] = await Promise.all([
             import('../tours/property-panel.js'),
@@ -2056,7 +2059,7 @@ function paintPanel(detail) {
             }, { signal: propertyRead.signal }),
           ]);
           if (toursDisposed) return;
-          if (data?.schema !== 'tour-property-evidence.v1' || data.property_id !== carrProperty) throw Error('Property unavailable');
+          if (data?.schema !== 'tour-property-evidence.v1' || data.property_id !== property) throw Error('Property unavailable');
           const facts = propertyPanelView(data).filter(fact => fact.status === 'reviewed');
           section.querySelector('[role="status"]').remove();
           section.insertAdjacentHTML('beforeend', facts.length

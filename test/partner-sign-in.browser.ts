@@ -289,7 +289,7 @@ async function app(
             primary_action: "Review feedback",
             deal_id: dealId,
             property_id: clinic.id,
-            open_url: `/deals?deal=${dealId}&property=${clinic.id}`,
+            open_url: `/deals?mode=live&deal=${dealId}&property=${clinic.id}`,
             suggestions: [],
             filing_choices: [],
           };
@@ -748,34 +748,36 @@ const preview = "November 24, 2026\n\n1. Example Clinic, 10 Example Way\n2. 30 E
 const clinic = { id: first, name: "Example Clinic", address: "10 Example Way" };
 const annex = { id: second, name: null, address: "20 Example Way" };
 
+async function followTourFeedbackLink(page: Page, origin: string, engineTours = false) {
+  page.setDefaultTimeout(5000);
+  const evidenceRequests: string[] = [];
+  page.on("request", (request) => {
+    const { pathname } = new URL(request.url());
+    if (pathname.startsWith("/api/tours/property-evidence")) evidenceRequests.push(pathname);
+  });
+  if (engineTours) {
+    await page.route(origin + tours, (route) => route.fulfill({ json: { tours: [] } }));
+    await page.route("**/deals?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.text()).replace("<html", "<html data-deal-tours-from-engine");
+      await route.fulfill({ response, body });
+    });
+  }
+  await page.goto(`${origin}/?mode=live`);
+  await page.getByRole("button", { name: "Review feedback", exact: true }).click();
+  const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
+  await card.getByText(feedbackText, { exact: true }).waitFor();
+  await card.getByRole("link", { name: "Open property", exact: true }).click();
+  return evidenceRequests;
+}
+
 test("engine sign-in opens the linked property from Home and finishes the feedback review", async (t) => {
   const { server, context, partnerReads } = await app(t, {
     tourFeedback: true,
     tourDeal: () => ({ properties: [annex, clinic] }),
   });
   const page = await context.newPage();
-  page.setDefaultTimeout(5000);
-  await page.route(
-    (url) => url.pathname === "/deals" && !url.searchParams.has("mode"),
-    (route) => {
-      const url = new URL(route.request().url());
-      url.searchParams.set("mode", "live");
-      return route.fulfill({ status: 302, headers: { location: url.href } });
-    },
-  );
-  const evidenceRequests: string[] = [];
-  page.on("request", (request) => {
-    const { pathname } = new URL(request.url());
-    if (pathname.startsWith("/api/tours/property-evidence")) evidenceRequests.push(pathname);
-  });
-
-  const home = `${server.origin}/?mode=live`;
-  await page.goto(home);
-  const review = page.getByRole("button", { name: "Review feedback", exact: true });
-  await review.click();
-  const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
-  await card.getByText(feedbackText, { exact: true }).waitFor();
-  await card.getByRole("link", { name: "Open property", exact: true }).click();
+  const evidenceRequests = await followTourFeedbackLink(page, server.origin);
   const property = page.getByRole("region", { name: "Property from tour feedback" });
   const address = property.getByText(clinic.address, { exact: true });
   await address.or(property.getByText("Property details are unavailable.", { exact: true })).waitFor();
@@ -784,12 +786,40 @@ test("engine sign-in opens the linked property from Home and finishes the feedba
   await property.getByText(clinic.name, { exact: true }).waitFor();
   assert.equal(await property.getByText(annex.address, { exact: true }).count(), 0);
 
-  await page.goto(home);
+  await page.goto(`${server.origin}/?mode=live`);
+  const review = page.getByRole("button", { name: "Review feedback", exact: true });
   await review.click();
+  const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
   await card.getByRole("button", { name: "Done", exact: true }).click();
   await review.waitFor({ state: "detached" });
   assert.equal(partnerReads.has("/api/engine/home/marks"), true);
 });
+
+for (const engineTours of [true, false]) {
+  test(`a missing property from Home opens the deal with engine Tours ${engineTours ? "on" : "off"}`, async (t) => {
+    const { server, context } = await app(t, {
+      tourFeedback: true,
+      tourDeal: () => ({ properties: [annex] }),
+    });
+    const page = await context.newPage();
+    const evidenceRequests = await followTourFeedbackLink(page, server.origin, engineTours);
+    const room = page.getByRole("main", { name: "Deal Workspace" });
+    await room.getByRole("heading", { name: dealName, exact: true }).waitFor();
+    const panel = room.getByRole("tabpanel", { name: "Tours" });
+    const message = "This property is no longer on this deal.";
+    assert.equal(await page.locator("html[data-deal-tours-from-engine]").count(), Number(engineTours));
+    const previousView = engineTours ? "No planned tours." : "Not available yet";
+    await panel
+      .getByText(message, { exact: true })
+      .or(panel.getByText(previousView, { exact: true }))
+      .waitFor();
+    assert.equal(await panel.textContent(), message);
+    assert.deepEqual(evidenceRequests, []);
+
+    await room.getByRole("tab", { name: "Overview", exact: true }).click();
+    await room.getByRole("tabpanel", { name: "Overview" }).waitFor();
+  });
+}
 
 type Stop = { property_id: string } | { address: string; name: string | null };
 type Plan = { planned_on: string; notes: string | null; stops: Stop[] };
