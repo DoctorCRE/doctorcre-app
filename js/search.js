@@ -148,6 +148,7 @@ function replaceAddress() {
  * reads results for that query rather than reusing another query’s payload.
  */
 function restoreFromAddress({ reread = true } = {}) {
+  clearTimeout(idleTimer);
   const address = parseSearchAddress(globalThis.location?.search || "");
   if (view.query !== address.query) view.payload = null;
   view.query = address.query;
@@ -175,10 +176,10 @@ function wire() {
     if (idleTimer) clearTimeout(idleTimer);
     view.payload = null;
     view.status = "idle";
-    if (!view.query.trim()) { read({ push: true }); return; }
+    if (!view.query.trim()) { replaceAddress(); read({ push: false }); return; }
     render();
     // eslint-disable-next-line no-restricted-syntax -- Search keeps one 300ms debounce and cancels its predecessor.
-    idleTimer = setTimeout(() => read({ push: false }), IDLE_REREAD_MS);
+    idleTimer = setTimeout(() => { replaceAddress(); read({ push: false }); }, IDLE_REREAD_MS);
   });
 
   $("searchChips")?.addEventListener("click", (event) => {

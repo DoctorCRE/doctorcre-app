@@ -214,3 +214,62 @@ test('Global Search shows openable records with one count in both themes', async
     });
   }
 });
+
+test('Back restores a typed search and scope, and clearing removes it', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(`${server.origin}/search?mode=fixture`);
+  await page.locator('#searchQuery').fill('Demo');
+  await page.locator('#searchResults a').first().waitFor();
+  assert.equal(new URL(page.url()).searchParams.get('q'), 'Demo');
+  const chip = page.locator('#searchChips [data-chip]').first();
+  await chip.click();
+  const selected = await chip.getAttribute('data-chip');
+  const result = page.locator('#searchResults a').first();
+  const destination = await result.getAttribute('href');
+  await page.route(`**${destination}`, route => route.fulfill({ contentType: 'text/html', body: '<title>Record</title>' }));
+  await result.click();
+  await page.goBack();
+  await page.waitForFunction(() => document.querySelector('#searchQuery')?.value === 'Demo', null, { timeout: 3000 });
+  await page.locator(`#searchChips [data-chip="${selected}"][aria-pressed="false"]`).waitFor();
+  await page.locator('#searchResults a').first().waitFor();
+  await page.locator('#searchQuery').fill('');
+  assert.equal(new URL(page.url()).searchParams.has('q'), false);
+});
+
+test('A late search response cannot restore an earlier query', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  let release;
+  const delayed = new Promise(resolve => { release = resolve; });
+  let finished;
+  const responseFinished = new Promise(resolve => { finished = resolve; });
+  let started;
+  const first = new Promise(resolve => { started = resolve; });
+  await page.route('**/mcp', async route => {
+    const { id, params } = route.request().postDataJSON();
+    if (params.name === 'find' && params.arguments.query === 'Earlier') {
+      started();
+      await delayed;
+    }
+    await route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ schema_version: 'search.v1', parties: [], deals: [] }) }] } } }).catch(() => {});
+    if (params.name === 'find' && params.arguments.query === 'Earlier') finished();
+  });
+  await page.route('**/{auth/session,api/system-work/session}', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  await page.goto(`${server.origin}/search?mode=live`);
+  await page.locator('#searchQuery').fill('Earlier');
+  await first;
+  await page.locator('#searchQuery').fill('');
+  release();
+  await responseFinished;
+  await page.waitForFunction(() => document.querySelector('#searchState')?.dataset.state === 'idle');
+  assert.equal(new URL(page.url()).searchParams.has('q'), false);
+  assert.equal(await page.locator('#searchQuery').inputValue(), '');
+  assert.equal(await page.locator('#searchResults a').count(), 0);
+});
