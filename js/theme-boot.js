@@ -7,6 +7,14 @@
       link.rel = "stylesheet";
     }
   }, true);
+  if (location.pathname === "/search") {
+    document.addEventListener("compositionstart", event => {
+      if (event.target.id === "searchQuery") event.target.dataset.composing = "true";
+    }, true);
+    document.addEventListener("compositionend", event => {
+      if (event.target.id === "searchQuery") delete event.target.dataset.composing;
+    }, true);
+  }
   const root = document.documentElement;
   let theme = "dark", assist = false;
   try {

@@ -260,7 +260,7 @@ test("Dot 11: a blocked second rename cannot replace the retained recovery inten
 
 function searchHarness() {
   const view={query:"Alpha",kinds:[]};const replies=new Map();
-  const globals={view,client:{find:args=>replies.get(args.q)},queryIsSendable:q=>q.trim().length>0,render:noop,pushAddress:noop,searchReads:createCurrentRead(),usesLegacyRelationScope,validSearchRecords,validSearchPayload:()=>true,buildFindArguments:q=>({q}),classifySearchFailure:()=>"unknown",parseSearchAddress:query=>({query:new URLSearchParams(query).get("q")||"",kinds:[],present:true}),location:{search:"?q=Alpha"},history:{pushState:noop,replaceState:noop},searchAddress:()=>""};
+  const globals={view,idleTimer:null,clearTimeout,client:{find:args=>replies.get(args.q)},queryIsSendable:q=>q.trim().length>0,render:noop,pushAddress:noop,searchReads:createCurrentRead(),usesLegacyRelationScope,validSearchRecords,validSearchPayload:()=>true,buildFindArguments:q=>({q}),classifySearchFailure:()=>"unknown",parseSearchAddress:query=>({query:new URLSearchParams(query).get("q")||"",kinds:[],present:true}),location:{search:"?q=Alpha"},history:{pushState:noop,replaceState:noop},searchAddress:()=>""};
   const h=handlers("js/search.js","async function read(","/* ------------------------------------------------------------------ the wiring",globals,["read","restoreFromAddress"]);
   return {h,view,replies};
 }
