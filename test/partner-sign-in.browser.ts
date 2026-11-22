@@ -1724,8 +1724,12 @@ function tourFixture(t: TestContext, planned = false, cancellationGates?: Readon
     };
   }
   let failSave = false;
-  async function open(actor = "joe", { width = 390, linked }: { width?: number; linked?: typeof properties } = {}) {
+  async function open(
+    actor = "joe",
+    { width = 390, linked, oldBookmark }: { width?: number; linked?: typeof properties; oldBookmark?: boolean } = {},
+  ) {
     const { server, context } = await app(t, {
+      tourPlans: true,
       width,
       touch: width === 390,
       tourDeal: () => ({ ...tourDeal(), ...(linked && { properties: linked }) }),
@@ -1733,11 +1737,6 @@ function tourFixture(t: TestContext, planned = false, cancellationGates?: Readon
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const page = await context.newPage();
     await page.request.get(`${server.origin}/auth/callback/google?fixture=${actor === "joe" ? "first" : "second"}`);
-    await page.route("**/deals?*", async (route) => {
-      const response = await route.fetch();
-      const body = (await response.text()).replace("<html", "<html data-deal-tours-from-engine");
-      await route.fulfill({ response, body });
-    });
     await page.route(/\/api\/engine\/(deals\/[^/]+\/tours|properties\/search)/, async (route) => {
       const request = route.request();
       const url = new URL(request.url());
@@ -1821,7 +1820,8 @@ function tourFixture(t: TestContext, planned = false, cancellationGates?: Readon
         },
       });
     });
-    await page.goto(`${server.origin}/deals?mode=live&deal=${dealId}`);
+    const path = oldBookmark ? "/tours/route-editor.html" : "/deals";
+    await page.goto(`${server.origin}${path}?mode=live&deal=${dealId}`);
     return page;
   }
   return {
@@ -1837,9 +1837,11 @@ function tourFixture(t: TestContext, planned = false, cancellationGates?: Readon
 
 test("partners plan, open, and copy a tour using a linked property at phone width", async (t) => {
   const fixture = tourFixture(t);
-  const joe = await fixture.open("joe", { linked: [clinic] });
+  const joe = await fixture.open("joe", { linked: [clinic], oldBookmark: true });
   const button = (name: string) => joe.getByRole("button", { name, exact: true });
-  await joe.getByRole("tab", { name: "Tours" }).click();
+  const destination = new URL(joe.url());
+  assert.equal(destination.pathname, "/deals");
+  assert.equal(destination.searchParams.get("tab"), "tours");
   await joe.getByText("No planned tours.", { exact: true }).waitFor();
   await button("Plan tour").click();
   await joe.getByLabel("Tour date").fill("2026-11-24");
@@ -3066,3 +3068,106 @@ for (const [signIn, width] of [
     assert.deepEqual(missingAssets, [], "Tours");
   });
 }
+
+test("old Tours bookmarks open Deals with local recovery and no old Tours requests", async (t) => {
+  const { server, context } = await app(t);
+  const page = await context.newPage();
+  await page.request.get(server.origin + "/auth/callback/google?fixture=first");
+  await page.goto(server.origin + "/tours/property-panel.css");
+  await page.evaluate(async () => {
+    const scope = "a".repeat(64);
+    localStorage.setItem("doctorcre-session-binding-v1", "0".repeat(64));
+    sessionStorage.setItem(
+      "doctorcre-tour-day-session-v1",
+      JSON.stringify({
+        scope,
+        userRef: "joe",
+        tourId: "synthetic-tour",
+        epoch: "initial",
+      }),
+    );
+    sessionStorage.setItem(
+      "doctorcre-tour-pending-v1",
+      JSON.stringify({
+        sessionBinding: "sha256:" + scope,
+        composer: { rows: [{ title: "Synthetic unsent stop" }] },
+      }),
+    );
+    sessionStorage.setItem(
+      "doctorcre-tour-other-writes-v1",
+      JSON.stringify({
+        sessionBinding: "sha256:" + "b".repeat(64),
+        sheet: { draft: "Another session's notes" },
+      }),
+    );
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open("doctorcre-tour-day-drafts-v1", 1);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore("notes", { keyPath: ["scope", "id"] });
+        request.result.createObjectStore("tours", { keyPath: ["scope", "id"] });
+      };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction("notes", "readwrite");
+        tx.objectStore("notes").put({
+          scope,
+          id: "synthetic-note",
+          tour_id: "synthetic-tour",
+          audio: new Blob(["synthetic audio"], { type: "audio/webm" }),
+        });
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onabort = () => {
+          db.close();
+          reject(tx.error);
+        };
+      };
+    });
+  });
+  const oldRequests: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith("/api/tours/")) oldRequests.push(path);
+  });
+  await page.goto(server.origin + "/tours/day.html?mode=live");
+  const note = page.getByText("Tour planning moved to Deals. Open a deal and choose Tours.", { exact: true });
+  await note.waitFor({ timeout: 5000 });
+  await page.getByRole("button", { name: "Recover saved tour drafts", exact: true }).click();
+  const exportDraft = page.getByRole("link", { name: "Download saved route draft", exact: true });
+  const textDownload = page.waitForEvent("download");
+  await exportDraft.click();
+  const exported = await readFile(await (await textDownload).path(), "utf8");
+  assert.match(exported, /Synthetic unsent stop/);
+  assert.doesNotMatch(exported, /Another session|sessionBinding/);
+  assert.equal(await page.getByRole("link", { name: "Download saved tour notes" }).count(), 0);
+  const audioDownload = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download tour recording 1", exact: true }).click();
+  assert.equal(await readFile(await (await audioDownload).path(), "utf8"), "synthetic audio");
+  assert.ok(await page.evaluate(() => sessionStorage.getItem("doctorcre-tour-other-writes-v1")));
+
+  await page.request.get(server.origin + "/auth/callback/google?fixture=second");
+  await page.goto(server.origin + "/deals?mode=live");
+  await page.getByRole("button", { name: "Recover saved tour drafts", exact: true }).click();
+  await page.getByText("There are no saved tour drafts this sign-in can verify.", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: /^Download (saved|tour recording)/ }).count(), 0);
+  assert.deepEqual(oldRequests, []);
+});
+
+test("the quick switcher offers the standalone Tours page only in CARR mode", async (t) => {
+  for (const signIn of ["engine", "carr"] as const) {
+    const { server, context } = await app(t, { signIn });
+    const page = await context.newPage();
+    await page.request.get(server.origin + "/auth/callback/google?fixture=first");
+    await page.goto(server.origin + "/deals?mode=live");
+    await page.getByRole("button", { name: "Search and quick switcher" }).click();
+    const dialog = page.getByRole("dialog", { name: "Quick switcher" });
+    await dialog.getByRole("combobox", { name: "Jump to" }).fill("Tours");
+    const pageOption = dialog.getByRole("option", { name: "Tours Page", exact: true });
+    const noMatches = dialog.getByText("No matches. Try a deal, contact or page name.", { exact: true });
+    await pageOption.or(noMatches).waitFor({ timeout: 5000 });
+    assert.equal(await pageOption.count(), signIn === "carr" ? 1 : 0);
+  }
+});

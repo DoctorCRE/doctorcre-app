@@ -1072,6 +1072,27 @@ async function openEngineActionLink(request, env, url) {
   }
 }
 
+function oldToursPage(pathname) {
+  try {
+    const path = decodeURIComponent(pathname).replace(/\/+$/, '');
+    return /^\/tours(?:\.html)?$/i.test(path) ||
+      /^\/tours\/(?:[^/]+\/)*[^/.]+(?:\.html)?$/i.test(path);
+  } catch { return false; }
+}
+
+async function moveOldTours(request, env, url) {
+  if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
+  const gate = await pageGate(request, env, request);
+  if (gate.status !== 200) return gate;
+  const deal = url.searchParams.get('deal') ?? url.searchParams.get('deal_id');
+  const linked = isUuid(deal);
+  const query = new URLSearchParams(linked ? { deal, tab: 'tours' } : { 'tours-moved': '1' });
+  const tour = url.searchParams.get('tour');
+  if (linked && isUuid(tour)) query.set('tour', tour);
+  if (url.searchParams.get('mode') === 'live') query.set('mode', 'live');
+  return gatedResponse(gate, new Response(null, { status: 302, headers: { location: `/deals?${query}` } }), env);
+}
+
 async function handleRequest(request, env) {
   const url = new URL(request.url);
   const pathname = url.pathname;
@@ -1105,6 +1126,21 @@ async function handleRequest(request, env) {
   if (UNGATED_PAGES.has(pathname)) {
     if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method_not_allowed" }, 405);
     return assetResponse(request, env, `/${APP_ROUTES.get(pathname)}`);
+  }
+
+  if (engineSignIn(env)) {
+    if (oldToursPage(pathname)) return moveOldTours(request, env, url);
+    if (pathname === '/tours/day-sw.js') {
+      if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
+      // Replacing the installed worker releases the cached Tour day page.
+      const body = request.method === 'HEAD' ? null : `
+self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
+self.addEventListener('activate', event => event.waitUntil(self.registration.unregister()));
+`;
+      return secure(new Response(body, { headers: {
+        'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store',
+      } }), pathname);
+    }
   }
 
   const route = routeKey(actionLinkRoute(pathname));

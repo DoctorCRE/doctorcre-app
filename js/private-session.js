@@ -169,7 +169,7 @@ export function privateSession() {
         }
         // Unbound data from older app versions must never be adopted by the
         // first principal to bootstrap this browser.
-        if (!previous) await clearPrivateStorage(win);
+        if (!previous) await clearPrivateStorage(win, { preserveTourDrafts: engineSession });
         win.localStorage.setItem('doctorcre-session-binding-v1',digest);
       } catch { /* Storage-denied browsers cannot restore private offline state. */ }
       return true;
@@ -179,7 +179,10 @@ export function privateSession() {
       // disappear immediately, including detached dialogs and account labels.
       win.dispatchEvent(new win.Event('doctorcre-session-invalidated'));
       const retiredDocument = win.document;
-      const cleanup = offlineTourSession(win).revoke({ expectedEpoch: engineSession ? initialEpoch : undefined });
+      const cleanup = offlineTourSession(win).revoke({
+        expectedEpoch: engineSession ? initialEpoch : undefined,
+        preserveTourDrafts: reason !== 'signed-out' && (engineSession || win.document.documentElement.dataset.partnerSignIn === 'engine'),
+      });
       const reload = reason === 'reload-after-sign-in';
       const view = win.document.createElement('main');
       const title = win.document.createElement('h1');

@@ -1,4 +1,5 @@
 import { dealsSaveToEngine } from "../js/boot-mode.js";
+import { TOUR_DRAFT_KEYS } from "../js/offline-tour-session.js";
 import { navigationFromEvidence } from "../js/ui-tour-navigation.generated.js";
 import { mountStopDrag, reorderFlexibleStops } from "/js/ui-tour-stop-drag.generated.js";
 import { generatedSheet, sheetHistory, appendSheetSections } from "../js/ui-broker-cheat-sheet.generated.js";
@@ -117,7 +118,7 @@ import { cheatSheetText, itinerarySheetText, formatTourDate, tourDisplayName, to
   let sheetPending = null, sheetConflict = null, sheetBusy = false, sheetMessage = "", tourAction = null, tourActionPreparing = false;
   let sheetAutosaveTimer = null, sheetComposing = false, sheetReadback = null;
   function cancelSheetAutosave() { clearTimeout(sheetAutosaveTimer); sheetAutosaveTimer = null; }
-  const otherWritesKey = "doctorcre-tour-other-writes-v1";
+  const otherWritesKey = TOUR_DRAFT_KEYS.other;
   function persistOtherWrites() {
     try {
       if (sheetPending || tourAction) sessionStorage.setItem(otherWritesKey, JSON.stringify({ sessionBinding,
@@ -236,7 +237,7 @@ import { cheatSheetText, itinerarySheetText, formatTourDate, tourDisplayName, to
     } finally { if (tourAction === pending) pending.busy = false; renderTourAction(); }
   }
   const routeEndpoints = new Map();
-  const pendingKey = "doctorcre-tour-pending-v1";
+  const pendingKey = TOUR_DRAFT_KEYS.route;
   function invalidateTourSession() {
     if (state.sessionInvalidated) return;
     state.sessionInvalidated = true; state.sessionGeneration++; sessionBinding = ""; state.csrf = "";
