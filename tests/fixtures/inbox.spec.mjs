@@ -19,7 +19,7 @@ test('Sectioned Home opens a card in the full inbox', async ({ page }) => {
   await expect(page).toHaveURL(/\/inbox\/card\//);
   await expect(page.getByRole('heading', { name: 'Inbox', level: 1 })).toBeVisible();
   await expect(page.locator('#dealAttention')).toHaveCount(0);
-  await expect(page.locator('#homeMeetingReviews, #homeCallTasks, #homeEmailFilings')).toHaveCount(0);
+  await expect(page.locator('#homeMeetingReviews, #homeCallTasks')).toHaveCount(0);
 });
 
 test('Open actions link each inbox source type to a page that opens it, or not at all', async ({ page }) => {

@@ -18,20 +18,10 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     await expect(page.getByRole('button', { name: 'Show quiet vendors', exact: true })).toBeVisible();
     await expect(page.locator('.result-heading').getByRole('button', { name: 'Market', exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Vendors', exact: true })).toBeVisible();
-    await expect(page.locator('#appTodayNeeds [data-layout-deal]').first()).toBeAttached();
     await page.screenshot({ path: testInfo.outputPath(`directory-${width}-${theme}.png`) });
     if (width === 1440) {
-      const names = await page.locator('#appTodayNeeds [data-layout-deal] strong').allTextContents();
-      for (const name of names) {
-        await expect.soft(page.locator('#appWorkingList [data-layout-deal]:visible strong, #appTodayNeeds [data-layout-deal]:visible strong').filter({ hasText: name })).toHaveCount(1);
-      }
       const rows = await page.locator('.record-row').first().boundingBox();
       expect.soft(rows.width).toBeGreaterThan(950);
-      await page.getByRole('button', { name: 'Workspace sidebar', exact: true }).click();
-      for (const name of names) {
-        await expect(page.locator('#appWorkingList [data-layout-deal]:visible strong, #appTodayNeeds [data-layout-deal]:visible strong').filter({ hasText: name })).toHaveCount(1);
-      }
-      await page.getByRole('button', { name: 'Close workspace', exact: true }).click();
     } else {
       const completeRows = await page.locator('.record-row').evaluateAll(rows => {
         const bottom = innerHeight;

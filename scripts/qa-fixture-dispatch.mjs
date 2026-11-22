@@ -6,6 +6,7 @@ import { workspace as leadWorkspace, detail as leadDetail, id as leadId, emptyQu
 import { directoryFixture } from '../test/fixtures/vendor-directory.synthetic.mjs';
 import { parseViewState, PAGE_SIZE } from '../js/workspace-business-model.js';
 import { PHASES } from '../js/client.js';
+import { businessDay } from '../js/business-date.js';
 
 const cookieName = 'doctorcre_qa';
 const now = () => new Date().toISOString();
@@ -165,6 +166,12 @@ export function createQaDispatcher({ seed, assets: snapshot }) {
       return json({synthetic:true,namespace,viewer,variant,counts:{deals:state.dealStore.deals.size,leads:state.leads.length,invoices:(await state.invoices.getInvoiceTracker()).entries.length},cookie:{name:cookieName,value,url:url.origin,httpOnly:true,sameSite:'Lax'}},200,{'set-cookie':`${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax`});
     }
     if(url.pathname==='/api/test/identity')return identify(request)?json({synthetic:true,...identify(request)}):json({error:'not_authenticated'},401);
+    if (url.pathname === '/api/engine/home/today' && request.method === 'GET') {
+      const identity = identify(request);
+      if (!identity) return json({ error: 'not_authenticated' }, 401);
+      return json({ ok: true, schema_version: 'home-today.v1', today: businessDay(), viewer: identity.viewer,
+        meetings: { state: 'empty', items: [] }, reminders: { state: 'empty', late: [], upcoming: [] } });
+    }
     return handleDoctorcreRequest(request,{ASSETS:{fetch:assets},CARR:{fetch:carr},APP_ENV:'fixture',GIT_SHA:'0'.repeat(40)});
   }
   return dispatch;

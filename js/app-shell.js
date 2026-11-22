@@ -73,7 +73,7 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
     : Promise.resolve();
   const reactWorkspace = new URLSearchParams(location?.search || "").get("ui") === "react";
   mountAccount(root, host, pathname, reactWorkspace, ready);
-  mountAppLayout(root, host, pathname, { ready });
+  mountAppLayout(root, host, pathname);
   const topbar = root.getElementById("appTopbar");
   const workspace = root.getElementById("accountWorkspaceControls");
   workspace.hidden = false;

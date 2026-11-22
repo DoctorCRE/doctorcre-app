@@ -350,7 +350,11 @@ test('Home loads email follow-ups even outside the viewport', async t => {
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true, dell: true } })));
   let reviewDownloads = 0;
   await page.route('**/js/email-followups.js', async route => { reviewDownloads++; await route.continue(); });
+  await page.route('**/api/engine/home/today', route => route.continue({ url: origin + '/api/engine/home/today-unavailable' }));
+  const today = page.waitForResponse('**/api/engine/home/today-unavailable');
   await page.goto(origin + '/review-workflows', { waitUntil: 'networkidle' });
+  assert.equal((await today).status(), 503);
+  assert.equal(await page.locator('#appScheduleSlot').textContent(), "Couldn't load meetings.");
   await page.locator('#dealFlags .home-flag').first().waitFor();
   assert.equal(reviewDownloads, 1, 'email follow-ups load with Home without scrolling');
   await page.locator('#homeEmailFollowups article').first().waitFor();

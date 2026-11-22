@@ -137,7 +137,7 @@ export async function prove({ origin, commit, ref, proposalId, foreignRef, timeo
           object(rpc.params) &&
           typeof rpc.params.name === "string" &&
           rpc.method === "tools/call" &&
-          ["deal-room-board", "morning-brief", "calendar-meeting-prep"].includes(rpc.params.name)
+          ["deal-room-board", "morning-brief"].includes(rpc.params.name)
         )
           return route.fulfill({
             json: {

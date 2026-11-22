@@ -54,7 +54,7 @@ test('generated UI files bypass source checks even after their entry is retired'
   }
 });
 
-test('Home critical imports keep preparation rendering behind the lazy boundary', async () => {
+test('Home critical imports keep other panels behind the lazy boundary', async () => {
   const assets = await uiAssets(readSource);
   await init;
   const found = new Set();
@@ -69,10 +69,7 @@ test('Home critical imports keep preparation rendering behind the lazy boundary'
   }
   await visit('js/app-shell.js');
   await visit('js/ui-inbox.generated.js');
-  const lifetime = 'js/ui-meeting-preparation-lifetime.generated.js';
-  assert.ok(found.has(lifetime), 'Home and preparation share the emitted lifetime');
-  assert.equal(parse((await readSource('src/ui/meeting-preparation-lifetime.ts')).toString())[0].length, 0, 'lifetime source has no runtime imports');
-  for (const path of ['js/meeting-preparation.js', 'js/home-dashboard-model.js', 'js/home-call-tasks.js']) {
+  for (const path of ['js/home-dashboard-model.js', 'js/home-call-tasks.js']) {
     assert.ok(!found.has(path), `${path} must load only when its UI is requested`);
   }
 });

@@ -295,7 +295,6 @@ const NATIONAL_DEALS = 'national-deals-from-engine';
 const SEARCH = 'search-from-engine';
 const CLIENTS_VENDORS = 'clients-vendors-from-engine';
 const RELATIONSHIPS = 'relationships-from-engine';
-const FRAME = 'frame';
 const ENGINE_SIGN_IN_KEYS = new Set([DEALS, NEXT_DEAL_SAVES, LEADS, CLIENTS_VENDORS, RELATIONSHIPS, SEARCH, INVOICES, CHARTS]);
 // Each old read the engine can answer, by tool name or business GET path: its
 // switch key, its engine path and, for a tool, a check per argument.
@@ -333,8 +332,6 @@ const ENGINE_READS = new Map([
   ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
   ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true }],
-  ['today-triage', { key: FRAME, path: '/api/engine/today-triage', args: {}, engineOnly: true }],
-  ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {}, engineOnly: true }],
 ]);
 const BUSINESS_GET = /^(\/api\/v1\/business\/[a-z]+)(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
 
@@ -398,7 +395,7 @@ async function switchedOn(env, key) {
 }
 
 function routeToEngine(env, key, usedOnDeals = false) {
-  if (key === HOME || key === FRAME) return homeOnEngine(env);
+  if (key === HOME) return homeOnEngine(env);
   if (engineSignIn(env) && (usedOnDeals || ENGINE_SIGN_IN_KEYS.has(key))) return true;
   return switchedOn(env, key);
 }
@@ -868,6 +865,7 @@ async function engineSave(request, env, call) {
 
 const DEAL_PAGE_HINT = 'Open the deal page to work from the current record.';
 const HOME_HINT = 'Open Home to review the current work.';
+const RETIRED_HOME_READS = new Set(['today-triage', 'calendar-meeting-prep', 'list-email-thread-filings']);
 const TOUR_HINT = 'Open Tours on the deal page to view existing tours.';
 const MONDAY_HINT = 'Open Monday review from Deals.';
 const PROSPECTS_HINT = 'Open Prospects on the Deals board.';
@@ -922,10 +920,11 @@ const FROZEN_TOOLS = new Map([
   ['record-commission-receipt', 'Open Invoices to mark an invoice paid.'],
 ]);
 
-async function refuseFrozenSave(request, env, url, call) {
+async function refuseLegacyRequest(request, env, url, call) {
   const { pathname } = url;
   if (call?.method === 'tools/call') {
     const { verb, args } = effectiveMcpVerb(call.params);
+    if (RETIRED_HOME_READS.has(verb)) return saveRefusal(call, 'home_routing_changed', HOME_HINT);
     const calendarAnswer = isCalendarAnswer(verb, args) ||
       (verb === 'log-activity' && args?.kind === 'meeting' && Object.hasOwn(args, 'calendar_event_key'));
     if (calendarAnswer && homeOnEngine(env))
@@ -1238,7 +1237,7 @@ async function handleRequest(request, env) {
       delete call.params.arguments.ref;
       request = new Request(request, { body: JSON.stringify(call) });
     }
-    const refusal = await refuseFrozenSave(request, env, url, call);
+    const refusal = await refuseLegacyRequest(request, env, url, call);
     if (refusal) return refusal;
     if (/^\/api\/tours\/(?:projection|share|pdf|feedback)(?:\/|$)/.test(pathname)) return json({ error: 'not_found' }, 404);
     const legacy = await carrResponse(request, env);

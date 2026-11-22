@@ -388,18 +388,6 @@
     "skip_reason": "Needs designated test email proposals and test deal with exact filing receipt and deferred-return readback."
   },
   {
-    "number": 32,
-    "title": "email filing undo uncertainty",
-    "work_request": "unit:email-filing-undo-uncertainty",
-    "steps": "Open an existing uncertain filing review by ID. Verify Retry retains the exact request, and Undo is unavailable until the original filing receipt is confirmed. On a test filing, verify Undo reads back restoration.",
-    "prs": [
-      "https://github.com/jbookout/doctorcre-app/pull/629"
-    ],
-    "spec": "32-unit-email-filing-undo-uncertainty.spec.ts",
-    "coverage": "skipped-by-design",
-    "skip_reason": "Needs naturally uncertain test filing with retained request and confirmed undo receipt. Do not induce a failure on real mail."
-  },
-  {
     "number": 33,
     "title": "inbox card actions",
     "work_request": "unit:inbox-card-actions",

@@ -159,6 +159,7 @@ dialog::backdrop { background: var(--scrim); }
 /* --- responsive ---------------------------------------------------------------- */
 .stages-hidden { display: none; }
 @media (min-width: 1024px) {
+  .leads-body .app-layout-main { margin-block-end: var(--space-7); }
   #leadBoard .stage-columns { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(min(100%, 280px), 1fr); overflow-x: auto; padding-bottom: var(--space-3); }
   #leadBoard:not(:has(.dragging)) .stage-columns:has(.lead-card) > .stage-column:not(:has(.lead-card)) { display: none; }
 }

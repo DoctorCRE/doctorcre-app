@@ -77,8 +77,6 @@ export function normalizeDocRead(method, payload, args = []) {
       sortActivity(row);
       return [row];
     }
-    case 'todayTriage': rows = payload.items; map = row => record(row.subject_type || 'task', row, row.id || row.subject_id,
-      row.subject_name || row.what, [field('Owner', row.owner), field('Next step', row.what), field('Due', row.due_on)]); break;
     case 'notificationFeed': rows = payload.notifications; map = row => record('notification', row, row.id, row.reason,
       [field('Priority', row.severity), field('Date', row.created_at), field('Status', row.read_at ? 'Seen' : 'Unseen')]); break;
     case 'listDocConversations': rows = payload.conversations; map = conversation; break;

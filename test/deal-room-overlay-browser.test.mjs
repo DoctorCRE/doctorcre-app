@@ -60,7 +60,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     }
   });
 
-  if (width === 1440) test(`pending suggestion leaves the last deal and overdue card reachable in ${theme}`, async t => {
+  if (width === 1440) test(`pending suggestion leaves the last deal controls reachable in ${theme}`, async t => {
     const page = await open(t, width, theme);
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     const targets = [];
@@ -70,12 +70,6 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
       await control.scrollIntoViewIfNeeded();
       targets.push({ control: selector, ...await hit(control) });
     }
-    if (!await page.locator('.app-layout-page-tools').evaluate(node => node.open)) await page.locator('.app-layout-page-tools > summary').click();
-    const sidebar = page.locator('.app-layout-page-tools');
-    await sidebar.evaluate(element => { element.scrollTop = element.scrollHeight; });
-    const card = sidebar.locator('#appWorkingList [data-layout-deal]').last();
-    await card.scrollIntoViewIfNeeded();
-    targets.push({ control: 'last overdue card', ...await hit(card) });
     await page.screenshot({ path: join(evidence, `last-controls-${width}-${theme}.png`), animations: 'disabled' });
     assert.ok(targets.every(target => target.reachable), JSON.stringify(targets));
   });

@@ -105,7 +105,6 @@ async function open(t, width = 1440) {
       let payload = { ok: true };
       if (verb === "read-home-agenda") payload = { schema_version: "home-agenda.v1", deals: [], actor: "joe" };
       if (verb === "deal-room-board") payload = { deals: [], actor: "joe" };
-      if (verb === "today-triage") payload = { items: [] };
       if (verb === "deal-room-changes") payload = { events: [], cursor: null };
       return r.fulfill({
         json: {
@@ -254,10 +253,8 @@ for (const width of [1440, 390])
     assert.ok(
       h.verbs.every((v) =>
         [
-          "calendar-meeting-prep",
           "deal-room-board",
           "morning-brief",
-          "today-triage",
           "deal-room-changes",
           "unread-count",
           "list-feature-switches","list-doc-suggestions",

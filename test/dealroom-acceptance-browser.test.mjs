@@ -1158,7 +1158,6 @@ test('Undoing an invoice close restores late steps to the deal page', async t =>
     await page.getByRole('button', { name: 'Closed deals', exact: true }).click();
     if (switchesOn) {
       await page.locator('#closedDealsList .auto-move').getByText('Tue, Nov 17, 2026', { exact: true }).waitFor({ timeout: 3000 });
-      assert.equal(await page.locator('#appTodayMoves').isVisible(), false);
     }
     await page.getByRole('button', { name, exact: true }).click();
     await page.getByRole('heading', { name, exact: true }).waitFor();
@@ -2898,8 +2897,7 @@ for (const width of [1440, 390]) {
     await page.getByText('Next step saved.').waitFor();
     assert.equal(stepBody().deal_id, parked);
     assert.equal(stepBody().seen_current_step, null);
-    // The shared Today sidebar reads the board on the three review page loads across both sessions.
-    assert.equal(boardReads - readsBeforeReview, 3);
+    assert.equal(boardReads, readsBeforeReview, 'Review paging does not reload the Deals board');
     if (width === 1440) {
       await page.getByRole('button', { name: 'Back', exact: true }).click();
       await page.getByRole('button', { name: 'Back', exact: true }).click();
