@@ -989,6 +989,25 @@ function actionLinkDestination(result) {
   return null;
 }
 
+function retiredActionLink(ref) {
+  if (!/^al1_[A-Za-z0-9_-]{1,120}$/.test(ref)) return false;
+  try {
+    const encoded = ref.slice(4);
+    const decoded = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
+    return /^(cr|fe):[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:[A-Za-z0-9_-]{1,32}$/.test(decoded)
+      && btoa(decoded).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') === encoded;
+  } catch { return false; }
+}
+
+function unavailableActionLink(request) {
+  return shellMessage(request, 404, {
+    title: 'Link unavailable · DoctorCRE',
+    heading: 'This link is no longer available',
+    action: '<a href="/">Back to Home</a>',
+    style: 'shell-refusal',
+  });
+}
+
 async function openEngineActionLink(request, env, url) {
   const resolver = new URL(`/api/engine/action-links/${url.pathname.slice(3)}`, url);
   try {
@@ -998,12 +1017,7 @@ async function openEngineActionLink(request, env, url) {
     }), env);
     if (response.status === 404) {
       void response.body?.cancel().catch(() => {});
-      return shellMessage(request, 404, {
-        title: 'Link unavailable · DoctorCRE',
-        heading: 'This link is no longer available',
-        action: '<a href="/">Back to Home</a>',
-        style: 'shell-refusal',
-      });
+      return unavailableActionLink(request);
     }
     if (!response.ok) {
       void response.body?.cancel().catch(() => {});
@@ -1064,6 +1078,7 @@ async function handleRequest(request, env) {
     if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method_not_allowed" }, 405);
     const gate = await pageGate(request, env, engineChat ? request : gateRequestFor(request, pathname));
     if (gate.status !== 200) return gate;
+    if (route === '/a/:ref' && retiredActionLink(pathname.slice(3))) return gatedResponse(gate, unavailableActionLink(request), env);
     if (engineActionLink) return gatedResponse(gate, await openEngineActionLink(request, env, url), env);
     const switches = await pageSwitches(env);
     if (reviewView && (!switches.dealsFromEngine || !switches.dealSavesFromEngine)) {
