@@ -121,9 +121,9 @@ validates without deploying or commenting. When PRs close or merge,
 The production Worker configuration deliberately declares no public route.
 Run `npm run deployment:check:production` to validate it locally.
 
-`PARTNER_SIGN_IN` defaults to `carr` in both app environments. Set it to
-`engine` in a release to switch auth routes, protected page gates and engine
-partner calls together. The app binds `PARTNER_APP` to the matching engine
+`PARTNER_SIGN_IN` is `carr` in production and `engine` in staging. Setting it
+to `engine` switches auth routes, protected page gates and engine partner calls
+together. The app binds `PARTNER_APP` to the matching engine
 environment's `PartnerApp` entrypoint. That entrypoint must be deployed before
 the app release adds the binding. In engine mode, keep
 `WORKSPACE_COMMAND_CENTER_READ_ENABLED` aligned with the corresponding CARR
