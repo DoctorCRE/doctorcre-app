@@ -398,11 +398,11 @@ function renderNotices(notices) {
 const metric = value => Number.isInteger(value) ? String(value) : '—';
 const winRate = stats => Number.isFinite(stats?.win_rate) ? `${Math.round(stats.win_rate * 100)}%` : '—';
 const vendorNote = value => withoutRecordCodes((value || '')
-  .replace(/\s*— recovered from [^\n]*?'s CARR calendar history/gi, '')
-  .replace(/\s*— recovered from the calendar backfill/gi, '')
-  .replace(/(?:^|\n)\s*(?:[A-Za-z]+ \d{1,2}, \d{4} from the historical CARR calendar read|Calendar event [A-Za-z]+ \d{1,2}, \d{4})\s*(?=\n|$)/gi, '')
-  .replace(/Backfilled [A-Za-z]+ \d{1,2}, \d{4} from the CARR calendar in [A-Za-z]+ \d{4}(?:,\s*)?/gi, '')
-  .replace(/\s*\(recovered from the (?:[A-Za-z]+ \d{1,2}, \d{4}|\d{4}-\d{2}-\d{2}) mailbox sweep\)/gi, '')
+  .replace(/[ \t]*— recovered from [A-Z][a-z]{1,29}(?:[ '-][A-Z][a-z]{1,29}){0,1}'s CARR calendar history(?=\s*$|\n)/g, '')
+  .replace(/[ \t]*— recovered from the calendar backfill(?=\s*$|\n)/gi, '')
+  .replace(/(?:^|\n)\s*(?:[A-Za-z]{3,9} \d{1,2}, \d{4} from the historical CARR calendar read|Calendar event [A-Za-z]{3,9} \d{1,2}, \d{4})\s*(?=\n|$)/gi, '')
+  .replace(/(?:^|\n)[ \t]*Backfilled [A-Za-z]{3,9} \d{1,2}, \d{4} from the CARR calendar in [A-Za-z]{3,9} \d{4}(?:,[ \t]*|(?=\s*$|\n))/gi, '')
+  .replace(/\s*\(recovered from the (?:[A-Za-z]{3,9} \d{1,2}, \d{4}|\d{4}-\d{2}-\d{2}) mailbox sweep\)/gi, '')
   .replace(/^Recovered from CARR calendar history$/i, '')
   );
 const shortNote = value => typeof value === 'string' ? value.split(/\n/)[0].slice(0, 140) : '';

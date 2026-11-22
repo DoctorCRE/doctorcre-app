@@ -196,6 +196,10 @@ test('Vendor conversations hide import provenance and retain partner words', () 
     ['CARR represents the client', 'CARR represents the client'],
     ['a local CARR agent', 'a local CARR agent'],
     ['CARR invoice', 'CARR invoice'],
+    ["A dash — real note recovered from Alex's CARR calendar history continues", "A dash — real note recovered from Alex's CARR calendar history continues"],
+    ["Met Alex — recovered from a meeting with Alex's CARR calendar history", "Met Alex — recovered from a meeting with Alex's CARR calendar history"],
+    ['Discussed Backfilled Mar 2, 2026 from the CARR calendar in April 2026 today', 'Discussed Backfilled Mar 2, 2026 from the CARR calendar in April 2026 today'],
+    ['Met Alex — recovered from the calendar backfill and discussed CARR', 'Met Alex — recovered from the calendar backfill and discussed CARR'],
     ['name and specialty still unrecovered from the source email', 'name and specialty still unrecovered from the source email'],
     ['Below is either read out of those records, recovered from the mailbox sweep, researched fresh this session', 'Below is either read out of those records, recovered from the mailbox sweep, researched fresh this session'],
   ];
