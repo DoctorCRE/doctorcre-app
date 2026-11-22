@@ -70,7 +70,7 @@ fixture. Reviewed DoctorCRE production hosts boot the live adapter.
 | `js/fixture-client.js` | In-memory synthetic adapter |
 | `contracts/` | Pinned CARR consumer boundary and runtime contracts |
 | `data/board-seed.json` | Synthetic local/test fixture only |
-| `reports/` and `tours/` | DoctorCRE report and tour presentation |
+| `tours/` | DoctorCRE tour presentation |
 | `design*.html` | V5-UX-S01 review prototypes on synthetic data |
 
 ### V5-UX-S01 information design, after Joe's 2026-09-16 review

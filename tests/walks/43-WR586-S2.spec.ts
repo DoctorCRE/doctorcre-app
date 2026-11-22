@@ -10,7 +10,7 @@ test("43 WR586.S2", async ({ page }) => {
   needs(!await tours.count(), 'test deal with an existing tour');
   const tourId = await tours.first().getAttribute('data-open-tour');
   await tours.first().click();
-  const frame = page.locator('iframe[title="Tour shortlist, route and packet"]');
+  const frame = page.locator('iframe[title="Tour shortlist and route"]');
   await visible(frame);
   const src = new URL((await frame.getAttribute('src'))!, 'https://app.doctorcre.com');
   expect(src.searchParams.get('deal') === dealId && src.searchParams.get('tour') === tourId).toBe(true);
