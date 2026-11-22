@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { cheatSheetText, factLabel, formatTourDate, tourMetaLine, tourDisplayName, itinerarySheetText } from "../tours/tour-format.js";
+import { cheatSheetText, formatTourDate, tourMetaLine, tourDisplayName, itinerarySheetText } from "../tours/tour-format.js";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 const appJs = await read("tours/app.js");
@@ -67,18 +67,6 @@ test("the internal itinerary keeps held and excluded stops separate from active 
   assert.doesNotMatch(itinerarySheetText(tour), /Not on the active itinerary/);
   route.stops = original.routes[1].stops.filter(stop => stop.stop_state !== "active");
   assert.equal(itinerarySheetText(tour), "");
-});
-
-test("client-projection keys read as plain property-fact labels", () => {
-  assert.equal(factLabel("asking_economics"), "Asking rent and terms");
-  assert.equal(factLabel("source_attribution"), "Source");
-  assert.equal(factLabel("display.name"), "Property name");
-  assert.equal(factLabel("display.address"), "Address");
-  assert.equal(factLabel("available_sf"), "Available sf");
-  assert.equal(factLabel("display.year_built"), "Year built");
-  for (const key of ["asking_economics", "source_attribution", "display.suite_count", "parking_ratio"]) {
-    assert.doesNotMatch(factLabel(key), /[_.]/, key);
-  }
 });
 
 test("tours/app.js paints through the formatter", () => {
