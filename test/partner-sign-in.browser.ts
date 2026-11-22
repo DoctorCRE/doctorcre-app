@@ -496,6 +496,34 @@ for (const issuance of ["completed", "pending"] as const)
     assert.equal(await code.count(), 0, "the issued code must be gone upon returning");
   });
 
+test("phone notifications are available only with CARR sign-in", async (t) => {
+  for (const signIn of ["engine", "carr"] as const) {
+    const { server, context } = await app(t, { signIn });
+    const page = await context.newPage();
+    const calls: string[] = [];
+    await page.route("**/mcp", async (route) => {
+      const body = route.request().postDataJSON();
+      if (body.params?.name?.includes("web-push")) {
+        calls.push(body.params.name);
+        await route.fulfill({ json: { result: { structuredContent: {} } } });
+      } else await route.continue();
+    });
+    await page.goto(server.origin + "/updates?mode=live");
+    if (signIn === "carr") {
+      await page
+        .getByText("Phone notifications are unavailable because the public notification configuration is invalid.")
+        .waitFor();
+      assert.deepEqual(calls, ["read-web-push-config-v1"]);
+    } else {
+      await page.locator("html[data-updates-from-engine]").waitFor();
+      await page.getByRole("heading", { name: "Updates", exact: true }).waitFor();
+      await page.waitForLoadState("networkidle");
+      assert.equal(await page.locator("#phonePush").textContent(), "");
+      assert.deepEqual(calls, []);
+    }
+  }
+});
+
 test("Doc link settings are available only with engine sign-in", async (t) => {
   for (const signIn of ["engine", "carr"] as const) {
     const { server, context } = await app(t, { signIn });
