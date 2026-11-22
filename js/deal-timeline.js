@@ -1,5 +1,6 @@
 import { createMcpRequests } from './mcp-requests.mjs';
 import { createCurrentRead } from './current-read.mjs';
+import { sessionFetch } from './private-session.js';
 
 import { businessDay } from './business-date.js';
 import { COLUMNS, columnBySlug, columnByValue, noteText, PHASE_DATE_KIND } from './pipeline-model.js';
@@ -327,20 +328,20 @@ export function renderDealTimeline(detail, now = Date.now()) {
   const view = dealTimeline(detail,now);
   return `<section class="deal-timeline" data-detail-read="timeline" aria-label="Deal phases and timeline"><h3>Phase timeline</h3><ol class="phase-rail">${view.phases.map(p => `<li${p.current ? ' aria-current="step"' : ''}><span>${esc(p.label)}</span>${p.day ? `<time datetime="${esc(p.day)}">${esc(dateCaption(p.day))}</time>` : ''}</li>`).join('')}</ol></section>`;
 }
-export function renderDealUpdates(detail, now = Date.now(), { attributionAvailable = true } = {}) {
+export function renderDealUpdates(detail, now = Date.now(), { engineSignIn = false } = {}) {
   const entries = (detail.entries || []).filter(e => e.source !== 'document' && (e.source !== 'hold' || calendarDay(e.holdUntil) > today(now)))
     .map(e => e.source === 'hold' ? {...e, kind:`Held until ${dateCaption(calendarDay(e.holdUntil))}`} : e);
   if (!entries.length) return '';
-  const activityIds = new Set((detail.activities || []).map(a => a.id).filter(id => typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)));
+  const notes = engineSignIn && isEngineDealDetail(detail) ? (detail.thread || []).filter(note => note.kind === 'note') : [];
+  const activityIds = new Set([...(detail.activities || []), ...notes]
+    .map(activity => activity.id)
+    .filter(id => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)));
   const overview = concise(entries[0]?.summary, 72);
   const latestDate = new Date(entries[0].when || NaN);
   const latestDay = Number.isFinite(latestDate.getTime()) ? latestDate.toLocaleDateString('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',year:'numeric'}) : 'Date not recorded';
-  const attribution = id => {
-    if (!activityIds.has(id)) return '';
-    return attributionAvailable
-      ? `<button type="button" class="btn" data-attribution-id="${esc(id)}" aria-expanded="false">Show deal attribution</button>`
-      : '<p>Deal attribution · Not available yet</p>';
-  };
+  const attribution = id => activityIds.has(id)
+    ? `<button type="button" class="btn" data-attribution-id="${esc(id)}" aria-expanded="false">Show deal attribution</button>`
+    : '';
   return `<section class="deal-updates" data-detail-read="updates" aria-label="Deal updates"><h3>Updates</h3>${entries.length ? `<details class="updates-history"><summary data-detail-focus="update-history"><span>${entries.length} update${entries.length === 1 ? '' : 's'} · ${esc(latestDay)} · ${esc(overview)}</span></summary>${(detail.activities || []).length >= 50 ? '<p class="updates-scope">Includes the latest 50 activities; older activities may be omitted.</p>' : ''}${entries.map(e => `<article class="deal-note" data-id="${esc(e.id)}" data-kind="${esc(e.kind)}"><div class="timeline-entry-top"><b>${esc(authorLabel(e.actor))}</b><time datetime="${esc(e.when || '')}">${esc(sourceTime(e.when, undefined, 'Date not recorded'))}</time></div><small>${esc(e.kind)}</small><p>${esc(e.summary)}</p>${attribution(e.id)}${e.original && e.original !== e.summary ? `<details><summary data-detail-focus="entry-original:${esc(e.id)}">Read full update</summary><p class="note-original">${esc(e.original)}</p></details>` : ''}</article>`).join('')}</details>` : '<p>No updates recorded.</p>'}</section>`;
 }
 export function updateCountdowns(root, now = Date.now()) {
@@ -359,7 +360,7 @@ export function createActivityAttributionRead(options = {}) {
     return result.payload;
   };
 }
-export function mountActivityAttribution(root, { read = createActivityAttributionRead(), load = () => import('./ui-activity-attribution.generated.js'), onDenied = () => {} } = {}) {
+export function mountActivityAttribution(root, { engineSignIn = false, read = createActivityAttributionRead(), load = () => import('./ui-activity-attribution.generated.js'), onDenied = () => {} } = {}) {
   const current = createCurrentRead();
   let selected = null, view = null, host = null, busy = false, disposed = false;
   function clear(returnFocus = true) {
@@ -381,13 +382,21 @@ export function mountActivityAttribution(root, { read = createActivityAttributio
       const module = await operation.read(load());
       view = module.mountActivityAttributionView(container, () => clear(), () => void show(trigger));
       view.update({kind:'loading'});
-      const response = await operation.read(read(trigger.dataset.attributionId, operation.signal));
-      return module.parseActivityDealAttribution(response, trigger.dataset.attributionId);
+      const activityId = trigger.dataset.attributionId;
+      if (engineSignIn) {
+        const response = await operation.read(sessionFetch(`/api/engine/activities/${encodeURIComponent(activityId)}/deal-attribution`, {
+          signal: operation.signal,
+        }));
+        return module.decodeEngineActivityDealAttribution(response);
+      }
+      const response = await operation.read(read(activityId, operation.signal));
+      return module.parseActivityDealAttribution(response, activityId);
     }, {
       success(value) { view.update({kind:'result',value}); },
       failure(error) {
         if ([401,403].includes(error?.status)) { retire(); onDenied(error); return; }
-        if (view) view.update({kind:'failure'});
+        const timedOut = error?.code === 'read_timeout' || error?.name === 'TimeoutError';
+        if (view) view.update({kind: engineSignIn && timedOut ? 'sign-in' : 'failure'});
         else {
           container.textContent = 'Deal attribution could not be loaded. ';
           const retry = document.createElement('button'); retry.type='button'; retry.className='btn'; retry.textContent='Retry attribution';
