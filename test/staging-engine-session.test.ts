@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync } from "node:fs";
 import { join, resolve } from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
+import { temporaryDirectory } from "../scripts/temp-directory.mjs";
 import { requireSafeStagingDiagnostics, requireStagingEngineSession } from "../tests/staging/engine-session.ts";
 
 const storageState = "private-staging-state.json";
@@ -87,10 +87,8 @@ test("engine staging accepts the expected actor in engine mode", async () => {
   });
 });
 
-function runEngineSmoke(args: string[] = [], debug = "") {
-  const cache = resolve("node_modules/.cache");
-  mkdirSync(cache, { recursive: true });
-  const scratch = mkdtempSync(join(cache, "staging-engine-check-"));
+function runEngineSmoke(t: TestContext, args: string[] = [], debug = "") {
+  const scratch = temporaryDirectory("staging-engine-check-", t);
   const privateStatePath = join(scratch, "unreadable-state.json");
   const cli = resolve("node_modules/@playwright/test/cli.js");
   const result = spawnSync(
@@ -123,29 +121,29 @@ function runEngineSmoke(args: string[] = [], debug = "") {
   return { output: result.stdout + result.stderr, privateStatePath };
 }
 
-test("the JSON reporter omits the staging state path", () => {
-  const { output, privateStatePath } = runEngineSmoke();
+test("the JSON reporter omits the staging state path", (t) => {
+  const { output, privateStatePath } = runEngineSmoke(t);
   assert.ok(output.includes("Could not load the staging storage state file from E2E_ENGINE_STORAGE_STATE."));
   assert.ok(!output.includes(privateStatePath), "the JSON report disclosed the state path");
 });
 
-test("the engine smoke rejects an explicit trace before opening the state file", () => {
-  const { output } = runEngineSmoke(["--trace=retain-on-failure"]);
+test("the engine smoke rejects an explicit trace before opening the state file", (t) => {
+  const { output } = runEngineSmoke(t, ["--trace=retain-on-failure"]);
   assert.ok(
     output.includes("Turn off Playwright trace, video, and screenshots"),
     "the trace override must be rejected",
   );
 });
 
-test("the engine smoke rejects Playwright debug logging before opening the state file", () => {
+test("the engine smoke rejects Playwright debug logging before opening the state file", (t) => {
   for (const debug of ["other,pw:channel", "*"]) {
-    const { output } = runEngineSmoke([], debug);
+    const { output } = runEngineSmoke(t, [], debug);
     assert.ok(output.includes("Turn off Playwright debug logging"), "Playwright debug logging must be rejected");
   }
 });
 
-test("the engine smoke rejects browser debugger attachment before opening the state file", () => {
-  const { output } = runEngineSmoke(["--debug=cli"]);
+test("the engine smoke rejects browser debugger attachment before opening the state file", (t) => {
+  const { output } = runEngineSmoke(t, ["--debug=cli"]);
   assert.ok(output.includes("Turn off Playwright debug"), "browser debugger attachment must be rejected");
 });
 
