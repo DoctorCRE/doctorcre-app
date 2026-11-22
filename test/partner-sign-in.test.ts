@@ -1148,3 +1148,94 @@ test("old client portal bookmarks move in engine mode regardless of routing KV",
     }
   }
 });
+
+test("engine sign-in gates every old Tours page before serving assets", async () => {
+  const { send, calls } = fixture(status, {
+    ENGINE_ROUTING: { get: async (key: string) => (key === "deal-tours-from-engine" ? "on" : null) },
+  });
+  for (const method of ["GET", "HEAD"]) {
+    for (const path of [
+      "/tours",
+      "/tours/",
+      "/tours.html",
+      "/tours/index.html",
+      "/tours/day.html",
+      "/tours/itinerary",
+      "/tours/library",
+      "/tours/detail",
+      "/tours/create",
+      "/tours/properties/search",
+      "/tours/selection-cart",
+      "/tours/route-editor.html",
+    ]) {
+      const moved = await send(path, { method, headers: { cookie } });
+      assert.equal(moved.status, 302, `${method} ${path}`);
+      assert.equal(moved.headers.get("location"), "/deals?tours-moved=1");
+      assert.equal(moved.headers.get("cache-control"), "no-store");
+      assert.equal(await moved.text(), "");
+    }
+    const linked = await send(`/tours/route-editor.html?deal=${deal}&tour=${step}&mode=live`, {
+      method,
+      headers: { cookie },
+    });
+    assert.equal(linked.headers.get("location"), `/deals?deal=${deal}&tab=tours&tour=${step}&mode=live`);
+    const unlinked = await send("/tours/day.html?deal=https://example.test", { method, headers: { cookie } });
+    assert.equal(unlinked.headers.get("location"), "/deals?tours-moved=1");
+    const unsigned = await send(`/tours/day.html?deal=${deal}`, { method });
+    assert.equal(new URL(unsigned.headers.get("location") ?? "", staging).pathname, "/auth/login");
+  }
+  for (const method of ["GET", "HEAD"]) {
+    const retiredWorker = await send("/tours/day-sw.js", { method });
+    assert.equal(retiredWorker.status, 200);
+    assert.equal(retiredWorker.headers.get("cache-control"), "no-store");
+    const script = await retiredWorker.text();
+    if (method === "GET") assert.match(script, /registration\.unregister\(\)/);
+    else assert.equal(script, "");
+  }
+  assert.deepEqual(calls.assets, []);
+  assert.deepEqual(calls.carr, []);
+  assert.deepEqual(calls.engine, []);
+  assert.ok(calls.partner.every((input) => new URL(input.url).pathname === "/auth/session"));
+  const asset = await send("/tours/property-panel.js");
+  assert.equal(asset.status, 200);
+  assert.equal(await asset.text(), "/tours/property-panel.js");
+});
+
+test("CARR sign-in still serves the Tours library, editor and day assets", async () => {
+  const { send, calls } = fixture(null, {
+    PARTNER_SIGN_IN: "carr",
+    CARR: {
+      fetch: async () => new Response(),
+    },
+  });
+  for (const method of ["GET", "HEAD"]) {
+    for (const path of ["/tours", "/tours/route-editor.html", "/tours/day.html", "/tours/day-sw.js"]) {
+      const response = await send(path, { method });
+      assert.equal(response.status, 200);
+      assert.equal(calls.assets.at(-1), path === "/tours" ? "/tours/index.html" : path);
+    }
+  }
+});
+
+test("linked old Tours bookmarks open the deal overview when the planner is off or unset", async () => {
+  for (const ENGINE_ROUTING of [undefined, { get: async () => "off" }]) {
+    const { send, calls } = fixture(status, { ENGINE_ROUTING });
+    for (const method of ["GET", "HEAD"]) {
+      const response = await send(`/tours/day.html?deal=${deal}&tour=${step}`, { method, headers: { cookie } });
+      assert.equal(response.headers.get("location"), `/deals?deal=${deal}`);
+    }
+    assert.deepEqual(calls.assets, []);
+    assert.deepEqual(calls.carr, []);
+  }
+});
+
+test("an older cached Tour day session stops before authenticating with the new sign-in", async () => {
+  const { send, calls } = fixture(status);
+  const response = await send("/auth/session", {
+    headers: { cookie, referer: staging + "/tours/day.html?tour=" + step },
+  });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("x-doctorcre-partner-sign-in"), "engine");
+  assert.deepEqual(calls.partner, []);
+  assert.deepEqual(calls.carr, []);
+});

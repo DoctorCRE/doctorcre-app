@@ -12,6 +12,13 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
   const location = globalThis.location;
   const host = mountNavigation(root, pathname, { location });
   if (!host) return;
+  const engineSignIn = root.documentElement.dataset.partnerSignIn === 'engine';
+  if (engineSignIn) {
+    const scope = new URL('/tours/', location.href);
+    void root.defaultView.navigator.serviceWorker?.getRegistration(scope.href).then(registration => {
+      if (registration?.scope === scope.href) return registration.update();
+    }).catch(() => {});
+  }
   const history = () => import('./ui-switcher-history.generated.js');
   // eslint-disable-next-line no-restricted-syntax -- One frame after initial page readiness records local recents; it performs no network reads or polling.
   const track = () => root.defaultView.requestAnimationFrame(() => {
@@ -44,14 +51,13 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
     opening = true;
     const opener = root.activeElement instanceof HTMLElement && root.activeElement !== root.body ? root.activeElement : toggle;
     try {
-      const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationItems, switcherUtilityPages }, { createClient }] = await Promise.all([
+      const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationItems, switcherUtilityPages, toursDestination }, { createClient }] = await Promise.all([
         import('./ui-quick-switcher.generated.js'), import('./routes.js'), import('./client.js'),
       ]);
       if (retired) return;
       const boot = resolveDealroomBoot(location);
-      const engineSignIn = root.documentElement.dataset.partnerSignIn === "engine";
-      const destinations = engineSignIn ? navigationItems.filter(item => !item.carrOnly) : navigationItems;
-      const pages = [...destinations, ...switcherUtilityPages];
+      const pages = [...navigationItems, ...switcherUtilityPages].filter(page =>
+        !engineSignIn || (!page.carrOnly && page !== toursDestination));
       openQuickSwitcher({ opener, pages, read: async (publish) => {
         const client = await createClient(boot.mode, boot.options);
         return readQuickSwitcherSources(() => client.getBoard(), () => client.getRelationshipNetwork(), switcherInboxReader(createMcpRequests(), boot.mode === "fixture"), publish);

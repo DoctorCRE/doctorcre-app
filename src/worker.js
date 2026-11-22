@@ -245,7 +245,15 @@ async function assetResponse(request, env, path, switches) {
     : path.endsWith(".html") || path.endsWith(".js") || path.endsWith(".css")
     ? "no-cache" : "public, max-age=300");
   if (path === "/public-shell/sw.js") headers.set("service-worker-allowed", "/");
-  const asset = secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
+  let body = response.body;
+  // The old offline Tour shell loads this module at startup but never caches it.
+  if (response.ok && engineSignIn(env) && path === '/js/ui-switcher-history.generated.js') {
+    headers.delete('content-length');
+    headers.delete('etag');
+    if (request.method === 'GET') body = `if (location.pathname === '/tours/day.html') location.replace('/tours' + location.search);
+${await response.text()}`;
+  }
+  const asset = secure(new Response(body, { status: response.status, statusText: response.statusText, headers }), path);
   if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html')) return asset;
   const { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine } = switches ?? await pageSwitches(env);
   const tourPlanner = path === '/pipeline.html' && dealToursFromEngine;
@@ -1072,6 +1080,30 @@ async function openEngineActionLink(request, env, url) {
   }
 }
 
+function oldToursPage(pathname) {
+  try {
+    const path = decodeURIComponent(pathname).replace(/\/+$/, '');
+    return /^\/tours(?:\.html)?$/i.test(path) ||
+      /^\/tours\/(?:[^/]+\/)*[^/.]+(?:\.html)?$/i.test(path);
+  } catch { return false; }
+}
+
+async function moveOldTours(request, env, url) {
+  if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
+  const gate = await pageGate(request, env, request);
+  if (gate.status !== 200) return gate;
+  const deal = url.searchParams.get('deal') ?? url.searchParams.get('deal_id');
+  const linked = isUuid(deal);
+  const query = new URLSearchParams(linked ? { deal } : { 'tours-moved': '1' });
+  if (linked && await switchedOn(env, DEAL_TOURS)) {
+    query.set('tab', 'tours');
+    const tour = url.searchParams.get('tour');
+    if (isUuid(tour)) query.set('tour', tour);
+  }
+  if (url.searchParams.get('mode') === 'live') query.set('mode', 'live');
+  return gatedResponse(gate, new Response(null, { status: 302, headers: { location: `/deals?${query}` } }), env);
+}
+
 async function handleRequest(request, env) {
   const url = new URL(request.url);
   const pathname = url.pathname;
@@ -1107,6 +1139,30 @@ async function handleRequest(request, env) {
   if (UNGATED_PAGES.has(pathname)) {
     if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method_not_allowed" }, 405);
     return assetResponse(request, env, `/${APP_ROUTES.get(pathname)}`);
+  }
+
+  if (engineSignIn(env)) {
+    if (oldToursPage(pathname)) return moveOldTours(request, env, url);
+    if (pathname === '/tours/day-sw.js') {
+      if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
+      // Replacing the installed worker releases the cached Tour day page.
+      const body = request.method === 'HEAD' ? null : `
+self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
+self.addEventListener('activate', event => event.waitUntil((async () => {
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  await Promise.allSettled(windows.map(client => {
+    const url = new URL(client.url);
+    if (url.pathname !== '/tours/day.html') return;
+    url.pathname = '/tours';
+    return client.navigate(url.href);
+  }));
+  await self.registration.unregister();
+})()));
+`;
+      return secure(new Response(body, { headers: {
+        'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store',
+      } }), pathname);
+    }
   }
 
   const route = routeKey(actionLinkRoute(pathname));
@@ -1233,7 +1289,11 @@ async function handleRequest(request, env) {
 
   if (engineSignIn(env) && pathname.startsWith('/auth/')) {
     const session = pathname === '/auth/session';
-    const response = await authResponse(request, env, request.method === 'GET' && !session);
+    const referer = session && URL.parse(request.headers.get('referer') ?? '');
+    // Older cached day pages must stop before seeing a new identity or issuing a CARR read.
+    const retiredDay = referer?.origin === url.origin && referer.pathname === '/tours/day.html';
+    const response = retiredDay ? json({ error: 'tour_day_moved' }, 503)
+      : await authResponse(request, env, request.method === 'GET' && !session);
     if (session) response.headers.set('x-doctorcre-partner-sign-in', 'engine');
     return response;
   }

@@ -1,3 +1,5 @@
+import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-tour-session.js';
+import { createDayStore } from '../tours/day-store.js';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
 import {
@@ -3104,3 +3106,87 @@ if (globalThis.document) boot();
 export { state };
 /** Read-only view of the command dock's entries, for tests that prove what it retains. */
 export const dockEntries = () => dock.entries ?? new Map();
+
+function savedTourWrite(key, scope) {
+  try {
+    const draft = JSON.parse(sessionStorage.getItem(key));
+    return draft?.sessionBinding === `sha256:${scope}` ? draft : null;
+  } catch { return null; }
+}
+
+function tourDraftDownload(urls, [label, filename, blob]) {
+  const url = URL.createObjectURL(blob);
+  urls.push(url);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.textContent = label;
+  const row = document.createElement('li');
+  row.append(link);
+  return row;
+}
+
+async function readSavedTourDrafts(scope) {
+  const drafts = [];
+  if (!scope) return { drafts, recordingsUnavailable: false };
+  const route = savedTourWrite(TOUR_DRAFT_KEYS.route, scope);
+  const other = savedTourWrite(TOUR_DRAFT_KEYS.other, scope);
+  if (route?.create || route?.composer) {
+    const contents = route.create ?? { tour: route.composer.tourId, stops: route.composer.rows, endpoints: route.composer.endpointDraft };
+    drafts.push(['Download saved route draft', 'tour-draft.json', new Blob([JSON.stringify(contents, null, 2)], { type: 'application/json' })]);
+  }
+  if (typeof other?.sheet?.draft === 'string') {
+    drafts.push(['Download saved tour notes', 'tour-notes.txt', new Blob([other.sheet.draft], { type: 'text/plain' })]);
+  }
+  if (other?.action?.body) {
+    const { path, body } = other.action;
+    drafts.push(['Download pending tour change', 'tour-change.json', new Blob([JSON.stringify({ path, body }, null, 2)], { type: 'application/json' })]);
+  }
+  let store;
+  try {
+    store = createDayStore(window.indexedDB);
+    const recordings = (await store.list(scope)).filter(note => note.audio instanceof Blob && note.audio.size);
+    recordings.forEach(({ audio, property_name }, index) => {
+      const extension = /^(?:audio\/)(webm|mp4|ogg)(?:;|$)/.exec(audio.type)?.[1] ?? 'audio';
+      const label = typeof property_name === 'string' && property_name ? ` for ${property_name}` : '';
+      drafts.push([`Download tour recording ${index + 1}${label}`, `tour-recording-${index + 1}.${extension}`, audio]);
+    });
+    return { drafts, recordingsUnavailable: false };
+  } catch {
+    return { drafts, recordingsUnavailable: true };
+  } finally { await store?.close().catch(() => {}); }
+}
+
+const tourRecovery = globalThis.document?.getElementById('oldToursRecovery');
+if (tourRecovery && document.documentElement.dataset.partnerSignIn === 'engine') {
+  const note = document.getElementById('oldToursMoved');
+  const button = document.getElementById('recoverTourDrafts');
+  const status = document.getElementById('tourDraftStatus');
+  const list = document.getElementById('tourDraftDownloads');
+  const session = privateSession();
+  note.hidden = new URLSearchParams(location.search).get('tours-moved') !== '1';
+  tourRecovery.hidden = note.hidden;
+  if (session && hasTourDrafts(window)) {
+    const urls = [];
+    const revokeDownloads = () => { urls.splice(0).forEach(url => URL.revokeObjectURL(url)); };
+    window.addEventListener('pagehide', revokeDownloads, { once: true });
+    window.addEventListener('doctorcre-session-invalidated', revokeDownloads, { once: true });
+    void session.verify().then(() => { tourRecovery.hidden = button.hidden = false; }).catch(() => {});
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      status.hidden = false;
+      status.textContent = 'Looking for saved drafts on this device…';
+      try {
+        const { actor } = await session.verify({ fresh: true });
+        const { drafts, recordingsUnavailable } = await readSavedTourDrafts(legacyTourDraftScope(window, actor.slug));
+        if (session.revoked) return;
+        list.replaceChildren(...drafts.map(draft => tourDraftDownload(urls, draft)));
+        list.hidden = drafts.length === 0;
+        status.textContent = recordingsUnavailable ? 'Saved recordings could not be opened.'
+          : drafts.length ? 'Saved drafts from this browser are ready to download.'
+          : 'There are no saved tour drafts this sign-in can verify.';
+      } catch { status.textContent = 'Saved tour drafts could not be opened.'; }
+      finally { button.disabled = !list.hidden; }
+    });
+  }
+}
