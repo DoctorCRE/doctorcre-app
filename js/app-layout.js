@@ -1,33 +1,22 @@
-import { meetingPreparationLifetime } from './ui-meeting-preparation-lifetime.generated.js';
-import { createPageBudget } from './read-budget.mjs';
-import { mountLocalTicker } from './visibility-poll.mjs';
-import { todayMove } from './today-moves.mjs';
-import { briefOwnerLabel, filterBriefOwners, mountBriefOwnerFilter } from './brief-owner-filter.js';
-import { normalizeBrief } from './morning-brief-model.js';
 import { TOUCH_LAYOUT } from './touch-layout.js';
-import { mostOverdueFirst, needsAttention, overdueActionRows, overdueLabel, overdueSince, scopedDeals } from './deal-review-model.js';
-import { businessDay } from './business-date.js';
+import { scopedDeals } from './deal-review-model.js';
 import { createClient } from './client.js';
 import { resolveDealroomBoot } from './boot-mode.js';
-import { mountAutoRefresh, readWithDeadline } from './auto-refresh.mjs';
-import { createFeedProgress, observeChangeBatch, ingestChangeEvents, receiptViews, escapeText as escape } from './change-receipts.mjs';
 
-import { localToday, shortDay, toDay } from './calendar-model.js';
+import { mountAutoRefresh } from './auto-refresh.mjs';
+import { escapeText as escape } from './change-receipts.mjs';
+
 const time = value => { const date = new Date(value || ''); return Number.isFinite(date.valueOf()) ? date.toLocaleTimeString([], { hour:'numeric', minute:'2-digit', hour12:true }) : '—'; };
 
-const LEGACY_TODAY_CONTENT = `<p class="home-kicker app-look-ahead">A LITTLE LOOK AHEAD</p><div id="appScheduleSlot"></div><div id="appTodayOwners"></div><p id="appTodayReadStatus" class="app-layout-empty" role="status">Loading Today…</p><button type="button" id="appTodayRetry" class="app-layout-item" hidden>Retry Today</button><section><h3>Overdue</h3><div id="appTodayNeeds">Updating…</div></section><section><h3>Dated reminders</h3><div id="appTodayNext">Updating…</div><button type="button" id="appTodayShowAll" class="app-layout-item app-layout-show-all" aria-controls="appTodayNext" hidden>Show all</button></section><section><h3>Deal pulse</h3><div id="appTodayMoves"><span class="app-layout-empty">—</span></div></section>`;
-
-export function createAppLayout(root, title = '', engineToday = false) {
-  const todayContent = engineToday
-    ? `<section class="calendar-panel" aria-label="Meetings"><h3>Meetings</h3><div id="appScheduleSlot" role="status">Loading meetings…</div><div id="appMeetingReviews" hidden></div></section>
+function createAppLayout(root, title) {
+  const todayContent = `<section class="calendar-panel" aria-label="Meetings"><h3>Meetings</h3><div id="appScheduleSlot" role="status">Loading meetings…</div><div id="appMeetingReviews" hidden></div></section>
       <section aria-labelledby="appRemindersTitle"><h3 id="appRemindersTitle">Dated reminders</h3><div id="appTodayOwners" hidden></div><div id="appTodayLate" hidden><h4>Late</h4><div id="appTodayNeeds"></div></div><div id="appTodayNext" role="status">Loading dated reminders…</div></section>
-      <button type="button" id="appTodayRetry" class="app-layout-item" hidden>Retry Today</button>`
-    : LEGACY_TODAY_CONTENT;
+      <button type="button" id="appTodayRetry" class="app-layout-item" hidden>Retry Today</button>`;
   const layout = root.createElement('div');
   layout.id = 'appLayout';
   layout.className = 'app-layout';
-  layout.innerHTML = `<aside id="appSidebar" class="app-layout-sidebar" aria-label="${escape(title)} workspace"><div class="app-layout-sidebar-head"><h2>${escape(title)}</h2><button type="button" data-layout-close="sidebar" aria-label="Close workspace">‹</button></div><div id="appCalendarSlot"></div></aside>
-    <div class="app-layout-center"><div id="appTopbar" class="app-layout-topbar" role="region" aria-label="App controls"></div><div class="app-layout-tabbar" role="navigation" aria-label="Page controls"><button type="button" id="appSidebarToggle" aria-label="Workspace sidebar" aria-controls="appSidebar" aria-expanded="false" title="Workspace sidebar">☷</button><div id="appTabsSlot" class="app-layout-tabs" role="group" aria-label="${escape(title)} views"></div><button type="button" id="appTodayToggle" aria-label="Today sidebar" aria-controls="appToday" aria-expanded="true" title="Today">◷</button></div><div id="appMainSlot" class="app-layout-main"></div><details class="app-layout-page-tools"><summary>Page tools</summary><div id="appSidebarSlot"></div><section class="app-layout-working"><h3>Overdue</h3><div id="appWorkingList">Updating…</div></section></details></div>
+  layout.innerHTML = `<aside id="appSidebar" class="app-layout-sidebar" aria-label="${escape(title)} workspace"><div class="app-layout-sidebar-head"><h2>${escape(title)}</h2><button type="button" data-layout-close="sidebar" aria-label="Close workspace">‹</button></div></aside>
+    <div class="app-layout-center"><div id="appTopbar" class="app-layout-topbar" role="region" aria-label="App controls"></div><div class="app-layout-tabbar" role="navigation" aria-label="Page controls"><button type="button" id="appSidebarToggle" aria-label="Workspace sidebar" aria-controls="appSidebar" aria-expanded="false" title="Workspace sidebar">☷</button><div id="appTabsSlot" class="app-layout-tabs" role="group" aria-label="${escape(title)} views"></div><button type="button" id="appTodayToggle" aria-label="Today sidebar" aria-controls="appToday" aria-expanded="true" title="Today">◷</button></div><div id="appMainSlot" class="app-layout-main"></div><details class="app-layout-page-tools"><summary>Page tools</summary><div id="appSidebarSlot"></div></details></div>
     <aside id="appToday" class="app-layout-today" aria-labelledby="appTodayTitle"><div class="app-layout-sidebar-head"><h2 id="appTodayTitle">Today</h2><time id="appSyncTime" hidden></time><button type="button" data-layout-close="today" aria-label="Close Today">›</button></div><p id="appConnection" role="status" hidden></p>${todayContent}</aside>
     <button class="app-layout-scrim" id="appDrawerScrim" type="button" aria-label="Close sidebar" hidden></button>`;
   return layout;
@@ -35,22 +24,17 @@ export function createAppLayout(root, title = '', engineToday = false) {
 
 // Slots contain the page's original nodes, not copies. IDs, listeners, drafts and
 // lazy tab reads therefore retain their existing owner across layout changes.
-export function mountAppLayout(root, host, pathname, { ready = Promise.resolve() } = {}) {
+export function mountAppLayout(root, host, pathname) {
   if (root.getElementById('appLayout')) return;
   const win = root.defaultView || globalThis.window;
   const pageKey = pathname === '/deals' ? '/deals' : pathname;
   const calendarPanel = pathname === '/calendar' && root.getElementById('dayPanel');
   const boardPage = ['/leads','/deals','/pipeline'].includes(pathname);
   const vendorDirectory = pathname === '/vendors';
-  const homeOrInbox = pathname === '/' || pathname === '/review-workflows' || pathname === '/inbox' || pathname === '/inbox.html' || pathname.startsWith('/inbox/card/');
   const progressPage = pathname === '/control-room/progress' || pathname.startsWith('/control-room/progress/board/');
   const title = pathname === '/' ? 'Home' : progressPage ? 'Progress' : pathname.startsWith('/control-room') ? 'Control Room' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .room-wordmark, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
   const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine');
-  const layout = createAppLayout(root, title, engineToday);
-  const pagesWithoutWorkingList = ['/', '/vendors', '/deals', '/pipeline'];
-  const hasWorkingList = !pagesWithoutWorkingList.includes(pathname);
-  if (!hasWorkingList) layout.querySelector('.app-layout-working').remove();
-  else if (homeOrInbox || engineToday) layout.querySelector('.app-layout-working').hidden = true;
+  const layout = createAppLayout(root, title);
   host.after(layout);
   const skip = root.querySelector('.skip');
   if (skip) host.querySelector('header')?.prepend(skip);
@@ -66,13 +50,11 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     tabs: pageViews,
     actions: pageViews,
     sidebar: layout.querySelector('#appSidebarSlot'),
-    moves: layout.querySelector('#appTodayMoves'),
   };
   for (const node of [...root.querySelectorAll('[data-layout-slot]')]) {
     const slot = node.dataset.layoutSlot;
     const target = slots[slot];
     if (!target) continue;
-    if (slot === 'moves') target.replaceChildren();
     if (slot === 'title') target.before(node);
     else target.append(node);
   }
@@ -82,15 +64,13 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   }
   const hasPageTools = Boolean(layout.querySelector('#appSidebarSlot').childElementCount);
   pageTools.open = !vendorDirectory && hasPageTools;
-  pageTools.hidden = !hasPageTools && !layout.querySelector('.app-layout-working:not([hidden])');
+  pageTools.hidden = !hasPageTools;
   root.body.classList.add('has-app-layout');
   const pageRefresh = main.querySelector('[data-layout-slot="status"] [data-layout-refresh]');
   const pageMoves = layout.querySelector('[data-layout-slot="moves"]');
-  const pageOwnsMoves = Boolean(pageMoves);
-  const canReadMoves = () => !pageOwnsMoves && !root.documentElement.hasAttribute('data-deals-from-engine');
   const phone = win.matchMedia(pathname === "/leads" ? "(max-width:1023px)" : TOUCH_LAYOUT);
-  const itineraryPage = Boolean(root.getElementById('accepted-itinerary'));
   const dealBoard = pathname === '/deals' && root.body.classList.contains('dealroom-page');
+  const itineraryPage = Boolean(root.getElementById('accepted-itinerary'));
   let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory, today = true, drawer = null;
   let drawerOpener = null;
   const background = new Map();
@@ -158,7 +138,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     if (event.key === 'Escape') { event.preventDefault(); closeDrawer(); }
     if (event.key === 'Tab') {
       const panel = layout.querySelector(drawer === 'sidebar' ? '#appSidebar' : '#appToday');
-      const focusable = [...panel.querySelectorAll(`a,button,input,select,textarea,[tabindex="0"]${engineToday && drawer === 'today' ? ',summary' : ''}`)].filter(n => !n.disabled && n.getClientRects().length);
+      const focusable = [...panel.querySelectorAll(`a,button,input,select,textarea,[tabindex="0"]${drawer === 'today' ? ',summary' : ''}`)].filter(n => !n.disabled && n.getClientRects().length);
       const first = focusable[0], last = focusable.at(-1);
       if (!panel.contains(root.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first)?.focus(); }
       else if (event.shiftKey && root.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -169,7 +149,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
   paint();
   root.addEventListener('doctorcre:open-today', () => {
     if (calendarPanel) calendarPanel.scrollIntoView({ block: 'start' });
-    else if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
+    else if (pageMoves) pageMoves.scrollIntoView({ block: 'start' });
     else openRegion('today');
   });
   // Page tab controllers retain selection and lazy reads. Give groups without
@@ -204,8 +184,9 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     return;
   }
   const boot = resolveDealroomBoot(globalThis.location);
-  const homeToday = engineToday
-    ? import('./ui-home-today.generated.js').then(module => module.mountHomeTodayPanel(layout.querySelector('#appToday'), async signal => {
+  let client;
+  const homeToday = import('./ui-home-today.generated.js')
+    .then(module => module.mountHomeTodayPanel(layout.querySelector('#appToday'), async signal => {
       client ??= await createClient(boot.mode, { ...boot.options, docContext: false });
       const deals = scopedDeals(await client.getBoard({ workspace: 'all', signal }), 'team');
       if (!deals) throw new Error('Could not load meeting deals');
@@ -214,67 +195,7 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
       layout.querySelector('#appScheduleSlot').textContent = "Couldn't load meetings.";
       layout.querySelector('#appTodayNext').textContent = "Couldn't load dated reminders.";
       return null;
-    }) : null;
-  const calendarPanels = homeToday ? Promise.resolve(null) : ready.then(() => import('./ui-calendar-panels.generated.js')).then(module => {
-    if (!layout.isConnected) return null;
-    return module.mountCalendarPanels(layout.querySelector('#appCalendarSlot'), layout.querySelector('#appScheduleSlot'), null);
-  }).catch(() => {
-    for (const id of ['#appCalendarSlot', '#appScheduleSlot']) layout.querySelector(id).textContent = 'Calendar unavailable. Reload to try again.';
-    return null;
-  });
-  let client, feedActor = null, cursor = null, feed = createFeedProgress(), receipts = [];
-  const resetFeed = () => { feedActor = null; cursor = null; feed = createFeedProgress(); receipts = []; if (!homeToday && canReadMoves()) renderMoves(); };
-  let todayItems = null, todayNeeds = null, nextExpanded = false, failedReads = [], todayReadState = 'loading', listedOverdue = new Set();
-  const row = (item, extra = '', overdue = '') => `<button type="button" class="app-layout-item" data-layout-deal="${escape(item.subject_id || item.id)}"><strong>${escape(item.subject_name || item.name)}</strong>${briefOwnerLabel(item) ? `<small class="morning-owner">${briefOwnerLabel(item)}</small>` : ''}${extra || overdue ? `<span>${escape(extra)}${extra && overdue ? ' ' : ''}${overdue ? `<span class="app-layout-age">${escape(overdue)}</span>` : ''}</span>` : ''}</button>`;
-  const render = (target, html) => { const node = layout.querySelector(target); if (node.innerHTML !== html) { const id = node.contains(root.activeElement) ? root.activeElement.dataset.layoutDeal : null; node.innerHTML = html; if (id) [...node.querySelectorAll('button')].find(b => b.dataset.layoutDeal === id)?.focus(); } };
-  const overdueRows = deals => {
-    const today = businessDay();
-    return mostOverdueFirst(deals, today).map(d => {
-      const age = overdueLabel(overdueSince(d, today), today);
-      return row(d, d.next_step || '', age);
     });
-  };
-  const unavailable = '<span class="app-layout-empty">Unavailable</span>';
-  const empty = '<span class="app-layout-empty">—</span>';
-  const pendingRead = section => failedReads.includes(section) ? unavailable : '<span class="app-layout-empty">Loading…</span>';
-  const renderToday = () => {
-    const today = businessDay();
-    const next = todayItems && filterBriefOwners(todayItems, owners.current()).filter(i => i.subject_type === 'deal' && i.due_on >= today).sort((a, b) => a.due_on.localeCompare(b.due_on));
-    render('#appTodayNext', next ? (nextExpanded ? next : next.slice(0,3)).map(i => row(i,`${i.what || 'Due'} · ${shortDay(i.due_on || '', localToday())}`)).join('') || '<span class="app-layout-empty">No dated reminders returned.</span>' : pendingRead('Dated reminders'));
-    const showAll = layout.querySelector('#appTodayShowAll');
-    showAll.hidden = !next || next.length <= 3 || nextExpanded;
-    showAll.textContent = `Show all ${next?.length || 0}`;
-    const needs = todayNeeds && filterBriefOwners(todayNeeds, owners.current()).filter(row => !listedOverdue.has(row.id) && !listedOverdue.has(row.subject_id));
-    render('#appTodayNeeds', needs ? overdueRows(needs).slice(0,6).join('') || empty : pendingRead('Overdue'));
-  };
-  const owners = !homeToday && mountBriefOwnerFilter(root, layout.querySelector('#appTodayOwners'), () => { nextExpanded = false; renderToday(); });
-  // The page's main column names the late actions or deals it already lists, so each shows once.
-  if (!homeToday) root.addEventListener('doctorcre:overdue-shown', event => { listedOverdue = new Set(event.detail); renderToday(); });
-  for (const button of layout.querySelectorAll('#appTodayOwners button')) button.setAttribute('aria-label', button.textContent === 'All' ? 'All reminders' : `Reminders for ${button.textContent}`);
-  if (!homeToday) layout.querySelector('#appTodayShowAll').onclick = () => {
-    nextExpanded = true; renderToday();
-    layout.querySelectorAll('#appTodayNext [data-layout-deal]')[3]?.focus();
-  };
-  const renderMoves = () => {
-    const moves = feed.caught_up ? receiptViews(receipts).slice(0,6) : [];
-    render('#appTodayMoves', moves.map(move => {
-      const { name, action, by, age } = todayMove(move);
-      const detail = `${by ? `${escape(by)} ${escape(action.charAt(0).toLowerCase() + action.slice(1))}` : escape(action)}${age ? `<span class="app-layout-move-age"><span class="sr-only"> · </span>${escape(age)}</span>` : ''}`;
-      return `<button type="button" class="app-layout-item" data-layout-deal="${escape(move.deal_id)}"><strong>${escape(name)}</strong><span class="app-layout-move-detail">${detail}</span></button>`;
-    }).join('') || `<span class="app-layout-empty">${feed.caught_up ? 'No recent deal changes returned.' : 'Checking recent deal changes…'}</span>`);
-  };
-  const text = value => typeof value === 'string' && value.trim().length > 0;
-  const optionalText = value => value == null || typeof value === 'string';
-  const validBoard = value => scopedDeals(value, 'team') !== null
-    && text(value.actor) && value.deals.every(d => text(d.name)
-      && ['phase','operating_state','owner','next_step','next_date'].every(k => optionalText(d[k]))
-      && (d.attention == null || typeof d.attention === 'boolean')
-      && (!d.next_date || toDay(d.next_date)));
-  const validTriage = value => Array.isArray(value?.items) && value.items.every(i => i
-    && text(i.subject_type) && text(i.subject_id)
-    && optionalText(i.subject_name) && optionalText(i.what) && optionalText(i.due_on)
-    && (i.subject_type !== 'deal' || text(i.subject_name)) && (text(i.subject_name) || text(i.what))
-    && (!i.due_on || toDay(i.due_on)));
   const connection = connected => {
     connected = connected && win.navigator.onLine !== false;
     const notice = layout.querySelector('#appConnection');
@@ -282,46 +203,14 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     const message = connected ? '' : 'Connection unavailable';
     if (notice.textContent !== message) notice.textContent = message;
   };
-  const renderReadStatus = () => {
-    const notice = layout.querySelector('#appTodayReadStatus');
-    const kept = todayItems || todayNeeds || feed.caught_up;
-    const loading = todayReadState === 'loading' && !kept;
-    notice.hidden = !failedReads.length && !loading;
-    notice.textContent = failedReads.length ? `${kept ? 'Showing last update. ' : ''}${failedReads.join(', ')} unavailable. Retry Today to update.` : loading ? 'Loading Today…' : '';
-    layout.querySelector('#appTodayRetry').hidden = !failedReads.length;
-    if (!loading || failedReads.length) connection(!failedReads.length);
-  };
   const failedRead = () => {
-    if (homeToday) {
-      void homeToday.then(panel => panel?.clear(win.navigator.onLine === false ? 'offline' : 'unavailable'));
-      connection(false);
-      return;
-    }
-    todayReadState = 'settled';
-    void calendarPanels.then(panel => panel?.clear());
-    failedReads = ['Schedule', 'Overdue', 'Dated reminders'];
-    if (canReadMoves()) failedReads.push('Deal pulse');
-    renderToday();
-    if (canReadMoves() && !feed.caught_up) render('#appTodayMoves', unavailable);
-    renderReadStatus();
+    void homeToday.then(panel => panel?.clear(win.navigator.onLine === false ? 'offline' : 'unavailable'));
+    connection(false);
   };
   const lifetime = new AbortController();
-  const preparation = meetingPreparationLifetime(root);
-  const unavailableRead = () => {
-    todayItems = null; todayNeeds = null;
-    resetFeed();
-    if (hasWorkingList) render('#appWorkingList', unavailable);
-    failedRead();
-  };
   const loadingRead = () => {
     connection(true);
-    if (homeToday) { void homeToday.then(panel => panel?.clear('loading')); return; }
-    todayItems = null; todayNeeds = null; failedReads = [];
-    todayReadState = 'loading';
-    resetFeed();
-    if (hasWorkingList) render('#appWorkingList', '<span class="app-layout-empty">Loading…</span>');
-    void calendarPanels.then(panel => panel?.clear('loading'));
-    renderToday(); renderReadStatus();
+    void homeToday.then(panel => panel?.clear('loading'));
   };
   const stampSyncTime = () => {
     const observed = new Date().toISOString();
@@ -334,111 +223,14 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     signal = signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
     if (signal.aborted) return;
     if (win.navigator.onLine === false) { failedRead(); return; }
-    if (homeToday) {
-      const panel = await homeToday;
-      if (signal.aborted) return;
-      const connected = await panel?.refresh(signal);
-      if (!signal.aborted) {
-        connection(connected);
-        if (connected) stampSyncTime();
-      }
-      return;
-    }
-    todayReadState = 'loading';
-    renderReadStatus();
-    try { client ||= await createClient(boot.mode, { ...boot.options, docContext:false }); }
-    catch { if (!signal.aborted) failedRead(); return; }
+    const panel = await homeToday;
     if (signal.aborted) return;
-    const interaction = preparation.capture();
-    const preparationSignal = AbortSignal.any([signal, interaction.signal]);
-    const [board, triage, meetings] = await Promise.allSettled([
-      readWithDeadline(() => client.getBoard({ workspace:'all' }), { signal }),
-      readWithDeadline(async () => {
-        const brief = normalizeBrief(await client.morningBrief());
-        if (signal.aborted) return null;
-        if (brief) { owners.setViewer(brief.sponsor); return brief.sections.today.state === 'unavailable' ? null : {items:brief.sections.today.items}; }
-        return client.todayTriage();
-      }, { signal }),
-      readWithDeadline(() => client.calendarMeetingPrep({ signal: preparationSignal }), { signal: preparationSignal }),
-    ]);
-    if (signal?.aborted || win.navigator.onLine === false) return;
-    const panels = await calendarPanels;
-    if (signal.aborted) return;
-    const scheduleValid = interaction.current() ? panels?.render(meetings.status === 'fulfilled' ? meetings.value : null, null) : true;
-    const connected = board.status === 'fulfilled' && validBoard(board.value);
-    const triageValid = triage.status === 'fulfilled' && validTriage(triage.value);
-    connection(connected && triageValid && !failedReads.length);
-    failedReads = [];
-    if (interaction.current() && !scheduleValid) failedReads.push('Schedule');
-    if (!connected || !triageValid) failedReads.push('Overdue');
-    if (!triageValid) failedReads.push('Dated reminders');
-    if (connected) {
-      const value = board.value;
-      if (feedActor !== value.actor) {
-        todayItems = null; todayNeeds = null;
-        resetFeed();
-      }
-      feedActor = value.actor;
-      const authorized = new Map(value.deals.map(deal => [deal.id, deal.name]));
-      todayItems = (triageValid ? triage.value.items : todayItems)?.filter(item => item.subject_type !== 'deal' || authorized.has(item.subject_id)) ?? null;
-      receipts = receipts.filter(receipt => authorized.has(receipt.deal_id))
-        .map(receipt => ({ ...receipt, deal_name: authorized.get(receipt.deal_id) }));
-      if (canReadMoves()) renderMoves();
-      const active = scopedDeals(value, 'team');
-      // Home and Inbox list overdue deals in their main column, so their Today panel keeps only late reminders.
-      const reminded = homeOrInbox ? active.filter(deal => todayItems?.some(item => item.subject_type === 'deal' && item.subject_id === deal.id)) : active;
-      if (triageValid || !todayNeeds) todayNeeds = overdueActionRows(reminded, todayItems, businessDay());
-      else todayNeeds = todayNeeds.filter(deal => active.some(current => current.id === (deal.subject_id || deal.id)));
-      if (hasWorkingList) render('#appWorkingList', overdueRows(active.filter(d => needsAttention(d))).slice(0,8).join('') || empty);
-      renderToday();
-      if (canReadMoves()) {
-        try {
-          // The existing feed starts with history. Never present its oldest
-          // page as recent; advance bounded pages until it reaches the present.
-          const takePage = createPageBudget({ document: root });
-          // eslint-disable-next-line no-restricted-syntax -- Recent-change catch-up has a max of four pages and consumes takePage before each read.
-          for (let page = 0; page < 4; page++) {
-            takePage();
-            const changes = await readWithDeadline(() => client.getChanges(cursor), { signal });
-            if (signal?.aborted || win.navigator.onLine === false) return;
-            if (changes === null) break;
-            if (!Array.isArray(changes?.events)) throw new Error('Invalid change response');
-            const batch = changes.events;
-            feed = observeChangeBatch(feed, batch);
-            receipts = ingestChangeEvents(receipts, batch, { dealName:id => authorized.get(id) })
-              .filter(receipt => authorized.has(receipt.deal_id));
-            cursor = changes.cursor ?? cursor;
-            if (feed.caught_up) break;
-          }
-          if (canReadMoves()) renderMoves();
-        } catch {
-          if (signal?.aborted) return;
-          if (canReadMoves()) {
-            failedReads.push('Deal pulse');
-            if (!feed.caught_up) render('#appTodayMoves', unavailable);
-          }
-        }
-      }
-    } else {
-      if (triageValid) todayItems = triage.value.items;
-      if (hasWorkingList && !todayNeeds) render('#appWorkingList', unavailable);
-      if (canReadMoves()) {
-        failedReads.push('Deal pulse');
-        if (!feed.caught_up) render('#appTodayMoves', unavailable);
-      }
-      renderToday();
+    const connected = await panel?.refresh(signal);
+    if (!signal.aborted) {
+      connection(connected);
+      if (connected) stampSyncTime();
     }
-    todayReadState = 'settled';
-    renderReadStatus();
-    if (!failedReads.length) stampSyncTime();
   };
-  layout.addEventListener('click', event => {
-    const item = event.target.closest('[data-layout-deal]'); if (!item) return;
-    const id = item.dataset.layoutDeal;
-    const existing = [...root.querySelectorAll('.deal-link, .kanban-card, button[data-open], button[data-open-deal]')].find(n => n.dataset.id === id || n.dataset.open === id || n.dataset.openDeal === id || n.dataset.deal === id);
-    if (existing) { closeDrawer(); existing.click(); }
-    else globalThis.location.assign(`/deals?deal=${encodeURIComponent(id)}`);
-  });
   win.addEventListener('offline', failedRead);
   const auto = mountAutoRefresh({ document:root, window:win, refresh, onResume:loadingRead, onError:failedRead });
   layout.querySelector('#appTodayRetry').onclick = () => auto.refresh();
@@ -454,17 +246,18 @@ export function mountAppLayout(root, host, pathname, { ready = Promise.resolve()
     try { root.querySelectorAll('[data-layout-refresh]').forEach(button => button.click()); } finally { fanOut = false; }
   };
   pageRefresh?.addEventListener('click', () => { if (!fanOut) auto.refresh(); });
-  void (homeToday || ready).then(() => auto.refresh());
-  // Ages are relative to now, so the list repaints each minute; render() skips the DOM when the text is unchanged.
-  const ageTick = mountLocalTicker({ document: root, window: win, tick: () => { if (!homeToday && canReadMoves() && feed.caught_up) renderMoves(); }, intervalMs: 60_000 });
+  void homeToday.then(() => auto.refresh());
   const invalidateSession = () => {
-    preparation.retire();
-    void calendarPanels.then(panel => panel?.retire());
-    lifetime.abort(); auto.dispose(); ageTick.dispose(); unavailableRead();
-    void homeToday?.then(panel => panel?.dispose());
+    lifetime.abort();
+    auto.dispose();
+    failedRead();
+    void homeToday.then(panel => panel?.dispose());
   };
   win.addEventListener('doctorcre-session-invalidated', invalidateSession);
   win.addEventListener('pagehide', () => {
-    void calendarPanels.then(panel => panel?.retire()); lifetime.abort(); preparation.retire(); win.removeEventListener('doctorcre-session-invalidated', invalidateSession); ageTick.dispose(); auto.dispose(); if (owners) owners.dispose(); win.removeEventListener('offline', failedRead);
+    lifetime.abort();
+    win.removeEventListener('doctorcre-session-invalidated', invalidateSession);
+    auto.dispose();
+    win.removeEventListener('offline', failedRead);
   });
 }

@@ -21,7 +21,7 @@ for (const refusal of ['unknown_tool', 'partner_required', 'malformed']) test(`H
     if (['read-home-inbox-v5', 'read-home-inbox-v4'].includes(name)) return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify({ error: 'unknown_tool' }) }] } } }); calls.push(name);
     const payload = name === 'read-home-inbox-v3' ? { error: refusal }
       : name === 'read-home-inbox-v2' ? { ok: true, schema_version: 'home-inbox.v2', auto_settle_enabled: false, working_collapsed: true, truncated: false, limit: 1000, items: [] }
-      : name === 'calendar-meeting-prep' ? { state: 'empty', items: [] } : name === 'deal-room-board' ? { actor: 'joe', deals: [] } : { items: [] };
+      : name === 'deal-room-board' ? { actor: 'joe', deals: [] } : { items: [] };
     return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
   });
   await page.goto(`${server.origin}/inbox?mode=live`);

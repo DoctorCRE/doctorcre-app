@@ -1161,7 +1161,6 @@ test('Undoing an invoice close restores late steps to the deal page', async t =>
     await page.getByRole('button', { name: 'Closed deals', exact: true }).click();
     if (switchesOn) {
       await page.locator('#closedDealsList .auto-move').getByText('Tue, Nov 17, 2026', { exact: true }).waitFor({ timeout: 3000 });
-      assert.equal(await page.locator('#appTodayMoves').isVisible(), false);
     }
     await page.getByRole('button', { name, exact: true }).click();
     await page.getByRole('heading', { name, exact: true }).waitFor();

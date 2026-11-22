@@ -2,7 +2,6 @@ import { type BrowserContext, test as base } from "@playwright/test";
 import { type InboxItem, object, parseSnapshot } from "../../src/ui/home/inbox.tsx";
 
 export const readOnlyVerbs: readonly string[] = [
-  "calendar-meeting-prep",
   "capture-queue",
   "catch-me-up",
   "current-work-item",
@@ -24,7 +23,6 @@ export const readOnlyVerbs: readonly string[] = [
   "list-doc-conversations",
   "list-doc-suggestions",
   "list-email-proposals",
-  "list-email-thread-filings",
   "list-fact-review",
   "list-feature-switches",
   "list-industry-events",
@@ -71,7 +69,6 @@ export const readOnlyVerbs: readonly string[] = [
   "schedule-board",
   "search-parties-v1",
   "standing-context",
-  "today-triage",
   "unfinished-work",
   "work-queue",
   "work-request-card",

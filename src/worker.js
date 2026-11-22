@@ -282,7 +282,6 @@ const NATIONAL_DEALS = 'national-deals-from-engine';
 const SEARCH = 'search-from-engine';
 const CLIENTS_VENDORS = 'clients-vendors-from-engine';
 const RELATIONSHIPS = 'relationships-from-engine';
-const FRAME = 'frame';
 const ENGINE_SIGN_IN_KEYS = new Set([DEALS, NEXT_DEAL_SAVES, LEADS, CLIENTS_VENDORS, RELATIONSHIPS, SEARCH, INVOICES, CHARTS]);
 // Each old read the engine can answer, by tool name or business GET path: its
 // switch key, its engine path and, for a tool, a check per argument.
@@ -320,8 +319,6 @@ const ENGINE_READS = new Map([
   ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
   ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true }],
-  ['today-triage', { key: FRAME, path: '/api/engine/today-triage', args: {}, engineOnly: true }],
-  ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {}, engineOnly: true }],
 ]);
 const BUSINESS_GET = /^(\/api\/v1\/business\/[a-z]+)(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
 
@@ -372,7 +369,7 @@ async function switchedOn(env, key) {
 }
 
 function routeToEngine(env, key, usedOnDeals = false) {
-  if (key === HOME || key === FRAME) return homeOnEngine(env);
+  if (key === HOME) return homeOnEngine(env);
   if (engineSignIn(env) && (usedOnDeals || ENGINE_SIGN_IN_KEYS.has(key))) return true;
   return switchedOn(env, key);
 }

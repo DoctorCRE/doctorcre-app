@@ -17,7 +17,7 @@ const screenshot = async (page, name) => {
   await page.screenshot({ path: join(process.env.W2_SCREENSHOT_DIR, `${name}.png`), fullPage: !name.includes('detail') });
 };
 
-async function open(t, { preparationResponse, calendarPanelsGate, actionCompletion, calendar, initialBriefFailure = false, theme = 'dark', delayHome = false, width = 1440, height = 1000, invoiceAttention = false, motion = 'reduce', leads = true, delayDetails = false, hangDetails = false, longLead = false, tasksOnly = false, heldTasks = false, malformedTasks = false, delayBoard = false, delayInitialFeed = false, freezeTime = false, origin = 'http://localhost', malformedBoard = false, firstOpen = false, freshBrief = false, emptyAgenda = false, initialDetailFailure = null, blockUi = false } = {}) {
+async function open(t, { meetingReviewsResponse, actionCompletion, calendar, initialBriefFailure = false, theme = 'dark', delayHome = false, width = 1440, height = 1000, invoiceAttention = false, motion = 'reduce', leads = true, delayDetails = false, hangDetails = false, longLead = false, tasksOnly = false, heldTasks = false, malformedTasks = false, delayBoard = false, delayInitialFeed = false, freezeTime = false, origin = 'http://localhost', malformedBoard = false, firstOpen = false, freshBrief = false, emptyAgenda = false, initialDetailFailure = null, blockUi = false } = {}) {
   const client = await createFixtureClient({ seedUrl: `data:application/json;base64,${Buffer.from(await readFile(new URL('../data/board-seed.json', import.meta.url))).toString('base64')}` });
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width, height }, timezoneId: 'UTC', reducedMotion: motion });
@@ -32,7 +32,6 @@ async function open(t, { preparationResponse, calendarPanelsGate, actionCompleti
   const resources = []; page.on('request', request => resources.push(new URL(request.url()).pathname));
   const errors = [], calls = [], liveLeads = structuredClone(leadRows); let boardReads = 0, failBoard = false, detailFailure = initialDetailFailure, leadFailure = null;
   const responses = new Map();
-  if (preparationResponse) responses.set('calendar-meeting-prep', preparationResponse);
   let boardMalformed = malformedBoard, briefFailure = initialBriefFailure;
   let releaseInitialFeed, feedResponses = 0;
   const initialFeed = new Promise(resolve => { releaseInitialFeed = resolve; });
@@ -63,7 +62,6 @@ async function open(t, { preparationResponse, calendarPanelsGate, actionCompleti
     },
     'read-post-call-followups': () => client.getPostCallFollowups(),
     'read-deal-update-reviews': async () => ({ schema_version: 'deal-update-reviews.v1', proposals: [] }),
-    'today-triage': () => client.todayTriage(),
     'list-feature-switches': () => client.listFeatureSwitches(),
     'list-doc-suggestions': args => client.listDocSuggestions(args),
     'morning-brief': async () => { if (briefFailure) throw Error('Unavailable'); const brief = await client.morningBrief(); return calendar === undefined ? brief : { ...brief, sections: { ...brief.sections, calendar } }; },
@@ -74,9 +72,7 @@ async function open(t, { preparationResponse, calendarPanelsGate, actionCompleti
     'list-notifications': async () => ({ unread_count: 0, notifications: [] }),
     'notification-feed': async () => ({ unread_count: 0, notifications: [] }),
     'list-email-proposals': async args => ({ schema_version: args.mode === 'recent_outcomes' ? 'email-reply-outcomes.v1' : 'email-proposals.v1', proposals: [], send: false, more: false, next_cursor: null }),
-    'list-email-thread-filings': async () => ({ filings: [] }),
     'read-call-outcomes': async () => ({ schema_version: 'call-outcomes.v1', calls: [], send: false }),
-    'calendar-meeting-prep': () => client.calendarMeetingPrep(),
     'answer-board-question': args => client.answerBoardQuestion(args),
   };
   await page.route('**/*', async route => {
@@ -97,8 +93,8 @@ async function open(t, { preparationResponse, calendarPanelsGate, actionCompleti
     }
     if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({ json: { actor: { slug: 'joe', label: 'Demo partner' }, csrf_token: 'synthetic' } });
     if (url.pathname.startsWith('/api/') || url.pathname === '/app-release') return route.fulfill({ status: 503, json: {} });
+    if (meetingReviewsResponse && url.pathname === '/js/home-meeting-reviews.js') await meetingReviewsResponse();
     if (blockUi && url.pathname === '/js/ui-next-step.generated.js') return route.abort();
-    if (calendarPanelsGate && url.pathname === '/js/ui-calendar-panels.generated.js') await calendarPanelsGate;
     const file = url.pathname === '/deals' && url.searchParams.get('view') === 'national' ? 'index.html' : routes[url.pathname] || url.pathname.slice(1);
     if (delayHome && file === 'js/workspace-command-center.js') await page.waitForFunction(() => document.querySelector('#morningUpdated')?.hasAttribute('datetime'));
     try { return route.fulfill({ body: await readFile(new URL(`../${file}`, import.meta.url)), contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' }); }
@@ -244,7 +240,7 @@ test('Home desktop and phone show flags, visual agenda, ranked leads and wide en
     assert.match(await page.locator('#observedAt').textContent(), /^Updated /);
     const text = await page.locator('main').textContent();
     assert.doesNotMatch(text, /source|records read|read again|retry|Doc at work|Changed in 7 days|Workspace structure/i);
-    assert.ok(calls.every(name => Object.keys({ 'calendar-meeting-prep':1, 'list-practice-origination':1, 'morning-brief':1, 'read-invoice-tracker':1, 'today-triage':1,'list-feature-switches': 1, 'list-doc-suggestions': 1, 'read-home-agenda': 1, 'read-post-call-followups': 1, 'read-deal-update-reviews': 1, 'deal-room-board': 1, 'get-deal-room': 1, 'lead-board': 1, 'list-notifications': 1, 'notification-feed': 1, 'read-call-outcomes': 1, 'list-email-proposals': 1, 'list-email-thread-filings': 1 }).includes(name)), `no write verb runs: ${calls.join(', ')}`);
+    assert.ok(calls.every(name => Object.keys({ 'list-practice-origination':1, 'morning-brief':1, 'read-invoice-tracker':1, 'list-feature-switches': 1, 'list-doc-suggestions': 1, 'read-home-agenda': 1, 'read-post-call-followups': 1, 'read-deal-update-reviews': 1, 'deal-room-board': 1, 'get-deal-room': 1, 'lead-board': 1, 'list-notifications': 1, 'notification-feed': 1, 'read-call-outcomes': 1, 'list-email-proposals': 1 }).includes(name)), `no write verb runs: ${calls.join(', ')}`);
     await screenshot(page, width === 1440 ? 'desktop' : `phone-${width}`);
     const first = page.locator('.home-lead').first(); await first.click();
     assert.equal(await page.locator('#homeDetail').evaluate(dialog => dialog.open), true);
@@ -841,158 +837,6 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`Up
 
 const prepCalendar = { state: 'ready', items: [{ title: 'Demo preparation entry', start: '2026-10-01T16:00:00Z', attendee_count: 2 }] };
 
-test('Meeting preparation follows the selected zone and preserves all-day source dates across DST', async t => {
-  const { page, responses } = await open(t, { calendar: prepCalendar });
-  responses.set('calendar-meeting-prep', { state: 'ready', observed_at: '2026-10-01T14:00:00Z', items: [
-    { title: 'Timed meeting', start: '2026-10-01T16:00:00Z', end: '2026-10-01T17:00:00Z', all_day: false, possible_deals: [] },
-    { title: 'Spring all-day', start: '2026-03-08T00:00:00Z', end: '2026-03-09T00:00:00Z', all_day: true, possible_deals: [] },
-    { title: 'Fall all-day', start: '2026-11-01T00:00:00Z', end: '2026-11-02T00:00:00Z', all_day: true, possible_deals: [] },
-  ] });
-  const zone = page.getByRole('combobox', { name: 'Meeting timezone', exact: true });
-  const dialog = page.getByRole('dialog', { name: 'Meeting preparation', exact: true });
-  for (const [value, time, observed] of [
-    ['America/New_York', '12:00 PM EDT', '10:00 AM EDT'],
-    ['America/Chicago', '11:00 AM CDT', '9:00 AM CDT'],
-    ['America/Denver', '10:00 AM MDT', '8:00 AM MDT'],
-    ['America/Los_Angeles', '9:00 AM PDT', '7:00 AM PDT'],
-    ['UTC', '4:00 PM UTC', '2:00 PM UTC'],
-  ]) {
-    await zone.selectOption(value);
-    await page.getByRole('button', { name: 'Prepare meetings', exact: true }).click();
-    await settles(async () => assert.match(await dialog.innerText(), /Timed meeting/));
-    assert.ok((await dialog.locator('article').filter({ hasText: 'Timed meeting' }).innerText()).includes(time));
-    assert.ok((await dialog.innerText()).includes(observed));
-    for (const [title, start, end] of [['Spring all-day', 'Mar 8', 'Mar 9'], ['Fall all-day', 'Nov 1', 'Nov 2']]) {
-      const row = await dialog.locator('article').filter({ hasText: title }).innerText();
-      assert.ok(row.includes(`${start} to ${end}`), `${value}: ${row}`);
-      assert.match(row, /All day/);
-    }
-    await dialog.getByRole('button', { name: 'Close meeting preparation', exact: true }).click();
-    await dialog.waitFor({ state: 'hidden' });
-  }
-});
-
-for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Meeting preparation opens possible deal context on demand at ${width}px ${theme}`, async t => {
-  const { page, calls, errors, responses } = await open(t, { width, theme, calendar: { state: 'ready', items: [
-    { start: '2026-10-01T16:00:00Z', title: 'Demo practice meeting', location: 'Demo office', attendee_count: 3, all_day: false },
-  ] } });
-  await settles(async () => assert.equal(calls.includes('calendar-meeting-prep'), true, 'The shared schedule reads meetings before preparation is opened'));
-  responses.set('calendar-meeting-prep', {
-    state: 'partial', observed_at: '2026-10-01T14:00:00Z', notes: ['Check Outlook for cancellations.'],
-    sources: { outlook_calendar: { state: 'stale' }, deal_suggestions: { state: 'ready' }, meeting_prep: { state: 'ready' } },
-    items: [{ title: 'Demo lease review <script>', start: '2026-10-01T16:00:00Z', end: '2026-10-01T17:00:00Z', location: 'Demo office', all_day: false,
-      schedule_conflict: true, time_changed: true, possible_deals: [
-        { id: 'demo/deal?one', name: 'Demo lease <img>', prep: { state: 'ready', phase: 'Negotiation', next_step: 'Review counteroffer', next_date: '2026-11-02', last_touch: '2026-09-30', market: 'Demo City' } },
-        { id: 'demo-other', name: 'Demo alternative', prep: { state: 'unavailable' } },
-        { id: 'demo-missing', name: 'Demo missing facts', prep: { state: 'ready', phase: null, next_step: null, next_date: null, last_touch: null, market: null } },
-      ] }],
-  });
-  await page.getByRole('button', { name: 'Prepare meetings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Meeting preparation', exact: true });
-  await settles(async () => assert.match(await dialog.innerText(), /Review counteroffer/));
-  const text = await dialog.innerText();
-  for (const value of ['Possible deals', 'not confirmed', 'Demo lease review <script>', 'Demo lease <img>', 'Negotiation', '2026-11-02', '2026-09-30', 'Demo City', 'Preparation unavailable', 'Check Outlook for cancellations.', 'stale', 'Overlapping meetings', 'Time changed']) assert.ok(text.includes(value), value);
-  assert.equal(await dialog.getByRole('link', { name: 'Demo lease <img>', exact: true }).getAttribute('href'), '/deals?deal=demo%2Fdeal%3Fone');
-  assert.equal(await dialog.locator('script,img').count(), 0);
-  assert.equal(await dialog.getByText('Not recorded', { exact: true }).count(), 5);
-  assert.equal(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth + 1), true);
-  await screenshot(page, `meeting-preparation-detail-${width}-${theme}`);
-  await dialog.getByRole('button', { name: 'Close meeting preparation', exact: true }).click();
-  await settles(async () => assert.equal(await dialog.isVisible(), false));
-  assert.equal(await page.getByRole('button', { name: 'Prepare meetings', exact: true }).evaluate(node => node === document.activeElement), true);
-  assert.deepEqual(errors, []);
-});
-
-
-test('Meeting preparation distinguishes unavailable, malformed, partial and verified empty reads and retries', async t => {
-  const { page, responses, errors } = await open(t, { calendar: prepCalendar });
-  responses.set('calendar-meeting-prep', { then(_resolve, reject) { reject(Error('Synthetic outage')); } });
-  await page.getByRole('button', { name: 'Prepare meetings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Meeting preparation', exact: true });
-  await settles(async () => assert.match(await dialog.innerText(), /Meeting preparation unavailable/));
-  for (const [value, expected] of [
-    [{ state: 'empty', items: [null] }, /Meeting preparation unavailable/],
-    [{ state: 'unavailable', items: [], notes: ['Demo calendar source unavailable.'] }, /Demo calendar source unavailable/],
-    [{ state: 'partial', items: [], notes: ['Some stored meetings could not be shown.'] }, /No meetings returned/],
-    [{ state: 'partial', notes: [], sources: { deal_suggestions: { state: 'unavailable' } }, items: [{ title: 'Demo unmatched meeting', start: '2026-10-01T16:00:00Z', end: '2026-10-01T17:00:00Z', possible_deals: [] }] }, /Possible deals unavailable/],
-    [{ state: 'empty', items: [], notes: [] }, /No upcoming meetings/],
-  ]) {
-    responses.set('calendar-meeting-prep', value);
-    await dialog.getByRole('button', { name: 'Refresh preparation', exact: true }).click();
-    await settles(async () => assert.match(await dialog.innerText(), expected));
-    if (value.state !== 'empty' || value.items.length) assert.doesNotMatch(await dialog.innerText(), /No upcoming meetings/);
-  }
-  assert.deepEqual(errors, []);
-});
-
-for (const retire of ['close', 'button', 'native', 'session']) test(`Meeting preparation fences late results after ${retire}`, async t => {
-  const { page, responses, errors, calls } = await open(t, { calendar: prepCalendar });
-  await page.evaluate(() => document.getElementById('appTodayRetry').onclick());
-  let release;
-  responses.set('calendar-meeting-prep', new Promise(resolve => { release = resolve; }));
-  t.after(() => release({ state: 'empty', items: [] }));
-  const before = calls.filter(name => name === 'calendar-meeting-prep').length;
-  await page.evaluate(() => { window.pendingLayoutRefresh = document.getElementById('appTodayRetry').onclick(); });
-  await settles(() => assert.ok(calls.filter(name => name === 'calendar-meeting-prep').length > before));
-  await page.getByRole('button', { name: 'Prepare meetings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Meeting preparation', exact: true });
-  await settles(async () => assert.match(await dialog.innerText(), /Loading meeting preparation/));
-  if (retire === 'close') await page.keyboard.press('Escape');
-  else if (retire === 'button') await dialog.getByRole('button', { name: 'Close meeting preparation', exact: true }).click();
-  else if (retire === 'native') await dialog.evaluate(node => node.close());
-  else await page.evaluate(() => dispatchEvent(new Event('doctorcre-session-invalidated')));
-  await settles(async () => assert.equal(await dialog.isVisible(), false));
-  const oldResult = { state: 'partial', items: [], notes: ['Demo retired private preparation'] };
-  release(oldResult);
-  await page.evaluate(() => window.pendingLayoutRefresh);
-  assert.doesNotMatch(await page.locator('body').textContent(), /Demo retired private preparation/);
-  if (retire !== 'session') {
-    responses.set('calendar-meeting-prep', { state: 'empty', items: [] });
-    await page.getByRole('button', { name: 'Prepare meetings', exact: true }).click();
-    await settles(async () => assert.match(await dialog.innerText(), /No upcoming meetings/));
-    assert.doesNotMatch(await dialog.innerText(), /Demo retired private preparation/);
-    responses.set('calendar-meeting-prep', { state: 'partial', items: [], notes: ['Demo current preparation'] });
-    await page.evaluate(() => document.getElementById('appTodayRetry').onclick());
-    await settles(async () => assert.match(await page.locator('#appCalendarSlot').textContent(), /Demo current preparation/));
-  } else {
-    assert.equal(await page.locator('#homeMeetings').textContent(), '');
-    const retiredReads = calls.filter(name => name === 'calendar-meeting-prep').length;
-    await page.evaluate(async () => {
-      await document.getElementById('appTodayRetry').onclick();
-      dispatchEvent(new Event('focus'));
-    });
-    assert.equal(calls.filter(name => name === 'calendar-meeting-prep').length, retiredReads);
-    assert.doesNotMatch(await page.locator('#appCalendarSlot').textContent(), /Demo retired private preparation/);
-  }
-  assert.deepEqual(errors, []);
-});
-
-
-test('Meeting preparation clears protected content after an authorization refusal', async t => {
-  const { page, responses, errors } = await open(t, { calendar: prepCalendar });
-  await page.getByRole('button', { name: 'Prepare meetings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Meeting preparation', exact: true });
-  await settles(async () => assert.match(await dialog.innerText(), /Demo practice planning/));
-  responses.set('calendar-meeting-prep', { then(_resolve, reject) { reject(Object.assign(Error('Synthetic refusal'), { status: 403 })); } });
-  await dialog.getByRole('button', { name: 'Refresh preparation', exact: true }).click();
-  await settles(async () => assert.equal(await dialog.isVisible(), false));
-  assert.doesNotMatch(await page.locator('body').textContent(), /Demo practice planning/);
-  assert.deepEqual(errors, []);
-});
-
-
-for (const calendar of [{ state: 'empty', items: [] }, null]) test(`Meeting preparation restores current Home entry focus after calendar ${calendar ? 'repaint' : 'removal'}`, async t => {
-  const { page, errors } = await open(t, { calendar: prepCalendar });
-  await page.getByRole('button', { name: 'Prepare meetings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Meeting preparation', exact: true });
-  await settles(async () => assert.match(await dialog.innerText(), /Demo practice planning/));
-  await page.evaluate(calendar => document.dispatchEvent(new CustomEvent('doctorcre:brief-calendar', { detail: calendar })), calendar);
-  await dialog.getByRole('button', { name: 'Close meeting preparation', exact: true }).click();
-  const target = calendar ? page.getByRole('button', { name: 'Prepare meetings', exact: true }) : page.locator('#homePrimaryAction');
-  await settles(async () => assert.equal(await target.evaluate(button => button === document.activeElement), true));
-  assert.deepEqual(errors, []);
-});
-
 test('Your brief stays visible across Home visits', async t => {
   const { page } = await open(t, { tasksOnly: true, freshBrief: true });
   const brief = page.getByRole('complementary', { name: 'Your brief' });
@@ -1220,10 +1064,10 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`H0
   assert.deepEqual(errors, []);
 });
 
-test('Home downloads meeting confirmation only when the calendar returns reviews', async t => {
-  const { page, errors, resources } = await open(t, { calendar: { state: 'empty', items: [], follow_up_reviews: [] } });
+test('Home shows meeting confirmation only when the calendar returns reviews', async t => {
+  const { page, errors } = await open(t, { calendar: { state: 'empty', items: [], follow_up_reviews: [] } });
   await page.locator('#homeMeetings').getByText('No upcoming meetings', { exact: true }).waitFor();
-  assert.equal(resources.includes('/js/home-meeting-reviews.js'), false);
+  assert.equal(await page.locator('#homeMeetingReviews').isVisible(), false);
   await page.evaluate(() => document.dispatchEvent(new CustomEvent('doctorcre:brief-calendar', { detail: {
     state: 'partial', items: [], notes: [], follow_up_reviews: [{ key: 'aaaaaaaaaaaaaaaa', state: 'needs_review', title: 'Demo lender meeting', start: '2026-10-01T13:00:00Z', end: '2026-10-01T14:00:00Z' }],
   } })));
@@ -1235,16 +1079,15 @@ test('Home downloads meeting confirmation only when the calendar returns reviews
 });
 
 test('session loss during the meeting-confirmation download prevents late controls', async t => {
-  const { page } = await open(t, { calendar: { state: 'empty', items: [], follow_up_reviews: [] } });
-  await page.locator('#homeMeetings').getByText('No upcoming meetings', { exact: true }).waitFor();
   let release, requested;
   const gate = new Promise(resolve => { release = resolve; });
   const started = new Promise(resolve => { requested = resolve; });
   t.after(() => release());
-  await page.route('**/js/home-meeting-reviews.js', async route => {
-    requested(); await gate;
-    await route.fulfill({ body: await readFile(new URL('../js/home-meeting-reviews.js', import.meta.url)), contentType: 'text/javascript' });
+  const { page } = await open(t, {
+    calendar: { state: 'empty', items: [], follow_up_reviews: [] },
+    meetingReviewsResponse: () => { requested(); return gate; },
   });
+  await page.locator('#homeMeetings').getByText('No upcoming meetings', { exact: true }).waitFor();
   await page.evaluate(() => document.dispatchEvent(new CustomEvent('doctorcre:brief-calendar', { detail: {
     state: 'partial', items: [], follow_up_reviews: [{ key: 'bbbbbbbbbbbbbbbb', state: 'needs_review', title: 'Demo retired meeting', start: '2026-10-01T13:00:00Z', end: '2026-10-01T14:00:00Z' }],
   } })));
@@ -1534,123 +1377,4 @@ test('loading the missing next step panel preserves existing Home card nodes', a
   await page.getByRole('region', { name: 'Deals with no next step' }).waitFor();
   for (const card of cards) assert.equal(await card.evaluate(node => node.isConnected), true, 'existing card stays attached');
   assert.equal(await link.evaluate(node => document.activeElement === node), true, 'focused link stays the same node');
-});
-
-
-test('Preparation close preserves the unrelated layout board and triage refresh', async t => {
-  const { page, client, responses, calls, errors } = await open(t, { calendar: prepCalendar });
-  await page.evaluate(() => document.getElementById('appTodayRetry').onclick());
-  await page.getByRole('button', { name: 'Prepare meetings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Meeting preparation', exact: true });
-  await settles(async () => assert.match(await dialog.innerText(), /Demo practice planning/));
-  let release;
-  responses.set('calendar-meeting-prep', new Promise(resolve => { release = resolve; }));
-  t.after(() => release({ state: 'empty', items: [] }));
-  const brief = await client.morningBrief();
-  brief.sections.today = { state: 'ready', items: [{ subject_type: 'deal', subject_id: 'd14', subject_name: 'Demo independent triage', what: 'Demo independent triage', due_on: '2026-10-02' }] };
-  responses.set('morning-brief', brief);
-  const before = calls.filter(name => name === 'calendar-meeting-prep').length;
-  await page.evaluate(() => { window.pendingLayoutRefresh = document.getElementById('appTodayRetry').onclick(); });
-  await settles(() => assert.ok(calls.filter(name => name === 'calendar-meeting-prep').length > before));
-  await page.keyboard.press('Escape');
-  release({ state: 'partial', items: [], notes: ['Demo retired shared preparation'] });
-  await page.evaluate(() => window.pendingLayoutRefresh);
-  assert.match(await page.locator('#appTodayNext').textContent(), /Demo independent triage/);
-  assert.doesNotMatch(await page.locator('body').textContent(), /Demo retired shared preparation/);
-  assert.deepEqual(errors, []);
-});
-
-test('Native close fences a same-turn preparation result before queued cleanup and reopen', async t => {
-  const { page, errors } = await open(t, { calendar: prepCalendar });
-  const result = await page.evaluate(async () => {
-    const { mountMeetingPreparation } = await import('/js/meeting-preparation.js');
-    let resolve;
-    const owner = mountMeetingPreparation({ document, window, client: { calendarMeetingPrep: () => new Promise(done => { resolve = done; }) } });
-    const pending = owner.open(null, 'America/Chicago');
-    const dialog = [...document.querySelectorAll('.meeting-preparation')].at(-1);
-    dialog.close();
-    resolve({ state: 'partial', items: [], notes: ['Demo same turn retired'] });
-    await pending;
-    const text = dialog.textContent;
-    const fresh = owner.open(null, 'America/Chicago');
-    resolve({ state: 'partial', items: [], notes: ['Demo fresh reopen'] });
-    await fresh;
-    const reopened = dialog.textContent;
-    owner.dispose();
-    return { text, reopened };
-  });
-  assert.doesNotMatch(result.text, /Demo same turn retired/);
-  assert.match(result.reopened, /Demo fresh reopen/);
-  assert.deepEqual(errors, []);
-});
-
-
-for (const resolveFirst of [false, true]) test(`Shared preparation retires across lazy panel acquisition with result first ${resolveFirst}`, async t => {
-  let acquire, release;
-  const calendarPanelsGate = new Promise(resolve => { acquire = resolve; });
-  const preparationResponse = new Promise(resolve => { release = resolve; });
-  t.after(() => { acquire(); release({ state: 'empty', items: [] }); });
-  const { page, responses, calls, errors } = await open(t, { calendar: prepCalendar, calendarPanelsGate, preparationResponse });
-  await settles(() => assert.ok(calls.includes('calendar-meeting-prep')));
-  await page.evaluate(() => { window.pendingLayoutRefresh = document.getElementById('appTodayRetry').onclick(); });
-  if (resolveFirst) {
-    const arrived = page.waitForResponse(response => response.url().endsWith('/mcp') && response.request().postDataJSON()?.params?.name === 'calendar-meeting-prep');
-    release({ state: 'partial', items: [], notes: ['Demo retired lazy preparation'] });
-    await (await arrived).finished();
-  }
-  await page.getByRole('button', { name: 'Prepare meetings', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Meeting preparation', exact: true });
-  if (resolveFirst) await settles(async () => assert.match(await dialog.textContent(), /Demo retired lazy preparation/));
-  await dialog.evaluate(node => new Promise(resolve => {
-    node.addEventListener('close', () => resolve(), { once: true });
-    node.close();
-  }));
-  acquire();
-  release({ state: 'partial', items: [], notes: ['Demo retired lazy preparation'] });
-  await page.evaluate(() => window.pendingLayoutRefresh);
-  assert.doesNotMatch(await page.locator('body').textContent(), /Demo retired lazy preparation/);
-  responses.set('calendar-meeting-prep', { state: 'partial', items: [], notes: ['Demo fresh lazy preparation'] });
-  await page.getByRole('button', { name: 'Prepare meetings', exact: true }).click();
-  await settles(async () => assert.match(await dialog.innerText(), /Demo fresh lazy preparation/));
-  await page.evaluate(() => document.getElementById('appTodayRetry').onclick());
-  await settles(async () => assert.match(await page.locator('#appCalendarSlot').textContent(), /Demo fresh lazy preparation/));
-  assert.deepEqual(errors, []);
-});
-
-for (const retirement of ['native close', 'session clear']) test(`Shared preparation close-reopen retires the layout read after ${retirement}`, async t => {
-  const { page, responses, calls, errors } = await open(t, { calendar: prepCalendar });
-  await page.evaluate(() => document.getElementById('appTodayRetry').onclick());
-  await page.evaluate(async () => {
-    const { mountMeetingPreparation } = await import('/js/meeting-preparation.js');
-    const { createClient } = await import('/js/client.js');
-    const owner = mountMeetingPreparation({ document, window, client: await createClient('live') });
-    await owner.open(null, 'America/Chicago');
-    window.preparationReopenProbe = { owner, dialog: [...document.querySelectorAll('.meeting-preparation')].at(-1) };
-  });
-  let release;
-  const obsolete = { state: 'partial', items: [], notes: ['Demo obsolete reopened preparation'] };
-  responses.set('calendar-meeting-prep', new Promise(resolve => { release = resolve; }));
-  t.after(() => release(obsolete));
-  const before = calls.filter(name => name === 'calendar-meeting-prep').length;
-  await page.evaluate(() => { window.pendingLayoutRefresh = document.getElementById('appTodayRetry').onclick(); });
-  await settles(() => assert.ok(calls.filter(name => name === 'calendar-meeting-prep').length > before));
-  responses.set('calendar-meeting-prep', { state: 'partial', items: [], notes: ['Demo current reopened preparation'] });
-  await page.evaluate(async retirement => {
-    const { owner, dialog } = window.preparationReopenProbe;
-    window.preparationClosed = new Promise(resolve => dialog.addEventListener('close', resolve, { once: true }));
-    if (retirement === 'session clear') owner.clear();
-    else dialog.close();
-    await owner.open(null, 'America/Chicago');
-  }, retirement);
-  const dialog = page.locator('.meeting-preparation').last();
-  assert.match(await dialog.textContent(), /Demo current reopened preparation/);
-  release(obsolete);
-  await page.evaluate(async () => { await window.pendingLayoutRefresh; await window.preparationClosed; });
-  assert.match(await dialog.textContent(), /Demo current reopened preparation/);
-  assert.doesNotMatch(await page.locator('body').textContent(), /Demo obsolete reopened preparation/);
-  assert.equal(await dialog.evaluate(node => node.open), true);
-  await page.evaluate(() => document.getElementById('appTodayRetry').onclick());
-  await settles(async () => assert.match(await page.locator('#appCalendarSlot').textContent(), /Demo current reopened preparation/));
-  await page.evaluate(() => { window.preparationReopenProbe.owner.dispose(); delete window.preparationReopenProbe; });
-  assert.deepEqual(errors, []);
 });

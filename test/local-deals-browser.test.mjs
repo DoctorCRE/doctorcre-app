@@ -27,6 +27,8 @@ async function open(t, { width = 1440, height = 960, reducedMotion = 'no-prefere
     if (url.origin !== 'http://localhost') return route.abort();
     if (url.pathname === '/data/board-seed.json') return route.fulfill({ contentType: 'application/json', body: JSON.stringify(seed) });
     if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ actor: { slug: 'joe' }, csrf_token: 'synthetic-only' }) });
+    if (url.pathname === '/api/engine/home/today') return route.fulfill({ json: { ok: true, schema_version: 'home-today.v1',
+      today: '2026-10-04', viewer: 'joe', meetings: { state: 'empty', items: [] }, reminders: { state: 'empty', late: [], upcoming: [] } } });
     if (url.pathname.startsWith('/api/') || url.pathname === '/app-release') return route.fulfill({ contentType: 'application/json', body: '{}' });
     const file = url.pathname === '/deals' ? 'pipeline.html' : url.pathname.slice(1);
     try {

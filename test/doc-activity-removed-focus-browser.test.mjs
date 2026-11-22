@@ -34,9 +34,7 @@ async function open(t, { width = 1280, theme = 'light', undoSucceeds = false } =
       return route.fulfill({ json: { result: { content: [{ text: JSON.stringify(await fixture.undo(params.arguments)) }] } } });
     }
     const answers = {
-      'calendar-meeting-prep': { state: 'empty', items: [] },
       'deal-room-board': { actor: 'joe', deals: [] },
-      'today-triage': { items: [] },
       'list-feature-switches': { ok: true, schema: 'feature-switches.v1', switches: [] },
       'list-doc-suggestions': { ok: true, suggestions: [] },
       'morning-brief': { state: 'ready', sponsor: 'joe', sections: { today: { state: 'empty', items: [] }, deals: { state: 'empty', items: [] }, loops: { state: 'empty', items: [] } } },

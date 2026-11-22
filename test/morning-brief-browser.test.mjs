@@ -40,7 +40,7 @@ async function setup(t,{width=1440,motion='no-preference',brief=true,coverage=fa
    const {name,arguments:args}=route.request().postDataJSON().params;calls.push({name,args});
    if(name==='morning-brief' && onBrief)await onBrief();
    if(name==='morning-brief')return fail ? route.fulfill({status:503,body:''}) : rpc(ready ? data() : {ok:true});
-   const methods={'deal-room-board':'getBoard','today-triage':'todayTriage','list-feature-switches':'listFeatureSwitches','list-doc-suggestions':'listDocSuggestions','list-doc-conversations':'listDocConversations','notification-feed':'notificationFeed','loop-board':'loopBoard','list-industry-events':'listIndustryEvents'};
+   const methods={'deal-room-board':'getBoard','list-feature-switches':'listFeatureSwitches','list-doc-suggestions':'listDocSuggestions','list-doc-conversations':'listDocConversations','notification-feed':'notificationFeed','loop-board':'loopBoard','list-industry-events':'listIndustryEvents'};
    if(name==='get-deal-room') {const value=await fixture.getDeal(args.deal);return rpc({...value.deal,...(args.deal==='d14'?{name:dealTitle}:{}),...(dueDate&&args.deal==='d14'?{next_date:dueDate}:{}),deal_id:value.deal.id,thread,critical_dates:[],events:[]});}
    if(methods[name])return rpc(await fixture[methods[name]](args));
    if(name==='read-loop'&&loopTask)return rpc({loop:loopTask});

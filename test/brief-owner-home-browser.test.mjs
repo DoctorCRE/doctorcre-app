@@ -25,63 +25,21 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     t.after(() => browser.close());
     const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
     await page.goto(server.origin + '/leads');
-    await page.locator('#appSyncTime[datetime]').waitFor({ state: 'attached' });
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
-    if (width === 390) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
-    await animationsSettled(page);
-    const targets = await page.locator('#appTodayOwners .chip').evaluateAll(nodes => nodes.map(node => {
-      const { width, height } = node.getBoundingClientRect();
-      return { surface: 'Today', label: node.textContent, width, height };
-    }));
-    if (width === 390) await page.getByRole('button', { name: 'Close Today', exact: true }).click();
     if (width === 390) await page.getByRole('button', { name: /account and settings/i }).click();
     await page.getByRole('button', { name: 'Open morning brief options', exact: true }).click();
     await page.getByRole('button', { name: /^Morning brief/ }).click();
     await page.locator('#morningOwners .chip').first().waitFor();
     await animationsSettled(page);
-    targets.push(...await page.locator('#morningOwners .chip').evaluateAll(nodes => nodes.map(node => {
+    const targets = await page.locator('#morningOwners .chip').evaluateAll(nodes => nodes.map(node => {
       const { width, height } = node.getBoundingClientRect();
       return { surface: 'Morning brief', label: node.textContent, width, height };
-    })));
+    }));
     t.diagnostic(JSON.stringify(targets));
-    assert.equal(targets.length, 6);
+    assert.equal(targets.length, 3);
     for (const target of targets) assert.ok(target.width >= 44 && target.height >= 44,
       `${target.surface} ${target.label}: ${target.width}x${target.height}`);
     assert.equal(await page.locator('#morningOwners .chip').first().evaluate(node =>
       getComputedStyle(node).borderRadius === getComputedStyle(document.documentElement).getPropertyValue('--radius-round').trim()), true);
-  });
-}
-
-for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
-  test(`built Leads Dated reminders expands every upcoming fixture action at ${width}px in ${theme}`, async t => {
-    const browser = await chromium.launch();
-    t.after(() => browser.close());
-    const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
-    await page.clock.install({ time: new Date('2026-01-10T15:00:00Z') });
-    await page.goto(server.origin + '/leads');
-    await page.locator('#appSyncTime[datetime]').waitFor({ state: 'attached' });
-    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
-    if (width === 390) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
-    await animationsSettled(page);
-    const rows = page.locator('#appTodayNext [data-layout-deal]');
-    assert.equal(await rows.count(), 3);
-    const showAll = page.getByRole('button', { name: 'Show all 8', exact: true });
-    assert.equal(await showAll.count(), 1, 'Dated reminders offers access to the five remaining actions');
-    const target = await showAll.boundingBox();
-    assert.ok(target.width >= 44 && target.height >= 44, `Show all 8: ${target.width}x${target.height}`);
-    t.diagnostic(`Show all 8: ${target.width}x${target.height}`);
-    await showAll.focus();
-    await page.keyboard.press('Enter');
-    assert.equal(await rows.count(), 8);
-    assert.deepEqual(await rows.locator('strong').allTextContents(), [
-      'Demo Specialty Clinic', 'Demo Vision Center', 'Demo Family Clinic', 'Demo Dental North',
-      'Demo Pediatrics East', 'Demo Therapy Group', 'Demo Osteopathic Office', 'Demo Surgical Practice',
-    ]);
-    assert.equal(await rows.nth(3).evaluate(node => node === document.activeElement), true);
-    await page.locator('#appTodayOwners [data-brief-owner="joe"]').click();
-    assert.equal(await rows.count(), 3, 'older fixture rows remain included after changing owner');
-    await page.locator('#appTodayOwners [data-brief-owner="all"]').click();
-    assert.equal(await rows.count(), 3, 'changing owner restores the three-row preview');
-    assert.equal(await showAll.count(), 1);
   });
 }

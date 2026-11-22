@@ -104,7 +104,6 @@
  * @property {(args:Object) => Promise<Object>} readAssuranceHealth read-only assurance-health.v1 for an exact workflow scope
  * @property {(args?:{signal?:AbortSignal}) => Promise<Object>} getInvoiceTracker invoice-tracker.v1 snapshot
  * @property {(args:{commission_id:string,base_version:number|null,received_on:string,idempotency_key:string}) => Promise<Object>} markInvoicePaid record one full commission receipt
- * @property {(args?:{signal?:AbortSignal}) => Promise<Object>} calendarMeetingPrep authenticated upcoming meetings with possible owned deals and preparation, no audience argument
  * @property {(queue:'today'|'loops'|'needs_joe'|'assurance_cadence',args?:{cursor?:string,signal?:AbortSignal}) => Promise<Object>} morningBriefQueue authenticated stable queue page, no audience argument
  * @property {'fixture'|'live'} mode
  * @property {Actor} selfActor
@@ -141,8 +140,6 @@
  * @property {(args:{deal:string,activity_id:string,evidence_quote:string}) => Promise<Object>} previewEmailDealProgress fresh phase move and digest
  * @property {(args:{deal:string,activity_id:string,evidence_quote:string,proposal_digest:string,idempotency_key:string}) => Promise<Object>} confirmEmailDealProgress Joe-only, exact displayed preview
  * @property {(args:{proposal_id:string,base_version:number,reason:string,idempotency_key:string}) => Promise<Object>} dismissEmailProposal Joe or Dell, observed version and reason
- * @property {() => Promise<{filings:{event_id:string,deal:string,activity_id:string,recorded_at:string,summary:string,subject:string|null,sender_name:string|null,occurred_at:string,activity_version:number|null}[]}>} [listEmailThreadFilings] filed emails the partner can undo
- * @property {(args:{event_id:string,idempotency_key:string}) => Promise<{ok:true,activity_id:string}>} [undoEmailThreadFiling] undo one automatic filing
  * @property {() => Promise<{calls:Object[]}>} [readCallOutcomes] unreviewed pipeline-call outcomes: applied changes with evidence and open cards
  * @property {(args:{candidate_id:string, base_version:number}) => Promise<Object>} [undoCallChange] revert one automatically applied change
  * @property {(args:{session_id:string,expected_source_version:string}) => Promise<Object>} [reviewCallOutcome] take one call's outcome off Home

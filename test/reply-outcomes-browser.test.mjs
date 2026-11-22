@@ -29,10 +29,9 @@ async function open(t, { width = 390, theme = 'dark', outcomes = () => pageOf([s
   const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
   t.after(() => page.close());
   await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true, dell: true } })), theme);
-  const calls = [], filings = [];
+  const calls = [];
   await page.route('**/mcp', async route => {
     const { name, arguments: args } = route.request().postDataJSON().params;
-    if (name === 'list-email-thread-filings') { filings.push(args); return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify({ filings: [] }) }] } } }); }
     if (name !== 'list-email-proposals' || (!args.mode && args.status !== 'approved_to_send')) return route.continue();
     calls.push(args);
     try { return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(await (args.mode ? outcomes(args) : waiting(args))) }] } } }); }
@@ -42,9 +41,8 @@ async function open(t, { width = 390, theme = 'dark', outcomes = () => pageOf([s
   await page.goto(`${origin}/review-workflows?mode=live`);
   await page.locator('#dealAttention[aria-busy="false"]').waitFor();
   await page.getByText('Email activity', { exact: true }).scrollIntoViewIfNeeded();
-  assert.match(await page.locator('#homeEmailActivity summary').innerText(), /Sent replies and filed emails/);
+  assert.match(await page.locator('#homeEmailActivity summary').innerText(), /Sent replies/);
   assert.equal(calls.length, 0, 'reply activity makes no requests before opening');
-  assert.equal(filings.length, 0, 'filing activity makes no requests before opening');
   await mkdir('out/test-artifacts/reply-outcomes', { recursive: true });
   await page.locator('#homeEmailActivity').screenshot({ path: `out/test-artifacts/reply-outcomes/closed-${width}-${theme}.png`, animations: 'disabled' });
   await page.getByText('Email activity', { exact: true }).click();
@@ -52,8 +50,6 @@ async function open(t, { width = 390, theme = 'dark', outcomes = () => pageOf([s
   assert.equal(await card.count(), 1, 'Home has a sent replies outcomes panel');
   await card.scrollIntoViewIfNeeded();
   await card.locator('h2').waitFor();
-  await page.waitForFunction(() => document.querySelector('#homeEmailFilings')?.getAttribute('aria-busy') === 'false');
-  assert.equal(filings.length, 1, 'opening loads filing activity');
   return { page, card, calls };
 }
 

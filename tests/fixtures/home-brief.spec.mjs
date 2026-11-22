@@ -40,18 +40,22 @@ for (const state of ['populated', 'empty', 'loading', 'unavailable', 'call-only'
       const payload = name === 'read-home-agenda' ? agenda
         : name === 'deal-room-board' ? { ...await client.getBoard(args), deals: agenda.deals.map((deal, i) => ({ ...deal, next_step: `${['Send the lease summary', 'Review the revised plan'][i]}`, next_date: '2026-09-30' })) }
         : name === 'morning-brief' ? briefData
-        : name === 'calendar-meeting-prep' ? { state: 'empty', items: [] }
         : name === 'lead-board' ? { leads: [] }
         : name === 'read-post-call-followups' ? followups
         : name === 'read-invoice-tracker' ? { schema_version: 'invoice-tracker.v1', actor: 'joe', entries: [], observed_at: '2026-10-01T15:00:00Z' }
-        : name === 'list-email-thread-filings' ? { filings: [] }
         : name === 'read-call-outcomes' ? { schema_version: 'call-outcomes.v1', calls: [], send: false }
         : name === 'list-email-proposals' ? { schema_version: args.mode === 'recent_outcomes' ? 'email-reply-outcomes.v1' : 'email-proposals.v1', proposals: args.mode ? [] : emails.proposals, send: false, more: false, next_cursor: null }
-        : name === 'today-triage' ? { items: agenda.deals.map((deal, i) => ({ subject_type: 'deal', subject_id: deal.id, subject_name: deal.name, what: `${['Send the lease summary', 'Review the revised plan'][i]}`, due_on: '2026-10-01' })) }
-        : { ok: true, items: [], proposals: [], filings: [], events: [], calls: [], send: false };
+        : { ok: true, items: [], proposals: [], events: [], calls: [], send: false };
       return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
     }
     if (url.pathname === '/api/v1/business/relationships') return route.fulfill({ json: relationshipNetworkFixture(new Date().toISOString()) });
+    if (url.pathname === '/api/engine/home/today') return route.fulfill({ json: {
+      ok: true, schema_version: 'home-today.v1', today: '2026-10-01', viewer: 'joe',
+      meetings: { state: 'empty', items: [] },
+      reminders: { state: 'ready', late: [], upcoming: briefData.sections.today.items.map(item => ({
+        kind: 'step', title: item.what, owner: 'joe', due_on: item.due_on,
+      })) },
+    } });
     if (url.pathname.startsWith('/api/') || url.pathname === '/pipeline/changes') return route.fulfill({ json: { events: [], cursor: null } });
     const file = routeContract.routes[url.pathname] || url.pathname.slice(1);
     try { return route.fulfill({ body: await readFile(new URL(`../../${file}`, import.meta.url)), contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.json') ? 'application/json' : 'text/html' }); }
@@ -135,7 +139,6 @@ for (const state of ['populated', 'empty', 'loading', 'unavailable', 'call-only'
   await expect(brief.getByRole('button', { name: /Complete/ })).toHaveCount(0);
   await expect(page.locator('#homeCalendar .home-item-type')).toHaveCount(0);
   await expect(page.locator('#appTodayNext')).toContainText('Send the lease summary');
-  await expect(page.locator('#appScheduleSlot')).toContainText('No meetings scheduled today.');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   await page.locator('.home-grid').scrollIntoViewIfNeeded();

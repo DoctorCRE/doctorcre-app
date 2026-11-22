@@ -81,8 +81,6 @@ async function mockReads(page: Page, { engine = true, savesFromEngine = false, o
           sponsor: "joe",
           sections: { today: empty, deals: { state: "ready", items: [deal] }, loops: empty, calendar: empty },
         };
-      } else if (name === "calendar-meeting-prep" || name === "today-triage") {
-        result = empty;
       }
       return route.fulfill({
         json: { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }] } },
@@ -135,9 +133,7 @@ for (const path of [local, national, "/search?mode=live", "/notifications?mode=l
     const requests = await mockReads(page);
     await page.goto(server.url + path);
     await expect(page.locator("#morningUpdated")).toHaveText(updated);
-    await expect(page.locator("#appTodayReadStatus")).not.toHaveText("Loading Today…");
     expect(requests.feed).toBe(0);
-    await expect(page.locator("#appTodayMoves").locator("..")).toBeHidden();
     await expect(page.locator("#receiptsOpen, #receiptsJump")).toBeHidden();
   });
 }

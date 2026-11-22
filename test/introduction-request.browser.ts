@@ -93,7 +93,6 @@ async function open(t: TestContext, width = 1440, paceMs = 0) {
       if (body.params.name === "read-home-agenda")
         payload = { schema_version: "home-agenda.v1", deals: [], actor: "joe" };
       if (body.params.name === "deal-room-board") payload = { deals: [], actor: "joe" };
-      if (body.params.name === "today-triage") payload = { items: [] };
       if (body.params.name === "deal-room-changes") payload = { events: [], cursor: null };
       return r.fulfill({
         json: { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } },

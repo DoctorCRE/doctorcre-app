@@ -904,7 +904,6 @@ test('Calendar rail leaves page tools in the center at narrow desktop sizes', as
   for (const width of [1024, 1280, 1440]) {
     await page.setViewportSize({ width, height: 700 });
     await run.open(`/calendar`);
-    await page.locator('#appCalendarSlot a').first().waitFor();
     assert.equal(await page.locator('#appSidebar .app-layout-working, #appSidebar [data-layout-slot=sidebar], #appSidebar .calendar-panel-followup').count(), 0);
     assert.equal(await page.locator('#appMainSlot .app-layout-page-tools').count(), 1);
     assert.ok(await page.locator('#appSidebar').evaluate(node => node.scrollHeight <= node.clientHeight));

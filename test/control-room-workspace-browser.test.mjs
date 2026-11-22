@@ -14,7 +14,7 @@ const root=new URL('../',import.meta.url);
 const assetServer = await startWorkerFixture({routes: await appAssetSnapshot()});
 after(() => assetServer.close());
 const roomTime=new Date('2026-10-02T12:00:00Z');
-const reads={'calendar-meeting-prep':'calendarMeetingPrep','list-feature-switches':'listFeatureSwitches','list-doc-suggestions':'listDocSuggestions','read-progress-board':'readProgressBoard','list-progress-boards':'listProgressBoards','unfinished-work':'unfinishedWork','incident-board':'incidentBoard','governance-queue':'governanceQueue','schedule-board':'scheduleBoard','work-request-card':'workRequestCard','deal-room-board':'getBoard','today-triage':'todayTriage','notification-feed':'notificationFeed','read-room-queue':'roomQueue','read-room':'roomTurns','read-session-identity':'sessionIdentity','list-my-codex-sessions':'codexSessions','current-work-item':'currentWorkItem','list-notifications':'listNotifications'};
+const reads={'list-feature-switches':'listFeatureSwitches','list-doc-suggestions':'listDocSuggestions','read-progress-board':'readProgressBoard','list-progress-boards':'listProgressBoards','unfinished-work':'unfinishedWork','incident-board':'incidentBoard','governance-queue':'governanceQueue','schedule-board':'scheduleBoard','work-request-card':'workRequestCard','deal-room-board':'getBoard','notification-feed':'notificationFeed','read-room-queue':'roomQueue','read-room':'roomTurns','read-session-identity':'sessionIdentity','list-my-codex-sessions':'codexSessions','current-work-item':'currentWorkItem','list-notifications':'listNotifications'};
 async function open(t,{width=1440,height=width===1440?1000:844,path='/control-room?mode=live&tab=boards',connectionsBad=false,countIncidentClicks=false,unboundBoard=false,boardUnpublished=false,emptyIncidents=false,extraBoard=false,theme='dark',snapshotData,unobservedSchedule=false}={}){
  const browser=await chromium.launch();t.after(()=>browser.close());
  const page=await browser.newPage({viewport:{width,height},timezoneId:'UTC',reducedMotion:'reduce'});
@@ -231,13 +231,6 @@ test('finding 10: System Map restores selected node on initial load and history 
  await waitForAsync(page,async()=> (await import('/js/atlas.js')).view.status==='ready');assert.equal(await page.evaluate(async()=> (await import('/js/atlas.js')).view.selected),'service:demo-worker');
  await page.evaluate(()=>{history.pushState({},'', '/control-room?mode=live&tab=system-map&node=service%3Ademo-exporter');dispatchEvent(new PopStateEvent('popstate'));});
  await waitForAsync(page,async()=> (await import('/js/atlas.js')).view.selected==='service:demo-exporter');
-});
-test('finding 11: sidebar overdue scope excludes adapter-normalized Closed and inactive states',async t=>{
- const {page,state}=await open(t);state.dealStates=true;
- await page.locator('#selfAvatar').click();
- await page.locator('#appSyncRefresh').click();
- await page.waitForFunction(()=>document.querySelector('#appTodayNeeds').textContent.includes('Demo active'));
- for(const id of ['appTodayNeeds','appWorkingList']){assert.deepEqual(await page.locator(`#${id} [data-layout-deal] strong`).allTextContents(),['Demo active']);}
 });
 test('incident filters and details dispatch once per click after retained and replaced renders',async t=>{
  const {page,state,errors}=await open(t,{countIncidentClicks:true});await section(page,'tabViews');

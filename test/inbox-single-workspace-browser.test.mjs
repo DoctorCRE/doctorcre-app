@@ -31,6 +31,11 @@ async function open(t, { path = '/inbox', width = 1280, theme = 'light', saved =
   await page.route('**/auth/signout', route => { signedOut = true; return route.fulfill({ status: 401, json: { error: 'signed_out' } }); });
   let releaseInbox;
   const inboxReady = pending ? new Promise(resolve => { releaseInbox = resolve; }) : Promise.resolve();
+  await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
+    ok: true, schema_version: 'home-today.v1', today: '2026-11-01', viewer: 'joe',
+    meetings: { state: 'empty', items: [] }, reminders: { state: 'ready', upcoming: [],
+      late: [{ kind: 'step', title, owner: 'joe', due_on: deal.next_date, open_url: '/deals?deal=synthetic-deal' }] },
+  } }));
   await page.route('**/pipeline/changes*', route => route.fulfill({ json: { events: [], cursor: 'end' } }));
   const calls = [];
   await page.route('**/mcp', async route => {
@@ -40,13 +45,12 @@ async function open(t, { path = '/inbox', width = 1280, theme = 'light', saved =
     const today = { subject_type: 'deal', subject_id: deal.id, subject_name: title, what: deal.next_step, due_on: deal.next_date, owner_partner: 'joe' };
     const payload = name === 'deal-room-board' ? { actor: 'joe', deals: [deal] }
       : name === 'morning-brief' ? { sponsor: 'joe', sections: { today: { state: 'ready', items: [today] }, deals: { state: 'ready', items: [deal] }, loops: { state: 'empty', items: [] } } }
-      : name === 'today-triage' ? { items: [today] }
       : name === 'read-home-inbox-v3' ? inboxError ? { ok: false, error: 'read_limit_exceeded' } : { ok: true, schema_version: 'home-inbox.v3', truncated: false, limit: 1000, items: [item], working_collapsed: true, auto_settle_enabled: true }
       : { ok: true, events: [], cursor: 'end', items: [], counts: {}, suggestions: [], enabled: false };
     return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
   });
   await page.goto(`${server.origin}${path}?mode=live`);
-  const reminders = path === '/' ? '#homeRoot[data-home-ready]' : ['/deals', '/vendors'].includes(path) ? '#appTodayNeeds [data-layout-deal]' : '#appWorkingList [data-layout-deal]';
+  const reminders = path === '/' ? '#homeRoot[data-home-ready]' : '#appTodayNeeds a';
   await page.locator(reminders).first().waitFor({ state: 'attached' });
   return { page, calls, releaseInbox };
 }
@@ -56,14 +60,10 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     test(`one Inbox attention list at ${path}, ${width}, ${theme}`, async t => {
       const { page } = await open(t, { path, width, theme });
       await page.locator('[data-inbox-row="synthetic-action"]').waitFor();
-      assert.equal(await page.locator('#appWorkingList [data-layout-deal="synthetic-deal"]').count(), 1, 'seeded overdue deal reaches the left list');
-      if (width === 390) await page.getByRole('button', { name: 'Workspace sidebar', exact: true }).click();
-      assert.equal(await page.locator('.app-layout-working').isVisible(), false, 'Inbox hides the left Overdue list');
-      if (width === 390) await page.keyboard.press('Escape');
       if (width === 390) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
-      assert.equal(await page.locator('#appTodayNeeds [data-layout-deal="synthetic-deal"]').isVisible(), true, 'Inbox lists the late reminder under Overdue');
-      assert.equal(await page.locator('#appTodayNext [data-layout-deal]').count(), 0, 'a late reminder is not a dated reminder');
-      assert.equal(await page.locator('#appScheduleSlot a').isVisible(), true);
+      assert.equal(await page.locator('#appTodayNeeds a').isVisible(), true, 'Inbox lists the late reminder under Overdue');
+      assert.equal(await page.locator('#appTodayNext a').count(), 0, 'a late reminder is not a dated reminder');
+      assert.equal(await page.locator('#appScheduleSlot .app-layout-empty').isVisible(), true);
       if (width === 390) {
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('#appTodayToggle').evaluate(node => node === document.activeElement), true);
@@ -83,8 +83,8 @@ test('Inbox respects closed sidebar preferences, opens Today by keyboard, and cl
   assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'), 'closed');
   assert.equal(await page.locator('#appLayout').getAttribute('data-today'), 'closed');
   await page.locator('#appTodayToggle').focus(); await page.keyboard.press('Enter');
-  await page.locator('#appScheduleSlot a').waitFor();
-  await page.locator('#appTodayNeeds [data-layout-deal="synthetic-deal"]').waitFor();
+  await page.locator('#appScheduleSlot .app-layout-empty').waitFor();
+  await page.locator('#appTodayNeeds a').waitFor();
   await page.locator('#selfAvatar').click();
   await page.locator('#accountSignOut').click();
   await page.locator('#appLayout').waitFor({ state: 'detached' });
@@ -95,7 +95,7 @@ test('Inbox loading preserves one workspace until its read resolves', async t =>
   const { page, releaseInbox } = await open(t, { width: 390, pending: true });
   assert.equal(await page.locator('[data-inbox-row]').count(), 0);
   await page.locator('#appTodayToggle').click();
-  assert.equal(await page.locator('#appScheduleSlot a').isVisible(), true);
+  assert.equal(await page.locator('#appScheduleSlot .app-layout-empty').isVisible(), true);
   assert.equal(await page.locator('#appTodayNeeds').isVisible(), true);
   await page.keyboard.press('Escape');
   releaseInbox();
@@ -108,7 +108,7 @@ test('Inbox read error keeps the same Calendar day treatment', async t => {
   await page.getByRole('alert').filter({ hasText: 'Inbox unavailable' }).waitFor();
   assert.equal(await page.locator('.app-layout-working').isVisible(), false);
   assert.equal(await page.locator('#appTodayNeeds').isVisible(), true);
-  assert.equal(await page.locator('#appScheduleSlot a').isVisible(), true);
+  assert.equal(await page.locator('#appScheduleSlot .app-layout-empty').isVisible(), true);
 });
 
 for (const path of ['/', '/deals', '/calendar', '/vendors']) test(`${path} retains its sidebar treatment`, async t => {
@@ -117,9 +117,7 @@ for (const path of ['/', '/deals', '/calendar', '/vendors']) test(`${path} retai
     assert.equal(await page.locator('.app-layout-working').count(), 0);
     assert.equal(await page.locator('#appToday').isVisible(), false);
     return;
-  } else {
-    assert.equal(await page.locator('.app-layout-working').count(), ['/deals', '/vendors'].includes(path) ? 0 : 1);
   }
-  assert.equal(await page.locator('#appTodayNeeds [data-layout-deal="synthetic-deal"]').count(), 1);
-  assert.equal(await page.locator('#appTodayNext [data-layout-deal]').count(), 0);
+  assert.equal(await page.locator('#appTodayNeeds a').count(), 1);
+  assert.equal(await page.locator('#appTodayNext a').count(), 0);
 });

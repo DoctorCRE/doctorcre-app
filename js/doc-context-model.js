@@ -101,8 +101,6 @@ export function normalizeDocRead(method, payload, args = []) {
       sortActivity(row);
       return [row];
     }
-    case 'todayTriage': rows = payload.items; map = row => record(row.subject_type || 'task', row, row.id || row.subject_id,
-      row.subject_name || row.what, [field('Owner', row.owner), field('Next step', row.what), field('Due', row.due_on)]); break;
     case 'loopBoard': rows = payload.loops; map = loop; break;
     case 'readLoop':
       if (!payload.loop || (args[0]?.kind && payload.loop.kind !== args[0].kind) || (args[0]?.loop_id && payload.loop.loop_id !== args[0].loop_id) || (args[0]?.number && String(payload.loop.number) !== String(args[0].number))) return null;

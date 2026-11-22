@@ -641,37 +641,6 @@ for (const body of [
   });
 }
 
-for (const [name, path] of [
-  ["today-triage", "/api/engine/today-triage"],
-  ["calendar-meeting-prep", "/api/engine/calendar-meeting-prep"],
-] as const) {
-  test(`frame routes ${name} to its engine read without a switch`, async () => {
-    const f = fixture(new Map([["frame-from-engine", "off"]]));
-    const response = await f.send(call(name));
-    assert.equal(f.engine[0]?.url, `${origin}${path}`);
-    assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
-    assert.deepEqual(f.kv, []);
-    assert.equal(f.carr.length, 0);
-    assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
-  });
-
-  test(`frame read ${name} stays on the engine when it answers 500`, async () => {
-    const f = fixture(new Map(), async () => new Response("down", { status: 500 }));
-    assert.equal((await f.send(call(name))).status, 503);
-    assert.equal(f.engine.length, 1);
-    assert.deepEqual(f.carr, []);
-  });
-
-  for (const args of [{ limit: 5 }, { owners: "all" }, { cursor: "x" }]) {
-    test(`${name} with arguments ${JSON.stringify(args)} stays on CARR without reading the switch`, async () => {
-      const f = fixture(new Map());
-      assert.equal(await (await f.send(call(name, args))).text(), "old");
-      assert.equal(f.engine.length, 0);
-      assert.equal(f.kv.length, 0);
-    });
-  }
-}
-
 test("frame switch alone leaves the Deals board on CARR", async () => {
   const f = fixture(new Map());
   assert.equal(await (await f.send(call("deal-room-board", { workspace: "all" }))).text(), "old");

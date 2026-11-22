@@ -1168,16 +1168,26 @@ export async function createFixtureClient(opts = {}) {
     };
   }
 
-  function fixtureCalendar() {
-    const deal = [...deals.values()].find(row => row.owner === selfActor && !isClosedDeal(row));
-    const start = new Date(Date.parse(nowIso()) + 3_600_000).toISOString();
-    return { state: 'partial', observed_at: nowIso(), notes: ['Synthetic calendar. Check Outlook for attendance and cancellations.'],
-      sources: { outlook_calendar: { state: 'partial' }, deal_suggestions: { state: 'ready' }, meeting_prep: { state: 'ready' } },
-      match_basis: 'attendee_email_possible_match', items: [{ title: 'Demo practice planning', start,
-        end: new Date(Date.parse(start) + 3_600_000).toISOString(), location: 'Demo office', attendee_count: 2,
-        all_day: false, schedule_conflict: false, time_changed: false, possible_deals: deal ? [{ id: deal.id, name: deal.name, client_ref: deal.client_ref,
-          prep: { state: 'ready', phase: deal.phase ?? null, next_step: deal.next_step ?? null, next_date: deal.next_date ?? null, last_touch: deal.last_touch ?? null, market: deal.market ?? null } }] : [] }],
-    };
+  function briefTodayItems(limit = 50) {
+    const today = businessDay(new Date(nowIso()));
+    const horizon = new Date(Date.parse(`${today}T00:00:00Z`) + 14 * 86_400_000).toISOString().slice(0, 10);
+    const items = [];
+    for (const deal of deals.values()) {
+      const day = typeof deal.next_date === 'string' ? deal.next_date.slice(0, 10) : null;
+      if (deal.next_step && day) {
+        items.push({ item_kind: 'next_action', id: `a-${deal.id}`, subject_type: 'deal', subject_id: deal.id,
+          owner: deal.owner, owner_partner: ['joe', 'dell'].includes(deal.owner) ? deal.owner : null, what: deal.next_step, due_on: day, subject_name: deal.name, subject_ref: null,
+          business_days_overdue: null });
+      }
+      for (const entry of criticalDates.get(deal.id) || []) {
+        if (entry.due_on > horizon) continue;
+        items.push({ item_kind: 'critical_date', id: entry.id, subject_type: 'deal', subject_id: deal.id,
+          owner: null, owner_partner: null, what: entry.kind, due_on: entry.due_on, subject_name: deal.name, subject_ref: null,
+          business_days_overdue: null });
+      }
+    }
+    items.sort((a, b) => a.due_on.localeCompare(b.due_on));
+    return items.slice(0, limit);
   }
 
   const industryEvents = new Map();
@@ -1642,14 +1652,13 @@ export async function createFixtureClient(opts = {}) {
     async listFeatureSwitches() {
       return {ok:true,schema:'feature-switches.v1',switches:[{name:'doc-suggestion-actions',available:true}]};
     },
-    async calendarMeetingPrep() { return fixtureCalendar(); },
     async morningBrief() {
       const section = items => ({ state: items.length ? 'ready' : 'empty', items });
       const board = await this.getBoard();
       const sections = {
         ...(selfActor === 'joe' ? { needs_joe: section([]) } : {}),
         claim_card: section([]), renewals: section([]), assurance_cadence: section([]), costs: { ...section([]), providers: [] },
-        today: section((await this.todayTriage()).items),
+        today: section(briefTodayItems()),
         deals: { state:board.deals.length || board.accounts?.length ? 'ready' : 'empty', items:board.deals, accounts:board.accounts || [] },
         loops: section((await this.loopBoard()).loops),
       };
@@ -1662,7 +1671,7 @@ export async function createFixtureClient(opts = {}) {
 
     async morningBriefQueue(queue, {cursor} = {}) {
       if (!['today','loops','needs_joe','assurance_cadence'].includes(queue) || queue === 'needs_joe' && selfActor !== 'joe') throw Error('Unsupported morning queue.');
-      const source = queue === 'today' ? (await this.todayTriage({limit:Infinity})).items
+      const source = queue === 'today' ? briefTodayItems(Infinity)
         : queue === 'loops' ? loops.filter(row=>row.kind === 'open_loop' && row.status === 'open' && ['joe','dell'].includes(row.owner)).map(row=>({...boardRow(row),owner_partner:row.owner})) : [];
       const key = row => [row.due_on || '~',row.kind || row.item_kind,String(row.number || row.id)].join('|');
       source.sort((a,b)=>key(a)<key(b)?-1:key(a)>key(b)?1:0);
@@ -1672,28 +1681,6 @@ export async function createFixtureClient(opts = {}) {
       const items=available.slice(0,50),has_more=available.length>50;
       return {sponsor:selfActor,items,total:source.length,returned:items.length,remaining:available.length-items.length,has_more,
         next_cursor:has_more?btoa(encodeURIComponent(JSON.stringify({queue,sponsor:selfActor,key:key(items.at(-1))}))):null};
-    },
-
-    async todayTriage({ limit = 50 } = {}) {
-      const today = businessDay(new Date(nowIso()));
-      const horizon = new Date(Date.parse(`${today}T00:00:00Z`) + 14 * 86_400_000).toISOString().slice(0, 10);
-      const items = [];
-      for (const deal of deals.values()) {
-        const day = typeof deal.next_date === 'string' ? deal.next_date.slice(0, 10) : null;
-        if (deal.next_step && day) {
-          items.push({ item_kind: 'next_action', id: `a-${deal.id}`, subject_type: 'deal', subject_id: deal.id,
-            owner: deal.owner, owner_partner: ['joe', 'dell'].includes(deal.owner) ? deal.owner : null, what: deal.next_step, due_on: day, subject_name: deal.name, subject_ref: null,
-            business_days_overdue: null });
-        }
-        for (const entry of criticalDates.get(deal.id) || []) {
-          if (entry.due_on > horizon) continue;
-          items.push({ item_kind: 'critical_date', id: entry.id, subject_type: 'deal', subject_id: deal.id,
-            owner: null, owner_partner: null, what: entry.kind, due_on: entry.due_on, subject_name: deal.name, subject_ref: null,
-            business_days_overdue: null });
-        }
-      }
-      items.sort((a, b) => a.due_on.localeCompare(b.due_on));
-      return { items: items.slice(0, limit) };
     },
 
     async readLoop({ loop_id, number, kind } = {}) {

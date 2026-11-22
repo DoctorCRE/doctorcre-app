@@ -19,7 +19,13 @@ before(async () => {
 });
 after(() => server?.close());
 
-const legacyVerbs = new Set(["morning-brief", "today-triage", "calendar-meeting-prep"]);
+const legacyVerbs = new Set([
+  "morning-brief",
+  "today-triage",
+  "calendar-meeting-prep",
+  "list-email-thread-filings",
+  "undo-email-thread-filing",
+]);
 const id = "00000000-0000-4000-8000-000000000001";
 const pages = [
   ...Object.keys(routeContract.routes)
@@ -105,11 +111,9 @@ async function open(
     const payload =
       name === "deal-room-board"
         ? { actor: "joe", deals: recentChanges ? [{ id, name: "Example Deal", phase: "pending", owner: "joe" }] : [] }
-        : name === "calendar-meeting-prep"
-          ? { state: "empty", items: [] }
-          : name === "capture-queue" && recentChanges
-            ? { candidates: [{ id: "example-capture", kind: "meeting_record" }] }
-            : { items: [] };
+        : name === "capture-queue" && recentChanges
+          ? { candidates: [{ id: "example-capture", kind: "meeting_record" }] }
+          : { items: [] };
     return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
   });
   await page.route("**/api/engine/home/inbox?view=dashboard", (route) =>
@@ -273,21 +277,14 @@ test("Today rejects a reminder with a malformed ended-deal marker", async (t) =>
   assert.equal(await today.getByText("Check the former office", { exact: true }).count(), 0);
 });
 
-test("The shell keeps Morning brief with the switch off and drops it with the switch on", async (t) => {
-  const off = await open(t, "/invoices", { enabled: false });
-  await off.today.getByRole("heading", { name: "Your schedule", exact: true }).waitFor();
-  assert.equal(await off.page.getByRole("button", { name: "Workspace sidebar", exact: true }).isVisible(), true);
-  await off.page.locator("#docOpen").click();
-  await off.page.locator("#docMorning").click();
-  await off.page.getByRole("dialog", { name: /^Morning brief/ }).waitFor();
-  assert.deepEqual([...new Set(off.legacy)].sort(), [...legacyVerbs].sort());
-  assert.deepEqual(off.readToday, []);
-
-  const on = await open(t, "/invoices");
-  await on.today.getByText("Example site visit", { exact: true }).waitFor();
-  assert.equal(await on.page.getByRole("button", { name: "Morning brief", exact: true }).count(), 0);
-  assert.equal(await on.page.locator("#docMorningBrief").count(), 0);
-  assert.deepEqual(on.legacy, []);
+test("Today uses the engine without the former page marker", async (t) => {
+  const { today, legacy, readToday } = await open(t, "/invoices", { enabled: false });
+  await today.getByText("Example site visit", { exact: true }).waitFor({ timeout: 3000 });
+  assert.deepEqual(readToday, ["GET"]);
+  assert.deepEqual(
+    legacy.filter((name) => name !== "morning-brief"),
+    [],
+  );
 });
 
 for (const width of [390, 1440])

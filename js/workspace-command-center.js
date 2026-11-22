@@ -51,18 +51,18 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
   const workingWeek = calendarHost ? mountHomeWeek({ document, host: calendarHost }) : null;
   let overdueReviews = null, overdueEpoch = 0;
   let taskDone;
-  let emailReview = null, replyOutcomes = null, emailFilings = null, emailRetired = false, panelObserver = null, emailInitialRead = Promise.resolve();
+  let emailReview = null, replyOutcomes = null, emailRetired = false, panelObserver = null, emailInitialRead = Promise.resolve();
   const retirePendingEmail = () => {
     emailRetired = true;
     panelObserver?.disconnect();
-    for (const [id, title, view] of [['homeOverdueReviews', 'Overdue tasks to review', overdueReviews], ['homeReplyOutcomes', 'Sent replies', replyOutcomes], ['homeEmailFollowups', 'Email follow-ups', emailReview], ['homeEmailFilings', 'Filed automatically', emailFilings]]) {
+    for (const [id, title, view] of [['homeOverdueReviews', 'Overdue tasks to review', overdueReviews], ['homeReplyOutcomes', 'Sent replies', replyOutcomes], ['homeEmailFollowups', 'Email follow-ups', emailReview]]) {
       if (view || !$(id)) continue;
       $(id).setAttribute('aria-busy', 'false');
       $(id).innerHTML = `<header class="home-panel-head"><h2>${title}</h2></header><p role="status">Sign in to view ${title.toLowerCase()}.</p>`;
     }
   };
   window.addEventListener('doctorcre-session-invalidated', retirePendingEmail);
-  let snapshotDocObservedAt = null, calendar = null, meetingPrep = null, prepEpoch = 0;
+  let snapshotDocObservedAt = null, calendar = null;
   let relationshipDialog = null, pastWidget = null, reasons = null, secondaryRequested = false;
   let agendaExpanded = false, agendaView = 'all', meetingTimeZone = BUSINESS_TIME_ZONE;
   const readQueue = createHomeReadQueue();
@@ -119,7 +119,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     if (!meetings) { $('homeMeetings').replaceChildren(); widget('homeMeetings', null); return; }
     const failed = meetings.state === 'unavailable';
     const count = meetings.items.length;
-    const header = `<header class="home-panel-head"><h2>Upcoming meetings</h2>${client.calendarMeetingPrep ? '<button type="button" class="home-outline" data-prepare-meetings data-home-key="prepare-meetings">Prepare meetings</button>' : ''}${failed ? '<button type="button" class="home-refresh" data-retry-meetings aria-label="Retry meetings" title="Retry meetings">↻</button>' : `<span class="home-period">${count} ${count === 1 ? 'meeting' : 'meetings'}</span>`}</header>`;
+    const header = `<header class="home-panel-head"><h2>Upcoming meetings</h2>${failed ? '<button type="button" class="home-refresh" data-retry-meetings aria-label="Retry meetings" title="Retry meetings">↻</button>' : `<span class="home-period">${count} ${count === 1 ? 'meeting' : 'meetings'}</span>`}</header>`;
     const warnings = (meetings.notes || []).map(note => `<p class="home-meeting-warning">${E(note)}</p>`).join('');
     const rows = meetings.items.map(meeting => {
       const time = meeting.all_day
@@ -187,7 +187,6 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     const summary = signedOut ? null : dealSnapshot(snapshot?.board, scope, agenda);
     $('dealAttention').setAttribute('aria-busy', String(snapshot?.loading ?? true));
     $('dealCounts').innerHTML = `<span>Active deals: <b>${count(summary?.active ?? null)}</b></span> <span>In market: <b>${count(summary?.inMarket ?? null)}</b></span> <span>National accounts: <b>${count(summary?.national ?? null)}</b></span> <span>Overdue deals: <b>${count(summary?.flagged?.length ?? null)}</b></span>`;
-    document.dispatchEvent(new window.CustomEvent('doctorcre:overdue-shown', { detail: summary?.flagged?.map(deal => deal.id) || [] }));
     paint($('dealFlags'), summary?.flagged ? (summary.flagged.length ? summary.flagged.map(deal => renderDealAlert(deal, { today })).join('') : '<p class="home-empty">No overdue next steps</p>') : `<p class="home-empty">${signedOut ? 'Sign in to view deals' : snapshot?.reads?.board?.state === 'error' ? 'Deals unavailable' : summary ? 'Overdue deals unavailable' : 'Updating…'}</p>`);
     if ($('homeInvoices')) {
       const invoices = signedOut ? null : projectInvoices(snapshot?.invoices, { scope, today: localToday(new Date(now())) });
@@ -363,20 +362,11 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     renderMeetings(snapshot?.unauthorized);
     renderCalendar(agenda, today, snapshot?.unauthorized);
   };
-  $('homeMeetings')?.addEventListener('click', async event => {
+  $('homeMeetings')?.addEventListener('click', event => {
     if (event.target.closest('[data-retry-meetings]')) document.dispatchEvent(new window.Event('doctorcre:refresh-brief-calendar'));
-    const button = event.target.closest('[data-prepare-meetings]');
-    if (!button || snapshot?.unauthorized || disposed) return;
-    const epoch = prepEpoch;
-    try {
-      const { mountMeetingPreparation } = await import('./meeting-preparation.js');
-      if (disposed || epoch !== prepEpoch) return;
-      meetingPrep ||= mountMeetingPreparation({ document, window, client });
-      meetingPrep.open(button, meetingTimeZone);
-    } catch { if (!disposed && epoch === prepEpoch) { $('homeNotice').hidden = false; $('homeNotice').textContent = 'Meeting preparation unavailable. Try Prepare meetings again.'; } }
   });
   const clearCalendar = () => {
-    prepEpoch++; sequence++; meetingPrep?.clear(); calendar = null; workingWeek?.clear();
+    sequence++; calendar = null; workingWeek?.clear();
     snapshot = { unauthorized: true, loading: false, board: null, details: new Map(), reads: { board: { state: 'error' } } };
     updatedAt = null; snapshotDocObservedAt = null; pageDocContext?.clear();
     selectedLead = null; $('homeDetail').close(); $('homeDetailBody').replaceChildren(); relationshipDialog?.clear();
@@ -457,11 +447,6 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
       replyOutcomes = mountReplyOutcomes({ container: $('homeReplyOutcomes'), client });
       void replyOutcomes.refresh();
     });
-    if (client.listEmailThreadFilings) import('./email-filings.js').then(({ mountEmailFilings }) => {
-      if (disposed || emailRetired) return;
-      emailFilings = mountEmailFilings({ container: $('homeEmailFilings'), client });
-      void emailFilings.refresh();
-    });
   };
   emailActivity?.addEventListener('toggle', openEmailActivity);
   if ($('homeEmailFollowups') && client.listEmailProposals) emailInitialRead = import('./email-followups.js').then(({ mountEmailFollowups }) => {
@@ -486,7 +471,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     }, { once: true, signal: fragmentLanding.signal });
     anchor();
   });
-  return { refresh: auto.refresh, dispose() { cancelLanding(); missingNextStep?.dispose(); reasons?.dispose(); document.removeEventListener('keydown', flagKeydown); disposed = true; workingWeek?.dispose(); sequence++; prepEpoch++; meetingPrep?.dispose(); panelObserver?.disconnect(); emailActivity?.removeEventListener('toggle', openEmailActivity); window.removeEventListener('doctorcre-session-invalidated', retirePendingEmail); expiry.dispose(); auto.dispose(); document.removeEventListener('doctorcre:brief-calendar', updateCalendar); window.removeEventListener('doctorcre-session-invalidated', clearCalendar); relationshipDialog?.dispose(); pastWidget?.dispose(); callTasks?.dispose(); meetingReviews?.dispose(); overdueReviews?.dispose(); emailReview?.dispose(); emailFilings?.dispose(); replyOutcomes?.dispose(); } };
+  return { refresh: auto.refresh, dispose() { cancelLanding(); missingNextStep?.dispose(); reasons?.dispose(); document.removeEventListener('keydown', flagKeydown); disposed = true; workingWeek?.dispose(); sequence++; panelObserver?.disconnect(); emailActivity?.removeEventListener('toggle', openEmailActivity); window.removeEventListener('doctorcre-session-invalidated', retirePendingEmail); expiry.dispose(); auto.dispose(); document.removeEventListener('doctorcre:brief-calendar', updateCalendar); window.removeEventListener('doctorcre-session-invalidated', clearCalendar); relationshipDialog?.dispose(); pastWidget?.dispose(); callTasks?.dispose(); meetingReviews?.dispose(); overdueReviews?.dispose(); emailReview?.dispose(); replyOutcomes?.dispose(); } };
 }
 
 if (typeof document !== 'undefined' && document.getElementById('dealAttention')) {

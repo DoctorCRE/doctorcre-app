@@ -27,19 +27,17 @@ async function open(t, { width = 1440, home = false, long = false, motion = 'red
   if (long) payload.leases[0].client_name = `Demo${'Practice'.repeat(30)}`;
   page.on('pageerror', error => errors.push(error.message));
   const handlers = {
-    'calendar-meeting-prep': () => client.calendarMeetingPrep(),
     'morning-brief': async () => ({ state:'unavailable' }),
     'list-practice-origination': args => client.listPracticeOrigination(args),
     'read-home-agenda': () => client.getHomeAgenda(),
     'read-post-call-followups': async () => ({ schema_version: 'post-call-followups.v1', candidates: [], send: false }),
     'list-email-proposals': async () => ({ schema_version: 'email-proposals.v1', proposals: [], send: false, more: false, next_cursor: null }),
     'read-deal-update-reviews': async () => ({ schema_version: 'deal-update-reviews.v1', proposals: [] }),
-    'list-email-thread-filings': async () => ({ filings: [] }),
     'deal-room-board': () => client.getBoard(), 'get-deal-room': args => client.getDeal(args.deal),
     'lead-board': async () => ({ leads: [] }), 'incident-board': () => client.incidentBoard(),
     'current-work-item': () => client.currentWorkItem(), 'read-resource-dashboard': () => client.readResourceDashboard(),
     'schedule-board': () => client.scheduleBoard(), 'list-notifications': async () => ({ unread_count: 0, notifications: [] }),
-    'notification-feed': async () => ({ unread_count: 0, notifications: [] }), 'read-call-outcomes': async () => ({ schema_version: 'call-outcomes.v1', calls: [], send: false }), 'today-triage': async () => ({ items: [] }),
+    'notification-feed': async () => ({ unread_count: 0, notifications: [] }), 'read-call-outcomes': async () => ({ schema_version: 'call-outcomes.v1', calls: [], send: false }),
     'read-invoice-tracker': async () => invoiceTrackerFixture('2026-10-01'),
     'list-feature-switches': () => client.listFeatureSwitches(),
     'list-doc-suggestions': args => client.listDocSuggestions(args),

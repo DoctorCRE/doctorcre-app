@@ -490,8 +490,6 @@ export function createLiveClient(opts = {}) {
     async editEmailDraft(args) { return write('edit-email-draft', args); },
     async submitEmailDraft(args) { return write('submit-email-draft', args); },
     async dismissEmailProposal(args) { return write('dismiss-email-proposal', args); },
-    async listEmailThreadFilings() { return rpc('list-email-thread-filings', {}); },
-    async undoEmailThreadFiling(args) { return write('undo-email-thread-filing', args); },
 
     async readDealCallOutcomes(dealId) {
       return engineRead(`/api/engine/deals/${encodeURIComponent(dealId)}/call-outcomes`);
@@ -744,18 +742,12 @@ export function createLiveClient(opts = {}) {
 
     // Authenticated sponsor is resolved by CARR; callers cannot select a partner.
     async listFeatureSwitches({ signal } = {}) { return rpc('list-feature-switches', {}, signal); },
-    async calendarMeetingPrep({ signal } = {}) { return rpc('calendar-meeting-prep', {}, signal); },
     async morningBrief({ signal, fresh } = {}) { return fresh ? rawRpc('morning-brief', {}, signal, readTimeoutMs) : rpc('morning-brief', {}, signal); },
     async morningBriefQueue(queue, {cursor,signal} = {}) {
       if (!['today','loops','needs_joe','assurance_cadence'].includes(queue)) throw new Error('Unsupported morning queue.');
       return rpc(queue === 'assurance_cadence' ? 'morning-assurance-queue' : 'morning-brief-queue',
         {...(queue === 'assurance_cadence' ? {} : {queue}),...(cursor === undefined ? {} : {cursor})},signal);
     },
-
-    // ------------------------------------------------------------- triage
-    // V5-UX-B01 — Home's This week. The verb takes no arguments, so none are
-    // sent: which rows are due is the record layer's decision, not the page's.
-    async todayTriage() { return rpc('today-triage', {}); },
 
     // ---------------------------------------------------------- command centre
     // The one aggregate Home read. It is NOT an MCP verb: the app Worker serves
