@@ -1428,10 +1428,7 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
   await page.goto(server.origin + dealPage);
   const room = page.getByRole("main", { name: "Deal Workspace" });
   await room.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
-  await room
-    .getByRole("region", { name: "Deal watch settings" })
-    .getByText("Not available yet", { exact: true })
-    .waitFor({ timeout: 4000 });
+  await room.locator("summary").filter({ hasText: "Deal watch settings" }).waitFor({ timeout: 4000 });
   await room.getByRole("tab", { name: "Compare terms" }).click();
   await room
     .getByRole("tabpanel", { name: "Compare terms" })
@@ -3461,4 +3458,89 @@ for (const openDay of [true, false]) {
       }
     },
   );
+}
+
+test("engine Deal page saves and reconciles watch settings", async (t) => {
+  const { server, context } = await app(t);
+  const page = await context.newPage();
+  const fixture = JSON.parse(await readFile(new URL("./fixtures/watches/recorded.json", import.meta.url), "utf8"));
+  let current = { ...fixture.watch, subject_id: dealId, baseline: { ...fixture.watch.baseline, subject_id: dealId } };
+  const commands: string[] = [];
+  let stale = false;
+  await page.route(`**/api/engine/deals/${dealId}/watch`, async (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { watch: current, health: null } });
+    const body = route.request().postDataJSON();
+    assert.match(body.idempotency_key, /^[0-9a-f-]{36}$/);
+    assert.equal(body.subscription_id, current.id);
+    assert.equal(body.base_version, current.lifecycle_version);
+    assert.deepEqual(
+      Object.keys(body).sort(),
+      (body.command === "replace-policy"
+        ? ["base_version", "command", "idempotency_key", "policy", "subscription_id"]
+        : ["base_version", "command", "idempotency_key", "subscription_id"]
+      ).sort(),
+    );
+    commands.push(body.command);
+    if (stale) {
+      stale = false;
+      current = {
+        ...current,
+        lifecycle_version: current.lifecycle_version + 1,
+        policy: { ...current.policy, include_self_changes: true },
+      };
+      return route.fulfill({ status: 409, json: { error: "watch_stale_version" } });
+    }
+    current = {
+      ...current,
+      lifecycle_version: current.lifecycle_version + 1,
+      policy: body.policy ?? current.policy,
+      state: body.command === "pause" ? "paused" : body.command === "unwatch" ? "removed" : "watching",
+    };
+    return route.fulfill({
+      json: { ok: true, schema_version: "subject-watch.v2", watch: current, rows_changed: [0, 1] },
+    });
+  });
+  await page.goto(server.origin + dealPage);
+  await page.locator("summary").filter({ hasText: "Deal watch settings" }).click({ timeout: 4000 });
+  const panel = page.getByRole("region", { name: "Deal watch", exact: true });
+  await panel.getByRole("heading", { name: "Watching", exact: true }).waitFor({ timeout: 4000 });
+  await panel.getByLabel("Include changes I make").uncheck();
+  await panel.getByRole("button", { name: "Save settings" }).click();
+  await panel.getByText(/Last confirmed version 2/).waitFor();
+  await panel.getByRole("button", { name: "Pause watch" }).click();
+  await panel.getByText(/Last confirmed version 3/).waitFor();
+  await panel.getByRole("button", { name: "Resume watch" }).click();
+  await panel.getByText(/Last confirmed version 4/).waitFor();
+  await panel.getByLabel("Include changes I make").check();
+  await panel.getByLabel("Include changes I make").uncheck();
+  stale = true;
+  await panel.getByRole("button", { name: "Save settings" }).click();
+  await panel.getByText(/This watch changed/).waitFor({ timeout: 5000 });
+  await panel.getByText(/Includes my changes/).waitFor();
+  assert.equal(await panel.getByLabel("Include changes I make").isChecked(), false);
+  await panel.getByRole("button", { name: "Save settings" }).click();
+  await panel.getByText(/Excludes my changes/).waitFor();
+  await panel.getByRole("button", { name: "Remove watch" }).click();
+  await panel.getByRole("heading", { name: "Not watching", exact: true }).waitFor();
+  assert.deepEqual(commands, ["replace-policy", "pause", "resume", "replace-policy", "replace-policy", "unwatch"]);
+});
+
+for (const missingOn of ["read", "save"] as const) {
+  test(`engine Deal watch shows unavailable when ${missingOn} returns 404`, async (t) => {
+    const { server, context } = await app(t);
+    const page = await context.newPage();
+    const fixture = JSON.parse(await readFile(new URL("./fixtures/watches/recorded.json", import.meta.url), "utf8"));
+    const watch = { ...fixture.watch, subject_id: dealId, baseline: { ...fixture.watch.baseline, subject_id: dealId } };
+    await page.route(`**/api/engine/deals/${dealId}/watch`, (route) => {
+      if (missingOn === "read" || route.request().method() === "POST")
+        return route.fulfill({ status: 404, json: { error: "not_found" } });
+      return route.fulfill({ json: { watch, health: null } });
+    });
+    await page.goto(server.origin + dealPage);
+    await page.locator("summary").filter({ hasText: "Deal watch settings" }).click({ timeout: 4000 });
+    const panel = page.getByRole("region", { name: "Deal watch", exact: true });
+    if (missingOn === "save") await panel.getByRole("button", { name: "Pause watch" }).click();
+    await panel.getByText("Watch settings are not available for this deal.").waitFor({ timeout: 5000 });
+    assert.equal(await panel.getByText(/Sign in again/).count(), 0);
+  });
 }

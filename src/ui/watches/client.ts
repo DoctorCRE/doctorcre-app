@@ -35,3 +35,48 @@ export function createWatchClient(transport?: Transport) {
   };
 }
 export type WatchClient = ReturnType<typeof createWatchClient>;
+
+type Deadline = <T>(
+  read: (signal: AbortSignal) => Promise<T>,
+  options: { signal: AbortSignal; timeoutMs: number },
+) => Promise<T>;
+export function createEngineWatchClient(request: typeof fetch, deadline?: Deadline): WatchClient {
+  const commands: Record<string, string> = {
+    "watch-subject-v2": "watch",
+    "replace-subject-watch-policy-v2": "replace-policy",
+    "pause-subject-watch-v2": "pause",
+    "resume-subject-watch-v2": "resume",
+    "unwatch-subject-v2": "unwatch",
+  };
+  return createWatchClient(async (verb, args, { signal, timeoutMs }) => {
+    if (!object(args) || typeof args.subject_id !== "string") return { kind: "failure" };
+    const { subject_type, subject_id, ...body } = args;
+    if (subject_type !== "deal") return { kind: "failure" };
+    const command = commands[verb];
+    if (verb !== "read-subject-watch-v2" && !command) return { kind: "failure" };
+    const readWithDeadline: Deadline =
+      deadline ?? (await import(new URL("./current-read.mjs", import.meta.url).href)).readWithDeadline;
+    return readWithDeadline(
+      async (deadlineSignal: AbortSignal) => {
+        const response = await request(`/api/engine/deals/${encodeURIComponent(subject_id)}/watch`, {
+          method: command ? "POST" : "GET",
+          signal: deadlineSignal,
+          ...(command
+            ? { headers: { "content-type": "application/json" }, body: JSON.stringify({ command, ...body }) }
+            : {}),
+        });
+        if (response.status === 401 || response.status === 403) return { kind: "authorization" };
+        if (response.status === 404) return { kind: "payload", payload: { error: "watch_target_not_found" } };
+        const payload: unknown = await response.json();
+        if (!response.ok) return { kind: "payload", payload };
+        if (!object(payload)) return { kind: "failure" };
+        if (command) {
+          const { rows_changed: _rowsChanged, ...watchPayload } = payload;
+          return { kind: "payload", payload: watchPayload };
+        }
+        return { kind: "payload", payload: { ...payload, ok: true, schema_version: "subject-watch.v2" } };
+      },
+      { signal, timeoutMs },
+    );
+  });
+}

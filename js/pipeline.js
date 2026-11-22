@@ -2075,15 +2075,11 @@ function paintPanel(detail) {
   $('panelBody').innerHTML = workspaceHtml(detail, engineMode);
   mountChecklist(detail);
   const overview = $('workspace-overview');
-  if (engineMode) {
-    overview.insertAdjacentHTML('afterbegin', '<section aria-label="Deal watch settings"><h2>Deal watch settings</h2><p>Not available yet</p></section>');
-  } else {
-    if (watchSubject !== detail.deal.id) disposeWatchControl();
-    watchElement ||= document.createElement('div');
-    overview.prepend(watchElement);
-    watchSubject = detail.deal.id;
-    watchControl ||= mountWatchControl(watchElement, {subject:{subject_type:'deal',subject_id:detail.deal.id}});
-  }
+  if (watchSubject !== detail.deal.id) disposeWatchControl();
+  watchElement ||= document.createElement('div');
+  overview.prepend(watchElement);
+  watchSubject = detail.deal.id;
+  watchControl ||= mountWatchControl(watchElement, {subject:{subject_type:'deal',subject_id:detail.deal.id}, ...(engineMode ? {engineRequest:sessionFetch} : {})});
   factReviewPanel = $('panelTerms') ? mountSourcedTerms($('panelTerms'), detail.deal.id) : null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
