@@ -44,7 +44,7 @@ const UNGATED_PAGES = new Set(["/status"]);
 const GATE_PATHS = new Map(Object.entries(routeContract.gatePaths));
 const WORKSPACE_GATES = new Set([
   '/business', '/clients', '/vendors',
-  '/control-room', '/notifications', '/conversations',
+  '/notifications', '/conversations',
 ]);
 const PARTNER_HEADERS = ['accept', 'content-type', 'content-length', 'origin',
   'sec-fetch-site', 'x-carr-csrf', 'x-correlation-id', 'user-agent'];

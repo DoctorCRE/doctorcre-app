@@ -6,7 +6,7 @@ Partner desktop stage, group zoom, keyboard return, live panel retention and pho
 
 ## How to get to it (user POV)
 
-Open `/ideas-events?ui=react` in the synthetic preview as Joe or Dell. Double-click a visible panel tab bar, or choose a Zoom group button. Choose Return to workspace or press Escape to restore the stage.
+Open `/invoices?actor=joe&ui=react` or `/invoices?actor=dell&ui=react` in the synthetic preview on a desktop viewport. Double-click a visible panel tab bar, or choose a Zoom group button. Choose Return to workspace or press Escape to restore the stage.
 
 ## Driving it with Playwright
 

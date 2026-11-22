@@ -10,7 +10,7 @@ export const routeEntries = [
   ["/doc/conversations/:conversation_id/turns/:msg_id","conversations.html","/conversations"],
   ["/inbox","inbox.html","/"],
   ["/inbox/card/:item_id","inbox.html","/"],
-  ["/invoices","invoices.html","/control-room"],
+  ["/invoices","invoices.html","/business"],
   ["/leads","leads.html","/leads"],
   ["/leases","lease-radar.html","/business"],
   ["/relationships","relationships.html","/business"],

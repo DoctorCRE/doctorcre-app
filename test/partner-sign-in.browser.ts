@@ -3,6 +3,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { after, type TestContext, test } from "node:test";
 import type { Page } from "playwright";
 import { createInvoiceFixture, invoiceTrackerFixture } from "../js/invoice-tracker-fixture.js";
+import { isRetiredPage } from "../js/routes.js";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
@@ -284,6 +285,7 @@ async function app(
         const call = path === "/mcp" ? await input.json() : null;
         if (call) carrTools.push(call.params.name);
         if (signIn === "carr") {
+          if (isRetiredPage(path)) return new Response(null, { status: 404 });
           if (path === carrAnniversaries && readAnniversaries) return readAnniversaries(input);
           if (path === "/auth/session" || path === "/api/system-work/session")
             return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
@@ -2905,9 +2907,17 @@ for (const signIn of ["engine", "carr"] as const) {
     assert.equal(new URL(login.url()).searchParams.get("return_to"), bookmark);
     assert.equal(await redirect?.headerValue("cache-control"), "no-store");
   });
+}
 
-  test(`${signIn} sign-in opens retired bookmarks on Home and renders the kept business pages`, async (t) => {
+for (const [signIn, width] of [
+  ["engine", 390],
+  ["engine", 1440],
+  ["carr", 390],
+  ["carr", 1440],
+] as const) {
+  test(`${signIn} sign-in opens retired bookmarks on Home and renders the kept business pages at ${width}px`, async (t) => {
     const { server, context } = await app(t, {
+      width,
       signIn,
       switchDay: signIn === "carr",
       tourPlans: true,
@@ -2950,6 +2960,8 @@ for (const signIn of ["engine", "carr"] as const) {
       const url = new URL(path, server.origin);
       url.searchParams.set("mode", "live");
       assert.equal((await page.goto(url.href))?.status(), 200, path);
+      if (path === "/doc-chats" && signIn === "engine" && width === 390)
+        await page.getByRole("button", { name: "Recent chats", exact: true }).click();
       await ready.waitFor().catch(async (error) => {
         throw new Error(`${path} did not render its fixture. ${await page.locator("main").first().textContent()}`, {
           cause: error,

@@ -900,6 +900,30 @@ const cutoverSwitches = new Map([
   ["deal-cutover-date", "2026-11-20"],
 ]);
 
+test("CARR sign-in keeps Invoices behind a retained page gate", async () => {
+  const { send, calls } = fixture(null, {
+    APP_ENV: "production",
+    PARTNER_SIGN_IN: "carr",
+    CARR: {
+      fetch: async (input: Request) => {
+        if (new URL(input.url).pathname !== "/business") return new Response(null, { status: 404 });
+        return input.headers.has("cookie")
+          ? new Response(null)
+          : Response.redirect(production + "/auth/login?return_to=%2Fbusiness");
+      },
+    },
+  });
+  const path = "/invoices?invoice=synthetic";
+  const admitted = await send(path, { headers: { cookie: "__Host-dealroom_session=synthetic" } }, production);
+  assert.equal(admitted.status, 200);
+  assert.equal(await admitted.text(), "/invoices.html");
+
+  const denied = await send(path, undefined, production);
+  assert.equal(denied.status, 302);
+  assert.equal(new URL(denied.headers.get("location") ?? "", production).searchParams.get("return_to"), path);
+  assert.deepEqual(calls.assets, ["/invoices.html"]);
+});
+
 for (const mode of ["engine", "carr"]) {
   const origin = mode === "engine" ? staging : production;
   const signIn = {
