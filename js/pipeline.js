@@ -1390,10 +1390,11 @@ let workspaceTab = 'overview';
 let boardScroll = 0;
 let timelineType = '';
 history.scrollRestoration = 'manual';
-let workspaceHistoryIndex = history.state?.doctorcreWorkspaceIndex ?? 0;
+let workspaceHistory = history.state;
 function writeWorkspaceHistory(data, url, push = false) {
-  if (push) ++workspaceHistoryIndex;
-  history[push ? 'pushState' : 'replaceState']({...data, doctorcreWorkspaceIndex:workspaceHistoryIndex}, '', url);
+  const index = (workspaceHistory?.doctorcreWorkspaceIndex ?? 0) + Number(push);
+  workspaceHistory = {...data, doctorcreWorkspaceIndex:index};
+  history[push ? 'pushState' : 'replaceState'](workspaceHistory, '', url);
 }
 writeWorkspaceHistory(history.state, location.href);
 function renderNextCriticalDate(date) {
@@ -1507,18 +1508,23 @@ function filedDocumentsHtml(documents, engineSignIn) {
   }).join('')}</ul>` : '<p>No documents filed for this deal.</p>';
 }
 
-function openFiledDocumentText(documentId) {
+function closeFiledDocumentText() {
+  $('workspace-documents')?.querySelector('.deal-document-text[open]')?.close();
+}
+
+function openFiledDocumentText(documentId, { fromHistory = false } = {}) {
   const detail = state.panelDetail;
   if (!privateSession()?.engineSignIn || !isEngineDealDetail(detail)) return;
   const file = detail.documents.find(file => file.id === documentId);
-  if (!file) return;
+  const documents = $('workspace-documents');
+  if (!file || !documents || documents.querySelector('.deal-document-text[open]')) return;
 
   const dialog = document.createElement('dialog');
   dialog.className = 'dialog deal-dialog deal-document-text';
   dialog.setAttribute('aria-labelledby', 'filed-document-text-title');
   dialog.innerHTML = `<article>
     <header><h2 id="filed-document-text-title">${esc(file.name)}</h2>
-      <button class="btn" type="button" aria-label="Close document text">Close</button></header>
+      <button class="btn icon-btn" type="button" aria-label="Close document text">×</button></header>
     <div class="dialog-body"><p role="status"></p><button class="btn" type="button" hidden>Retry</button></div>
   </article>`;
   const status = dialog.querySelector('[role="status"]');
@@ -1557,11 +1563,21 @@ function openFiledDocumentText(documentId) {
     }
   }
 
-  dialog.querySelector('header button').addEventListener('click', () => dialog.close());
+  const close = dialog.querySelector('header button');
+  function dismiss(event) {
+    event.preventDefault();
+    if (close.disabled) return;
+    close.disabled = true;
+    history.back();
+  }
+  close.addEventListener('click', dismiss);
+  dialog.addEventListener('cancel', dismiss);
   dialog.addEventListener('close', () => { lifetime.abort(); dialog.remove(); }, { once: true });
   retry.addEventListener('click', () => void load());
-  $('workspace-documents').append(dialog);
+  if (fromHistory) selectWorkspaceTab('documents');
+  documents.append(dialog);
   dialog.showModal();
+  if (!fromHistory) writeWorkspaceHistory({...history.state, doctorcreDocumentText:documentId}, location.href, true);
   void load();
 }
 
@@ -2225,6 +2241,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   factReviewPanel = null;
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
+  closeFiledDocumentText();
   selectDocRecord('deal', dealId);
   const panel = $('recordPanel');
   disposeActivityAttribution();
@@ -2256,6 +2273,8 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   scrollTo({ top: 0, behavior: 'instant' });
   $('panelTitle').focus({preventScroll:true});
   await refreshPanel();
+  if (state.panelDeal === dealId && history.state?.doctorcreDocumentText)
+    openFiledDocumentText(history.state.doctorcreDocumentText, {fromHistory:true});
   if (focusStep && state.panelDeal === dealId) {
     if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
     await document.fonts.ready;
@@ -2308,7 +2327,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); url.searchParams.delete('checklist'); url.searchParams.delete('property'); writeWorkspaceHistory({},url); }
-  $('workspace-documents')?.querySelector('.deal-document-text[open]')?.close();
+  closeFiledDocumentText();
   $('recordPanel').hidden = true; $('main').hidden = false;
   document.body.classList.remove('workspace-open');
   state.panelDeal = null; state.panelStepId = null; state.panelDetail = null;
@@ -2633,13 +2652,24 @@ function wire() {
 
   let restoreTourHistory = null, departurePending = false;
   addEventListener('popstate', async event => {
+    const workspaceHistoryIndex = workspaceHistory?.doctorcreWorkspaceIndex ?? 0;
     const destinationIndex = event.state?.doctorcreWorkspaceIndex ?? 0;
     if (restoreTourHistory) {
       if (destinationIndex !== workspaceHistoryIndex) { history.go(workspaceHistoryIndex - destinationIndex); return; }
       const restored = restoreTourHistory; restoreTourHistory = null; restored(); return;
     }
+    const deal = new URL(location.href).searchParams.get('deal');
+    const documentId = event.state?.doctorcreDocumentText;
+    const distance = destinationIndex - workspaceHistoryIndex;
+    const closingDocument = distance === -1 && workspaceHistory?.doctorcreDocumentText;
+    const openingDocument = distance === 1 && documentId;
+    if (deal && deal === state.panelDeal && (closingDocument || openingDocument)) {
+      workspaceHistory = event.state;
+      closeFiledDocumentText();
+      if (documentId) openFiledDocumentText(documentId, {fromHistory:true});
+      return;
+    }
     if (dealToursPanel?.hasUnsavedChanges() || dealDocumentsPanel?.hasUnsavedChanges()) {
-      const distance = destinationIndex - workspaceHistoryIndex;
       if (!distance) return;
       const restored = new Promise(resolve => { restoreTourHistory = resolve; });
       history.go(-distance);
@@ -2651,8 +2681,7 @@ function wire() {
       if (leave) history.go(distance);
       return;
     }
-    workspaceHistoryIndex = destinationIndex;
-    const deal = new URL(location.href).searchParams.get('deal');
+    workspaceHistory = event.state;
     if (deal) void openWorkspace(deal, null, {fromHistory:true});
     else closeWorkspace({fromHistory:true});
   });

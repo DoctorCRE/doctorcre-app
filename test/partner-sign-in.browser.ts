@@ -91,6 +91,7 @@ async function app(
     touch = false,
     readAttribution,
     documentText,
+    documents = [filedDocument],
     tourDeal,
   }: {
     width?: number;
@@ -101,6 +102,7 @@ async function app(
     tourDeal?: () => object;
     readAttribution?: (request: Request) => Response | Promise<Response>;
     documentText?: string[] | "missing";
+    documents?: (typeof filedDocument)[];
   } = {},
 ) {
   let unavailable = false;
@@ -335,7 +337,7 @@ async function app(
             ...dealDetail,
             email_follow_ups: [],
             ...tourDeal?.(),
-            ...(documentText && { documents: [filedDocument] }),
+            ...(documentText && { documents }),
           });
         if (path === documentTextPath && input.method === "GET" && documentText)
           return documentText === "missing"
@@ -783,13 +785,70 @@ for (const [scenario, documentText, message] of [
     assert.deepEqual(legacyReads, []);
     await dialog.getByRole("button", { name: "Close document text" }).click();
     await dialog.waitFor({ state: "hidden" });
-    if (!message) {
-      await openText.click();
-      await page.goBack();
-      await dealCard.click({ timeout: 4000 });
-    }
   });
 }
+
+test("Back closes engine document text before leaving the deal", async (t) => {
+  const documents = Array.from({ length: 12 }, (_, index) => ({
+    ...filedDocument,
+    id: `80000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    name: `Demo attachment ${index + 1}.pdf`,
+  })).concat(filedDocument);
+  const { server, context } = await app(t, { documentText: ["Demo text"], documents, width: 390 });
+  const page = await context.newPage();
+  await page.goto(server.origin + "/deals?mode=live");
+  const dealCard = page.getByRole("button", { name: dealName, exact: true });
+  await dealCard.click();
+  const documentsTab = page.getByRole("tab", { name: "Documents", exact: true });
+  await documentsTab.click();
+  const openText = page.getByRole("button", { name: `Open text for ${filedDocument.name}, Version 1` });
+  await openText.scrollIntoViewIfNeeded();
+  const scroll = await page.evaluate(() => window.scrollY);
+  assert.ok(scroll > 0);
+  await openText.click();
+  const viewer = page.getByRole("dialog", { name: filedDocument.name });
+  await viewer.waitFor({ timeout: 4000 });
+
+  await page.goBack();
+  await viewer.waitFor({ state: "hidden" });
+  assert.equal(new URL(page.url()).searchParams.get("deal"), dealId);
+  const workspace = page.getByRole("main", { name: "Deal Workspace" });
+  assert.ok(await workspace.getByRole("heading", { name: dealName, exact: true }).isVisible());
+  assert.equal(await documentsTab.getAttribute("aria-selected"), "true");
+  assert.equal(await page.evaluate(() => window.scrollY), scroll);
+
+  await page.goBack();
+  await dealCard.waitFor({ timeout: 4000 });
+  assert.equal(new URL(page.url()).searchParams.has("deal"), false);
+
+  await page.goForward();
+  await page.goForward();
+  await viewer.waitFor({ timeout: 4000 });
+  await page.keyboard.press("Escape");
+  await viewer.waitFor({ state: "hidden" });
+  await page.goBack();
+  await dealCard.waitFor({ timeout: 4000 });
+});
+
+test("the engine document text close icon leaves Back ready to return to the board", async (t) => {
+  const { server, context } = await app(t, { documentText: ["Demo text"] });
+  const page = await context.newPage();
+  await page.goto(server.origin + "/deals?mode=live");
+  const dealCard = page.getByRole("button", { name: dealName, exact: true });
+  await dealCard.click();
+  await page.getByRole("tab", { name: "Documents", exact: true }).click();
+  await page.getByRole("button", { name: `Open text for ${filedDocument.name}, Version 1` }).click();
+  const viewer = page.getByRole("dialog", { name: filedDocument.name });
+  const close = viewer.getByRole("button", { name: "Close document text" });
+  assert.equal(await close.textContent(), "×");
+  await close.click();
+  await viewer.waitFor({ state: "hidden" });
+  assert.equal(new URL(page.url()).searchParams.get("deal"), dealId);
+
+  await page.goBack();
+  await dealCard.waitFor({ timeout: 4000 });
+  assert.equal(new URL(page.url()).searchParams.has("deal"), false);
+});
 
 test("CARR deal Documents still reads document text through the existing verb", async (t) => {
   const { server, context, partnerReads } = await app(t, { signIn: "carr", documentText: [] });
