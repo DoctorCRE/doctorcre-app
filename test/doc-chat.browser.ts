@@ -362,7 +362,7 @@ test("Doc accepts engine IDs without RFC version or variant bits", async (t) => 
 });
 
 test("Backup answers are marked while Mac answers and waiting questions are not", async (t) => {
-  let source: "backup" | "mac" | null = "backup";
+  let source: string | null = "backup";
   const { page, origin } = await docChatFixture(t, (request) => {
     const path = new URL(request.url).pathname;
     if (path === "/api/engine/doc/conversations")
@@ -386,6 +386,10 @@ test("Backup answers are marked while Mac answers and waiting questions are not"
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
   await expect(page.getByText("Answered by the backup.")).toBeVisible();
   source = "mac";
+  await page.reload();
+  await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+  await expect(page.getByText("Answered by the backup.")).toHaveCount(0);
+  source = "future-source";
   await page.reload();
   await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
   await expect(page.getByText("Answered by the backup.")).toHaveCount(0);

@@ -68,7 +68,7 @@ const chatTurn = z.object({
   draft_review: draftReview.nullable(),
   state: z.enum(["queued", "working", "failed", "answered"]),
   answer: answer.nullable(),
-  answered_by: z.enum(["mac", "backup"]).nullable().optional(),
+  answered_by: z.string().nullable().optional(),
   confirmation: confirmation.nullable(),
   waiting_reason: z
     .enum([
