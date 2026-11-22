@@ -105,32 +105,6 @@ view.sessionGeneration = 0;
 view.panelState = null;
 view.trustOperation = null;
 let vendorMeetings = null;
-let vendorClientNeeds = null;
-let vendorClientNeedsHost = null;
-let vendorClientNeedsId = null;
-let vendorClientNeedsGeneration = 0;
-
-async function syncVendorClientNeeds(host, vendor) {
-  const generation = vendorClientNeedsGeneration;
-  try {
-    const { mountVendorClientNeeds } = await import('./ui-vendor-client-needs.generated.js');
-    if (generation !== vendorClientNeedsGeneration || !host.isConnected) return;
-    const { createMcpRequests } = await import('./mcp-requests.mjs');
-    if (generation !== vendorClientNeedsGeneration || !host.isConnected) return;
-    const request = createMcpRequests();
-    vendorClientNeeds = mountVendorClientNeeds(host, vendor, async (query, signal) => {
-      const result = await request('read-vendor-client-needs-v1', query, { signal, timeoutMs: 15000 });
-      if (result.kind === 'authorization' || (result.kind === 'payload' && result.isError &&
-        ['AUTHORIZATION_REFUSED', 'AUTHENTICATION_REQUIRED'].includes(result.payload?.error))) {
-        throw Object.assign(new Error('Permission refused'), { name: 'NeedsRefused' });
-      }
-      if (result.kind !== 'payload' || result.isError) throw new Error('Client needs unavailable');
-      return result.payload;
-    }, mountLocalTicker);
-  } catch {
-    if (host.isConnected) host.textContent = 'Client needs unavailable.';
-  }
-}
 let vendorMeetingsHost = null;
 let quietVendors = null;
 let quietVendorsHost = null;
@@ -425,6 +399,11 @@ const metric = value => Number.isInteger(value) ? String(value) : '—';
 const winRate = stats => Number.isFinite(stats?.win_rate) ? `${Math.round(stats.win_rate * 100)}%` : '—';
 const vendorNote = value => withoutRecordCodes((value || '').replace(/\bCARR calendar history\b/gi, 'calendar history'));
 const shortNote = value => typeof value === 'string' ? value.split(/\n/)[0].slice(0, 140) : '';
+function vendorContactDate(contactedAt) {
+  const date = contactedAt && formatDay(contactedAt);
+  return date ? `<span class="contact-note">Last contacted <time datetime="${escapeHtml(contactedAt)}">${escapeHtml(date)}</time></span>` : '';
+}
+
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
 const trustRatings = { Proven: 'Strong track record', Established: 'Ongoing working relationship', Trial: 'New working relationship' };
 function vendorContactsHtml(record) {
@@ -605,8 +584,6 @@ function rowFacts(dataset, row) {
     facts.push({ label: 'Referred', value: metric(stats?.deals_referred), known: stats?.deals_referred != null });
     facts.push({ label: 'Worked', value: metric(stats?.deals_worked), known: stats?.deals_worked != null });
     facts.push({ label: 'Win rate', value: winRate(stats), known: stats?.win_rate != null });
-    facts.push({ label: 'Last contacted', value: stats?.last_contacted_at ? formatMoment(stats.last_contacted_at) : 'Not recorded', known: Boolean(stats?.last_contacted_at) });
-
   }
   const place = [row.city, row.state].filter(Boolean).join(", ");
   facts.push({ label: dataset === "clients" ? "Territory" : "Location", value: place || "Not recorded", known: Boolean(place) });
@@ -628,9 +605,8 @@ function rowHtml(dataset, row, selectedId) {
   const selected = row.id === selectedId;
   const vendor = dataset === "vendors";
   const facts = rowFacts(dataset, row).filter((fact) => fact.known).map((fact) =>
-    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}${fact.label === "Last contacted" ? " row-last-contact" : ""}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("");
-  const note = vendor ? shortNote(vendorNote(row.relationship?.last_contact_note)) : '';
-  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${note ? `<span class="contact-note">${escapeHtml(note)}</span>` : ""}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
+    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("");
+  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
 }
 
 function paintList(html, { busy = false } = {}) {
@@ -790,17 +766,6 @@ function clientNote(saved) {
 }
 
 function renderRecordPanel() {
-  const keepNeeds = !view.signedOut && view.dataset === 'vendors' && view.recordId &&
-    view.record.status === 'ready' && vendorClientNeedsId === view.recordId;
-  if (keepNeeds) vendorClientNeedsHost?.remove();
-  else {
-    vendorClientNeedsGeneration++;
-    vendorClientNeeds?.dispose();
-    vendorClientNeeds = null;
-    vendorClientNeedsHost?.remove();
-    vendorClientNeedsHost = null;
-    vendorClientNeedsId = null;
-  }
   if (!dom.panel) return;
   const { record, dataset } = view;
   if (!view.signedOut) capturePanelState();
@@ -861,15 +826,6 @@ function renderRecordPanel() {
   if (dom.panelBody) {
     dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record, engineMode) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
-    if (vendor && !engineMode && !document.documentElement.hasAttribute('data-deals-saves-from-engine')
-      && !document.documentElement.hasAttribute('data-clients-vendors-from-engine')) {
-      if (!vendorClientNeedsHost) {
-        vendorClientNeedsHost = document.createElement('div');
-        vendorClientNeedsId = payload.record.id;
-        dom.panelBody.prepend(vendorClientNeedsHost);
-        void syncVendorClientNeeds(vendorClientNeedsHost, payload.record.id);
-      } else dom.panelBody.prepend(vendorClientNeedsHost);
-    }
     restorePanelState();
     const note = dom.panelBody.querySelector(".client-note > p");
     if (note) note.nextElementSibling.hidden = !note.nextElementSibling.open && note.scrollHeight <= note.clientHeight;

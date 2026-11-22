@@ -118,7 +118,6 @@
  * @property {(dealId:string) => Promise<DealDetail>} getDeal
  * @property {boolean} [changeFeedEnabled]
  * @property {(cursor:string|null) => Promise<ChangesResponse|null>} getChanges Null when the feed is retired.
- * @property {(args:{deal:string, field:string, idempotency_key:string}) => Promise<{ok:true}>} presenceLease
  * @property {(args:{deal:string, field:string, value:*, base_event_id:string|null, idempotency_key:string}) => Promise<WriteResult>} patchDealField
  * @property {(args:{conflict_id:string, winner:'a'|'b', idempotency_key:string}) => Promise<WriteResult>} resolveConflict
  * @property {(args:{deal:string, text:string, idempotency_key:string}) => Promise<WriteResult>} addDealNote

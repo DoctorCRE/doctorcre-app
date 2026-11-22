@@ -6,19 +6,15 @@ import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { parseDeliverableList } from "../src/ui/deal-deliverable-contract.ts";
 import { chromium } from "./browser-harness.mjs";
 
-test("deal chooser and desktop drop reconcile one private file and versioned designation at four sizes", async (t) => {
+test("deal chooser and desktop drop reconcile one private file at four sizes", async (t) => {
   const fixture = JSON.parse(
     await readFile(new URL("../contracts/fixtures/deal-document-intake.v1.json", import.meta.url), "utf8"),
   );
   const deal = fixture.finalize.deliverable.deal_id;
   const envelope = (v: Record<string, unknown>) => ({ ...v, schema_version: "deal-deliverables.v1" });
-  let row = { ...fixture.finalize.deliverable },
-    saved = false,
-    failList = false,
-    failReadback = false,
-    lost = false,
-    conflict = false,
-    loseVisibility = false;
+  const row = fixture.finalize.deliverable;
+  let saved = false,
+    lost = false;
 
   const writes: { path: string; body: Record<string, unknown> }[] = [];
   const assets = await appAssetSnapshot();
@@ -55,7 +51,6 @@ test("deal chooser and desktop drop reconcile one private file and versioned des
               },
             });
           if (request.method === "GET" && !path.endsWith("/receipt")) {
-            if (failList) return json({}, 503);
             const value = { ok: true, schema_version: "deal-deliverables.v1", deliverables: saved ? [row] : [] };
             parseDeliverableList(value, deal);
             return json(value);
@@ -74,17 +69,6 @@ test("deal chooser and desktop drop reconcile one private file and versioned des
             }
             return json(envelope(fixture.finalize));
           }
-          if (path.endsWith("/visibility")) {
-            assert.equal(body.expected_version, row.version);
-            if (conflict) return json({}, 409);
-            row = { ...row, visibility: body.visibility, version: row.version + 1 };
-            if (failReadback) failList = true;
-            if (loseVisibility) {
-              loseVisibility = false;
-              return json({}, 503);
-            }
-            return json({ ok: true, schema_version: "deal-deliverables.v1", deliverable: row });
-          }
           assert.equal(body.target_collection, "deliverables");
           return json(envelope(fixture.reserve));
         },
@@ -94,15 +78,11 @@ test("deal chooser and desktop drop reconcile one private file and versioned des
   t.after(() => server.close());
   const browser = await chromium.launch();
   t.after(() => browser.close());
-  await mkdir("/tmp/WR586.S4.J16-shots", { recursive: true });
+  await mkdir("out/test-artifacts/deal-deliverables", { recursive: true });
   for (const width of [1440, 390])
     for (const theme of ["light", "dark"] as const) {
       saved = false;
-      failList = false;
-      failReadback = false;
       lost = false;
-      conflict = false;
-      row = { ...fixture.finalize.deliverable };
       writes.length = 0;
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme });
       try {
@@ -177,7 +157,7 @@ test("deal chooser and desktop drop reconcile one private file and versioned des
         await panel.getByText("Confirmed.", { exact: false }).waitFor();
         assert.equal(writes.filter((w) => w.body.target_collection).length, 1);
         assert.equal(writes.filter((w) => w.path.endsWith("/finalize")).length, 1);
-        await panel.getByRole("button", { name: "Mark Photo.jpg shared" }).waitFor();
+        await panel.getByRole("link", { name: "Download Photo.jpg" }).waitFor();
         const beforeCancelAfterUpload = await panel.textContent();
         requests.length = 0;
         const confirmedChooser = page.waitForEvent("filechooser");
@@ -186,57 +166,13 @@ test("deal chooser and desktop drop reconcile one private file and versioned des
         await page.evaluate(() => new Promise(requestAnimationFrame));
         assert.equal(await panel.textContent(), beforeCancelAfterUpload, "cancel must preserve a confirmed upload");
         assert.deepEqual(requests, [], "cancel after upload must not send requests");
-        failReadback = true;
-        const expectedVersion = row.version + 1;
-        await panel.getByRole("button", { name: "Mark Photo.jpg shared" }).click();
-        await panel.getByText("Request unavailable or version changed.", { exact: false }).waitFor();
-        const refresh = panel.getByRole("button", { name: "Refresh deliverables", exact: true });
-        assert.equal(await refresh.isEnabled(), true);
-        await panel.getByText("Designation unconfirmed.", { exact: false }).waitFor();
-        assert.equal(await panel.getByLabel("Choose a deliverable", { exact: true }).isDisabled(), true);
-        assert.equal(await panel.getByRole("button", { name: /Drop one file here/ }).isDisabled(), true);
-        const visibilityCount = () => writes.filter((w) => w.path.endsWith("/visibility")).length;
-        assert.equal(visibilityCount(), 1);
-        await page.screenshot({ path: `/tmp/WR586.S4.J16-shots/${width}-${theme}-unknown.png`, fullPage: true });
-        await refresh.click();
-        await panel.getByText("Request unavailable or version changed.", { exact: false }).waitFor();
-        assert.equal(await refresh.isEnabled(), true);
-        assert.equal(visibilityCount(), 1);
-        failList = false;
-        failReadback = false;
-        await refresh.click();
-        await panel
-          .getByText(`Shared · ready for publication · Version ${expectedVersion}`, { exact: false })
-          .waitFor();
-        assert.equal(await panel.getByRole("button", { name: "Make Photo.jpg private" }).isEnabled(), true);
-        assert.equal(await panel.getByLabel("Choose a deliverable", { exact: true }).isEnabled(), true);
-        assert.equal(await panel.getByRole("button", { name: /Drop one file here/ }).isEnabled(), true);
-        assert.equal(visibilityCount(), 1);
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-        await page.screenshot({ path: `/tmp/WR586.S4.J16-shots/${width}-${theme}-recovered.png`, fullPage: true });
-        conflict = true;
-        await panel.getByRole("button", { name: "Make Photo.jpg private" }).click();
-        await panel.getByText("Designation unconfirmed.", { exact: false }).waitFor();
-        assert.equal(await panel.getByLabel("Choose a deliverable", { exact: true }).isDisabled(), true);
-        await panel.getByRole("button", { name: "Refresh deliverables" }).click();
-        await panel.getByRole("button", { name: "Make Photo.jpg private" }).waitFor();
-        conflict = false;
-        loseVisibility = true;
-        await panel.getByRole("button", { name: "Make Photo.jpg private" }).click();
-        await panel.getByText("Designation unconfirmed.", { exact: false }).waitFor();
-        await panel.getByRole("button", { name: "Refresh deliverables" }).click();
-        await panel.getByRole("button", { name: "Mark Photo.jpg shared" }).waitFor();
-
-        await panel.getByRole("button", { name: "Mark Photo.jpg shared" }).click();
-        await panel.getByRole("button", { name: "Make Photo.jpg private" }).click();
-        await panel.getByRole("button", { name: "Mark Photo.jpg shared" }).waitFor();
         await panel.getByLabel("Choose a deliverable", { exact: true }).setInputFiles(file);
         await panel.getByRole("button", { name: "Upload to this deal" }).waitFor();
         await panel.getByRole("button", { name: "Discard pending file" }).click();
         await panel.getByText("File discarded.", { exact: false }).waitFor();
         assert.equal(writes.filter((w) => w.body.target_collection).length, 1);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-        await page.screenshot({ path: `/tmp/WR586.S4.J16-shots/${width}-${theme}.png`, fullPage: true });
+        await page.screenshot({ path: `out/test-artifacts/deal-deliverables/${width}-${theme}.png`, fullPage: true });
         await page.evaluate(() => window.dispatchEvent(new Event("doctorcre-session-invalidated")));
         await page.getByText("Session expired. Sign in again to view documents.", { exact: true }).waitFor();
         assert.equal(await panel.count(), 0);

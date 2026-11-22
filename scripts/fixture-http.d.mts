@@ -21,6 +21,8 @@ export function startWorkerFixture(options?: {
   routes?: Map<string, Descriptor | { sequence: Descriptor[] }>;
   env?: {
     CARR?: ServiceBinding;
+    ENGINE?: ServiceBinding;
+    ENGINE_ROUTING?: { get(key: string): Promise<string | null> };
     APP_ENV?: string;
     GIT_SHA?: string;
     PARTNER_APP?: ServiceBinding;

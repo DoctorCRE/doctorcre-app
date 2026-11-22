@@ -16,7 +16,6 @@ import {
   MY_FLAGGED_DESTINATION, NEEDS_JOE_DESTINATION, TEAM_ACTIVE_DESTINATION, TEAM_FLAGGED_DESTINATION,
 } from './workspace-command-center-model.js';
 
-const LEASE_TTL_MS = 3000;
 const IDEM_TTL_MS = 60 * 60 * 1000;
 const PORTAL_ORIGIN = 'https://share.doctorcre.com';
 /** The cells patch-deal-field bases on; mirrors the record layer's DEAL_ROOM_FIELDS. */
@@ -1325,15 +1324,6 @@ export async function createFixtureClient(opts = {}) {
         capture_sessions: [],
         cursor: cursorOf(events),
       };
-    },
-
-    async presenceLease({ deal, field, idempotency_key }) {
-      void idempotency_key;
-      getDealOrThrow(deal);
-      const expires = new Date(Date.now() + LEASE_TTL_MS).toISOString();
-      const key = `${selfActor}|${deal}|${field}`;
-      leases.set(key, { actor: selfActor, deal_id: deal, field, expires_at: expires });
-      return { ok: true };
     },
 
     async patchDealField({ deal, field, value, base_event_id, idempotency_key, change_reason, human_quote }) {
