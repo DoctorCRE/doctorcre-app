@@ -604,7 +604,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await page.waitForURL(url => url.pathname === '/deals' && url.searchParams.get('step') === state.items[0].action_id);
 });
 
-for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`engine card copy and actions ${width} ${theme}`, async t => {
+for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'light'], [1440, 'dark'], [390, 'dark', true]]) test(`engine card copy and actions ${width} ${theme}${planner ? ' with tour planning on' : ''}`, async t => {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
   page.setDefaultTimeout(5000);
   await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true } })), theme);
@@ -614,6 +614,16 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
     const url = new URL(route.request().url());
     url.searchParams.set('mode', 'live');
     return route.fulfill({ status: 302, headers: { location: url.href } });
+  });
+
+  if (planner) await page.route(url => url.pathname === '/deals' && url.searchParams.has('mode'), async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: (await response.text()).replace('<html', '<html data-deal-tours-from-engine') });
+  });
+  const tourRequests = [];
+  await page.route('**/api/engine/deals/*/tours', route => {
+    tourRequests.push(route.request().url());
+    return route.fulfill({ json: { tours: [] } });
   });
 
   const id = number => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
@@ -654,7 +664,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   const requirement = row(18, 'notification', 'Checklist item due for Example Dental — read attorney comments',
     'The attorney comments are ready.', 'Open checklist item', { kind_label: 'Update', checklist_item_ref: 'attorney_comments' });
   const feedback = row(7, 'notification', 'Tour feedback on Cedar Suite — review feedback', 'The exam rooms are bright. Recorded Nov 3, 2026.',
-    'Review feedback', { kind: 'tour_feedback', kind_label: 'Tour feedback', open_url: `${dealUrl}&property=${property}` });
+    'Review feedback', { kind: 'tour_feedback', kind_label: 'Tour feedback', open_url: `${dealUrl}&property=${property}${planner ? '&mode=live' : ''}` });
   const ownDone = row(15, 'next_action', 'Follow-up completed for Example Dental — send the brochure', 'Pat had asked for a brochure.', 'Open',
     { ...completed, action_id: id(15), action_version: 1, undo_completion: true, open_url: stepUrl(id(15)) });
   const otherDone = row(4, 'next_action', 'Follow-up completed for Example Dental — send the brochure cover', undefined, 'Open',
@@ -753,9 +763,11 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`en
   const feedbackReview = card(feedback).getByRole('region', { name: /Details for/ });
   await feedbackReview.getByText(feedback.why, { exact: true }).waitFor();
   await feedbackReview.getByRole('link', { name: 'Open property', exact: true }).click();
+  if (planner) await page.locator('html[data-deal-tours-from-engine]').waitFor({ state: 'attached' });
   const propertyView = page.getByRole('region', { name: 'Property from tour feedback' });
   await propertyView.getByText('100 Cedar Suite', { exact: true }).waitFor();
   assert.equal(await propertyView.getByText('200 Other Suite', { exact: true }).count(), 0);
+  assert.deepEqual(tourRequests, []);
   await open('/?mode=live');
   await section('Reminders').getByRole('button', { name: /^See all/ }).click();
   await button(feedback).click();

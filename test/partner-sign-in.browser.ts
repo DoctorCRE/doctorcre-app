@@ -349,7 +349,7 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
     )
       legacyRequests.push(pathname);
   });
-  await page.goto(server.origin + dealPage + "&tab=tours");
+  await page.goto(server.origin + dealPage);
   const room = page.getByRole("main", { name: "Deal Workspace" });
   await room.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
   await room
@@ -361,7 +361,11 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
     .getByRole("tabpanel", { name: "Compare terms" })
     .getByText("No comparable terms match these filters.", { exact: true })
     .waitFor({ timeout: 4000 });
-  assert.equal(await room.getByRole("tab", { name: "Tours", exact: true }).count(), 0);
+  await room.getByRole("tab", { name: "Tours", exact: true }).click();
+  await room
+    .getByRole("tabpanel", { name: "Tours" })
+    .getByText("Not available yet", { exact: true })
+    .waitFor({ timeout: 4000 });
   assert.equal(
     server.requests.some(({ path }) => path === attributionPath || path === noteAttributionPath),
     false,
@@ -412,6 +416,16 @@ function tourFixture(t: TestContext) {
         writes.push(draft);
         assert.equal(request.headers()["x-carr-csrf"], `fixture-${actor === "joe" ? "first" : "second"}`);
         if (failSave) return route.fulfill({ status: 422, json: { error: "invalid_field_value", fields: ["stops"] } });
+        if (draft.stops.some((stop) => "property_id" in stop && !properties.some((p) => p.id === stop.property_id)))
+          return route.fulfill({
+            status: 422,
+            json: {
+              error: "database_refused_the_statement",
+              rule: "tour_stop_property_id_fkey",
+              correlation_id: tour,
+              hint: "The operation could not be completed. Quote the correlation_id when reporting it.",
+            },
+          });
         const stops = draft.stops.map((stop) => {
           if ("property_id" in stop) return stop;
           properties.push({ ...stop, id: added });
@@ -439,6 +453,7 @@ function tourFixture(t: TestContext) {
   return {
     open,
     writes,
+    removeAnnex: () => properties.splice(properties.indexOf(annex), 1),
     fail: (value: boolean) => {
       failSave = value;
     },
@@ -506,6 +521,36 @@ test("partners plan, open, and copy a tour at phone width", async (t) => {
     "Example Clinic, 10 Example Way",
     "30 Example Way",
   ]);
+});
+
+test("an unavailable tour stop is named and the remaining draft can be saved", async (t) => {
+  const fixture = tourFixture(t);
+  const page = await fixture.open();
+  const button = (name: string) => page.getByRole("button", { name, exact: true });
+  await page.getByRole("tab", { name: "Tours" }).click();
+  await button("Plan tour").click();
+  await page.getByLabel("Tour date").fill("2026-11-24");
+  await page.getByLabel("Tour notes (optional)").fill("Bring the floor plan");
+  for (const property of [clinic, annex]) {
+    await page.getByLabel("Property name or address").fill(property.address);
+    await button("Search properties").click();
+    await button(property.name ? `${property.name}, ${property.address}` : property.address).click();
+  }
+  fixture.removeAnnex();
+  await button("Save tour").click();
+  await page
+    .getByText("20 Example Way is no longer available. Remove or reselect this stop.", { exact: true })
+    .waitFor({ timeout: 5000 });
+  assert.equal(await page.getByLabel("Tour date").inputValue(), "2026-11-24");
+  assert.equal(await page.getByLabel("Tour notes (optional)").inputValue(), "Bring the floor plan");
+  const stops = page.getByRole("list", { name: "Tour stops" }).getByRole("listitem");
+  assert.equal(await stops.count(), 2);
+  await stops.filter({ hasText: annex.address }).getByRole("button", { name: "Remove" }).click();
+  await button("Save tour").click();
+  await page.locator("#workspace-tours summary", { hasText: "November 24, 2026" }).waitFor();
+  assert.equal(fixture.writes.length, 2);
+  assert.deepEqual(fixture.writes[1]?.stops, [{ property_id: first }]);
+  assert.equal(fixture.writes[1]?.notes, "Bring the floor plan");
 });
 
 function attributionButton(page: Page, update: string) {

@@ -6,11 +6,16 @@ const tour = z.object({ notes: z.string().nullable(), stops: z.array(place) });
 const matches = z.object({ properties: z.array(place.extend({ id: z.uuid() })) });
 const receipt = z.object({ id: z.uuid() });
 const stopList = z.object({ text: z.string() });
-const refusal = z.object({ fields: z.array(z.string()).optional() });
+const refusal = z.object({
+  error: z.string().optional(),
+  rule: z.string().nullable().optional(),
+  fields: z.array(z.string()).optional(),
+});
 const date = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" });
 
 type Place = z.infer<typeof place>;
 type Stop = { property_id: string } | Place;
+type DraftStop = { property: Place; stop: Stop };
 type Read = <T>(schema: z.ZodType<T>, path: string, init?: RequestInit) => Promise<T>;
 const label = ({ name, address }: Place) => (name ? `${name}, ${address}` : address);
 
@@ -33,7 +38,39 @@ function control<T extends HTMLElement>(host: ParentNode, selector: string) {
   return node;
 }
 
-function searchProperties(form: HTMLFormElement, read: Read, add: (label: string, stop: Stop) => void) {
+function findProperties(read: Read, query: string, init?: RequestInit) {
+  const params = new URLSearchParams({ query });
+  return read(matches, `/api/engine/properties/search?${params}`, init);
+}
+
+async function unavailableStopMessage(read: Read, draft: DraftStop[]) {
+  const selected = draft.flatMap(({ property, stop }) =>
+    "property_id" in stop ? [{ ...property, id: stop.property_id }] : [],
+  );
+  const checked =
+    selected.length < 2
+      ? selected
+      : await Promise.all(
+          selected.map(async (property) => {
+            try {
+              const query = [...property.address.trim()].slice(0, 100).join("");
+              const { properties } = await findProperties(read, query, { cache: "no-store" });
+              return properties.some(({ id }) => id === property.id) ? null : property;
+            } catch {
+              return property;
+            }
+          }),
+        );
+  const unconfirmed = checked.filter((property) => property !== null);
+  const [only] = unconfirmed;
+  if (only && unconfirmed.length === 1) return `${label(only)} is no longer available. Remove or reselect this stop.`;
+
+  const candidates = unconfirmed.length ? unconfirmed : selected;
+  const names = candidates.map(label).join(" · ");
+  return `A selected property is no longer available. Remove or reselect the unavailable stop.${names ? ` Check these stops. ${names}` : ""}`;
+}
+
+function searchProperties(form: HTMLFormElement, read: Read, add: (property: Place, stop: Stop) => void) {
   const query = control<HTMLInputElement>(form, "[data-query]");
   const results = control(form, "[data-results]");
   const noMatch = control(form, "[data-new-property]");
@@ -46,7 +83,7 @@ function searchProperties(form: HTMLFormElement, read: Read, add: (label: string
     status.textContent = "";
   }
   function pick(property: Place, stop: Stop) {
-    add(label(property), stop);
+    add(property, stop);
     clear();
     query.value = address.value = name.value = "";
     query.focus();
@@ -57,8 +94,7 @@ function searchProperties(form: HTMLFormElement, read: Read, add: (label: string
     query.disabled = true;
     clear();
     try {
-      const params = new URLSearchParams({ query: term });
-      const { properties } = await read(matches, `/api/engine/properties/search?${params}`);
+      const { properties } = await findProperties(read, term);
       for (const property of properties)
         results.append(action(label(property), () => pick(property, { property_id: property.id })));
       noMatch.hidden = properties.length > 0;
@@ -114,10 +150,10 @@ function planForm(read: Read, path: string, finish: (id?: string) => void, dirty
   const fields = control<HTMLFieldSetElement>(form, "fieldset");
   const list = control(form, "ol");
   const error = control(form, "[role=alert]");
-  const stops = new Map<Element, Stop>();
+  const stops = new Map<Element, DraftStop>();
   const attempts = new Map<string, string>();
-  searchProperties(form, read, (name, stop) => {
-    const row = element("li", name);
+  searchProperties(form, read, (property, stop) => {
+    const row = element("li", label(property));
     const up = action("Move up", () => move("up"), "up");
     const down = action("Move down", () => move("down"), "down");
     function move(direction: "up" | "down") {
@@ -135,7 +171,7 @@ function planForm(read: Read, path: string, finish: (id?: string) => void, dirty
       dirty();
     });
     row.append(Object.assign(element("div", up, down, remove), { className: "deal-tour-actions" }));
-    stops.set(row, stop);
+    stops.set(row, { property, stop });
     list.append(row);
     dirty();
   });
@@ -149,7 +185,11 @@ function planForm(read: Read, path: string, finish: (id?: string) => void, dirty
     const values = new FormData(form);
     const notes = String(values.get("notes") ?? "");
     const ordered = Array.from(list.children, (row) => stops.get(row)).filter((stop) => stop !== undefined);
-    const body = { planned_on: values.get("date"), notes: notes.trim() ? notes : null, stops: ordered };
+    const body = {
+      planned_on: values.get("date"),
+      notes: notes.trim() ? notes : null,
+      stops: ordered.map(({ stop }) => stop),
+    };
     const key = JSON.stringify(body);
     const idempotency_key = attempts.get(key) ?? crypto.randomUUID();
     attempts.set(key, idempotency_key);
@@ -164,8 +204,11 @@ function planForm(read: Read, path: string, finish: (id?: string) => void, dirty
       });
       if (form.isConnected) finish(id);
     } catch (reason) {
-      const invalid = refusal.safeParse(reason).data?.fields;
-      if (invalid?.includes("stops")) error.textContent = "Check the properties in the stop list.";
+      const failure = refusal.safeParse(reason).data;
+      const invalid = failure?.fields;
+      if (failure?.error === "database_refused_the_statement" && failure.rule === "tour_stop_property_id_fkey")
+        error.textContent = await unavailableStopMessage(read, ordered);
+      else if (invalid?.includes("stops")) error.textContent = "Check the properties in the stop list.";
       else if (invalid?.includes("planned_on")) error.textContent = "Check the tour date.";
       else if (invalid?.includes("notes")) error.textContent = "Check the tour notes.";
       else error.textContent = "Could not confirm the save. Try saving again.";
