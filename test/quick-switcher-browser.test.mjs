@@ -21,7 +21,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
     await page.addInitScript(theme => {
       localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
-      sessionStorage.setItem('doctorcre.quick-switcher.recents.v1', JSON.stringify(['page:/status']));
+      sessionStorage.setItem('doctorcre.quick-switcher.recents.v1', JSON.stringify(['page:/status', 'page:/ideas-events?tab=ideas', 'page:/ideas-events?tab=events']));
     }, theme);
     await page.route('https://fonts.googleapis.com/**', route => route.fulfill({ contentType: 'text/css', body: '' }));
     const errors = [];
