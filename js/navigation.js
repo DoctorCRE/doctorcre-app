@@ -1,4 +1,4 @@
-import { navigationFor, navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./routes.js";
+import { navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./routes.js";
 export { navigationItems };
 
 export function activeDestination(pathname) {
@@ -82,7 +82,7 @@ export function mountNavigation(root = document, pathname = root.defaultView?.lo
     if (root.readyState === "complete") activate();
     else root.defaultView.addEventListener("load", activate, { once: true });
   }
-  host.innerHTML = appShellMarkup(pathname, location?.search || "", navigationFor(root));
+  host.innerHTML = appShellMarkup(pathname, location?.search || "");
   const moreButton = host.querySelector(".app-shell-more-toggle");
   const moreList = host.querySelector(".app-shell-more-list");
   moreButton.addEventListener("click", () => {

@@ -2,7 +2,7 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 test('leases publishes an automatically opened anniversary island', async () => {
-  assert.match(await readFile(new URL('../lease-radar.html',import.meta.url),'utf8'), /id="clientAnniversaries"/);
+  assert.match(await readFile(new URL('../lease-anniversaries.html',import.meta.url),'utf8'), /id="clientAnniversaries"/);
 });
 import { transformSync, stop } from 'esbuild';
 import { readFileSync } from 'node:fs';

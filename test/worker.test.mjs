@@ -125,12 +125,12 @@ test("the independent status page is served without a CARR call", async () => {
   assert.equal((await handleDoctorcreRequest(request("/leads", { method: "POST" }), env)).status, 405);
 });
 
-test("lease radar uses the admitted Business gate and preserves the sign-in return path", async () => {
+test("Closing anniversaries uses the admitted Business gate and preserves the sign-in return path", async () => {
   let forwarded;
   const response = await handleDoctorcreRequest(request("/leases?quarter=2027-Q1", {
     headers: { cookie: "__Host-dealroom_session=opaque" },
   }), environment({ carr: { fetch: async value => { forwarded = value; return new Response(); } } }));
-  assert.equal(await response.text(), "asset:/lease-radar.html");
+  assert.equal(await response.text(), "asset:/lease-anniversaries.html");
   assert.equal(new URL(forwarded.url).pathname, "/business");
   assert.equal(new URL(forwarded.url).search, "");
   assert.equal(forwarded.headers.get("cookie"), "__Host-dealroom_session=opaque");
@@ -142,20 +142,16 @@ test("lease radar uses the admitted Business gate and preserves the sign-in retu
   assert.equal(new URL(signedOut.headers.get("location")).searchParams.get("return_to"), "/leases?quarter=2027-Q1");
 });
 
-test("lease projection proxies the authenticated GET and CARR refusal unchanged", async () => {
-  let forwarded;
-  const response = await handleDoctorcreRequest(request("/api/v1/business/leases", {
+test("the retired lease radar API returns 404 without reaching CARR", async () => {
+  const forwarded = [];
+  const response = await handleDoctorcreRequest(request("/api/v1/business/leases?scope=team", {
     headers: { cookie: "__Host-dealroom_session=opaque" },
   }), environment({ carr: { fetch: async value => {
-    forwarded = value;
-    return new Response('{"error":"unauthorized"}', { status: 401, headers: { "cache-control": "no-store" } });
+    forwarded.push(value.url);
+    return new Response("old lease radar");
   } } }));
-  assert.equal(new URL(forwarded.url).pathname, "/api/v1/business/leases");
-  assert.equal(forwarded.method, "GET");
-  assert.equal(forwarded.headers.get("cookie"), "__Host-dealroom_session=opaque");
-  assert.equal(response.status, 401);
-  assert.equal(response.headers.get("cache-control"), "no-store");
-  assert.deepEqual(await response.json(), { error: "unauthorized" });
+  assert.equal(response.status, 404);
+  assert.deepEqual(forwarded, []);
 });
 
 test('retired tour report routes stay closed with CARR sign-in and engine deal saves', async () => {
@@ -237,7 +233,7 @@ test('phone capture ships behind the existing partner gate with narrowly scoped 
 test('switched linked routes serve guidance through their existing auth gates', async () => {
   for (const [path, key, oldAsset, newAsset, links] of [
     ['/review-workflows?email=example#homeEmailFollowups', null, 'review-workflows', 'review-workflows-moved', ['/', '/deals', '/calendar']],
-    ['/leases?lease=example', 'deals-saves-from-engine', 'lease-radar', 'lease-anniversaries', ['/deals']],
+    ['/leases?lease=example', 'deals-saves-from-engine', 'lease-anniversaries', 'lease-anniversaries', ['/deals']],
     ['/client-portal?slug=example', 'deals-saves-from-engine', 'client-portal', 'client-website-moved', ['/deals']],
   ]) {
     for (const on of [false, true]) {

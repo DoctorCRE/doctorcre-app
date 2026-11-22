@@ -61,7 +61,7 @@ test("the shell has four primary sections and secondary destinations", () => {
   assert.deepEqual(navigationItems.filter(item => !item.secondary).map((item) => item.label),
     ["Home", "Deals", "Leads", "Vendors"]);
   const shell = appShellMarkup("/calendar");
-  for (const name of ["Updates", "Phone capture", "Relationships", "Invoices", "Lease radar"]) {
+  for (const name of ["Updates", "Phone capture", "Relationships", "Invoices", "Closing anniversaries"]) {
     assert.match(shell, new RegExp(`aria-label="${name}"[^>]*href="[^"]+".*?<span class="app-shell-nav-label">${name}</span>`));
   }
 });

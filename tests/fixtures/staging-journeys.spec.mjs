@@ -7,11 +7,9 @@ import { startWorkerFixture } from '../../scripts/fixture-http.mjs';
 import { appAssetSnapshot } from '../../scripts/fixture-app-assets.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { detail } from '../../test/fixtures/tour-day.synthetic.mjs';
-import { leaseRadarFixture } from '../../js/lease-radar-fixture.js';
-import { leaseDetails, tourDay, itinerary } from '../staging/journey-flows.mjs';
+import { tourDay, itinerary } from '../staging/journey-flows.mjs';
 
 export const fixture = {
-  lease: { id: 'aa000000-0000-4000-8000-000000000001', client_id: 'aa000000-0000-4000-8000-000000000002', client_name: 'Synthetic staging QA lease' },
   tour: { id: detail.id, name: 'Synthetic staging QA accepted tour', route_id: detail.routes[0].id,
     property_ids: detail.stops.map(stop => stop.property_id), stop_ids: detail.stops.map(stop => stop.id),
     property_names: detail.stops.map(stop => stop.property_name) },
@@ -23,15 +21,12 @@ export async function localFixture(browser) {
     accepted_route_version: 1 });
   tour.stops.forEach(stop => { stop.locked_appointment = false; });
   tour.routes[0].acceptance_digest = 'sha256:' + 'a'.repeat(64);
-  const lease = leaseRadarFixture();
-  Object.assign(lease.leases[0], fixture.lease);
   const assets = await appAssetSnapshot();
   const server = await startWorkerFixture({ assets, env:{ APP_ENV:'staging', CARR:{fetch:async req => {
     const url = new URL(req.url);
     const json = (body, status = 200) => Response.json(body,{status});
     if (url.pathname === '/api/tours/detail') return json({ data: tour, csrf_token: 'synthetic' });
     if (url.pathname === '/api/tours/library') return json({ data: { tours: [{ id: tour.id, name: tour.name, status: 'active' }] }, csrf_token: 'synthetic' });
-    if (url.pathname === '/api/v1/business/leases') return json(lease);
     if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return json({ actor: { slug: 'joe' }, csrf_token: 'synthetic' });
     if (url.pathname === '/mcp') return json({ result: { content: [{ type: 'text', text: '{"ok":true,"deals":[],"items":[],"notifications":[],"state":"unavailable"}' }] } });
     if (url.pathname.startsWith('/api/') || url.pathname === '/app-release') return json({});
@@ -54,7 +49,7 @@ export async function localFixture(browser) {
   return { page: await context.newPage(), server, close };
 }
 
-for (const [name, flow] of Object.entries({ leaseDetails, tourDay, itinerary })) {
+for (const [name, flow] of Object.entries({ tourDay, itinerary })) {
   test(`staging acceptance logic against synthetic HTTP fixtures: ${name}`, async ({ browser }) => {
     const local = await localFixture(browser);
     try { await flow(local.page, fixture); } finally { await local.close(); }

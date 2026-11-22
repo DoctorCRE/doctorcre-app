@@ -6,18 +6,15 @@ import { resolveDealroomBoot } from './boot-mode.js';
 
 async function createHomeClient(boot) {
   if (boot.mode === 'live') {
-    const [{ createLiveClient }, { createLeadBoardClient }, { createLeaseRadarClient }] = await Promise.all([
-      import('./live-client.js'), import('./leads-client.js'), import('./lease-radar-client.js')]);
+    const [{ createLiveClient }, { createLeadBoardClient }] = await Promise.all([
+      import('./live-client.js'), import('./leads-client.js')]);
     const client = createLiveClient({ docContext: false });
     client.getLeadBoard = createLeadBoardClient({ docContext: false }).getLeadBoard;
-    client.readLeaseRadar = createLeaseRadarClient().readLeaseRadar;
     return client;
   }
-  const [{ createFixtureClient }, { leaseRadarFixture }] = await Promise.all([
-    import('./fixture-client.js'), import('./lease-radar-fixture.js')]);
+  const { createFixtureClient } = await import('./fixture-client.js');
   const client = await createFixtureClient({ ...boot.options, docContext: false });
   client.getLeadBoard = async () => ({ leads: [] });
-  client.readLeaseRadar = async () => leaseRadarFixture();
   return client;
 }
 

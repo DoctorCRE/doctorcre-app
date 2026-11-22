@@ -12,7 +12,7 @@ export const routeEntries = [
   ["/inbox/card/:item_id","inbox.html","/"],
   ["/invoices","invoices.html","/business"],
   ["/leads","leads.html","/leads"],
-  ["/leases","lease-radar.html","/business"],
+  ["/leases","lease-anniversaries.html","/business"],
   ["/relationships","relationships.html","/business"],
   ["/review-workflows","review-workflows.html","/"],
   ["/search","search.html","/business"],
@@ -54,7 +54,7 @@ export const navigationItems = [
   { label: "Phone capture", href: "/calls", secondary: true },
   { label: "Relationships", href: "/relationships", secondary: true },
   { label: "Invoices", href: "/invoices", secondary: true },
-  { label: "Lease radar", href: "/leases", secondary: true },
+  { label: "Closing anniversaries", href: "/leases", secondary: true },
   { label: "Updates", href: "/updates", secondary: true },
 ];
 
@@ -81,13 +81,6 @@ export const sectionForRoute = {
   "/tours/day.html": "/tours",
   "/notifications": "/updates",
 };
-
-export function navigationFor(root) {
-  const html = root.documentElement;
-  if (html.getAttribute('data-partner-sign-in') !== 'engine' && !html.hasAttribute('data-deals-saves-from-engine'))
-    return navigationItems;
-  return navigationItems.map(item => item.href === '/leases' ? { ...item, label: 'Closing anniversaries' } : item);
-}
 
 export function docRequestTarget(pathname) {
   const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';

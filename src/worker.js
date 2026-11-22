@@ -1112,8 +1112,6 @@ async function handleRequest(request, env) {
     }
     if (routeAsset === 'review-workflows.html' && switches.homeToday)
       return gatedResponse(gate, await assetResponse(request, env, '/review-workflows-moved.html', switches), env);
-    if (routeAsset === 'lease-radar.html' && (engineSignIn(env) || switches.dealSavesFromEngine))
-      return gatedResponse(gate, await assetResponse(request, env, '/lease-anniversaries.html', switches), env);
     if (routeAsset === 'client-portal.html' && switches.dealSavesFromEngine) {
       const deal = url.searchParams.get('deal');
       if (deal) {
@@ -1226,6 +1224,7 @@ async function handleRequest(request, env) {
     if (await switchedOn(env, DEALS))
       return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
   }
+  if (pathname === '/api/v1/business/leases') return json({ error: 'not_found' }, 404);
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     const call = await mcpCall(request, url);
     if (call?.method === 'tools/call') {

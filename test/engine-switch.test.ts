@@ -1281,7 +1281,6 @@ for (const [method, path] of [
   ["GET", "/api/v1/business/clients/"],
   ["GET", "/api/v1/business/clients/not-a-record-id"],
   ["GET", `/api/v1/business/clients/${recordId}/extra`],
-  ["GET", "/api/v1/business/leases"],
   ["GET", "/api/v1/business/clientsx"],
 ] as const) {
   test(`${method} ${path} stays on CARR without reading the switch`, async () => {
@@ -2373,6 +2372,71 @@ test("old settle operations cannot reach the engine Home marks door", async () =
   assert.deepEqual(f.carr, []);
 });
 
+for (const signIn of ["carr", "engine"] as const) {
+  for (const marker of ["on", "off", null, new Error("KV unavailable")]) {
+    test(`Closing anniversaries accepts old leases links with ${signIn} sign-in and saves marker ${marker}`, async () => {
+      const switches = new Map([
+        ["deals-from-engine", "on"],
+        ["leads-from-engine", "on"],
+        ["invoices-from-engine", "on"],
+        ["charts-from-engine", "on"],
+        ["national-deals-from-engine", "on"],
+        ["search-from-engine", "on"],
+        ["clients-vendors-from-engine", "on"],
+        ["relationships-from-engine", "on"],
+        ["home-from-engine", "on"],
+        ["frame-from-engine", "on"],
+        ["deal-cutover-date", "2026-11-20"],
+      ]);
+      const { env } = fixture(switches);
+      const read = env.ENGINE_ROUTING.get;
+      const requestEnv = {
+        ...env,
+        APP_ENV: signIn === "carr" ? "production" : "staging",
+        PARTNER_SIGN_IN: signIn,
+        WORKSPACE_COMMAND_CENTER_READ_ENABLED: "true",
+        ENGINE_ROUTING: {
+          get: async (key: string) => {
+            if (key !== "deals-saves-from-engine") return read(key);
+            if (marker instanceof Error) throw marker;
+            return marker;
+          },
+        },
+        CARR: {
+          fetch: async (request: Request) => {
+            assert.equal(signIn, "carr");
+            assert.equal(new URL(request.url).pathname, "/business");
+            assert.equal(request.headers.get("cookie"), "__Host-dealroom_session=synthetic");
+            return new Response(null);
+          },
+        },
+        PARTNER_APP: {
+          fetch: async (request: Request) => {
+            assert.equal(signIn, "engine");
+            assert.equal(new URL(request.url).pathname, "/auth/session");
+            assert.equal(request.headers.get("cookie"), "__Host-doctorcre_session=synthetic");
+            return new Response(null);
+          },
+        },
+        ASSETS: {
+          fetch: async (request: Request) => new Response(new URL(request.url).pathname, { status: 200 }),
+        },
+      };
+      for (const path of ["/leases", "/leases?mode=live&lease=old", "/leases?quarter=2027-Q1&scope=mine"]) {
+        const request = new Request(origin + path, {
+          method: "HEAD",
+          headers: {
+            cookie: signIn === "engine" ? "__Host-doctorcre_session=synthetic" : "__Host-dealroom_session=synthetic",
+          },
+        });
+        const response = await worker.fetch(request, requestEnv);
+        assert.equal(response.status, 200, path);
+        assert.equal(await response.text(), "/lease-anniversaries.html", path);
+      }
+    });
+  }
+}
+
 test("workspace HTML selects engine switches independently", async (t) => {
   const html = "<!doctype html><html><body>Example workspace</body></html>";
   const setAttribute = t.mock.fn();
@@ -2452,8 +2516,7 @@ test("workspace HTML selects engine switches independently", async (t) => {
             new URL(chosen?.url ?? "").pathname,
             home ? "/review-workflows-moved.html" : "/review-workflows.html",
           );
-        if (path === "/leases")
-          assert.equal(new URL(chosen?.url ?? "").pathname, saves ? "/lease-anniversaries.html" : "/lease-radar.html");
+        if (path === "/leases") assert.equal(new URL(chosen?.url ?? "").pathname, "/lease-anniversaries.html");
         if (path === "/client-portal")
           assert.equal(
             new URL(chosen?.url ?? "").pathname,

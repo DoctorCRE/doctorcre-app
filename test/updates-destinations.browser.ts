@@ -182,22 +182,9 @@ for (const width of viewports)
       await capture(page, "updates-empty", width, theme);
     });
 
-    for (const entry of ["More", "direct visit"]) {
+    for (const entry of ["More", "old bookmark"]) {
       test(`Closing anniversaries heading and title agree from ${entry} at ${width}px in ${theme} mode`, async (t) => {
         const { page } = await open(t, width, theme);
-        for (const [path, asset] of Object.entries({
-          "/": "/workspace.html",
-          "/leases": "/lease-anniversaries.html",
-        })) {
-          const body = assets.get(asset)?.body;
-          assert.ok(body);
-          await page.route(server.origin + path, (route) =>
-            route.fulfill({
-              contentType: "text/html",
-              body: body.toString().replace("<html ", "<html data-deals-saves-from-engine "),
-            }),
-          );
-        }
         await page.route("**/api/v1/intelligence/client-anniversary-read?**", (route) =>
           route.fulfill({ json: anniversaryRecording.ready.output }),
         );
@@ -206,7 +193,7 @@ for (const width of viewports)
           await page.getByRole("button", { name: "More", exact: true }).click();
           await page.getByRole("link", { name: "Closing anniversaries", exact: true }).click();
         } else {
-          await page.goto(`${server.origin}/leases`);
+          await page.goto(`${server.origin}/leases?mode=live&lease=old&quarter=2027-Q1`);
         }
         await page.locator("#clientAnniversaries ol li").first().waitFor();
         assert.equal(new URL(page.url()).pathname, "/leases");

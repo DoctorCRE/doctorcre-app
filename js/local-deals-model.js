@@ -1,7 +1,7 @@
 import { newestFirst } from './change-receipts.mjs';
 import { noteText } from './pipeline-model.js';
 import { overdueSince } from './deal-review-model.js';
-import { radarToday } from './lease-radar-model.js';
+import { businessDay } from './business-date.js';
 
 export const isEngineDealDetail = detail => Array.isArray(detail?.email_follow_ups);
 
@@ -31,7 +31,7 @@ function historyDeals(rows, owner = 'all', query = '', lost = false) {
     .sort((a,b) => String(b.closed_on || '').localeCompare(String(a.closed_on || '')) || String(a.name).localeCompare(String(b.name)));
 }
 export function urgencyOrder(rows, now = Date.now()) {
-  const today = radarToday(new Date(now));
+  const today = businessDay(new Date(now));
   return [...rows].sort((a,b) => (overdueSince(a, today) || '9999-12-31').localeCompare(overdueSince(b, today) || '9999-12-31')
     || (Date.parse(a.next_date || '') || Infinity) - (Date.parse(b.next_date || '') || Infinity)
     || String(a.name).localeCompare(String(b.name)));

@@ -37,7 +37,6 @@ test("the static artifact rebuild is byte-for-byte reproducible", async (t) => {
   assert.match(home, /<link rel="modulepreload" href="\/js\/ui-shared-/);
   for (const [, module] of home.matchAll(/<link rel="modulepreload" href="\/([^" ]+)"/g)) assert.ok(a.manifest.files.some(file => file.path === module));
   assert.equal(home.replace(/<link rel="modulepreload"[^>]+>\n/g, ''), await readFile(join(ROOT, "workspace.html"), 'utf8'));
-  assert.deepEqual(await readFile(join(first, "site", "contracts", "lease-radar.v1.json")), await readFile(join(ROOT, "contracts", "lease-radar.v1.json")));
 });
 
 test("the deployment directory is rebuilt without stale files", async (t) => {
