@@ -23,5 +23,5 @@ Follow [Launch, Doctor and Drive](../SKILL.md) first. This map describes current
 - [Client portal](client-portal.md): password entry, canonical roadmap, shared text and locking.
 - [Tours](tours.md): open the Tours tab on a deal and check its saved tour plans.
 - Closing anniversaries opens from More. Check the dated rows and cutoff note on the page.
-- Invoices opens from More. Open an invoice and use Close invoice to restore focus to its row.
+- Invoices opens from More. Open an invoice and use Close invoice to restore focus to its row. On engine sign-in, Open Doc starts a draft question about the selected invoice.
 - Ask Doc opens from the app header. Engine sign-in supports starting and continuing conversations.

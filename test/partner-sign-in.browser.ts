@@ -375,7 +375,8 @@ async function app(
           links.delete(token);
           return new Response(null, { status: 204 });
         }
-        if (path === "/api/engine/doc/conversations") return Response.json({ conversations: [], next_before: null });
+        if (path === "/api/engine/doc/conversations")
+          return Response.json({ conversations: [chat], next_before: null });
         if (path === "/api/engine/doc/turns" && input.method === "POST") {
           const ask = await input.json();
           return Response.json({
@@ -394,8 +395,6 @@ async function app(
           });
         }
         if (path === invoicePath) return Response.json(await invoices.getInvoiceTracker());
-        if (path === "/api/engine/doc/conversations")
-          return Response.json({ conversations: [chat], next_before: null });
         if (path === paymentPath && input.method === "POST")
           return Response.json(await invoices.markInvoicePaid(await input.json()));
         if (path === fitPath) return Response.json(clientFit);
