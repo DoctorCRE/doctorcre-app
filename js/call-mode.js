@@ -1,4 +1,6 @@
 import { dealsSaveToEngine } from './boot-mode.js';
+import { PHASE_BY_SLUG, phaseLabel } from './client.js';
+import { privateSession } from './private-session.js';
 import { createPageBudget } from './read-budget.mjs';
 import { mountLocalTicker } from './visibility-poll.mjs';
 import { createRetainedCommands } from './retained-commands.mjs';
@@ -107,6 +109,7 @@ export function createCallMode(deps) {
   const root = deps.root;
   const $ = (selector) => root.querySelector(selector);
   const engineSaves = dealsSaveToEngine(root);
+  const engineSignIn = () => privateSession()?.engineSignIn === true;
   if (engineSaves) {
     const weekly = $('[data-call-mode-start="weekly_deal_call"]');
     if (weekly) weekly.hidden = true;
@@ -402,10 +405,13 @@ export function createCallMode(deps) {
   }
 
   let outcomes = null;
-  let outcomesLoading = null;
+  let outcomesLoading = null, engineReviewScope;
+  let engineReportVisible = false;
   function retireOutcomes() {
     outcomes?.dispose();
     outcomes = null;
+    engineReviewScope = undefined;
+    engineReportVisible = false;
     const node = $('#postCallOutcomes');
     if (node) { node.innerHTML = ''; node.hidden = true; }
   }
@@ -413,6 +419,31 @@ export function createCallMode(deps) {
     return ['deal_updates', 'joe_tasks', 'dell_tasks', 'draft_proposals', 'drafts'].flatMap(field =>
       (Array.isArray(report[field]) ? report[field] : []).flatMap(item =>
         [item.candidate_id, item.next_step?.candidate_id, item.phase_move?.candidate_id].filter(Boolean)));
+  }
+  async function reviewCapturedCall(receipt) {
+    const activityId = receipt?.activity_id;
+    const about = Array.isArray(receipt?.about) ? receipt.about : [];
+    const dealIds = [...new Set(about.map(link => link?.deal_id).filter(id => typeof id === 'string' && id))];
+    if (typeof activityId !== 'string' || !activityId || !dealIds.length) {
+      retireOutcomes();
+      return;
+    }
+    const scope = JSON.stringify([activityId, dealIds]);
+    if (engineReviewScope !== scope) retireOutcomes();
+    engineReviewScope = scope;
+    const generation = state.callGeneration;
+    const { mountEngineCallReview } = await import(CALL_REVIEW_MODULE);
+    if (disposed || generation !== state.callGeneration || engineReviewScope !== scope) return;
+    const node = $('#postCallOutcomes'), client = deps.client();
+    if (!node || !client) return;
+    outcomes ||= mountEngineCallReview(node, { dealIds, activityId, client, dateLabel,
+      phaseLabel: value => phaseLabel(PHASE_BY_SLUG[value] || value),
+      onVisibilityChange(visible) {
+        engineReportVisible = visible;
+        renderPostCall();
+      },
+    });
+    await outcomes.refresh();
   }
   async function callOutcomes() {
     const node = $('#postCallOutcomes');
@@ -456,9 +487,11 @@ export function createCallMode(deps) {
     const post = state.postCall;
     panel.hidden = !post.session && post.status === 'idle';
     if (panel.hidden) return;
-    if (engineSaves) {
-      const summary = post.report?.report?.summary;
-      const finished = ['filed', 'review_ready', 'awaiting_context', 'failed'].includes(post.status);
+    const reviewInEngine = engineSignIn();
+    if (engineSaves || reviewInEngine) {
+      const summary = (!reviewInEngine || engineReportVisible) && post.report?.report?.summary;
+      const finished = reviewInEngine ? post.engineFilingFinished
+        : ['filed', 'review_ready', 'awaiting_context', 'failed'].includes(post.status);
       $('#postCallStatus').textContent = post.error || (summary ? '' : finished
         ? 'No call summary is available.' : 'Preparing the call summary…');
       $('#postCallReport').innerHTML = summary ? `<p class="post-call-summary">${esc(reportText(summary))}</p>` : '';
@@ -561,6 +594,11 @@ export function createCallMode(deps) {
     const sequence = state.statusSequence = (state.statusSequence || 0) + 1;
     const read = { session, sequence };
     state.statusInFlight = read;
+    const reviewInEngine = engineSignIn();
+    if (reviewInEngine && engineReportVisible) {
+      engineReportVisible = false;
+      renderPostCall();
+    }
     try {
       const payload = await deps.postCallClient.getStatus(session);
       if (state.postCall.session !== session || state.statusSequence !== sequence) return;
@@ -568,6 +606,19 @@ export function createCallMode(deps) {
       const status = ({ ready_review: 'review_ready', blocked: 'failed' })[rawStatus] || rawStatus;
       const reason = typeof payload.status === 'object' && rawStatus === 'blocked' ? payload.status.reason : null;
       const report = payload.report || null;
+      if (reviewInEngine) {
+        const receipt = report?.engine_call;
+        const engineFilingFinished = Boolean(receipt?.outcome) || ['failed', 'needs_attention', 'held_review'].includes(status);
+        state.postCall = { ...state.postCall, status, report, engineFilingFinished,
+          error: reason ? `Local processing stopped: ${reason}` : null };
+        if (engineFilingFinished) stopPolling();
+        else if (!state.pollTimer) startPolling(session, { immediate: false });
+        const reviewable = receipt?.outcome === 'stored' || receipt?.outcome === 'existing';
+        if (!reviewable) retireOutcomes();
+        renderPostCall();
+        if (reviewable) await reviewCapturedCall(receipt);
+        return;
+      }
       // review_ready arrives before the companion has filed and applied the
       // call; keep reading until report.automatic says the apply finished.
       const readyAt = status === 'review_ready' ? (state.postCall.readyAt ?? now()) : null;
@@ -578,7 +629,15 @@ export function createCallMode(deps) {
       if (['filed', 'failed'].includes(status) || (status === 'review_ready' && (!applying || applyTimedOut))
         || (engineSaves && status === 'awaiting_context')) stopPolling();
       else if (!state.pollTimer) startPolling(session, {immediate:false});
-      if (!engineSaves && ['review_ready', 'filed'].includes(status) && !applying && reportCandidateIds().length) callOutcomes().then(view => view?.refresh()).catch(() => { if (state.postCall.session !== session || state.statusSequence !== sequence) return; const node = $('#postCallOutcomes'); if (node) { node.hidden = false; node.textContent = 'Call review unavailable. Refresh the report to try again.'; } outcomesLoading = null; });
+      if (['review_ready', 'filed'].includes(status) && !applying) {
+        const review = !engineSaves && reportCandidateIds().length ? callOutcomes().then(view => view?.refresh()) : null;
+        review?.catch(() => {
+          if (state.postCall.session !== session || state.statusSequence !== sequence) return;
+          const node = $('#postCallOutcomes');
+          if (node) { node.hidden = false; node.textContent = 'Call review unavailable. Refresh the report to try again.'; }
+          outcomesLoading = null;
+        });
+      }
       renderPostCall();
       // The stall this closes: a weekly recording whose companion never got
       // the context index. Supply it now, once per session unless a partner
@@ -589,6 +648,7 @@ export function createCallMode(deps) {
     } catch (error) {
       if (state.postCall.session !== session || state.statusSequence !== sequence) return;
       stopPolling();
+      if (reviewInEngine) retireOutcomes();
       state.postCall = { ...state.postCall, status:state.postCall.report ? state.postCall.status : 'failed', error: error.message, errorAction:'report' };
       renderPostCall();
       if (!quiet) toast(error.message);
@@ -743,7 +803,7 @@ export function createCallMode(deps) {
     if (signal?.aborted) { close(); return false; }
     startTicker();
     const openingGeneration = state.callGeneration || 0;
-    if (!engineSaves && session && /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(session) && state.callMode.session && session !== state.callMode.session) {
+    if (!engineSaves && !engineSignIn() && session && /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(session) && state.callMode.session && session !== state.callMode.session) {
       try {
         const local = state.callMode.session;
         const payload = await deps.postCallClient.getStatus(local);
