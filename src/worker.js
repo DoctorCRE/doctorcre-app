@@ -282,7 +282,7 @@ const SEARCH = 'search-from-engine';
 const CLIENTS_VENDORS = 'clients-vendors-from-engine';
 const RELATIONSHIPS = 'relationships-from-engine';
 const FRAME = 'frame';
-const ENGINE_SIGN_IN_KEYS = new Set([DEALS, NEXT_DEAL_SAVES, LEADS, CLIENTS_VENDORS, RELATIONSHIPS, SEARCH]);
+const ENGINE_SIGN_IN_KEYS = new Set([DEALS, NEXT_DEAL_SAVES, LEADS, CLIENTS_VENDORS, RELATIONSHIPS, SEARCH, INVOICES, CHARTS]);
 // Each old read the engine can answer, by tool name or business GET path: its
 // switch key, its engine path and, for a tool, a check per argument.
 // A `segment` argument becomes the last path segment. `search` seeds fixed query parameters.
@@ -822,7 +822,7 @@ async function engineSave(request, env, call) {
       { allowHandoff: false, body, rawClientError: record === 'proposals' });
   }
   if (call.params.name === 'record-commission-receipt') {
-    if (!await switchedOn(env, INVOICES)) return null;
+    if (!await routeToEngine(env, INVOICES)) return null;
     return engineAnswer(request, env, call, { path: '/api/engine/invoices/mark-paid' }, {
       allowHandoff: false, mapReceipt: receipt => ({ ...receipt, engine_receipt: true }),
     });

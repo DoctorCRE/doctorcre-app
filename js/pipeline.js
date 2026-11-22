@@ -551,6 +551,7 @@ function applyBoardSnapshot(board) {
     disposeChecklist();
     disposeWatchControl();
     disposeActivityAttribution();
+    disposePanelCallReview();
     disposePanelEmailFollowups();
     $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
     $('panelTitle').textContent = 'Deal';
@@ -1137,6 +1138,27 @@ function mountPanelActivityAttribution() {
   if (root?.querySelector('[data-attribution-id]')) activityAttribution = mountActivityAttribution(root, { engineSignIn: privateSession()?.engineSignIn, onDenied: refusePanelDetail });
 }
 let watchControl = null, watchElement = null, watchSubject = null;
+let panelCallReview = null;
+function disposePanelCallReview() {
+  panelCallReview?.dispose();
+  panelCallReview = null;
+}
+async function openPanelCallReview(disclosure) {
+  if (!disclosure.open || panelCallReview) return;
+  const container = disclosure.querySelector('div'), id = state.panelDeal;
+  try {
+    const { mountEngineCallReview } = await import('./ui-call.generated.js');
+    if (!container.isConnected || !disclosure.open || panelCallReview || state.panelDeal !== id) return;
+    panelCallReview = mountEngineCallReview(container, {
+      dealIds: [id], client: state.client, dateLabel: formatCalendarDate,
+      phaseLabel: phase => columnBySlug(phase)?.label || phase,
+      onChange: () => void refreshPanel({ changed: true }),
+    });
+    void panelCallReview.refresh();
+  } catch {
+    if (container.isConnected) container.textContent = 'Could not open call review. Close and reopen it to try again.';
+  }
+}
 let panelEmailFollowups = null;
 let emailMountSequence = 0;
 function disposePanelEmailFollowups() {
@@ -1195,6 +1217,7 @@ function refusePanelDetail(error) {
   dealToursPanel?.dispose(); dealToursPanel = null;
   bindDraftActor(null);
   disposeActivityAttribution();
+  disposePanelCallReview();
   disposePanelEmailFollowups();
   setContextOpenVisible(false);
   $('contextDrawer').close();
@@ -1390,10 +1413,11 @@ let workspaceTab = 'overview';
 let boardScroll = 0;
 let timelineType = '';
 history.scrollRestoration = 'manual';
-let workspaceHistoryIndex = history.state?.doctorcreWorkspaceIndex ?? 0;
+let workspaceHistory = history.state;
 function writeWorkspaceHistory(data, url, push = false) {
-  if (push) ++workspaceHistoryIndex;
-  history[push ? 'pushState' : 'replaceState']({...data, doctorcreWorkspaceIndex:workspaceHistoryIndex}, '', url);
+  const index = (workspaceHistory?.doctorcreWorkspaceIndex ?? 0) + Number(push);
+  workspaceHistory = {...data, doctorcreWorkspaceIndex:index};
+  history[push ? 'pushState' : 'replaceState'](workspaceHistory, '', url);
 }
 writeWorkspaceHistory(history.state, location.href);
 function renderNextCriticalDate(date) {
@@ -1497,12 +1521,87 @@ function undoInvoiceClose() {
   });
 }
 
-function filedDocumentsHtml(documents) {
+function filedDocumentsHtml(documents, engineSignIn) {
   return documents.length ? `<ul class="deal-document-list">${documents.map(file => {
     const version = `Version ${file.version}`;
     return `<li><h3><a href="/api/engine/documents/${encodeURIComponent(file.id)}" aria-label="${esc(`${file.name}, ${version}`)}" data-detail-focus="file-${esc(file.id)}">${esc(file.name)}</a></h3>
-      <p>${esc(version)}${file.prepared_at ? ` · ${esc(sourceTime(file.prepared_at))}` : ''}</p></li>`;
+      <p>${esc(version)}${file.prepared_at ? ` · ${esc(sourceTime(file.prepared_at))}` : ''}</p>${engineSignIn
+        ? `<button class="btn" type="button" data-open-document-text="${esc(file.id)}" data-detail-focus="text-${esc(file.id)}" aria-label="${esc(`Open text for ${file.name}, ${version}`)}">Open text</button>`
+        : ''}</li>`;
   }).join('')}</ul>` : '<p>No documents filed for this deal.</p>';
+}
+
+function closeFiledDocumentText() {
+  $('workspace-documents')?.querySelector('.deal-document-text[open]')?.close();
+}
+
+function openFiledDocumentText(documentId, { fromHistory = false } = {}) {
+  const detail = state.panelDetail;
+  if (!privateSession()?.engineSignIn || !isEngineDealDetail(detail)) return;
+  const file = detail.documents.find(file => file.id === documentId);
+  const documents = $('workspace-documents');
+  if (!file || !documents || documents.querySelector('.deal-document-text[open]')) return;
+
+  const dialog = document.createElement('dialog');
+  dialog.className = 'dialog deal-dialog deal-document-text';
+  dialog.setAttribute('aria-labelledby', 'filed-document-text-title');
+  dialog.innerHTML = `<article>
+    <header><h2 id="filed-document-text-title">${esc(file.name)}</h2>
+      <button class="btn icon-btn" type="button" aria-label="Close document text">×</button></header>
+    <div class="dialog-body"><p role="status"></p><button class="btn" type="button" hidden>Retry</button></div>
+  </article>`;
+  const status = dialog.querySelector('[role="status"]');
+  const retry = dialog.querySelector('.dialog-body button');
+  const lifetime = new AbortController();
+  const path = `/api/engine/deals/${encodeURIComponent(detail.deal.id)}/documents/${encodeURIComponent(file.id)}/text`;
+
+  async function load() {
+    status.textContent = 'Loading document text…';
+    retry.hidden = true;
+    try {
+      const pages = await readWithDeadline(async signal => {
+        const response = await sessionFetch(path, { signal });
+        if (!response.ok) throw Error('Document text is unavailable.');
+        const result = await response.json();
+        if (!Array.isArray(result?.pages) || !result.pages.every(page => typeof page === 'string'))
+          throw Error('Invalid document text');
+        return result.pages;
+      }, { signal: lifetime.signal });
+      if (!dialog.open || !dialog.isConnected) return;
+      status.textContent = pages.length ? '' : 'No text found in this file.';
+      for (const [index, text] of pages.entries()) {
+        const page = document.createElement('section');
+        const heading = document.createElement('h3');
+        heading.textContent = `Page ${index + 1}`;
+        page.setAttribute('aria-label', heading.textContent);
+        const content = document.createElement('pre');
+        content.textContent = text;
+        page.append(heading, content);
+        retry.before(page);
+      }
+    } catch {
+      if (!dialog.open || !dialog.isConnected) return;
+      status.textContent = 'Document text is unavailable.';
+      retry.hidden = false;
+    }
+  }
+
+  const close = dialog.querySelector('header button');
+  function dismiss(event) {
+    event.preventDefault();
+    if (close.disabled) return;
+    close.disabled = true;
+    history.back();
+  }
+  close.addEventListener('click', dismiss);
+  dialog.addEventListener('cancel', dismiss);
+  dialog.addEventListener('close', () => { lifetime.abort(); dialog.remove(); }, { once: true });
+  retry.addEventListener('click', () => void load());
+  if (fromHistory) selectWorkspaceTab('documents');
+  documents.append(dialog);
+  dialog.showModal();
+  if (!fromHistory) writeWorkspaceHistory({...history.state, doctorcreDocumentText:documentId}, location.href, true);
+  void load();
 }
 
 const emailDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: BUSINESS_TIME_ZONE });
@@ -1714,7 +1813,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="checklist"></div>
     ${ownStep ? '' : dealUpdateFormHtml(false, today)}
     <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail) : '<p role="status">Updating email follow-ups…</p>'}</section>
-    ${requirementEmailHtml(d)}
+    ${engineMode ? '<details id="panelCallReview"><summary>Call review</summary><div></div></details>\n    ' : ''}${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner">${fromEngine ? '' : '<option value="">Unassigned</option>'}${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div></div>` : fromEngine ? `<div data-detail-read="parking">${nextParking && parked ? parkingSummary : parker}</div>` : ''}</div>
     <div data-detail-read="prospect">${!engineSaves && controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
@@ -1724,7 +1823,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode })}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>No comparable terms match these filters.</p>' : ''}</section>
-    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
+    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents, engineMode)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine, planTours)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
@@ -1972,6 +2071,7 @@ function paintPanel(detail) {
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose();
   const engineMode = privateSession()?.engineSignIn;
+  disposePanelCallReview();
   $('panelBody').innerHTML = workspaceHtml(detail, engineMode);
   mountChecklist(detail);
   const overview = $('workspace-overview');
@@ -2165,9 +2265,11 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   factReviewPanel = null;
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
+  closeFiledDocumentText();
   selectDocRecord('deal', dealId);
   const panel = $('recordPanel');
   disposeActivityAttribution();
+  disposePanelCallReview();
   disposePanelEmailFollowups();
   setContextOpenVisible(false);
   if (!state.panelDeal) boardScroll = history.state?.boardScroll ?? scrollY;
@@ -2196,6 +2298,8 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   scrollTo({ top: 0, behavior: 'instant' });
   $('panelTitle').focus({preventScroll:true});
   await refreshPanel();
+  if (state.panelDeal === dealId && history.state?.doctorcreDocumentText)
+    openFiledDocumentText(history.state.doctorcreDocumentText, {fromHistory:true});
   if (focusStep && state.panelDeal === dealId) {
     if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
     await document.fonts.ready;
@@ -2246,8 +2350,10 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
   const id = state.panelReturnTo;
   disposeActivityAttribution();
+  disposePanelCallReview();
   disposePanelEmailFollowups();
   if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); url.searchParams.delete('checklist'); url.searchParams.delete('property'); writeWorkspaceHistory({},url); }
+  closeFiledDocumentText();
   $('recordPanel').hidden = true; $('main').hidden = false;
   document.body.classList.remove('workspace-open');
   state.panelDeal = null; state.panelStepId = null; state.panelDetail = null;
@@ -2572,13 +2678,24 @@ function wire() {
 
   let restoreTourHistory = null, departurePending = false;
   addEventListener('popstate', async event => {
+    const workspaceHistoryIndex = workspaceHistory?.doctorcreWorkspaceIndex ?? 0;
     const destinationIndex = event.state?.doctorcreWorkspaceIndex ?? 0;
     if (restoreTourHistory) {
       if (destinationIndex !== workspaceHistoryIndex) { history.go(workspaceHistoryIndex - destinationIndex); return; }
       const restored = restoreTourHistory; restoreTourHistory = null; restored(); return;
     }
+    const deal = new URL(location.href).searchParams.get('deal');
+    const documentId = event.state?.doctorcreDocumentText;
+    const distance = destinationIndex - workspaceHistoryIndex;
+    const closingDocument = distance === -1 && workspaceHistory?.doctorcreDocumentText;
+    const openingDocument = distance === 1 && documentId;
+    if (deal && deal === state.panelDeal && (closingDocument || openingDocument)) {
+      workspaceHistory = event.state;
+      closeFiledDocumentText();
+      if (documentId) openFiledDocumentText(documentId, {fromHistory:true});
+      return;
+    }
     if (dealToursPanel?.hasUnsavedChanges() || dealDocumentsPanel?.hasUnsavedChanges()) {
-      const distance = destinationIndex - workspaceHistoryIndex;
       if (!distance) return;
       const restored = new Promise(resolve => { restoreTourHistory = resolve; });
       history.go(-distance);
@@ -2590,8 +2707,7 @@ function wire() {
       if (leave) history.go(distance);
       return;
     }
-    workspaceHistoryIndex = destinationIndex;
-    const deal = new URL(location.href).searchParams.get('deal');
+    workspaceHistory = event.state;
     if (deal) void openWorkspace(deal, null, {fromHistory:true});
     else closeWorkspace({fromHistory:true});
   });
@@ -2685,10 +2801,13 @@ function wire() {
   $('parkedToggle').addEventListener('click', () => { state.parkedOpen = !state.parkedOpen; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); renderBoard(); });
   $('kanban').addEventListener('toggle', e => { if(e.target.classList.contains('parked-lane')) { state.parkedOpen=e.target.open; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); } },true);
   $('panelBody').addEventListener('toggle', event => {
+    if (event.target.id === 'panelCallReview') return void openPanelCallReview(event.target);
     if (event.target.id !== 'panelEvidenceSection') return;
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
   $('panelBody').addEventListener('click', async e => {
+    const documentText = e.target.closest('[data-open-document-text]');
+    if (documentText) return openFiledDocumentText(documentText.dataset.openDocumentText);
     if (e.target.closest('[data-undo-invoice]')) void undoInvoiceClose();
     const done = e.target.closest('[data-complete-step]');
     if (done) return completeDealStep(done);
