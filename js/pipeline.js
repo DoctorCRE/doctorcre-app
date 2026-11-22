@@ -2126,8 +2126,23 @@ function paintPanel(detail) {
       toursLoading = true;
       const root = $('workspace-tours');
       root.textContent = 'Loading tours…';
+      const toursUrl = `/deals?deal=${encodeURIComponent(detail.deal.id)}&tab=tours`;
+      if (engineMode && property) {
+        const engineProperty = detail.properties?.find(({ id }) => id === property.toLowerCase());
+        if (!engineProperty) {
+          root.innerHTML = '<p>This property is no longer on this deal.</p>';
+          return;
+        }
+        const { name, address } = engineProperty;
+        root.innerHTML = `<section aria-label="Property from tour feedback">
+          <h2 tabindex="-1">${esc(name || address)}</h2>
+          ${name ? `<p>${esc(address)}</p>` : ''}
+          ${planTours ? `<a href="${esc(toursUrl)}">See deal tours</a>` : ''}
+        </section>`;
+        root.querySelector('h2').focus();
+        return;
+      }
       if (property) {
-        const toursUrl = `/deals?deal=${encodeURIComponent(detail.deal.id)}&tab=tours`;
         root.innerHTML = `<section aria-label="Property from tour feedback"><h2 tabindex="-1">Property from tour feedback</h2><p role="status">Loading property…</p><a href="${esc(toursUrl)}">See deal tours</a></section>`;
         const section = root.firstElementChild;
         section.querySelector('h2').focus();
