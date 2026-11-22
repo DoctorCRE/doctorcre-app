@@ -4,6 +4,7 @@ import { mountStopDrag, reorderFlexibleStops } from "/js/ui-tour-stop-drag.gener
 import { prepareClientGrant, grantReceipt, renderClientGrants } from '../js/ui-tour-client-grants.generated.js';
 import { generatedSheet, sheetHistory, appendSheetSections } from "../js/ui-broker-cheat-sheet.generated.js";
 import { createPageBudget } from '../js/read-budget.mjs';
+import { createMcpRequests } from "../js/mcp-requests.mjs";
 import { fetchPartnerIdentity, sessionFetch } from '../js/private-session.js';
 import { observeDocRead, selectDocRecord } from '../js/doc-context.js';
 import { mountAutoRefresh } from "../js/auto-refresh.mjs";
@@ -552,6 +553,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
   }
   function stops() { return Array.isArray(state.tour?.stops) ? state.tour.stops : []; }
   let composer = null, itineraryView = null, stopDrag = null;
+  const coordinateReviewRequest = createMcpRequests();
   async function renderCoordinateReview() {
     const tour = state.tour, binding = sessionBinding;
     const stamp = JSON.stringify([binding, tour?.id, tour?.route_version_id, stops().map(stop => stop.property_id)]);
@@ -573,7 +575,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       },
       write: async args => {
         if (binding !== sessionBinding || state.tour?.id !== tour.id || state.tour?.route_version_id !== routeId || state.sessionInvalidated) return "refused";
-        const result = await savedSearchRequest("append-tour-entrance-verification-receipt", args, { timeoutMs: 15000, headers: { "x-carr-csrf": state.csrf } });
+        const result = await coordinateReviewRequest("append-tour-entrance-verification-receipt", args, { timeoutMs: 15000, headers: { "x-carr-csrf": state.csrf } });
         if (binding !== sessionBinding || state.tour?.id !== tour.id || state.tour?.route_version_id !== routeId) return "unknown";
         if (result.kind === "authorization") return "refused";
         if (result.kind !== "payload") return "unknown";
