@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile } from "node:fs/promises";
 import { after, type TestContext, test } from "node:test";
 import type { Page } from "playwright";
+import { createInvoiceFixture } from "../js/invoice-tracker-fixture.js";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
@@ -54,6 +55,28 @@ const closingAnniversaries = "/api/engine/closing-anniversaries";
 const carrAnniversaries = "/api/v1/intelligence/client-anniversary-read";
 const anniversaryClientId = "00000000-0000-4000-8000-000000000001";
 const anniversaryClientName = "Demo Practice 01";
+const invoiceDay = "2026-10-02";
+const invoiceName = "Demo Harbor Renewal";
+const invoicePath = "/api/engine/invoices";
+const paymentPath = invoicePath + "/mark-paid";
+const fitPath = "/api/engine/client-fit";
+const fitEvidence = "Demo completed practice lease";
+const clientFit = {
+  schema_version: "ideal-client-profile.v1",
+  coverage: "recorded_closed_won_only",
+  profiles: [
+    {
+      vertical: "Dental",
+      deal_type: "lease",
+      city: "Example City",
+      state: "TX",
+      won_deals: 1,
+      clients: 1,
+      hypothesis: "Historical fit, not a prediction or qualification rule.",
+      evidence: [{ deal_id: dealId, deal_name: fitEvidence, closed_on: "2026-09-01" }],
+    },
+  ],
+};
 const pages = ["/invoices?mode=live", "/control-room/progress?mode=live", "/pipeline?mode=live"];
 const artifacts = "out/test-artifacts/partner-sign-in";
 let assets: ReturnType<typeof appAssetSnapshot> | undefined;
@@ -84,6 +107,13 @@ async function app(
 ) {
   let unavailable = false;
   let carrChecks = 0;
+  const carrTools: string[] = [];
+  const invoices = createInvoiceFixture({ today: () => invoiceDay });
+  const screenTools = new Map<string, (args: Parameters<typeof invoices.markInvoicePaid>[0]) => unknown>([
+    ["read-invoice-tracker", () => invoices.getInvoiceTracker()],
+    ["record-commission-receipt", (args) => invoices.markInvoicePaid(args)],
+    ["ideal-client-profile", () => clientFit],
+  ]);
   const partnerReads = new Map<string, string | null>();
   let expiredPath: string | null = null;
   let writes = 0;
@@ -102,6 +132,8 @@ async function app(
         const path = new URL(input.url).pathname;
         const navigation = input.headers.get("sec-fetch-mode") === "navigate";
         if (path.startsWith("/auth/") || navigation) carrChecks++;
+        const call = path === "/mcp" ? await input.json() : null;
+        if (call) carrTools.push(call.params.name);
         if (signIn === "carr") {
           if (path === carrAnniversaries && readAnniversaries) return readAnniversaries(input);
           if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
@@ -112,10 +144,12 @@ async function app(
             );
             return Response.json(recordings.records.full.response);
           }
-          if (path === "/mcp") {
-            const { id, params } = await input.json();
-            const payload =
-              params.name === "deal-room-board"
+          if (call) {
+            const { id, params } = call;
+            const screenTool = screenTools.get(params.name);
+            const payload = screenTool
+              ? await screenTool(params.arguments)
+              : params.name === "deal-room-board"
                 ? dealBoard
                 : params.name === "get-deal-room"
                   ? dealDetail
@@ -210,6 +244,10 @@ async function app(
           links.delete(token);
           return new Response(null, { status: 204 });
         }
+        if (path === invoicePath) return Response.json(await invoices.getInvoiceTracker());
+        if (path === paymentPath && input.method === "POST")
+          return Response.json(await invoices.markInvoicePaid(await input.json()));
+        if (path === fitPath) return Response.json(clientFit);
         if (path.startsWith(actionResolver)) {
           assert.equal(input.method, "GET");
           assert.equal(url.search, "");
@@ -367,6 +405,7 @@ async function app(
       unavailable = value;
     },
     carrChecks: () => carrChecks,
+    carrTools,
     partnerReads,
     expireOn: (path: string) => {
       expiredPath = path;
@@ -558,6 +597,61 @@ test("Home and the old Updates link load on the engine session and handle expiry
   await page.waitForURL("**/public-shell/session-ended.html");
   await page.getByRole("heading", { name: "Session ended" }).waitFor();
   await page.getByRole("link", { name: "Sign in again" }).waitFor();
+});
+
+async function recordInvoicePayment(page: Page, origin: string) {
+  await page.clock.setFixedTime(new Date(`${invoiceDay}T17:00:00Z`));
+  await page.goto(origin + "/invoices?mode=live");
+  const row = page.getByRole("button", { name: new RegExp(invoiceName) });
+  await row.click({ timeout: 5000 });
+  const invoice = page.getByRole("dialog", { name: invoiceName });
+  await invoice.getByLabel("Paid on").fill(invoiceDay);
+  await invoice.getByRole("button", { name: "Mark paid", exact: true }).click();
+  await invoice.getByText("Payment recorded Oct 2, 2026.", { exact: true }).waitFor({ timeout: 5000 });
+  await page.reload();
+  await row.getByText("Paid", { exact: true }).waitFor({ timeout: 5000 });
+}
+
+async function openHistoricalFit(page: Page, origin: string) {
+  await page.goto(origin + "/?view=charts&mode=live");
+  const fit = page.getByRole("region", { name: "Historical client fit", exact: true });
+  await fit.getByText("Historical client fit", { exact: true }).click();
+  await fit.getByText("Wins (1)", { exact: true }).click({ timeout: 5000 });
+  const evidence = fit.getByRole("link", { name: fitEvidence });
+  await evidence.waitFor();
+  assert.equal(await evidence.getAttribute("href"), `/deals?deal=${dealId}`);
+  return fit;
+}
+
+test("engine sign-in opens invoices and records a payment with the invoice switch off", async (t) => {
+  const { context, server, partnerReads, carrTools } = await app(t);
+  await recordInvoicePayment(await context.newPage(), server.origin);
+  for (const path of [invoicePath, paymentPath]) assert.equal(partnerReads.get(path), cookieName + "=first");
+  assert.deepEqual(carrTools, []);
+});
+
+test("engine sign-in shows historical client fit with the charts switch off", async (t) => {
+  const { context, server, partnerReads, carrTools, setUnavailable } = await app(t);
+  const fit = await openHistoricalFit(await context.newPage(), server.origin);
+  await fit.getByLabel("State", { exact: true }).fill("TX");
+  await fit.getByRole("button", { name: "Apply filters" }).click();
+  await fit.getByText("Wins (1)", { exact: true }).waitFor();
+  for (const path of [fitPath, fitPath + "?state=TX"]) assert.equal(partnerReads.get(path), cookieName + "=first");
+
+  setUnavailable(true);
+  await fit.getByRole("button", { name: "Refresh history" }).click();
+  await fit.getByRole("alert").filter({ hasText: "Historical client fit unavailable" }).waitFor();
+  assert.deepEqual(carrTools, []);
+});
+
+test("CARR sign-in still reads invoices and client fit and saves payments through CARR with switches off", async (t) => {
+  const { context, server, partnerReads, carrTools } = await app(t, { signIn: "carr" });
+  const page = await context.newPage();
+  await recordInvoicePayment(page, server.origin);
+  await openHistoricalFit(page, server.origin);
+  for (const name of ["read-invoice-tracker", "record-commission-receipt", "ideal-client-profile"])
+    assert.ok(carrTools.includes(name), name);
+  assert.equal(partnerReads.size, 0);
 });
 
 test("an engine action link opens the successor reply with Home review controls", async (t) => {
