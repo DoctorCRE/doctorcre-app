@@ -2,40 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
-const path = "/api/engine/doc/link";
-const messages = {
-  not_set_up: "Doc isn't set up on your Mac yet.",
-  mac_off: "Doc answers when your Mac is on.",
-  signed_out: "Sign in to Claude Code on your Mac.",
-  plan_limited: "Doc is paused until your Claude plan resets.",
-  ready: "Doc is ready on your Mac.",
-};
-type Status = keyof typeof messages;
-type Transport = (path: string, init: RequestInit) => Promise<Response>;
+import {
+  type DocLinkRequest,
+  type DocLinkStatus,
+  docLinkMessages,
+  readDocLinkStatus,
+  requestDocLink,
+} from "./doc-link";
 
-function isStatus(value: unknown): value is Status {
-  return typeof value === "string" && Object.hasOwn(messages, value);
-}
-
-async function send(request: Transport, method: "GET" | "POST", suffix = "") {
-  const response = await request(path + suffix, { method, signal: AbortSignal.timeout(10_000) });
-  if (!response.ok) throw new Error("Doc link unavailable");
-  return response;
-}
-
-async function readStatus(request: Transport) {
-  try {
-    const response = await send(request, "GET");
-    const data: unknown = await response.json();
-    if (data && typeof data === "object" && "status" in data && isStatus(data.status)) return data.status;
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function DocLinkSettings({ request }: { request: Transport }) {
-  const [status, setStatus] = useState<Status | null>(null);
+function DocLinkSettings({ request }: { request: DocLinkRequest }) {
+  const [status, setStatus] = useState<DocLinkStatus | null>(null);
   const [busy, setBusy] = useState(true);
   const [notice, setNotice] = useState("");
   const [code, setCode] = useState("");
@@ -56,7 +32,7 @@ function DocLinkSettings({ request }: { request: Transport }) {
   const refresh = useCallback(async () => {
     setBusy(true);
     setNotice("");
-    setStatus(await readStatus(request));
+    setStatus(await readDocLinkStatus(request));
     setBusy(false);
   }, [request]);
 
@@ -70,10 +46,10 @@ function DocLinkSettings({ request }: { request: Transport }) {
     setNotice("");
     try {
       if (action === "revoke") {
-        await send(request, "POST", "/revoke");
+        await requestDocLink(request, "POST", "/revoke");
         setStatus("not_set_up");
       } else {
-        const response = await send(request, "POST");
+        const response = await requestDocLink(request, "POST");
         const data: unknown = await response.json();
         if (
           !data ||
@@ -87,7 +63,7 @@ function DocLinkSettings({ request }: { request: Transport }) {
         if (view === codeView.current) setCode(data.credential);
       }
     } catch {
-      const current = await readStatus(request);
+      const current = await readDocLinkStatus(request);
       setStatus(current);
       if (action === "issue" && current && current !== "not_set_up")
         setNotice("The code could not be shown. Replace it to get a new one.");
@@ -104,7 +80,9 @@ function DocLinkSettings({ request }: { request: Transport }) {
       <div className="card-heading">
         <h2 id="docLinkTitle">Doc link</h2>
       </div>
-      <p role="status">{status ? messages[status] : busy ? "Checking Doc status…" : "Couldn't load Doc status."}</p>
+      <p role="status">
+        {status ? docLinkMessages[status] : busy ? "Checking Doc status…" : "Couldn't load Doc status."}
+      </p>
       {notice && <p role="status">{notice}</p>}
       {code ? (
         <>
@@ -137,6 +115,6 @@ function DocLinkSettings({ request }: { request: Transport }) {
   );
 }
 
-export function mountDocLinkSettings(element: Element, request: Transport) {
+export function mountDocLinkSettings(element: Element, request: DocLinkRequest) {
   createRoot(element).render(<DocLinkSettings request={request} />);
 }

@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type DocLinkRequest, type DocLinkStatus, docLinkMessages, readDocLinkStatus } from "../doc-link";
 import { DropReason } from "./drop-reason.tsx";
 import {
   draftReference,
@@ -69,6 +70,36 @@ function EarlierText({ text }: { text: string }) {
   );
 }
 
+function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; href: string }) {
+  const [status, setStatus] = useState<DocLinkStatus | null>();
+  useEffect(() => {
+    if (!request) return;
+    const controller = new AbortController();
+    void readDocLinkStatus(request, controller.signal).then((status) => {
+      if (!controller.signal.aborted) setStatus(status);
+    });
+    return () => controller.abort();
+  }, [request]);
+
+  if (status === "ready")
+    return (
+      <a className="btn" href={href}>
+        Talk to Doc about this draft
+      </a>
+    );
+
+  let reason = "Sign in with DoctorCRE to talk to Doc.";
+  if (request) {
+    if (status) reason = docLinkMessages[status];
+    else reason = status === null ? "Couldn't check whether Doc is ready." : "Checking Doc status…";
+  }
+  return (
+    <p className="inbox-detail inbox-guidance" role="status">
+      {reason}
+    </p>
+  );
+}
+
 export type DraftEdit = Pick<Extract<Review, { kind: "reply_draft" }>, "subject" | "body"> & {
   baseVersion: string;
 };
@@ -78,7 +109,7 @@ const writesDraftText = (verb: Operation["verb"]) => verb === "edit-email-draft"
 type Props<Item extends ReviewItem> = {
   item: Item;
   readOnly?: boolean;
-  docAvailable: boolean;
+  docLinkRequest: DocLinkRequest | undefined;
   client: ReviewClient<Item> | undefined;
   draftEdits: DraftEdit | undefined;
   updateDraftEdits(edits: DraftEdit | null): void;
@@ -102,7 +133,7 @@ export function reviewDispositionLabel(state: Exclude<LinkedReview["state"], "ac
 export function ReviewCard<Item extends ReviewItem>({
   item,
   readOnly = false,
-  docAvailable,
+  docLinkRequest,
   client,
   draftEdits,
   updateDraftEdits,
@@ -877,16 +908,14 @@ export function ReviewCard<Item extends ReviewItem>({
                 </button>
               );
             })}
-            {docAvailable && engineReply && editable && !draftEdits && editOperation && (
-              <a
-                className="btn"
+            {engineReply && editable && !draftEdits && editOperation && (
+              <TalkToDoc
+                request={docLinkRequest}
                 href={`/doc-chats?${new URLSearchParams({
                   draft: String(editOperation.args.proposal_id),
                   version: String(editOperation.args.base_version),
                 })}`}
-              >
-                Talk to Doc about this draft
-              </a>
+              />
             )}
           </div>
           {!proposalLed && proposals.length > 0 && <fieldset disabled={!editable}>{suggestionFields}</fieldset>}

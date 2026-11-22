@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
+import { docLinkMessages } from "./doc-link";
 import { refreshWhileVisible } from "./visible-refresh";
 
 // The app's Content Security Policy blocks dynamic code evaluation.
@@ -52,8 +53,7 @@ const conversation = z.object({
   title: z.string(),
   created_at: z.iso.datetime({ offset: true }),
 });
-const macOffline = "Doc answers when your Mac is on.";
-const planPaused = "Doc is paused until your Claude plan resets.";
+const draftRejection = z.enum(["version_conflict", "draft_changed"]);
 const chatTurn = z.object({
   id: z.guid(),
   position: z.int().positive(),
@@ -66,10 +66,10 @@ const chatTurn = z.object({
   confirmation: confirmation.nullable(),
   waiting_reason: z
     .enum([
-      "Doc isn't set up on your Mac yet.",
-      macOffline,
-      "Sign in to Claude Code on your Mac.",
-      planPaused,
+      docLinkMessages.not_set_up,
+      docLinkMessages.mac_off,
+      docLinkMessages.signed_out,
+      docLinkMessages.plan_limited,
       "Doc is waiting for a free slot on your Mac.",
     ])
     .nullable(),
@@ -79,11 +79,12 @@ const conversationDetail = z.object({ conversation, turns: z.array(chatTurn) });
 const sendResponse = z.object({ conversation_id: z.guid(), turn: chatTurn });
 
 type Conversation = Pick<z.infer<typeof conversation>, "id" | "title">;
-type Turn = z.infer<typeof chatTurn>;
+type DraftRejection = z.infer<typeof draftRejection>;
+type Turn = z.infer<typeof chatTurn> & { draftRejection?: DraftRejection };
 type Proposal = z.infer<typeof proposal>;
 type Confirmation = z.infer<typeof confirmation>;
 type ProposalDraft = z.infer<typeof proposalDraft>;
-type DraftField = "doc-question" | "doc-proposal";
+type DraftField = "doc-question" | "doc-proposal" | "doc-draft-rejection";
 type Ask = Pick<Turn, "question" | "idempotency_key"> & {
   conversation_id?: string;
   context?: z.infer<typeof recordRef> | z.infer<typeof draftRequest>;
@@ -124,7 +125,6 @@ const statusText = {
   sendFailed: "The question couldn’t be sent. Try again.",
   unavailable: "Conversation unavailable",
   older: "This older conversation wasn't kept",
-  ...draftChangeText,
 };
 const stateText = {
   queued: "Doc is waiting.",
@@ -250,7 +250,7 @@ const saveUncertain = "Doc couldn’t tell if this saved. Try again.";
 function draftConflict(error: unknown) {
   if (!(error instanceof DocRequestFailed) || error.status !== 409) return;
   const code = saveRefusal.safeParse(error.payload).data?.error;
-  if (code === "version_conflict" || code === "draft_changed") return code;
+  return draftRejection.safeParse(code).data;
 }
 
 function proposalRefusal(error: DocRequestFailed, draftId?: string) {
@@ -462,11 +462,13 @@ function DocChat() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<keyof typeof statusText | null>(null);
+  const [initialDraftRejection, setInitialDraftRejection] = useState<DraftRejection>();
   const retired = useRef(false);
   const active = useRef(false);
   const latest = turns.at(-1);
   const draftId = latest?.context?.kind === "reply_draft" ? latest.context.id : initialDraft?.id;
-  const needsReview = status === "draft_changed" || status === "version_conflict";
+  const reviewReason = latest?.draftRejection ?? initialDraftRejection;
+  const notice = status ? statusText[status] : reviewReason && draftChangeText[reviewReason];
   const waiting = latest?.state === "queued" || latest?.state === "working";
   const waitingTurnId = waiting ? latest.id : undefined;
   const getWaitingReason = useEffectEvent(() => latest?.waiting_reason);
@@ -488,7 +490,7 @@ function DocChat() {
     ready &&
     !busy &&
     !waiting &&
-    !needsReview &&
+    !reviewReason &&
     status !== "loadFailed" &&
     !pendingAsk &&
     text.length > 0 &&
@@ -511,11 +513,7 @@ function DocChat() {
         await work();
       } catch (error) {
         if (retired.current) return;
-        const conflict = operation === "send" && draftConflict(error);
-        if (conflict) {
-          setPendingAsk(null);
-          setStatus(conflict);
-        } else if (error instanceof ConversationUnavailable) {
+        if (error instanceof ConversationUnavailable) {
           showUnavailable();
         } else {
           setStatus(operation === "load" ? "loadFailed" : "sendFailed");
@@ -535,17 +533,23 @@ function DocChat() {
         if (retired.current) return;
         setRecent(conversations);
         setNextBefore(next_before);
-        if (chatId) {
-          const { turns: saved } = await docFetch(conversationPath(chatId), conversationDetail);
-          if (retired.current) return;
-          setTurns(saved);
-        }
+        const saved = chatId ? (await docFetch(conversationPath(chatId), conversationDetail)).turns : [];
+        if (retired.current) return;
         const { privateSession, privateTextDraft } = await sessionModule();
         const session = await privateSession()?.verify({ fresh: false });
         if (retired.current || !session) return;
         const actor = session.actor.slug;
-        privateDraft.current = (field, id) => privateTextDraft(window, actor, field, id);
-        setQuestion(privateDraft.current("doc-question", chatId ?? initialDraft?.id ?? null).read());
+        const storage = (field: DraftField, id: string | null) => privateTextDraft(window, actor, field, id);
+        privateDraft.current = storage;
+        setTurns(
+          saved.map((turn) => {
+            if (turn.context?.kind !== "reply_draft") return turn;
+            const stored = storage("doc-draft-rejection", turn.id).read();
+            const rejection = draftRejection.safeParse(stored).data;
+            return rejection ? { ...turn, draftRejection: rejection } : turn;
+          }),
+        );
+        setQuestion(storage("doc-question", chatId ?? initialDraft?.id ?? null).read());
         setReady(true);
       });
     },
@@ -562,6 +566,7 @@ function DocChat() {
       setTurns([]);
       setQuestion("");
       setPendingAsk(null);
+      setInitialDraftRejection(undefined);
       setReady(false);
       setBusy(false);
       setStatus("signIn");
@@ -597,7 +602,9 @@ function DocChat() {
         immediate: false,
         delay(visibleMs) {
           if (visibleMs < 60_000) return 5_000;
-          return waitingReason === macOffline || waitingReason === planPaused ? 120_000 : 30_000;
+          return waitingReason === docLinkMessages.mac_off || waitingReason === docLinkMessages.plan_limited
+            ? 120_000
+            : 30_000;
         },
       },
     );
@@ -627,8 +634,22 @@ function DocChat() {
   function send(ask: Ask) {
     void run("send", async () => {
       setPendingAsk(ask);
-      const { conversation_id, turn } = await docFetch("/turns", sendResponse, { body: ask });
-      if (retired.current) return;
+      const result = await docFetch("/turns", sendResponse, { body: ask }).catch((error: unknown) => {
+        const rejection = draftConflict(error);
+        if (!rejection) throw error;
+        if (retired.current) return;
+        if (latest?.context?.kind === "reply_draft") {
+          privateDraft.current?.("doc-draft-rejection", latest.id).write(rejection);
+          setTurns((rows) =>
+            rows.map((turn) => (turn.id === latest.id ? { ...turn, draftRejection: rejection } : turn)),
+          );
+        } else {
+          setInitialDraftRejection(rejection);
+        }
+        setPendingAsk(null);
+      });
+      if (!result || retired.current) return;
+      const { conversation_id, turn } = result;
       if (id !== conversation_id) {
         history.replaceState(history.state, "", chatHref(conversation_id));
         setId(conversation_id);
@@ -688,7 +709,7 @@ function DocChat() {
         <section aria-label="Conversation">
           {ready && draftId && (
             <p>
-              <a href={draftReviewHref(draftId)}>{needsReview ? "Open fresh review" : "Open reply review"}</a>
+              <a href={draftReviewHref(draftId)}>{reviewReason ? "Open fresh review" : "Open reply review"}</a>
             </p>
           )}
           <ol className="doc-chat__turns" aria-live="polite">
@@ -731,9 +752,7 @@ function DocChat() {
               );
             })}
           </ol>
-          <p role="status">
-            {busy ? (pendingAsk ? "Sending question…" : "Loading chats…") : status && statusText[status]}
-          </p>
+          <p role="status">{busy ? (pendingAsk ? "Sending question…" : "Loading chats…") : notice}</p>
           <div className="doc-chat__actions">
             {!pendingAsk && status === "loadFailed" && (
               <button
@@ -745,7 +764,7 @@ function DocChat() {
                 Retry loading
               </button>
             )}
-            {retry && !needsReview && status !== "loadFailed" && (
+            {retry && !reviewReason && status !== "loadFailed" && (
               <button className="btn" type="button" disabled={busy} onClick={() => send(retry)}>
                 Retry
               </button>

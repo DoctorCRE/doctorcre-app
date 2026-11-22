@@ -888,15 +888,22 @@ for (const path of [`/doc-chats?id=${id}`, `/doc/conversations/${id}/turns/${id}
   });
 }
 
-for (const [width, theme, conflict] of [
+for (const [width, theme, conflict, unavailable] of [
   [390, "light"],
   [390, "dark"],
   [1440, "light"],
   [1440, "dark"],
   [390, "light", "version_conflict"],
   [1440, "dark", "draft_changed"],
+  [390, "light", undefined, ["not_set_up", "Doc isn't set up on your Mac yet."]],
+  [390, "dark", undefined, ["mac_off", "Doc answers when your Mac is on."]],
+  [1440, "light", undefined, ["signed_out", "Sign in to Claude Code on your Mac."]],
+  [1440, "dark", undefined, ["plan_limited", "Doc is paused until your Claude plan resets."]],
+  [390, "dark", undefined, ["legacy", "Sign in with DoctorCRE to talk to Doc."]],
+  [1440, "light", undefined, ["read_failed", "Couldn't check whether Doc is ready."]],
 ] as const) {
-  test(`Home reviews a Doc draft revision at ${width}px in ${theme}${conflict ? ` after ${conflict}` : ""}`, async (t) => {
+  const scenario = unavailable ? ` with Doc link ${unavailable[0]}` : conflict ? ` after ${conflict}` : "";
+  test(`Home reviews a Doc draft revision at ${width}px in ${theme}${scenario}`, async (t) => {
     const version = 7;
     const emailId = "00000000-0000-4000-8000-000000000005";
     const reviewKey = `reply_draft:${savedId}`;
@@ -908,8 +915,14 @@ for (const [width, theme, conflict] of [
     const result = { kind: "reply_revision", id: savedId, href: draftHref, version: version + 1 };
     const context = { kind: "reply_draft", id: savedId, version };
     const target = { ref: { kind: "reply_draft", id: savedId }, version, href: draftHref, label: "Reply draft" };
+    let linkReads = 0;
     const { page, origin } = await docChatFixture(t, async (request) => {
       switch (new URL(request.url).pathname) {
+        case "/api/engine/doc/link":
+          linkReads++;
+          return unavailable?.[0] === "read_failed"
+            ? new Response(null, { status: 503 })
+            : Response.json({ status: unavailable?.[0] ?? "ready" });
         case "/api/engine/doc/conversations":
           return Response.json({ conversations: [], next_before: null });
         case "/api/engine/doc/turns": {
@@ -956,7 +969,13 @@ for (const [width, theme, conflict] of [
     const app = "https://app.doctorcre.com";
     await page.route(`${app}/**`, async (route) => {
       const response = await route.fetch({ url: route.request().url().replace(app, origin), maxRedirects: 0 });
-      await route.fulfill({ response });
+      if (unavailable?.[0] === "legacy" && new URL(route.request().url()).pathname === "/auth/session") {
+        const headers = response.headers();
+        delete headers["x-doctorcre-partner-sign-in"];
+        await route.fulfill({ response, headers });
+      } else {
+        await route.fulfill({ response });
+      }
     });
     await page.route("**/mcp", async (route) => {
       const {
@@ -1020,7 +1039,17 @@ for (const [width, theme, conflict] of [
     await expect(page.getByText(email.body, { exact: true })).toBeVisible();
     await expect(page.getByText(draft.body, { exact: true })).toBeVisible();
     await fits();
-    await page.getByRole("link", { name: "Talk to Doc about this draft", exact: true }).click({ timeout: 3000 });
+    const talk = page.getByRole("link", { name: "Talk to Doc about this draft", exact: true });
+    if (unavailable) {
+      await expect(talk).toHaveCount(0);
+      await expect(page.getByText(unavailable[1], { exact: true })).toBeVisible({ timeout: 3000 });
+      assert.equal(linkReads, unavailable[0] === "legacy" ? 0 : 1);
+      await fits();
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await expect(page.getByRole("textbox", { name: "Subject", exact: true })).toBeEditable();
+      return;
+    }
+    await talk.click({ timeout: 3000 });
     await expect(page.getByRole("link", { name: "Open reply review" })).toHaveAttribute("href", draftHref);
     await page.getByLabel("Question for Doc").fill("Can you clarify when I'll send the floor plan?");
     await page.getByRole("button", { name: "Send", exact: true }).click();
@@ -1061,9 +1090,16 @@ for (const position of [1, 2]) {
       context: { ...context, activity_id: id, mailbox_user_id: id },
     };
     const { page, origin } = await docChatFixture(t, async (request) => {
-      const path = new URL(request.url).pathname;
-      if (path === "/api/engine/doc/conversations")
-        return Response.json({ conversations: [conversation], next_before: null });
+      const url = new URL(request.url);
+      const path = url.pathname;
+      if (path === "/api/engine/doc/conversations") {
+        if (url.searchParams.has("before"))
+          return Response.json({
+            conversations: [{ ...conversation, id: turn.id, title: "An older example chat" }],
+            next_before: null,
+          });
+        return Response.json({ conversations: [conversation], next_before: id });
+      }
       if (path === detailPath) return Response.json({ conversation, turns: [turn] });
       assert.equal(path, "/api/engine/doc/turns");
       assert.deepEqual(await request.json(), {
@@ -1082,5 +1118,15 @@ for (const position of [1, 2]) {
     await expect(page.getByRole("link", { name: "Open fresh review" })).toHaveAttribute("href", draftHref);
     await expect(composer).toHaveValue("One more thing to ask");
     await expect(retry).toHaveCount(0);
+    await page.getByRole("button", { name: "Recent chats", exact: true }).click();
+    await page.getByRole("button", { name: "Show older chats" }).click();
+    await expect(page.getByRole("link", { name: "An older example chat" })).toBeVisible();
+    await page.getByRole("button", { name: "Back to conversation" }).click();
+    await expect(page.getByRole("link", { name: "Open fresh review" })).toBeVisible({ timeout: 3000 });
+    await expect(retry).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole("link", { name: "Open fresh review" })).toHaveAttribute("href", draftHref);
+    await expect(retry).toHaveCount(0);
+    await expect(composer).toHaveValue("One more thing to ask");
   });
 }
