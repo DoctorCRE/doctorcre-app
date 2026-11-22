@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { dealCutover } from "../deal-cutover.ts";
-import { createWatchClient, type WatchClient } from "./client.ts";
+import { createEngineWatchClient, createWatchClient, type WatchClient } from "./client.ts";
 import { defaultPolicy, isWatchSubjectId, type Policy, type Subject, type Watch } from "./model.ts";
 import { PolicyEditor } from "./policy-editor.tsx";
 
@@ -10,8 +10,16 @@ type Command = {
   args: Subject & { idempotency_key: string; subscription_id?: string; base_version?: number; policy?: Policy };
 };
 type Phase = "loading" | "ready" | "saving" | "unknown" | "unavailable" | "missing" | "retired";
-export function WatchControl({ subject, client }: { subject: Subject; client: WatchClient }) {
-  const cutover = dealCutover(document);
+export function WatchControl({
+  subject,
+  client,
+  engine = false,
+}: {
+  subject: Subject;
+  client: WatchClient;
+  engine?: boolean;
+}) {
+  const cutover = engine ? null : dealCutover(document);
   const frozen = cutover !== null;
   const opened = useRef(false);
   const [watch, setWatch] = useState<Watch | null | undefined>();
@@ -292,11 +300,17 @@ export function WatchControl({ subject, client }: { subject: Subject; client: Wa
 }
 export function mountWatchControl(
   host: HTMLElement,
-  { subject, client = createWatchClient() }: { subject: Subject; client?: WatchClient },
+  { subject, client, engineRequest }: { subject: Subject; client?: WatchClient; engineRequest?: typeof fetch },
 ) {
   if (!isWatchSubjectId(subject.subject_id)) return { dispose() {} };
   const root = createRoot(host);
-  root.render(<WatchControl subject={subject} client={client} />);
+  root.render(
+    <WatchControl
+      subject={subject}
+      client={client ?? (engineRequest ? createEngineWatchClient(engineRequest) : createWatchClient())}
+      engine={!!engineRequest}
+    />,
+  );
   return {
     dispose() {
       root.unmount();
