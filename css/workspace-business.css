@@ -4,7 +4,7 @@
    never carries meaning alone: Color Assist adds a pattern to every tone. */
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-html:has(.business-shell) { scroll-padding-top: 12rem; }
+html:has(.business-shell) { --search-dock-top: calc(var(--tabbar-height) + var(--space-4)); scroll-padding-top: calc(var(--search-dock-top) + var(--search-dock-height, 0px) + 1px); }
 .business-shell { max-width: none; width: 100%; padding-top: var(--space-5); padding-inline: clamp(var(--space-4), 3vw, var(--space-7)); }
 .business-hero { position: relative; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
 .business-hero #pageTitle { margin: 0; font-size: var(--font-size-5); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
@@ -17,7 +17,7 @@ html:has(.business-shell) { scroll-padding-top: 12rem; }
 .refresh-icon:hover { background: var(--surface-2); color: var(--fg); }
 
 /* --- search and filters --------------------------------------------------- */
-.search-dock { position: sticky; top: calc(var(--tabbar-height) + var(--space-4)); z-index: 20; margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-3); }
+.search-dock { position: sticky; top: var(--search-dock-top); z-index: 20; margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-3); }
 .business-controls { display: grid; gap: var(--space-3); margin-bottom: var(--space-4); }
 /* One card: the sticky search. The filters sit under it as a plain row. */
 #secondaryFilters > summary { display: none; }
@@ -204,7 +204,8 @@ body.record-open { overflow: hidden; }
   .business-shell { padding-top: var(--space-3); padding-inline: var(--space-4); }
   .business-hero { margin-bottom: var(--space-3); }
   .business-hero #pageTitle { font-size: var(--font-size-4); }
-  .search-dock { top: calc(var(--tabbar-height) + var(--space-2)); padding: var(--space-2) var(--space-3); }
+  html:has(.business-shell) { --search-dock-top: calc(var(--tabbar-height) + var(--space-2)); }
+  .search-dock { padding: var(--space-2) var(--space-3); }
   .field input, .field select { font-size: var(--font-size-2); }
   .filter-form { gap: var(--space-2); padding: 0; }
   .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }

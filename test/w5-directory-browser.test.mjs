@@ -497,7 +497,7 @@ for (const width of [390, 1440]) test(`vendor conversation provenance is hidden 
  assert.deepEqual(errors, []);
 });
 
-for (const width of [390, 1440]) test(`vendor results remain visible when focused at ${width}px`, async t => {
+for (const width of [390, 1440]) for (const tall of [false, true]) test(`vendor keyboard traversal stays visible at ${width}px, tall dock ${tall}`, async t => {
   const { page } = await open(t, width);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const recording = JSON.parse(await readFile(new URL('./fixtures/vendor-meetings/recordings.json', import.meta.url), 'utf8'));
@@ -511,24 +511,30 @@ for (const width of [390, 1440]) test(`vendor results remain visible when focuse
   if (width === 390) await page.locator('.vendor-meetings > summary').click();
   const research = page.getByRole('region', { name: 'People worth meeting' });
   await research.getByText('Ada Synthetic', { exact: true }).waitFor();
-  for (const control of await research.locator('input, button, a').all()) {
-    await control.evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
-    await control.evaluate(el => el.focus({ preventScroll: true }));
-    assert.equal(await control.evaluate(el => {
-      const rect = el.getBoundingClientRect();
-      return document.activeElement === el && document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === el;
-    }), true, 'Research control is covered');
+  if (tall) await page.locator('.search-dock').evaluate(el => { el.style.paddingBottom = '160px'; });
+  await page.clock.fastForward(50);
+  await page.waitForFunction(() => {
+    const dock = document.querySelector('.search-dock');
+    return parseFloat(document.documentElement.style.getPropertyValue('--search-dock-height')) === dock.getBoundingClientRect().height;
+  });
+  await page.locator('#searchInput').focus();
+  const seen = new Set();
+  for (let i = 0; i < 180; i++) {
+    await page.keyboard.press(i < 90 ? 'Tab' : 'Shift+Tab');
+    const state = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el.matches('.record-row, .vendor-meetings input, .vendor-meetings button, .vendor-meetings a')) return null;
+      const rect = el.getBoundingClientRect(), dock = document.querySelector('.search-dock').getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      return { id: el.id || el.outerHTML, top: rect.top, bottom: rect.bottom, dockBottom: dock.bottom, height: innerHeight, hit: el === hit || el.contains(hit) };
+    });
+    if (!state) continue;
+    seen.add(state.id);
+    assert.ok(state.top >= state.dockBottom && state.bottom <= state.height && state.hit, JSON.stringify(state));
   }
-  const rows = page.locator('.record-row');
-  for (let i = 0; i < await rows.count(); i++) {
-    const row = rows.nth(i);
-    await row.evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
-    await row.evaluate(el => el.focus({ preventScroll: true }));
-    assert.equal(await row.evaluate(el => {
-      const rect = el.getBoundingClientRect();
-      return document.activeElement === el && document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest('.record-row') === el;
-    }), true, `row ${i + 1} is covered`);
-  }
+  const expected = await page.locator('.record-row, .vendor-meetings input, .vendor-meetings button, .vendor-meetings a').evaluateAll(els => els.map(el => el.id || el.outerHTML));
+  assert.ok(expected.length >= 64);
+  for (const id of expected) assert.ok(seen.has(id), `keyboard did not reach ${id}`);
   await page.locator('#searchInput').fill('Demo Partner 02');
   await page.clock.fastForward(400);
   await page.waitForFunction(() => document.querySelectorAll('.record-row').length === 1);
