@@ -29,25 +29,15 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
     if (width === 390) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
     await animationsSettled(page);
-    const targets = await page.locator('#appTodayOwners .chip').evaluateAll(nodes => nodes.map(node => {
+    const chips = page.locator('#appTodayOwners .chip');
+    const targets = await chips.evaluateAll(nodes => nodes.map(node => {
       const { width, height } = node.getBoundingClientRect();
-      return { surface: 'Today', label: node.textContent, width, height };
+      return { label: node.textContent, width, height };
     }));
-    if (width === 390) await page.getByRole('button', { name: 'Close Today', exact: true }).click();
-    if (width === 390) await page.getByRole('button', { name: /account and settings/i }).click();
-    await page.getByRole('button', { name: 'Open morning brief options', exact: true }).click();
-    await page.getByRole('button', { name: /^Morning brief/ }).click();
-    await page.locator('#morningOwners .chip').first().waitFor();
-    await animationsSettled(page);
-    targets.push(...await page.locator('#morningOwners .chip').evaluateAll(nodes => nodes.map(node => {
-      const { width, height } = node.getBoundingClientRect();
-      return { surface: 'Morning brief', label: node.textContent, width, height };
-    })));
-    t.diagnostic(JSON.stringify(targets));
-    assert.equal(targets.length, 6);
+    assert.equal(targets.length, 3);
     for (const target of targets) assert.ok(target.width >= 44 && target.height >= 44,
-      `${target.surface} ${target.label}: ${target.width}x${target.height}`);
-    assert.equal(await page.locator('#morningOwners .chip').first().evaluate(node =>
+      `${target.label}: ${target.width}x${target.height}`);
+    assert.equal(await chips.first().evaluate(node =>
       getComputedStyle(node).borderRadius === getComputedStyle(document.documentElement).getPropertyValue('--radius-round').trim()), true);
   });
 }

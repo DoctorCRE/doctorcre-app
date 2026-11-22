@@ -226,10 +226,10 @@ test('Home remains in the artifact while retired Work pages are gone', async (t)
   assert.equal(routeContract.redirects['/business'], '/');
   for (const path of ['/doc-chats/work', '/tasks', '/work']) assert.ok(isRetiredPage(path), path);
   const paths = built.manifest.files.map(file => file.path);
-  for (const path of ['business-workspace.html', 'js/business-workspace.js', 'js/business-workspace-model.js', 'tasks.html', 'js/task-records.js', 'js/task-records-model.js']) {
+  for (const path of ['business-workspace.html', 'js/business-workspace.js', 'js/business-workspace-model.js', 'tasks.html', 'js/task-records.js', 'js/task-records-model.js', 'js/local-drafts.mjs']) {
     assert.equal(paths.includes(path), false, `${path} is retired`);
   }
-  for (const path of ['workspace.html', 'js/workspace-command-center.js', 'js/local-drafts.mjs', 'js/visual-system.js', 'js/command-feedback.mjs', 'css/business-workspace.css']) {
+  for (const path of ['workspace.html', 'js/workspace-command-center.js', 'js/visual-system.js', 'js/command-feedback.mjs', 'css/business-workspace.css']) {
     assert.equal(paths.includes(path), true, `${path} still serves live callers`);
   }
 });
