@@ -35,10 +35,10 @@ test('Invoices use an admitted gate and restore the original sign-in deep link',
   for (const outcome of [200, 302, 403]) {
     let forwarded, assets = 0;
     const response = await handleDoctorcreRequest(request('/invoices?invoice=demo', {headers:{cookie:'session=opaque'}}), environment({
-      carr:{fetch:async value=>{forwarded=value;return new Response(null,{status:new URL(value.url).pathname==='/control-room'?outcome:404,headers:outcome===302?{location:request('/auth/login?return_to=%2Fcontrol-room').url}:{}});}},
+      carr:{fetch:async value=>{forwarded=value;return new Response(null,{status:new URL(value.url).pathname==='/business'?outcome:404,headers:outcome===302?{location:request('/auth/login?return_to=%2Fbusiness').url}:{}});}},
       assets:{fetch:async value=>{assets++;return new Response(`asset:${new URL(value.url).pathname}`);}}
     }));
-    assert.equal(response.status,outcome); assert.equal(new URL(forwarded.url).pathname,'/control-room');
+    assert.equal(response.status,outcome); assert.equal(new URL(forwarded.url).pathname,'/business');
     assert.equal(forwarded.headers.get('cookie'),'session=opaque'); assert.equal(assets,outcome===200?1:0);
     if(outcome===200)assert.equal(await response.text(),'asset:/invoices.html');
     if(outcome===302)assert.equal(new URL(response.headers.get('location')).searchParams.get('return_to'),'/invoices?invoice=demo');
@@ -115,9 +115,6 @@ test("public assets bypass CARR, while unknown and mutation routes fail closed",
   assert.equal((await handleDoctorcreRequest(request("/leads", { method: "POST" }), env)).status, 405);
 });
 
-// V5-UX-C15: the gated Control Room cannot be its own fallback, so /status is
-// answered ahead of the gate. If this ever takes the CARR path again, the page
-// disappears in exactly the outage it exists for.
 test("the independent status page is served without a CARR call", async () => {
   let carrCalls = 0;
   const env = environment({ carr: { fetch: async () => { carrCalls += 1; return new Response(); } } });
@@ -128,9 +125,6 @@ test("the independent status page is served without a CARR call", async () => {
   assert.equal((await handleDoctorcreRequest(request("/leads", { method: "POST" }), env)).status, 405);
 });
 
-// V5-UX-C14: the incident page is an ordinary GATED page. It is served through
-// the normal APP_ROUTES branch, so a signed-out request reaches the CARR gate
-// exactly as /control-room does; nothing about it is ungated.
 test("lease radar uses the admitted Business gate and preserves the sign-in return path", async () => {
   let forwarded;
   const response = await handleDoctorcreRequest(request("/leases?quarter=2027-Q1", {
