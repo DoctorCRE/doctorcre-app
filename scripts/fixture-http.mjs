@@ -35,7 +35,7 @@ export async function startWorkerFixture(options = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('Invalid Worker fixture port');
   fields(env, ['CARR', 'APP_ENV', 'GIT_SHA', 'ENGINE', 'ENGINE_ROUTING', 'PARTNER_APP', 'PARTNER_SIGN_IN', 'WORKSPACE_COMMAND_CENTER_READ_ENABLED']);
   if (transport.assets instanceof Map) for (const value of transport.assets.values()) fields(value, ['body', 'contentType', 'status', 'headers']);
-  const bindings = { ENGINE_ROUTING: new Map([['home-from-engine', 'off'], ['frame-from-engine', 'off']]), ...env };
+  const bindings = { APP_ENV: 'fixture', ...env };
   return start(transport, bindings, port, qaSeed === undefined ? undefined : structuredClone(qaSeed), demo);
 }
 

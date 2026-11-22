@@ -7,7 +7,6 @@ test('action links use the partner Home gate and retain their exact sign-in dest
   for (const status of [200, 302, 403, 503]) {
     let gatePath, asset;
     const response = await handleDoctorcreRequest(new Request(`https://app.doctorcre.com${path}`), {
-      ENGINE_ROUTING: new Map([['home-from-engine', 'off']]),
       CARR: { fetch: async request => {
         gatePath = new URL(request.url).pathname;
         return new Response(null, {status, headers: status === 302 ? {location:'/auth/login?return_to=%2Fleads'} : {}});

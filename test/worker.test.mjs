@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { carrContractIdentity } from "./carr-contract.mjs";
+import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
+
+Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: FixtureHtmlRewriter });
 
 test('only the tour editor allows same-origin workspace framing', async () => {
   for (const path of ['/tours/route-editor.html','/tours','/deals']) {
@@ -113,7 +116,6 @@ function environment({ carr, assets } = {}) {
     GIT_SHA: "1".repeat(40),
     CF_VERSION_METADATA: { id: "version-one", tag: "staging-one", timestamp: "2026-09-14T00:00:00Z" },
     CARR: carr,
-    ENGINE_ROUTING: new Map([["home-from-engine", "off"]]),
     ASSETS: assets || { fetch: async (assetRequest) => new Response(`asset:${new URL(assetRequest.url).pathname}`) },
   };
 }
@@ -383,13 +385,14 @@ test('phone capture ships behind the existing partner gate with narrowly scoped 
 
 test('switched linked routes serve guidance through their existing auth gates', async () => {
   for (const [path, key, oldAsset, newAsset, links] of [
-    ['/review-workflows?email=example#homeEmailFollowups', 'home-from-engine', 'review-workflows', 'review-workflows-moved', ['/', '/deals', '/calendar']],
+    ['/review-workflows?email=example#homeEmailFollowups', null, 'review-workflows', 'review-workflows-moved', ['/', '/deals', '/calendar']],
     ['/leases?lease=example', 'deals-saves-from-engine', 'lease-radar', 'lease-anniversaries', ['/deals']],
     ['/client-portal?slug=example', 'deals-saves-from-engine', 'client-portal', 'client-website-moved', ['/deals']],
   ]) {
     for (const on of [false, true]) {
       const env = {
         ...environment({ carr: { fetch: async () => new Response(null) } }),
+        ...(key === null && { APP_ENV: on ? 'production' : 'fixture' }),
         ENGINE_ROUTING: { get: async name => name === key ? (on ? 'on' : 'off') : null },
       };
       const response = await handleDoctorcreRequest(request(path, { method: 'HEAD' }), env);

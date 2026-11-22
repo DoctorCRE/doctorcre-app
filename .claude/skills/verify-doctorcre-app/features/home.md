@@ -8,7 +8,7 @@ Open a suggestion or reply-draft link at `/inbox/card/:item_id` without loading 
 
 Open a meeting to check its time, attendees, deal link, and any outcome review. Verify that earlier outcomes appear in Reminders and that a calendar failure keeps the last successful calendar and the other tiles visible. Set `HOME_MEETING_SCREENSHOTS` to retain the four meeting captures.
 
-The Home routing cases in `test/partner-sign-in.browser.ts` exercise the app Worker in CARR sign-in mode. A rejected or missing Home switch lookup keeps the engine dashboard active. If the dashboard read fails, use **Retry** in its error message to load the cards in place.
+The Home routing cases in `test/partner-sign-in.browser.ts` exercise the app Worker in CARR sign-in mode. Home and the Deals frame load from the engine even when the former Home and Frame switch values are invalid or their lookups would hang. If the dashboard read fails, use **Retry** in its error message. A failed refresh keeps the previously loaded cards visible.
 
 ## Review workflows
 

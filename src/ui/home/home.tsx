@@ -1143,6 +1143,14 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
       {home && ((query.isError && query.data) || !online) && (
         <p className="home-read-status" role="status">
           {!online ? "Offline. Showing the last available update." : "Reminders and waiting items unavailable."}
+          {online && (
+            <>
+              {" "}
+              <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>
+                Retry
+              </button>
+            </>
+          )}
         </p>
       )}
       {home ? (

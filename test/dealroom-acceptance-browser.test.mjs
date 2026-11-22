@@ -2615,10 +2615,7 @@ for (const width of [1440, 390]) {
       ASSETS: { fetch: async () => new Response(await readFile(join(outDir, 'site', 'monday-review.html')), {
         headers: { 'content-type': 'text/html' },
       }) },
-      ENGINE_ROUTING: { get: async key => {
-        if (key === 'home-from-engine') return 'off';
-        return (key === 'deals-from-engine' && enabled) || (key === 'deals-saves-from-engine' && savesOn) ? 'on' : null;
-      } },
+      ENGINE_ROUTING: { get: async key => (key === 'deals-from-engine' && enabled) || (key === 'deals-saves-from-engine' && savesOn) ? 'on' : null },
       ENGINE: { fetch: async request => {
         const url = new URL(request.url);
         if (request.method === 'POST') {

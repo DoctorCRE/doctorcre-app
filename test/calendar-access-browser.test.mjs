@@ -38,7 +38,7 @@ test('signed-in Calendar journey crosses the real CARR gate and renders a record
   t.after(() => page.close());
   await page.clock.setFixedTime(new Date('2026-10-21T02:00:00Z'));
   const appOrigin = 'https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev';
-  const appEnv = { ASSETS: { fetch: assets }, ENGINE_ROUTING: new Map([['home-from-engine', 'off']]), APP_ENV: 'staging', GIT_SHA: '0'.repeat(40), CARR: {
+  const appEnv = { ASSETS: { fetch: assets }, APP_ENV: 'fixture', GIT_SHA: '0'.repeat(40), CARR: {
     fetch: request => fetch(`${carr.url}${new URL(request.url).pathname}${new URL(request.url).search}`, {
       method: request.method, headers: request.headers, body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
       ...(request.body ? { duplex: 'half' } : {}), redirect: 'manual',

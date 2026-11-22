@@ -79,7 +79,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     return { ok: true, item_id, base_version, previous, item: snapshot(reader).items.find(item => item.item_id === item_id) };
   }
   const env = {
-    ENGINE_ROUTING: { get: async key => key === 'home-from-engine' ? (enabled ? 'on' : 'off') : null },
+    APP_ENV: enabled ? 'production' : 'fixture',
     ENGINE: { fetch: async request => {
       const path = new URL(request.url).pathname;
       if (path === '/api/engine/home/inbox') {
@@ -1694,7 +1694,7 @@ for (const width of [390, 1440]) test(`Home links open exact mailbox reviews wit
       const response = await worker.fetch(new Request(request.url(), {
         method: request.method(), headers: request.headers(), body: request.postData(),
       }), {
-        ENGINE_ROUTING: { get: async key => key === 'home-from-engine' ? 'on' : null },
+        APP_ENV: 'production',
         ENGINE: { fetch: async request => {
           const [, , , collection, reviewId, action] = new URL(request.url).pathname.split('/');
           if (collection === 'home') {

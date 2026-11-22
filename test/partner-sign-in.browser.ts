@@ -374,24 +374,42 @@ async function app(
   };
 }
 
-for (const lookup of ["failed", "missing", "on"]) {
+for (const lookup of ["stalled", "unknown", "on"]) {
   const title =
     lookup === "on"
-      ? "Home retries an engine read outage in place"
-      : `Home uses the engine when the switch lookup is ${lookup === "failed" ? "rejected" : "missing"}`;
+      ? "Home retries initial and refresh outages in place"
+      : `Home and the Deals frame ignore ${lookup} Home and Frame switches`;
   test(title, async (t) => {
     let unavailable = lookup === "on";
     const legacyReads: string[] = [];
+    const routingReads: string[] = [];
+    const held = Promise.withResolvers<string>();
+    t.after(() => held.resolve("on"));
+    const productionRouting = new Map([
+      ...[
+        "deals",
+        "deals-saves",
+        "leads",
+        "invoices",
+        "charts",
+        "national-deals",
+        "search",
+        "clients-vendors",
+        "relationships",
+      ].map((name) => [name + "-from-engine", "on"] as const),
+      ["deal-cutover-date", "2026-11-20"],
+    ]);
     assets ??= appAssetSnapshot();
     const server = await startWorkerFixture({
       assets: await assets,
       env: {
+        APP_ENV: "production",
         PARTNER_SIGN_IN: "carr",
         ENGINE_ROUTING: {
           async get(key: string) {
-            if (key !== "home-from-engine") return null;
-            if (lookup === "failed") throw Error("Synthetic KV failure");
-            return lookup === "on" ? "on" : null;
+            if (key !== "home-from-engine" && key !== "frame-from-engine") return productionRouting.get(key);
+            routingReads.push(key);
+            return lookup === "stalled" ? held.promise : lookup === "unknown" ? "ON" : "on";
           },
         },
         CARR: {
@@ -405,6 +423,16 @@ for (const lookup of ["failed", "missing", "on"]) {
         ENGINE: {
           async fetch(request: Request) {
             const url = new URL(request.url);
+            if (url.pathname === "/api/engine/deals") return Response.json(dealBoard);
+            if (url.pathname === "/api/engine/home/today")
+              return Response.json({
+                ok: true,
+                schema_version: "home-today.v1",
+                today: "2026-11-21",
+                meetings: { state: "ready", items: [] },
+                reminders: { late: [], upcoming: [] },
+                partners: [],
+              });
             if (url.pathname === "/api/engine/home/inbox" && url.searchParams.get("view") === "dashboard")
               return unavailable
                 ? Response.json({ error: "engine_unavailable" }, { status: 503 })
@@ -429,7 +457,8 @@ for (const lookup of ["failed", "missing", "on"]) {
       if (["calendar-meeting-prep", "today-triage", "read-home-inbox-v5"].includes(name)) legacyReads.push(name);
     });
 
-    assert.ok((await page.goto(server.origin + "/?mode=live"))?.ok());
+    if (lookup === "on") await page.clock.install();
+    assert.ok((await page.goto(server.origin + "/?mode=live", { timeout: 5000 }))?.ok());
     if (unavailable) {
       const failure = page.getByRole("alert").filter({ hasText: "Reminders and waiting items unavailable" });
       await failure.waitFor({ timeout: 5000 });
@@ -439,6 +468,24 @@ for (const lookup of ["failed", "missing", "on"]) {
     await page.getByText(filingTitle, { exact: true }).waitFor({ timeout: 5000 });
     assert.equal(await page.getByRole("button", { name: "Prepare meetings", exact: true }).count(), 0);
     assert.equal(await page.getByText("A LITTLE LOOK AHEAD", { exact: true }).count(), 0);
+    if (lookup === "on") {
+      unavailable = true;
+      await page.clock.fastForward(60_001);
+      const failure = page.getByRole("status").filter({ hasText: "Reminders and waiting items unavailable" });
+      await failure.waitFor({ timeout: 5000 });
+      assert.ok(await page.getByText(filingTitle, { exact: true }).isVisible());
+      unavailable = false;
+      await failure.getByRole("button", { name: "Retry", exact: true }).click({ timeout: 5000 });
+      await failure.waitFor({ state: "hidden", timeout: 5000 });
+      assert.ok(await page.getByText(filingTitle, { exact: true }).isVisible());
+    } else {
+      const today = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/engine/home/today", {
+        timeout: 5000,
+      });
+      assert.ok((await page.goto(server.origin + "/deals?mode=live", { timeout: 5000 }))?.ok());
+      assert.ok((await today).ok());
+      assert.deepEqual(routingReads, []);
+    }
     assert.deepEqual(legacyReads, []);
   });
 }

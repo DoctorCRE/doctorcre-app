@@ -289,14 +289,10 @@ test("Doc activity reaches the exact pinned CARR browser route predicate through
     return request.headers.has("cookie") ? new Response(null)
       : new Response(null, { status: 302, headers: { location: origin + "/auth/login?return_to=%2Fcontrol-room" } });
   } };
-  const app = {
-    CARR: carr,
-    ASSETS: { fetch: async request => new Response(new URL(request.url).pathname) },
-    ENGINE_ROUTING: new Map([["home-from-engine", "off"]]),
-  };
-  const signedIn = await handleDoctorcreRequest(new Request(origin + "/doc-activity", { headers: { cookie: "synthetic-session" } }), app);
+  const assets = { fetch: async request => new Response(new URL(request.url).pathname) };
+  const signedIn = await handleDoctorcreRequest(new Request(origin + "/doc-activity", { headers: { cookie: "synthetic-session" } }), { CARR: carr, ASSETS: assets });
   assert.equal(await signedIn.text(), "/activity.html");
-  const signedOut = await handleDoctorcreRequest(new Request(origin + "/doc-activity?partner=dell"), app);
+  const signedOut = await handleDoctorcreRequest(new Request(origin + "/doc-activity?partner=dell"), { CARR: carr, ASSETS: assets });
   assert.equal(signedOut.status, 302);
   assert.equal(new URL(signedOut.headers.get("location")).searchParams.get("return_to"), "/doc-activity?partner=dell");
 });

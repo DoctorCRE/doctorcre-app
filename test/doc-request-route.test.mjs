@@ -22,7 +22,7 @@ test('real completion mint opens the gated transcript and preserves both identit
     assert.deepEqual(routes.docRequestTarget(path), { id: CONVERSATION, targetMsgId: example.input.answer_msg_id ? ANSWER : JOE_ASK });
     let gate, asset;
     const response = await handleDoctorcreRequest(new Request('https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev'+path), {
-      APP_ENV: 'staging', ENGINE_ROUTING: new Map([['home-from-engine', 'off']]), CARR: {fetch: async req => {gate = new URL(req.url).pathname; return new Response(null);}},
+      APP_ENV: 'fixture', CARR: {fetch: async req => {gate = new URL(req.url).pathname; return new Response(null);}},
       ASSETS: {fetch: async req => {asset = new URL(req.url).pathname; return new Response('transcript');}},
     });
     assert.equal(response.status, 200);

@@ -42,7 +42,6 @@ const newHomes = {
 
 const html = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 const env = {
-  ENGINE_ROUTING: new Map([["home-from-engine", "off"]]),
   CARR: { fetch: async () => new Response("admitted") },
   ASSETS: { fetch: async (request) => {
     const asset = new URL(request.url).pathname.slice(1);
