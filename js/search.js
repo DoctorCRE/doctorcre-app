@@ -171,15 +171,16 @@ function wire() {
   // Typing invalidates the current answer immediately, then reads once idle.
   $("searchQuery")?.addEventListener("input", () => {
     view.query = $("searchQuery")?.value ?? "";
+    replaceAddress();
     searchReads.invalidate();
     setDocFilters({ query: view.query });
     if (idleTimer) clearTimeout(idleTimer);
     view.payload = null;
     view.status = "idle";
-    if (!view.query.trim()) { replaceAddress(); read({ push: false }); return; }
+    if (!view.query.trim()) { read({ push: false }); return; }
     render();
     // eslint-disable-next-line no-restricted-syntax -- Search keeps one 300ms debounce and cancels its predecessor.
-    idleTimer = setTimeout(() => { replaceAddress(); read({ push: false }); }, IDLE_REREAD_MS);
+    idleTimer = setTimeout(() => read({ push: false }), IDLE_REREAD_MS);
   });
 
   $("searchChips")?.addEventListener("click", (event) => {

@@ -273,3 +273,27 @@ test('A late search response cannot restore an earlier query', async t => {
   assert.equal(await page.locator('#searchQuery').inputValue(), '');
   assert.equal(await page.locator('#searchResults a').count(), 0);
 });
+
+test('Back restores typing when leaving before the search debounce', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.route('**/record-for-search-test', route => route.fulfill({ contentType: 'text/html', body: '<title>Record</title>' }));
+  await page.goto(`${server.origin}/search?q=Demo&kinds=deals`);
+  await page.waitForFunction(() => document.querySelector('#searchQuery')?.value === 'Demo');
+  const historyLength = await page.evaluate(() => history.length);
+  await page.evaluate(() => {
+    const input = document.querySelector('#searchQuery');
+    input.value = 'Demo Dental';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    location.assign('/record-for-search-test');
+  });
+  await page.waitForURL('**/record-for-search-test');
+  await page.goBack();
+  await page.waitForFunction(() => document.querySelector('#searchQuery')?.value === 'Demo Dental', null, { timeout: 3000 });
+  assert.equal(new URL(page.url()).searchParams.get('kinds'), 'deals');
+  assert.equal(await page.evaluate(() => history.length), historyLength + 1);
+  await page.waitForFunction(() => document.querySelector('#searchResults')?.getAttribute('aria-busy') === 'false');
+});
