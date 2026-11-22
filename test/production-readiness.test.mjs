@@ -32,7 +32,7 @@ test("staging remains isolated from production CARR and production hostnames", (
   assert.deepEqual(staging.kv_namespaces.map(({ binding }) => binding), ["ENGINE_ROUTING"]);
   assert.notEqual(staging.kv_namespaces[0].id, config.kv_namespaces[0].id, "staging read switches must not flip production");
   assert.equal(staging.vars.APP_ENV, "staging");
-  assert.equal(staging.vars.PARTNER_SIGN_IN, "carr");
+  assert.equal(staging.vars.PARTNER_SIGN_IN, "engine");
 });
 
 test("a CPU cap bounds every invocation in both environments", () => {
