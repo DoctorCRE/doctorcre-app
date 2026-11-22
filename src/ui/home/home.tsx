@@ -581,9 +581,10 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
-    const daysLate =
-      item.section === "inbox" && item.action_id && (home || item.engine_marks)
-        ? (item.days_late ?? lateDays(item.due_on))
+    const daysLate = home
+      ? (item.days_late ?? 0)
+      : item.section === "inbox" && item.action_id && item.engine_marks
+        ? (item.days_late ?? lateDays(item.due_on, today))
         : 0;
     const dueCaption = daysLate ? `${daysLate} day${daysLate === 1 ? "" : "s"} late` : due && <>Due {due}</>;
     const cue = home ? homeCardCue(item) : null;
@@ -1103,6 +1104,7 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
         <HomeGrid snapshot={query.data} calendar={meetings.data}>
           <CardTile
             title="Reminders"
+            showLate
             items={tiles.reminders}
             pinned={pinnedTile === "reminders" ? reviewing : null}
             current={reviewing?.item_id || item_id}

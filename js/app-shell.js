@@ -6,103 +6,99 @@ import { TOUCH_LAYOUT } from "./touch-layout.js";
 import { mountPrefs } from "./shell.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
-import { mountNavigation, appOriginForReport } from "./navigation.js";
+import { mountNavigation } from "./navigation.js";
 
 export function mountAppShell(root = document, pathname = globalThis.location?.pathname || "/") {
   const location = globalThis.location;
   const host = mountNavigation(root, pathname, { location });
   if (!host) return;
-  const base = appOriginForReport(location?.origin || "");
-  if (!base && pathname !== '/share') {
-    const history = () => import('./ui-switcher-history.generated.js');
-    // eslint-disable-next-line no-restricted-syntax -- One frame after initial page readiness records local recents; it performs no network reads or polling.
-    const track = () => root.defaultView.requestAnimationFrame(() => {
-      void Promise.all([history(), import('./doc-context.js')]).then(([{ rememberAddress, rememberDestination }, { pageDocContext }]) => {
-        if (retired) return;
-        rememberAddress(location.href);
-        pageDocContext?.subscribe(snapshot => {
-          if (!retired && snapshot.selected?.kind === 'deal') rememberDestination(`deal:${snapshot.selected.id}`);
-        });
-      }).catch(() => {});
-    });
-    const homeRoot = pathname === '/' && root.getElementById('homeRoot');
-    if (homeRoot && !homeRoot.dataset.homeReady) homeRoot.addEventListener('doctorcre:home-ready', track, { once: true });
-    else track();
-    root.defaultView.addEventListener('popstate', () => { if (!retired) void history().then(({ rememberAddress }) => rememberAddress(location.href)).catch(() => {}); });
-    const search = host.querySelector('.app-shell-search');
-    const toggle = root.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'app-shell-search quick-switcher-toggle';
-    toggle.setAttribute('aria-label', 'Search and quick switcher');
-    toggle.setAttribute('aria-haspopup', 'dialog');
-    toggle.setAttribute('aria-keyshortcuts', 'Meta+Alt+K Control+Alt+K');
-    toggle.title = 'Search (⌘/Ctrl+Alt+K)';
-    toggle.innerHTML = search.innerHTML;
-    if (search.hasAttribute("aria-current")) toggle.setAttribute("aria-current", "page");
-    search.replaceWith(toggle);
-    let opening = false, retired = false;
-    const open = async () => {
-      if (opening || retired) return;
-      opening = true;
-      const opener = root.activeElement instanceof HTMLElement && root.activeElement !== root.body ? root.activeElement : toggle;
-      try {
-        const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationFor, switcherUtilityPages }, { createClient }] = await Promise.all([
-          import('./ui-quick-switcher.generated.js'), import('./routes.js'), import('./client.js'),
-        ]);
-        if (retired) return;
-        const boot = resolveDealroomBoot(location);
-        const pages = [...navigationFor(root), ...switcherUtilityPages];
-        openQuickSwitcher({ opener, pages, read: async (publish) => {
-          const client = await createClient(boot.mode, boot.options);
-          return readQuickSwitcherSources(() => client.getBoard(), () => client.getRelationshipNetwork(), switcherInboxReader(createMcpRequests(), boot.mode === "fixture"), publish);
-        } });
-      } catch {
-        if (!retired) location.assign('/search');
-      } finally { opening = false; }
-    };
-    toggle.addEventListener('click', open);
-    root.defaultView.addEventListener('keydown', event => {
-      if (isTextEntry(event)) return;
-      if ((event.metaKey || event.ctrlKey) && event.code === 'KeyK' && event.altKey && !event.shiftKey) {
-        event.preventDefault(); event.stopImmediatePropagation();
-        if (!event.repeat) void open();
-      }
-    }, true);
-    root.defaultView.addEventListener('doctorcre-session-invalidated', () => { retired = true; toggle.disabled = true; void history().then(({ clearRecents }) => clearRecents()).catch(() => {}); }, { once: true });
-  }
+  const history = () => import('./ui-switcher-history.generated.js');
+  // eslint-disable-next-line no-restricted-syntax -- One frame after initial page readiness records local recents; it performs no network reads or polling.
+  const track = () => root.defaultView.requestAnimationFrame(() => {
+    void Promise.all([history(), import('./doc-context.js')]).then(([{ rememberAddress, rememberDestination }, { pageDocContext }]) => {
+      if (retired) return;
+      rememberAddress(location.href);
+      pageDocContext?.subscribe(snapshot => {
+        if (!retired && snapshot.selected?.kind === 'deal') rememberDestination(`deal:${snapshot.selected.id}`);
+      });
+    }).catch(() => {});
+  });
+  const homeRoot = pathname === '/' && root.getElementById('homeRoot');
+  if (homeRoot && !homeRoot.dataset.homeReady) homeRoot.addEventListener('doctorcre:home-ready', track, { once: true });
+  else track();
+  root.defaultView.addEventListener('popstate', () => { if (!retired) void history().then(({ rememberAddress }) => rememberAddress(location.href)).catch(() => {}); });
+  const search = host.querySelector('.app-shell-search');
+  const toggle = root.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'app-shell-search quick-switcher-toggle';
+  toggle.setAttribute('aria-label', 'Search and quick switcher');
+  toggle.setAttribute('aria-haspopup', 'dialog');
+  toggle.setAttribute('aria-keyshortcuts', 'Meta+Alt+K Control+Alt+K');
+  toggle.title = 'Search (⌘/Ctrl+Alt+K)';
+  toggle.innerHTML = search.innerHTML;
+  if (search.hasAttribute("aria-current")) toggle.setAttribute("aria-current", "page");
+  search.replaceWith(toggle);
+  let opening = false, retired = false;
+  const open = async () => {
+    if (opening || retired) return;
+    opening = true;
+    const opener = root.activeElement instanceof HTMLElement && root.activeElement !== root.body ? root.activeElement : toggle;
+    try {
+      const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationFor, switcherUtilityPages }, { createClient }] = await Promise.all([
+        import('./ui-quick-switcher.generated.js'), import('./routes.js'), import('./client.js'),
+      ]);
+      if (retired) return;
+      const boot = resolveDealroomBoot(location);
+      const pages = [...navigationFor(root), ...switcherUtilityPages];
+      openQuickSwitcher({ opener, pages, read: async (publish) => {
+        const client = await createClient(boot.mode, boot.options);
+        return readQuickSwitcherSources(() => client.getBoard(), () => client.getRelationshipNetwork(), switcherInboxReader(createMcpRequests(), boot.mode === "fixture"), publish);
+      } });
+    } catch {
+      if (!retired) location.assign('/search');
+    } finally { opening = false; }
+  };
+  toggle.addEventListener('click', open);
+  root.defaultView.addEventListener('keydown', event => {
+    if (isTextEntry(event)) return;
+    if ((event.metaKey || event.ctrlKey) && event.code === 'KeyK' && event.altKey && !event.shiftKey) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (!event.repeat) void open();
+    }
+  }, true);
+  root.defaultView.addEventListener('doctorcre-session-invalidated', () => { retired = true; toggle.disabled = true; void history().then(({ clearRecents }) => clearRecents()).catch(() => {}); }, { once: true });
   const home = pathname === '/' && root.getElementById('homeRoot');
   const ready = home && !home.dataset.homeReady
     ? new Promise(resolve => home.addEventListener('doctorcre:home-ready', resolve, { once: true }))
     : Promise.resolve();
   const reactWorkspace = new URLSearchParams(location?.search || "").get("ui") === "react";
-  if (!base) mountAccount(root, host, pathname, reactWorkspace, ready);
-  if (!base && pathname !== "/share") {
-    mountAppLayout(root, host, pathname, { ready });
-    const topbar = root.getElementById("appTopbar");
-    const workspace = root.getElementById("accountWorkspaceControls");
-    workspace.hidden = false;
-    const controls = host.querySelector(".app-shell-controls");
-    const callButton = root.getElementById("callModeButton");
-    const displayControls = [host.querySelector('[data-pref="theme"]'), host.querySelector("#colorAssistButton")];
-    topbar.append(host.querySelector(".app-shell-search"), host.querySelector("#askDocLink"));
-    const phone = root.defaultView.matchMedia(TOUCH_LAYOUT);
-    const arrangeControls = () => {
-      (phone.matches ? workspace : topbar).append(...displayControls);
-      if (phone.matches) workspace.append(callButton);
-      else controls.prepend(callButton);
-    };
-    phone.addEventListener("change", arrangeControls);
-    arrangeControls();
-    if (!root.documentElement.hasAttribute('data-home-today-from-engine')) {
-      let brief, retired = false;
-      const dispose = () => { retired = true; brief?.dispose(); };
-      root.defaultView.addEventListener('doctorcre-session-invalidated', dispose, { once: true });
-      root.defaultView.addEventListener('pagehide', event => { if (!event.persisted) dispose(); });
-      void ready.then(() => import('./morning-brief.js')).then(({ mountMorningBriefLauncher }) => {
-        if (!retired && host.isConnected) brief = mountMorningBriefLauncher(root);
-      }).catch(() => {});
-    }
+  mountAccount(root, host, pathname, reactWorkspace, ready);
+  mountAppLayout(root, host, pathname, { ready });
+  const topbar = root.getElementById("appTopbar");
+  const workspace = root.getElementById("accountWorkspaceControls");
+  workspace.hidden = false;
+  const controls = host.querySelector(".app-shell-controls");
+  const callButton = root.getElementById("callModeButton");
+  const displayControls = [host.querySelector('[data-pref="theme"]'), host.querySelector("#colorAssistButton")];
+  topbar.append(host.querySelector(".app-shell-search"), host.querySelector("#askDocLink"));
+  const phone = root.defaultView.matchMedia(TOUCH_LAYOUT);
+  const arrangeControls = () => {
+    (phone.matches ? workspace : topbar).append(...displayControls);
+    if (phone.matches) workspace.append(callButton);
+    else controls.prepend(callButton);
+  };
+  phone.addEventListener("change", arrangeControls);
+  arrangeControls();
+  if (!root.documentElement.hasAttribute('data-home-today-from-engine')) {
+    let brief, retired = false;
+    const dispose = () => { retired = true; brief?.dispose(); };
+    root.defaultView.addEventListener('doctorcre-session-invalidated', dispose, { once: true });
+    root.defaultView.addEventListener('pagehide', event => { if (!event.persisted) dispose(); });
+    void ready.then(() => import('./morning-brief.js')).then(({ mountMorningBriefLauncher }) => {
+      if (!retired && host.isConnected) brief = mountMorningBriefLauncher(root);
+    }).catch(() => {});
   }
+
 }
 
 export function partnerIdentity(session) {
@@ -227,7 +223,7 @@ function mountAccount(root, host, pathname, reactWorkspaceRequested, ready) {
   assist.onclick = () => { const enabled = root.documentElement.dataset.colorAssist !== "on"; applyAssist(enabled); try { localStorage.setItem("dealroom-color-assist", enabled ? "on" : "off"); } catch {} };
   const boot = resolveDealroomBoot(globalThis.location);
   const boundary = privateSession();
-  const workspace = reactWorkspaceRequested && pathname !== "/share" ? mountFlaggedWorkspace(root, pathname, () => !boundary?.revoked) : null;
+  const workspace = reactWorkspaceRequested ? mountFlaggedWorkspace(root, pathname, () => !boundary?.revoked) : null;
   if (workspace) root.defaultView.addEventListener("doctorcre-session-invalidated", () => workspace.dispose(), { once: true });
   let lastVerified = null;
   const sessionStatus = root.createElement('p');

@@ -39,7 +39,7 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-slice .inbox-context { margin: 0 0 var(--space-1); }
 .home-slice .inbox-actions { margin-left: 39px; width: calc(100% - 39px); gap: 6px; }
 .home-slice .inbox-actions button { padding-inline: 10px; font-size: 12px; flex: 0 1 auto; }
-.home-late { font-size: 12px; color: var(--status-danger-ink); margin: 2px 0 6px; }
+.home-late { font-size: 12px; color: var(--status-danger-ink); margin: var(--space-2) 0 6px; }
 .home-meeting { border-top: 1px solid var(--hairline); padding: 6px 0; overflow-wrap: anywhere; }
 .home-meeting summary { cursor: pointer; align-content: center; min-height: 54px; padding: 5px 3px; }
 .home-meeting :is(time, summary span, p), .home-tile-status { color: var(--fg-muted); font-size: 12px; }
@@ -57,6 +57,7 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
   .home-sections { grid-template-columns: minmax(0, 1fr); }
 }
 .home-inline-review{flex-basis:100%;min-width:0;padding:18px;border-top:1px solid var(--hairline);overflow-wrap:anywhere}.home-inline-review header{display:flex;justify-content:space-between;align-items:center;gap:12px}.home-inline-review h4{margin:0;font-size:16px}.home-inline-review fieldset{border:0;padding:0;min-width:0}.home-inline-review legend{padding:14px 0;font-weight:600}.home-inline-review label{display:grid;gap:6px;margin:12px 0;font-size:13px}.home-inline-review input,.home-inline-review textarea,.home-inline-review select{box-sizing:border-box;width:100%;height:auto;min-height:44px;padding:10px;color:var(--fg);background:var(--surface-1);border:1px solid var(--hairline);border-radius:6px;font:inherit}.home-inline-review textarea{resize:vertical}.home-inline-review .inbox-actions{margin:14px 0;width:auto}.home-inline-review p,.home-inline-review blockquote{font-size:13px;line-height:1.6;white-space:pre-wrap}.home-inline-review blockquote{margin:12px 0;padding-left:14px;border-left:2px solid var(--hairline)}.home-inline-review button{min-height:44px}.home-inline-review :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.home-inline-review .home-suggestion-instruction { field-sizing: content; resize: none; }
 .home-email-thread{margin-block:16px}
 .home-email-thread article{padding:10px 0;border-top:1px solid var(--hairline)}
 .home-email-thread h5{margin:0}

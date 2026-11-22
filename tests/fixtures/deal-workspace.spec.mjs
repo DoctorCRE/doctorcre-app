@@ -185,18 +185,17 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await expect(header).toContainText('Demo Long Client Name Medical Practice Associates');
     await expect(header).toContainText('Legal');
     await expect(header).toContainText('Joe');
-    const workspaceTabs = await page.evaluate(async () => (await import('/js/pipeline.js')).workspaceTabs);
+    const workspaceTabs = await page.evaluate(async () => (await import('/js/pipeline.js')).workspaceTabs.filter(tab => tab.id !== 'client-view'));
     await expect(page.getByRole('tab')).toHaveText(workspaceTabs.map(tab => tab.label));
     await expect(page.locator('#workspace-overview')).toBeVisible();
     await expect(page.locator('.critical-dates')).toContainText('LOI');
     await expect(page.locator('#detailUpdateForm')).toBeVisible();
     await expect(page.getByRole('region',{name:'Deal snapshot',exact:true})).toContainText('Demo next action');
     await expect(page.locator('.deal-updates')).toContainText('Demo discovery meeting');
-    for (const {id:tab, label} of workspaceTabs.filter(tab => ['overview', 'timeline', 'correspondence', 'client-view'].includes(tab.id))) {
+    for (const {id:tab, label} of workspaceTabs.filter(tab => ['overview', 'timeline', 'correspondence'].includes(tab.id))) {
       await page.getByRole('tab', { name: label, exact: true }).click();
       await expect(page.getByRole('tab', { name: label, exact: true })).toHaveAttribute('aria-selected', 'true');
       await expect(page.locator(`#workspace-${tab}`)).toBeVisible();
-      if (tab === 'client-view') await expect(page.getByRole('region', { name: 'Client publishing', exact: true })).toBeVisible();
       await expect(header).toBeVisible();
       for (const value of ['Demo Long Client Name Medical Practice Associates', 'Legal', 'Joe']) await expect(page.locator('#workspaceFacts').getByText(value, {exact:false}).first()).toBeVisible();
       if (width === 390) {

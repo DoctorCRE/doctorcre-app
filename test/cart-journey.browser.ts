@@ -4,23 +4,17 @@ import { mkdir, readFile } from "node:fs/promises";
 import test from "node:test";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
-import { parseSearchResponse } from "../src/ui/deal-space-search-model.ts";
 import { chromium } from "./browser-harness.mjs";
 
-const responses = JSON.parse(
-  await readFile(new URL("./fixtures/deal-space-searches/responses.json", import.meta.url), "utf8"),
-);
 const recorded = JSON.parse(await readFile(new URL("./fixtures/tour-stop-drag.json", import.meta.url), "utf8"));
 const contract = JSON.parse(await readFile(new URL("../contracts/tour-composer.v1.json", import.meta.url), "utf8"));
-const deal = responses.saved.search.deal_id;
-const candidate = responses.positive.search.result_property_ids[0];
+const deal = recorded.detail.data.deal_id;
+const candidate = recorded.detail.data.stops[1].property_id;
 const tour = recorded.detail.data.id;
 const existing = recorded.detail.data.stops[0].property_id;
 const digest = (value: unknown) => `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
 
-test("saved search to saved cart to reviewed route preserves identities and explicit acceptance", async (t) => {
-  parseSearchResponse(responses.reopened, deal, true);
-  parseSearchResponse(responses.positive, deal);
+test("the saved cart and reviewed route preserve property identities and require explicit acceptance", async (t) => {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
     env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
@@ -28,7 +22,7 @@ test("saved search to saved cart to reviewed route preserves identities and expl
   t.after(() => server.close());
   const browser = await chromium.launch();
   t.after(() => browser.close());
-  await mkdir("/tmp/WR591.S20.J3-shots", { recursive: true });
+  await mkdir("out/test-artifacts/cart-journey", { recursive: true });
   for (const width of [1440, 390])
     for (const theme of ["light", "dark"] as const) {
       await t.test(`${width} ${theme}`, async () => {
@@ -51,7 +45,6 @@ test("saved search to saved cart to reviewed route preserves identities and expl
           const writes: { path: string; body: Record<string, unknown> }[] = [];
           const replay = new Map<string, unknown>();
           let saveAttempt = 0;
-          let savedSearch = structuredClone(responses.saved.search);
           const route = detail.routes[0];
           const seed = JSON.parse(
             (await readFile(new URL("../data/board-seed.json", import.meta.url), "utf8")).replaceAll(
@@ -68,27 +61,6 @@ test("saved search to saved cart to reviewed route preserves identities and expl
           await page.route("**/auth/session", (route) =>
             route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic-csrf" } }),
           );
-          await page.route("**/mcp", async (request) => {
-            const rpc = request.request().postDataJSON();
-            assert.equal(rpc.params.arguments.deal_id, deal);
-            const reading = rpc.params.name === "read-deal-space-searches-v1";
-            assert.ok(reading || rpc.params.name === "run-deal-space-search-v1");
-            const payload = structuredClone(reading ? responses.reopened : responses.positive);
-            if (!reading) {
-              payload.search.last_run_at = new Date().toISOString();
-              payload.search.has_more = true;
-              payload.search.next_cursor = "synthetic-next-page";
-              savedSearch = structuredClone(payload.search);
-            } else payload.searches = [savedSearch];
-            parseSearchResponse(payload, deal, reading);
-            await request.fulfill({
-              json: {
-                jsonrpc: "2.0",
-                id: rpc.id,
-                result: { content: [{ type: "text", text: JSON.stringify(payload) }] },
-              },
-            });
-          });
           await page.route("**/api/tours/**", async (request) => {
             const path = new URL(request.request().url()).pathname;
             const body = request.request().method() === "POST" ? request.request().postDataJSON() : null;
@@ -160,20 +132,15 @@ test("saved search to saved cart to reviewed route preserves identities and expl
           await page.locator("[data-open-tour]").click();
           const editor = page.frameLocator("iframe");
           await editor.locator("#tour-name").filter({ hasText: detail.name }).waitFor();
-          const panel = editor.getByRole("region", { name: "Saved space searches", exact: true });
-          await panel.getByRole("button", { name: responses.saved.search.name, exact: true }).click();
-          await panel.getByRole("button", { name: "Rerun saved search", exact: true }).click();
-          await panel
-            .getByText("This is the first 100 results. Narrow your criteria to review more.", { exact: true })
-            .waitFor();
-          await panel.getByRole("checkbox").check();
-          await panel.getByRole("button", { name: "Add chosen results to Tour cart", exact: true }).click();
-          await editor.locator("#selection-state").filter({ hasText: "cart draft" }).waitFor();
+          await editor.getByRole("button", { name: "Find properties", exact: true }).click();
+          const candidateResult = editor.locator(`button[data-property-id="${candidate}"]`);
+          await candidateResult.click();
+          await editor.locator("#selection-state").filter({ hasText: "unsaved changes" }).waitFor();
           assert.equal(writes.length, 0);
           assert.equal(await editor.locator("#selection-list li").count(), 2);
           await editor.locator("#undo-selection").click();
           assert.equal(await editor.locator("#selection-list li").count(), 1);
-          await panel.getByRole("button", { name: "Add chosen results to Tour cart", exact: true }).click();
+          await candidateResult.click();
           await editor.locator("#save-selection").click();
           await editor.locator("#selection-state").filter({ hasText: "Saved version changed" }).waitFor();
           await editor.locator("#save-selection").click();
@@ -213,18 +180,13 @@ test("saved search to saved cart to reviewed route preserves identities and expl
               .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-property-id"))),
             cart.property_ids,
           );
-          await panel.getByRole("button", { name: responses.saved.search.name, exact: true }).click();
-          assert.deepEqual(
-            await panel
-              .locator("[data-result-property-id]")
-              .evaluateAll((nodes) => nodes.map((n) => n.getAttribute("data-result-property-id"))),
-            responses.positive.search.result_property_ids,
-          );
-          await panel.getByRole("button", { name: "Cancel search", exact: true }).click();
-          await page.screenshot({ path: `/tmp/WR591.S20.J3-shots/${width}-${theme}.png`, fullPage: true });
+          await page.screenshot({ path: `out/test-artifacts/cart-journey/${width}-${theme}.png`, fullPage: true });
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         } catch (error) {
-          await page.screenshot({ path: `/tmp/WR591.S20.J3-shots/failure-${width}-${theme}.png`, fullPage: true });
+          await page.screenshot({
+            path: `out/test-artifacts/cart-journey/failure-${width}-${theme}.png`,
+            fullPage: true,
+          });
           throw error;
         } finally {
           await page.close();

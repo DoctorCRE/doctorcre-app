@@ -37,7 +37,6 @@
     "js/workspace-business.js",
     "js/workspace-command-center.js",
     "public-shell/bootstrap.js",
-    "reports/share.js",
     "scripts/release-command.mjs",
     "scripts/release-environment.mjs",
     "scripts/release-staging.py",
@@ -178,9 +177,6 @@
   ],
   "project": [
     "**/*.{js,mjs,cjs,jsx,ts,tsx}",
-    "!reports/vendor/maplibre-gl-6.4.1/maplibre-gl.mjs",
-    "!reports/vendor/maplibre-gl-6.4.1/maplibre-gl-shared.mjs",
-    "!reports/vendor/maplibre-gl-6.4.1/maplibre-gl-worker.mjs",
     "!tours/vendor/maplibre-gl-6.4.1/maplibre-gl.mjs",
     "!tours/vendor/maplibre-gl-6.4.1/maplibre-gl-shared.mjs",
     "!tours/vendor/maplibre-gl-6.4.1/maplibre-gl-worker.mjs"
@@ -209,9 +205,6 @@
     ],
     "/test/workspace-shell.js": [
       "src/ui/workspace-shell.tsx"
-    ],
-    "/vendor/maplibre-gl-6.4.1/maplibre-gl.mjs": [
-      "reports/vendor/maplibre-gl-6.4.1/maplibre-gl.mjs"
     ],
     "mcp-server/test/helpers/local-carr.mjs": [
       "tests/live/producer-contract.d.mts"

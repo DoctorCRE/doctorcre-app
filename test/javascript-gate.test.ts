@@ -6,14 +6,12 @@ import test from "node:test";
 import { unexpectedJavaScript } from "../scripts/check-javascript.ts";
 import { temporaryDirectory } from "../scripts/temp-directory.mjs";
 
-const vendorExceptions = ["reports", "tours"].flatMap((area) =>
-  ["maplibre-gl", "maplibre-gl-shared", "maplibre-gl-worker"].map(
-    (name) => `${area}/vendor/maplibre-gl-6.4.1/${name}.mjs`,
-  ),
+const vendorExceptions = ["maplibre-gl", "maplibre-gl-shared", "maplibre-gl-worker"].map(
+  (name) => `tours/vendor/maplibre-gl-6.4.1/${name}.mjs`,
 );
 const allowed = { vendorExceptions, legacyJavaScript: ["scripts/legacy.mjs"] };
 
-test("repository configuration names exactly the six vendor exceptions", () => {
+test("repository configuration names exactly the three vendor exceptions", () => {
   const value: unknown = JSON.parse(
     readFileSync(new URL("../scripts/typescript-migration.json", import.meta.url), "utf8"),
   );
@@ -21,7 +19,7 @@ test("repository configuration names exactly the six vendor exceptions", () => {
   assert.deepEqual(value.vendorExceptions, vendorExceptions);
 });
 
-test("only the six named MapLibre paths and inventoried legacy JavaScript pass", () => {
+test("only the three named MapLibre paths and inventoried legacy JavaScript pass", () => {
   assert.deepEqual(unexpectedJavaScript([...vendorExceptions, "scripts/legacy.mjs", "src/new.ts"], allowed), []);
 });
 

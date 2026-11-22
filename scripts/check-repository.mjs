@@ -60,7 +60,6 @@ const RAW_COLOUR_EXCEPTIONS = new Map([
   // MapLibre style JSON takes literal colours, not CSS custom properties, and plan G5 keeps
   // basemap styling outside V2. Both are the placeholder background under a basemap.
   ["tours/itinerary-map.js", "MapLibre placeholder basemap background"],
-  ["reports/share.js", "MapLibre basemap background on the public tour share"],
 ]);
 const HEX = "#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})";
 const v2Tells = [

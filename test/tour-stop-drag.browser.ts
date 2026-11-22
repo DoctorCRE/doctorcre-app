@@ -131,11 +131,8 @@ for (const width of [390, 1440])
         assert.ok(editor);
         await editor
           .locator("#status")
-          .filter({ hasText: /^Tour (ready\.|loaded\. Client responses are unavailable\.)$/ })
+          .filter({ hasText: /^Tour ready\.$/ })
           .waitFor();
-        await editor.waitForFunction(
-          () => document.querySelector<HTMLButtonElement>("#saved-space-searches button")?.disabled === false,
-        );
         await editor.locator("#route-editing").evaluate((node) => {
           if (node instanceof HTMLDetailsElement) node.open = true;
         });
@@ -191,7 +188,6 @@ for (const width of [390, 1440])
             "none",
           );
           assert.equal(guard.writes, 0, "no writes during drag");
-          assert.ok(server.rpcReads > 0, "saved-search startup read reaches the contract fixture");
           assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
         } finally {
           await touch.detach();
