@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, readFile } from "node:fs/promises";
 import { after, type TestContext, test } from "node:test";
+import type { Page } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
@@ -15,6 +16,10 @@ const docLink = "/api/engine/doc/link";
 const dealId = "11111111-1111-4111-8111-111111111111";
 const dealName = "Demo deal on engine sign-in";
 const activityId = "22222222-2222-4222-8222-222222222222";
+const noteId = "44444444-4444-4444-8444-444444444444";
+const noteSummary = "Confirm the demo showing";
+const callSummary = "Discussed the demo showing";
+const noteAttributionPath = `/api/engine/activities/${noteId}/deal-attribution`;
 const attributionPath = `/api/engine/activities/${activityId}/deal-attribution`;
 const dealPage = `/deals?mode=live&deal=${dealId}`;
 const creditedDeal = { id: dealId, name: dealName };
@@ -24,8 +29,8 @@ const dealBoard = { schema_version: "local-deals-board.v2", actor: "joe", deals:
 const dealDetail = {
   ...dealRow,
   deal_id: dealId,
-  email_follow_ups: [],
-  activities: [{ id: activityId, kind: "note", summary: "Confirm the demo showing" }],
+  activities: [{ id: activityId, kind: "call", summary: callSummary, occurred_at: "2026-01-01T12:00:00Z" }],
+  thread: [{ id: noteId, kind: "note", actor: "joe", text: noteSummary, created_at: "2026-01-02T12:00:00Z" }],
 };
 const pages = [
   "/invoices?mode=live",
@@ -166,9 +171,10 @@ async function app(
           links.delete(token);
           return new Response(null, { status: 204 });
         }
-        if (path === attributionPath && readAttribution) return readAttribution(input);
+        if ((path === attributionPath || path === noteAttributionPath) && readAttribution)
+          return readAttribution(input);
         if (path === "/api/engine/deals") return Response.json(dealBoard);
-        if (path === `/api/engine/deals/${dealId}`) return Response.json(dealDetail);
+        if (path === `/api/engine/deals/${dealId}`) return Response.json({ ...dealDetail, email_follow_ups: [] });
         if (path === "/api/engine/leads") {
           if (input.method === "POST") writes++;
           return Response.json({ count: 0 });
@@ -358,10 +364,37 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
     .getByText("Not available yet", { exact: true })
     .waitFor({ timeout: 4000 });
   assert.equal(
-    server.requests.some(({ path }) => path === attributionPath),
+    server.requests.some(({ path }) => path === attributionPath || path === noteAttributionPath),
     false,
   );
   assert.deepEqual(legacyRequests, []);
+});
+
+function attributionButton(page: Page, update: string) {
+  return page
+    .getByRole("region", { name: "Deal updates" })
+    .getByRole("article")
+    .filter({ hasText: update })
+    .getByRole("button", { name: "Show deal attribution" });
+}
+
+test("an engine history note offers attribution for its activity ID", async (t) => {
+  const { server, context } = await app(t, {
+    readAttribution: () => Response.json({ kind: "credited", deal: creditedDeal }),
+  });
+  const page = await context.newPage();
+  await page.goto(server.origin + dealPage);
+  await page.locator(".updates-history summary").click();
+  await page.getByRole("region", { name: "Deal updates" }).getByText(noteSummary, { exact: true }).waitFor();
+  const button = attributionButton(page, noteSummary);
+  assert.equal(await button.count(), 1, "The engine note should have a deal attribution button");
+  await button.click();
+  const panel = page.getByRole("region", { name: "Activity deal attribution" });
+  await panel.getByRole("link", { name: dealName }).waitFor();
+  assert.deepEqual(
+    server.requests.filter(({ path }) => path === noteAttributionPath).map(({ method }) => method),
+    ["GET"],
+  );
 });
 
 const attributionCases = [
@@ -388,7 +421,7 @@ for (const { title, deals, response } of attributionCases)
     const page = await context.newPage();
     await page.goto(server.origin + dealPage);
     await page.locator(".updates-history summary").click();
-    await page.getByRole("button", { name: "Show deal attribution" }).click();
+    await attributionButton(page, callSummary).click();
     const panel = page.getByRole("region", { name: "Activity deal attribution" });
     await panel.getByRole("heading", { name: title }).waitFor();
     await panel.getByText(`${deals.length === 1 ? 1 : 0} credited activities`, { exact: true }).waitFor();
@@ -412,7 +445,7 @@ test("a signed-out attribution read returns the partner to sign-in", async (t) =
   const page = await context.newPage();
   await page.goto(server.origin + dealPage);
   await page.locator(".updates-history summary").click();
-  await page.getByRole("button", { name: "Show deal attribution" }).click();
+  await attributionButton(page, callSummary).click();
   await page.waitForURL("**/public-shell/session-ended.html");
   await page.getByRole("link", { name: "Sign in again" }).waitFor();
   assert.equal(await page.getByRole("heading", { name: dealName }).count(), 0);
@@ -434,7 +467,7 @@ test("an attribution timeout aborts the read and shows a sign-in prompt", async 
   await page.clock.install();
   await page.goto(server.origin + dealPage);
   await page.locator(".updates-history summary").click();
-  await page.getByRole("button", { name: "Show deal attribution" }).click();
+  await attributionButton(page, callSummary).click();
   await started.promise;
   await page.clock.fastForward(30_001);
   await page
@@ -451,11 +484,13 @@ test("CARR deal history and Compare terms use their existing reads", async (t) =
   const page = await context.newPage();
   await page.goto(server.origin + dealPage);
   await page.locator(".updates-history summary").click();
+  await page.getByRole("region", { name: "Deal updates" }).getByText(noteSummary, { exact: true }).waitFor();
+  assert.equal(await attributionButton(page, noteSummary).count(), 0);
   const reading = page.waitForRequest(
     (request) =>
       request.url().endsWith("/mcp") && request.postDataJSON()?.params?.name === "read-activity-deal-attribution",
   );
-  await page.getByRole("button", { name: "Show deal attribution" }).click();
+  await attributionButton(page, callSummary).click();
   assert.deepEqual((await reading).postDataJSON().params.arguments, { activity_id: activityId });
   await page.getByRole("heading", { name: "Activity attribution unknown" }).waitFor();
   await page.getByText("Version evidence", { exact: true }).waitFor();
@@ -467,7 +502,7 @@ test("CARR deal history and Compare terms use their existing reads", async (t) =
     ["POST"],
   );
   assert.equal(
-    server.requests.some(({ path }) => path === attributionPath),
+    server.requests.some(({ path }) => path === attributionPath || path === noteAttributionPath),
     false,
   );
 });

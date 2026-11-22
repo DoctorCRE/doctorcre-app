@@ -328,11 +328,14 @@ export function renderDealTimeline(detail, now = Date.now()) {
   const view = dealTimeline(detail,now);
   return `<section class="deal-timeline" data-detail-read="timeline" aria-label="Deal phases and timeline"><h3>Phase timeline</h3><ol class="phase-rail">${view.phases.map(p => `<li${p.current ? ' aria-current="step"' : ''}><span>${esc(p.label)}</span>${p.day ? `<time datetime="${esc(p.day)}">${esc(dateCaption(p.day))}</time>` : ''}</li>`).join('')}</ol></section>`;
 }
-export function renderDealUpdates(detail, now = Date.now()) {
+export function renderDealUpdates(detail, now = Date.now(), { engineSignIn = false } = {}) {
   const entries = (detail.entries || []).filter(e => e.source !== 'document' && (e.source !== 'hold' || calendarDay(e.holdUntil) > today(now)))
     .map(e => e.source === 'hold' ? {...e, kind:`Held until ${dateCaption(calendarDay(e.holdUntil))}`} : e);
   if (!entries.length) return '';
-  const activityIds = new Set((detail.activities || []).map(a => a.id).filter(id => typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)));
+  const notes = engineSignIn && isEngineDealDetail(detail) ? (detail.thread || []).filter(note => note.kind === 'note') : [];
+  const activityIds = new Set([...(detail.activities || []), ...notes]
+    .map(activity => activity.id)
+    .filter(id => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)));
   const overview = concise(entries[0]?.summary, 72);
   const latestDate = new Date(entries[0].when || NaN);
   const latestDay = Number.isFinite(latestDate.getTime()) ? latestDate.toLocaleDateString('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',year:'numeric'}) : 'Date not recorded';
