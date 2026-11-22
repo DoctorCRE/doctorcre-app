@@ -414,9 +414,12 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const page = detail[`${kind}_page`];
     if (!page) return '<p>History counts unavailable</p>';
     const count = detail[kind].length;
-    return `<p>Showing ${count} of ${page.total} ${kind === "correspondence" ? "captured entries" : "stage changes"}${page.has_more ? ". Newest entries first." : "."}</p>
-      ${state.historyError?.kind === kind ? '<p role="status">Older entries unavailable. Try again.</p>' : ""}
-      ${page.has_more ? `<button type="button" id="load-${kind}" data-load-history="${kind}"${state.historyRequest ? " disabled" : ""}>${state.historyRequest?.kind === kind ? "Loading…" : kind === "correspondence" ? "Load older correspondence" : "Load older stage changes"}</button>` : ""}`;
+    const entries = kind === "correspondence" ? "captured entries" : "stage changes";
+    const counts = `<p>Showing ${count} of ${page.total} ${entries}${page.has_more ? ". Newest entries first." : "."}</p>`;
+    if (!page.has_more) return counts;
+    const unavailable = state.historyError?.kind === kind ? '<p role="status">Older entries unavailable. Try again.</p>' : "";
+    const label = state.historyRequest?.kind === kind ? "Loading…" : kind === "correspondence" ? "Load older correspondence" : "Load older stage changes";
+    return `${counts}${unavailable}<button type="button" id="load-${kind}" data-load-history="${kind}"${state.historyRequest ? " disabled" : ""}>${label}</button>`;
   }
   function paintDetail(detail, intent = null) {
     const active = doc.activeElement;
@@ -574,6 +577,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
         validateLeadDetail(older.detail, id);
         response.detail = appendHistory(response.detail, older.detail, kind);
       }
+      const failedKind = state.historyError?.kind;
+      if (failedKind && !response.detail[`${failedKind}_page`]?.has_more) state.historyError = null;
       const unchanged = JSON.stringify(state.detail) === JSON.stringify(response.detail);
       state.detail = response.detail; if (!unchanged || !researchView) paintDetail(response.detail, intent);
       state.resumeDetail = null;

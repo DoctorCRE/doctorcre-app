@@ -10,11 +10,11 @@ const correspondence = [0, 1, 2, 3, 4].map((index) => ({
   summary: `Synthetic correspondence ${index}`,
 }));
 
-function detailPage(row: Parameters<typeof detail>[0], notes: string, from: number, cursor: unknown) {
+function detailPage(row: Parameters<typeof detail>[0], notes: string, from: number, cursor: unknown, pageSize = 2) {
   const rows = correspondence.slice(from);
   const start =
     rows.findIndex((entry) => cursor && typeof cursor === "object" && "id" in cursor && entry.id === cursor.id) + 1;
-  const page = rows.slice(start, start + 2);
+  const page = rows.slice(start, start + pageSize);
   const tail = page.at(-1);
   const has_more = start + page.length < rows.length;
   return {
@@ -80,39 +80,49 @@ test("refresh keeps the older rows when new correspondence shifts the pages", as
   await expect(more).toHaveCount(0);
 });
 
-test("failed Load older lets an in-flight drawer refresh finish", async ({ page }) => {
-  const board = { ...workspace(), leads: [lead(1)] };
-  const freshNotes = "Synthetic refreshed lead plans";
-  let refreshing = false;
-  const requested = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  await routeLeads(page, {
-    getBoard: () => board,
-    getDetail: async (row, args) => {
-      if (args.correspondence_cursor) {
-        return { ...detailPage(row, freshNotes, 1, args.correspondence_cursor), correspondence_page: null };
-      }
-      if (!refreshing) return detailPage(row, "Synthetic initial lead plans", 1, null);
-      requested.resolve();
-      await release.promise;
-      return detailPage(row, freshNotes, 1, null);
-    },
+for (const fullHistory of [false, true]) {
+  const outcome = fullHistory ? "clears Retry after recovering all rows" : "keeps Retry when more rows remain";
+  test(`a refresh after failed Load older ${outcome}`, async ({ page }) => {
+    const board = { ...workspace(), leads: [lead(1)] };
+    const freshNotes = "Synthetic refreshed lead plans";
+    let refreshing = false;
+    const requested = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    await routeLeads(page, {
+      getBoard: () => board,
+      getDetail: async (row, args) => {
+        if (args.correspondence_cursor) {
+          return { ...detailPage(row, freshNotes, 1, args.correspondence_cursor), correspondence_page: null };
+        }
+        if (!refreshing) return detailPage(row, "Synthetic initial lead plans", 1, null);
+        requested.resolve();
+        await release.promise;
+        return detailPage(row, freshNotes, 1, null, fullHistory ? 4 : 2);
+      },
+    });
+
+    const { drawer, more } = await openLead(page);
+    const unavailable = drawer.getByText("Older entries unavailable. Try again.");
+    refreshing = true;
+    try {
+      await page.clock.fastForward(60_000);
+      await requested.promise;
+      await more.click();
+      await expect(unavailable).toBeVisible();
+    } finally {
+      release.resolve();
+    }
+
+    await expect(page.locator("#leadBoard")).toHaveAttribute("aria-busy", "false");
+    await expect(drawer.getByText(freshNotes, { exact: true })).toBeVisible();
+    if (fullHistory) {
+      await expect(drawer.getByText("Showing 4 of 4 captured entries.")).toBeVisible();
+      await expect(more).toHaveCount(0);
+      await expect(unavailable).toHaveCount(0);
+    } else {
+      await expect(drawer.getByText(/Showing 2 of 4 captured entries/)).toBeVisible();
+      await expect(unavailable).toBeVisible();
+      await expect(more).toBeEnabled();
+    }
   });
-
-  const { drawer, more } = await openLead(page);
-  refreshing = true;
-  try {
-    await page.clock.fastForward(60_000);
-    await requested.promise;
-    await more.click();
-    await expect(drawer.getByText("Older entries unavailable. Try again.")).toBeVisible();
-  } finally {
-    release.resolve();
-  }
-
-  await expect(page.locator("#leadBoard")).toHaveAttribute("aria-busy", "false");
-  await expect(drawer.getByText(freshNotes, { exact: true })).toBeVisible();
-  await expect(drawer.getByText(/Showing 2 of 4 captured entries/)).toBeVisible();
-  await expect(drawer.getByText("Older entries unavailable. Try again.")).toBeVisible();
-  await expect(more).toBeEnabled();
-});
+}
