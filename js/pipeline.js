@@ -1,4 +1,3 @@
-import { createMcpRequests } from './mcp-requests.mjs';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
 import {
@@ -1212,7 +1211,6 @@ function refusePanelDetail(error) {
   state.panelDetail = null;
   disposeChecklist();
   disposeWatchControl();
-  clientPublicationsPanel?.dispose(); clientPublicationsPanel = null;
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   bindDraftActor(null);
@@ -1410,6 +1408,7 @@ export const workspaceTabs = [
   {id:'client-view', label:'Client view'},
 ];
 let workspaceTab = 'overview';
+let requestedClientView = false;
 let boardScroll = 0;
 let timelineType = '';
 history.scrollRestoration = 'manual';
@@ -1440,6 +1439,7 @@ function renderWorkspaceFacts(detail) {
 }
 function selectWorkspaceTab(id) {
   workspaceTab = id;
+  requestedClientView = false;
   for (const tab of workspaceTabs) {
     const selected = tab.id === id;
     $(`tab-${tab.id}`).setAttribute('aria-selected', String(selected));
@@ -1451,7 +1451,6 @@ function selectWorkspaceTab(id) {
   if (id === 'client-view') {
     const strip = $('workspaceTabs');
     strip.scrollLeft += $('tab-client-view').getBoundingClientRect().left - strip.getBoundingClientRect().left;
-    void clientPublicationsPanel?.load();
   }
   if (id === 'tours') void dealToursPanel?.load();
   $('panelContextOpenWrap').hidden = id !== 'overview' || !state.panelDetail;
@@ -1480,7 +1479,7 @@ function workspaceEventsHtml(detail, nextItem, fromEngine, planTours) {
   if (!events.some(event => event.type === timelineType)) timelineType = '';
   return `<h2>Dated events</h2><label for="timelineType">Filter by kind</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${esc(e.text)}</p></li>`).join('')}</ol>${events.length ? '' : fromEngine ? '<p>No dated events yet.</p>' : '<p>No dated events recorded.</p>'}`;
 }
-let factReviewPanel, marketTermsPanel, dealToursPanel, dealDocumentsPanel, clientPublicationsPanel;
+let factReviewPanel, marketTermsPanel, dealToursPanel, dealDocumentsPanel;
 let checklistPanel;
 function disposeChecklist() { checklistPanel?.dispose(); checklistPanel = null; }
 function disposeWatchControl() { watchControl?.dispose(); watchControl = null; watchElement = null; watchSubject = null; }
@@ -2066,7 +2065,6 @@ function paintPanel(detail) {
   factReviewPanel?.dispose();
   marketTermsPanel?.dispose();
   disposeChecklist();
-  clientPublicationsPanel?.dispose(); clientPublicationsPanel = null;
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose();
   const engineMode = privateSession()?.engineSignIn;
@@ -2220,35 +2218,9 @@ function paintPanel(detail) {
     confirmLeave() { return documentsMounted?.confirmLeave?.() ?? true; },
     dispose() { documentsDisposed = true; documentsMounted?.dispose(); },
   };
-  let clientDisposed = false, clientLoading = false, clientMounted;
-  clientPublicationsPanel = fromEngine ? null : {
-    async load() {
-      if (clientDisposed || clientLoading || clientMounted) return;
-      clientLoading = true;
-      const element = $('workspace-client-view');
-      element.textContent = 'Loading client view…';
-      try {
-        const { mountClientPublications, createPublicationFixture } = await import('./ui-client-publications.generated.js');
-        if (clientDisposed) return;
-        const mcp = createMcpRequests();
-        const request = resolveDealroomBoot(location).mode === 'fixture' ? createPublicationFixture() : async (name, args, { signal }) => {
-          const result = await mcp(name, args, { signal, timeoutMs: 10000 });
-          if (result.kind !== 'payload') throw Error('Client view unavailable');
-          return result.payload;
-        };
-        element.replaceChildren();
-        clientMounted = mountClientPublications(element, { dealId: detail.deal.id, request });
-      } catch {
-        if (!clientDisposed) {
-          element.textContent = 'Client view unavailable. ';
-          const retry = document.createElement('button'); retry.className = 'btn'; retry.textContent = 'Retry client view';
-          retry.addEventListener('click', () => void clientPublicationsPanel?.load()); element.append(retry);
-        }
-      } finally { clientLoading = false; }
-    },
-    dispose() { clientDisposed = true; clientMounted?.dispose(); },
-  };
-  selectWorkspaceTab(workspaceTab);
+  $('tab-client-view').hidden = !fromEngine;
+  selectWorkspaceTab(fromEngine && requestedClientView ? 'client-view'
+    : !fromEngine && workspaceTab === 'client-view' ? 'overview' : workspaceTab);
   mountPanelActivityAttribution();
   void mountPanelEmailFollowups(detail.deal.id);
 }
@@ -2257,7 +2229,6 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   if (!fromHistory && dealToursPanel && !await dealToursPanel.confirmLeave()) return;
   disposeChecklist();
   disposeWatchControl();
-  clientPublicationsPanel?.dispose(); clientPublicationsPanel = null;
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   factReviewPanel?.dispose();
@@ -2275,8 +2246,9 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   const scope = new URLSearchParams(location.search);
   const focusStep = scope.get('deal') === dealId && scope.get('focus') === 'next-step';
   state.panelStepId = focusStep ? scope.get('step') : null;
-  workspaceTab = scope.get('deal') === dealId && scope.has('property') ? 'tours'
-    : ['tours','client-view'].includes(scope.get('tab')) ? scope.get('tab') : 'overview';
+  const toursLink = (scope.get('deal') === dealId && scope.has('property')) || scope.get('tab') === 'tours';
+  workspaceTab = toursLink ? 'tours' : 'overview';
+  requestedClientView = !toursLink && scope.get('tab') === 'client-view';
   timelineType = '';
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
   const url = new URL(location.href);
@@ -2292,6 +2264,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   $('panelBody').innerHTML = '<p>Updating…</p>';
   $('workspaceFacts').replaceChildren();
   $('workspaceTabs').innerHTML = workspaceTabs.map(tab => `<button class="workspace-tab" type="button" role="tab" id="tab-${tab.id}" aria-controls="workspace-${tab.id}" aria-selected="${tab.id === workspaceTab}" tabindex="${tab.id === workspaceTab ? 0 : -1}" data-workspace-tab="${tab.id}">${tab.label}</button>`).join('');
+  $('tab-client-view').hidden = true;
   $('main').hidden = true; panel.hidden = false;
   document.body.classList.add('workspace-open');
   scrollTo({ top: 0, behavior: 'instant' });
@@ -2331,7 +2304,6 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   if (!fromHistory && dealToursPanel && !await dealToursPanel.confirmLeave()) return;
   disposeChecklist();
   disposeWatchControl();
-  clientPublicationsPanel?.dispose(); clientPublicationsPanel = null;
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   factReviewPanel?.dispose();
@@ -2710,9 +2682,10 @@ function wire() {
   $('workspaceTabs').addEventListener('keydown', event => {
     if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
     event.preventDefault();
-    const index = workspaceTabs.findIndex(tab => tab.id === workspaceTab);
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? workspaceTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + workspaceTabs.length) % workspaceTabs.length;
-    selectWorkspaceTab(workspaceTabs[next].id);
+    const visibleTabs = workspaceTabs.filter(tab => !$(`tab-${tab.id}`).hidden);
+    const index = visibleTabs.findIndex(tab => tab.id === workspaceTab);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? visibleTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + visibleTabs.length) % visibleTabs.length;
+    selectWorkspaceTab(visibleTabs[next].id);
     $(`tab-${workspaceTab}`).focus();
     scrollTo(0,0);
   });
