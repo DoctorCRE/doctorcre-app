@@ -482,6 +482,8 @@ test('Opening a lead shows its exact source and clears the badge for both partne
   opening.resolve();
   const drawer = joe.locator('#leadDetail');
   await drawer.getByRole('heading', { name: 'Source email', exact: true }).waitFor();
+  assert.equal(await drawer.getByText('Original request for dental space', { exact: true }).isVisible(), true);
+  await drawer.locator('details[data-entry-key=source-email] summary').click();
   assert.equal(await drawer.getByText('Please help me find a new clinic.', { exact: true }).isVisible(), true);
   await badge(joe).waitFor({ state: 'hidden' });
   assert.equal(writes.length, 1);
@@ -614,4 +616,30 @@ test('Claim removes the email badge before the refreshed board arrives', async t
   assert.equal(claimed, true);
   refresh.resolve();
   await settles(async () => assert.equal(await page.locator('#leadCount').innerText(), '0 leads'));
+});
+
+test('source email shows its saved summary and original, including outside the correspondence page', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const row = lead(1);
+  const source = { id: id(800), kind: 'email', occurred_at: '2020-01-01T10:00:00Z', summary: 'Saved summary', detail: 'Full original email\nSecond paragraph' };
+  await routeLeads(page, { getBoard: () => ({ ...workspace(), leads: [row] }), getDetail: () => ({ ...detail(row), correspondence_page: { total: 3, has_more: true, next_cursor: { occurred_at: '2026-09-30T12:00:00Z', id: id(601) } }, source_email: source }) });
+  await page.goto('http://localhost/leads');
+  await page.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
+  const panel = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Source email', exact: true }) });
+  await panel.getByText('Saved summary', { exact: true }).waitFor();
+  await panel.getByText('Details', { exact: true }).click();
+  assert.equal(await panel.getByText('Full original email Second paragraph', { exact: true }).isVisible(), true);
+});
+
+test('source email falls back to its body when no summary exists', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const row = lead(1);
+  await routeLeads(page, { getBoard: () => ({ ...workspace(), leads: [row] }), getDetail: () => ({ ...detail(row), source_email: { id: id(800), kind: 'email', occurred_at: '2020-01-01T10:00:00Z', summary: '', detail: 'Original email body' } }) });
+  await page.goto('http://localhost/leads');
+  await page.getByRole('button', { name: 'Dr. Example 1', exact: true }).click();
+  await page.locator('p').getByText('Original email body', { exact: true }).waitFor();
 });

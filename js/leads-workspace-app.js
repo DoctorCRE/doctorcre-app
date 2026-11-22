@@ -432,7 +432,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const becameDeal = normalizedStage(detail) === "archived" && lastArchive?.reason === "became a deal in the old system";
     const move = automaticMove(detail), undo = undoReview(detail);
     const source = detail.source_email;
-    const sourceExcerpt = source && summary(source.detail?.trim() || source.summary?.trim());
+    const sourceExcerpt = source && summary(source.summary?.trim() || source.detail?.trim());
     const selectedKind = researchSubject === detail.id ? researchKind : '';
     const selectedAttention = researchSubject === detail.id ? researchAttention : '';
     clearGuidance();
@@ -446,7 +446,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       <div class="detail-overview"><section class="detail-panel"><h3>Contact</h3><dl>${fields.filter(([, value]) => value).map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join("")}</dl></section>
       ${plan || leaseDate ? `<section class="detail-panel"><h3>Plans</h3>${plan ? `<p>${esc(plan)}</p>` : ""}${planDetails.length ? `<details class="plan-details" data-entry-key="plans"><summary>More about these plans</summary><div class="original-entry">${esc(planDetails.join("\n\n"))}</div></details>` : ""}${leaseDate ? `<dl class="plan-window"><dt>Estimated lease date</dt><dd><time datetime="${esc(leaseDate)}">${esc(shortDate(leaseDate, true))}</time></dd></dl>` : ""}</section>` : ""}
       </div>
-      ${source ? `<section class="detail-panel"><h3>Source email</h3><time>${stamp(source.occurred_at)}</time>${sourceExcerpt ? `<p>${esc(sourceExcerpt)}</p>` : ""}</section>` : ""}
+      ${source ? `<section class="detail-panel"><h3>Source email</h3><time>${stamp(source.occurred_at)}</time>${sourceExcerpt ? `<p>${esc(sourceExcerpt)}</p>` : ""}${source.detail?.trim() ? `<details data-entry-key="source-email"><summary>Details</summary><div class="original-entry">${esc(source.detail)}</div></details>` : ""}</section>` : ""}
       ${timingMarkup(detail.opportunity_timing, true, !!leaseDate)}
       <div id="leadGuidance"></div>
       <div id="leadResearch"></div>
