@@ -75,7 +75,9 @@ export function mountRelationshipNetwork({
     window.history[push ? "pushState" : "replaceState"](null, "", url);
   };
   const open = (id, trigger, push = true) => {
+    if ($("networkNotice").textContent === "This record is no longer available.") $("networkNotice").hidden = true;
     const changed = focus !== id;
+    if (changed) openLinkedRecord = false;
     if (changed) stepId = null;
     focus = id;
     returnId = id;
@@ -124,13 +126,9 @@ export function mountRelationshipNetwork({
     if (phone && graphView.firstElementChild !== directory) graphView.prepend(directory);
     else if (!phone && graphView.lastElementChild !== directory) graphView.append(directory);
     if (focus && !snapshot.nodes.some(n => n.id === focus)) {
-      focus = null;
-      stepId = null;
-      returnId = null;
       dialog.clear();
-      address();
-      if (focusedNode || document.activeElement === document.body)
-        $("networkKind").focus();
+      $("networkNotice").textContent = "This record is no longer available.";
+      $("networkNotice").hidden = false;
     }
     const selected = view.nodes.some((n) => n.id === focus)
       ? focus
@@ -322,7 +320,7 @@ export function mountRelationshipNetwork({
       render();
       dialog.update(snapshot);
       if (openLinkedRecord && snapshot.nodes.some(node => node.id === focus)) open(focus, undefined, false);
-      openLinkedRecord = false;
+      openLinkedRecord = Boolean(openLinkedRecord && focus && !snapshot.nodes.some(node => node.id === focus));
     } catch (error) {
       if (disposed || seq !== epoch) return;
       const expired = [401, 403].includes(error.status);
@@ -444,7 +442,7 @@ export function mountRelationshipNetwork({
     render();
     if (focus && snapshot?.nodes.some(node => node.id === focus)) {
       open(focus, undefined, false);
-      if (stepId && snapshot.focused_step?.id !== stepId) auto.refresh();
+      if (stepId) auto.revalidate();
     } else { dialog.clear(); highlight(null); }
   }, { signal: localEvents.signal });
   const resize = () => render();

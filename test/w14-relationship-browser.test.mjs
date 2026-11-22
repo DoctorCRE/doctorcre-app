@@ -797,3 +797,39 @@ test('Back restores filters from the previous entry', async t => {
   assert.equal(await page.locator('#networkKind').inputValue(), '');
   assert.equal(new URL(page.url()).searchParams.has('kind'), false);
 });
+
+for (const reload of [false, true]) test(`Back restores a next step after an in-flight background read, reload ${reload}`, async t => {
+  const { page } = await open(t);
+  const step = '11111111-1111-4111-8111-111111111111';
+  await page.goto(`http://localhost/relationships?mode=live&node=party:demo-build&step=${step}`);
+  const dialog = page.getByRole('dialog');
+  await dialog.getByText('Demo next step', { exact: false }).waitFor();
+  await dialog.locator('[data-open-node="party:demo-client"]').click();
+  if (reload) { await page.reload(); await dialog.waitFor(); }
+  let release, started;
+  const held = new Promise(resolve => { release = resolve; });
+  const requested = new Promise(resolve => { started = resolve; });
+  await page.route('**/api/v1/business/relationships*', async route => {
+    if (!new URL(route.request().url()).searchParams.has('step')) {
+      started();
+      await held;
+    }
+    await route.fallback();
+  });
+  await page.clock.fastForward(61000);
+  await requested;
+  await page.goBack();
+  await page.waitForURL(url => url.searchParams.get('step') === step);
+  const stepRead = page.waitForResponse(response => new URL(response.url()).searchParams.get('step') === step, { timeout: 3000 });
+  release();
+  await stepRead;
+  await dialog.getByText('Demo next step', { exact: false }).waitFor({ timeout: 3000 });
+});
+
+test('A missing linked relationship reports that the record is unavailable', async t => {
+  const { page } = await open(t);
+  await page.goto('http://localhost/relationships?mode=live&node=party:missing');
+  await page.getByRole('status').getByText('This record is no longer available.').waitFor({ timeout: 3000 });
+  assert.equal(await page.getByRole('dialog').count(), 0);
+  assert.equal(new URL(page.url()).searchParams.get('node'), 'party:missing');
+});
