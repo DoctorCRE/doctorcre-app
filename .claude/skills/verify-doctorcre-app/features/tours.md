@@ -14,7 +14,7 @@ Open Deals, choose a deal board card, then Tours. Open an existing tour or choos
 
 Run `node --test test/partner-sign-in.browser.ts` for the engine planner. The synthetic browser cases cover edit conflicts, completion retries and cancellation at 390 px.
 
-Run node --test test/deal-tours.test.mjs test/deal-tours-browser.test.mjs test/tour-composer.test.mjs test/w6-planner.test.mjs test/w6-planner-browser.test.mjs. The browser fixture drives the board, Tours tab, shared editor, saving, creation, return links and old deep links at 390, 1024 and 1440 in light and dark. Screenshots remain under out/test-artifacts/deal-tours.
+Run node --test test/deal-tours.test.mjs test/deal-tours-browser.test.mjs test/tour-composer.test.mjs test/w6-planner-check.test.mjs test/w6-planner-browser.test.mjs. The browser fixture drives the board, Tours tab, shared editor, saving, creation, return links and old deep links at 390, 1024 and 1440 in light and dark. Screenshots remain under out/test-artifacts/deal-tours.
 
 Run npx playwright test --project=fixtures tests/fixtures/tours-client-drafts.spec.mjs --trace=on for cross-deal library links and absence of standalone planning forms.
 
