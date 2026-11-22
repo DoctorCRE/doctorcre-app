@@ -865,7 +865,7 @@ function activityHtml(recordId) {
   const body = state.state === "ready"
     ? view.dataset === "clients" ? clientActivity(state.rows) : `<ol class="activity-list">${state.rows.map((row) => `<li class="activity-row" data-kind="${escapeHtml(row.kind)}"><span class="activity-dot" aria-hidden="true"></span><span class="activity-what">${escapeHtml(row.what)}${row.owed ? ` <b>· owed: ${escapeHtml(row.owed)}</b>` : ""}</span><span class="activity-when">${escapeHtml(row.when ? formatMoment(row.when) : "an unknown time")}${row.actor ? ` · ${escapeHtml(row.actor)}` : ""}</span></li>`).join("")}</ol>`
     : `<p class="record-note activity-note" data-state="${escapeHtml(state.state)}">${escapeHtml(activityCopy(state))}${view.dataset === "clients" && state.state === "unavailable" ? ` <button type="button" data-retry="activity">Retry</button>` : ""}</p>`;
-  return `<section class="record-section" id="recordActivity" aria-labelledby="recordActivityTitle" aria-live="polite"><h3 id="recordActivityTitle">Recent activity</h3>${body}</section>`;
+  return `<section class="record-section" id="recordActivity" tabindex="-1" aria-labelledby="recordActivityTitle" aria-live="polite"><h3 id="recordActivityTitle">Recent activity</h3>${body}</section>`;
 }
 
 /**
@@ -881,10 +881,12 @@ async function loadActivity(id, record) {
   const docTicket=request ? pageDocContext?.begin('businessActivity',[{dataset:view.dataset,id}]) : null;
   const settle = (result) => {
     if (view.activity.sequence !== sequence || view.recordId !== id) return;
+    const activityHadFocus = document.activeElement === dom.panelBody?.querySelector("#recordActivity");
     view.activity.result = result;
     if(['ready','empty'].includes(result.state))pageDocContext?.finish(docTicket,{record,activities:result.rows.map(({what, when}) => ({what, when}))});
     else if (docTicket)pageDocContext?.fail(docTicket);
     renderRecordPanel();
+    if (activityHadFocus) focusWithoutScrolling(dom.panelBody?.querySelector("[data-retry='activity']") || dom.panelBody?.querySelector("#recordActivity"));
   };
   if (!request) return settle({ state: "no_ref" });
   try {
@@ -1240,6 +1242,7 @@ function wireControls() {
     if (event.target.closest("[data-retry='activity']") && !view.signedOut && view.recordId === view.record.payload?.record?.id) {
       loadActivity(view.recordId, view.record.payload.record);
       renderRecordPanel();
+      focusWithoutScrolling(dom.panelBody.querySelector("#recordActivity"));
     }
   });
 
