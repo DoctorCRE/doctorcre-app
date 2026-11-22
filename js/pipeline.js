@@ -2267,8 +2267,9 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
   const url = new URL(location.href);
   if (!fromHistory && url.searchParams.get('deal') !== dealId) {
-    url.searchParams.delete('checklist');
-    url.searchParams.delete('property');
+    for (const key of [...url.searchParams.keys()]) {
+      if (!['owner', 'view', 'mode'].includes(key)) url.searchParams.delete(key);
+    }
     url.searchParams.set('deal',dealId);
     writeWorkspaceHistory({...history.state, boardScroll:scrollY}, location.href);
     writeWorkspaceHistory({doctorcreDealWorkspace:true},url,true);
@@ -2339,7 +2340,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   disposePanelEmailFollowups();
   if (!fromHistory) {
     const url = new URL(location.href);
-    for (const key of ['deal', 'checklist', 'property', 'tab', 'tour', 'focus', 'step']) url.searchParams.delete(key);
+    for (const key of ['deal', 'checklist', 'property', 'tab', 'tour', 'focus', 'step', 'item']) url.searchParams.delete(key);
     writeWorkspaceHistory({},url,true);
   }
   closeFiledDocumentText();

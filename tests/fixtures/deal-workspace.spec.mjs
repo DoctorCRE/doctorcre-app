@@ -312,3 +312,31 @@ test('a tour link stays with its deal when returning to the board', async ({ pag
   await expect(page).toHaveURL(/deal=d14.*tab=tours/);
   await expect(page.getByRole('tab', {name:'Tours', selected:true})).toBeVisible();
 });
+
+test('a board address with a stale Tours tab opens and reloads a deal on Overview', async ({ page }) => {
+  await page.goto(`${server.url}/deals?owner=joe&view=list&tab=tours`);
+  await page.locator('.kanban-card[data-id="d14"] .card-open').click();
+  await expect(page.getByRole('tab', {name:'Overview', selected:true})).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('tab', {name:'Overview', selected:true})).toBeVisible();
+  const params = new URL(page.url()).searchParams;
+  expect(params.get('owner')).toBe('joe');
+  expect(params.get('view')).toBe('list');
+  expect(params.has('tab')).toBe(false);
+});
+
+test('an item link does not follow another deal from the board after reload', async ({ page }) => {
+  const seed = JSON.parse(await readFile(new URL('../../data/board-seed.json', import.meta.url), 'utf8'));
+  seed.deals.push({...seed.deals.find(deal => deal.id === 'd14'), id:'demo-second', name:'Demo second practice', items:[]});
+  await page.route('**/data/board-seed.json', route => route.fulfill({json:seed}));
+  await page.goto(`${server.url}/deals?deal=d14&item=demo-vendor-intros`);
+  await expect(page.getByRole('dialog', {name:'Vendor Introductions'})).toBeVisible();
+  await page.getByRole('button', {name:'Close item'}).click();
+  await page.getByRole('button', {name:'Back to deals'}).click();
+  expect(new URL(page.url()).searchParams.has('item')).toBe(false);
+  await page.locator('.kanban-card[data-id="demo-second"] .card-open').click();
+  await page.reload();
+  await expect(page.getByRole('tab', {name:'Overview', selected:true})).toBeVisible();
+  await expect(page.getByRole('dialog', {name:'Deal item'})).not.toBeVisible();
+  expect(new URL(page.url()).searchParams.has('item')).toBe(false);
+});
