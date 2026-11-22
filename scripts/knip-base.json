@@ -73,6 +73,8 @@
     "tests/regressions/round2/qa-034-national-market-agent.e2e.ts",
     "tests/regressions/synthetic.setup.e2e.ts",
     "tests/staging/auth.setup.ts",
+    "tests/staging/engine.global-setup.ts",
+    "tests/staging/playwright.config.ts",
     "tests/walks/01-WR-000581.spec.ts",
     "tests/walks/02-WR616-S3.spec.ts",
     "tests/walks/03-WR617-S1.spec.ts",

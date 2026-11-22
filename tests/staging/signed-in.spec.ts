@@ -1,4 +1,23 @@
-import { expect, test } from "@playwright/test";
+import { test as base, expect } from "@playwright/test";
+import {
+  requireSafeStagingDiagnostics,
+  requireStagingStatePath,
+  stagingEngineProject,
+  stagingStateLoadError,
+} from "./engine-session.ts";
+
+const test = base.extend({
+  context: async ({ context }, use, testInfo) => {
+    if (testInfo.project.name === stagingEngineProject) {
+      requireSafeStagingDiagnostics(testInfo.project.use, testInfo.config.argv);
+      const statePath = requireStagingStatePath(process.env.E2E_ENGINE_STORAGE_STATE);
+      await context.setStorageState(statePath).catch(() => {
+        throw stagingStateLoadError();
+      });
+    }
+    await use(context);
+  },
+});
 
 const screens = [
   { name: "Leads", path: "/leads", title: "Leads · DoctorCRE", more: false },
@@ -43,6 +62,8 @@ for (const screen of screens) {
     await account.click();
     await expect(page.locator("#accountMenu").getByText("Joe's Workspace", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath("signed-in-route.png") });
+    if (testInfo.project.name !== stagingEngineProject) {
+      await page.screenshot({ path: testInfo.outputPath("signed-in-route.png") });
+    }
   });
 }
