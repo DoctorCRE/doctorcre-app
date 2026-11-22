@@ -49,10 +49,10 @@ export function WatchControl({
       setPhase("loading");
       const outcome = await client("read-subject-watch-v2", subject, life.controller.signal);
       if (life.retired || sequence !== life.sequence) return;
-      if (outcome.kind === "missing" && frozen) {
+      if (outcome.kind === "missing" && (frozen || engine)) {
         setWatch(undefined);
         setPhase("missing");
-        setMessage("");
+        setMessage(engine ? "Watch settings are not available for this deal." : "");
         return;
       }
       if (outcome.kind === "denied" || outcome.kind === "missing") {
@@ -90,7 +90,7 @@ export function WatchControl({
           : "",
       );
     },
-    [client, subject, retire, frozen],
+    [client, subject, retire, frozen, engine],
   );
   useEffect(() => {
     window.addEventListener("doctorcre-session-invalidated", retire);
@@ -156,6 +156,13 @@ export function WatchControl({
     setMessage("Saving watch.");
     const outcome = await client(command.verb, command.args, life.controller.signal);
     if (life.retired) return;
+    if (outcome.kind === "missing" && engine) {
+      pending.current = null;
+      setWatch(undefined);
+      setPhase("missing");
+      setMessage("Watch settings are not available for this deal.");
+      return;
+    }
     if (outcome.kind === "denied" || outcome.kind === "missing") {
       retire();
       return;
