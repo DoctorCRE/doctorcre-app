@@ -14,10 +14,15 @@ function worker() {
   const opened: string[] = [],
     focused: string[] = [],
     deleted: string[] = [];
+  const forwarded: Request[] = [];
   let unsubscribed = false;
   const context = {
     URL,
     Response,
+    fetch: async (request: Request) => {
+      forwarded.push(request);
+      return new Response(null, { status: 204 });
+    },
     self: {
       location: { origin: "https://app.example.test" },
       addEventListener: (name: string, handler: (event: object) => void) => handlers.set(name, handler),
@@ -51,7 +56,7 @@ function worker() {
       },
     },
     caches: {
-      keys: async () => ["dealroom-shell-v6", "dealroom-shell-v7"],
+      keys: async () => ["dealroom-shell-v7", "dealroom-shell-v8"],
       delete: async (name: string) => {
         deleted.push(name);
       },
@@ -65,13 +70,16 @@ function worker() {
     assert.ok(handler);
     handler({
       ...data,
+      respondWith: (p: Promise<Response>) => {
+        pending = p;
+      },
       waitUntil: (p: Promise<unknown>) => {
         pending = p;
       },
     });
-    await pending;
+    return await pending;
   }
-  return { shown, opened, focused, deleted, event, unsubscribed: () => unsubscribed };
+  return { shown, opened, focused, deleted, event, forwarded, unsubscribed: () => unsubscribed };
 }
 test("push shows only generic text and click opens the exact same-origin card", async () => {
   const w = worker();
@@ -110,8 +118,19 @@ test("worker update retires the previous shell cache and session invalidation cl
   const w = worker();
   await w.event("install", {});
   await w.event("activate", {});
-  assert.deepEqual(w.deleted, ["dealroom-shell-v6"]);
+  assert.deepEqual(w.deleted, ["dealroom-shell-v7"]);
   await w.event("message", { data: { type: "doctorcre-session-revoked" } });
-  assert.deepEqual(w.deleted, ["dealroom-shell-v6", "dealroom-shell-v6", "dealroom-shell-v7"]);
+  assert.deepEqual(w.deleted, ["dealroom-shell-v7", "dealroom-shell-v7", "dealroom-shell-v8"]);
   assert.equal(w.unsubscribed(), true);
+});
+
+test("the service worker sends old share submissions and unknown POSTs to the network", async () => {
+  const w = worker();
+  for (const path of ["/share-target", "/unknown"]) {
+    const request = new Request("https://app.example.test" + path, { method: "POST", body: "synthetic" });
+    const response = await w.event("fetch", { request });
+    assert.ok(response instanceof Response);
+    assert.equal(response.status, 204);
+    assert.equal(w.forwarded.at(-1), request);
+  }
 });

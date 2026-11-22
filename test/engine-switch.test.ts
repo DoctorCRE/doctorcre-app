@@ -4,8 +4,6 @@ import test from "node:test";
 import { parse } from "@babel/parser";
 import traverse from "@babel/traverse";
 import phone from "../contracts/carr-interface.v1/phone_call_sessions.json" with { type: "json" };
-import deliverables from "../contracts/deal-deliverables.v1.json" with { type: "json" };
-import documentIntake from "../contracts/deal-document-intake.v1.json" with { type: "json" };
 import tourComposer from "../contracts/tour-composer.v1.json" with { type: "json" };
 import worker from "../src/worker.js";
 
@@ -187,6 +185,48 @@ test("retiring the feed stops forwarding its cursor without changing the legacy 
   assert.equal(retired.headers.get("cache-control"), "no-store");
   assert.equal(await retired.text(), "");
   assert.equal(carr.length, 1);
+});
+
+test("old installed-app share URLs lead to Deals without forwarding the file", async () => {
+  const files = new FormData();
+  files.set("files", new File(["synthetic"], "Example.pdf", { type: "application/pdf" }));
+  for (const signIn of ["carr", "engine"]) {
+    const f = fixture(nextDealsOn);
+    const env = { ...f.env, PARTNER_SIGN_IN: signIn };
+    for (const [path, method] of [
+      ["/share-target", "GET"],
+      ["/share-target", "POST"],
+      ["/share-intake.html", "GET"],
+    ] as const) {
+      const response = await worker.fetch(
+        new Request(origin + path, { method, body: method === "POST" ? files : null }),
+        env,
+      );
+      assert.equal(response.status, 303, `${signIn} ${method} ${path}`);
+      assert.equal(response.headers.get("location"), "/deals");
+      assert.equal(response.headers.get("cache-control"), "no-store");
+    }
+    assert.deepEqual(f.carr, []);
+    assert.deepEqual(f.engine, []);
+  }
+});
+
+test("old deliverable HTTP routes are retired in both sign-in modes", async () => {
+  for (const signIn of ["carr", "engine"]) {
+    const f = fixture(nextDealsOn);
+    const env = { ...f.env, PARTNER_SIGN_IN: signIn };
+    for (const [path, method] of [
+      ["", "POST"],
+      ["/demo-deal", "GET"],
+      ["/demo-deal/demo-file/download", "GET"],
+      ["/demo-deal/demo-file/bytes", "PUT"],
+    ] as const) {
+      const response = await worker.fetch(new Request(origin + "/api/v1/deal-deliverables" + path, { method }), env);
+      assert.equal(response.status, 404, `${signIn} ${method} ${path}`);
+    }
+    assert.deepEqual(f.carr, []);
+    assert.deepEqual(f.engine, []);
+  }
 });
 
 test("document writes require both Deals switches and preserve bytes and session headers", async () => {
@@ -2718,16 +2758,7 @@ test("legacy HTTP writes in the pinned contracts have a cutover disposition", as
   ]);
   const keptPhone = [phone.admission, phone.transfer, phone.answer];
   const phoneMethods = new Map(keptPhone.map(({ method, path }) => [path, method]));
-  const fileRoutes = [
-    ...Object.keys(deliverables.browser.routes).map((route) =>
-      route.replace("{base_path}", deliverables.browser.base_path),
-    ),
-    documentIntake.browser.abandon.replace("base_path", documentIntake.browser.base_path),
-  ];
-  const contractWrites = [
-    ...Object.keys(tourComposer.writes).map((path) => `POST ${path}`),
-    ...fileRoutes.filter((route) => !route.startsWith("GET ")),
-  ];
+  const contractWrites = Object.keys(tourComposer.writes).map((path) => `POST ${path}`);
 
   async function verify(paths: string[]) {
     const routes = new Set(contractWrites);
@@ -2779,12 +2810,11 @@ test("the cutover preserves the local report and read-only Tour search", async (
     ["GET", "/api/post-call"],
     ["GET", "/api/tours/detail"],
     ["POST", "/api/tours/properties/search"],
-    ["GET", "/api/v1/deal-deliverables/demo-deal"],
   ] as const) {
     const response = await worker.fetch(new Request(origin + path, { method }), f.env);
     assert.equal(await response.text(), "old", path);
   }
-  assert.equal(f.carr.length, 4);
+  assert.equal(f.carr.length, 3);
 });
 
 test("Home-only legacy saves are refused independently of Deals", async () => {
