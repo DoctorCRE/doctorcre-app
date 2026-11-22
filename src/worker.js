@@ -1111,7 +1111,7 @@ async function handleRequest(request, env) {
     }
     if (routeAsset === 'review-workflows.html' && switches.homeToday)
       return gatedResponse(gate, await assetResponse(request, env, '/review-workflows-moved.html', switches), env);
-    if (routeAsset === 'client-portal.html' && switches.dealSavesFromEngine) {
+    if (routeAsset === 'client-portal.html' && (engineSignIn(env) || switches.dealSavesFromEngine)) {
       const deal = url.searchParams.get('deal');
       if (deal) {
         const query = new URLSearchParams({ deal, tab: 'client-view' });
