@@ -181,3 +181,46 @@ test('An undated vendor conversation shows the note without a time', () => {
   assert.equal(conversation.querySelector('.note-summary').textContent, entry.summary);
   assert.equal(conversation.querySelector('time'), null);
 });
+
+test('Vendor conversations hide import provenance and retain partner words', () => {
+  const { document, app, payload } = setup('vendors');
+  const examples = [
+    ['Met Alex — recovered from Alex\'s CARR calendar history', 'Met Alex'],
+    ['Met Alex\n\nMarch 2, 2026 from the historical CARR calendar read', 'Met Alex'],
+    ['Backfilled Mar 2, 2026 from the CARR calendar in April 2026, discussed financing', 'discussed financing'],
+    ['Met Alex — recovered from the calendar backfill\nCalendar event March 2, 2026', 'Met Alex'],
+    ['Met Alex (recovered from the March 2, 2026 mailbox sweep)', 'Met Alex'],
+    ['Met Alex (recovered from the 2026-07-25 mailbox sweep)', 'Met Alex'],
+    ["Before (recovered from the March 2, 2026 mailbox sweep) after", 'Before after'],
+    ['Sent through the CARR example import bundle', 'Sent through the CARR example import bundle'],
+    ['CARR represents the client', 'CARR represents the client'],
+    ['a local CARR agent', 'a local CARR agent'],
+    ['CARR invoice', 'CARR invoice'],
+    ['name and specialty still unrecovered from the source email', 'name and specialty still unrecovered from the source email'],
+    ['Below is either read out of those records, recovered from the mailbox sweep, researched fresh this session', 'Below is either read out of those records, recovered from the mailbox sweep, researched fresh this session'],
+  ];
+  app.view.recordId = payload.record.id;
+  payload.record.relationship.introductions = [];
+  for (const [summary, expected] of examples) {
+    payload.record.relationship.recent_entries = [{id: 'example', summary, detail: summary, when: '2026-03-02T12:00:00Z'}];
+    app.view.record = { status: 'ready', payload };
+    app.renderRecordPanel();
+    const entry = document.querySelector('.network-list li');
+    assert.equal(entry.querySelector('.note-summary').textContent, expected);
+    assert.equal(entry.querySelector('.entry-detail').textContent, expected);
+  }
+});
+
+
+test('A provenance-only conversation shows its date alone', () => {
+  const { document, app, payload } = setup('vendors');
+  payload.record.relationship.introductions = [];
+  payload.record.relationship.recent_entries = [{id:'empty', summary:'(recovered from the 2026-07-25 mailbox sweep)', detail:'(recovered from the 2026-07-25 mailbox sweep)', when:'2026-03-02T12:00:00Z'}];
+  app.view.recordId = payload.record.id;
+  app.view.record = { status:'ready', payload };
+  app.renderRecordPanel();
+  const entry = document.querySelector('.network-list li');
+  assert.equal(entry.querySelector('.note-summary'), null);
+  assert.equal(entry.querySelector('details'), null);
+  assert.match(entry.textContent, /Mar 2, 2026/);
+});
