@@ -151,7 +151,7 @@ export async function mountCalendarPanels(left: HTMLElement, right: HTMLElement,
     const status = !valid
       ? object(value) && value.state === "loading"
         ? "Loading schedule…"
-        : "Schedule unavailable. Retry Today to try again."
+        : "Schedule unavailable."
       : partial
         ? "Calendar coverage is incomplete. Check Outlook for changes."
         : null;

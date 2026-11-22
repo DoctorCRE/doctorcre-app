@@ -388,13 +388,26 @@ test('Today shows loading on first read and tab resume, and keeps rows quietly o
 
 test('Today malformed schedule offers Retry Today and names Schedule',async t=>{
  const {page,errors}=await open(t,{clock:true});
+ const {promise:heldChanges,resolve:releaseChanges}=Promise.withResolvers();
+ await page.route('**/pipeline/changes*',async route=>{
+  await heldChanges;
+  return route.fallback();
+ });
  await page.route('**/mcp',route=>route.request().postDataJSON().params.name==='calendar-meeting-prep'
   ?route.fulfill({json:{result:{content:[{type:'text',text:'{"ok":true}'}]}}}):route.fallback());
- await page.goto('http://localhost/inbox?mode=live');
- await page.waitForFunction(()=>document.querySelector('#appScheduleSlot')?.textContent.includes('Schedule unavailable'));
- assert.equal(await page.locator('#appTodayRetry').isVisible(),true);
- assert.match(await page.locator('#appTodayReadStatus').textContent(),/Schedule unavailable/);
- assert.match(await page.locator('#appScheduleSlot').textContent(),/Retry Today/);
+ const retry=page.getByRole('button',{name:'Retry Today',exact:true});
+ const schedule=page.locator('#appScheduleSlot');
+ try {
+  await page.goto('http://localhost/inbox?mode=live');
+  await schedule.getByText(/Schedule unavailable/).waitFor();
+  assert.match(await page.locator('#appTodayMoves').textContent(),/Checking recent deal changes/);
+  assert.equal(await retry.isVisible(),false);
+  assert.doesNotMatch(await schedule.textContent(),/Retry Today/);
+ } finally {
+  releaseChanges();
+ }
+ await retry.waitFor();
+ assert.match(await page.locator('#appTodayReadStatus').textContent(),/Schedule unavailable\. Retry Today/);
  await captureToday(page,'malformed-schedule');
  assert.deepEqual(errors,[]);
 });
