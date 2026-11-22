@@ -37,9 +37,6 @@ test("the static artifact rebuild is byte-for-byte reproducible", async (t) => {
   assert.match(home, /<link rel="modulepreload" href="\/js\/ui-shared-/);
   for (const [, module] of home.matchAll(/<link rel="modulepreload" href="\/([^" ]+)"/g)) assert.ok(a.manifest.files.some(file => file.path === module));
   assert.equal(home.replace(/<link rel="modulepreload"[^>]+>\n/g, ''), await readFile(join(ROOT, "workspace.html"), 'utf8'));
-  assert.deepEqual(await readFile(join(first, "site", "control-room.html")), await readFile(join(ROOT, "control-room.html")));
-  assert.equal(a.manifest.files.some((file) => file.path === "control-room.html"), true);
-  assert.equal((await verifyArtifact(a.archive, a.archiveSha256)).manifest.files.some((file) => file.path === "control-room.html"), true);
 });
 
 test("the deployment directory is rebuilt without stale files", async (t) => {
@@ -67,7 +64,7 @@ test("verification binds every payload file and rejects changed bytes", async (t
 
 });
 
-test("every contracted page including Doc activity is present in the deployment and archive", async (t) => {
+test("every contracted page is present in the deployment and archive", async (t) => {
   const routes = (await import("../js/routes.js")).routeContract;
   const outDir = await temporaryDirectory("doctorcre-route-artifact-", t);
   const built = await buildArtifact({ root: ROOT, outDir, commit: COMMIT });
@@ -86,8 +83,8 @@ async function committedFixture(t) {
   git(["clone", "--quiet", "--shared", "--no-hardlinks", ROOT, "."]);
   await symlink(join(ROOT, 'node_modules'), join(root, 'node_modules'), 'dir');
   // Exercise the code under test, including edits not yet committed by the maker.
-  for (const path of ["scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/brief-queues.tsx", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json"]) { await mkdir(dirname(join(root, path)), { recursive: true }); await copyFile(join(ROOT, path), join(root, path)); }
-  git(["add", "scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/brief-queues.tsx", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json"]);
+  for (const path of ["scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json"]) { await mkdir(dirname(join(root, path)), { recursive: true }); await copyFile(join(ROOT, path), join(root, path)); }
+  git(["add", "scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json"]);
   git(["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "Synthetic verifier fixture"]);
   const commit = git(["rev-parse", "HEAD"]);
   const outDir = join(root, "dist");
@@ -114,7 +111,7 @@ test("one contract path declaration drives both assembly and committed-source ve
   const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: "pipe" }).trim();
   git(["clone", "--quiet", "--shared", "--no-hardlinks", ROOT, "."]);
   await symlink(join(ROOT, 'node_modules'), join(root, 'node_modules'), 'dir');
-  for (const path of ["scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/brief-queues.tsx", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json"]) { await mkdir(dirname(join(root, path)), { recursive: true }); await copyFile(join(ROOT, path), join(root, path)); }
+  for (const path of ["scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json"]) { await mkdir(dirname(join(root, path)), { recursive: true }); await copyFile(join(ROOT, path), join(root, path)); }
   const contracts = [
     ["carr_interface", "contracts/carr-interface.v1", "contracts/synthetic-interface.v1"],
   ];
@@ -125,7 +122,7 @@ test("one contract path declaration drives both assembly and committed-source ve
     source = source.replace(`"${oldPath}"`, `"${newPath}"`);
   }
   await writeFile(join(root, "scripts/carr-interface.mjs"), source);
-  git(["add", "scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/brief-queues.tsx", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json", ...contracts.flatMap(([, oldPath, newPath]) => [oldPath, newPath])]);
+  git(["add", "scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json", ...contracts.flatMap(([, oldPath, newPath]) => [oldPath, newPath])]);
   git(["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "Synthetic relocated contracts"]);
   for (const command of ["build", "verify"]) {
     execFileSync(process.execPath, ["scripts/build-artifact.mjs", command], {
@@ -229,18 +226,18 @@ test("the static artifact ships no unsupported diagnostic sender", async (t) => 
   }
 });
 
-test('Home and Tasks retain their routes while retired Home implementation leaves the artifact', async (t) => {
+test('Home remains in the artifact while retired Work pages are gone', async (t) => {
   const outDir = await temporaryDirectory('doctorcre-home-retirement-', t);
   const built = await buildArtifact({root:ROOT,outDir,commit:COMMIT});
-  const routes = (await import("../js/routes.js")).routeContract;
-  assert.equal(routes.routes['/'], 'workspace.html');
-  assert.equal(routes.routes['/doc-chats/work'], 'tasks.html');
-  assert.equal(routes.redirects['/business'], '/');
+  const { routeContract, isRetiredPage } = await import("../js/routes.js");
+  assert.equal(routeContract.routes['/'], 'workspace.html');
+  assert.equal(routeContract.redirects['/business'], '/');
+  for (const path of ['/doc-chats/work', '/tasks', '/work']) assert.ok(isRetiredPage(path), path);
   const paths = built.manifest.files.map(file => file.path);
-  for (const path of ['business-workspace.html', 'js/business-workspace.js', 'js/business-workspace-model.js']) {
+  for (const path of ['business-workspace.html', 'js/business-workspace.js', 'js/business-workspace-model.js', 'tasks.html', 'js/task-records.js', 'js/task-records-model.js', 'js/local-drafts.mjs']) {
     assert.equal(paths.includes(path), false, `${path} is retired`);
   }
-  for (const path of ['workspace.html', 'js/workspace-command-center.js', 'tasks.html', 'js/task-records.js', 'js/task-records-model.js', 'js/local-drafts.mjs', 'js/visual-system.js', 'js/command-feedback.mjs', 'css/business-workspace.css']) {
+  for (const path of ['workspace.html', 'js/workspace-command-center.js', 'js/visual-system.js', 'js/command-feedback.mjs', 'css/business-workspace.css']) {
     assert.equal(paths.includes(path), true, `${path} still serves live callers`);
   }
 });

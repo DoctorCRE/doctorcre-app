@@ -2,7 +2,6 @@ import { navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./r
 export { navigationItems };
 
 export function activeDestination(pathname) {
-  if (pathname.startsWith('/control-room/progress/board/')) return '/control-room/progress';
   return sectionForRoute[routeKey(actionLinkRoute(pathname))] || pathname;
 }
 
@@ -17,7 +16,6 @@ const destinationIcons = {
   "/relationships": "M10 13a4 4 0 0 0 6 1l4-4a4 4 0 0 0-6-6l-2 2m2 5a4 4 0 0 0-6-1l-4 4a4 4 0 0 0 6 6l2-2",
   "/invoices": "M5 3h14v18l-3-2-4 2-4-2-3 2zM9 8h6m-6 4h6m-6 4h3",
   "/leases": "M5 3h10l4 4v14H5zM14 3v5h5M9 12h6m-6 4h6",
-  "/ideas-events?tab=events": "m12 3 2.6 5.5 6 .9-4.3 4.3 1 6.1-5.3-2.9-5.3 2.9 1-6.1-4.3-4.3 6-.9z",
   "/updates": "M18 8a6 6 0 0 0-12 0c0 6-1 7-3 9h18c-2-2-3-3-3-9m-8 12a2 2 0 0 0 4 0",
 };
 
@@ -32,7 +30,7 @@ function link({ label, href }, current) {
 }
 
 export function appShellMarkup(pathname, search = "", items = navigationItems) {
-  const current = pathname === "/ideas-events" ? `/ideas-events?tab=${new URLSearchParams(search).get("tab") === "events" ? "events" : "ideas"}` : activeDestination(pathname);
+  const current = activeDestination(pathname);
   const primary = items.filter(item => !item.secondary).map((item) => link(item, current)).join("");
   const secondary = items.filter(item => item.secondary);
   const more = secondary.map(item => link(item, current)).join("");
@@ -61,7 +59,6 @@ export function appShellMarkup(pathname, search = "", items = navigationItems) {
           <button type="button" id="accountHelp" aria-haspopup="dialog">How DoctorCRE works</button>
           <a href="/updates#prefForm">Notification preferences</a>
           <a href="/updates#docLinkSettings" id="accountDocLink" hidden>Doc link</a>
-          <a href="/doc-activity"${pathname === "/doc-activity" ? ' aria-current="page"' : ""}>Doc Activity</a>
           </div>
           <div id="accountWorkspaceControls" class="app-shell-workspace-group" role="group" aria-label="Workspace" hidden><h3>Workspace</h3></div>
           <div class="app-shell-call-availability">

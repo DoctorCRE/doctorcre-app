@@ -7,10 +7,9 @@ import { readFile } from "node:fs/promises";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 const at = (html, needle) => { const i = html.indexOf(needle); assert.ok(i >= 0, `missing ${needle}`); return i; };
 
-test("Conversations puts the list before outcome cards and suggestions", async () => {
+test("Conversations puts the list before the transcript", async () => {
   const html = await read("conversations.html");
-  assert.ok(at(html, 'data-section="list"') < at(html, 'data-section="outcome-cards"'));
-  assert.ok(at(html, 'data-section="list"') < at(html, 'data-section="suggestions"'));
+  assert.ok(at(html, 'data-section="list"') < at(html, 'data-section="turns"'));
 });
 
 test("Conversations carries no no-thread or unknown-status copy in the hero", async () => {

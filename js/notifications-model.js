@@ -1,7 +1,6 @@
 // Notifications present only facts returned by the existing read operations.
 // Names are absent from the feed contract: use human record labels rather than
 // guessing a name or fetching a second record. Identifiers stay in Details.
-import { BOARD_ROUTE, boardIdFromPath } from './progress-board-route.js';
 import { routeContract, docRequestTarget } from "./routes.js";
 import { meetingTime } from "./home-week.js";
 import { BUSINESS_TIME_ZONE } from "./business-date.js";
@@ -117,7 +116,6 @@ const recordLabel = kind => Object.hasOwn(RECORD_LABELS, kind) ? RECORD_LABELS[k
 const linkLabel = path => ({
   "/deals": "Open deal", "/clients": "Open client", "/leads": "Open lead",
   "/vendors": "Open vendor", "/doc-chats": "Open conversation",
-  "/incidents": "Open incident", [BOARD_ROUTE]: "Open progress board",
 })[path] || "Open record";
 
 export function deepLinkView(deepLink, routes = APP_ROUTE_PATHS) {
@@ -134,7 +132,7 @@ export function deepLinkView(deepLink, routes = APP_ROUTE_PATHS) {
   const [pathname, query] = path.split("?");
   const home = LEGACY_ROUTE_HOMES[pathname] || pathname;
   const homePath = home.split("?")[0];
-  const routed = routeList.includes(homePath) || (boardIdFromPath(homePath) !== null && routeList.includes(BOARD_ROUTE));
+  const routed = routeList.includes(homePath);
   const href = routed ? `${home}${query ? `${home.includes("?") ? "&" : "?"}${query}` : ""}` : null;
   return { path, href, routed, sentence: routed ? null : NO_PAGE_SENTENCE, label: routed ? linkLabel(homePath) : null };
 }

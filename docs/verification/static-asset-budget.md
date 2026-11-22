@@ -7,15 +7,12 @@ The old `test/request-budget.test.mjs` asserted that the entire artifact had at
 most 400 files. It came from commit `f35dd21aca5244545fadc445b9e6c6bd1c144ea3`,
 “Bound app polling loops (work in progress) (#565)”. Its purpose was a conservative
 proxy for the initial static requests within a 1,000-request quiet-tab allowance.
-It was an application budget, not a hosting constraint. The actual browser check
-in `test/progress-work-browser.test.mjs` measures a burst of at most 600 fetch/XHR
-attempts, then verifies that the burst and normal unattended polling together
-stay within 1,000 first-party requests over 24 simulated hours. The document's
-allowance refills at one request per second, up to 600, using elapsed monotonic
-time. Within a document, tab events, input and wall-clock changes grant no
-requests. A Back return to a cached private page reloads the document, which
-starts with a fresh session check and allowance. The browser test still bounds
-the initial asset requests at 400.
+The request limit applies to each document. Its allowance refills at one request
+per second, up to 600, using elapsed monotonic time. Within a document, tab events,
+input and wall-clock changes grant no requests. A Back return to a cached private
+page reloads the document and starts with a fresh session check and allowance.
+`test/request-budget.test.mjs` covers the initial burst, sustained demand, and
+the effect of tab events and clock changes.
 
 ## Alternatives
 
@@ -25,7 +22,7 @@ the initial asset requests at 400.
 2. Drop deployed source maps, fonts, or images. There are no deployed source maps
    to remove. Deleting useful assets solely to meet the proxy would be temporary.
 3. Separate the deployment capacity check from the browser request check. Selected.
-   Keep the browser checks for the initial burst and unattended polling.
+   Keep per-document request-budget tests independent of the artifact file count.
    Enforce the provider ceiling during artifact assembly and reserve capacity
    before it is exhausted.
 
@@ -53,7 +50,7 @@ this pure local calculation. Existing release digest and source fencing remain.
 Run `node --test test/asset-budget.test.ts test/request-budget.test.mjs` and
 `npm run build`. The unit test exercises the exact reserve boundary and overflow.
 The integration test builds the real artifact; the ordinary build also enforces
-admission. Keep the browser's measured quiet-tab test in the hosted shards.
+admission.
 
 PRODUCTION PROOF: after deployment contains the merge commit, verify the release
 source; count `artifact-manifest.json.files.length + 1` from that deployed release,

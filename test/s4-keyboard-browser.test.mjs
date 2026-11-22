@@ -31,35 +31,6 @@ for (const width of [390, 1280]) for (const theme of ['dark', 'light']) {
   });
 }
 
-for (const width of [390, 1280]) for (const theme of ['dark', 'light']) for (const [route, listId, attribute] of [
-  ['/doc-chats', 'outcomeCardsList', 'data-copy-outcome-session'],
-  ['/doc-chats/work', 'taskList', 'data-task'],
-  ['/doc-chats/work', 'taskList', 'data-handover'],
-]) {
-  test(`${route} keeps its focused ${attribute} action through a background refresh at ${width}px in ${theme}`, async t => {
-    const server = await fixtureServer();
-    t.after(() => server.close());
-    const browser = await chromium.launch();
-    t.after(() => browser.close());
-    const page = await browser.newPage({ viewport: { width, height: 844 } });
-    await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
-    await page.goto(`${server.origin}${route}`);
-    const action = page.locator(`#${listId} [${attribute}]`).first();
-    await action.focus();
-    const key = await action.getAttribute(attribute);
-    await page.evaluate(listId => {
-      window.listRefreshed = false;
-      const observer = new MutationObserver(() => { window.listRefreshed = true; observer.disconnect(); });
-      observer.observe(document.getElementById(listId), { childList: true });
-      dispatchEvent(new Event('online'));
-    }, listId);
-    await page.waitForFunction(() => window.listRefreshed);
-    if (route === '/doc-chats/work') await page.waitForFunction(() => document.getElementById('taskStatusLabel').textContent === 'Current');
-    assert.equal(await page.evaluate(attribute => document.activeElement.getAttribute(attribute), attribute), key);
-  });
-}
-
-
 test('Doc Chats labels a held initial conversation-list read as loading', async t => {
   const server = await fixtureServer();
   t.after(() => server.close());

@@ -6,7 +6,6 @@ import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { fileURLToPath } from 'node:url';
 import { chromium, settles, waitForAsync } from './browser-harness.mjs';
 import { createFixtureClient } from '../js/fixture-client.js';
-import { atlasFixtureResponse } from '../scripts/atlas-fixture.mjs';
 const root = new URL('../', import.meta.url);
 const contract = (await import("../js/routes.js")).routeContract;
 const primary = navigationItems.filter(item => !item.secondary).map(item => item.label);
@@ -47,7 +46,6 @@ async function open(t, { width = 1440, height = 960, actor = 'joe', live = false
       return route.fulfill({ status: 302, headers: { location: '/' } });
     }
     if (url.pathname === '/auth/login') return route.fulfill({ status: 302, headers: { location: '/' } });
-    if (url.pathname === '/api/v1/atlas-graph') { const answer = atlasFixtureResponse(url,'GET'); return route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.body) }); }
     if (url.pathname === '/api/v1/command-center') return route.fulfill({ contentType: 'application/json', body: JSON.stringify(await fixture.commandCenter()) });
     if (url.pathname.startsWith('/api/') || ['/mcp', '/app-release'].includes(url.pathname)) return route.fulfill({ contentType: 'application/json', body: '{}' });
     if (url.pathname === '/public-shell/session-ended.html') return route.fulfill({contentType:'text/html',body:await readFile(new URL('public-shell/session-ended.html',root),'utf8')});
@@ -178,7 +176,6 @@ test('desktop and phone navigation, account and Call mode work with reduced moti
     assert.equal(await page.locator('#callModeConsent').isChecked(), false);
     assert.equal(calls.some(isWriteCall), false, 'opening Call mode never starts recording');
     const box = await page.locator('#callModeDialog').boundingBox(); assert.ok(box.width >= Math.min(900, width - 40));
-    await page.locator('#callModeDialog #docPresence').waitFor();
     await page.locator('#callModeClose').scrollIntoViewIfNeeded();
     await settles(async () => assert.equal(await page.locator('#callModeClose').evaluate(button => {
       const box = button.getBoundingClientRect();
@@ -263,19 +260,6 @@ test('an open Deal detail updates automatically without closing its popup', asyn
   await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
   await page.clock.fastForward(61_000);
   assert.equal(await page.locator('#recordPanel').evaluate(e => !e.hidden), false);
-  assert.deepEqual(errors, []);
-});
-
-test('automatic Atlas refresh preserves the selected component', async t => {
-  const { page, errors, calls } = await open(t, { simulatedClock: true });
-  await page.goto('http://localhost/control-room?tab=system-map');
-  await page.locator('[data-atlas-select]').first().click();
-  const selected = await page.evaluate(async () => (await import('/js/atlas.js')).view.selected);
-  const reads = calls.filter(call => call.url === '/api/v1/atlas-graph').length;
-  await page.clock.fastForward(61_000);
-  await waitForAsync(page, async reads => (await import('/js/atlas.js')).view.status === 'ready', reads);
-  assert.ok(calls.filter(call => call.url === '/api/v1/atlas-graph').length > reads);
-  assert.equal(await page.evaluate(async () => (await import('/js/atlas.js')).view.selected), selected);
   assert.deepEqual(errors, []);
 });
 
@@ -530,7 +514,7 @@ test('automatic walkthrough waits for verified Home and preserves deep-link entr
   await page.getByText('Sign-in unavailable', { exact: true }).waitFor();
   assert.equal(await guide.count(), 0);
   await page.unroute('**/auth/session');
-  await page.goto('http://localhost/control-room?mode=live');
+  await page.goto('http://localhost/calendar?mode=live');
   await page.getByRole('button', { name: 'Joe: account and settings', exact: true }).waitFor();
   await page.waitForLoadState('networkidle');
   assert.equal(await guide.count(), 0, 'the guide does not interrupt a deep-linked workflow');

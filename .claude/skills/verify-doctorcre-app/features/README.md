@@ -2,7 +2,7 @@
 
 Follow [Launch, Doctor and Drive](../SKILL.md) first. This map describes current controls and existing coverage; it does not claim every path has passed.
 
-- Use a fresh browser context for each feature. Dismiss the morning brief if it covers a control.
+- Use a fresh browser context for each feature.
 - Use synthetic fixtures locally. Leads needs its existing HTTP fixture adapter; a plain preview is not a populated Leads backend.
 - Prefer named controls. Select the visible Board or List entry rather than an arbitrary `.card-open` that may belong to a hidden view.
 - Capture the entry, action and result. Record the selected record's title and URL before opening it, then compare the resulting detail.
@@ -21,5 +21,7 @@ Follow [Launch, Doctor and Drive](../SKILL.md) first. This map describes current
 - [Calendar](calendar.md): periods, views, selected days and agenda.
 - [Vendors](vendors.md): recorded contacts, offices, and territory in the existing record dialog.
 - [Client portal](client-portal.md): password entry, canonical roadmap, shared text and locking.
-- [Progress board](progress-board.md): standalone work views, bounded lanes and return focus.
-- [Tours](tours.md): same-subject search criteria and private packet drafts.
+- [Tours](tours.md): open the Tours tab on a deal and check its saved tour plans.
+- Closing anniversaries opens from More. Check the dated rows and cutoff note on the page.
+- Invoices opens from More. Open an invoice and use Close invoice to restore focus to its row. On engine sign-in, Open Doc starts a draft question about the selected invoice.
+- Ask Doc opens from the app header. Engine sign-in supports starting and continuing conversations.

@@ -6,7 +6,6 @@ import { workspace as leadWorkspace, detail as leadDetail, id as leadId, emptyQu
 import { directoryFixture } from '../test/fixtures/vendor-directory.synthetic.mjs';
 import { parseViewState, PAGE_SIZE } from '../js/workspace-business-model.js';
 import { PHASES } from '../js/client.js';
-import { censusResponse } from './work-inventory-fixture.mjs';
 
 const cookieName = 'doctorcre_qa';
 const now = () => new Date().toISOString();
@@ -137,13 +136,7 @@ export function createQaDispatcher({ seed, assets: snapshot }) {
       catch(error){return json({jsonrpc:'2.0',id:input.id,result:{isError:true,content:[{type:'text',text:JSON.stringify(error.payload||{error:error.message})}]}});}
     }
     if(url.pathname==='/pipeline/changes')return json(await (await fallback(state,viewer)).getChanges(url.searchParams.get('cursor')));
-    if(url.pathname==='/api/v1/work-inventory') {
-      if(request.method!=='GET')return json({error:'fixture_method_unavailable'},405);
-      const projection=censusResponse(url);projection.viewer=viewer;projection.source.correlation_id=`${namespace}-${projection.source.correlation_id}`;
-      return json(projection);
-    }
     if(['/api/system-work/session','/auth/session'].includes(url.pathname))return json({actor:{slug:viewer},csrf_token:`synthetic-qa-${viewer}`});
-    if(url.pathname==='/api/system-work/current')return request.method==='GET'?json({ok:true,data:await (await fallback(state,viewer)).currentWorkRequests()}):json({error:'fixture_method_unavailable'},405);
     const directory=directoryRead(url,state,viewer,namespace);
     if(directory)return request.method==='GET'?directory:json({error:'fixture_method_unavailable'},405);
     if(url.pathname==='/api/v1/business/relationships')return json(relationshipNetworkFixture());

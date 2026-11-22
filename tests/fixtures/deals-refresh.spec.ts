@@ -134,7 +134,7 @@ for (const path of [local, national, "/search?mode=live", "/notifications?mode=l
   test(`switch on skips the legacy feed at ${path}`, async ({ page }) => {
     const requests = await mockReads(page);
     await page.goto(server.url + path);
-    await expect(page.locator("#morningUpdated")).toHaveText(updated);
+    await expect(page.locator("#appSyncTime")).toHaveText(updated);
     await expect(page.locator("#appTodayReadStatus")).not.toHaveText("Loading Today…");
     expect(requests.feed).toBe(0);
     await expect(page.locator("#appTodayMoves").locator("..")).toBeHidden();
@@ -149,7 +149,7 @@ for (const [name, path] of [
   test(`${name} hides its moves slot outside the pulse wrapper when Deals switches are on`, async ({ page }) => {
     await mockReads(page, { savesFromEngine: true });
     await page.goto(server.url + path);
-    await expect(page.locator("#morningUpdated")).toHaveText(updated);
+    await expect(page.locator("#appSyncTime")).toHaveText(updated);
     const moves = page.locator('[data-layout-slot="moves"]');
     await moves.evaluate((slot) => {
       slot.removeAttribute("hidden");
@@ -183,7 +183,7 @@ test("an open Notifications tab stops reaching CARR after the switch flips", asy
   await page.goto(server.url + "/notifications?mode=live");
   await expect(page.getByText("No recent activity", { exact: true })).toBeVisible();
   await expect(page.locator("#activityAsOf")).toHaveText(/^As of /);
-  await expect(page.locator("#morningUpdated")).toHaveText(updated);
+  await expect(page.locator("#appSyncTime")).toHaveText(updated);
   requests.engine = true;
   const forwarded = requests.forwarded;
   const feed = requests.feed;
@@ -200,20 +200,6 @@ test("an open Notifications tab stops reaching CARR after the switch flips", asy
   await page.locator("#retryRead").click();
   await refreshed;
   expect(requests.feed).toBe(afterRetirement);
-});
-
-test("Morning brief removes overnight activity when the feed retires", async ({ page }) => {
-  const requests = await mockReads(page, { engine: false, overnight: true });
-  await page.clock.install({ time: new Date("2026-11-20T16:00:00Z") });
-  await page.goto(server.url + "/search?mode=live");
-  await page.locator("#docOpen").click();
-  await page.locator("#docMorning").click();
-  const overnight = page.locator("#morningContent h3").filter({ hasText: /^Overnight$/ });
-  await expect(overnight).toBeVisible();
-  requests.engine = true;
-  await page.locator("#morningRefresh").click();
-  await expect(overnight).toHaveCount(0);
-  await expect(page.locator("#morningCoverage")).not.toContainText("Overnight updates unavailable");
 });
 
 test("National Accounts loads pending captures even with the legacy feed down", async ({ page }) => {

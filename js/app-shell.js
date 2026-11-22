@@ -89,15 +89,6 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
   };
   phone.addEventListener("change", arrangeControls);
   arrangeControls();
-  if (!root.documentElement.hasAttribute('data-home-today-from-engine')) {
-    let brief, retired = false;
-    const dispose = () => { retired = true; brief?.dispose(); };
-    root.defaultView.addEventListener('doctorcre-session-invalidated', dispose, { once: true });
-    root.defaultView.addEventListener('pagehide', event => { if (!event.persisted) dispose(); });
-    void ready.then(() => import('./morning-brief.js')).then(({ mountMorningBriefLauncher }) => {
-      if (!retired && host.isConnected) brief = mountMorningBriefLauncher(root);
-    }).catch(() => {});
-  }
 
 }
 

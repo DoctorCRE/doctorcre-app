@@ -4,7 +4,6 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { animationsSettled, chromium, waitForAsync, settles, WAIT_MS, returnToTab } from './browser-harness.mjs';
 import { createFixtureClient } from '../js/fixture-client.js';
 import { workspace, detail, id, emptyQuietFollowUps } from './leads-workspace-fixture.mjs';
-import { atlasFixtureResponse } from '../scripts/atlas-fixture.mjs';
 const root = new URL('../', import.meta.url);
 const contract = (await import("../js/routes.js")).routeContract;
 async function open(t,{holdPipelineBoot=false,width=1440,height=960,hasTouch=false,motion='no-preference',clock=false,deniedStorage=false,events=[],timezoneId='America/Chicago',now='2026-10-01T15:00:00Z'}={}) {
@@ -26,7 +25,6 @@ async function open(t,{holdPipelineBoot=false,width=1440,height=960,hasTouch=fal
     if(url.pathname==='/js/leads-territory-map.js') return route.fulfill({contentType:'text/javascript',body:'export async function mountTerritoryMap(){return {update(){},dispose(){}}}'});
     if(['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({contentType:'application/json',body:JSON.stringify({csrf_token:'synthetic-session',actor:{slug:'joe'}})});
     if(url.pathname==='/api/v1/command-center') return route.fulfill({contentType:'application/json',body:JSON.stringify(await fixture.commandCenter())});
-    if(url.pathname==='/api/v1/atlas-graph'){const result=atlasFixtureResponse(url,'GET');return route.fulfill({status:result.status,contentType:'application/json',body:JSON.stringify(result.body)});}
     if(url.pathname==='/pipeline/changes') return route.fulfill({contentType:'application/json',body:JSON.stringify({events:events.slice(Number(url.searchParams.get('cursor')||0)),cursor:String(events.length),presence:[],capture_sessions:[]})});
     if(url.pathname==='/mcp'){
       const {name,arguments:args}=request.postDataJSON().params;

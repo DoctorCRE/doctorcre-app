@@ -4,7 +4,7 @@ import { createClient } from './client.js';
 import { resolveDealroomBoot } from './boot-mode.js';
 import { mountAutoRefresh, updatedLabel } from './auto-refresh.mjs';
 import { localToday, isCalendarDay } from './calendar-model.js';
-import { partnerName } from './task-records-model.js';
+import { partnerName } from './visual-system.js';
 import { uuidv4 } from './uuid.js';
 import { AGES, projectInvoices, validInvoiceTracker, isInvoiceBaseVersion, invoiceSummary, invoiceMoney, invoiceDate } from './invoice-tracker-model.js';
 const E=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));

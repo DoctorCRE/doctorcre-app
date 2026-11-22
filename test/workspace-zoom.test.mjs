@@ -13,7 +13,7 @@ async function fixture(t) {
     window.cspViolations = [];
     document.addEventListener('securitypolicyviolation', event => window.cspViolations.push(event.violatedDirective));
   });
-  const secured = await handleDoctorcreRequest(new Request(`${server.origin}/ideas-events`), { ASSETS: { fetch: async () => new Response('') } });
+  const secured = await handleDoctorcreRequest(new Request(`${server.origin}/invoices`), { ASSETS: { fetch: async () => new Response('') } });
   await componentDocument(page, server.origin, { headers: { 'content-security-policy': secured.headers.get('content-security-policy') }, dispose: page => page.evaluate(() => window.zoomFixture?.shell.unmount()) });
   await page.evaluate(async () => {
     const { mountZoomableWorkspace } = await import('/js/ui-zoom.generated.js');
@@ -95,9 +95,9 @@ for (const actor of ['joe', 'dell']) test(`${actor} can double click a visible t
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const theme = actor === 'joe' ? 'light' : 'dark';
   await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
-  await page.goto(`${server.origin}/ideas-events?actor=${actor}&ui=react`);
+  await page.goto(`${server.origin}/invoices?actor=${actor}&ui=react`);
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
-  await page.locator('#ideaState:not([data-state="loading"])').waitFor({ state: 'attached' });
+  await page.locator('[data-invoice]').first().waitFor();
   const main = group(page, 'main-group');
   await main.waitFor();
   const initial = await main.boundingBox();
@@ -116,7 +116,7 @@ for (const actor of ['joe', 'dell']) test(`${actor} can double click a visible t
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('#appLayout .workspace-shell').waitFor({ state: 'detached' });
   assert.equal(await page.getByRole('group', { name: 'Zoom workspace groups' }).count(), 0);
-  assert.equal(await page.locator('#appLayout .app-layout-center #ideasPanel').count(), 1);
+  assert.equal(await page.locator('#appLayout .app-layout-center .invoice-workspace').count(), 1);
 });
 test('Escape closes an active panel dialog before returning from group zoom', async t => {
   const page = await fixture(t);

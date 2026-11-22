@@ -43,7 +43,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     await page.locator('.record-row').first().click();
     await expect(page.getByRole('dialog', { name: 'Demo Partner 01' })).toBeVisible();
     await expect(page.locator('#recordBody')).toContainText('Suggested introductions');
-    await expect(page.locator('.record-panel-actions .doc-presence')).toBeVisible();
+    await expect(page.locator('.record-panel-actions .doc-presence')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`detail-${width}-${theme}.png`) });
     await page.getByRole('button', { name: 'Close record', exact: true }).click();
     if (width === 390) {
