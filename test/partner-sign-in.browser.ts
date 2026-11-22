@@ -7,8 +7,8 @@ import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
 import carrReply from "./fixtures/action-link-reply.v2.json" with { type: "json" };
-import carrDocumentText from "./fixtures/deal-document-text/produced.json" with { type: "json" };
 import anniversaries from "./fixtures/client-anniversary-panel/recordings.json" with { type: "json" };
+import carrDocumentText from "./fixtures/deal-document-text/produced.json" with { type: "json" };
 import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
 import { detail, emptyQuietFollowUps, lead, workspace } from "./leads-workspace-fixture.mjs";
@@ -26,6 +26,7 @@ const docLink = "/api/engine/doc/link";
 const actionLinkRef = (value: string) => `al1_${Buffer.from(value).toString("base64url")}`;
 const leadRef = actionLinkRef("ld:44444444-4444-4444-8444-444444444444");
 const successorDraft = "66666666-6666-4666-8666-666666666666";
+const chat = { id: "33333333-3333-4333-8333-333333333333", title: "Demo relocation chat" };
 const replyTitle = "Reply to the demo relocation email";
 const linkedItem = `reply_draft:${successorDraft}`;
 const linkedCard = `/api/engine/home/cards/${linkedItem}`;
@@ -177,6 +178,7 @@ async function app(
     ["read-invoice-tracker", () => invoices.getInvoiceTracker()],
     ["record-commission-receipt", (args) => invoices.markInvoicePaid(args)],
     ["ideal-client-profile", () => clientFit],
+    ["list-doc-conversations", () => ({ conversations: [chat], visible_conversation_count: 1 })],
   ]);
   const partnerReads = new Map<string, string | null>();
   let expiredPath: string | null = null;
@@ -205,7 +207,10 @@ async function app(
           const url = new URL(input.url);
           const path = url.pathname;
           assert.equal(input.headers.get("cookie"), "__Host-dealroom_session=directory-fixture");
-          if (path !== "/api/engine/clients" && path !== "/api/engine/vendors") return env.PARTNER_APP.fetch(input);
+          if (path !== "/api/engine/clients" && path !== "/api/engine/vendors") {
+            assert.ok(env?.PARTNER_APP);
+            return env.PARTNER_APP.fetch(input);
+          }
           url.pathname = path.replace("/api/engine", "/api/v1/business");
           const payload = directoryFixture(url.href);
           if (path === "/api/engine/vendors" && Array.isArray(payload.rows)) {
@@ -229,7 +234,8 @@ async function app(
         if (call) carrTools.push(call.params.name);
         if (signIn === "carr") {
           if (path === carrAnniversaries && readAnniversaries) return readAnniversaries(input);
-          if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
+          if (path === "/auth/session" || path === "/api/system-work/session")
+            return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
           if (path === "/auth/login") return new Response("Sign in");
           if (switchDay && navigation && !input.headers.get("cookie")?.includes("__Host-dealroom_session="))
             return Response.redirect(new URL("/auth/login", input.url));
@@ -349,6 +355,8 @@ async function app(
         }
         if (path === invoicePath) return Response.json(await invoices.getInvoiceTracker());
         if (path === "/api/engine/closing-anniversaries") return Response.json(anniversaries.ready.output.rows);
+        if (path === "/api/engine/doc/conversations")
+          return Response.json({ conversations: [chat], next_before: null });
         if (path === paymentPath && input.method === "POST")
           return Response.json(await invoices.markInvoicePaid(await input.json()));
         if (path === fitPath) return Response.json(clientFit);
@@ -2664,7 +2672,7 @@ for (const signIn of ["engine", "carr"] as const) {
       ["/clients", page.getByRole("link", { name: /^Demo Practice 01\b/ })],
       ["/calendar?day=2026-11-24", page.locator("#dayPanelBody").getByText(dealName, { exact: false }).first()],
       ["/invoices", page.getByText(invoiceName, { exact: true }).first()],
-      ["/doc-chats", page.getByRole("heading", { name: signIn === "engine" ? "Ask Doc" : "Doc Chats", exact: true })],
+      ["/doc-chats", page.getByRole(signIn === "engine" ? "link" : "heading", { name: chat.title, exact: true })],
       ["/leases", page.getByText("Synthetic Clinic", { exact: true })],
     ] as const;
     for (const [path, ready] of screens) {
@@ -2672,7 +2680,7 @@ for (const signIn of ["engine", "carr"] as const) {
       url.searchParams.set("mode", "live");
       assert.equal((await page.goto(url.href))?.status(), 200, path);
       await ready.waitFor().catch(async (error) => {
-        throw new Error(`${path} did not render its fixture. ${await page.locator("main").first().innerText()}`, {
+        throw new Error(`${path} did not render its fixture. ${await page.locator("main").first().textContent()}`, {
           cause: error,
         });
       });
@@ -2683,7 +2691,7 @@ for (const signIn of ["engine", "carr"] as const) {
     assert.equal((await page.goto(server.origin + dealPage))?.status(), 200);
     await page.getByRole("tab", { name: "Tours", exact: true }).click();
     const panel = page.getByRole("tabpanel", { name: "Tours", exact: true });
-    await panel.getByRole("button", { name: /Nov.*24.*2026/ }).waitFor();
+    await panel.getByText("November 24, 2026", { exact: true }).waitFor();
     assert.deepEqual(errors, [], "Tours");
     assert.deepEqual(missingAssets, [], "Tours");
   });

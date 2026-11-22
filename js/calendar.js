@@ -351,13 +351,13 @@ async function load() {
 }
 
 async function boot() {
+  const resolved = resolveDealroomBoot(globalThis.location || { hostname: "", search: "" });
   mountPrefs();
 
   view.state = parseCalendarState(location.search, view.today);
   history.replaceState({ calendar: true }, "", calendarHref(view.state));
   wire();
   render();
-  const resolved = resolveDealroomBoot(globalThis.location || { hostname: "", search: "" });
   client = resolved.mode === "live" ? createLiveClient() : await (await import("./fixture-client.js")).createFixtureClient(resolved.options);
   mountNotificationBadge(client);
   mountAutoRefresh({ document, window: globalThis.window, refresh: load });
