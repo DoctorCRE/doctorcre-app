@@ -1078,6 +1078,53 @@ for (const [width, theme, conflict, unavailable] of [
   });
 }
 
+for (const current of ["changed", "gone", "pending_same"] as const) {
+  test(`A second Doc tab opens a failed draft turn with current status ${current}`, async (t) => {
+    const version = 7;
+    let draftStatus: "changed" | "gone" | "pending_same" = "pending_same";
+    const { page, origin } = await docChatFixture(t, (request) => {
+      switch (new URL(request.url).pathname) {
+        case "/api/engine/doc/conversations":
+          return Response.json({ conversations: [conversation], next_before: null });
+        case detailPath:
+          return Response.json({
+            conversation,
+            turns: [
+              {
+                ...answeredTurn,
+                idempotency_key: id,
+                state: "failed",
+                answer: null,
+                context: { kind: "reply_draft", id: savedId, version, activity_id: id, mailbox_user_id: id },
+                draft_review: { draft_id: savedId, version, current: draftStatus },
+              },
+            ],
+          });
+        default:
+          return new Response(null, { status: 404 });
+      }
+    });
+    const chatUrl = `${origin}/doc-chats?mode=live&chat=${id}`;
+    await page.goto(chatUrl);
+    await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+
+    draftStatus = current;
+    const secondTab = await page.context().newPage();
+    await secondTab.goto(chatUrl);
+    const chat = secondTab.getByRole("region", { name: "Conversation" });
+    await expect(chat.getByText(question, { exact: true })).toBeVisible();
+    const retry = chat.getByRole("button", { name: "Retry", exact: true });
+    const freshReview = chat.getByRole("link", { name: "Open fresh review" });
+    if (current === "pending_same") {
+      await expect(retry).toBeVisible();
+      await expect(freshReview).toHaveCount(0);
+    } else {
+      await expect(retry).toHaveCount(0);
+      await expect(freshReview).toHaveAttribute("href", draftHref);
+    }
+  });
+}
+
 for (const position of [1, 2]) {
   test(`Doc retries draft question ${position} with its original context and keeps a new unsent question`, async (t) => {
     const context = { kind: "reply_draft", id: savedId, version: 7 };
