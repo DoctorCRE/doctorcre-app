@@ -12,7 +12,7 @@ Open `/client-portal` directly. In the local synthetic preview, enter portal nam
 
 ## Driving it with Playwright
 
-Existing coverage is `test/client-portal.test.mjs`, `test/client-portal-browser.test.mjs` and the portal gate case in `test/worker.test.mjs`.
+Existing coverage is `test/client-portal-check.test.mjs`, `test/client-portal-browser.test.mjs` and the portal gate case in `test/worker-check.test.mjs`.
 
 - Open the direct route at 390px and 1440px. Require all eight synthetic phases, Negotiation marked Current step, three shared text entries and no horizontal overflow.
 - Require an empty password field after submission. Lock the portal and require the content area empty. Reopen, then retire the page and require the same clearing behavior.

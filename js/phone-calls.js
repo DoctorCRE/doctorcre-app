@@ -1,6 +1,6 @@
 import { createPageBudget } from './read-budget.mjs';
 import { watchPresence } from './visibility-poll.mjs';
-import { createDayStore } from '../tours/day-store.js';
+import { openPhoneCallAudio, PHONE_CALL_AUDIO_TOUR as tour_id } from '../tours/day-store.js';
 import { createDayRecorder } from '../tours/day-recorder.js';
 import { createPhoneCallClient, sessionId } from './phone-call-client.js';
 import { createLiveClient } from './live-client.js';
@@ -14,7 +14,6 @@ const notice = message => { if (!disposed) $('phoneNotice').textContent = messag
 const api = createPhoneCallClient();
 let store, recorder, scope, client, disposed = false, busy = false, currentId = null;
 const answers = new Map(), answering = new Set();
-const tour_id = 'calls';
 let reviewGeneration = 0, guide = null;
 let wakeLock = null, wakeGeneration = 0, transferringId = null, pollTimer = null, pollDelay = 30000, pollAttempts = 0;
 const pollPresence = watchPresence({ document, onResume: resumeReads, onWake: resumeReads });
@@ -190,8 +189,7 @@ async function start() {
   if (resolveDealroomBoot(location).mode !== 'live') { notice('Phone capture needs a signed-in connection. Local previews use synthetic recordings only.'); return; }
   const session = await api.session();
   if (!['joe', 'dell'].includes(session.actor?.slug)) throw new Error('Sign in as an authorized partner to capture a call.');
-  scope = JSON.stringify([location.origin, session.actor.slug]);
-  store = createDayStore(indexedDB, 'doctorcre-call-audio-v1');
+  ({ store, scope } = openPhoneCallAudio(session.actor.slug));
   client = createLiveClient({ selfActor: session.actor.slug });
   recorder = createDayRecorder({ window, store, maxDurationMs: 60 * 60_000, maxBytes: 50 * 1024 * 1024, onChange: note => {
     if (disposed) return;

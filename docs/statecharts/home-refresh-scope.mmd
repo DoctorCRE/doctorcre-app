@@ -13,7 +13,7 @@ stateDiagram-v2
   Agenda --> Automatic: Start calendar read
   Full --> Automatic: Start full read
   %% A waiting full Home refresh must not become a calendar-only read.
-  %% test/home-read-queue.test.mjs exercises the request pairs and each consume edge.
+  %% test/home-read-queue-check.test.mjs exercises the request pairs and each consume edge.
   %% test/deal-update-reviews-browser.test.mjs drives the held agenda, full request,
   %% later decision and actual full read in the running app.
   %% In-flight reads, timeout and disposal belong to the existing auto-refresh lifecycle.

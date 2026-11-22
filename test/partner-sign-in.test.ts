@@ -114,6 +114,57 @@ for (const [outgoing, incoming] of [
   }
 }
 
+test("engine /calls bookmarks serve the gated recording recovery page", async () => {
+  const { send, calls } = fixture(status);
+  const path = "/calls?session=synthetic";
+  for (const method of ["GET", "HEAD"]) {
+    const denied = await send(path, { method });
+    assert.equal(denied.status, 302);
+    const login = new URL(denied.headers.get("location") ?? "", staging);
+    assert.equal(login.searchParams.get("return_to"), path);
+    const admitted = await send(path, { method, headers: { cookie } });
+    assert.equal(admitted.status, 200);
+    assert.equal(admitted.headers.get("cache-control"), "no-store");
+    assert.match(admitted.headers.get("permissions-policy") ?? "", /microphone=\(\)/);
+    assert.equal(calls.assets.at(-1), "/phone-capture-retired.html");
+    if (method === "HEAD") assert.equal(admitted.body, null);
+  }
+  assert.deepEqual(calls.carr, []);
+});
+
+test("only CARR sign-in forwards standalone call session requests", async () => {
+  const inputs = [
+    ["POST", ""],
+    ["PUT", "/demo/transfer"],
+    ["GET", "/demo"],
+    ["GET", "/demo/report"],
+    ["POST", "/demo/answers"],
+  ] as const;
+  const forwarded: string[] = [];
+  const carr = fixture(null, {
+    PARTNER_SIGN_IN: "carr",
+    CARR: {
+      async fetch(input: Request) {
+        forwarded.push(input.method + " " + new URL(input.url).pathname);
+        return Response.json({ legacy: true });
+      },
+    },
+  });
+  const engine = fixture(status);
+  for (const [method, suffix] of inputs) {
+    const path = "/api/v1/call-sessions" + suffix;
+    assert.equal((await engine.send(path, { method, headers: { cookie } })).status, 410);
+    assert.equal((await carr.send(path, { method })).status, 200);
+  }
+  assert.deepEqual(
+    forwarded,
+    inputs.map(([method, suffix]) => method + " /api/v1/call-sessions" + suffix),
+  );
+  assert.deepEqual(engine.calls.carr, []);
+  assert.deepEqual(engine.calls.engine, []);
+  assert.deepEqual(engine.calls.partner, []);
+});
+
 test("engine sign-in preserves deep links, gates redirects, and protects GET and HEAD responses", async () => {
   const { send, calls } = fixture(status);
   const pages: [string, string, number][] = [

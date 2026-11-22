@@ -12,7 +12,7 @@ Open Home or Local Deals. Select a deal heading to open its room. Select an item
 
 ## Driving it with Playwright
 
-Use `test/deal-items-browser.test.mjs`, `test/deal-item-sheet.test.mjs`, `test/deal-items-client.test.mjs`, `test/deal-attention-browser.test.mjs`, and `test/home-dashboard-browser.test.mjs`.
+Use `test/deal-items-browser.test.mjs`, `test/deal-item-sheet-check.test.mjs`, `test/deal-items-client-check.test.mjs`, `test/deal-attention-browser.test.mjs`, and `test/home-dashboard-browser.test.mjs`.
 
 - Require `#dealFlags .home-flag h3 a`, save its href, and open the exact deal room. Compare the selected deal ID with the loaded record.
 - On Board, choose `[data-deal-item]`. Require the matching item heading, dated bullets, Tell Dr. CRE input, and Mark done control in `.deal-item-sheet`.

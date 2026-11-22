@@ -11,7 +11,7 @@ Follow [Launch, Doctor and Drive](../SKILL.md) first. This map describes current
 
 ## Features
 
-- [Phone capture](phone-calls.md): import, microphone, pending transfer and authenticated review.
+- [Phone capture](phone-calls.md): recover saved recordings after the sign-in move or use standalone capture with CARR sign-in.
 
 - [Workspace](workspace.md): flagged desktop group zoom and phone restoration.
 - [Home](home.md): scopes, refresh and deal entry.

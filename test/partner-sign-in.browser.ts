@@ -2869,10 +2869,127 @@ async function openRecorder(page: Page) {
   return page.locator("#callModeDialog");
 }
 
+test("engine phone capture bookmark recovers the partner's recordings without calling the old service", async (t) => {
+  const { server, context, carrChecks } = await app(t, { width: 390 });
+  const page = await context.newPage();
+  const bookmark = "/calls?mode=live&session=11111111-1111-4111-8111-111111111111";
+  const sessionRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/v1/call-sessions")) sessionRequests.push(request.url());
+  });
+  await page.goto(server.origin + "/deals?mode=live");
+  await page.getByRole("heading", { name: dealName, exact: true }).waitFor();
+  await page.evaluate(async () => {
+    const store = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("doctorcre-call-audio-v1", 1);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore("notes", { keyPath: ["scope", "id"] });
+        request.result.createObjectStore("tours", { keyPath: ["scope", "id"] });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = store.transaction("notes", "readwrite");
+      for (const [actor, status, bytes] of [
+        ["joe", "queued", "queued audio"],
+        ["joe", "recording", "interrupted audio"],
+        ["dell", "local", "other partner audio"],
+      ] as const) {
+        tx.objectStore("notes").put({
+          scope: JSON.stringify([location.origin, actor]),
+          tour_id: "calls",
+          id: status,
+          status,
+          audio: new Blob([bytes], { type: "audio/wav" }),
+        });
+      }
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error);
+    });
+    store.close();
+  });
+
+  assert.equal((await page.goto(server.origin + bookmark))?.status(), 200);
+  await page.getByRole("heading", { name: "Phone capture has retired" }).waitFor({ timeout: 5_000 });
+  const recordings = page.getByText(/^Download recording \d+$/);
+  await recordings.nth(1).waitFor();
+  assert.equal(await recordings.count(), 2);
+  assert.equal(await page.getByRole("button", { name: "Record microphone" }).count(), 0);
+  const recovered = [];
+  for (const control of await recordings.all()) {
+    const [download] = await Promise.all([page.waitForEvent("download"), control.click()]);
+    assert.match(download.suggestedFilename(), /^phone-recording-\d+\.wav$/);
+    recovered.push(await readFile(await download.path(), "utf8"));
+  }
+  assert.deepEqual(recovered.sort(), ["interrupted audio", "queued audio"]);
+  await page.reload();
+  await recordings.nth(1).waitFor();
+  assert.equal(await recordings.count(), 2);
+
+  const otherTab = await context.newPage();
+  const switchTo = (fixture: string, returnTo: string) =>
+    otherTab.goto(`${server.origin}/auth/callback/google?fixture=${fixture}&return_to=${encodeURIComponent(returnTo)}`);
+  // A plain response changes the cookie before any app page can publish a session change.
+  const newSession = await switchTo("second", "/auth/session");
+  assert.ok(newSession);
+  assert.equal(newSession.status(), 200);
+  assert.equal((await newSession.json()).actor.slug, "dell");
+  const outcome = Promise.race([
+    page.waitForEvent("download", { timeout: 5_000 }).then(() => "stale recording downloaded"),
+    page.waitForURL("**/public-shell/session-ended.html", { timeout: 5_000 }).then(() => "access closed"),
+  ]);
+  await recordings.first().evaluate((control) => {
+    if (control instanceof HTMLElement) control.click();
+  });
+  assert.equal(await outcome, "access closed");
+
+  await page.goto(server.origin + bookmark);
+  await recordings.first().waitFor();
+  assert.equal(await recordings.count(), 1);
+  const [download] = await Promise.all([page.waitForEvent("download"), recordings.first().click()]);
+  assert.equal(await readFile(await download.path(), "utf8"), "other partner audio");
+
+  await switchTo("first", "/deals?mode=live");
+  await otherTab.locator('#selfAvatar[aria-label*="account and settings"]').waitFor();
+  await page.waitForURL("**/public-shell/session-ended.html", { timeout: 5_000 });
+  assert.equal(await recordings.count(), 0);
+
+  await page.goto(server.origin + bookmark);
+  await recordings.nth(1).waitFor();
+  const [saved] = await Promise.all([page.waitForEvent("download"), recordings.first().click()]);
+  assert.ok(recovered.includes(await readFile(await saved.path(), "utf8")));
+  assert.deepEqual(sessionRequests, []);
+  assert.equal(carrChecks(), 0);
+});
+
+for (const signIn of ["engine", "carr"] as const) {
+  test(`${signIn} menu and quick switcher list the right phone capture destination`, async (t) => {
+    const { server, context } = await app(t, { signIn, switchDay: signIn === "carr" });
+    const page = await context.newPage();
+    await page.goto(server.origin + "/deals?mode=live");
+    await page.getByRole("heading", { name: dealName, exact: true }).waitFor();
+    await page.getByRole("button", { name: "More", exact: true }).click();
+    assert.equal(
+      await page.getByRole("link", { name: "Phone capture", exact: true }).count(),
+      signIn === "carr" ? 1 : 0,
+    );
+    await page.getByRole("button", { name: "Search and quick switcher" }).click();
+    const switcher = page.getByRole("dialog", { name: "Quick switcher" });
+    await switcher.getByText("Client portal", { exact: true }).waitFor();
+    assert.equal(await switcher.getByText("Phone capture", { exact: true }).count(), signIn === "carr" ? 1 : 0);
+  });
+}
+
 test("the Call Mode report opens review for its captured activity on the selected deal", async (t) => {
   const { server, context } = await app(t, { callReview: () => callOutcomes("pending", null, true) });
   const page = await context.newPage();
   await routeRecorder(page, () => ({ status: "filed", report: { engine_call: recorderReceipt } }));
+  await page.goto(server.origin + "/calls?mode=live");
+  await page.getByRole("heading", { name: "Phone capture has retired" }).waitFor({ timeout: 5_000 });
+  await page.getByText("No saved recordings were found for this account in this browser.").waitFor();
+  await page.getByRole("link", { name: "Open Deals" }).click();
+  assert.equal(new URL(page.url()).pathname, "/deals");
   await page.goto(server.origin + dealPage);
   await page.getByRole("region", { name: "Deal snapshot" }).waitFor();
   const dialog = await openRecorder(page);

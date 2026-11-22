@@ -12,7 +12,7 @@ test('temporary directories are created only by the shared helper', async () => 
     for (const file of await readdir(dir, { recursive: true })) {
       if (!/\.[cm]?[jt]sx?$/.test(file)) continue;
       const path = join(dir, file);
-      if (path === 'scripts/temp-directory.mjs' || path === 'test/temp-directory-guard.test.mjs') continue;
+      if (path === 'scripts/temp-directory.mjs' || path === 'test/temp-directory-guard-check.test.mjs') continue;
       const source = await readFile(path, 'utf8');
       if (/\b(?:mkdtemp(?:Sync)?|tmpdir)\b/.test(source)) violations.push(path);
     }
@@ -42,7 +42,7 @@ test('guard rejects mkdir and mkdirSync under the temporary root', t => {
   const root = temporaryDirectory('doctorcre-guard-fixture-', t);
   mkdirSync(join(root, 'test'));
   mkdirSync(join(root, 'scripts'));
-  const guard = new URL('./temp-directory-guard.test.mjs', import.meta.url).pathname;
+  const guard = new URL('./temp-directory-guard-check.test.mjs', import.meta.url).pathname;
   const childEnv = { ...process.env };
   delete childEnv.NODE_TEST_CONTEXT;
   for (const method of ['mkdirSync', 'mkdir']) {

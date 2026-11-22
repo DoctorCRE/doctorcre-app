@@ -51,7 +51,7 @@ export const navigationItems = [
   { label: "Vendors", href: "/vendors" },
   { label: "Clients", href: "/clients", secondary: true },
   { label: "Calendar", href: "/calendar", secondary: true },
-  { label: "Phone capture", href: "/calls", secondary: true },
+  { label: "Phone capture", href: "/calls", secondary: true, carrOnly: true },
   { label: "Relationships", href: "/relationships", secondary: true },
   { label: "Invoices", href: "/invoices", secondary: true },
   { label: "Closing anniversaries", href: "/leases", secondary: true },
