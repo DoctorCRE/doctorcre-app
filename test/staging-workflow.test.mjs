@@ -16,6 +16,8 @@ test('signed-in staging runs only on manual dispatch with the staging environmen
   const run = job.steps.find(step => step.run?.includes('playwright test'));
   assert.match(run.run, /--project=chromium/);
   assert.match(run.run, /--retries=1/);
+  assert.deepEqual(run.run.match(/[\w-]+\.spec\.ts/g),
+    ['deals.spec.ts', 'home.spec.ts', 'tours-planner.spec.ts', 'signed-in.spec.ts']);
   assert.equal(run.env.ENGINE_STORAGE_STATE, '${{ secrets.E2E_ENGINE_STORAGE_STATE }}');
   assert.equal(run.env.E2E_ENGINE_STORAGE_STATE, 'playwright/.auth/engine.json');
   assert.equal(run['continue-on-error'], undefined);

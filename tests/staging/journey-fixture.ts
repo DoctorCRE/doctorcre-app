@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { test } from "@playwright/test";
 import { z } from "zod";
 
 const endpoint = "https://doctorcre-engine-staging.joe-bookout-carr-us.workers.dev/jobs/sign-in-rehearsal";
@@ -83,3 +84,8 @@ export async function withJourneyFixture<T>(
   await cleanup();
   return result;
 }
+
+export const journeyTest = test.extend<{ rehearsal: Fixture; journeyFixtureOptions: Options }>({
+  journeyFixtureOptions: [{}, { option: true }],
+  rehearsal: [({ journeyFixtureOptions }, use) => withJourneyFixture(use, journeyFixtureOptions), { timeout: 125_000 }],
+});

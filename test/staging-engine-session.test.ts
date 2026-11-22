@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test, { type TestContext } from "node:test";
+import { startFixture } from "../scripts/fixture-http.mjs";
 import { temporaryDirectory } from "../scripts/temp-directory.mjs";
 import { requireSafeStagingDiagnostics, requireStagingEngineSession } from "../tests/staging/engine-session.ts";
 
@@ -154,4 +156,69 @@ test("engine staging refuses configured video, screenshots, and network recordin
   refuse({ screenshot: "only-on-failure" });
   refuse({ contextOptions: { recordHar: { path: "synthetic.har" } } });
   refuse({ contextOptions: { recordVideo: { dir: "synthetic-videos" } } });
+});
+
+test("the staging auth reporters omit cookies when session transport fails", async (t) => {
+  const syntheticCookie = "synthetic-staging-session-cookie";
+  const server = await startFixture({
+    routes: new Map([["/auth/session", { hold: "session-outage" }]]),
+    limits: { delayMs: 100 },
+  });
+  t.after(() => server.close());
+  const scratch = temporaryDirectory("staging-auth-report-", t);
+  const state = join(scratch, "state.json");
+  const summary = join(scratch, "report.json");
+  const config = join(scratch, "playwright.config.mjs");
+  writeFileSync(
+    state,
+    JSON.stringify({
+      cookies: [
+        {
+          name: "session",
+          value: syntheticCookie,
+          domain: "127.0.0.1",
+          path: "/",
+          expires: -1,
+          httpOnly: true,
+          secure: false,
+          sameSite: "Lax",
+        },
+      ],
+      origins: [],
+    }),
+  );
+  writeFileSync(
+    config,
+    `export default ${JSON.stringify({
+      testDir: resolve("tests/staging"),
+      testMatch: "auth.setup.ts",
+      outputDir: join(scratch, "output"),
+      use: { baseURL: server.origin },
+      reporter: [["line"], ["json", { outputFile: summary }]],
+    })};`,
+  );
+  const cli = resolve("node_modules/@playwright/test/cli.js");
+  const output = await new Promise<string>((finish, reject) => {
+    execFile(
+      process.execPath,
+      [cli, "test", "--config", config],
+      {
+        env: { ...process.env, E2E_ENGINE_STORAGE_STATE: state, DEBUG: "", PWDEBUG: "" },
+        timeout: 15_000,
+      },
+      (error, stdout, stderr) => {
+        if (error?.code === 1) finish(stdout + stderr);
+        else reject(new Error("Expected the synthetic staging auth request to fail"));
+      },
+    );
+  });
+  assert.equal(
+    server.requests.find((request) => request.path === "/auth/session")?.headers.cookie,
+    `session=${syntheticCookie}`,
+  );
+  assert.ok(
+    !(output + readFileSync(summary, "utf8")).includes(syntheticCookie),
+    "the reporter disclosed a session cookie",
+  );
+  assert.ok(output.includes("Could not reach the staging session check."));
 });

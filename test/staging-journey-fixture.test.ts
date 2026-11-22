@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import test from "node:test";
+import { temporaryDirectory } from "../scripts/temp-directory.mjs";
 import { withJourneyFixture } from "../tests/staging/journey-fixture.ts";
 
 const env = {
@@ -142,4 +146,46 @@ test("unverified cleanup reports the run and the original journey failure", asyn
     },
   );
   assert.equal(jobs.calls.length, 4);
+});
+
+test("Playwright cleans the prepared run after the journey times out", (t) => {
+  const scratch = temporaryDirectory("staging-fixture-timeout-", t);
+  const calls = join(scratch, "calls.log");
+  const spec = join(scratch, "timeout.spec.mjs");
+  const config = join(scratch, "playwright.config.mjs");
+  writeFileSync(config, 'export default {testDir: ".", outputDir: "./output", timeout: 500, reporter: "line"};');
+  writeFileSync(
+    spec,
+    `
+    import { appendFileSync } from "node:fs";
+    import { journeyTest as test } from ${JSON.stringify(resolve("tests/staging/journey-fixture.ts"))};
+    const options = {
+      env: ${JSON.stringify(env)},
+      fetch: async (url, request) => {
+        const { run_id } = JSON.parse(request.body);
+        const action = new URL(url).pathname.split("/").at(-1);
+        appendFileSync(${JSON.stringify(calls)}, action + " " + run_id + "\\n");
+        return action === "prepare"
+          ? Response.json({ ...${JSON.stringify(prepared)}, run_id }, { status: 201 })
+          : Response.json({ run_id, remaining: 0 });
+      },
+    };
+    test.use({ journeyFixtureOptions: options });
+    test("stalled journey", async ({ rehearsal }) => {
+      if (!rehearsal.deal_id) throw new Error("fixture unavailable");
+      await new Promise(() => {});
+    });
+  `,
+  );
+  const cli = resolve("node_modules/@playwright/test/cli.js");
+  const result = spawnSync(process.execPath, [cli, "test", "--config", config], {
+    encoding: "utf8",
+    timeout: 15_000,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout + result.stderr, /Test timeout of 500ms exceeded/);
+  const actions = readFileSync(calls, "utf8").trim().split("\n");
+  const [prepare = ""] = actions;
+  assert.ok(prepare.startsWith("prepare "));
+  assert.deepEqual(actions, [prepare, `cleanup ${prepare.slice("prepare ".length)}`]);
 });

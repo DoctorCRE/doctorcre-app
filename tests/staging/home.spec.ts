@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { withJourneyFixture } from "./journey-fixture.ts";
+import { expect } from "@playwright/test";
+import { journeyTest as test } from "./journey-fixture.ts";
 
 test.beforeEach(async ({ page }) => {
   await page.addLocatorHandler(page.getByRole("button", { name: "Dismiss morning brief" }), async (dismiss) => {
@@ -17,13 +17,11 @@ test("V2-F03: Charts navigation opens, selects and returns to Overview", async (
   await expect(page.getByRole("region", { name: "Reminders", exact: true })).toBeVisible();
 });
 
-test("Home opens the deal from its overdue next step", async ({ page }) => {
+test("Home opens the deal from its overdue next step", async ({ page, rehearsal }) => {
   test.setTimeout(180_000);
-  await withJourneyFixture(async (fixture) => {
-    await page.goto(`/?card=${encodeURIComponent(fixture.home_item_id)}`);
-    const dealUrl = `/deals?deal=${fixture.deal_id}&focus=next-step&step=${fixture.next_step_id}`;
-    await page.locator(`[data-inbox-row="${fixture.home_item_id}"] h3 a[href="${dealUrl}"]`).click();
-    await expect(page).toHaveURL(dealUrl);
-    await expect(page.locator("#panelTitle")).toHaveText(fixture.deal_name);
-  });
+  await page.goto(`/?card=${encodeURIComponent(rehearsal.home_item_id)}`);
+  const dealUrl = `/deals?deal=${rehearsal.deal_id}&focus=next-step&step=${rehearsal.next_step_id}`;
+  await page.locator(`[data-inbox-row="${rehearsal.home_item_id}"] h3 a[href="${dealUrl}"]`).click();
+  await expect(page).toHaveURL(dealUrl);
+  await expect(page.locator("#panelTitle")).toHaveText(rehearsal.deal_name);
 });

@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { withJourneyFixture } from "./journey-fixture.ts";
+import { expect } from "@playwright/test";
+import { journeyTest as test } from "./journey-fixture.ts";
 import { parkedDeals } from "./journey-flows.mjs";
 
 test.describe.configure({ retries: 0 });
@@ -10,16 +10,17 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("Local Deals switches board and list views and inspects a deal", async ({ page }) => {
+test("Deals switches board and list views and opens the rehearsal deal", async ({ page, rehearsal }) => {
+  const card = page.locator(`.card-open[data-open="${rehearsal.deal_id}"]:visible`);
   await page.goto("/deals");
-  await expect(page.locator(".card-open").first()).toBeVisible();
+  await expect(card).toBeVisible();
   await page.getByRole("button", { name: "List", exact: true }).click();
   await expect(page.locator("#listView")).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Board", exact: true }).click();
   await expect(page.locator("#boardView")).toHaveAttribute("aria-pressed", "true");
-  await page.locator(".card-open").first().click();
+  await card.click();
   await expect(page.locator("#recordPanel")).toBeVisible();
-  await expect(page.locator("#panelTitle")).not.toBeEmpty();
+  await expect(page.locator("#panelTitle")).toHaveText(rehearsal.deal_name);
   await page.getByRole("button", { name: "Back to deals", exact: true }).click();
   await expect(page.locator("#recordPanel")).toBeHidden();
 });
@@ -28,44 +29,38 @@ test("Local Deals shows parked records and recent changes read-only", async ({ p
   await parkedDeals(page);
 });
 
-test("Deal detail expands update history and preserves it through refresh", async ({ page }) => {
+test("Deal detail expands update history and preserves it through refresh", async ({ page, rehearsal }) => {
   test.setTimeout(420000);
-  await withJourneyFixture(async (fixture) => {
-    await page.goto(`/deals?deal=${fixture.deal_id}`);
-    await expect(page.locator("#panelTitle")).toHaveText(fixture.deal_name);
-    const history = page.locator(".updates-history");
-    await expect(history).toHaveCount(1);
-    await history.locator(":scope > summary").click();
-    await expect(history.locator(".deal-note")).toHaveCount(2);
-    await expect(history.locator(".deal-note p")).toHaveText(fixture.notes.toReversed());
-    await expect(history.locator(".deal-note").first()).toBeVisible();
-    const observed = await page.locator("#detailUpdated").getAttribute("datetime");
-    await page.getByRole("button", { name: "Refresh deal", exact: true }).click();
-    await expect(page.locator("#detailUpdated")).not.toHaveAttribute("datetime", observed || "", { timeout: 27000 });
-    await expect(history).toHaveAttribute("open", "");
-  });
+  await page.goto(`/deals?deal=${rehearsal.deal_id}`);
+  await expect(page.locator("#panelTitle")).toHaveText(rehearsal.deal_name);
+  const history = page.locator(".updates-history");
+  await expect(history).toHaveCount(1);
+  await history.locator(":scope > summary").click();
+  await expect(history.locator(".deal-note")).toHaveCount(2);
+  await expect(history.locator(".deal-note p")).toHaveText(rehearsal.notes.toReversed());
+  await expect(history.locator(".deal-note").first()).toBeVisible();
+  const observed = await page.locator("#detailUpdated").getAttribute("datetime");
+  await page.getByRole("button", { name: "Refresh deal", exact: true }).click();
+  await expect(page.locator("#detailUpdated")).not.toHaveAttribute("datetime", observed || "", { timeout: 27000 });
+  await expect(history).toHaveAttribute("open", "");
 });
 
-test("Deal card omits Dates, Full record and outlook controls", async ({ page }) => {
+test("Deal card omits Dates, Full record and outlook controls", async ({ page, rehearsal }) => {
   test.setTimeout(420000);
-  await withJourneyFixture(async (fixture) => {
-    await page.goto(`/deals?deal=${fixture.deal_id}`);
-    await expect(page.locator("#panelTitle")).toHaveText(fixture.deal_name);
-    await expect(page.locator(".deal-dates,.full-record,[data-jev-deal],#dealDateDialog")).toHaveCount(0);
-  });
+  await page.goto(`/deals?deal=${rehearsal.deal_id}`);
+  await expect(page.locator("#panelTitle")).toHaveText(rehearsal.deal_name);
+  await expect(page.locator(".deal-dates,.full-record,[data-jev-deal],#dealDateDialog")).toHaveCount(0);
 });
 
-test("An unsaved deal note clears when the deal reopens", async ({ page }) => {
+test("An unsaved deal note clears when the deal reopens", async ({ page, rehearsal }) => {
   test.setTimeout(420000);
-  await withJourneyFixture(async (fixture) => {
-    await page.goto(`/deals?deal=${fixture.deal_id}`);
-    await page.locator("#detailNextStepEditor > summary").click();
-    await page.locator("#detailNoteEditor > summary").click();
-    const update = page.getByLabel("Note", { exact: true });
-    await expect(update).toHaveValue("");
-    await update.fill("Synthetic unsaved review draft");
-    await page.getByRole("button", { name: "Back to deals", exact: true }).click();
-    await page.goto(`/deals?deal=${fixture.deal_id}`);
-    await expect(update).toHaveValue("");
-  });
+  await page.goto(`/deals?deal=${rehearsal.deal_id}`);
+  await page.locator("#detailNextStepEditor > summary").click();
+  await page.locator("#detailNoteEditor > summary").click();
+  const update = page.getByLabel("Note", { exact: true });
+  await expect(update).toHaveValue("");
+  await update.fill("Synthetic unsaved review draft");
+  await page.getByRole("button", { name: "Back to deals", exact: true }).click();
+  await page.goto(`/deals?deal=${rehearsal.deal_id}`);
+  await expect(update).toHaveValue("");
 });

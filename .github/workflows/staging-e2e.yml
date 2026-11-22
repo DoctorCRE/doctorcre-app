@@ -51,7 +51,8 @@ jobs:
           umask 077
           printf '%s' "$ENGINE_STORAGE_STATE" > playwright/.auth/engine.json
           unset ENGINE_STORAGE_STATE
-          ./node_modules/.bin/playwright test --project=chromium --retries=1 --reporter=line,html,json
+          ./node_modules/.bin/playwright test --project=chromium --retries=1 --reporter=line,html,json \
+            deals.spec.ts home.spec.ts tours-planner.spec.ts signed-in.spec.ts
         env:
           ENGINE_STORAGE_STATE: ${{ secrets.E2E_ENGINE_STORAGE_STATE }}
           E2E_ENGINE_STORAGE_STATE: playwright/.auth/engine.json

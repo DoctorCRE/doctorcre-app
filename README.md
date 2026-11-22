@@ -70,7 +70,8 @@ screenshots, and debug logging. The Google sign-in round trip is a separate
 manual check.
 
 The manual **Signed-in staging tests** workflow deploys the selected app
-revision and runs the `chromium` project. Its staging environment needs
+revision and runs the Deals, Home, deal tour plan, and signed-in navigation
+specs in the `chromium` project. Its staging environment needs
 `E2E_ENGINE_STORAGE_STATE` (approved storage state JSON for `joe`) and
 `E2E_ENGINE_JOBS_CLIENT_ID` and `E2E_ENGINE_JOBS_CLIENT_SECRET` (staging jobs
 Access credentials). The engine rehearsal job must be deployed and its staging
