@@ -45,13 +45,13 @@ export async function bootInbox(host: HTMLElement) {
     let privateDraft: PrivateReplyDraft | undefined;
     let docLinkRequest: DocLinkRequest | undefined;
     if (resolveDealroomBoot(location).mode === "live") {
-      const [{ privateSession, privateTextDraft }, { createMcpRequests }] = await Promise.all([
+      const [{ privateSession }, { createMcpRequests }] = await Promise.all([
         sibling("./private-session.js"),
         sibling("./mcp-requests.mjs"),
       ]);
       const session = privateSession();
-      const { actor } = await session.verify();
-      privateDraft = (id) => privateTextDraft(window, actor.slug, "home-reply", id);
+      await session.verify();
+      privateDraft = (id) => session.textDraft("home-reply", id);
       if (session.engineSignIn) docLinkRequest = session.fetch;
       const request = createMcpRequests();
       rpc = async (name, args, signal) => {

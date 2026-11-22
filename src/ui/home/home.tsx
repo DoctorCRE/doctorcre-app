@@ -329,7 +329,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       if (!mounted.current) return;
       const successes = results.filter((result) => result.ok);
       if (successes.length && operation.request.action === "drop" && operation.request.target.kind === "draft")
-        drafts.write(operation.request.target.id, null);
+        drafts.engine.write(operation.request.target.id, null);
       const saved = successes.flatMap((result) => (result.item ? [result.item] : []));
       const changed = results.flatMap((result) => (!result.ok && result.current_item ? [result.current_item] : []));
       const updates = [...saved, ...changed];
@@ -1285,7 +1285,7 @@ function LinkedReview({
 
   useEffect(() => {
     if (data && data.state !== "active" && itemId.startsWith("reply_draft:"))
-      drafts.write(itemId.slice("reply_draft:".length).toLowerCase(), null);
+      drafts.engine.write(itemId.slice("reply_draft:".length).toLowerCase(), null);
   }, [data, drafts, itemId]);
 
   if (!data)

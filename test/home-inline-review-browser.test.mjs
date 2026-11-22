@@ -63,7 +63,14 @@ async function setup(t, { width = 1440, theme = 'light', kind = 'reply_draft', r
   page.setDefaultTimeout(5000);
   await page.goto(`${server.origin}${surface}?mode=live`);
   await page.locator('[data-inbox-row="one"]').waitFor();
-  return { page, calls, row, panel: page.getByRole('region', { name: 'Details for Synthetic review', exact: true }) };
+  return {
+    page, calls, row, panel: page.getByRole('region', { name: 'Details for Synthetic review', exact: true }),
+    reviseDraft(nextBody) {
+      body = nextBody;
+      row.source_version = `v${++version}`;
+      row.review_reference.source_version = row.source_version;
+    },
+  };
 }
 for (const [name, options, expectedLink, expectedName] of [
   ['task with a deal', { kind: 'action', contextLabel: 'Demo practice', sourceUrl: '/deals?deal=synthetic', dueOn: '2026-10-01' }, '/deals?deal=synthetic', 'Demo practice'],
@@ -94,6 +101,22 @@ for (const [name, options, expectedLink, expectedName] of [
   assert.equal(await panel.count(), 0);
   assert.equal(await opener.evaluate(button => button === document.activeElement), true);
 });
+test('legacy Home reload opens the newest saved reply without applying an earlier edit', async t => {
+  const { page, panel, calls, reviseDraft } = await setup(t);
+  const openReview = page.getByRole('button', { name: 'Open', exact: true });
+  const message = panel.getByRole('textbox', { name: 'Message', exact: true });
+  await openReview.click();
+  await message.fill('Unsent legacy edit.');
+  await page.keyboard.press('Escape');
+  await openReview.click();
+  assert.equal(await message.inputValue(), 'Unsent legacy edit.');
+  reviseDraft('New saved legacy reply.');
+  await page.reload();
+  await openReview.click();
+  assert.equal(await message.inputValue(), 'New saved legacy reply.');
+  assert.equal(calls.some(call => /^(edit|submit)-email-draft$/.test(call.name)), false);
+});
+
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`inline reply edits, saves and explicitly submits ${width} ${theme}`, async t => {
   const { page, panel, calls } = await setup(t, { width, theme });
   await page.getByRole('button', { name: 'Open', exact: true }).click();

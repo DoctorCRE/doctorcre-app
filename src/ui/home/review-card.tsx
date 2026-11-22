@@ -139,16 +139,17 @@ export function ReviewCard<Item extends ReviewItem>({
   confirmed,
   children,
 }: Props<Item>) {
-  const engineDraftId = draftReference(item)?.id;
+  const engineDraftId = item.engine_marks ? draftReference(item)?.id : undefined;
   const legacyDraftId =
     item.review_reference?.kind === "reply_draft" && "source_id" in item && typeof item.source_id === "string"
       ? item.source_id
       : null;
   const draftId = engineDraftId ?? legacyDraftId;
-  const [draftEdits, setDraftEdits] = useState(() => (draftId ? drafts.read(draftId) : undefined));
+  const edits = item.engine_marks ? drafts.engine : drafts.legacy;
+  const [draftEdits, setDraftEdits] = useState(() => (draftId ? edits.read(draftId) : undefined));
   function updateDraftEdits(edit: DraftEdit | null) {
     if (!draftId) return;
-    drafts.write(draftId, edit);
+    edits.write(draftId, edit);
     setDraftEdits(edit ?? undefined);
   }
 
@@ -245,7 +246,7 @@ export function ReviewCard<Item extends ReviewItem>({
       : null;
   useEffect(() => {
     if (savedDraft && engineDraftId && !canSaveDraft) {
-      drafts.write(engineDraftId, null);
+      drafts.engine.write(engineDraftId, null);
       setDraftEdits(undefined);
     }
   }, [savedDraft, engineDraftId, canSaveDraft, drafts]);

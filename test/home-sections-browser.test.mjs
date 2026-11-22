@@ -1834,6 +1834,83 @@ for (const event of ['sign-out', 'partner change', 'drop']) test(`Home clears re
   assert.equal(await sessionHasReplyEdit(page, localEdit), false);
 });
 
+test('Home skips edits from a retired session when the same partner signs back in elsewhere', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  const edit = 'Sample edit from the retired session.';
+  state.dashboard = true;
+  state.items = [draft];
+  let signedIn = true;
+  const auth = route => route.fulfill({
+    status: signedIn ? 200 : 401,
+    headers: { 'x-doctorcre-partner-sign-in': 'engine' },
+    json: signedIn ? { actor: { slug: 'joe' }, csrf_token: 'synthetic' } : {},
+  });
+  await page.route('**/auth/session', auth);
+  await open('/?mode=live');
+  const home = page.url();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await page.getByRole('link', { name: draft.title }).click();
+  await review.getByRole('button', { name: 'Edit', exact: true }).click();
+  await review.getByRole('textbox', { name: 'Message', exact: true }).fill(edit);
+  await open('/public-shell/session-ended.html');
+
+  const otherTab = await page.context().newPage();
+  await otherTab.route('**/auth/session', auth);
+  await otherTab.route('**/auth/signout', route => {
+    signedIn = false;
+    return route.fulfill({ status: 302, headers: { location: '/' } });
+  });
+  await otherTab.goto(home);
+  await otherTab.locator('#selfAvatar').click();
+  await otherTab.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await otherTab.waitForURL('**/public-shell/session-ended.html');
+  signedIn = true;
+  await otherTab.goto(home);
+  await otherTab.evaluate(async () => {
+    const { privateSession } = await import('/js/private-session.js');
+    await privateSession().verify();
+  });
+  assert.equal(await sessionHasReplyEdit(page, edit), true, 'The inactive tab missed the storage event');
+
+  await page.goto(home);
+  await page.getByRole('link', { name: draft.title }).click();
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  assert.equal(await review.getByRole('textbox', { name: 'Message', exact: true }).count(), 0);
+  assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
+});
+
+test('Home evicts the old reply edit when browser storage rejects its replacement', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  state.dashboard = true;
+  state.items = [draft];
+  await open('/?mode=live');
+  const title = page.getByRole('link', { name: draft.title });
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  const message = review.getByRole('textbox', { name: 'Message', exact: true });
+  await title.click();
+  await review.getByRole('button', { name: 'Edit', exact: true }).click();
+  await message.fill('First local edit.');
+  assert.equal(await sessionHasReplyEdit(page, 'First local edit.'), true);
+  await page.evaluate(() => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (this === sessionStorage && value.includes('Latest local edit.')) throw new DOMException('Full', 'QuotaExceededError');
+      return setItem.call(this, key, value);
+    };
+  });
+  await message.fill('Latest local edit.');
+  await review.getByRole('button', { name: 'Close review' }).click();
+  await title.click();
+  assert.equal(await message.inputValue(), 'Latest local edit.');
+  await page.reload();
+  await title.click();
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  assert.equal(await message.count(), 0, 'A failed write must not restore older text after reload');
+  assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
+});
+
 for (const width of [390, 1440]) test(`Home links open exact mailbox reviews without loading the inbox at ${width}px`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
   const draft = { ...draftCard(), suggestions: [{ id: id(43) }] };

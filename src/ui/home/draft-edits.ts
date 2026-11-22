@@ -4,7 +4,7 @@ export type DraftEdit = { subject: string; body: string; baseVersion: string };
 type TextDraft = { read(): string; write(text: string): void };
 export type PrivateReplyDraft = (id: string) => TextDraft;
 
-export function createDraftEdits(privateDraft?: PrivateReplyDraft) {
+function draftEdits(privateDraft?: PrivateReplyDraft) {
   const edits = new Map<string, DraftEdit>();
   return {
     read(id: string): DraftEdit | undefined {
@@ -28,6 +28,10 @@ export function createDraftEdits(privateDraft?: PrivateReplyDraft) {
       privateDraft?.(id).write(edit ? JSON.stringify(edit) : "");
     },
   };
+}
+
+export function createDraftEdits(privateDraft?: PrivateReplyDraft) {
+  return { engine: draftEdits(privateDraft), legacy: draftEdits() };
 }
 
 export type DraftEdits = ReturnType<typeof createDraftEdits>;
