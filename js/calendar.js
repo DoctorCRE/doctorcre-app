@@ -164,12 +164,13 @@ function paintDayPanel(day) {
   } else if (rows.length) {
     const late = rows.filter(entry => entry.days_late > 0);
     const dated = rows.filter(entry => !entry.days_late);
-    body.innerHTML = (late.length
+    body.innerHTML = (phase === "partial" ? "<p>This day may be incomplete. Refresh to try again.</p>" : "") + (late.length
       ? `<section class="cal-day-late" aria-labelledby="calLateTitle"><h3 id="calLateTitle">Late</h3>${dayList(late)}</section>`
       : "") + (dated.length ? dayList(dated) : "");
   } else {
     body.textContent = phase === "loading" || phase === "reading" ? "Reading Calendar…"
-      : !day ? "Select a day to see its items." : "No critical dates or next steps on this day.";
+      : !day ? "Select a day to see its items."
+      : phase === "partial" ? "This day may be incomplete. Refresh to try again." : "No critical dates or next steps on this day.";
   }
 }
 
