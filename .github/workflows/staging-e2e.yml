@@ -43,6 +43,8 @@ jobs:
         run: node scripts/verify-app-release.mjs https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev/app-release "$SOURCE_COMMIT" staging
         env:
           SOURCE_COMMIT: ${{ github.sha }}
+          E2E_STAGING_ACCESS_CLIENT_ID: ${{ secrets.E2E_STAGING_ACCESS_CLIENT_ID }}
+          E2E_STAGING_ACCESS_CLIENT_SECRET: ${{ secrets.E2E_STAGING_ACCESS_CLIENT_SECRET }}
       - name: Run signed-in staging tests
         id: playwright
         run: |
