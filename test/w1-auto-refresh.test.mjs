@@ -63,7 +63,7 @@ for (const phase of ['request','body']) test('PR119 finding 8: ordinary MCP '+ph
  const client=createLiveClient({readTimeoutMs:10,fetchImpl:async(_path,init)=>{signal=init.signal;if(phase==='request')return new Promise(()=>{});return {ok:true,json:()=>new Promise(()=>{})};}});
  let timer;
  const guard=new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('read did not settle')),100));
- try { await assert.rejects(Promise.race([client.loopBoard({kind:'task'}),guard]),/timed out/i);assert.equal(signal?.aborted,true); }
+ try { await assert.rejects(Promise.race([client.calendarMeetingPrep(),guard]),/timed out/i);assert.equal(signal?.aborted,true); }
  finally{clearTimeout(timer);}
 });
 test('HTTP client read has a deadline',async()=>{
