@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { type DocLinkRequest, type DocLinkStatus, docLinkMessages, readDocLinkStatus } from "../doc-link";
 import { submitOnEnter } from "../keyboard-input";
+import type { DraftEdit, DraftEdits } from "./draft-edits.ts";
 import { DropReason } from "./drop-reason.tsx";
 import {
   draftReference,
@@ -101,10 +102,6 @@ function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; hre
   );
 }
 
-export type DraftEdit = Pick<Extract<Review, { kind: "reply_draft" }>, "subject" | "body"> & {
-  baseVersion: string;
-};
-
 const writesDraftText = (verb: Operation["verb"]) => verb === "edit-email-draft" || verb === "submit-email-draft";
 
 type Props<Item extends ReviewItem> = {
@@ -112,8 +109,7 @@ type Props<Item extends ReviewItem> = {
   readOnly?: boolean;
   docLinkRequest: DocLinkRequest | undefined;
   client: ReviewClient<Item> | undefined;
-  draftEdits: DraftEdit | undefined;
-  updateDraftEdits(edits: DraftEdit | null): void;
+  drafts: DraftEdits;
   children?: ReactNode;
   close(): void;
   blockSwitching?(value: boolean): void;
@@ -136,14 +132,26 @@ export function ReviewCard<Item extends ReviewItem>({
   readOnly = false,
   docLinkRequest,
   client,
-  draftEdits,
-  updateDraftEdits,
+  drafts,
   close,
   blockSwitching,
   busy,
   confirmed,
   children,
 }: Props<Item>) {
+  const engineDraftId = draftReference(item)?.id;
+  const legacyDraftId =
+    item.review_reference?.kind === "reply_draft" && "source_id" in item && typeof item.source_id === "string"
+      ? item.source_id
+      : null;
+  const draftId = engineDraftId ?? legacyDraftId;
+  const [draftEdits, setDraftEdits] = useState(() => (draftId ? drafts.read(draftId) : undefined));
+  function updateDraftEdits(edit: DraftEdit | null) {
+    if (!draftId) return;
+    drafts.write(draftId, edit);
+    setDraftEdits(edit ?? undefined);
+  }
+
   const [state, setState] = useState<State>({ phase: "loading" });
   const [reason, setReason] = useState("");
   const [drop, setDrop] = useState<{ title: string; opener: HTMLButtonElement; confirm(reason: string): void } | null>(
@@ -228,9 +236,19 @@ export function ReviewCard<Item extends ReviewItem>({
   const editOperation = savedDraft?.operations.find((op) => op.verb === "edit-email-draft");
   const canSaveDraft = Boolean(editOperation);
   const staleEdit =
-    item.engine_marks && draftEdits && savedDraft && draftEdits.baseVersion !== savedDraft.reference.source_version
+    item.engine_marks &&
+    canSaveDraft &&
+    draftEdits &&
+    savedDraft &&
+    draftEdits.baseVersion !== savedDraft.reference.source_version
       ? draftEdits
       : null;
+  useEffect(() => {
+    if (savedDraft && engineDraftId && !canSaveDraft) {
+      drafts.write(engineDraftId, null);
+      setDraftEdits(undefined);
+    }
+  }, [savedDraft, engineDraftId, canSaveDraft, drafts]);
   const editingDraft = Boolean(item.engine_marks && canSaveDraft && draftEdits && !staleEdit);
   const draft = (!item.engine_marks || editingDraft ? draftEdits : null) ?? savedDraft;
 
@@ -256,6 +274,8 @@ export function ReviewCard<Item extends ReviewItem>({
     setMessage("Loading the updated card. Your edits are kept.");
     try {
       const current = await client.current(anchor.current);
+      if (engineDraftId && draftReference(current)?.id !== engineDraftId)
+        throw Object.assign(Error("The draft changed."), { payload: { error: "version_conflict" } });
       const updated = await client.load(current);
       if (!alive.current) return;
       reconcileFacts(updated);

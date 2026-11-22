@@ -6,6 +6,7 @@ import type { DocLinkRequest } from "../doc-link";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
 import { readDashboard } from "./dashboard-read";
+import { createDraftEdits, type DraftEdits, type PrivateReplyDraft } from "./draft-edits.ts";
 import { DropReason } from "./drop-reason.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
 import { draftCardStatus, draftReference, hasEngineReview, openStepRefusal } from "./engine-review.ts";
@@ -25,7 +26,7 @@ import {
   taskCommand,
 } from "./inbox";
 import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
-import { type DraftEdit, ReviewCard, reviewDispositionLabel } from "./review-card";
+import { ReviewCard, reviewDispositionLabel } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
@@ -104,7 +105,12 @@ export function markHomeReady(host: HTMLElement) {
   host.dataset.homeReady = "true";
   host.dispatchEvent(new Event("doctorcre:home-ready"));
 }
-function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest: DocLinkRequest | undefined }) {
+type InboxProps = {
+  client: InboxClient;
+  docLinkRequest: DocLinkRequest | undefined;
+  drafts: DraftEdits;
+};
+function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const route = useLocation();
   const home = route.pathname === "/";
   const engineHome = document.documentElement.hasAttribute("data-home-today-from-engine");
@@ -164,20 +170,6 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
     );
   }
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
-  const [draftEdits, setDraftEdits] = useState(() => new Map<string, DraftEdit>());
-  const reviewingDraftId = reviewing
-    ? (draftReference(reviewing)?.id ??
-      (reviewing.review_reference?.kind === "reply_draft" ? reviewing.source_id : null))
-    : null;
-  function updateDraftEdits(id: string, edits: DraftEdit | null) {
-    setDraftEdits((current) => {
-      if (!edits && !current.has(id)) return current;
-      const next = new Map(current);
-      if (edits) next.set(id, edits);
-      else next.delete(id);
-      return next;
-    });
-  }
   const reviewFocus = useRef<{ opener: HTMLElement; tile: Element | null; preceding: Set<HTMLElement> }>(null);
   const [reviewUncertain, setReviewUncertain] = useState(false);
   const openedLink = useRef<string | null>(null);
@@ -337,7 +329,7 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
       if (!mounted.current) return;
       const successes = results.filter((result) => result.ok);
       if (successes.length && operation.request.action === "drop" && operation.request.target.kind === "draft")
-        updateDraftEdits(operation.request.target.id, null);
+        drafts.write(operation.request.target.id, null);
       const saved = successes.flatMap((result) => (result.item ? [result.item] : []));
       const changed = results.flatMap((result) => (!result.ok && result.current_item ? [result.current_item] : []));
       const updates = [...saved, ...changed];
@@ -856,10 +848,7 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
             docLinkRequest={docLinkRequest}
             readOnly={waitingCard || finishedElsewhere}
             client={reviewClient}
-            draftEdits={reviewingDraftId ? draftEdits.get(reviewingDraftId) : undefined}
-            updateDraftEdits={(edits) => {
-              if (reviewingDraftId) updateDraftEdits(reviewingDraftId, edits);
-            }}
+            drafts={drafts}
             blockSwitching={setReviewUncertain}
             close={() => setReviewing(null)}
             busy={(value) => {
@@ -1282,16 +1271,22 @@ function LinkedReview({
   itemId,
   client,
   docLinkRequest,
+  drafts,
 }: {
   itemId: string;
   client: InboxClient["linkedReview"];
   docLinkRequest: DocLinkRequest | undefined;
+  drafts: DraftEdits;
 }) {
-  const [draftEdits, setDraftEdits] = useState<DraftEdit | undefined>();
   const { data, isPending } = useQuery({
     queryKey: ["home-linked-review", itemId],
     queryFn: ({ signal }) => client.read(itemId, signal),
   });
+
+  useEffect(() => {
+    if (data && data.state !== "active" && itemId.startsWith("reply_draft:"))
+      drafts.write(itemId.slice("reply_draft:".length).toLowerCase(), null);
+  }, [data, drafts, itemId]);
 
   if (!data)
     return (
@@ -1321,26 +1316,39 @@ function LinkedReview({
         </>
       )}
       <ReviewCard
+        key={draftReference(data.item)?.id ?? data.item.item_id}
         item={data.item}
         docLinkRequest={docLinkRequest}
         readOnly={waiting}
         client={client.client}
-        draftEdits={draftEdits}
-        updateDraftEdits={(edits) => setDraftEdits(edits ?? undefined)}
+        drafts={drafts}
         close={() => location.assign("/")}
       />
     </>
   );
 }
 
-function InboxCard({ client, docLinkRequest }: { client: InboxClient; docLinkRequest: DocLinkRequest | undefined }) {
+function InboxCard({ client, docLinkRequest, drafts }: InboxProps) {
   const { item_id } = useParams();
   if (item_id?.startsWith("suggestion:") || item_id?.startsWith("reply_draft:"))
-    return <LinkedReview key={item_id} itemId={item_id} client={client.linkedReview} docLinkRequest={docLinkRequest} />;
-  return <Inbox client={client} docLinkRequest={docLinkRequest} />;
+    return (
+      <LinkedReview
+        key={item_id}
+        itemId={item_id}
+        client={client.linkedReview}
+        docLinkRequest={docLinkRequest}
+        drafts={drafts}
+      />
+    );
+  return <Inbox client={client} docLinkRequest={docLinkRequest} drafts={drafts} />;
 }
 
-export function mountInbox(host: HTMLElement, client: InboxClient, docLinkRequest?: DocLinkRequest) {
+export function mountInbox(
+  host: HTMLElement,
+  client: InboxClient,
+  docLinkRequest?: DocLinkRequest,
+  privateDraft?: PrivateReplyDraft,
+) {
   const query = new QueryClient({
     defaultOptions: {
       queries: {
@@ -1358,7 +1366,8 @@ export function mountInbox(host: HTMLElement, client: InboxClient, docLinkReques
     },
   });
   const root = createRoot(host);
-  const inbox: ReactNode = <Inbox client={client} docLinkRequest={docLinkRequest} />;
+  const props = { client, docLinkRequest, drafts: createDraftEdits(privateDraft) };
+  const inbox: ReactNode = <Inbox {...props} />;
   root.render(
     <QueryClientProvider client={query}>
       <BrowserRouter>
@@ -1366,7 +1375,7 @@ export function mountInbox(host: HTMLElement, client: InboxClient, docLinkReques
           <Route path="/" element={inbox} />
           <Route path="/inbox" element={inbox} />
           <Route path="/inbox.html" element={inbox} />
-          <Route path="/inbox/card/:item_id" element={<InboxCard client={client} docLinkRequest={docLinkRequest} />} />
+          <Route path="/inbox/card/:item_id" element={<InboxCard {...props} />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>,
