@@ -206,6 +206,7 @@ async function app(
             }),
           });
         }
+        if (path === "/api/engine/leads") return Response.json({ count: 0 });
         if (path === "/api/engine/quiet-follow-ups") return Response.json(emptyQuietFollowUps());
         if (path === `/api/engine/leads/${exampleLead.id}/changes` && input.method === "POST") {
           const command = await input.json();
@@ -217,10 +218,6 @@ async function app(
           leadOwner = actor;
           writes++;
           return Response.json({ ok: true, lead_id: exampleLead.id });
-        }
-        if (path === "/api/engine/leads") {
-          if (input.method === "POST") writes++;
-          return Response.json({ count: 0 });
         }
         return new Response(null, { status: 404 });
       },
