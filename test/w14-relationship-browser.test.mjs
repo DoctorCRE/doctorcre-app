@@ -733,17 +733,25 @@ for (const width of [1440, 390]) test(`Relationship records open by ID at ${widt
   assert.equal(await dialog.getByRole('link', { name: /Open .* record/ }).count(), 0);
 });
 
-test('Closing a connection restores focus and Back restores the previous filters and tab', async t => {
+for (const surface of ['graph', 'directory']) test(`A refresh keeps ${surface === 'graph' ? 'drawer title' : 'directory opener'} focus`, async t => {
   const { page } = await open(t);
   await page.goto('http://localhost/relationships?mode=live');
-  const opener = page.locator('.relationship-node[data-node="party:demo-build"]');
+  const opener = page.locator(`${surface === 'graph' ? '#networkCanvas' : '#networkNodes'} [data-node="party:demo-build"]`);
   const dialog = page.getByRole('dialog');
-  const connection = dialog.locator('[data-open-node="party:demo-client"]');
   await opener.click();
-  await connection.click();
+  await dialog.locator('[data-open-node="party:demo-client"]').click();
   assert.equal(new URL(page.url()).searchParams.get('node'), 'party:demo-client');
-  await dialog.getByRole('button', { name: 'Close relationship' }).click();
-  assert.equal(await opener.evaluate(el => el === document.activeElement), true);
+  const beforeRefresh = await opener.elementHandle();
+  await page.clock.fastForward(61000);
+  await page.waitForFunction(el => !el.isConnected, beforeRefresh);
+  if (surface === 'graph') {
+    const title = dialog.getByRole('heading', { level: 2 });
+    assert.equal(await title.evaluate(el => el === document.activeElement), true, 'The drawer title keeps keyboard focus');
+  }
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.activeElement.matches('[data-node]'));
+  const focus = await opener.evaluate(el => el === document.activeElement ? 'original opener' : document.activeElement.closest('[id]')?.id);
+  assert.equal(focus, 'original opener', 'Escape restores focus within the original surface');
   assert.equal(new URL(page.url()).searchParams.has('node'), false);
   await page.locator('#networkKind').selectOption('client');
   await page.locator('#referralsTab').click();

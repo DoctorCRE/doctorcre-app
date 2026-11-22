@@ -39,7 +39,7 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
   dialog.className = "relationship-dialog";
   dialog.setAttribute("aria-labelledby", "relationshipTitle");
   document.body.append(dialog);
-  let snapshot, node, step, focusTarget, returnFocus, readFailed;
+  let snapshot, node, step, focusTarget, returnFocus, openerScope, readFailed;
   let visibleConnections = PAGE_SIZE;
   const close = onClose ?? (() => dialog.close());
   if (onClose) dialog.oncancel = event => {
@@ -69,13 +69,14 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
     const refs = snapshot.referrals.find((r) => r.node_id === node.id);
     const origin = step && stepOriginLabel(step);
     const nextStep = step ? `<p class="relationship-summary" tabindex="-1" data-card-key="next-step"><strong>${step.status === "done" ? "Done" : "Next step"}:</strong> ${E(step.what)}${origin ? `<small> · ${E(origin)}</small>` : ""}</p>` : "";
-    dialog.innerHTML = `<header><div><span class="relationship-kicker">${E(NODE_LABELS[node.kind])}</span><h2 id="relationshipTitle" tabindex="-1">${E(withoutRecordCodes(node.name))}</h2></div><button data-card-key="close" data-close-card type="button" aria-label="Close relationship">×</button></header><div class="relationship-detail-grid"><section>${recordLink}${nextStep}${node.contact_state && node.contact_state !== "active" ? `<span class="relationship-hold">Contact hold</span>` : ""}${node.summary ? `<p class="relationship-summary">${E(shortSummary(node.summary))}</p>${node.summary.trim().replace(/\s+/g, " ") !== shortSummary(node.summary) ? `<details data-entry="summary"><summary data-card-key="summary">Details</summary><p>${E(node.summary)}</p></details>` : ""}` : ""}${refs ? `<div class="relationship-metrics"><div><strong>${refs.deals}</strong><span>Deals sent</span></div>${refs.win_rate === null ? "" : `<div><strong>${Math.round(refs.win_rate * 100)}%</strong><span>Win rate · ${refs.won} won / ${refs.won + refs.lost} resolved</span></div>`}</div>` : ""}</section><section><h3>Connections${headingCount}</h3>${readNotice}${empty}${
+    dialog.innerHTML = `<header><div><span class="relationship-kicker">${E(NODE_LABELS[node.kind])}</span><h2 id="relationshipTitle" tabindex="-1" data-card-key="title">${E(withoutRecordCodes(node.name))}</h2></div><button data-card-key="close" data-close-card type="button" aria-label="Close relationship">×</button></header><div class="relationship-detail-grid"><section>${recordLink}${nextStep}${node.contact_state && node.contact_state !== "active" ? `<span class="relationship-hold">Contact hold</span>` : ""}${node.summary ? `<p class="relationship-summary">${E(shortSummary(node.summary))}</p>${node.summary.trim().replace(/\s+/g, " ") !== shortSummary(node.summary) ? `<details data-entry="summary"><summary data-card-key="summary">Details</summary><p>${E(node.summary)}</p></details>` : ""}` : ""}${refs ? `<div class="relationship-metrics"><div><strong>${refs.deals}</strong><span>Deals sent</span></div>${refs.win_rate === null ? "" : `<div><strong>${Math.round(refs.win_rate * 100)}%</strong><span>Win rate · ${refs.won} won / ${refs.won + refs.lost} resolved</span></div>`}</div>` : ""}</section><section><h3>Connections${headingCount}</h3>${readNotice}${empty}${
       connections.slice(0, visibleConnections).map(renderConnection).join("")
     }${more}</section></div>`;
     if (onReviewIntroduction && snapshot.can_request_introductions !== false) for (const offer of snapshot.suggestions.filter(s => [s.from, s.to, s.via].includes(node.id))) {
       const action = document.createElement('button');
       action.type = 'button';
       action.dataset.reviewIntroduction = offer.id;
+      action.dataset.cardKey = `introduction:${offer.id}`;
       action.className = 'relationship-review-action';
       action.textContent = `Review introduction: ${withoutRecordCodes([offer.from, offer.via, offer.to].filter(Boolean).map(id => snapshot.nodes.find(n => n.id === id)?.name).join(' → '))}`;
       action.onclick = () => onReviewIntroduction(offer.id);
@@ -113,8 +114,8 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
     const key = returnFocus?.dataset.node || returnFocus?.dataset.introNode;
     if (key) {
       const replacement = [
-        ...document.querySelectorAll("[data-node],[data-intro-node]"),
-      ].find(n => (n.dataset.node || n.dataset.introNode) === key && n.getClientRects().length);
+        ...document.getElementById(openerScope)?.querySelectorAll("[data-node],[data-intro-node]") ?? [],
+      ].find((n) => (n.dataset.node || n.dataset.introNode) === key);
       replacement?.focus();
     }
   });
@@ -124,14 +125,17 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
     const failed = state.notice === "read-error";
     if (!changed && value === snapshot && step === state.step && readFailed === failed) return;
     const moveFocus = changed || state.focusTarget !== focusTarget;
-    if (!dialog.open) returnFocus = trigger;
+    if (!dialog.open) {
+      returnFocus = trigger;
+      openerScope = trigger?.parentElement?.closest("[id]")?.id;
+    }
     if (changed) visibleConnections = PAGE_SIZE;
     snapshot = value;
     ({ node, step, focusTarget } = state);
     readFailed = failed;
     paint();
     if (!dialog.open) dialog.showModal();
-    if (moveFocus) dialog.querySelector(focusTarget === "next-step" ? '[data-card-key="next-step"]' : "h2").focus();
+    if (moveFocus) dialog.querySelector(`[data-card-key="${focusTarget}"]`).focus();
   };
   const open = (value, id, trigger) => {
     const network = value.connectionsByNode ? value : { ...value, connectionsByNode: indexConnections(value) };
