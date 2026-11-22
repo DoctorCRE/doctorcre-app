@@ -496,7 +496,12 @@ export function ReviewCard<Item extends ReviewItem>({
             {proposal.editable ? (
               <>
                 <label>
-                  Next step <input name={`${proposal.id}-what`} defaultValue={proposal.what ?? ""} />
+                  Next step
+                  <textarea
+                    className="home-suggestion-instruction"
+                    name={`${proposal.id}-what`}
+                    defaultValue={proposal.what ?? ""}
+                  />
                 </label>
                 <label>
                   Due date <input type="date" name={`${proposal.id}-date`} defaultValue={proposal.dueOn ?? ""} />

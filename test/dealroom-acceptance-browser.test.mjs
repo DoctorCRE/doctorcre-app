@@ -3338,6 +3338,18 @@ for (const width of [1440, 390]) {
 }
 
 for (const width of [1440, 390]) {
+  test(`the switched Deals editor wraps the saved instruction at ${width}px`, async t => {
+    const instruction = 'Confirm the revised floor plan with the site manager. '.repeat(8).trim();
+    const nextActions = [{ id: crypto.randomUUID(), owner: 'joe', status: 'open', description: instruction }];
+    const { page, deal, enginePaths } = await clientWebsitePage(t, { width, nextActions });
+    await page.goto(`${origin}/deals?deal=${deal}&focus=next-step&mode=live`);
+    const field = page.getByLabel('Your next step', { exact: true });
+    await field.waitFor();
+    assert.equal(await field.inputValue(), instruction);
+    assert.ok(await field.evaluate(node => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight));
+    assert.ok(enginePaths.includes(`/api/engine/deals/${deal}`));
+  });
+
   test(`a Home link focuses the exact deal step at ${width}px`, async t => {
     const nextActions = ['dell', 'joe'].map(owner => ({
       id: crypto.randomUUID(), owner, status: 'open', due_on: '2026-11-10',

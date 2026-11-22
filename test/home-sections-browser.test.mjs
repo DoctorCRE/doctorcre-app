@@ -1037,7 +1037,7 @@ async function dashboard(t, width, theme, timezone) {
       target_name: state.filingChoices && args.id === id(41) ? null : 'Example Dental',
       evidence: state.proposalEvidence ?? (args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.'),
       reason: args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.',
-      what: args.id === id(42) ? 'Send the floor plan' : null,
+      what: args.id === id(42) ? state.proposalInstruction ?? 'Send the floor plan' : null,
       source_activity: mailSource, thread: state.thread,
       ...(args.id === id(41) && state.filingChoices && { filing_choices: state.filingChoices }),
     };
@@ -1094,6 +1094,42 @@ const mailSuggestions = [{ id: id(41) }, { id: id(42) }];
 const mailCard = { ...step(40, 'Review the floor plan request'), item_id: `suggestion:${id(40)}`,
   source_type: 'email_proposal', kind_label: 'Suggestion', suggestions: mailSuggestions, card_id: 'conversation:2',
   action_id: null, action_version: null, open_url: null, deal_id: null, primary_action: null };
+
+for (const grouped of [true, false]) test(`Home keeps undated filing outside Late on the ${grouped ? 'grouped' : 'fallback'} read`, async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light', 'UTC');
+  state.dashboard = grouped;
+  await page.clock.setSystemTime(new Date('2026-11-04T02:00:00Z'));
+  state.items = [
+    step(1, 'Send the signed lease', { card_id: 'lease', due_on: '2026-10-31', ...(grouped && { days_late: 3 }) }),
+    { ...mailCard, title: 'Review where to file the email', primary_action: 'Choose vendor', filing_choices: [vendorChoice] },
+    step(2, 'Ask the surveyor for pricing', { card_id: 'pricing' }),
+  ];
+  await open('/?mode=live');
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const filing = reminders.getByRole('link', { name: 'Review where to file the email' });
+  await filing.waitFor();
+  assert.ok(await filing.evaluate(node => node.getBoundingClientRect().bottom <
+    node.closest('.home-slice').querySelector('.home-late').getBoundingClientRect().top));
+  const late = reminders.getByRole('region', { name: 'Late', exact: true });
+  assert.ok(await late.getByText(/3 days late$/).isVisible(), await reminders.innerText());
+  assert.deepEqual(await late.locator('article h3').allTextContents(), ['Send the signed lease']);
+});
+
+for (const width of [390, 1440]) test(`Home review shows the whole next-step instruction at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.proposalInstruction = 'Check the dimensions and send the revised floor plan to the practice manager. '.repeat(8).trim();
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const field = page.getByRole('textbox', { name: 'Next step', exact: true });
+  await field.waitFor();
+  assert.equal(await field.inputValue(), state.proposalInstruction);
+  assert.deepEqual(await field.evaluate(node => [
+    node.scrollWidth <= node.clientWidth, node.scrollHeight <= node.clientHeight,
+    node.clientHeight > 44,
+  ]), [true, true, true]);
+});
 
 for (const available of [true, false]) test(`Home email suggestions ${available ? 'share one thread' : 'hide a missing mailbox source'}`, async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
