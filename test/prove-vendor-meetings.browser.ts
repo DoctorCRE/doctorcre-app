@@ -26,7 +26,7 @@ async function fixture(t: import("node:test").TestContext, mode = "ready", sourc
         ...value,
         body:
           mode === "near-miss" && path === "/js/ui-vendor-meetings.generated.js"
-            ? Buffer.from(value.body.toString().replaceAll("data-meeting-reason", "data-wrong-meeting-reason"))
+            ? Buffer.from(value.body.toString().replace("A verified office is needed", "An office is needed"))
             : mode === "theme-reset-failure" && path === "/js/workspace-business.js"
               ? Buffer.concat([
                   value.body,
@@ -69,7 +69,7 @@ async function fixture(t: import("node:test").TestContext, mode = "ready", sourc
           if (url.pathname === "/mcp") {
             const body = await request.json();
             if (
-              mode === "later-429" &&
+              mode === "research-429" &&
               body.params.name === "read-vendor-meetings" &&
               body.params.arguments.view === "research"
             )
@@ -93,7 +93,12 @@ test("proof covers both themes and widths without reloading into the asset rate 
   const server = await fixture(t, "throttled-reloads");
   const result = await prove({ origin: server.origin, expectedCommit: commit, fixture: true, timeoutMs: 12000 });
   assert.equal(result.status, "passed");
-  assert.equal(result.observations.length, 8);
+  assert.deepEqual(
+    result.observations,
+    [1440, 390].flatMap((width) =>
+      ["light", "dark"].map((theme) => ({ width, theme, view: "research", total: 1, count: 1 })),
+    ),
+  );
   assert.equal(server.requests.filter((r) => r.path === "/vendors").length, 1);
 });
 test("proof CLI passes exact values and rejects near-miss rendered values", async (t) => {
@@ -232,7 +237,7 @@ test("real CDP deadline closes delayed page and preserves the original tab", asy
 });
 
 for (const [mode, expectedExit] of [
-  ["later-429", 78],
+  ["research-429", 78],
   ["theme-reset-failure", 1],
 ] as const)
   test(`proof CLI classifies ${mode} on a containing release`, async (t) => {
@@ -252,7 +257,7 @@ for (const [mode, expectedExit] of [
         assert.ok(error && typeof error === "object" && "code" in error && "stdout" in error);
         t.diagnostic(JSON.stringify({ mode, code: error.code, stdout: error.stdout }));
         assert.equal(error.code, expectedExit);
-        assert.match(String(error.stdout), mode === "later-429" ? /Too many requests|429/ : /bogus/);
+        assert.match(String(error.stdout), mode === "research-429" ? /Too many requests|429/ : /bogus/);
         return true;
       },
     );

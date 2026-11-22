@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { after, type TestContext, test } from "node:test";
+import type { Page } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
@@ -18,6 +19,22 @@ const docLink = "/api/engine/doc/link";
 const dealId = "11111111-1111-4111-8111-111111111111";
 const dealName = "Demo deal on engine sign-in";
 const activityId = "22222222-2222-4222-8222-222222222222";
+const noteId = "44444444-4444-4444-8444-444444444444";
+const noteSummary = "Confirm the demo showing";
+const callSummary = "Discussed the demo showing";
+const noteAttributionPath = `/api/engine/activities/${noteId}/deal-attribution`;
+const attributionPath = `/api/engine/activities/${activityId}/deal-attribution`;
+const dealPage = `/deals?mode=live&deal=${dealId}`;
+const creditedDeal = { id: dealId, name: dealName };
+const candidateDeal = { id: "33333333-3333-4333-8333-333333333333", name: "Example second deal" };
+const dealRow = { id: dealId, name: dealName, phase: "research", owner: "joe", operating_state: "active" };
+const dealBoard = { schema_version: "local-deals-board.v2", actor: "joe", deals: [dealRow] };
+const dealDetail = {
+  ...dealRow,
+  deal_id: dealId,
+  activities: [{ id: activityId, kind: "call", summary: callSummary, occurred_at: "2026-01-01T12:00:00Z" }],
+  thread: [{ id: noteId, kind: "note", actor: "joe", text: noteSummary, created_at: "2026-01-02T12:00:00Z" }],
+};
 const pages = [
   "/invoices?mode=live",
   "/control-room/progress?mode=live",
@@ -36,7 +53,14 @@ async function app(
     theme = "dark",
     signIn = "engine",
     holdDocIssue,
-  }: { width?: number; theme?: "dark" | "light"; signIn?: "engine" | "carr"; holdDocIssue?: Promise<void> } = {},
+    readAttribution,
+  }: {
+    width?: number;
+    theme?: "dark" | "light";
+    signIn?: "engine" | "carr";
+    holdDocIssue?: Promise<void>;
+    readAttribution?: (request: Request) => Response | Promise<Response>;
+  } = {},
 ) {
   let unavailable = false;
   let carrChecks = 0;
@@ -59,6 +83,37 @@ async function app(
         if (signIn === "carr") {
           if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
           if (path.startsWith("/api/v1/business/vendors")) return Response.json(directoryFixture(input.url));
+          if (path === "/api/v1/market-terms/read") {
+            const recordings = JSON.parse(
+              await readFile(new URL("./fixtures/market-terms/recordings.json", import.meta.url), "utf8"),
+            );
+            return Response.json(recordings.records.full.response);
+          }
+          if (path === "/mcp") {
+            const { id, params } = await input.json();
+            const payload =
+              params.name === "deal-room-board"
+                ? dealBoard
+                : params.name === "get-deal-room"
+                  ? dealDetail
+                  : params.name === "read-activity-deal-attribution"
+                    ? {
+                        schema: "activity-deal-attribution.v1",
+                        state: "empty",
+                        attribution: "unknown",
+                        activity: null,
+                        direct: null,
+                        candidates: [],
+                        credited_activity_count: 0,
+                        coverage: "unknown",
+                      }
+                    : {};
+            return Response.json({
+              jsonrpc: "2.0",
+              id,
+              result: { content: [{ type: "text", text: JSON.stringify(payload) }] },
+            });
+          }
           return new Response(null, { status: navigation ? 200 : 404 });
         }
         throw Error("CARR unavailable");
@@ -127,22 +182,10 @@ async function app(
           links.delete(token);
           return new Response(null, { status: 204 });
         }
-        if (path === "/api/engine/deals") {
-          return Response.json({
-            schema_version: "local-deals-board.v2",
-            deals: [{ id: dealId, name: dealName, phase: "research", owner: "joe", operating_state: "active" }],
-          });
-        }
-        if (path === `/api/engine/deals/${dealId}`) {
-          return Response.json({
-            deal_id: dealId,
-            name: dealName,
-            phase: "research",
-            owner: "joe",
-            email_follow_ups: [],
-            activities: [{ id: activityId, kind: "note", summary: "Confirm the demo showing" }],
-          });
-        }
+        if ((path === attributionPath || path === noteAttributionPath) && readAttribution)
+          return readAttribution(input);
+        if (path === "/api/engine/deals") return Response.json(dealBoard);
+        if (path === `/api/engine/deals/${dealId}`) return Response.json({ ...dealDetail, email_follow_ups: [] });
         if (path.startsWith("/api/engine/vendors")) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
           url.pathname = path.replace("/api/engine", "/api/v1/business");
@@ -163,7 +206,6 @@ async function app(
             }),
           });
         }
-        if (path === "/api/engine/leads") return Response.json({ count: 0 });
         if (path === "/api/engine/quiet-follow-ups") return Response.json(emptyQuietFollowUps());
         if (path === `/api/engine/leads/${exampleLead.id}/changes` && input.method === "POST") {
           const command = await input.json();
@@ -175,6 +217,10 @@ async function app(
           leadOwner = actor;
           writes++;
           return Response.json({ ok: true, lead_id: exampleLead.id });
+        }
+        if (path === "/api/engine/leads") {
+          if (input.method === "POST") writes++;
+          return Response.json({ count: 0 });
         }
         return new Response(null, { status: 404 });
       },
@@ -333,7 +379,7 @@ test("Doc link settings are available only with engine sign-in", async (t) => {
   }
 });
 
-test("a signed-in deal explains unavailable features without requesting them", async (t) => {
+test("Compare terms is empty on engine sign-in and legacy deal features make no requests", async (t) => {
   const { server, context } = await app(t);
   const page = await context.newPage();
   const legacyRequests: string[] = [];
@@ -346,22 +392,27 @@ test("a signed-in deal explains unavailable features without requesting them", a
     )
       legacyRequests.push(pathname);
   });
-  await page.goto(`${server.origin}/deals?mode=live&deal=${dealId}`);
+  await page.goto(server.origin + dealPage);
   const room = page.getByRole("main", { name: "Deal Workspace" });
   await room.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
   await room
     .getByRole("region", { name: "Deal watch settings" })
     .getByText("Not available yet", { exact: true })
     .waitFor({ timeout: 4000 });
-  await room.locator(".updates-history summary").click();
-  await room.getByText("Deal attribution · Not available yet", { exact: true }).waitFor({ timeout: 4000 });
-  for (const name of ["Compare terms", "Tours"]) {
-    await room.getByRole("tab", { name, exact: true }).click();
-    await room
-      .getByRole("tabpanel", { name })
-      .getByText("Not available yet", { exact: true })
-      .waitFor({ timeout: 4000 });
-  }
+  await room.getByRole("tab", { name: "Compare terms" }).click();
+  await room
+    .getByRole("tabpanel", { name: "Compare terms" })
+    .getByText("No comparable terms match these filters.", { exact: true })
+    .waitFor({ timeout: 4000 });
+  await room.getByRole("tab", { name: "Tours" }).click();
+  await room
+    .getByRole("tabpanel", { name: "Tours" })
+    .getByText("Not available yet", { exact: true })
+    .waitFor({ timeout: 4000 });
+  assert.equal(
+    server.requests.some(({ path }) => path === attributionPath || path === noteAttributionPath),
+    false,
+  );
   assert.deepEqual(legacyRequests, []);
 });
 
@@ -419,6 +470,143 @@ test("the Vendor drawer keeps the track record and shows the rating editor only 
     assert.equal(await drawer.getByText("Trust rating", { exact: true }).count(), signIn === "carr" ? 1 : 0);
     if (signIn === "engine") assert.equal(carrChecks(), 0);
   }
+});
+
+function attributionButton(page: Page, update: string) {
+  return page
+    .getByRole("region", { name: "Deal updates" })
+    .getByRole("article")
+    .filter({ hasText: update })
+    .getByRole("button", { name: "Show deal attribution" });
+}
+
+test("an engine history note offers attribution for its activity ID", async (t) => {
+  const { server, context } = await app(t, {
+    readAttribution: () => Response.json({ kind: "credited", deal: creditedDeal }),
+  });
+  const page = await context.newPage();
+  await page.goto(server.origin + dealPage);
+  await page.locator(".updates-history summary").click();
+  await page.getByRole("region", { name: "Deal updates" }).getByText(noteSummary, { exact: true }).waitFor();
+  const button = attributionButton(page, noteSummary);
+  assert.equal(await button.count(), 1, "The engine note should have a deal attribution button");
+  await button.click();
+  const panel = page.getByRole("region", { name: "Activity deal attribution" });
+  await panel.getByRole("link", { name: dealName }).waitFor();
+  assert.deepEqual(
+    server.requests.filter(({ path }) => path === noteAttributionPath).map(({ method }) => method),
+    ["GET"],
+  );
+});
+
+const attributionCases = [
+  {
+    title: "Direct deal attribution",
+    deals: [creditedDeal],
+    response: () => Response.json({ kind: "credited", deal: creditedDeal }),
+  },
+  {
+    title: "Ambiguous deals need review",
+    deals: [creditedDeal, candidateDeal],
+    response: () => Response.json({ kind: "ambiguous", candidates: [creditedDeal, candidateDeal] }),
+  },
+  {
+    title: "Activity attribution unknown",
+    deals: [],
+    response: () => Response.json({ error: "not_found" }, { status: 404 }),
+  },
+];
+
+for (const { title, deals, response } of attributionCases)
+  test(`engine deal history shows ${title.toLowerCase()}`, async (t) => {
+    const { server, context } = await app(t, { readAttribution: response });
+    const page = await context.newPage();
+    await page.goto(server.origin + dealPage);
+    await page.locator(".updates-history summary").click();
+    await attributionButton(page, callSummary).click();
+    const panel = page.getByRole("region", { name: "Activity deal attribution" });
+    await panel.getByRole("heading", { name: title }).waitFor();
+    await panel.getByText(`${deals.length === 1 ? 1 : 0} credited activities`, { exact: true }).waitFor();
+    const links = panel.getByRole("link");
+    assert.deepEqual(
+      await links.allTextContents(),
+      deals.map(({ name }) => name),
+    );
+    for (const [index, deal] of deals.entries())
+      assert.equal(await links.nth(index).getAttribute("href"), `/deals?deal=${deal.id}`);
+    assert.deepEqual(
+      server.requests.filter(({ path }) => path === attributionPath).map(({ method, target }) => [method, target]),
+      [["GET", attributionPath]],
+    );
+  });
+
+test("a signed-out attribution read returns the partner to sign-in", async (t) => {
+  const { server, context } = await app(t, {
+    readAttribution: () => Response.json({ error: "unauthorized" }, { status: 401 }),
+  });
+  const page = await context.newPage();
+  await page.goto(server.origin + dealPage);
+  await page.locator(".updates-history summary").click();
+  await attributionButton(page, callSummary).click();
+  await page.waitForURL("**/public-shell/session-ended.html");
+  await page.getByRole("link", { name: "Sign in again" }).waitFor();
+  assert.equal(await page.getByRole("heading", { name: dealName }).count(), 0);
+});
+
+test("an attribution timeout aborts the read and shows a sign-in prompt", async (t) => {
+  const started = Promise.withResolvers<void>();
+  const cancelled = Promise.withResolvers<void>();
+  t.after(() => cancelled.resolve());
+  const { server, context } = await app(t, {
+    async readAttribution(request) {
+      request.signal.addEventListener("abort", () => cancelled.resolve(), { once: true });
+      started.resolve();
+      await cancelled.promise;
+      return Response.json({ kind: "credited", deal: creditedDeal });
+    },
+  });
+  const page = await context.newPage();
+  await page.clock.install();
+  await page.goto(server.origin + dealPage);
+  await page.locator(".updates-history summary").click();
+  await attributionButton(page, callSummary).click();
+  await started.promise;
+  await page.clock.fastForward(30_001);
+  await page
+    .getByRole("region", { name: "Activity deal attribution" })
+    .getByRole("link", { name: "Sign in" })
+    .waitFor();
+  await cancelled.promise;
+  await page.getByRole("heading", { name: dealName }).waitFor();
+  assert.equal(await page.getByText("1 credited activities", { exact: true }).count(), 0);
+});
+
+test("CARR deal history and Compare terms use their existing reads", async (t) => {
+  const { server, context } = await app(t, { signIn: "carr" });
+  const page = await context.newPage();
+  await page.goto(server.origin + dealPage);
+  await page.locator(".updates-history summary").click();
+  await page.getByRole("region", { name: "Deal updates" }).getByText(noteSummary, { exact: true }).waitFor();
+  assert.equal(await attributionButton(page, noteSummary).count(), 0);
+  const reading = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/mcp") && request.postDataJSON()?.params?.name === "read-activity-deal-attribution",
+  );
+  await attributionButton(page, callSummary).click();
+  assert.deepEqual((await reading).postDataJSON().params.arguments, { activity_id: activityId });
+  await page.getByRole("heading", { name: "Activity attribution unknown" }).waitFor();
+  await page.getByText("Version evidence", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close attribution" }).click();
+  await page.getByRole("tab", { name: "Compare terms" }).click();
+  await page.getByRole("tabpanel", { name: "Compare terms" }).getByRole("table").waitFor();
+  assert.deepEqual(
+    server.requests.filter(({ path }) => path === "/api/v1/market-terms/read").map(({ method }) => method),
+    ["POST"],
+  );
+  assert.equal(
+    server.requests.some(({ path }) => path === attributionPath || path === noteAttributionPath),
+    false,
+  );
 });
 
 for (const width of [390, 1440])

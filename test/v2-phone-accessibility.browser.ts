@@ -107,14 +107,14 @@ test("V2 phone targets have zero undersized or covered controls in both themes",
           assert.ok(layout.text.bottom <= layout.input.top, "Find a tour sits above its input");
           assert.ok(layout.text.height <= layout.lineHeight + 1, "Find a tour stays on one line");
         }
-        if (name === "Vendors Suggested" || name === "Vendors Research") {
+        if (name === "Vendors Research") {
           assert.equal(
             await page.locator("#recordList > li.record-item").count(),
             62,
             "Audit includes all fixture vendors",
           );
         }
-        if (width === 390 && name === "Vendors Suggested") {
+        if (width === 390 && name === "Vendors Research") {
           const box = await page.locator('label[for="searchInput"]').boundingBox();
           assert.equal(box?.width, 1, "Search label keeps its original sr-only width");
           assert.equal(box?.height, 1, "Search label keeps its original sr-only height");

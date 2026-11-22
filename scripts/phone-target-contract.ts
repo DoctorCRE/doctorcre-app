@@ -13,7 +13,6 @@ export const phoneStates = [
   "Deal",
   "Tours library",
   "Tour and cheat sheet",
-  "Vendors Suggested",
   "Vendors Research",
   "Relationships",
   "Leads",

@@ -24,18 +24,18 @@ export async function walkV2Accessibility(page: Page, origin: string, capture: (
     ["Home", "/", ".inbox-row"],
     ["Deals board", "/deals", ".kanban-card .card-open:visible"],
     ["Tours library", "/tours", ".tour-button"],
-    ["Vendors Suggested", "/vendors", "#recordList > li"],
+    ["Vendors Research", "/vendors", "#recordList > li"],
     ["Relationships", "/relationships", "#networkRefresh"],
     ["Leads", "/leads", ".lead-card"],
   ] satisfies [string, string, string][]) {
     await page.goto(new URL(path, origin).href);
     await page.locator(ready).first().waitFor({ state: "visible", timeout: 10000 });
-    if (name === "Vendors Suggested") {
+    if (name === "Vendors Research") {
       const region = page.getByRole("region", { name: "People worth meeting" });
       const details = page.locator(".vendor-meetings");
       if (!(await details.evaluate((node) => node instanceof HTMLDetailsElement && node.open)))
         await details.locator(":scope > summary").click();
-      await region.getByRole("tab", { name: "Suggested", exact: true }).waitFor();
+      await region.getByRole("searchbox", { name: "Search people and offices" }).waitFor();
       await region.getByText("Loading people…", { exact: true }).waitFor({ state: "hidden" });
       const sentinel = page.locator("#scrollSentinel");
       for (let loaded = 0; loaded < 20; loaded++) {
@@ -59,11 +59,6 @@ export async function walkV2Accessibility(page: Page, origin: string, capture: (
       await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     }
     await inspect(name);
-    if (name === "Vendors Suggested") {
-      await page.getByRole("tab", { name: "Research", exact: true }).click();
-      await page.getByText("Loading people…", { exact: true }).waitFor({ state: "hidden" });
-      await inspect("Vendors Research");
-    }
     if (name === "Deals board") {
       await page.locator(".kanban-card .card-open:visible").first().click();
       await page.locator("#detailUpdateForm").waitFor({ state: "visible" });
