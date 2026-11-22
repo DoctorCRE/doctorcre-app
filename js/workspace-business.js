@@ -1279,12 +1279,14 @@ function start() {
   if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
   wireControls();
   const searchDock = document.querySelector('.search-dock');
-  new ResizeObserver(() => {
+  const searchDockObserver = new ResizeObserver(() => {
     document.documentElement.style.setProperty('--search-dock-height', `${searchDock.getBoundingClientRect().height}px`);
-  }).observe(searchDock, { box: "border-box" });
+  });
+  searchDockObserver.observe(searchDock, { box: "border-box" });
   const expiryTimer = watchExpiry();
   const autoRefresh = mountAutoRefresh({ document, window: globalThis.window, refresh: async () => { await loadList("background"); if (view.recordId) await loadRecord(view.recordId); } });
   window.addEventListener('doctorcre-session-invalidated', () => {
+    searchDockObserver.disconnect();
     autoRefresh.dispose();
     expiryTimer.dispose();
     clearTimeout(searchTimer);

@@ -541,3 +541,24 @@ for (const width of [390, 1440]) for (const tall of [false, true]) test(`vendor 
   await page.locator('.record-row').click();
   await page.getByRole('dialog', { name: 'Demo Partner 02' }).waitFor();
 });
+
+test('session invalidation disconnects the search dock observer', async t => {
+  const { page } = await open(t);
+  await page.addInitScript(() => {
+    const NativeObserver = window.ResizeObserver;
+    window.ResizeObserver = class extends NativeObserver {
+      observe(target, options) {
+        if (target.matches('.search-dock')) window.searchDockObserver = this;
+        return super.observe(target, options);
+      }
+      disconnect() {
+        if (this === window.searchDockObserver) window.searchDockDisconnected = true;
+        return super.disconnect();
+      }
+    };
+  });
+  await page.goto(origin + '/vendors?mode=live');
+  await page.waitForFunction(() => window.searchDockObserver);
+  await page.evaluate(() => window.dispatchEvent(new Event('doctorcre-session-invalidated')));
+  assert.equal(await page.evaluate(() => window.searchDockDisconnected), true);
+});
