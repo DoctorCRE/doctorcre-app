@@ -31,7 +31,7 @@ test('lead guidance loads without unrelated page UI and shares the React runtime
   assert.ok(shared.length > 0, 'one shared React runtime');
 });
 
-test('only emitted UI entries and shared chunks bypass source checks', async () => {
+test('generated UI files bypass source checks even after their entry is retired', async () => {
   const assets = await uiAssets(readSource);
   assert.ok(assets.has('js/ui-facts.generated.js'));
   assert.ok(assets.has('js/ui-checklist.generated.js'));
@@ -40,12 +40,14 @@ test('only emitted UI entries and shared chunks bypass source checks', async () 
   assert.ok(assets.has('js/ui-ideal-client-profile.generated.js'));
   assert.ok(!assets.has('js/ui-workspace.js'));
   const lint = new ClientLint();
-  const paths = [...assets.keys(), 'js/ui-handwritten.js', 'js/other.generated.js', 'js/ui.generated.js', 'js/ui-workspace.js'];
+  const retired = 'js/ui-retired-screen.generated.js';
+  assert.ok(!assets.has(retired));
+  const paths = [...assets.keys(), retired, 'js/ui-handwritten.js', 'js/other.generated.js', 'js/ui.generated.js', 'js/ui-workspace.js'];
   const ignored = spawnSync('git', ['check-ignore', '--no-index', '--stdin'], { input: paths.join('\n'), encoding: 'utf8' });
   assert.ok([0, 1].includes(ignored.status), ignored.stderr);
   const gitIgnored = new Set(ignored.stdout.trim().split('\n'));
   for (const path of paths) {
-    const generated = assets.has(path);
+    const generated = assets.has(path) || path === retired;
     assert.equal(isUiAsset(path), generated, `artifact classification ${path}`);
     assert.equal(await lint.isPathIgnored(path), generated, `lint classification ${path}`);
     assert.equal(gitIgnored.has(path), generated, `git classification ${path}`);

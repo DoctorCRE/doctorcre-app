@@ -939,15 +939,17 @@ for (const mode of ["engine", "carr"]) {
       "/doc-chats/work",
       "/doc-activity",
     ]) {
-      const signedOut = await send(path, undefined, origin);
-      assert.equal(signedOut.status, 302, path);
-      assert.equal(new URL(signedOut.headers.get("location") ?? "").searchParams.get("return_to"), path);
       for (const method of ["GET", "HEAD"]) {
         const response = await send(path, { method, headers }, origin);
         assert.equal(response.status, 308, path);
         assert.equal(new URL(response.headers.get("location") ?? "", origin).href, origin + "/", path);
         assert.equal(response.body, null);
+        assert.equal(response.headers.get("cache-control"), "no-store", path);
       }
+      const signedOut = await send(path, undefined, origin);
+      assert.equal(signedOut.status, 302, path);
+      assert.equal(new URL(signedOut.headers.get("location") ?? "").searchParams.get("return_to"), path);
+      assert.equal(signedOut.headers.get("cache-control"), "no-store", path);
     }
     assert.deepEqual(calls.assets, []);
   });
@@ -985,11 +987,45 @@ for (const mode of ["engine", "carr"]) {
       "list-doc-suggestions",
       "submit-doc-request",
     ]) {
-      const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: {} } });
-      const response = await send("/mcp", { method: "POST", headers, body }, origin);
-      assert.equal(response.status, 404, name);
-      assert.deepEqual(await response.json(), { error: "not_found" }, name);
+      for (const params of [
+        { name, arguments: {} },
+        { name: "call-verb", arguments: { verb: name, args: {} } },
+      ]) {
+        const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params });
+        const response = await send("/mcp", { method: "POST", headers, body }, origin);
+        assert.equal(response.status, 404, name);
+        assert.deepEqual(await response.json(), { error: "not_found" }, name);
+      }
     }
     assert.equal(calls.engine.length + calls.partner.length + calls.assets.length, 0);
   });
 }
+
+test("CARR sign-in still forwards calendar dismissals through both MCP call forms", async () => {
+  const dismissal = {
+    board_id: "calendar-agenda",
+    question_id: "aaaaaaaaaaaaaaaa",
+    base_version: 1,
+    answer_text: "Dismiss",
+  };
+  const proxyCalls: unknown[] = [];
+  const { send } = fixture(null, {
+    PARTNER_SIGN_IN: "carr",
+    CARR: {
+      fetch: async (input: Request) => {
+        proxyCalls.push((await input.json()).params);
+        return Response.json({ accepted: true });
+      },
+    },
+  });
+  const forms = [
+    { name: "answer-board-question", arguments: dismissal },
+    { name: "call-verb", arguments: { verb: "answer-board-question", args: JSON.stringify(dismissal) } },
+  ];
+  for (const params of forms) {
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params });
+    const response = await send("/mcp", { method: "POST", body }, production);
+    assert.equal(response.status, 200);
+  }
+  assert.deepEqual(proxyCalls, forms);
+});

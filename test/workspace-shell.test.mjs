@@ -156,13 +156,13 @@ for (const width of [390, 1280]) test(`stage layout keeps live panels through se
     window.cspViolations = [];
     document.addEventListener('securitypolicyviolation', event => window.cspViolations.push(event.violatedDirective));
   });
-  await page.route('**/ideas-events', async route => {
+  await page.route('**/invoices', async route => {
     const response = await route.fetch();
     const secured = await handleDoctorcreRequest(new Request(`${server.origin}/css/workspace-shell.css`), { ASSETS: { fetch: async () => new Response('') } });
     await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': secured.headers.get('content-security-policy') }, body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/css/system.css"><title>Workspace fixture</title><main id="original"><section id="deals"><label>Draft<input id="draft"></label><button id="act">Act</button></section><section id="leads">Leads content</section><section id="today">Today content</section></main><div id="workspace"></div>' });
   });
   await page.route('**/test/workspace-shell.js', route => route.fulfill({ contentType: 'text/javascript', body: workspaceBundle }));
-  const response = await page.goto(`${server.origin}/ideas-events`);
+  const response = await page.goto(`${server.origin}/invoices`);
   assert.match(response.headers()['content-security-policy'], /style-src 'self' https:\/\/fonts.googleapis.com/);
   await page.evaluate(async () => {
     const { mountWorkspace } = await import('/test/workspace-shell.js');

@@ -8,6 +8,7 @@ import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
 import carrReply from "./fixtures/action-link-reply.v2.json" with { type: "json" };
 import carrDocumentText from "./fixtures/deal-document-text/produced.json" with { type: "json" };
+import anniversaries from "./fixtures/client-anniversary-panel/recordings.json" with { type: "json" };
 import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
 import { detail, emptyQuietFollowUps, lead, workspace } from "./leads-workspace-fixture.mjs";
@@ -144,6 +145,7 @@ async function app(
     documents = [filedDocument],
     tourDeal,
     tourFeedback = false,
+    tourPlans = false,
     callReview,
   }: {
     width?: number;
@@ -154,6 +156,7 @@ async function app(
     holdDocIssue?: Promise<void>;
     tourDeal?: () => object;
     tourFeedback?: boolean;
+    tourPlans?: boolean;
     callReview?: (request: Request) => Response | Promise<Response>;
     readAttribution?: (request: Request) => Response | Promise<Response>;
     documentText?: string[] | "missing";
@@ -183,17 +186,20 @@ async function app(
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
     PARTNER_SIGN_IN: signIn,
     WORKSPACE_COMMAND_CENTER_READ_ENABLED: "true",
-    ...(switchDay && {
-      ENGINE_ROUTING: {
-        get: async (key: string) => (key === "deal-cutover-date" ? "2026-11-20" : switchDayKeys.has(key) ? "on" : null),
+    ENGINE_ROUTING: {
+      async get(key: string) {
+        if (key === "deal-tours-from-engine" && tourPlans) return "on";
+        if (!switchDay) return null;
+        return key === "deal-cutover-date" ? "2026-11-20" : switchDayKeys.has(key) ? "on" : null;
       },
+    },
+    ...(switchDay && {
       ENGINE: {
         async fetch(input: Request) {
           const url = new URL(input.url);
           const path = url.pathname;
-          if (path !== "/api/engine/clients" && path !== "/api/engine/vendors")
-            return new Response(null, { status: 404 });
           assert.equal(input.headers.get("cookie"), "__Host-dealroom_session=directory-fixture");
+          if (path !== "/api/engine/clients" && path !== "/api/engine/vendors") return env.PARTNER_APP.fetch(input);
           url.pathname = path.replace("/api/engine", "/api/v1/business");
           const payload = directoryFixture(url.href);
           if (path === "/api/engine/vendors" && Array.isArray(payload.rows)) {
@@ -215,8 +221,12 @@ async function app(
         if (path.startsWith("/auth/") || navigation) carrChecks++;
         const call = path === "/mcp" ? await input.json() : null;
         if (call) carrTools.push(call.params.name);
+        if (path === "/api/v1/intelligence/client-anniversary-read") return Response.json(anniversaries.ready.output);
         if (signIn === "carr") {
           if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
+          if (path === "/auth/login") return new Response("Sign in");
+          if (switchDay && navigation && !input.headers.get("cookie")?.includes("__Host-dealroom_session="))
+            return Response.redirect(new URL("/auth/login", input.url));
           if (path.startsWith("/api/v1/business/vendors")) return Response.json(directoryFixture(input.url));
           if (path === "/api/v1/market-terms/read") {
             const recordings = JSON.parse(
@@ -281,8 +291,12 @@ async function app(
           expireOnLeadDetail = false;
           live.clear();
         }
-        const token = input.headers.get("cookie")?.match(/__Host-doctorcre_session=([^;]+)/)?.[1];
-        if (!token || !live.has(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+        const carrSession = switchDay && signIn === "carr";
+        const token = carrSession
+          ? "first"
+          : input.headers.get("cookie")?.match(/__Host-doctorcre_session=([^;]+)/)?.[1];
+        if (!token || (!carrSession && !live.has(token)))
+          return Response.json({ error: "unauthorized" }, { status: 401 });
         partnerReads.set(url.pathname + url.search, input.headers.get("cookie"));
         if (path === expiredPath) return Response.json({ error: "unauthorized" }, { status: 401 });
         const csrfToken = "fixture-" + token;
@@ -465,6 +479,23 @@ async function app(
           return readAttribution(input);
         if (callReview && (path.endsWith("/call-outcomes") || path.endsWith("/decision"))) return callReview(input);
         if (path === "/api/engine/deals") return Response.json(dealBoard);
+        if (path === tours && tourPlans) return Response.json({ tours: [{ id: tour, planned_on: "2026-11-24" }] });
+        if (path === "/api/engine/calendar/critical-dates")
+          return Response.json({
+            schema_version: "calendar-critical-dates.v1",
+            critical_dates: [
+              {
+                id: "demo-date",
+                deal_id: dealId,
+                deal_name: dealName,
+                kind: "LOI expiry",
+                owner: "joe",
+                due_on: "2026-11-24",
+                done: false,
+              },
+            ],
+            next_steps: [],
+          });
         if (path === `/api/engine/deals/${dealId}`)
           return Response.json({
             ...dealDetail,
@@ -476,13 +507,16 @@ async function app(
           return documentText === "missing"
             ? Response.json({ error: "not_found" }, { status: 404 })
             : Response.json({ pages: documentText });
-        if (path.startsWith("/api/engine/vendors")) {
+        if (path === "/api/engine/clients" || path.startsWith("/api/engine/vendors")) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
           url.pathname = path.replace("/api/engine", "/api/v1/business");
           return Response.json(directoryFixture(url.href));
         }
         if (path === "/api/engine/leads" && url.searchParams.get("workspace") === "leads") {
-          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          assert.equal(
+            input.headers.get("cookie"),
+            carrSession ? "__Host-dealroom_session=directory-fixture" : `${cookieName}=${token}`,
+          );
           const currentLead = { ...exampleLead, owner: leadOwner, base_version: leadOwner ? 2 : 1 };
           const requestedId = url.searchParams.get("lead_id");
           return Response.json({
@@ -2440,18 +2474,70 @@ test("an uncertain call decision keeps its key after leaving and reopening the d
 });
 
 for (const signIn of ["engine", "carr"] as const) {
-  test(`${signIn} sign-in opens retired bookmarks on Home and keeps business pages reachable`, async (t) => {
+  test(`${signIn} sign-out preserves the original retired bookmark at login`, async (t) => {
     const { server, context } = await app(t, { signIn, switchDay: signIn === "carr" });
     const page = await context.newPage();
+    await page.goto(server.origin + "/");
+    const bookmark = "/work-requests?work_request=WR-000042";
+    const home = await page.goto(server.origin + bookmark);
+    assert.equal(home?.status(), 200);
+    assert.equal(new URL(page.url()).pathname, "/");
+    const redirect = await home?.request().redirectedFrom()?.response();
+    await context.clearCookies();
+    const [login] = await Promise.all([
+      page.waitForRequest((request) => new URL(request.url()).pathname === "/auth/login"),
+      page.goto(server.origin + bookmark),
+    ]);
+    assert.equal(new URL(login.url()).searchParams.get("return_to"), bookmark);
+    assert.equal(await redirect?.headerValue("cache-control"), "no-store");
+  });
+
+  test(`${signIn} sign-in opens retired bookmarks on Home and renders the kept business pages`, async (t) => {
+    const { server, context } = await app(t, { signIn, switchDay: signIn === "carr", tourPlans: true });
+    const page = await context.newPage();
+    page.setDefaultTimeout(5000);
+    await page.clock.install({ time: new Date("2026-11-21T16:00:00Z") });
+    const errors: string[] = [];
+    const missingAssets: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("response", (response) => {
+      const url = new URL(response.url());
+      const type = response.request().resourceType();
+      if (
+        url.origin === server.origin &&
+        response.status() === 404 &&
+        (["script", "stylesheet", "font", "image"].includes(type) || /\.(?:[cm]?js|css)$/.test(url.pathname))
+      )
+        missingAssets.push(url.pathname);
+    });
     const paths = ["/work-requests?work_request=WR-000042", "/control-room/progress/board/example", "/doc-activity"];
     for (const path of paths) {
       assert.equal((await page.goto(server.origin + path))?.status(), 200);
       assert.equal(new URL(page.url()).pathname, "/");
     }
-    for (const path of ["/", "/deals", "/leads", "/vendors", "/clients", "/calendar", "/invoices", "/doc-chats"]) {
-      assert.equal((await page.goto(server.origin + path))?.status(), 200, path);
-      await page.locator("main").first().waitFor({ state: "attached" });
+    const screens = [
+      ["/", page.getByText(filingTitle, { exact: true })],
+      ["/deals", page.getByRole("heading", { name: dealName, exact: true })],
+      ["/leads", page.getByRole("button", { name: "Dr. Example 1", exact: true })],
+      ["/vendors", page.getByRole("link", { name: /^Demo Partner 01\b/ })],
+      ["/clients", page.getByRole("link", { name: /^Demo Practice 01\b/ })],
+      ["/calendar", page.getByRole("grid").getByText(dealName, { exact: true }).first()],
+      ["/invoices", page.getByText(invoiceName, { exact: true }).first()],
+      ["/doc-chats", page.getByRole("heading", { name: signIn === "engine" ? "Ask Doc" : "Doc Chats", exact: true })],
+      ["/leases", page.getByText("Synthetic Clinic", { exact: true })],
+    ] as const;
+    for (const [path, ready] of screens) {
+      assert.equal((await page.goto(server.origin + path + "?mode=live"))?.status(), 200, path);
+      await ready.waitFor();
       assert.equal(await page.locator("#docPresence, a[href='/doc-activity'], a[href^='/ideas-events']").count(), 0);
+      assert.deepEqual(errors, [], path);
+      assert.deepEqual(missingAssets, [], path);
     }
+    assert.equal((await page.goto(server.origin + dealPage))?.status(), 200);
+    await page.getByRole("tab", { name: "Tours", exact: true }).click();
+    const panel = page.getByRole("tabpanel", { name: "Tours", exact: true });
+    await panel.getByRole("button", { name: /Nov.*24.*2026/ }).waitFor();
+    assert.deepEqual(errors, [], "Tours");
+    assert.deepEqual(missingAssets, [], "Tours");
   });
 }

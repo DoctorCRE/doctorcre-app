@@ -339,6 +339,17 @@ const BUSINESS_GET = /^(\/api\/v1\/business\/[a-z]+)(\/[0-9a-f]{8}-[0-9a-f]{4}-[
 
 const isCalendarAnswer = (verb, args) => verb === 'answer-board-question' && args?.board_id === 'calendar-agenda';
 
+function effectiveMcpVerb(params) {
+  const { name, arguments: supplied } = params ?? {};
+  const wrapped = name === 'call-verb';
+  const verb = wrapped ? supplied?.verb : name;
+  let args = wrapped ? supplied?.args : supplied;
+  if (wrapped && isString(args)) {
+    try { args = JSON.parse(args); } catch { args = null; }
+  }
+  return { verb, args };
+}
+
 async function mcpCall(request, url) {
   if (request.method !== 'POST' || url.pathname !== '/mcp') return null;
   try { return await request.clone().json(); } catch { return null; }
@@ -913,13 +924,7 @@ const FROZEN_TOOLS = new Map([
 async function refuseFrozenSave(request, env, url, call) {
   const { pathname } = url;
   if (call?.method === 'tools/call') {
-    const { name, arguments: supplied } = call.params ?? {};
-    const wrapped = name === 'call-verb';
-    const verb = wrapped ? supplied?.verb : name;
-    let args = wrapped ? supplied?.args : supplied;
-    if (wrapped && isString(args)) {
-      try { args = JSON.parse(args); } catch { args = null; }
-    }
+    const { verb, args } = effectiveMcpVerb(call.params);
     const calendarAnswer = isCalendarAnswer(verb, args) ||
       (verb === 'log-activity' && args?.kind === 'meeting' && Object.hasOwn(args, 'calendar_event_key'));
     if (calendarAnswer && await routeToEngine(env, HOME))
@@ -1042,7 +1047,7 @@ async function handleRequest(request, env) {
     if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
     const destination = new URL('/', url);
     const gate = await pageGate(request, env, new Request(destination, request));
-    return gate.status === 200 ? gatedResponse(gate, Response.redirect(destination, 308), env) : gate;
+    return noStore(gate.status === 200 ? copySessionCookies(gate, Response.redirect(destination, 308)) : gate);
   }
   if (RETIRED_API.test(pathname)) return json({ error: 'not_found' }, 404);
   if (pathname === "/app-release") return request.method === "GET" ? release(env) : json({ error: "method_not_allowed" }, 405);
@@ -1213,9 +1218,11 @@ async function handleRequest(request, env) {
   }
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     const call = await mcpCall(request, url);
-    if (call?.method === 'tools/call' && RETIRED_MCP_TOOLS.has(call.params?.name) &&
-        !isCalendarAnswer(call.params.name, call.params.arguments))
-      return json({ error: 'not_found' }, 404);
+    if (call?.method === 'tools/call') {
+      const { verb, args } = effectiveMcpVerb(call.params);
+      if (RETIRED_MCP_TOOLS.has(verb) && !isCalendarAnswer(verb, args))
+        return json({ error: 'not_found' }, 404);
+    }
     const engine = await engineSave(request, env, call) ?? await engineResponse(request, env, call);
     if (engine) return engine;
     if (call?.method === 'tools/call' && call.params?.name === 'find-and-catch-up' && isObject(call.params.arguments) && Object.hasOwn(call.params.arguments, 'ref')) {
