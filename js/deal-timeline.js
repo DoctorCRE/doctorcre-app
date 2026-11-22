@@ -124,7 +124,8 @@ const activityLabels = { call: 'Call', email: 'Email', meeting: 'Meeting' };
 const STEP_STATES = new Map([['done', 'Done'], ['cancelled', 'Cancelled'], ['expired', 'Expired']]);
 const closedMoney = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', trailingZeroDisplay: 'stripIfInteger' });
 
-function changeText({ field, new_value }) {
+function changeText({ verb, field, new_value }) {
+  if (verb === 'cancel-tour') return 'Tour cancelled';
   if (field === 'phase') {
     const phase = new_value === 'dead' ? 'Lost' : columnBySlug(new_value)?.label || readableValue(field, new_value);
     return `Moved to ${phase}`;

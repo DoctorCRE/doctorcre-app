@@ -41,8 +41,14 @@ export function renderCorrespondence(entries, waitingEmails = 0) {
       const meeting = entry.kind === 'meeting';
       const title = meeting ? entry.title?.trim() || 'Untitled meeting' : emailSubject(entry.subject);
       const context = meeting ? 'Meeting' : `Email · ${entry.sender_name || entry.sender || 'Unknown sender'}`;
+      const when = `<time datetime="${esc(entry.happened_at)}">${esc(sourceTime(entry.happened_at))}</time>`;
+      if (meeting && Array.isArray(entry.properties) && entry.properties.length) {
+        return `<li class="evidence-item"><details data-meeting-id="${esc(entry.activity_id)}"><summary data-detail-focus="meeting-${esc(entry.activity_id)}"><span>${esc(title)}</span>${when}</summary>
+          <ul aria-label="Visited properties">${entry.properties.map(({ name, address }) =>
+            `<li>${esc(name ? `${name}, ${address}` : address)}</li>`).join('')}</ul></details></li>`;
+      }
       return `<li class="evidence-item"><b${meeting ? ' class="meeting-caption"' : ''}>${esc(title)}</b>
         <div class="evidence-source">${esc(context)}</div>
-        <time datetime="${esc(entry.happened_at)}">${esc(sourceTime(entry.happened_at))}</time></li>`;
+        ${when}</li>`;
     }).join('')}</ol></section>`;
 }

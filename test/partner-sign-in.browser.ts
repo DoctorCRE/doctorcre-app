@@ -61,12 +61,14 @@ async function app(
     holdDocIssue,
     touch = false,
     readAttribution,
+    tourDeal,
   }: {
     width?: number;
     touch?: boolean;
     theme?: "dark" | "light";
     signIn?: "engine" | "carr";
     holdDocIssue?: Promise<void>;
+    tourDeal?: () => object;
     readAttribution?: (request: Request) => Response | Promise<Response>;
   } = {},
 ) {
@@ -260,7 +262,8 @@ async function app(
         if ((path === attributionPath || path === noteAttributionPath) && readAttribution)
           return readAttribution(input);
         if (path === "/api/engine/deals") return Response.json(dealBoard);
-        if (path === `/api/engine/deals/${dealId}`) return Response.json({ ...dealDetail, email_follow_ups: [] });
+        if (path === `/api/engine/deals/${dealId}`)
+          return Response.json({ ...dealDetail, email_follow_ups: [], ...tourDeal?.() });
         if (path.startsWith("/api/engine/vendors")) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
           url.pathname = path.replace("/api/engine", "/api/v1/business");
@@ -305,6 +308,7 @@ async function app(
   const context = await (await browser).newContext({
     viewport: { width, height: 850 },
     hasTouch: touch,
+    ...(tourDeal && { timezoneId: "America/Chicago" }),
     colorScheme: theme,
   });
   t.after(() => context.close());
@@ -575,15 +579,41 @@ const preview = "November 24, 2026\n\n1. Example Clinic, 10 Example Way\n2. 30 E
 const clinic = { id: first, name: "Example Clinic", address: "10 Example Way" };
 const annex = { id: second, name: null, address: "20 Example Way" };
 type Stop = { property_id: string } | { address: string; name: string | null };
-type Draft = { planned_on: string; notes: string | null; stops: Stop[]; idempotency_key: string };
+type Plan = { planned_on: string; notes: string | null; stops: Stop[] };
+type Draft = Plan & { idempotency_key: string; revision?: number };
+type Completion = { revision: number; happened_at: string; visited_stops: Stop[]; idempotency_key: string };
 
-function tourFixture(t: TestContext) {
+function tourFixture(t: TestContext, planned = false) {
   const properties = [clinic, annex];
   const writes: Draft[] = [];
-  let saved: Draft | undefined;
+  let saved: Plan | undefined = planned
+    ? { planned_on: "2026-11-24", notes: "Original notes", stops: [{ property_id: first }, { property_id: second }] }
+    : undefined;
+  const plan = `${tours}/${tour}`;
+  let revision = planned ? 1 : 0;
+  let cancelled_at: string | null = null;
+  let meeting: { activity_id: string; happened_at: string; properties: typeof properties } | undefined;
+  const completions: Completion[] = [];
+  function tourDeal() {
+    return {
+      correspondence: meeting ? [{ ...meeting, kind: "meeting", title: "Property tour" }] : [],
+      events: cancelled_at
+        ? [
+            {
+              id: "1",
+              recorded_at: cancelled_at,
+              actor: "joe",
+              verb: "cancel-tour",
+              field: "cancelled_at",
+              new_value: cancelled_at,
+            },
+          ]
+        : [],
+    };
+  }
   let failSave = false;
   async function open(actor = "joe") {
-    const { server, context } = await app(t, { width: 390, touch: true });
+    const { server, context } = await app(t, { width: 390, touch: true, tourDeal });
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const page = await context.newPage();
     await page.request.get(`${server.origin}/auth/callback/google?fixture=${actor === "joe" ? "first" : "second"}`);
@@ -605,9 +635,29 @@ function tourFixture(t: TestContext) {
         });
       }
       if (request.method() === "POST") {
-        const draft: Draft = request.postDataJSON();
-        writes.push(draft);
         assert.equal(request.headers()["x-carr-csrf"], `fixture-${actor === "joe" ? "first" : "second"}`);
+        if (path === `${plan}/complete`) {
+          const done: Completion = request.postDataJSON();
+          completions.push(done);
+          if (!meeting) {
+            assert.equal(done.revision, revision);
+            const visited = done.visited_stops.flatMap((stop) =>
+              "property_id" in stop ? properties.filter(({ id }) => id === stop.property_id) : [{ id: added, ...stop }],
+            );
+            meeting = { activity_id: added, happened_at: done.happened_at, properties: visited };
+          }
+          if (completions.length === 1) return route.abort();
+          return route.fulfill({ json: { id: tour, activity_id: meeting.activity_id } });
+        }
+        const draft: Draft = request.postDataJSON();
+        if (path !== tours && draft.revision !== revision)
+          return route.fulfill({ status: 409, json: { error: "version_conflict", current_revision: revision } });
+        if (path === `${plan}/cancel`) {
+          assert.match(draft.idempotency_key, /^[a-f0-9-]{36}$/);
+          cancelled_at = "2026-11-24T23:00:00Z";
+          return route.fulfill({ json: { id: tour, revision: ++revision, cancelled_at } });
+        }
+        writes.push(draft);
         if (failSave) return route.fulfill({ status: 422, json: { error: "invalid_field_value", fields: ["stops"] } });
         if (draft.stops.some((stop) => "property_id" in stop && !properties.some((p) => p.id === stop.property_id)))
           return route.fulfill({
@@ -625,10 +675,12 @@ function tourFixture(t: TestContext) {
           return { property_id: added };
         });
         saved = { ...draft, stops };
-        return route.fulfill({ status: 201, json: { id: tour, revision: 1 } });
+        return route.fulfill({ status: path === tours ? 201 : 200, json: { id: tour, revision: ++revision } });
       }
       if (path === tours)
-        return route.fulfill({ json: { tours: saved ? [{ id: tour, planned_on: saved.planned_on }] : [] } });
+        return route.fulfill({
+          json: { tours: saved && !meeting && !cancelled_at ? [{ id: tour, planned_on: saved.planned_on }] : [] },
+        });
       if (path === `${tours}/${tour}/stop-list`) return route.fulfill({ json: { text: preview } });
       assert.ok(saved && path === `${tours}/${tour}`);
       const stops = saved.stops.map((stop, index) => {
@@ -637,7 +689,15 @@ function tourFixture(t: TestContext) {
         return { property_id: property.id, name: property.name, address: property.address, position: index + 1 };
       });
       return route.fulfill({
-        json: { ...saved, id: tour, deal_id: dealId, stops, completed_activity_id: null, cancelled_at: null },
+        json: {
+          ...saved,
+          revision,
+          id: tour,
+          deal_id: dealId,
+          stops,
+          completed_activity_id: meeting?.activity_id ?? null,
+          cancelled_at,
+        },
       });
     });
     await page.goto(`${server.origin}/deals?mode=live&deal=${dealId}`);
@@ -646,6 +706,7 @@ function tourFixture(t: TestContext) {
   return {
     open,
     writes,
+    completions,
     removeAnnex: () => properties.splice(properties.indexOf(annex), 1),
     fail: (value: boolean) => {
       failSave = value;
@@ -744,6 +805,120 @@ test("an unavailable tour stop is named and the remaining draft can be saved", a
   assert.equal(fixture.writes.length, 2);
   assert.deepEqual(fixture.writes[1]?.stops, [{ property_id: first }]);
   assert.equal(fixture.writes[1]?.notes, "Bring the floor plan");
+});
+
+async function openPlannedTour(page: Page, day = 24) {
+  await page.getByRole("tab", { name: "Tours", exact: true }).click();
+  await page.locator("#workspace-tours summary", { hasText: `November ${day}, 2026` }).click({ timeout: 5000 });
+}
+const tourButton = (page: Page, name: string) => page.getByRole("button", { name, exact: true });
+
+test("partners edit a tour, keep refused edits, and reload a newer plan", async (t) => {
+  const fixture = tourFixture(t, true);
+  const joe = await fixture.open();
+  const dell = await fixture.open("dell");
+  const reader = await fixture.open("dell");
+  await openPlannedTour(reader);
+  await reader.getByText("Original notes", { exact: true }).waitFor();
+  for (const page of [joe, dell]) {
+    await openPlannedTour(page);
+    await tourButton(page, "Edit tour").click({ timeout: 5000 });
+  }
+  await joe.getByLabel("Tour date").fill("2026-11-25");
+  await joe.getByLabel("Tour notes (optional)").fill("Bring the new floor plan");
+  await tourButton(joe, "Move up").press("Enter");
+  fixture.fail(true);
+  await tourButton(joe, "Save tour").tap();
+  await joe.getByRole("alert").filter({ hasText: "Check the properties in the stop list." }).waitFor();
+  assert.equal(await joe.getByLabel("Tour date").inputValue(), "2026-11-25");
+  assert.equal(await joe.getByLabel("Tour notes (optional)").inputValue(), "Bring the new floor plan");
+  assert.equal(await joe.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  fixture.fail(false);
+  await tourButton(joe, "Save tour").tap();
+  await joe.getByText("Bring the new floor plan", { exact: true }).waitFor();
+
+  await dell.getByLabel("Tour notes (optional)").fill("My earlier draft");
+  await tourButton(dell, "Save tour").click();
+  await tourButton(dell, "Reload tour").waitFor();
+  assert.equal(await dell.getByLabel("Tour notes (optional)").inputValue(), "My earlier draft");
+  assert.equal(await tourButton(dell, "Save tour").isEnabled(), false);
+  dell.once("dialog", (dialog) => dialog.accept());
+  await tourButton(dell, "Reload tour").click();
+  await reader.locator("#workspace-tours details[open] summary").click();
+  await openPlannedTour(reader);
+  for (const page of [joe, dell, reader]) {
+    await page.locator("#workspace-tours details[open] summary", { hasText: "November 25, 2026" }).waitFor();
+    await page.getByText("Bring the new floor plan", { exact: true }).waitFor();
+    assert.deepEqual(await page.getByRole("list", { name: "Tour stops" }).getByRole("listitem").allTextContents(), [
+      annex.address,
+      `${clinic.name}, ${clinic.address}`,
+    ]);
+  }
+});
+
+test("finishing a tour records one meeting through a lost response and a second partner's save", async (t) => {
+  const fixture = tourFixture(t, true);
+  const joe = await fixture.open();
+  const dell = await fixture.open("dell");
+  for (const page of [joe, dell]) {
+    await openPlannedTour(page);
+    await tourButton(page, "Mark done").click({ timeout: 5000 });
+    assert.equal(await page.getByLabel("Visit date").inputValue(), "2026-11-24");
+    assert.equal(await page.getByLabel("Local time").inputValue(), "");
+    await page.getByLabel("Local time").fill("14:35");
+  }
+  await joe.getByLabel("Visit date").fill("2026-11-25");
+  const visited = joe.getByRole("list", { name: "Visited properties" }).getByRole("listitem");
+  assert.equal(await visited.count(), 2);
+  await visited.filter({ hasText: annex.address }).getByRole("button", { name: "Remove" }).tap();
+  await joe.getByLabel("Property name or address").fill("30 Example Way");
+  await tourButton(joe, "Search properties").press("Enter");
+  await joe.getByLabel("New property address").fill("30 Example Way");
+  await tourButton(joe, "Add property").tap();
+  assert.equal(await joe.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
+  await tourButton(joe, "Save meeting").tap();
+  await joe.getByText("Could not confirm the save. Try saving again.").waitFor();
+  assert.equal(await joe.getByLabel("Local time").inputValue(), "14:35");
+  await tourButton(joe, "Save meeting").tap();
+  await joe.getByText("No planned tours.").waitFor();
+  await tourButton(dell, "Save meeting").click();
+  await dell.getByText("No planned tours.").waitFor();
+
+  assert.equal(fixture.completions.length, 3);
+  assert.deepEqual(fixture.completions[0], fixture.completions[1]);
+  assert.notEqual(fixture.completions[2]?.idempotency_key, fixture.completions[0]?.idempotency_key);
+  assert.equal(fixture.completions[0]?.happened_at, "2026-11-25T20:35:00.000Z");
+  assert.deepEqual(fixture.completions[0]?.visited_stops, [
+    { property_id: first },
+    { address: "30 Example Way", name: null },
+  ]);
+  assert.equal(fixture.writes.length, 0, "completion leaves the saved plan untouched");
+  for (const page of [joe, dell]) {
+    await page.getByRole("tab", { name: "Correspondence & notes" }).click();
+    const meeting = page.getByText("Property tour", { exact: true });
+    await meeting.click();
+    assert.equal(await meeting.count(), 1);
+    await page.getByText(clinic.address, { exact: false }).waitFor();
+    await page.getByText("30 Example Way", { exact: true }).waitFor();
+    assert.equal(await page.getByText(annex.address, { exact: true }).count(), 0);
+  }
+});
+
+test("cancelling a tour requires confirmation and records a change without a meeting", async (t) => {
+  const page = await tourFixture(t, true).open();
+  await openPlannedTour(page);
+  const cancel = tourButton(page, "Cancel tour");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await cancel.press("Enter", { timeout: 5000 });
+  await page.getByText("Original notes", { exact: true }).waitFor();
+  page.once("dialog", (dialog) => dialog.accept());
+  await cancel.tap();
+  await page.getByText("No planned tours.").waitFor();
+  await page.getByRole("tab", { name: "Timeline" }).click();
+  await page.getByText("Tour cancelled", { exact: true }).waitFor();
+  await page.getByRole("tab", { name: "Correspondence & notes" }).click();
+  await page.getByText("No emails or meetings filed to this deal yet.").waitFor();
 });
 
 test("a saved Leads link opens on the engine session, supports claim and prompts after expiry", async (t) => {

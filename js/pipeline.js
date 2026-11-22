@@ -1876,6 +1876,7 @@ async function readPanel(id) {
           const focusIdentity = focused?.dataset.detailFocus;
           const historyOpen = current.querySelector('.updates-history')?.open;
           const dateOpens = new Set([...current.querySelectorAll('[data-date-id] details[open]')].map(n => n.closest('[data-date-id]').dataset.dateId));
+          const openMeetings = new Set([...current.querySelectorAll('details[data-meeting-id][open]')].map(n => n.dataset.meetingId));
           const oldScroll = current.scrollLeft;
           if (fresh.dataset.detailRead === 'email-followups') {
             for (const input of current.querySelectorAll('[data-email-decision] input')) {
@@ -1890,6 +1891,7 @@ async function readPanel(id) {
           fresh.querySelectorAll('[data-date-id] details').forEach(n => { n.open = dateOpens.has(n.closest('[data-date-id]').dataset.dateId); });
           if (historyOpen && fresh.querySelector('.updates-history')) fresh.querySelector('.updates-history').open = true;
           fresh.querySelectorAll('.deal-note').forEach(n => { if (expanded.has(n.dataset.id)) n.querySelector('details').open = true; });
+          fresh.querySelectorAll('details[data-meeting-id]').forEach(n => { n.open = openMeetings.has(n.dataset.meetingId); });
           if (focusIdentity) {
             const target = [...fresh.querySelectorAll('[data-detail-focus]')].find(n => n.dataset.detailFocus === focusIdentity);
             if (target) target.focus({preventScroll:true});
@@ -2055,7 +2057,9 @@ function paintPanel(detail) {
       try {
         if (planTours) {
           const { mountDealTourPlans } = await import('./ui-deal-tour-plans.generated.js');
-          if (!toursDisposed) toursMounted = mountDealTourPlans(root, { dealId: detail.deal.id, request: sessionFetch });
+          if (!toursDisposed) toursMounted = mountDealTourPlans(root, {
+            dealId: detail.deal.id, request: sessionFetch, tourClosed: () => void refreshPanel({ changed: true }),
+          });
           return;
         }
         const [{ mountDealTours }, { createPlannerClient }] = await Promise.all([
