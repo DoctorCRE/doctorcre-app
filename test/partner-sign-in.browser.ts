@@ -6,6 +6,7 @@ import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
 import carrReply from "./fixtures/action-link-reply.v2.json" with { type: "json" };
+import carrDocumentText from "./fixtures/deal-document-text/produced.json" with { type: "json" };
 import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
 import { detail, emptyQuietFollowUps, lead, workspace } from "./leads-workspace-fixture.mjs";
@@ -40,6 +41,30 @@ const callSummary = "Discussed the demo showing";
 const noteAttributionPath = `/api/engine/activities/${noteId}/deal-attribution`;
 const attributionPath = `/api/engine/activities/${activityId}/deal-attribution`;
 const dealPage = `/deals?mode=live&deal=${dealId}`;
+const filedDocument = { id: carrDocumentText.attachment_id, name: "Demo lease.pdf", version: 1 };
+const documentTextPath = `/api/engine/deals/${dealId}/documents/${filedDocument.id}/text`;
+const carrDocumentReads = new Map<string, object>([
+  [
+    "list-deal-documents",
+    {
+      ok: true,
+      schema_version: "deal-documents.v1",
+      documents: [
+        {
+          id: filedDocument.id,
+          display_name: filedDocument.name,
+          document_type: "application/pdf",
+          page_count: carrDocumentText.page_count,
+          content_hash: carrDocumentText.content_hash,
+          stored_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      has_more: false,
+      next_cursor: null,
+    },
+  ],
+  ["read-deal-document-text", { ...carrDocumentText, deal_id: dealId }],
+]);
 const creditedDeal = { id: dealId, name: dealName };
 const candidateDeal = { id: "33333333-3333-4333-8333-333333333333", name: "Example second deal" };
 const dealRow = { id: dealId, name: dealName, phase: "research", owner: "joe", operating_state: "active" };
@@ -65,6 +90,7 @@ async function app(
     holdDocIssue,
     touch = false,
     readAttribution,
+    documentText,
     tourDeal,
   }: {
     width?: number;
@@ -74,6 +100,7 @@ async function app(
     holdDocIssue?: Promise<void>;
     tourDeal?: () => object;
     readAttribution?: (request: Request) => Response | Promise<Response>;
+    documentText?: string[] | "missing";
   } = {},
 ) {
   let unavailable = false;
@@ -107,8 +134,10 @@ async function app(
           }
           if (path === "/mcp") {
             const { id, params } = await input.json();
+            const documentRead = documentText ? carrDocumentReads.get(params.name) : undefined;
             const payload =
-              params.name === "deal-room-board"
+              documentRead ??
+              (params.name === "deal-room-board"
                 ? dealBoard
                 : params.name === "get-deal-room"
                   ? dealDetail
@@ -125,7 +154,7 @@ async function app(
                           credited_activity_count: 0,
                           coverage: "unknown",
                         }
-                      : {};
+                      : {});
             return Response.json({
               jsonrpc: "2.0",
               id,
@@ -302,7 +331,16 @@ async function app(
           return readAttribution(input);
         if (path === "/api/engine/deals") return Response.json(dealBoard);
         if (path === `/api/engine/deals/${dealId}`)
-          return Response.json({ ...dealDetail, email_follow_ups: [], ...tourDeal?.() });
+          return Response.json({
+            ...dealDetail,
+            email_follow_ups: [],
+            ...tourDeal?.(),
+            ...(documentText && { documents: [filedDocument] }),
+          });
+        if (path === documentTextPath && input.method === "GET" && documentText)
+          return documentText === "missing"
+            ? Response.json({ error: "not_found" }, { status: 404 })
+            : Response.json({ pages: documentText });
         if (path.startsWith("/api/engine/vendors")) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
           url.pathname = path.replace("/api/engine", "/api/v1/business");
@@ -695,6 +733,76 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
     false,
   );
   assert.deepEqual(legacyRequests, []);
+});
+
+for (const [scenario, documentText, message] of [
+  ["ordered pages with a blank gap", ["\nFirst page <draft>\nNew paragraph.", "", "Third page."], null],
+  ["no text", [], "No text found in this file."],
+  ["a missing document", "missing", "Document text is unavailable."],
+] satisfies [string, string[] | "missing", string | null][]) {
+  test(`engine deal Documents shows ${scenario}`, async (t) => {
+    const { server, context, partnerReads } = await app(t, { documentText, width: 390 });
+    const page = await context.newPage();
+    const legacyReads: string[] = [];
+    page.on("request", (request) => {
+      if (
+        new URL(request.url()).pathname === "/mcp" &&
+        request.postDataJSON()?.params?.name === "read-deal-document-text"
+      )
+        legacyReads.push(request.url());
+    });
+    await page.goto(server.origin + dealPage);
+    await page.getByRole("tab", { name: "Documents", exact: true }).click();
+    const panel = page.getByRole("tabpanel", { name: "Documents" });
+    assert.equal(
+      await panel.getByRole("link", { name: `${filedDocument.name}, Version 1` }).getAttribute("href"),
+      `/api/engine/documents/${filedDocument.id}`,
+    );
+    assert.equal(partnerReads.has(documentTextPath), false);
+    await panel
+      .getByRole("button", { name: `Open text for ${filedDocument.name}, Version 1` })
+      .click({ timeout: 4000 });
+    const dialog = page.getByRole("dialog", { name: filedDocument.name });
+    if (message) {
+      await dialog.getByText(message, { exact: true }).waitFor();
+      assert.equal(await dialog.getByRole("region", { name: /Page/ }).count(), 0);
+      assert.equal(await dialog.getByRole("button", { name: "Retry" }).count(), documentText === "missing" ? 1 : 0);
+    } else {
+      await dialog.getByText("Third page.", { exact: true }).waitFor();
+      const sections = dialog.getByRole("region", { name: /Page/ });
+      assert.deepEqual(await sections.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label"))), [
+        "Page 1",
+        "Page 2",
+        "Page 3",
+      ]);
+      assert.deepEqual(await sections.locator("pre").allTextContents(), documentText);
+      assert.ok((await dialog.getByRole("region", { name: "Page 2" }).locator("pre").boundingBox())?.height);
+    }
+    assert.equal(partnerReads.get(documentTextPath), `${cookieName}=first`);
+    assert.deepEqual(legacyReads, []);
+    await dialog.getByRole("button", { name: "Close document text" }).click();
+    await dialog.waitFor({ state: "hidden" });
+  });
+}
+
+test("CARR deal Documents still reads document text through the existing verb", async (t) => {
+  const { server, context, partnerReads } = await app(t, { signIn: "carr", documentText: [] });
+  const page = await context.newPage();
+  await page.goto(server.origin + dealPage);
+  await page.getByRole("tab", { name: "Documents", exact: true }).click();
+  const open = page.getByRole("button", { name: `Open text for ${filedDocument.name}`, exact: true });
+  const reading = page.waitForRequest(
+    (request) => request.url().endsWith("/mcp") && request.postDataJSON()?.params?.name === "read-deal-document-text",
+  );
+  await open.click();
+  assert.deepEqual((await reading).postDataJSON().params.arguments, {
+    deal_id: dealId,
+    attachment_id: filedDocument.id,
+    content_hash: carrDocumentText.content_hash,
+  });
+  const text = page.getByRole("region", { name: "Document text", exact: true });
+  await text.getByText("first", { exact: true }).waitFor();
+  assert.equal(partnerReads.has(documentTextPath), false);
 });
 
 const tour = "33333333-3333-4333-8333-333333333333";

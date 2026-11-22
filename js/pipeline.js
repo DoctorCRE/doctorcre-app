@@ -1497,12 +1497,72 @@ function undoInvoiceClose() {
   });
 }
 
-function filedDocumentsHtml(documents) {
+function filedDocumentsHtml(documents, engineSignIn) {
   return documents.length ? `<ul class="deal-document-list">${documents.map(file => {
     const version = `Version ${file.version}`;
     return `<li><h3><a href="/api/engine/documents/${encodeURIComponent(file.id)}" aria-label="${esc(`${file.name}, ${version}`)}" data-detail-focus="file-${esc(file.id)}">${esc(file.name)}</a></h3>
-      <p>${esc(version)}${file.prepared_at ? ` · ${esc(sourceTime(file.prepared_at))}` : ''}</p></li>`;
+      <p>${esc(version)}${file.prepared_at ? ` · ${esc(sourceTime(file.prepared_at))}` : ''}</p>${engineSignIn
+        ? `<button class="btn" type="button" data-open-document-text="${esc(file.id)}" data-detail-focus="text-${esc(file.id)}" aria-label="${esc(`Open text for ${file.name}, ${version}`)}">Open text</button>`
+        : ''}</li>`;
   }).join('')}</ul>` : '<p>No documents filed for this deal.</p>';
+}
+
+function openFiledDocumentText(documentId) {
+  const detail = state.panelDetail;
+  if (!privateSession()?.engineSignIn || !isEngineDealDetail(detail)) return;
+  const file = detail.documents.find(file => file.id === documentId);
+  if (!file) return;
+
+  const dialog = document.createElement('dialog');
+  dialog.className = 'dialog deal-dialog deal-document-text';
+  dialog.setAttribute('aria-labelledby', 'filed-document-text-title');
+  dialog.innerHTML = `<article>
+    <header><h2 id="filed-document-text-title">${esc(file.name)}</h2>
+      <button class="btn" type="button" aria-label="Close document text">Close</button></header>
+    <div class="dialog-body"><p role="status"></p><button class="btn" type="button" hidden>Retry</button></div>
+  </article>`;
+  const status = dialog.querySelector('[role="status"]');
+  const retry = dialog.querySelector('.dialog-body button');
+  const lifetime = new AbortController();
+  const path = `/api/engine/deals/${encodeURIComponent(detail.deal.id)}/documents/${encodeURIComponent(file.id)}/text`;
+
+  async function load() {
+    status.textContent = 'Loading document text…';
+    retry.hidden = true;
+    try {
+      const pages = await readWithDeadline(async signal => {
+        const response = await sessionFetch(path, { signal });
+        if (!response.ok) throw Error('Document text is unavailable.');
+        const result = await response.json();
+        if (!Array.isArray(result?.pages) || !result.pages.every(page => typeof page === 'string'))
+          throw Error('Invalid document text');
+        return result.pages;
+      }, { signal: lifetime.signal });
+      if (!dialog.open || !dialog.isConnected) return;
+      status.textContent = pages.length ? '' : 'No text found in this file.';
+      for (const [index, text] of pages.entries()) {
+        const page = document.createElement('section');
+        const heading = document.createElement('h3');
+        heading.textContent = `Page ${index + 1}`;
+        page.setAttribute('aria-label', heading.textContent);
+        const content = document.createElement('pre');
+        content.textContent = text;
+        page.append(heading, content);
+        retry.before(page);
+      }
+    } catch {
+      if (!dialog.open || !dialog.isConnected) return;
+      status.textContent = 'Document text is unavailable.';
+      retry.hidden = false;
+    }
+  }
+
+  dialog.querySelector('header button').addEventListener('click', () => dialog.close());
+  dialog.addEventListener('close', () => { lifetime.abort(); dialog.remove(); }, { once: true });
+  retry.addEventListener('click', () => void load());
+  $('workspace-documents').append(dialog);
+  dialog.showModal();
+  void load();
 }
 
 const emailDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: BUSINESS_TIME_ZONE });
@@ -1724,7 +1784,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode })}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>No comparable terms match these filters.</p>' : ''}</section>
-    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
+    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents, engineMode)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine, planTours)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
@@ -2689,6 +2749,8 @@ function wire() {
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
   $('panelBody').addEventListener('click', async e => {
+    const documentText = e.target.closest('[data-open-document-text]');
+    if (documentText) return openFiledDocumentText(documentText.dataset.openDocumentText);
     if (e.target.closest('[data-undo-invoice]')) void undoInvoiceClose();
     const done = e.target.closest('[data-complete-step]');
     if (done) return completeDealStep(done);
