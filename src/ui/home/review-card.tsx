@@ -551,6 +551,13 @@ export function ReviewCard<Item extends ReviewItem>({
                 proposalId={proposal.id}
                 checkReason={client.checkFilingReason}
                 choices={proposal.filingChoices}
+                askDocHref={
+                  editable && docLinkRequest && proposal.filingEmailId
+                    ? `/doc-chats?${new URLSearchParams({ email: proposal.filingEmailId })}#${new URLSearchParams({
+                        question: "Where should I file this email?",
+                      })}`
+                    : undefined
+                }
                 refusal={state.phase === "proposal-refused" && state.id === proposal.id ? state.filing : null}
                 file={(destination, reason) => decideSuggestion(proposal, "accept", reason, destination)}
                 dismiss={(opener) =>
