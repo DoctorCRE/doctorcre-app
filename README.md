@@ -153,8 +153,10 @@ drawer shows the track record. The manual rating editor is available with CARR
 sign-in, and Relationships uses recorded links and introduction offers.
 
 Home cards and their actions, Today, Calendar dates, and Updates also use
-PartnerApp in engine sign-in mode. Updates reads the engine's Home updates,
-recent changes, and settings. Invoices, Mark paid, and Historical client fit
+PartnerApp in engine sign-in mode. The deal saves switch also routes Updates
+and its navigation badge to the engine. Opening an unread update marks it read
+and removes it from Home. The activity list uses the partner's saved time zone.
+Invoices, Mark paid, and Historical client fit
 use PartnerApp regardless of their legacy routing switches. The engine should
 set `INVOICES_READ_SCHEMA=next` so invoices and payments use the same records.
 

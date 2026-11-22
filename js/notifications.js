@@ -1,31 +1,4 @@
 import { createPageBudget } from './read-budget.mjs';
-// V5-UX-B12a — the notifications page: DOM wiring only.
-//
-// Every decision about a payload, a state or a sentence lives in
-// ./notifications-model.js, and every decision about what a command DID lives
-// in the shared kernel (./command-feedback.mjs) and its dock. This file reads,
-// paints, and sends exactly one write.
-//
-// Four shapes govern the file:
-//
-//   1. The unread count is painted from the payload and from nothing else. The
-//      list is capped at LIMIT while the count is over every row the recipient
-//      holds, so a count derived from the cards would be a different number
-//      wearing the same label.
-//   2. Each read stamps its OWN clock when its answer landed, and a read that
-//      did not answer is one of the named states in the app's words. The
-//      server's prose never reaches the page: only its STATUS and its CODE
-//      cross this boundary.
-//   3. The one write goes through performCommand with one operation key per
-//      notification id and one idempotency key, and its receipt is the shared
-//      dock's. An unknown outcome keeps its entry so "Check outcome" re-sends
-//      the SAME frozen request.
-//   4. The quiet-hours panel is now a REAL form over WR-000116's two doors, and
-//      every save is a compare-and-swap on the version the page last READ. The
-//      form is never the source of that version: a `version_conflict` re-reads
-//      the preference, re-renders the fields from the answer, and says so, and
-//      it is never retried automatically — the value on screen changed, so the
-//      person decides again. A suppressed row is MARKED, never hidden.
 import { createCommandDock } from "./command-dock.js";
 import { performCommand } from "./command-feedback.mjs";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
@@ -38,9 +11,9 @@ import { BUSINESS_TIME_ZONE } from "./business-date.js";
 import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, changeRows, classifyPreferenceFailure,
-  classifyPreferenceReadFailure, classifyReadFailure, enginePreferenceArgs, feedState, markReadArgs,
+  classifyPreferenceReadFailure, classifyReadFailure, enginePreferenceArgs, feedState, updateFailure,
   notificationCards, preferenceState, preferenceSummary, preferenceView,
-  quietNowBanner, setPreferenceArgs, unreadLine, validChangesPage, validFeedPayload,
+  quietNowBanner, setPreferenceArgs, unreadLine, validFeedPayload,
   preferenceSaveView, preferenceTimeLabel,
 } from "./notifications-model.js";
 import { uuidv4 } from "./uuid.js";
@@ -72,7 +45,6 @@ let client = null;
 const sources = {
   engine: {
     feed: () => client.updates(),
-    readArgs: markReadArgs,
     markRead: (request) => client.markUpdatesRead(request),
     preference: () => client.preferences(),
     preferenceArgs: enginePreferenceArgs,
@@ -80,7 +52,6 @@ const sources = {
   },
   old: {
     feed: () => client.notificationFeed(view.after ? { after: view.after, limit: LIMIT } : { limit: LIMIT }),
-    readArgs: acknowledgeArgs,
     markRead: (request) => client.acknowledgeNotification(request),
     preference: () => client.notificationPreferences(),
     preferenceArgs: setPreferenceArgs,
@@ -99,6 +70,10 @@ let dirty = false;
 /** A conflict clears the draft version until the current preferences are read. */
 let draftBaseVersion = null;
 let preferenceSequence = 0;
+let readWrites = Promise.resolve();
+const preferenceInputs = {
+  time_zone: "quietTimezone", quiet_from: "quietStart", quiet_until: "quietEnd", push_to_device: "deviceOptIn",
+};
 
 function announceFeed(text) {
   const live = $("feedLive");
@@ -110,7 +85,8 @@ function showPreferenceMessage(text) {
   if (message.textContent !== text) message.textContent = text;
 }
 
-const savedZone = () => preferenceView(view.preference.payload)?.timezone || BUSINESS_TIME_ZONE;
+const preferenceModel = () => source === sources.engine ? view.preference.payload : preferenceView(view.preference.payload);
+const savedZone = () => preferenceModel()?.timezone || BUSINESS_TIME_ZONE;
 const asOf = (read) => {
   const clock = read.state === "read" && Number.isFinite(Date.parse(read.observed_at)) ? meetingTime(read.observed_at, savedZone()) : "";
   return clock ? `As of ${clock}` : "";
@@ -130,15 +106,18 @@ function cardHtml(card) {
   const delivery = card.delivery.length ? `<ul class="note-delivery">${card.delivery
     .map((row) => `<li data-channel="${escapeHtml(row.channel)}" data-delivery="${escapeHtml(row.state)}">${escapeHtml(row.phrase)}</li>`)
     .join("")}</ul>` : "";
+  const unread = card.reading?.kind === "unread";
   const link = card.link.path
     ? (card.link.href
-      ? `<p class="note-link" data-link="routed"><a href="${escapeHtml(card.link.href)}" target="_blank" rel="noopener">${escapeHtml(card.link.label)}</a></p>`
+      ? `<p class="note-link" data-link="routed"><a href="${escapeHtml(card.link.href)}" target="_blank" rel="noopener"${unread ? ` data-open-unread="${escapeHtml(card.id)}"` : ""}>${escapeHtml(card.link.label)}</a></p>`
       : `<p class="note-link" data-link="unrouted">${escapeHtml(card.link.sentence)}</p>`)
     : "";
   const quiet = card.quietSuppressed
     ? `<p class="quiet-mark" data-quiet="suppressed">${escapeHtml(QUIET_SUPPRESSED_MARK)}</p>`
     : "";
-  const act = card.read
+  const act = card.reading
+    ? `<p class="read-mark"${unread ? "" : ' data-read="true"'}>${unread ? "Unread" : `Read at ${escapeHtml(card.readClock)}`}</p>`
+    : card.read
     ? `<p class="read-mark" data-read="true">Acknowledged${card.readClock ? ` at ${escapeHtml(card.readClock)}` : ""}</p>`
     : `<div class="note-act"><button class="btn btn-secondary" type="button" data-ack="${escapeHtml(card.id)}">Acknowledge this notification</button></div>`;
   return `<li class="work-item" data-priority="${card.severity === "failure" ? "overdue" : "deadline"}" data-notification="${escapeHtml(card.id)}">
@@ -152,7 +131,7 @@ function cardHtml(card) {
       ${delivery}
       ${quiet}
       ${link}
-      ${recordDetailsHtml(card.details, card.link.path)}
+      ${card.reading ? "" : recordDetailsHtml(card.details, card.link.path)}
       ${act}
     </div>
   </li>`;
@@ -161,7 +140,7 @@ function cardHtml(card) {
 function renderFeed() {
   const read = view.feed;
   $("feedAsOf").textContent = asOf(read);
-  const state = feedState(read, { after: view.after, limit: LIMIT });
+  const state = feedState(read, source === sources.old ? { after: view.after, limit: LIMIT } : undefined);
   const block = $("feedState");
   block.setAttribute("data-state", state.state);
   $("feedStateTitle").textContent = state.sentence || "";
@@ -172,6 +151,10 @@ function renderFeed() {
   block.hidden = state.state === "ready";
   const payload = read.state === "read" ? read.payload : null;
   renderNotificationBadge(payload?.unread_count);
+  const markAll = $("markAllRead");
+  const shown = unreadUpdateIds().length;
+  markAll.hidden = shown === 0;
+  markAll.textContent = payload?.unread_count > shown ? "Mark shown as read" : "Mark all read";
   const unread = unreadLine(payload);
   $("unreadLine").textContent = unread;
   announceFeed(state.sentence || unread);
@@ -192,14 +175,14 @@ function renderFeed() {
  */
 function renderPreference() {
   const read = view.preference;
-  const state = preferenceState(read);
+  const model = preferenceModel();
+  const state = preferenceState(read, model);
   const block = $("prefState");
   block.setAttribute("data-state", state.state);
   $("prefStateTitle").textContent = state.sentence || "";
   block.hidden = state.state === "ready";
   $("retryPreference").hidden = state.state === "ready" || state.state === "loading";
   $("prefAsOf").textContent = asOf(read);
-  const model = state.state === "ready" ? preferenceView(read.payload) : null;
   $("prefSummary").textContent = preferenceSummary(model);
   $("prefSummary").hidden = !model;
   const form = $("prefForm");
@@ -226,10 +209,12 @@ function renderActivity() {
   $("activityAsOf").textContent = asOf(read);
   const payload = read.state === "read" ? read.payload : null;
   const rows = payload?.changes ? changeRows(payload.changes, savedZone()) : activityRows(payload?.events, savedZone());
-  $("activityState").hidden = read.state === "pending" || Boolean(payload);
+  $("activityState").hidden = read.state === "pending" || (Boolean(payload) && !read.refreshFailed);
+  $("retryActivity").hidden = source === sources.old;
   const more = $("activityMore");
-  more.hidden = !payload?.next_before;
+  more.hidden = payload?.cursor?.kind !== "more";
   more.disabled = read.loadingMore === true;
+  more.textContent = read.moreFailed === "invalid_fields" ? "Reload activity" : read.moreFailed ? "Retry" : "Show more";
   $("activityMoreState").textContent = read.moreFailed ? "Couldn't load more" : "";
   $("activityList").innerHTML = rows.map((row) => `<li class="work-item" data-priority="ordinary">
     <div><h3>${escapeHtml(row.actor)} · ${escapeHtml(row.verb)}</h3>
@@ -256,16 +241,16 @@ function render() {
  * text is never carried into the sentence a person reads.
  */
 async function takeFeed() {
-  const sequence = view.sequence;
-  view.feed = view.feed.state === "read" ? { ...view.feed, refreshing: true } : { state: "pending" };
+  const pending = view.feed.state === "read" ? { ...view.feed, refreshing: true } : { state: "pending" };
+  view.feed = pending;
   render();
   try {
     const payload = await source.feed();
-    if (view.sequence !== sequence) return;
-    if (!validFeedPayload(payload)) throw new Error("Invalid notification feed");
+    if (view.feed !== pending) return;
+    if (source === sources.old && !validFeedPayload(payload)) throw new Error("Invalid notification feed");
     view.feed = { state: "read", payload, observed_at: new Date().toISOString() };
   } catch (error) {
-    if (view.sequence !== sequence) return;
+    if (view.feed !== pending) return;
     view.feed = classifyReadFailure(error);
   }
   render();
@@ -286,8 +271,9 @@ async function takePreference() {
     const payload = await source.preference();
     if (preferenceSequence !== sequence) return;
     view.preference = { state: "read", payload, observed_at: new Date().toISOString() };
+    if (!preferenceModel()) throw new Error("Preferences unavailable");
     if (dirty) {
-      const version = preferenceView(payload)?.version ?? null;
+      const version = preferenceModel().version;
       if (draftBaseVersion === null) draftBaseVersion = version;
       else if (version !== draftBaseVersion) {
         showPreferenceMessage("Preferences changed while you were editing. Save will check your earlier version before changing anything.");
@@ -312,7 +298,7 @@ async function takeChanges() {
       takePage();
       const page = await readChanges(before);
       if (view.sequence !== sequence) return;
-      before = page.next_before;
+      before = page.cursor.before ?? null;
       const overlap = page.changes.findIndex((row) => shown.has(row.id));
       newer.push(...(overlap < 0 ? page.changes : page.changes.slice(0, overlap)));
       if (overlap >= 0) break;
@@ -321,19 +307,19 @@ async function takeChanges() {
     const changes = uniqueChanges([...newer, ...(current?.changes ?? [])]);
     view.activity = {
       ...view.activity,
-      state: "read", observed_at: new Date().toISOString(),
-      payload: { changes, next_before: shown.size ? current.next_before : before },
+      state: "read", observed_at: new Date().toISOString(), refreshFailed: false,
+      payload: { changes, cursor: shown.size ? current.cursor : before ? { kind: "more", before } : { kind: "end" } },
     };
   } catch {
     if (view.sequence !== sequence) return;
-    if (view.activity.state !== "read") view.activity = { state: "unknown" };
+    view.activity = view.activity.state === "read" ? { ...view.activity, refreshFailed: true } : { state: "unknown" };
   }
   renderActivity();
 }
 
 async function readChanges(before) {
   const page = await client.updateChanges(before);
-  if (!validChangesPage(page) || (before && page.next_before === before)) throw new Error("Who did what unavailable");
+  if (before && page.cursor.before === before) throw new Error("Who did what unavailable");
   return page;
 }
 
@@ -342,8 +328,12 @@ function uniqueChanges(changes) {
 }
 
 async function takeMoreChanges() {
-  const before = view.activity.payload?.next_before;
+  const before = view.activity.payload?.cursor?.before;
   if (!before || view.activity.loadingMore) return;
+  if (view.activity.moreFailed === "invalid_fields") {
+    view.activity = { state: "pending" };
+    return takeChanges();
+  }
   view.activity = { ...view.activity, loadingMore: true, moreFailed: false };
   renderActivity();
   try {
@@ -351,10 +341,10 @@ async function takeMoreChanges() {
     const changes = uniqueChanges([...view.activity.payload.changes, ...page.changes]);
     view.activity = {
       state: "read", observed_at: new Date().toISOString(),
-      payload: { changes, next_before: page.next_before },
+      payload: { changes, cursor: page.cursor },
     };
-  } catch {
-    view.activity = { ...view.activity, loadingMore: false, moreFailed: true };
+  } catch (error) {
+    view.activity = { ...view.activity, loadingMore: false, moreFailed: updateFailure(error).kind };
   }
   renderActivity();
 }
@@ -410,42 +400,62 @@ async function load() {
 
 /* --------------------------------------------------------------------- writing */
 
-async function dispatch(operationKey, args, summary, preference = false) {
+async function dispatch(operationKey, args, summary) {
+  let failure;
   const result = await performCommand({
     operationKey,
     args,
     getState: () => commandState,
     setState: (next) => { commandState = next; },
     newKey: uuidv4,
-    call: (request) => (preference ? source.savePreference(request) : source.markRead(request)),
+    call: async (request) => {
+      try { return await source.markRead(request); }
+      catch (error) { failure = updateFailure(error); throw error; }
+    },
   });
-  // THE FLAG IS CARRIED, and this is the whole of blocker B1. `dispatch` is
-  // reached twice for one preference save — once from `savePreference` and once
-  // from the dock's reconcile — and a write-back that dropped `preference`
-  // would leave the retained entry looking like an acknowledgement. The next
-  // "Try again" would then send a base_version and a quiet-hours pair to
-  // `acknowledge-notification`, which refuses it as `notification_not_found`:
-  // a preference save reported as a missing notification, having never reached
-  // the preference verb at all. Every `operations.set` in this file names the
-  // verb, and B12-10 asserts that of all of them.
-  operations.set(operationKey, { args, summary, preference });
+  operations.set(operationKey, { args, summary });
   dock.record(operationKey, {
-    summary, status: result.status, reason: result.message || null,
-    // eslint-disable-next-line no-restricted-syntax -- Only an explicit dock-button click retries a notification; the receipt flag schedules no attempts.
+    summary, status: result.status, reason: result.message || null, canDispatch: failure?.kind !== "missing",
+    // eslint-disable-next-line no-restricted-syntax -- The dock only retries on a click.
     retry: result.retry, undo: false, request: result.request,
   });
-  if (result.message) {
-    if (preference) showPreferenceMessage(result.message);
-    else announceFeed(result.message);
+  if (result.message) announceFeed(result.message);
+  if (source === sources.old) {
+    if (result.status === "ok") await load();
+    return;
   }
-  // Only the record layer knows what the feed now holds, so a settled write
-  // re-reads it rather than marking the card this page hoped for.
-  if (result.status === "ok") await load();
-  return result;
+  if (failure?.kind === "missing") {
+    await takeFeed();
+  } else if (result.status === "ok") {
+    const { readTimes, unread_count } = result.response;
+    const payload = view.feed.payload;
+    if (!payload) return takeFeed();
+    const updates = payload.updates.map((row) => readTimes.has(row.id)
+      ? { ...row, reading: { kind: "read", at: readTimes.get(row.id) } }
+      : row);
+    view.feed = { state: "read", payload: { updates, unread_count }, observed_at: new Date().toISOString() };
+    renderFeed();
+  }
+}
+
+function sendRead(operationKey, args, summary) {
+  const send = () => dispatch(operationKey, args, summary);
+  if (source === sources.old) return send();
+  readWrites = readWrites.then(send, send);
+}
+
+const unreadUpdateIds = () => (view.feed.payload?.updates ?? [])
+  .filter((row) => row.reading.kind === "unread").map((row) => row.id);
+
+function markUpdates(ids, operationKey = "updates:mark-all") {
+  if (!ids.length || commandState[operationKey]) return;
+  const summary = ids.length === 1 ? "Mark update as read" : "Mark updates as read";
+  dock.record(operationKey, { summary, status: "sending", undo: false });
+  sendRead(operationKey, { update_ids: ids }, summary);
 }
 
 function acknowledge(id) {
-  const built = source.readArgs(id);
+  const built = acknowledgeArgs(id);
   if (!built.ok) {
     announceFeed(built.message);
     return;
@@ -453,7 +463,7 @@ function acknowledge(id) {
   const operationKey = acknowledgeOperationKey(id);
   const summary = "Acknowledge notification";
   dock.record(operationKey, { summary, status: "sending", undo: false });
-  dispatch(operationKey, built.args, summary);
+  sendRead(operationKey, built.args, summary);
 }
 
 /* --------------------------------------------------- the preference write */
@@ -466,7 +476,7 @@ function acknowledge(id) {
  */
 async function savePreference(form) {
   if (saving) return;
-  const model = view.preference.state === "read" ? preferenceView(view.preference.payload) : null;
+  const model = preferenceModel();
   const retained = commandState[PREFERENCE_OPERATION_KEY];
   const built = retained ? { ok: true, args: retained.request } : source.preferenceArgs(form, preferenceSaveView(model, draftBaseVersion));
   if (!built.ok) {
@@ -476,7 +486,8 @@ async function savePreference(form) {
   saving = true;
   showPreferenceMessage("");
   renderPreference();
-  if (!commandState[PREFERENCE_OPERATION_KEY]) {
+  for (const id of Object.values(preferenceInputs)) $(id).removeAttribute("aria-invalid");
+  if (source === sources.old && !retained) {
     try {
       const payload = await source.preference(), current = preferenceView(payload);
       if (!current) throw new Error("Preferences unavailable");
@@ -499,15 +510,18 @@ async function savePreference(form) {
     ? "Clear quiet hours"
     : "Save notification preferences";
   dock.record(PREFERENCE_OPERATION_KEY, { summary, status: "sending", undo: false });
+  let failure;
   const result = await performCommand({
     operationKey: PREFERENCE_OPERATION_KEY,
     args: built.args,
     getState: () => commandState,
     setState: (next) => { commandState = next; },
     newKey: uuidv4,
-    call: (request) => source.savePreference(request),
+    call: async (request) => {
+      try { return await source.savePreference(request); }
+      catch (error) { failure = updateFailure(error); throw error; }
+    },
   });
-  operations.set(PREFERENCE_OPERATION_KEY, { args: built.args, summary, preference: true });
   saving = false;
   let sentence = result.message || null;
   if (result.status === "refused" || result.status === "conflict") {
@@ -516,9 +530,17 @@ async function savePreference(form) {
     // so both are rendered by the record layer's own name for them.
     const refusal = classifyPreferenceFailure(result);
     sentence = refusal.message;
+    if (failure?.kind === "invalid_fields") {
+      for (const field of failure.fields) {
+        if (Object.hasOwn(preferenceInputs, field)) $(preferenceInputs[field]).setAttribute("aria-invalid", "true");
+      }
+      sentence = failure.fields.includes("time_zone")
+        ? "Timezone unavailable. Preferences were not saved."
+        : "Check the highlighted fields and save again.";
+    }
     // A conflict is not retried. Show the current saved values beside the
     // unsaved fields so the person can review both before another save.
-    if (refusal.conflict) {
+    if (failure?.kind === "conflict" || (source === sources.old && refusal.conflict)) {
       dirty = true;
       draftBaseVersion = null;
       sentence = `${sentence} Your draft is kept. Review the current saved preferences above before saving again.`;
@@ -537,7 +559,13 @@ async function savePreference(form) {
     sentence = sentence || "Saved";
   }
   showPreferenceMessage(sentence || "");
-  if (result.status === "ok") await load();
+  if (result.status === "ok") {
+    if (source === sources.engine) {
+      ++preferenceSequence;
+      view.preference = { state: "read", payload: result.response.preference, observed_at: new Date().toISOString() };
+      await takeFeed();
+    } else await load();
+  }
   renderPreference();
   return result;
 }
@@ -567,29 +595,15 @@ function mountTimezoneNames() {
 function mountDock() {
   const root = $("receiptDock");
   if (!root) return;
+  const resend = (operationKey) => {
+    if (operationKey === PREFERENCE_OPERATION_KEY) return savePreference(formValues());
+    const entry = operations.get(operationKey);
+    if (entry) sendRead(operationKey, entry.args, entry.summary);
+  };
   dock = createCommandDock({
     root,
-    // A refusal is settled: the kernel dropped the entry, so this starts over
-    // with the same arguments and a new key, which is the only correct retry.
-    onDispatch: (operationKey) => {
-      const entry = operations.get(operationKey);
-      if (!entry?.args) return;
-      // The preference save rebuilds its arguments from the form and from the
-      // version the page holds NOW, because a refused save may have been
-      // refused precisely for holding a stale one.
-      if (entry.preference) savePreference(formValues());
-      else dispatch(operationKey, entry.args, entry.summary);
-    },
-    // An unknown outcome is reconciled by re-sending the SAME frozen request;
-    // the kernel returns the retained one, so the same arguments are passed.
-    onReconcile: (operationKey) => {
-      const entry = operations.get(operationKey);
-      if (!entry?.args) return;
-      // An unknown outcome is reconciled with the SAME frozen request, for the
-      // preference too: the kernel returns the retained one, so the retained
-      // base_version and key are what go back, never a rebuilt pair.
-      dispatch(operationKey, entry.args, entry.summary, entry.preference === true);
-    },
+    onDispatch: resend,
+    onReconcile: resend,
     onUndo: null,
   });
   dock.mount();
@@ -607,14 +621,17 @@ async function boot() {
   view.after = params.get("after") || null;
   $("retryRead")?.addEventListener("click", () => load());
   $("retryPreference")?.addEventListener("click", () => takePreference());
+  $("retryActivity")?.addEventListener("click", () => takeActivity());
+  $("markAllRead")?.addEventListener("click", () => markUpdates(unreadUpdateIds()));
   $("activityMore")?.addEventListener("click", () => takeMoreChanges());
   $("prefForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     savePreference(formValues());
   });
-  $("prefForm")?.addEventListener("input", () => {
+  $("prefForm")?.addEventListener("input", (event) => {
+    event.target.removeAttribute("aria-invalid");
     if (!dirty) draftBaseVersion = view.preference.state === "read"
-      ? preferenceView(view.preference.payload)?.version ?? null
+      ? preferenceModel()?.version ?? null
       : null;
     dirty = true;
   });
@@ -622,13 +639,17 @@ async function boot() {
     savePreference({ clear_quiet_hours: true });
   });
   $("feedList")?.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target.closest("[data-ack]") : null;
-    if (target) acknowledge(target.getAttribute("data-ack"));
+    const target = event.target instanceof Element ? event.target.closest("[data-ack], [data-open-unread]") : null;
+    if (!target) return;
+    if (target.dataset.openUnread) markUpdates([target.dataset.openUnread], acknowledgeOperationKey(target.dataset.openUnread));
+    else acknowledge(target.dataset.ack);
   });
   const boot_ = resolveDealroomBoot(location);
   const docLink = $("docLinkSettings");
   const session = privateSession();
-  if (docLink && session) {
+  const openDocLink = () => {
+    if (location.hash !== "#docLinkSettings" || !docLink || !session) return;
+    globalThis.removeEventListener("hashchange", openDocLink);
     void session.verify().then(async () => {
       if (!session.engineSignIn) return;
       const { mountDocLinkSettings } = await import("./ui-doc-link-settings.generated.js");
@@ -636,7 +657,9 @@ async function boot() {
     }).catch(() => {
       if (session.engineSignIn) docLink.textContent = "Couldn't load Doc link settings.";
     });
-  }
+  };
+  globalThis.addEventListener("hashchange", openDocLink);
+  openDocLink();
   const outage = params.get("outage");
   if (updatesFromEngine()) source = sources.engine;
   client = boot_.mode === "live"

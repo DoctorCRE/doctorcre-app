@@ -165,13 +165,13 @@ export function renderNotificationBadge(count, badge = document.getElementById("
  */
 export async function mountNotificationBadge(client, { elementId = "navUnreadBadge" } = {}) {
   const badge = document.getElementById(elementId);
-  if (!badge || !client || typeof client.notificationFeed !== "function") return;
+  const fromEngine = updatesFromEngine();
+  if (!badge || typeof client?.[fromEngine ? "updates" : "notificationFeed"] !== "function") return;
   let readSequence = 0;
   const read = async () => {
     const sequence = ++readSequence;
     renderNotificationBadge(null, badge);
     try {
-      const fromEngine = updatesFromEngine() && typeof client.updates === "function";
       const feed = await (fromEngine ? client.updates() : client.notificationFeed({ limit: 1 }));
       if (sequence !== readSequence) return;
       renderNotificationBadge(feed?.unread_count, badge);

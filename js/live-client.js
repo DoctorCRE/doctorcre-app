@@ -18,6 +18,7 @@ import { createEngagementWriter } from './prospect-engagement.mjs';
 import { requireEmailActionReceipt } from './email-action-receipt.mjs';
 import { classifyCommandOutcome } from './command-feedback.mjs';
 import { createRetainedCommands } from './retained-commands.mjs';
+import { parseChangesPage, parseEnginePreference, parseMarkedUpdates, parseUpdates } from './notifications-model.js';
 
 // Verified pre-commit refusals from new-deal and its argument/subject checks
 // in CARR producer 0cc6fe2538a81521bf8c25b0df58aa4063ed614b. Internal and
@@ -763,12 +764,18 @@ export function createLiveClient(opts = {}) {
     async notificationPreferences() { return rpc('read-notification-preferences', {}); },
 
     // The Updates page's engine routes, used once deal saves go to the engine (#1175).
-    async updates() { return engineRead('/api/engine/updates'); },
-    async markUpdatesRead(args) { return engineSave('/api/engine/updates/read', args); },
-    async preferences() { return engineRead('/api/engine/preferences'); },
-    async savePreferences(args) { return engineSave('/api/engine/preferences', args); },
+    async updates() { return parseUpdates(await engineRead('/api/engine/updates')); },
+    async markUpdatesRead(args) {
+      return parseMarkedUpdates(await engineSave('/api/engine/updates/read', args), args.update_ids);
+    },
+    async preferences() { return parseEnginePreference(await engineRead('/api/engine/preferences')); },
+    async savePreferences(args) {
+      const answer = await engineSave('/api/engine/preferences', args);
+      if (answer?.ok !== true) throw new Error('Invalid preferences receipt');
+      return { ok: true, replayed: answer.replayed === true, preference: parseEnginePreference(answer) };
+    },
     async updateChanges(before = null) {
-      return engineRead(`/api/engine/updates/changes${before ? `?before=${encodeURIComponent(before)}` : ''}`);
+      return parseChangesPage(await engineRead(`/api/engine/updates/changes${before ? `?before=${encodeURIComponent(before)}` : ''}`));
     },
 
     async answerBoardQuestion(args) { return write('answer-board-question', args); },

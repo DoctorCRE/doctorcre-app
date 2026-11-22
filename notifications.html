@@ -44,7 +44,10 @@
     <section class="card glass" data-section="feed" id="feedBlock" aria-labelledby="feedTitle">
       <div class="card-heading">
         <h2 id="feedTitle">Notifications</h2>
-        <button class="btn" type="button" data-layout-refresh id="retryRead">Refresh</button>
+        <div class="pref-act">
+          <button class="btn" type="button" id="markAllRead" hidden>Mark all read</button>
+          <button class="btn" type="button" data-layout-refresh id="retryRead">Refresh</button>
+        </div>
       </div>
       <div class="state-block" id="feedState" data-state="loading"><h3 id="feedStateTitle">Loading notifications…</h3><p class="state-hint" id="feedStateHint"></p></div>
       <ul class="work-list" id="feedList"></ul>
@@ -85,7 +88,7 @@
       </div>
       <ul class="work-list" id="activityList"></ul>
       <div class="pref-act"><button class="btn" type="button" id="activityMore" hidden>Show more</button><p class="caption" id="activityMoreState" role="status" aria-live="polite"></p></div>
-      <div class="state-block" id="activityState" data-state="unavailable" hidden><h3>Recent activity is unavailable</h3></div>
+      <div class="state-block" id="activityState" data-state="unavailable" hidden><h3>Recent activity is unavailable</h3><button class="btn" type="button" id="retryActivity" hidden>Retry</button></div>
     </section>
 
     <div id="docLinkSettings"></div>
