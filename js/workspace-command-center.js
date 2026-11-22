@@ -63,7 +63,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
   };
   window.addEventListener('doctorcre-session-invalidated', retirePendingEmail);
   let snapshotDocObservedAt = null, calendar = null, meetingPrep = null, prepEpoch = 0;
-  let relationshipDialog = null, pastWidget = null, reasons = null, secondaryRequested = false;
+  let relationshipDialog = null, reasons = null, secondaryRequested = false;
   let agendaExpanded = false, agendaView = 'all', meetingTimeZone = BUSINESS_TIME_ZONE;
   const readQueue = createHomeReadQueue();
   let scope = 'team', snapshot = null, sequence = 0, updatedAt = null, disposed = false, leadEntries = new Map(), selectedLead = null;
@@ -393,15 +393,11 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
       if (disposed || emailRetired) return;
       reasons = mountContactReasons({host:$('homeContactReasons'),window,client,home:true});
     });
-    if ($('homePastClients') && client.readLeaseRadar) import('./lease-radar.js').then(({ mountPastClientWidget }) => {
-      if (disposed || emailRetired) return;
-      pastWidget = mountPastClientWidget({document,window,client,host:$('homePastClients'),now:()=>new Date(now()),scope:()=>scope});
-    });
   }
   const buttons = [...$('scopeSwitch').querySelectorAll('[data-scope]')];
   const select = value => {
     if (scope !== value) agendaExpanded = false;
-    scope = value; setDocFilters({ scope }); pastWidget?.render();
+    scope = value; setDocFilters({ scope });
     if (!snapshot?.unauthorized) for (const [key,method] of docSources) {
       if (snapshot?.reads?.[key]?.state === 'read') publishDocRead(method,docPayload(key,snapshot));
     }
@@ -486,7 +482,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     }, { once: true, signal: fragmentLanding.signal });
     anchor();
   });
-  return { refresh: auto.refresh, dispose() { cancelLanding(); missingNextStep?.dispose(); reasons?.dispose(); document.removeEventListener('keydown', flagKeydown); disposed = true; workingWeek?.dispose(); sequence++; prepEpoch++; meetingPrep?.dispose(); panelObserver?.disconnect(); emailActivity?.removeEventListener('toggle', openEmailActivity); window.removeEventListener('doctorcre-session-invalidated', retirePendingEmail); expiry.dispose(); auto.dispose(); document.removeEventListener('doctorcre:brief-calendar', updateCalendar); window.removeEventListener('doctorcre-session-invalidated', clearCalendar); relationshipDialog?.dispose(); pastWidget?.dispose(); callTasks?.dispose(); meetingReviews?.dispose(); overdueReviews?.dispose(); emailReview?.dispose(); emailFilings?.dispose(); replyOutcomes?.dispose(); } };
+  return { refresh: auto.refresh, dispose() { cancelLanding(); missingNextStep?.dispose(); reasons?.dispose(); document.removeEventListener('keydown', flagKeydown); disposed = true; workingWeek?.dispose(); sequence++; prepEpoch++; meetingPrep?.dispose(); panelObserver?.disconnect(); emailActivity?.removeEventListener('toggle', openEmailActivity); window.removeEventListener('doctorcre-session-invalidated', retirePendingEmail); expiry.dispose(); auto.dispose(); document.removeEventListener('doctorcre:brief-calendar', updateCalendar); window.removeEventListener('doctorcre-session-invalidated', clearCalendar); relationshipDialog?.dispose(); callTasks?.dispose(); meetingReviews?.dispose(); overdueReviews?.dispose(); emailReview?.dispose(); emailFilings?.dispose(); replyOutcomes?.dispose(); } };
 }
 
 if (typeof document !== 'undefined' && document.getElementById('dealAttention')) {

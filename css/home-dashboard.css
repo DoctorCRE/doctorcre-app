@@ -67,7 +67,7 @@
 /* The secondary grid. */
 .home-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 .home-grid > .home-panel + .home-panel { margin-top: 0; }
-.home-grid #homeCalendar, .home-grid #homeInvoices, .home-grid #homeLeads, .home-grid #homePastClients { grid-column: 1 / -1; }
+.home-grid #homeCalendar, .home-grid #homeInvoices, .home-grid #homeLeads { grid-column: 1 / -1; }
 
 .home-meeting-zone { display: grid; gap: var(--space-1); max-width: 24rem; margin-block: var(--space-3); color: var(--fg-muted); font-size: var(--font-size-1); }
 .home-meeting-zone select { width: 100%; min-width: 0; min-height: var(--touch); padding: var(--space-2); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: inherit; }

@@ -1082,16 +1082,15 @@ async function handleRequest(request, env) {
     }
     if (routeAsset === 'review-workflows.html' && switches.homeToday)
       return gatedResponse(gate, await assetResponse(request, env, '/review-workflows-moved.html', switches), env);
-    if (['lease-radar.html', 'client-portal.html'].includes(routeAsset) && switches.dealSavesFromEngine) {
+    if (routeAsset === 'client-portal.html' && switches.dealSavesFromEngine) {
       const deal = url.searchParams.get('deal');
-      if (routeAsset === 'client-portal.html' && deal) {
+      if (deal) {
         const query = new URLSearchParams({ deal, tab: 'client-view' });
         return gatedResponse(gate, new Response(null, { status: 302, headers: {
           location: `/deals?${query}`, 'cache-control': 'no-store',
         } }), env);
       }
-      const page = routeAsset === 'lease-radar.html' ? '/lease-anniversaries.html' : '/client-website-moved.html';
-      return gatedResponse(gate, await assetResponse(request, env, page, switches), env);
+      return gatedResponse(gate, await assetResponse(request, env, '/client-website-moved.html', switches), env);
     }
     return gatedResponse(gate, await assetResponse(request, env, `/${routeAsset}`, switches), env);
   }
@@ -1195,6 +1194,7 @@ async function handleRequest(request, env) {
     if (await switchedOn(env, DEALS))
       return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
   }
+  if (pathname === '/api/v1/business/leases') return json({ error: 'not_found' }, 404);
   if (PROXY_EXACT.has(pathname) || PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     const call = await mcpCall(request, url);
     const engine = await engineSave(request, env, call) ?? await engineResponse(request, env, call);

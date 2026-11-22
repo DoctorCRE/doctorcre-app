@@ -69,7 +69,6 @@ test("the static artifact rebuild is byte-for-byte reproducible", async (t) => {
   assert.deepEqual(await readFile(join(first, "site", "control-room.html")), await readFile(join(ROOT, "control-room.html")));
   assert.equal(a.manifest.files.some((file) => file.path === "control-room.html"), true);
   assert.equal((await verifyArtifact(a.archive, a.archiveSha256)).manifest.files.some((file) => file.path === "control-room.html"), true);
-  assert.deepEqual(await readFile(join(first, "site", "contracts", "lease-radar.v1.json")), await readFile(join(ROOT, "contracts", "lease-radar.v1.json")));
 });
 
 test("the deployment directory is rebuilt without stale files", async (t) => {

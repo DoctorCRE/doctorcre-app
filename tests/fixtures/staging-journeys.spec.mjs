@@ -9,11 +9,9 @@ import { appAssetSnapshot } from '../../scripts/fixture-app-assets.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { detail } from '../../test/fixtures/tour-day.synthetic.mjs';
-import { leaseRadarFixture } from '../../js/lease-radar-fixture.js';
-import { leaseDetails, tourDay, itinerary, shareLifecycle } from '../staging/journey-flows.mjs';
+import { tourDay, itinerary, shareLifecycle } from '../staging/journey-flows.mjs';
 
 export const fixture = {
-  lease: { id: 'aa000000-0000-4000-8000-000000000001', client_id: 'aa000000-0000-4000-8000-000000000002', client_name: 'Synthetic staging QA lease' },
   tour: { id: detail.id, name: 'Synthetic staging QA accepted tour', route_id: detail.routes[0].id,
     property_ids: detail.stops.map(stop => stop.property_id), stop_ids: detail.stops.map(stop => stop.id),
     property_names: detail.stops.map(stop => stop.property_name), projection_id: 'aa000000-0000-4000-8000-000000000003',
@@ -27,8 +25,6 @@ export async function localFixture(browser, {denyShortlist = false} = {}) {
     accepted_route_version: 1, projection_id: fixture.tour.projection_id, projection_status: 'approved', share_grants: [] });
   tour.stops.forEach(stop => { stop.locked_appointment = false; });
   tour.routes[0].acceptance_digest = 'sha256:' + 'a'.repeat(64);
-  const lease = leaseRadarFixture();
-  Object.assign(lease.leases[0], fixture.lease);
   const publicRef = property => 'property:public:' + createHash('sha256').update(`carr-internal:${fixture.tour.projection_id}:${property}`).digest('hex').slice(0, 32);
   const packet = presentedPacket(tour.stops.map(stop => ({ name: stop.property_name, address: stop.property_address,
     property_ref: publicRef(stop.property_id), route_label: stop.route_label, route_sequence: stop.route_sequence })));
@@ -64,7 +60,6 @@ export async function localFixture(browser, {denyShortlist = false} = {}) {
         return packet.stops.some(stop => stop.property_ref === input.property_ref) ? json({ data: { saved: true } }) : json({ error: 'not_found' }, 404);
       }
     }
-    if (url.pathname === '/api/v1/business/leases') return json(lease);
     if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return json({ actor: { slug: 'joe' }, csrf_token: 'synthetic' });
     if (url.pathname === '/mcp') return json({ result: { content: [{ type: 'text', text: '{"ok":true,"deals":[],"items":[],"notifications":[],"state":"unavailable"}' }] } });
     if (url.pathname.startsWith('/api/') || url.pathname === '/app-release') return json({});
@@ -87,7 +82,7 @@ export async function localFixture(browser, {denyShortlist = false} = {}) {
   return { page: await context.newPage(), server, get denied(){return denied;}, close };
 }
 
-for (const [name, flow] of Object.entries({ leaseDetails, tourDay, itinerary, shareLifecycle })) {
+for (const [name, flow] of Object.entries({ tourDay, itinerary, shareLifecycle })) {
   test(`staging acceptance logic against synthetic HTTP fixtures: ${name}`, async ({ browser }) => {
     const local = await localFixture(browser);
     try { await flow(local.page, fixture); } finally { await local.close(); }

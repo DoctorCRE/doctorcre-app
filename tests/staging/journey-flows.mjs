@@ -1,18 +1,6 @@
 import { expect } from '@playwright/test';
 import { createHash, randomUUID } from 'node:crypto';
 
-export async function leaseDetails(page, fixture) {
-  await page.goto('/leases?mode=live');
-  const card = page.locator(`#leaseRadar [data-lease="${fixture.lease.id}"]`);
-  await expect(card).toContainText(fixture.lease.client_name, { timeout: 27000 });
-  await card.click();
-  await expect(page.locator('#leaseDetail')).toBeVisible();
-  await expect(page.locator('#leaseDetailTitle')).toHaveText(fixture.lease.client_name);
-  await expect(page.locator('#leaseDetail a[data-radar-key="client"]')).toHaveAttribute('href', `/clients?record=${fixture.lease.client_id}`);
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#leaseDetail')).toBeHidden();
-}
-
 async function acceptedRoute(request, fixture) {
   const response = await request.get(`/api/tours/detail?tour_id=${fixture.tour.id}`);
   expect(response.ok()).toBe(true);

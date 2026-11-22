@@ -1,4 +1,4 @@
-import { navigationFor, navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./routes.js";
+import { navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./routes.js";
 export { navigationItems };
 
 export function activeDestination(pathname) {
@@ -96,7 +96,7 @@ export function mountNavigation(root = document, pathname = root.defaultView?.lo
     else root.defaultView.addEventListener("load", activate, { once: true });
   }
   const base = appOriginForReport(location?.origin || "");
-  host.innerHTML = appShellMarkup(pathname, base, location?.search || "", navigationFor(root));
+  host.innerHTML = appShellMarkup(pathname, base, location?.search || "");
   if (report || base) {
     host.querySelector(".app-shell-controls").remove();
   }

@@ -5,8 +5,6 @@ import { createWatchClient, type WatchClient } from "./client.ts";
 import { defaultPolicy, isWatchSubjectId, type Policy, type Subject, type Watch } from "./model.ts";
 import { PolicyEditor } from "./policy-editor.tsx";
 
-export { mountRadarWatches } from "./radar.ts";
-
 type Command = {
   verb: string;
   args: Subject & { idempotency_key: string; subscription_id?: string; base_version?: number; policy?: Policy };

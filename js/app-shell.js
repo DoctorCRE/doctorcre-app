@@ -46,12 +46,12 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
       opening = true;
       const opener = root.activeElement instanceof HTMLElement && root.activeElement !== root.body ? root.activeElement : toggle;
       try {
-        const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationFor, switcherUtilityPages }, { createClient }] = await Promise.all([
+        const [{ openQuickSwitcher, readQuickSwitcherSources, switcherInboxReader }, { navigationItems, switcherUtilityPages }, { createClient }] = await Promise.all([
           import('./ui-quick-switcher.generated.js'), import('./routes.js'), import('./client.js'),
         ]);
         if (retired) return;
         const boot = resolveDealroomBoot(location);
-        const pages = [...navigationFor(root), ...switcherUtilityPages];
+        const pages = [...navigationItems, ...switcherUtilityPages];
         openQuickSwitcher({ opener, pages, read: async (publish) => {
           const client = await createClient(boot.mode, boot.options);
           return readQuickSwitcherSources(() => client.getBoard(), () => client.getRelationshipNetwork(), switcherInboxReader(createMcpRequests(), boot.mode === "fixture"), publish);
