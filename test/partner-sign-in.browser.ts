@@ -5,6 +5,8 @@ import type { Page } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
+import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
+import { detail, emptyQuietFollowUps, lead, workspace } from "./leads-workspace-fixture.mjs";
 
 const cookieName = "__Host-doctorcre_session";
 const partners = new Map([
@@ -12,6 +14,7 @@ const partners = new Map([
   ["second", "dell"],
 ]);
 const deepLink = "/leads?mode=live&filter=open";
+const copiedLeadAlias = "30000000-0000-0000-0000-000000000101";
 const docLink = "/api/engine/doc/link";
 const dealId = "11111111-1111-4111-8111-111111111111";
 const dealName = "Demo deal on engine sign-in";
@@ -64,6 +67,9 @@ async function app(
   let writes = 0;
   const live = new Set<string>();
   const links = new Map<string, string>();
+  const exampleLead = lead(1);
+  let leadOwner: string | null = null;
+  let expireOnLeadDetail = false;
   let issueCount = 0;
   let loseIssueResponse = false;
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
@@ -76,6 +82,7 @@ async function app(
         if (path.startsWith("/auth/") || navigation) carrChecks++;
         if (signIn === "carr") {
           if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
+          if (path.startsWith("/api/v1/business/vendors")) return Response.json(directoryFixture(input.url));
           if (path === "/api/v1/market-terms/read") {
             const recordings = JSON.parse(
               await readFile(new URL("./fixtures/market-terms/recordings.json", import.meta.url), "utf8"),
@@ -128,6 +135,10 @@ async function app(
             "set-cookie": `${cookieName}=${token}; Secure; HttpOnly; SameSite=Lax; Path=/`,
           });
         }
+        if (expireOnLeadDetail && path === "/api/engine/leads" && url.searchParams.has("lead_id")) {
+          expireOnLeadDetail = false;
+          live.clear();
+        }
         const token = input.headers.get("cookie")?.match(/__Host-doctorcre_session=([^;]+)/)?.[1];
         if (!token || !live.has(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
         const csrfToken = "fixture-" + token;
@@ -175,9 +186,38 @@ async function app(
           return readAttribution(input);
         if (path === "/api/engine/deals") return Response.json(dealBoard);
         if (path === `/api/engine/deals/${dealId}`) return Response.json({ ...dealDetail, email_follow_ups: [] });
-        if (path === "/api/engine/leads") {
-          if (input.method === "POST") writes++;
-          return Response.json({ count: 0 });
+        if (path.startsWith("/api/engine/vendors")) {
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          url.pathname = path.replace("/api/engine", "/api/v1/business");
+          return Response.json(directoryFixture(url.href));
+        }
+        if (path === "/api/engine/leads" && url.searchParams.get("workspace") === "leads") {
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          const currentLead = { ...exampleLead, owner: leadOwner, base_version: leadOwner ? 2 : 1 };
+          const requestedId = url.searchParams.get("lead_id");
+          return Response.json({
+            ...workspace(),
+            leads: [currentLead],
+            ...(requestedId && {
+              detail:
+                requestedId === currentLead.id || requestedId === copiedLeadAlias
+                  ? detail({ ...currentLead, id: requestedId })
+                  : null,
+            }),
+          });
+        }
+        if (path === "/api/engine/leads") return Response.json({ count: 0 });
+        if (path === "/api/engine/quiet-follow-ups") return Response.json(emptyQuietFollowUps());
+        if (path === `/api/engine/leads/${exampleLead.id}/changes` && input.method === "POST") {
+          const command = await input.json();
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          const actor = partners.get(token);
+          assert.ok(actor);
+          assert.equal(command.expected_actor, actor);
+          assert.equal(command.action, "claim");
+          leadOwner = actor;
+          writes++;
+          return Response.json({ ok: true, lead_id: exampleLead.id });
         }
         return new Response(null, { status: 404 });
       },
@@ -200,6 +240,9 @@ async function app(
       unavailable = value;
     },
     carrChecks: () => carrChecks,
+    expireOnNextLeadDetail: () => {
+      expireOnLeadDetail = true;
+    },
     writes: () => writes,
     setDocStatus: (status: string) => links.set("first", status),
     loseNextDocIssue: () => {
@@ -368,6 +411,62 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
     false,
   );
   assert.deepEqual(legacyRequests, []);
+});
+
+test("a saved Leads link opens on the engine session, supports claim and prompts after expiry", async (t) => {
+  const { server, context, carrChecks, expireOnNextLeadDetail, writes } = await app(t);
+  const path = "/leads?mode=live&lead=L-1";
+  const page = await context.newPage();
+  await page.goto(server.origin + path);
+  const drawer = page.locator("#leadDetail");
+  await drawer.getByRole("heading", { name: "Dr. Example 1" }).waitFor({ timeout: 5000 });
+  await drawer.getByRole("button", { name: "Claim", exact: true }).click();
+  await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
+  await drawer.getByText("Joe", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(writes(), 1);
+
+  await drawer.getByRole("button", { name: "Close lead details" }).click();
+  await drawer.waitFor({ state: "hidden" });
+  expireOnNextLeadDetail();
+  const leadButton = page.getByRole("button", { name: "Dr. Example 1", exact: true });
+  await leadButton.click();
+  await page.getByRole("link", { name: "Sign in again" }).waitFor({ timeout: 5000 });
+  assert.equal(await leadButton.count(), 0);
+  assert.equal(carrChecks(), 0);
+});
+
+test("a saved Leads link with a second copied UUID opens the lead and supports claim", async (t) => {
+  const { server, context, writes } = await app(t);
+  const page = await context.newPage();
+  await page.goto(`${server.origin}/leads?mode=live&lead=${copiedLeadAlias}`);
+  const drawer = page.locator("#leadDetail");
+  await drawer.getByRole("heading", { name: "Dr. Example 1" }).waitFor({ timeout: 5000 });
+  await drawer.getByText("Planning a dental relocation.", { exact: false }).waitFor({ timeout: 5000 });
+  await drawer.getByRole("button", { name: "Claim", exact: true }).click();
+  await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(writes(), 1);
+});
+
+test("the Vendor drawer keeps the track record and shows the rating editor only in CARR mode", async (t) => {
+  for (const signIn of ["engine", "carr"] as const) {
+    const { server, context, carrChecks } = await app(t, { signIn });
+    await context.addCookies([
+      {
+        name: "__Host-dealroom_session",
+        value: "stale",
+        domain: new URL(server.origin).hostname,
+        path: "/",
+        secure: true,
+      },
+    ]);
+    const page = await context.newPage();
+    await page.goto(server.origin + "/vendors?mode=live&q=Demo+Partner+01");
+    await page.locator(".record-row").filter({ hasText: "Demo Partner 01" }).click({ timeout: 5000 });
+    const drawer = page.getByRole("dialog");
+    await drawer.getByText("Deals worked", { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await drawer.getByText("Trust rating", { exact: true }).count(), signIn === "carr" ? 1 : 0);
+    if (signIn === "engine") assert.equal(carrChecks(), 0);
+  }
 });
 
 function attributionButton(page: Page, update: string) {

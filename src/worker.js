@@ -263,6 +263,7 @@ const SEARCH = 'search-from-engine';
 const CLIENTS_VENDORS = 'clients-vendors-from-engine';
 const RELATIONSHIPS = 'relationships-from-engine';
 const FRAME = 'frame-from-engine';
+const ENGINE_SIGN_IN_KEYS = new Set([DEALS, NEXT_DEAL_SAVES, LEADS, CLIENTS_VENDORS, RELATIONSHIPS, SEARCH]);
 // Each old read the engine can answer, by tool name or business GET path: its
 // switch key, its engine path and, for a tool, a check per argument.
 // A `segment` argument becomes the last path segment. `search` seeds fixed query parameters.
@@ -296,9 +297,9 @@ const ENGINE_READS = new Map([
   ['find', { key: SEARCH, path: '/api/engine/find', args: { query: isString }, accepts: ({ query }) => Boolean(query) }],
   ['find-and-catch-up', { key: CLIENTS_VENDORS, path: '/api/engine/recent-activity', args: { query: isString, limit: Number.isFinite, ref: isString } }],
   ['read-vendor-meetings', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-meetings', args: { view: isString, q: isString, limit: Number.isFinite, cursor: isString } }],
-  ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients', usedOnDeals: true }],
+  ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
-  ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true, usedOnDeals: true }],
+  ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true }],
   ['today-triage', { key: FRAME, path: '/api/engine/today-triage', args: {} }],
   ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {} }],
 ]);
@@ -352,7 +353,7 @@ async function switchedOn(env, key) {
 }
 
 function routeToEngine(env, key, usedOnDeals = false) {
-  if (engineSignIn(env) && (usedOnDeals || key === DEALS || key === NEXT_DEAL_SAVES)) return true;
+  if (engineSignIn(env) && (usedOnDeals || ENGINE_SIGN_IN_KEYS.has(key))) return true;
   return switchedOn(env, key);
 }
 
@@ -421,7 +422,12 @@ async function engineResponse(request, env, call) {
         }
         chunks.push(decoder.decode());
         let text = chunks.join('');
-        if (!call) return copySessionCookies(response, new Response(text, { status: response.status, headers: JSON_HEADERS }));
+        if (!call) {
+          if (engineSignIn(env) && read.key === RELATIONSHIPS && response.ok) {
+            text = JSON.stringify({ ...JSON.parse(text), can_request_introductions: false });
+          }
+          return copySessionCookies(response, new Response(text, { status: response.status, headers: JSON_HEADERS }));
+        }
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
           if (board?.schema_version === 'local-deals-board.v2') {
@@ -708,8 +714,9 @@ const LEAD_ACTIONS = new Map([
 
 async function routeLeadSave(request, env, call, action) {
   const { lead_id, ...legacy } = call.params.arguments;
-  const saveToEngine = await switchedOn(env, NEXT_DEAL_SAVES);
-  if (!saveToEngine || !isUuid(lead_id) || !await switchedOn(env, LEADS)) {
+  const saveToEngine = await routeToEngine(env, NEXT_DEAL_SAVES);
+  if (!saveToEngine || !isUuid(lead_id) || !await routeToEngine(env, LEADS)) {
+    if (engineSignIn(env)) return saveRefusal(call, 'invalid_arguments', 'Reload Leads.');
     if (action === 'acknowledge_email') return saveRefusal(call, 'lead_routing_changed', 'Reload Leads.');
     if (saveToEngine || lead_id === undefined) return null;
     const params = { ...call.params, arguments: legacy };
@@ -720,7 +727,9 @@ async function routeLeadSave(request, env, call, action) {
   const body = { action, base_version, expected_actor, idempotency_key };
   if (action === 'stage') {
     if (!isObject(fields) || Object.keys(fields).length !== 1 || !isString(fields.stage) ||
-        stage_review?.undo_event_id !== undefined) return null;
+        stage_review?.undo_event_id !== undefined) {
+      return engineSignIn(env) ? saveRefusal(call, 'invalid_arguments', 'Reload Leads.') : null;
+    }
     body.stage = fields.stage;
     if (body.stage === 'archived') body.reason = stage_review?.reason;
   }
