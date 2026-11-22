@@ -1,5 +1,5 @@
 import { toDay } from './calendar-model.js';
-import { radarToday } from './lease-radar-model.js';
+import { businessDay } from './business-date.js';
 
 export function validDealBoard(board) {
   return board && typeof board === 'object' && !Array.isArray(board) && Array.isArray(board.deals)
@@ -34,7 +34,7 @@ export function overdueSince(deal, today) {
   return dues.filter(due => due && due < today).sort()[0] || null;
 }
 export function needsAttention(deal, now = Date.now()) {
-  return overdueSince(deal, radarToday(new Date(now))) !== null;
+  return overdueSince(deal, businessDay(new Date(now))) !== null;
 }
 /** "N days overdue" between two calendar days, or '' when `since` is not before `today`. */
 export function overdueLabel(since, today) {

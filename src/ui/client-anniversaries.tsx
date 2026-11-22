@@ -216,7 +216,6 @@ function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
   const empty = snapshot ? snapshot.state === "empty" : rows?.length === 0;
   return (
     <section aria-label="Closing anniversaries" style={{ overflowWrap: "anywhere" }}>
-      {!fromEngine && !cutover && <h2>Closing anniversaries</h2>}
       {cutover && <p>Covers deals closed before {cutover.label}.</p>}
       <button
         type="button"

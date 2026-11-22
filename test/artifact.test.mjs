@@ -40,7 +40,6 @@ test("the static artifact rebuild is byte-for-byte reproducible", async (t) => {
   assert.deepEqual(await readFile(join(first, "site", "control-room.html")), await readFile(join(ROOT, "control-room.html")));
   assert.equal(a.manifest.files.some((file) => file.path === "control-room.html"), true);
   assert.equal((await verifyArtifact(a.archive, a.archiveSha256)).manifest.files.some((file) => file.path === "control-room.html"), true);
-  assert.deepEqual(await readFile(join(first, "site", "contracts", "lease-radar.v1.json")), await readFile(join(ROOT, "contracts", "lease-radar.v1.json")));
 });
 
 test("the deployment directory is rebuilt without stale files", async (t) => {
@@ -99,6 +98,15 @@ async function committedFixture(t) {
 test("CLI verification accepts the exact committed artifact", async (t) => {
   const { root } = await committedFixture(t);
   await runCli(root, ["verify"]);
+});
+
+test("a retired UI bundle left by a previous build stays out of the verified artifact", async (t) => {
+  const { root, outDir, commit } = await committedFixture(t);
+  const retiredBundle = "js/ui-share-intake.generated.js";
+  await writeFile(join(root, retiredBundle), "export {};");
+  await buildArtifact({ root, outDir, commit });
+  await runCli(root, ["verify"]);
+  await assert.rejects(readFile(join(outDir, "site", retiredBundle)), { code: "ENOENT" });
 });
 
 test("one contract path declaration drives both assembly and committed-source verification", async (t) => {

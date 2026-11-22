@@ -20,7 +20,6 @@ export const UI_ENTRIES = {
   'ui-phone-push': 'phone-push',
   'ui-doc-link-settings': 'doc-link-settings',
   'ui-action-session-return': 'action-session-return',
-  'ui-share-intake': 'share-intake',
   'ui-watches': 'watches/control',
   'ui-relationship-kind-filter': 'relationship-kind-filter',
   'ui-client-anniversaries': 'client-anniversaries',
@@ -66,8 +65,7 @@ export const UI_ENTRIES = {
   'ui-deal-room-forms': 'deal-room-forms',
   'ui-name-match': 'name-match',
 };
-const UI_OUTPUTS = new Set([...Object.keys(UI_ENTRIES).map(name => `js/${name}.generated.js`), 'public-shell/sw.js']);
-export const isUiAsset = path => UI_OUTPUTS.has(path) || /^js\/ui-shared-[A-Z0-9]+\.generated\.js$/.test(path);
+export const isUiAsset = path => path === 'public-shell/sw.js' || /^js\/ui-[^/]*\.generated\.js$/.test(path);
 
 export async function uiBundle(readSource, entry = UI_ENTRY) {
   const result = await buildUi(readSource, { entryPoints: [entry] });

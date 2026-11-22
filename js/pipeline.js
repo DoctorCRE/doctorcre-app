@@ -1521,13 +1521,12 @@ function undoInvoiceClose() {
   });
 }
 
-function filedDocumentsHtml(documents, engineSignIn) {
+function filedDocumentsHtml(documents) {
   return documents.length ? `<ul class="deal-document-list">${documents.map(file => {
     const version = `Version ${file.version}`;
     return `<li><h3><a href="/api/engine/documents/${encodeURIComponent(file.id)}" aria-label="${esc(`${file.name}, ${version}`)}" data-detail-focus="file-${esc(file.id)}">${esc(file.name)}</a></h3>
-      <p>${esc(version)}${file.prepared_at ? ` · ${esc(sourceTime(file.prepared_at))}` : ''}</p>${engineSignIn
-        ? `<button class="btn" type="button" data-open-document-text="${esc(file.id)}" data-detail-focus="text-${esc(file.id)}" aria-label="${esc(`Open text for ${file.name}, ${version}`)}">Open text</button>`
-        : ''}</li>`;
+      <p>${esc(version)}${file.prepared_at ? ` · ${esc(sourceTime(file.prepared_at))}` : ''}</p>
+      <button class="btn" type="button" data-open-document-text="${esc(file.id)}" data-detail-focus="text-${esc(file.id)}" aria-label="${esc(`Open text for ${file.name}, ${version}`)}">Open text</button></li>`;
   }).join('')}</ul>` : '<p>No documents filed for this deal.</p>';
 }
 
@@ -1537,7 +1536,7 @@ function closeFiledDocumentText() {
 
 function openFiledDocumentText(documentId, { fromHistory = false } = {}) {
   const detail = state.panelDetail;
-  if (!privateSession()?.engineSignIn || !isEngineDealDetail(detail)) return;
+  if (!isEngineDealDetail(detail)) return;
   const file = detail.documents.find(file => file.id === documentId);
   const documents = $('workspace-documents');
   if (!file || !documents || documents.querySelector('.deal-document-text[open]')) return;
@@ -1823,7 +1822,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode })}</div></section>
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>No comparable terms match these filters.</p>' : ''}</section>
-    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents, engineMode)}</div>` : ''}</section>
+    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine, planTours)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>

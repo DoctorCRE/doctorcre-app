@@ -395,7 +395,7 @@ test('collapsed nonempty shelves do not intercept empty-list Refresh focus', asy
 });
 
 
-test('lease watch card opens the exact lease and snooze or settle never removes its watch', async t => {
+test('snoozing or settling a lease watch card keeps the watch and its saved link', async t => {
  const lease='a593ce5f-a245-432b-a829-329a7a461a34';
  const notification=row('lease-alert',{source_type:'notification',kind_label:'Update',action_id:null,action_version:null,deal_id:null,open_url:`/leases?lease=${lease}`});
  const {page,calls}=await open(t,{card:'lease-alert',extra:[notification]});
@@ -409,12 +409,6 @@ test('lease watch card opens the exact lease and snooze or settle never removes 
  await page.getByRole('button',{name:'Undo',exact:true}).click();
  assert.equal(calls.some(call=>/^(unwatch|pause|resume|replace-subject-watch|watch-subject)/.test(call.name)),false);
  assert.equal(await card.locator('.inbox-source').getAttribute('href'),`/leases?lease=${lease}`);
- const fixture=(await readFile(new URL('../js/lease-radar-fixture.js',import.meta.url),'utf8')).replace('id:`demo-lease-${i}`',`id:i===1?'${lease}':\`demo-lease-\${i}\``);
- await page.route('**/js/lease-radar-fixture.js',route=>route.fulfill({body:fixture,contentType:'text/javascript'}));
- await card.locator('.inbox-source').click();
- await page.locator('#leaseDetail[open]').waitFor();
- assert.equal(new URL(page.url()).searchParams.get('lease'),lease);
- assert.equal(await page.locator('#leaseDetail h2').textContent(),'Demo Practice 1');
 });
 
 
