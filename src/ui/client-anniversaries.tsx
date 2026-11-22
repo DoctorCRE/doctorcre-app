@@ -36,9 +36,9 @@ function isAnniversaryRow(v: unknown): v is Row & Record<string, unknown> {
   return (
     object(v) &&
     label(v.client_id) &&
-    label(v.client_name) &&
+    typeof v.client_name === "string" &&
     label(v.deal_id) &&
-    label(v.deal_name) &&
+    typeof v.deal_name === "string" &&
     date(v.closed_on) &&
     date(v.anniversary_on) &&
     integer(v.days_until) &&
@@ -80,6 +80,8 @@ function parseClientAnniversaries(v: unknown): Snapshot {
   const rows = v.rows.map((r: unknown) => {
     if (
       !isAnniversaryRow(r) ||
+      !label(r.client_name) ||
+      !label(r.deal_name) ||
       r.closed_on > String(v.as_of) ||
       !integer(r.deal_version) ||
       r.deal_version < 1 ||
@@ -282,9 +284,13 @@ function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
             <ol>
               {rows.map(({ row: r, key }) => (
                 <li key={key}>
-                  <a href={`/clients?record=${encodeURIComponent(r.client_id)}`}>{r.client_name}</a>
+                  <a href={`/clients?record=${encodeURIComponent(r.client_id)}`}>
+                    {r.client_name.trim() ? r.client_name : "Unnamed client"}
+                  </a>
                   {" · "}
-                  <a href={`/deals?deal=${encodeURIComponent(r.deal_id)}`}>{r.deal_name}</a>
+                  <a href={`/deals?deal=${encodeURIComponent(r.deal_id)}`}>
+                    {r.deal_name.trim() ? r.deal_name : "Unnamed deal"}
+                  </a>
                   <p>
                     Closed <time dateTime={r.closed_on}>{r.closed_on}</time>
                     {" · "}Anniversary <time dateTime={r.anniversary_on}>{r.anniversary_on}</time>
