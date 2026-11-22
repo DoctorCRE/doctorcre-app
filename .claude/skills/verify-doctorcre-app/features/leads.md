@@ -25,6 +25,7 @@ Existing coverage: `tests/fixtures/staging-leads.spec.mjs` runs the staging asse
 - Hover or focus a map marker. Require a readable preview with current count, place names, up to three lead titles and **Market area only**. Escape dismisses without moving focus. Filtering refreshes or removes the preview.
 - Activate a multi-lead city group on the map, or a terminal cluster at zoom 11. Require the **Leads in this place** chooser and **Market area only** label. On a phone the chooser opens below the map and the marker stays in place. Open each member with mouse and Enter, compare the detail title and selected card, then close and require the same member focus and unchanged camera. Escape closes the chooser and returns focus to its marker. Filters remove excluded members. No city group offers address navigation.
 - Use the selected card's `.lead-open` button. Compare `#detailTitle` to that lead's title and require visible `#leadDetail`. Use Close lead details and require it hidden.
+- Open a saved `/leads?lead=…` link by registry reference or copied UUID. Both should open the same lead, including when a second copied UUID is absent from the board.
 
 ## Gotchas
 

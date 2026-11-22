@@ -13,6 +13,7 @@ const partners = new Map([
   ["second", "dell"],
 ]);
 const deepLink = "/leads?mode=live&filter=open";
+const copiedLeadAlias = "30000000-0000-0000-0000-000000000101";
 const docLink = "/api/engine/doc/link";
 const dealId = "11111111-1111-4111-8111-111111111111";
 const dealName = "Demo deal on engine sign-in";
@@ -145,10 +146,16 @@ async function app(
         if (path === "/api/engine/leads" && url.searchParams.get("workspace") === "leads") {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
           const currentLead = { ...exampleLead, owner: leadOwner, base_version: leadOwner ? 2 : 1 };
+          const requestedId = url.searchParams.get("lead_id");
           return Response.json({
             ...workspace(),
             leads: [currentLead],
-            ...(url.searchParams.has("lead_id") && { detail: detail(currentLead) }),
+            ...(requestedId && {
+              detail:
+                requestedId === currentLead.id || requestedId === copiedLeadAlias
+                  ? detail({ ...currentLead, id: requestedId })
+                  : null,
+            }),
           });
         }
         if (path === "/api/engine/leads") return Response.json({ count: 0 });
@@ -367,6 +374,18 @@ test("a saved Leads link opens on the engine session, supports claim and prompts
   await page.getByRole("button", { name: "Dr. Example 1", exact: true }).click();
   await page.getByRole("link", { name: "Sign in again" }).waitFor({ timeout: 5000 });
   assert.equal(carrChecks(), 0);
+});
+
+test("a saved Leads link with a second copied UUID opens the lead and supports claim", async (t) => {
+  const { server, context, writes } = await app(t);
+  const page = await context.newPage();
+  await page.goto(`${server.origin}/leads?mode=live&lead=${copiedLeadAlias}`);
+  const drawer = page.locator("#leadDetail");
+  await drawer.getByRole("heading", { name: "Dr. Example 1" }).waitFor({ timeout: 5000 });
+  await drawer.getByText("Planning a dental relocation.", { exact: false }).waitFor({ timeout: 5000 });
+  await drawer.getByRole("button", { name: "Claim", exact: true }).click();
+  await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(writes(), 1);
 });
 
 test("the Vendor drawer keeps the track record and shows the rating editor only in CARR mode", async (t) => {
