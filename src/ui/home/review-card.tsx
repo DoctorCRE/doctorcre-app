@@ -78,6 +78,7 @@ const writesDraftText = (verb: Operation["verb"]) => verb === "edit-email-draft"
 type Props<Item extends ReviewItem> = {
   item: Item;
   readOnly?: boolean;
+  docAvailable: boolean;
   client: ReviewClient<Item> | undefined;
   draftEdits: DraftEdit | undefined;
   updateDraftEdits(edits: DraftEdit | null): void;
@@ -101,6 +102,7 @@ export function reviewDispositionLabel(state: Exclude<LinkedReview["state"], "ac
 export function ReviewCard<Item extends ReviewItem>({
   item,
   readOnly = false,
+  docAvailable,
   client,
   draftEdits,
   updateDraftEdits,
@@ -191,7 +193,8 @@ export function ReviewCard<Item extends ReviewItem>({
   const operations = readOnly ? [] : review?.operations;
   const savedDraft = review?.kind === "reply_draft" ? review : null;
   const engineReply = Boolean(item.engine_marks && savedDraft);
-  const canSaveDraft = savedDraft?.operations.some((op) => op.verb === "edit-email-draft");
+  const editOperation = savedDraft?.operations.find((op) => op.verb === "edit-email-draft");
+  const canSaveDraft = Boolean(editOperation);
   const staleEdit =
     item.engine_marks && draftEdits && savedDraft && draftEdits.baseVersion !== savedDraft.reference.source_version
       ? draftEdits
@@ -874,6 +877,17 @@ export function ReviewCard<Item extends ReviewItem>({
                 </button>
               );
             })}
+            {docAvailable && engineReply && editable && !draftEdits && editOperation && (
+              <a
+                className="btn"
+                href={`/doc-chats?${new URLSearchParams({
+                  draft: String(editOperation.args.proposal_id),
+                  version: String(editOperation.args.base_version),
+                })}`}
+              >
+                Talk to Doc about this draft
+              </a>
+            )}
           </div>
           {!proposalLed && proposals.length > 0 && <fieldset disabled={!editable}>{suggestionFields}</fieldset>}
         </form>

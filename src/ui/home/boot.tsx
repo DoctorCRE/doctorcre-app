@@ -42,12 +42,15 @@ export async function bootInbox(host: HTMLElement) {
   try {
     const { resolveDealroomBoot } = await sibling("./boot-mode.js");
     let rpc: Rpc = fixtureInboxRpc();
+    let docAvailable = false;
     if (resolveDealroomBoot(location).mode === "live") {
       const [{ privateSession }, { createMcpRequests }] = await Promise.all([
         sibling("./private-session.js"),
         sibling("./mcp-requests.mjs"),
       ]);
-      await privateSession().verify();
+      const session = privateSession();
+      await session.verify();
+      docAvailable = session.engineSignIn;
       const request = createMcpRequests();
       rpc = async (name, args, signal) => {
         const result: McpResult = await request(name, args, { signal, timeoutMs: 10000 });
@@ -70,7 +73,7 @@ export async function bootInbox(host: HTMLElement) {
       };
     }
     if (location.pathname === "/") await sibling("./app-shell.js");
-    mountInbox(host, createInboxClient(rpc));
+    mountInbox(host, createInboxClient(rpc), docAvailable);
   } catch {
     host.replaceChildren();
     const notice = document.createElement("p");

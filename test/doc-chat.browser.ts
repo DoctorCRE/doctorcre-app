@@ -41,10 +41,18 @@ async function docChatFixture(
       },
     },
   });
-  t.after(() => server.close());
-  const browser = await chromium.launch();
-  t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let page: Awaited<ReturnType<NonNullable<typeof browser>["newPage"]>> | undefined;
+  t.after(async () => {
+    try {
+      await page?.unrouteAll({ behavior: "ignoreErrors" });
+      await browser?.close();
+    } finally {
+      await server.close();
+    }
+  });
+  browser = await chromium.launch();
+  page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   return { page, origin: server.origin };
 }
 
@@ -877,5 +885,202 @@ for (const path of [`/doc-chats?id=${id}`, `/doc/conversations/${id}/turns/${id}
     await expect(page.getByRole("status")).toHaveText("This older conversation wasn't kept");
     await page.getByRole("link", { name: "New chat" }).click();
     await expect(page.getByLabel("Question for Doc")).toBeEnabled();
+  });
+}
+
+for (const [width, theme, conflict] of [
+  [390, "light"],
+  [390, "dark"],
+  [1440, "light"],
+  [1440, "dark"],
+  [390, "light", "version_conflict"],
+  [1440, "dark", "draft_changed"],
+] as const) {
+  test(`Home reviews a Doc draft revision at ${width}px in ${theme}${conflict ? ` after ${conflict}` : ""}`, async (t) => {
+    const version = 7;
+    const emailId = "00000000-0000-4000-8000-000000000005";
+    const reviewKey = `reply_draft:${savedId}`;
+    const email = { kind: "email", subject: "Floor plan request", body: "Can you send the east suite plan?" };
+    const draft = { draft_id: savedId, version, subject: "Re: Floor plan request", body: "I will send the plan." };
+    const field = width === 1440 && !conflict ? "subject" : "body";
+    const proposed = field === "subject" ? "East suite plan" : "I can send the plan tomorrow.";
+    const edited = field === "subject" ? "East suite floor plan" : "I can send the plan by noon tomorrow.";
+    const result = { kind: "reply_revision", id: savedId, href: draftHref, version: version + 1 };
+    const context = { kind: "reply_draft", id: savedId, version };
+    const target = { ref: { kind: "reply_draft", id: savedId }, version, href: draftHref, label: "Reply draft" };
+    const { page, origin } = await docChatFixture(t, async (request) => {
+      switch (new URL(request.url).pathname) {
+        case "/api/engine/doc/conversations":
+          return Response.json({ conversations: [], next_before: null });
+        case "/api/engine/doc/turns": {
+          const ask = await request.json();
+          assert.deepEqual(ask.context, context);
+          assert.equal(ask.conversation_id, undefined);
+          return Response.json({
+            conversation_id: id,
+            turn: {
+              ...answeredTurn,
+              question: ask.question,
+              idempotency_key: ask.idempotency_key,
+              context: { ...context, activity_id: emailId, mailbox_user_id: id },
+              answer: {
+                kind: "answer",
+                text: "I made the timing more specific.",
+                sources: [target],
+                proposal: { kind: "reply_revision", target, [field]: proposed },
+              },
+            },
+          });
+        }
+        case confirmationPath: {
+          const command = await request.json();
+          assert.equal(request.headers.get("x-carr-csrf"), "joe-test");
+          assert.deepEqual(command.edits, { [field]: edited });
+          if (conflict)
+            return Response.json(
+              { error: conflict, version: conflict === "draft_changed" ? version : version + 1 },
+              { status: 409 },
+            );
+          Object.assign(draft, { [field]: edited, version: result.version });
+          return Response.json({ result });
+        }
+        default:
+          return new Response(null, { status: 404 });
+      }
+    });
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript((theme) => {
+      localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
+    }, theme);
+    // Use the app's live hostname while keeping every request on the loopback fixture.
+    const app = "https://app.doctorcre.com";
+    await page.route(`${app}/**`, async (route) => {
+      const response = await route.fetch({ url: route.request().url().replace(app, origin), maxRedirects: 0 });
+      await route.fulfill({ response });
+    });
+    await page.route("**/mcp", async (route) => {
+      const {
+        id,
+        params: { name, arguments: args },
+      } = route.request().postDataJSON();
+      if (!["read-engine-home-card", "read-engine-home-draft"].includes(name))
+        return route.fulfill({ json: { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "{}" }] } } });
+      const payload =
+        name === "read-engine-home-card"
+          ? {
+              item_id: reviewKey,
+              source_type: "email_proposal",
+              source_id: savedId,
+              reply_draft_id: savedId,
+              reply_draft_status: "pending",
+              source_version: String(draft.version),
+              source_state: "needs_attention",
+              title: "Reply about the floor plan",
+              base_version: `${draft.version}:0:inbox`,
+              activity_at: created_at,
+              section: "inbox",
+              disposition: "inbox",
+              unseen: false,
+              snoozed_until: null,
+              hold_until: null,
+              kind_label: "Reply draft",
+              context_label: null,
+              due_on: null,
+              open_url: null,
+              deal_id: null,
+              action_id: null,
+              action_version: null,
+              completed_at: null,
+              waiting_version: 0,
+              waiting_on: null,
+              merged_source_ids: [],
+            }
+          : {
+              ...draft,
+              status: "pending",
+              to: "sender@example.test",
+              cc: "partner@example.test",
+              attachments: [],
+              source_activity: email,
+              thread: [{ ...email, activity_id: emailId, happened_at: created_at, sender_name: "Maya Example" }],
+            };
+      assert.equal(
+        name === "read-engine-home-card" ? args.item_id : args.id,
+        name === "read-engine-home-card" ? reviewKey : savedId,
+      );
+      await route.fulfill({
+        json: { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } },
+      });
+    });
+    const fits = async () => {
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    };
+    await page.goto(app + draftHref);
+    await expect(page.getByText(email.body, { exact: true })).toBeVisible();
+    await expect(page.getByText(draft.body, { exact: true })).toBeVisible();
+    await fits();
+    await page.getByRole("link", { name: "Talk to Doc about this draft", exact: true }).click({ timeout: 3000 });
+    await expect(page.getByRole("link", { name: "Open reply review" })).toHaveAttribute("href", draftHref);
+    await page.getByLabel("Question for Doc").fill("Can you clarify when I'll send the floor plan?");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const revision = page.getByRole("textbox", { name: field === "subject" ? "Subject" : "Reply", exact: true });
+    await expect(revision).toHaveValue(proposed);
+    await expect(page.getByRole("button", { name: "Send reply", exact: true })).toHaveCount(0);
+    await fits();
+    await revision.fill(edited);
+    const save = page.getByRole("button", { name: "Save revision", exact: true });
+    await save.click();
+    if (conflict) {
+      const alert = page.getByRole("alert");
+      await expect(alert).toContainText(
+        conflict === "version_conflict" ? "This draft has a newer revision." : "This draft is no longer pending.",
+      );
+      await expect(alert.getByRole("link", { name: "Open fresh review" })).toHaveAttribute("href", draftHref);
+      await expect(revision).toHaveValue(edited);
+      await expect(save).toBeDisabled();
+      return;
+    }
+    await expect(page).toHaveURL(app + draftHref);
+    await expect(page.getByText(edited, { exact: true })).toBeVisible();
+    await expect(page.getByText(draft[field === "subject" ? "body" : "subject"], { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send reply", exact: true })).toBeVisible();
+    await fits();
+  });
+}
+
+for (const position of [1, 2]) {
+  test(`Doc retries draft question ${position} with its original context and keeps a new unsent question`, async (t) => {
+    const context = { kind: "reply_draft", id: savedId, version: 7 };
+    const turn = {
+      ...answeredTurn,
+      position,
+      idempotency_key: "00000000-0000-4000-8000-000000000003",
+      state: "failed",
+      answer: null,
+      context: { ...context, activity_id: id, mailbox_user_id: id },
+    };
+    const { page, origin } = await docChatFixture(t, async (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === "/api/engine/doc/conversations")
+        return Response.json({ conversations: [conversation], next_before: null });
+      if (path === detailPath) return Response.json({ conversation, turns: [turn] });
+      assert.equal(path, "/api/engine/doc/turns");
+      assert.deepEqual(await request.json(), {
+        question,
+        idempotency_key: turn.idempotency_key,
+        ...(position === 1 ? { context } : { conversation_id: id }),
+      });
+      return Response.json({ error: "version_conflict", version: 8 }, { status: 409 });
+    });
+    await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+    const composer = page.getByLabel("Question for Doc");
+    await composer.fill("One more thing to ask");
+    const retry = page.getByRole("button", { name: "Retry", exact: true });
+    await retry.click();
+    await expect(page.getByRole("status")).toHaveText("This draft has a newer revision.");
+    await expect(page.getByRole("link", { name: "Open fresh review" })).toHaveAttribute("href", draftHref);
+    await expect(composer).toHaveValue("One more thing to ask");
+    await expect(retry).toHaveCount(0);
   });
 }

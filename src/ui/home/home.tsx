@@ -103,7 +103,7 @@ export function markHomeReady(host: HTMLElement) {
   host.dataset.homeReady = "true";
   host.dispatchEvent(new Event("doctorcre:home-ready"));
 }
-function Inbox({ client }: { client: InboxClient }) {
+function Inbox({ client, docAvailable }: { client: InboxClient; docAvailable: boolean }) {
   const route = useLocation();
   const home = route.pathname === "/";
   const engineHome = document.documentElement.hasAttribute("data-home-today-from-engine");
@@ -851,6 +851,7 @@ function Inbox({ client }: { client: InboxClient }) {
         {open && (
           <ReviewCard
             item={reviewing}
+            docAvailable={docAvailable}
             readOnly={waitingCard || finishedElsewhere}
             client={reviewClient}
             draftEdits={reviewingDraftId ? draftEdits.get(reviewingDraftId) : undefined}
@@ -1258,7 +1259,15 @@ function Inbox({ client }: { client: InboxClient }) {
     </section>
   );
 }
-function LinkedReview({ itemId, client }: { itemId: string; client: InboxClient["linkedReview"] }) {
+function LinkedReview({
+  itemId,
+  client,
+  docAvailable,
+}: {
+  itemId: string;
+  client: InboxClient["linkedReview"];
+  docAvailable: boolean;
+}) {
   const [draftEdits, setDraftEdits] = useState<DraftEdit | undefined>();
   const { data, isPending } = useQuery({
     queryKey: ["home-linked-review", itemId],
@@ -1294,6 +1303,7 @@ function LinkedReview({ itemId, client }: { itemId: string; client: InboxClient[
       )}
       <ReviewCard
         item={data.item}
+        docAvailable={docAvailable}
         readOnly={waiting}
         client={client.client}
         draftEdits={draftEdits}
@@ -1304,14 +1314,14 @@ function LinkedReview({ itemId, client }: { itemId: string; client: InboxClient[
   );
 }
 
-function InboxCard({ client }: { client: InboxClient }) {
+function InboxCard({ client, docAvailable }: { client: InboxClient; docAvailable: boolean }) {
   const { item_id } = useParams();
   if (item_id?.startsWith("suggestion:") || item_id?.startsWith("reply_draft:"))
-    return <LinkedReview key={item_id} itemId={item_id} client={client.linkedReview} />;
-  return <Inbox client={client} />;
+    return <LinkedReview key={item_id} itemId={item_id} client={client.linkedReview} docAvailable={docAvailable} />;
+  return <Inbox client={client} docAvailable={docAvailable} />;
 }
 
-export function mountInbox(host: HTMLElement, client: InboxClient) {
+export function mountInbox(host: HTMLElement, client: InboxClient, docAvailable = false) {
   const query = new QueryClient({
     defaultOptions: {
       queries: {
@@ -1329,7 +1339,7 @@ export function mountInbox(host: HTMLElement, client: InboxClient) {
     },
   });
   const root = createRoot(host);
-  const inbox: ReactNode = <Inbox client={client} />;
+  const inbox: ReactNode = <Inbox client={client} docAvailable={docAvailable} />;
   root.render(
     <QueryClientProvider client={query}>
       <BrowserRouter>
@@ -1337,7 +1347,7 @@ export function mountInbox(host: HTMLElement, client: InboxClient) {
           <Route path="/" element={inbox} />
           <Route path="/inbox" element={inbox} />
           <Route path="/inbox.html" element={inbox} />
-          <Route path="/inbox/card/:item_id" element={<InboxCard client={client} />} />
+          <Route path="/inbox/card/:item_id" element={<InboxCard client={client} docAvailable={docAvailable} />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>,
