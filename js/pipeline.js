@@ -2014,16 +2014,18 @@ function paintPanel(detail) {
     dispose() { marketDisposed = true; },
   };
   const toursParams = new URLSearchParams(location.search);
-  const property = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;
+  const linkedProperty = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;
+  const property = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(linkedProperty ?? '') ? linkedProperty : null;
+  const planTours = document.documentElement.hasAttribute('data-deal-tours-from-engine');
   const propertyRead = new AbortController();
   let toursDisposed = false, toursLoading = false, toursMounted;
-  dealToursPanel = engineMode ? null : {
+  dealToursPanel = engineMode && !planTours && !property ? null : {
     async load() {
       if (toursDisposed || toursLoading || toursMounted) return;
       toursLoading = true;
       const root = $('workspace-tours');
       root.textContent = 'Loading tours…';
-      if (property && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(property)) {
+      if (property) {
         const toursUrl = `/deals?deal=${encodeURIComponent(detail.deal.id)}&tab=tours`;
         root.innerHTML = `<section aria-label="Property from tour feedback"><h2 tabindex="-1">Property from tour feedback</h2><p role="status">Loading property…</p><a href="${esc(toursUrl)}">See deal tours</a></section>`;
         const section = root.firstElementChild;
@@ -2051,6 +2053,11 @@ function paintPanel(detail) {
         return;
       }
       try {
+        if (planTours) {
+          const { mountDealTourPlans } = await import('./ui-deal-tour-plans.generated.js');
+          if (!toursDisposed) toursMounted = mountDealTourPlans(root, { dealId: detail.deal.id, request: sessionFetch });
+          return;
+        }
         const [{ mountDealTours }, { createPlannerClient }] = await Promise.all([
           import('./ui-deal-tours.generated.js'), import('../tours/planner-client.js'),
         ]);
@@ -2065,7 +2072,7 @@ function paintPanel(detail) {
         }
       } finally { toursLoading = false; }
     },
-    refresh() { return toursMounted?.refresh(); },
+    refresh() { return toursMounted?.refresh?.(); },
     hasUnsavedChanges() { return toursMounted?.hasUnsavedChanges() || false; },
     confirmLeave() { return toursMounted?.confirmLeave() ?? Promise.resolve(true); },
     dispose() { toursDisposed = true; propertyRead.abort(); toursMounted?.dispose(); },

@@ -121,9 +121,9 @@ validates without deploying or commenting. When PRs close or merge,
 The production Worker configuration deliberately declares no public route.
 Run `npm run deployment:check:production` to validate it locally.
 
-`PARTNER_SIGN_IN` defaults to `carr` in both app environments. Set it to
-`engine` in a release to switch auth routes, protected page gates and engine
-partner calls together. The app binds `PARTNER_APP` to the matching engine
+`PARTNER_SIGN_IN` is `carr` in production and `engine` in staging. Setting it
+to `engine` switches auth routes, protected page gates and engine partner calls
+together. The app binds `PARTNER_APP` to the matching engine
 environment's `PartnerApp` entrypoint. That entrypoint must be deployed before
 the app release adds the binding. In engine mode, keep
 `WORKSPACE_COMMAND_CENTER_READ_ENABLED` aligned with the corresponding CARR
@@ -139,6 +139,16 @@ callback. The board stops polling after its first engine-backed load. Updates
 reads deal attribution from PartnerApp. Compare terms shows an empty state
 while there are no recorded comparable terms. Deal watch settings and Tours
 show “Not available yet” until their engine endpoints are available.
+
+PartnerApp also serves Leads reads, claim, stage changes, email acknowledgement
+and client linking. Clients, Vendors, Relationships, Search and recent activity
+use the same session regardless of their legacy routing switches. The Vendors
+drawer shows the track record. The manual rating editor is available with CARR
+sign-in, and Relationships uses recorded links and introduction offers.
+
+Home cards and their actions, Today, Calendar dates, and Updates also use
+PartnerApp in engine sign-in mode. Updates reads the engine's Home updates,
+recent changes, and settings.
 
 `npm run release:production` consumes the prepared artifact, replaces `dist/site`
 from its verified source bytes, and runs only provider upload, promotion and

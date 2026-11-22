@@ -64,6 +64,7 @@ export const UI_ENTRIES = {
   'ui-checklist': 'deal-checklist',
   'ui-client-publications': 'client-publications',
   'ui-deal-tours': 'deal-tours',
+  'ui-deal-tour-plans': 'deal-tour-plans',
   'ui-inbox': 'inbox-entry',
   'ui-home-today': 'home/today-panel',
   'ui-next-step': 'home/missing-next-step',

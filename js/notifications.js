@@ -31,7 +31,7 @@ import { performCommand } from "./command-feedback.mjs";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
 import { createLiveClient } from "./live-client.js";
 import { privateSession, sessionFetch } from "./private-session.js";
-import { resolveDealroomBoot } from "./boot-mode.js";
+import { resolveDealroomBoot, updatesFromEngine } from "./boot-mode.js";
 import { mountPrefs, renderNotificationBadge } from "./shell.js";
 import { meetingTime } from "./home-week.js";
 import { BUSINESS_TIME_ZONE } from "./business-date.js";
@@ -69,7 +69,6 @@ const view = {
 };
 
 let client = null;
-/** Where this page reads and saves: the engine once deal saves go there, the old verbs before. */
 const sources = {
   engine: {
     feed: () => client.updates(),
@@ -639,7 +638,7 @@ async function boot() {
     });
   }
   const outage = params.get("outage");
-  if (document.documentElement.hasAttribute("data-deals-saves-from-engine")) source = sources.engine;
+  if (updatesFromEngine()) source = sources.engine;
   client = boot_.mode === "live"
     ? createLiveClient()
     : await (await import("./fixture-client.js")).createFixtureClient({ ...boot_.options, ...(outage ? { outage } : {}) });

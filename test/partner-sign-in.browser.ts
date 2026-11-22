@@ -5,6 +5,11 @@ import type { Page } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
+import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
+import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
+import { detail, emptyQuietFollowUps, lead, workspace } from "./leads-workspace-fixture.mjs";
+
+Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: FixtureHtmlRewriter });
 
 const cookieName = "__Host-doctorcre_session";
 const partners = new Map([
@@ -12,9 +17,13 @@ const partners = new Map([
   ["second", "dell"],
 ]);
 const deepLink = "/leads?mode=live&filter=open";
+const copiedLeadAlias = "30000000-0000-0000-0000-000000000101";
 const docLink = "/api/engine/doc/link";
 const dealId = "11111111-1111-4111-8111-111111111111";
 const dealName = "Demo deal on engine sign-in";
+const filingId = "55555555-5555-4555-8555-555555555555";
+const filingTitle = "Review where to file this email";
+const filingChoices = [{ kind: "vendor", label: "Choose vendor" }];
 const activityId = "22222222-2222-4222-8222-222222222222";
 const noteId = "44444444-4444-4444-8444-444444444444";
 const noteSummary = "Confirm the demo showing";
@@ -50,9 +59,11 @@ async function app(
     theme = "dark",
     signIn = "engine",
     holdDocIssue,
+    touch = false,
     readAttribution,
   }: {
     width?: number;
+    touch?: boolean;
     theme?: "dark" | "light";
     signIn?: "engine" | "carr";
     holdDocIssue?: Promise<void>;
@@ -61,9 +72,14 @@ async function app(
 ) {
   let unavailable = false;
   let carrChecks = 0;
+  const partnerReads = new Map<string, string | null>();
+  let expiredPath: string | null = null;
   let writes = 0;
   const live = new Set<string>();
   const links = new Map<string, string>();
+  const exampleLead = lead(1);
+  let leadOwner: string | null = null;
+  let expireOnLeadDetail = false;
   let issueCount = 0;
   let loseIssueResponse = false;
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
@@ -76,6 +92,7 @@ async function app(
         if (path.startsWith("/auth/") || navigation) carrChecks++;
         if (signIn === "carr") {
           if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
+          if (path.startsWith("/api/v1/business/vendors")) return Response.json(directoryFixture(input.url));
           if (path === "/api/v1/market-terms/read") {
             const recordings = JSON.parse(
               await readFile(new URL("./fixtures/market-terms/recordings.json", import.meta.url), "utf8"),
@@ -128,8 +145,14 @@ async function app(
             "set-cookie": `${cookieName}=${token}; Secure; HttpOnly; SameSite=Lax; Path=/`,
           });
         }
+        if (expireOnLeadDetail && path === "/api/engine/leads" && url.searchParams.has("lead_id")) {
+          expireOnLeadDetail = false;
+          live.clear();
+        }
         const token = input.headers.get("cookie")?.match(/__Host-doctorcre_session=([^;]+)/)?.[1];
         if (!token || !live.has(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+        partnerReads.set(url.pathname + url.search, input.headers.get("cookie"));
+        if (path === expiredPath) return Response.json({ error: "unauthorized" }, { status: 401 });
         const csrfToken = "fixture-" + token;
         if (path === "/auth/session")
           return Response.json({
@@ -171,13 +194,105 @@ async function app(
           links.delete(token);
           return new Response(null, { status: 204 });
         }
+        if (path === "/api/engine/home/inbox") {
+          const empty = { count: 0, items: [] };
+          const item = {
+            card_id: `conversation:${filingId}`,
+            item_id: `suggestion:${filingId}`,
+            source_id: filingId,
+            source_type: "email_proposal",
+            source_version: "1",
+            source_state: "needs_attention",
+            base_version: "1:0:inbox",
+            section: "inbox",
+            disposition: "inbox",
+            activity_at: "2026-11-21T12:00:00Z",
+            hold_until: null,
+            snoozed_until: null,
+            completed_at: null,
+            unseen: false,
+            context_label: null,
+            due_on: null,
+            open_url: null,
+            kind_label: "Suggestion",
+            merged_source_ids: [filingId],
+            deal_id: null,
+            action_id: null,
+            action_version: null,
+            waiting_version: 0,
+            waiting_on: null,
+            title: filingTitle,
+            why: "The sender asked for a floor plan.",
+            primary_action: "Choose vendor",
+            filing_choices: filingChoices,
+            suggestions: [{ id: filingId }],
+          };
+          return Response.json({
+            ok: true,
+            schema_version: "home-inbox.v5",
+            reminders: { count: 1, items: [item] },
+            waiting: empty,
+          });
+        }
+        if (path === `/api/engine/proposals/${filingId}`) {
+          return Response.json({
+            proposal_id: filingId,
+            kind: "possible_new_deal",
+            evidence: "The sender asked for a floor plan.",
+            filing_choices: filingChoices,
+          });
+        }
+        if (path === "/api/engine/home/today") {
+          return Response.json({
+            ok: true,
+            schema_version: "home-today.v1",
+            today: "2026-11-21",
+            meetings: { state: "ready", items: [] },
+            reminders: { late: [], upcoming: [] },
+            partners: [],
+          });
+        }
+        if (path === "/api/engine/updates") return Response.json({ unread_count: 0, updates: [] });
+        if (path === "/api/engine/updates/changes") return Response.json({ changes: [], next_before: null });
+        if (path === "/api/engine/preferences") {
+          return Response.json({ time_zone: "America/Chicago", quiet_from: null, quiet_until: null, base_version: 0 });
+        }
         if ((path === attributionPath || path === noteAttributionPath) && readAttribution)
           return readAttribution(input);
         if (path === "/api/engine/deals") return Response.json(dealBoard);
         if (path === `/api/engine/deals/${dealId}`) return Response.json({ ...dealDetail, email_follow_ups: [] });
-        if (path === "/api/engine/leads") {
-          if (input.method === "POST") writes++;
-          return Response.json({ count: 0 });
+        if (path.startsWith("/api/engine/vendors")) {
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          url.pathname = path.replace("/api/engine", "/api/v1/business");
+          return Response.json(directoryFixture(url.href));
+        }
+        if (path === "/api/engine/leads" && url.searchParams.get("workspace") === "leads") {
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          const currentLead = { ...exampleLead, owner: leadOwner, base_version: leadOwner ? 2 : 1 };
+          const requestedId = url.searchParams.get("lead_id");
+          return Response.json({
+            ...workspace(),
+            leads: [currentLead],
+            ...(requestedId && {
+              detail:
+                requestedId === currentLead.id || requestedId === copiedLeadAlias
+                  ? detail({ ...currentLead, id: requestedId })
+                  : null,
+            }),
+          });
+        }
+        if (path === "/api/engine/leads") return Response.json({ count: 0 });
+        if (path === "/api/engine/quiet-follow-ups") return Response.json(emptyQuietFollowUps());
+        if (path === `/api/engine/leads/${exampleLead.id}/changes` && input.method === "POST") {
+          const command = await input.json();
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          const actor = partners.get(token);
+          assert.ok(actor);
+          assert.equal(command.expected_actor, actor);
+          assert.equal(command.action, "claim");
+          leadOwner = actor;
+          writes++;
+          return Response.json({ ok: true, lead_id: exampleLead.id });
         }
         return new Response(null, { status: 404 });
       },
@@ -189,6 +304,7 @@ async function app(
   browser ??= chromium.launch();
   const context = await (await browser).newContext({
     viewport: { width, height: 850 },
+    hasTouch: touch,
     colorScheme: theme,
   });
   t.after(() => context.close());
@@ -200,6 +316,13 @@ async function app(
       unavailable = value;
     },
     carrChecks: () => carrChecks,
+    partnerReads,
+    expireOn: (path: string) => {
+      expiredPath = path;
+    },
+    expireOnNextLeadDetail: () => {
+      expireOnLeadDetail = true;
+    },
     writes: () => writes,
     setDocStatus: (status: string) => links.set("first", status),
     loseNextDocIssue: () => {
@@ -207,6 +330,79 @@ async function app(
     },
   };
 }
+
+test("Home and the old Updates link load on the engine session and handle expiry", async (t) => {
+  const { server, context, partnerReads, carrChecks, expireOn } = await app(t);
+  await context.addCookies([
+    { name: "__Host-dealroom_session", value: "old", url: server.origin.replace("http:", "https:"), secure: true },
+  ]);
+  const page = await context.newPage();
+  const legacyReads: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname !== "/mcp") return;
+    const name = request.postDataJSON()?.params?.name;
+    if (
+      [
+        "read-home-inbox-v5",
+        "today-triage",
+        "calendar-meeting-prep",
+        "notification-feed",
+        "read-notification-preferences",
+      ].includes(name)
+    )
+      legacyReads.push(name);
+  });
+  for (const [path, reads] of [
+    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard", "/api/engine/home/today"]],
+    ["/notifications?mode=live", ["/api/engine/updates", "/api/engine/updates/changes", "/api/engine/preferences"]],
+  ] as const) {
+    const pending = reads.map((read) =>
+      page.waitForResponse((response) => response.url() === server.origin + read && response.ok()),
+    );
+    const [, ...responses] = await Promise.all([page.goto(server.origin + path), ...pending]);
+    const first = responses[0];
+    assert.ok(first);
+    assert.match((await first.request().allHeaders()).cookie ?? "", /__Host-dealroom_session=old/);
+    for (const read of reads) assert.equal(partnerReads.get(read), cookieName + "=first", read);
+  }
+  assert.equal(new URL(page.url()).pathname, "/updates");
+  assert.deepEqual(legacyReads, []);
+  assert.equal(carrChecks(), 0);
+
+  expireOn("/api/engine/updates");
+  await page.goto(server.origin + "/updates?mode=live");
+  await page.waitForURL("**/public-shell/session-ended.html");
+  await page.getByRole("heading", { name: "Session ended" }).waitFor();
+  await page.getByRole("link", { name: "Sign in again" }).waitFor();
+});
+
+test("Home filing searches vendors on the engine session", async (t) => {
+  const { server, context, partnerReads, carrChecks } = await app(t);
+  await context.addCookies([
+    { name: "__Host-dealroom_session", value: "old", url: server.origin.replace("http:", "https:"), secure: true },
+  ]);
+  const page = await context.newPage();
+  await page.goto(server.origin + "/?mode=live");
+  await page.getByRole("button", { name: "Review filing", exact: true }).click();
+  const filing = page.getByRole("region", { name: "File this email", exact: true });
+  await filing.getByRole("button", { name: "Choose vendor", exact: true }).click();
+  const name = "Demo Partner 62";
+  await filing.getByRole("searchbox", { name: "Vendor name" }).fill(name);
+  const [response] = await Promise.all([
+    page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/v1/business/vendors" && url.searchParams.get("q") === name;
+    }),
+    filing.getByRole("button", { name: "Search vendors" }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  assert.match((await response.request().allHeaders()).cookie ?? "", /__Host-dealroom_session=old/);
+  const { search } = new URL(response.url());
+  assert.equal(partnerReads.get("/api/engine/vendors" + search), cookieName + "=first");
+  await filing.getByRole("combobox", { name: "Vendor", exact: true }).selectOption({ label: name });
+  assert.equal(await filing.getByRole("button", { name: "File email", exact: true }).isEnabled(), true);
+  assert.equal(carrChecks(), 0);
+});
 
 test("Doc settings show each Mac status and keep link codes private", async (t) => {
   const { server, context, setDocStatus, loseNextDocIssue } = await app(t, { width: 390 });
@@ -340,7 +536,7 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
   page.on("request", (request) => {
     const { pathname } = new URL(request.url());
     if (
-      pathname.startsWith("/api/tours/") ||
+      /\/api\/(?:tours\/|engine\/(?:deals\/[^/]+\/tours|properties\/search))/.test(pathname) ||
       pathname === "/api/v1/market-terms/read" ||
       (pathname === "/mcp" && /read-subject-watch-v2|read-activity-deal-attribution/.test(request.postData() ?? ""))
     )
@@ -358,7 +554,7 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
     .getByRole("tabpanel", { name: "Compare terms" })
     .getByText("No comparable terms match these filters.", { exact: true })
     .waitFor({ timeout: 4000 });
-  await room.getByRole("tab", { name: "Tours" }).click();
+  await room.getByRole("tab", { name: "Tours", exact: true }).click();
   await room
     .getByRole("tabpanel", { name: "Tours" })
     .getByText("Not available yet", { exact: true })
@@ -368,6 +564,242 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
     false,
   );
   assert.deepEqual(legacyRequests, []);
+});
+
+const tour = "33333333-3333-4333-8333-333333333333";
+const first = "44444444-4444-4444-8444-444444444444";
+const second = "55555555-5555-4555-8555-555555555555";
+const added = "66666666-6666-4666-8666-666666666666";
+const tours = `/api/engine/deals/${dealId}/tours`;
+const preview = "November 24, 2026\n\n1. Example Clinic, 10 Example Way\n2. 30 Example Way";
+const clinic = { id: first, name: "Example Clinic", address: "10 Example Way" };
+const annex = { id: second, name: null, address: "20 Example Way" };
+type Stop = { property_id: string } | { address: string; name: string | null };
+type Draft = { planned_on: string; notes: string | null; stops: Stop[]; idempotency_key: string };
+
+function tourFixture(t: TestContext) {
+  const properties = [clinic, annex];
+  const writes: Draft[] = [];
+  let saved: Draft | undefined;
+  let failSave = false;
+  async function open(actor = "joe") {
+    const { server, context } = await app(t, { width: 390, touch: true });
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const page = await context.newPage();
+    await page.request.get(`${server.origin}/auth/callback/google?fixture=${actor === "joe" ? "first" : "second"}`);
+    await page.route("**/deals?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.text()).replace("<html", "<html data-deal-tours-from-engine");
+      await route.fulfill({ response, body });
+    });
+    await page.route(/\/api\/engine\/(deals\/[^/]+\/tours|properties\/search)/, async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const path = url.pathname;
+      if (path === "/api/engine/properties/search") {
+        const query = url.searchParams.get("query")?.toLowerCase();
+        return route.fulfill({
+          json: {
+            properties: properties.filter((p) => query && `${p.name} ${p.address}`.toLowerCase().includes(query)),
+          },
+        });
+      }
+      if (request.method() === "POST") {
+        const draft: Draft = request.postDataJSON();
+        writes.push(draft);
+        assert.equal(request.headers()["x-carr-csrf"], `fixture-${actor === "joe" ? "first" : "second"}`);
+        if (failSave) return route.fulfill({ status: 422, json: { error: "invalid_field_value", fields: ["stops"] } });
+        if (draft.stops.some((stop) => "property_id" in stop && !properties.some((p) => p.id === stop.property_id)))
+          return route.fulfill({
+            status: 422,
+            json: {
+              error: "database_refused_the_statement",
+              rule: "tour_stop_property_id_fkey",
+              correlation_id: tour,
+              hint: "The operation could not be completed. Quote the correlation_id when reporting it.",
+            },
+          });
+        const stops = draft.stops.map((stop) => {
+          if ("property_id" in stop) return stop;
+          properties.push({ ...stop, id: added });
+          return { property_id: added };
+        });
+        saved = { ...draft, stops };
+        return route.fulfill({ status: 201, json: { id: tour, revision: 1 } });
+      }
+      if (path === tours)
+        return route.fulfill({ json: { tours: saved ? [{ id: tour, planned_on: saved.planned_on }] : [] } });
+      if (path === `${tours}/${tour}/stop-list`) return route.fulfill({ json: { text: preview } });
+      assert.ok(saved && path === `${tours}/${tour}`);
+      const stops = saved.stops.map((stop, index) => {
+        const property = properties.find((p) => "property_id" in stop && p.id === stop.property_id);
+        assert.ok(property);
+        return { property_id: property.id, name: property.name, address: property.address, position: index + 1 };
+      });
+      return route.fulfill({
+        json: { ...saved, id: tour, deal_id: dealId, stops, completed_activity_id: null, cancelled_at: null },
+      });
+    });
+    await page.goto(`${server.origin}/deals?mode=live&deal=${dealId}`);
+    return page;
+  }
+  return {
+    open,
+    writes,
+    removeAnnex: () => properties.splice(properties.indexOf(annex), 1),
+    fail: (value: boolean) => {
+      failSave = value;
+    },
+  };
+}
+
+test("partners plan, open, and copy a tour at phone width", async (t) => {
+  const fixture = tourFixture(t);
+  const joe = await fixture.open();
+  const button = (name: string) => joe.getByRole("button", { name, exact: true });
+  await joe.getByRole("tab", { name: "Tours" }).click();
+  await joe.getByText("No planned tours.", { exact: true }).waitFor();
+  await button("Plan tour").click();
+  await joe.getByLabel("Tour date").fill("2026-11-24");
+  await button("Save tour").click();
+  await joe.getByText("Add at least one property.").waitFor();
+  const search = async (query: string) => {
+    await joe.getByLabel("Property name or address").fill(query);
+    await button("Search properties").click();
+  };
+  await search("Clinic");
+  await button("Example Clinic, 10 Example Way").click();
+  await search("20 Example Way");
+  await button("20 Example Way").click();
+  await joe.getByRole("listitem").filter({ hasText: "20 Example Way" }).getByRole("button", { name: "Remove" }).tap();
+  await search("30 Example Way");
+  await joe.getByText("No properties found.").waitFor();
+  await joe.getByLabel("New property address").fill("30 Example Way");
+  await button("Add property").click();
+  await button("Move up").press("Enter");
+  const firstStop = joe.getByRole("list", { name: "Tour stops" }).getByRole("listitem").first();
+  assert.match((await firstStop.textContent()) ?? "", /^30 Example Way/);
+  await button("Move down").tap();
+  await joe.getByLabel("Tour notes (optional)").fill("Private notes for the visit");
+  fixture.fail(true);
+  await button("Save tour").click();
+  await joe.getByText("Check the properties in the stop list.").waitFor();
+  assert.equal(await joe.getByLabel("Tour notes (optional)").inputValue(), "Private notes for the visit");
+  assert.equal(await joe.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  fixture.fail(false);
+  await button("Save tour").click();
+  await joe.locator("#workspace-tours summary", { hasText: "November 24, 2026" }).waitFor();
+  const stops = [{ property_id: first }, { address: "30 Example Way", name: null }];
+  assert.deepEqual(
+    fixture.writes.map((draft) => draft.stops),
+    [stops, stops],
+  );
+  assert.equal(fixture.writes[0]?.idempotency_key, fixture.writes[1]?.idempotency_key);
+  await button("Preview stop list").click();
+  assert.equal(await joe.getByLabel("Client stop list").inputValue(), preview);
+  await joe.locator("#workspace-tours").screenshot({ path: `${artifacts}/tour-plan-390.png` });
+  await button("Copy stop list").click();
+  await joe.getByText("Stop list copied.").waitFor();
+  assert.equal(await joe.evaluate(() => navigator.clipboard.readText()), preview);
+  assert.equal(await joe.getByRole("navigation", { name: "Primary" }).getByText("Tours", { exact: true }).count(), 0);
+
+  const dell = await fixture.open("dell");
+  await dell.getByRole("tab", { name: "Tours" }).click();
+  const listed = dell.locator("#workspace-tours summary", { hasText: "November 24, 2026" });
+  await listed.waitFor();
+  assert.equal(await listed.count(), 1);
+  await listed.click();
+  await dell.getByText("Private notes for the visit").waitFor();
+  assert.deepEqual(await dell.getByRole("list", { name: "Tour stops" }).getByRole("listitem").allTextContents(), [
+    "Example Clinic, 10 Example Way",
+    "30 Example Way",
+  ]);
+});
+
+test("an unavailable tour stop is named and the remaining draft can be saved", async (t) => {
+  const fixture = tourFixture(t);
+  const page = await fixture.open();
+  const button = (name: string) => page.getByRole("button", { name, exact: true });
+  await page.getByRole("tab", { name: "Tours" }).click();
+  await button("Plan tour").click();
+  await page.getByLabel("Tour date").fill("2026-11-24");
+  await page.getByLabel("Tour notes (optional)").fill("Bring the floor plan");
+  for (const property of [clinic, annex]) {
+    await page.getByLabel("Property name or address").fill(property.address);
+    await button("Search properties").click();
+    await button(property.name ? `${property.name}, ${property.address}` : property.address).click();
+  }
+  fixture.removeAnnex();
+  await button("Save tour").click();
+  await page
+    .getByText("20 Example Way is no longer available. Remove or reselect this stop.", { exact: true })
+    .waitFor({ timeout: 5000 });
+  assert.equal(await page.getByLabel("Tour date").inputValue(), "2026-11-24");
+  assert.equal(await page.getByLabel("Tour notes (optional)").inputValue(), "Bring the floor plan");
+  const stops = page.getByRole("list", { name: "Tour stops" }).getByRole("listitem");
+  assert.equal(await stops.count(), 2);
+  await stops.filter({ hasText: annex.address }).getByRole("button", { name: "Remove" }).click();
+  await button("Save tour").click();
+  await page.locator("#workspace-tours summary", { hasText: "November 24, 2026" }).waitFor();
+  assert.equal(fixture.writes.length, 2);
+  assert.deepEqual(fixture.writes[1]?.stops, [{ property_id: first }]);
+  assert.equal(fixture.writes[1]?.notes, "Bring the floor plan");
+});
+
+test("a saved Leads link opens on the engine session, supports claim and prompts after expiry", async (t) => {
+  const { server, context, carrChecks, expireOnNextLeadDetail, writes } = await app(t);
+  const path = "/leads?mode=live&lead=L-1";
+  const page = await context.newPage();
+  await page.goto(server.origin + path);
+  const drawer = page.locator("#leadDetail");
+  await drawer.getByRole("heading", { name: "Dr. Example 1" }).waitFor({ timeout: 5000 });
+  await drawer.getByRole("button", { name: "Claim", exact: true }).click();
+  await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
+  await drawer.getByText("Joe", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(writes(), 1);
+
+  await drawer.getByRole("button", { name: "Close lead details" }).click();
+  await drawer.waitFor({ state: "hidden" });
+  expireOnNextLeadDetail();
+  const leadButton = page.getByRole("button", { name: "Dr. Example 1", exact: true });
+  await leadButton.click();
+  await page.getByRole("link", { name: "Sign in again" }).waitFor({ timeout: 5000 });
+  assert.equal(await leadButton.count(), 0);
+  assert.equal(carrChecks(), 0);
+});
+
+test("a saved Leads link with a second copied UUID opens the lead and supports claim", async (t) => {
+  const { server, context, writes } = await app(t);
+  const page = await context.newPage();
+  await page.goto(`${server.origin}/leads?mode=live&lead=${copiedLeadAlias}`);
+  const drawer = page.locator("#leadDetail");
+  await drawer.getByRole("heading", { name: "Dr. Example 1" }).waitFor({ timeout: 5000 });
+  await drawer.getByText("Planning a dental relocation.", { exact: false }).waitFor({ timeout: 5000 });
+  await drawer.getByRole("button", { name: "Claim", exact: true }).click();
+  await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(writes(), 1);
+});
+
+test("the Vendor drawer keeps the track record and shows the rating editor only in CARR mode", async (t) => {
+  for (const signIn of ["engine", "carr"] as const) {
+    const { server, context, carrChecks } = await app(t, { signIn });
+    await context.addCookies([
+      {
+        name: "__Host-dealroom_session",
+        value: "stale",
+        domain: new URL(server.origin).hostname,
+        path: "/",
+        secure: true,
+      },
+    ]);
+    const page = await context.newPage();
+    await page.goto(server.origin + "/vendors?mode=live&q=Demo+Partner+01");
+    await page.locator(".record-row").filter({ hasText: "Demo Partner 01" }).click({ timeout: 5000 });
+    const drawer = page.getByRole("dialog");
+    await drawer.getByText("Deals worked", { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await drawer.getByText("Trust rating", { exact: true }).count(), signIn === "carr" ? 1 : 0);
+    if (signIn === "engine") assert.equal(carrChecks(), 0);
+  }
 });
 
 function attributionButton(page: Page, update: string) {

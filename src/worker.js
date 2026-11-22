@@ -181,10 +181,10 @@ function assetPath(pathname) {
 }
 
 async function pageSwitches(env) {
-  const [homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine] = await Promise.all([
-    switchedOn(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES), switchedOn(env, CLIENTS_VENDORS),
+  const [homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine] = await Promise.all([
+    routeToEngine(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES), switchedOn(env, CLIENTS_VENDORS), switchedOn(env, DEAL_TOURS),
   ]);
-  return { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine };
+  return { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine };
 }
 
 async function assetResponse(request, env, path, switches) {
@@ -203,15 +203,18 @@ async function assetResponse(request, env, path, switches) {
   if (path === "/public-shell/sw.js") headers.set("service-worker-allowed", "/");
   const asset = secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
   if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html')) return asset;
-  const { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine } = switches ?? await pageSwitches(env);
-  if (!homeToday && !dealsFromEngine && !dealSavesFromEngine && !clientsVendorsFromEngine) return asset;
+  const { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine } = switches ?? await pageSwitches(env);
+  const tourPlanner = path === '/pipeline.html' && dealToursFromEngine;
+  if (!homeToday && !dealsFromEngine && !dealSavesFromEngine && !clientsVendorsFromEngine && !tourPlanner) return asset;
   const date = dealSavesFromEngine && ['/pipeline.html', '/lease-anniversaries.html', '/workspace.html', '/inbox.html'].includes(path)
     ? await env.ENGINE_ROUTING.get('deal-cutover-date', { cacheTtl: 30 }).catch(() => null)
     : null;
   return new HTMLRewriter().on('html', {
     element(node) {
       if (homeToday) node.setAttribute('data-home-today-from-engine', '');
+      if (engineSignIn(env)) node.setAttribute('data-updates-from-engine', '');
       if (clientsVendorsFromEngine) node.setAttribute('data-clients-vendors-from-engine', '');
+      if (tourPlanner) node.setAttribute('data-deal-tours-from-engine', '');
       if (dealsFromEngine) node.setAttribute('data-deals-from-engine', '');
       if (dealSavesFromEngine) node.setAttribute('data-deals-saves-from-engine', /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '');
     },
@@ -242,6 +245,7 @@ const isString = value => typeof value === 'string';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const DEALS = 'deals-from-engine';
 const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
+const DEAL_TOURS = 'deal-tours-from-engine';
 const LEADS = 'leads-from-engine';
 const HOME = 'home-from-engine';
 const HOME_TODAY = '/api/engine/home/today';
@@ -263,6 +267,7 @@ const SEARCH = 'search-from-engine';
 const CLIENTS_VENDORS = 'clients-vendors-from-engine';
 const RELATIONSHIPS = 'relationships-from-engine';
 const FRAME = 'frame-from-engine';
+const ENGINE_SIGN_IN_KEYS = new Set([DEALS, NEXT_DEAL_SAVES, LEADS, CLIENTS_VENDORS, RELATIONSHIPS, SEARCH, HOME]);
 // Each old read the engine can answer, by tool name or business GET path: its
 // switch key, its engine path and, for a tool, a check per argument.
 // A `segment` argument becomes the last path segment. `search` seeds fixed query parameters.
@@ -296,9 +301,9 @@ const ENGINE_READS = new Map([
   ['find', { key: SEARCH, path: '/api/engine/find', args: { query: isString }, accepts: ({ query }) => Boolean(query) }],
   ['find-and-catch-up', { key: CLIENTS_VENDORS, path: '/api/engine/recent-activity', args: { query: isString, limit: Number.isFinite, ref: isString } }],
   ['read-vendor-meetings', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-meetings', args: { view: isString, q: isString, limit: Number.isFinite, cursor: isString } }],
-  ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients', usedOnDeals: true }],
+  ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
-  ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true, usedOnDeals: true }],
+  ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true }],
   ['today-triage', { key: FRAME, path: '/api/engine/today-triage', args: {} }],
   ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {} }],
 ]);
@@ -352,7 +357,7 @@ async function switchedOn(env, key) {
 }
 
 function routeToEngine(env, key, usedOnDeals = false) {
-  if (engineSignIn(env) && (usedOnDeals || key === DEALS || key === NEXT_DEAL_SAVES)) return true;
+  if (engineSignIn(env) && (usedOnDeals || ENGINE_SIGN_IN_KEYS.has(key))) return true;
   return switchedOn(env, key);
 }
 
@@ -421,7 +426,12 @@ async function engineResponse(request, env, call) {
         }
         chunks.push(decoder.decode());
         let text = chunks.join('');
-        if (!call) return copySessionCookies(response, new Response(text, { status: response.status, headers: JSON_HEADERS }));
+        if (!call) {
+          if (engineSignIn(env) && read.key === RELATIONSHIPS && response.ok) {
+            text = JSON.stringify({ ...JSON.parse(text), can_request_introductions: false });
+          }
+          return copySessionCookies(response, new Response(text, { status: response.status, headers: JSON_HEADERS }));
+        }
         if (call.params.name === 'deal-room-board' && response.ok) {
           const board = JSON.parse(text);
           if (board?.schema_version === 'local-deals-board.v2') {
@@ -708,8 +718,9 @@ const LEAD_ACTIONS = new Map([
 
 async function routeLeadSave(request, env, call, action) {
   const { lead_id, ...legacy } = call.params.arguments;
-  const saveToEngine = await switchedOn(env, NEXT_DEAL_SAVES);
-  if (!saveToEngine || !isUuid(lead_id) || !await switchedOn(env, LEADS)) {
+  const saveToEngine = await routeToEngine(env, NEXT_DEAL_SAVES);
+  if (!saveToEngine || !isUuid(lead_id) || !await routeToEngine(env, LEADS)) {
+    if (engineSignIn(env)) return saveRefusal(call, 'invalid_arguments', 'Reload Leads.');
     if (action === 'acknowledge_email') return saveRefusal(call, 'lead_routing_changed', 'Reload Leads.');
     if (saveToEngine || lead_id === undefined) return null;
     const params = { ...call.params, arguments: legacy };
@@ -720,7 +731,9 @@ async function routeLeadSave(request, env, call, action) {
   const body = { action, base_version, expected_actor, idempotency_key };
   if (action === 'stage') {
     if (!isObject(fields) || Object.keys(fields).length !== 1 || !isString(fields.stage) ||
-        stage_review?.undo_event_id !== undefined) return null;
+        stage_review?.undo_event_id !== undefined) {
+      return engineSignIn(env) ? saveRefusal(call, 'invalid_arguments', 'Reload Leads.') : null;
+    }
     body.stage = fields.stage;
     if (body.stage === 'archived') body.reason = stage_review?.reason;
   }
@@ -779,7 +792,7 @@ async function engineSave(request, env, call) {
     return mcpReply(call, response, JSON.stringify({ ...body, ok: true }), false);
   }
   if (call.params.name === 'save-engine-home-mark') {
-    if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+    if (!await routeToEngine(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     if (!['snooze', 'unsnooze', 'drop', 'done', 'undo_done'].includes(call.params.arguments.action))
       return saveRefusal(call, 'invalid_arguments', 'Refresh Home and choose an available action.');
     return engineAnswer(request, env, call, { path: '/api/engine/home/marks' }, { allowHandoff: false });
@@ -788,7 +801,7 @@ async function engineSave(request, env, call) {
   if (homeSave) {
     const { id, ...body } = call.params.arguments;
     if (!isUuid(id)) return saveRefusal(call, 'not_found', 'Refresh Home and try again.');
-    if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+    if (!await routeToEngine(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     const [record, action] = homeSave;
     return engineAnswer(request, env, call, { path: `/api/engine/${record}/${id}/${action}` },
       { allowHandoff: false, body, rawClientError: record === 'proposals' });
@@ -879,9 +892,9 @@ async function refuseFrozenSave(request, env, url, call) {
     }
     const calendarAnswer = (verb === 'answer-board-question' && args?.board_id === 'calendar-agenda') ||
       (verb === 'log-activity' && args?.kind === 'meeting' && Object.hasOwn(args, 'calendar_event_key'));
-    if (calendarAnswer && await switchedOn(env, HOME))
+    if (calendarAnswer && await routeToEngine(env, HOME))
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and answer the question in Today.');
-    if ((verb === 'review-deal-update' || LEGACY_HOME_MARKS.has(verb)) && await switchedOn(env, HOME))
+    if ((verb === 'review-deal-update' || LEGACY_HOME_MARKS.has(verb)) && await routeToEngine(env, HOME))
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     const hint = FROZEN_TOOLS.get(verb) ?? (CUTOVER_SAVES.has(verb) ? DEAL_PAGE_HINT : null);
     return hint && await switchedOn(env, NEXT_DEAL_SAVES) ? saveRefusal(call, 'old_save_closed', hint) : null;
@@ -1037,6 +1050,8 @@ async function handleRequest(request, env) {
   }
 
   if (pathname.startsWith('/api/engine/')) {
+    const tourPlanner = /^\/api\/engine\/deals\/[^/]+\/tours(?:\/|$)/.test(pathname) || pathname === '/api/engine/properties/search';
+    if (tourPlanner && !await switchedOn(env, DEAL_TOURS)) return json({ error: 'not_found' }, 404);
     if (/^\/api\/engine\/doc\/(turns|conversations)(?:\/|$)/.test(pathname) && !engineSignIn(env))
       return json({ error: 'not_found' }, 404);
     const documentWriteMethod = /^\/api\/engine\/files\/[a-f0-9]{64}$/.test(pathname) ? 'PUT'
@@ -1050,7 +1065,7 @@ async function handleRequest(request, env) {
     const meetingAnswer = request.method === 'POST' &&
       (/^\/api\/engine\/calendar\/reviews\/[a-f0-9]{16}\/dismissal$/.test(pathname)
       || (pathname === '/api/engine/activities' && (await request.clone().json().catch(() => null))?.calendar_review_key !== undefined));
-    if (meetingAnswer && !await switchedOn(env, HOME)) return json({ error: 'not_found' }, 404);
+    if (meetingAnswer && !await routeToEngine(env, HOME)) return json({ error: 'not_found' }, 404);
     if (request.method === 'POST' && /^\/api\/engine\/next-steps\/[^/]+\/end$/.test(pathname)) {
       if (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES))
         return json({ error: 'reload_deals' }, 409);
