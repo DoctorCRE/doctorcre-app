@@ -70,7 +70,7 @@ export async function proveDeliverables({
           assert.equal(await item.locator("h3").textContent(), receipt.filename);
           assert.equal(
             await item.locator(":scope > p").textContent(),
-            `${receipt.bytes.toLocaleString()} bytes · ${receipt.visibility === "private" ? "Private" : "Shared · ready for publication"} · Version ${receipt.version}`,
+            `${receipt.bytes.toLocaleString()} bytes · ${receipt.visibility === "private" ? "Private" : "Shared"} · Version ${receipt.version}`,
           );
           assert.deepEqual(await item.locator("details p").allTextContents(), [
             `SHA-256 ${receipt.sha256}`,

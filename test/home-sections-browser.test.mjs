@@ -628,8 +628,10 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
 
   const id = number => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
   const deal = id(1), step = id(2), checklist = id(3), otherStep = id(4), reviewStep = id(5), property = id(14);
+  const carrPropertyRequests = [];
   await page.route('**/api/tours/property-evidence/v1?*', route => {
     const selected = new URL(route.request().url()).searchParams.get('property_id');
+    carrPropertyRequests.push(selected);
     return route.fulfill({ json: { data: { schema: 'tour-property-evidence.v1', property_id: selected,
       facts: { site_address: { status: 'reviewed', value: selected === property ? '100 Cedar Suite' : '200 Other Suite' } },
     } } });
@@ -646,7 +648,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   });
   const completed = { source_state: 'done', section: 'done', completed_at: NOW.toISOString() };
   const task = row(2, 'next_action', 'Follow-up due for Example Dental — send the lease', 'Pat requested the lease at the tour.', 'Mark done',
-    { action_id: step, action_version: 1, open_url: stepUrl(step), due_on: '2026-11-02' });
+    { action_id: step, action_version: 1, open_url: stepUrl(step), due_on: '2026-11-02', days_late: 1 });
   const followUp = row(19, 'capture_post_call_action', 'Call with Pat Example left a follow-up — call Pat back',
     'Pat asked for a callback.', 'Mark done', { kind_label: 'Call follow-up', action_id: id(19), action_version: 1,
       open_url: `/calls?session=${id(12)}`, source_activity: { kind: 'call', happened_at: NOW.toISOString(), contact: 'Pat Example' } });
@@ -766,6 +768,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   if (planner) await page.locator('html[data-deal-tours-from-engine]').waitFor({ state: 'attached' });
   const propertyView = page.getByRole('region', { name: 'Property from tour feedback' });
   await propertyView.getByText('100 Cedar Suite', { exact: true }).waitFor();
+  assert.deepEqual(carrPropertyRequests, [property]);
   assert.equal(await propertyView.getByText('200 Other Suite', { exact: true }).count(), 0);
   assert.deepEqual(tourRequests, []);
   await open('/?mode=live');
@@ -981,7 +984,7 @@ async function dashboard(t, width, theme, timezone) {
 
   const state = {
     items: [
-      step(1, 'Send the signed lease', { due_on: '2026-10-31' }),
+      step(1, 'Send the signed lease', { due_on: '2026-10-31', days_late: 3 }),
       step(2, 'Call the practice manager', { due_on: '2026-11-03' }),
       step(3, 'Ask the surveyor for pricing'),
       step(4, 'Send the sample floor plan'),
@@ -1037,7 +1040,7 @@ async function dashboard(t, width, theme, timezone) {
       target_name: state.filingChoices && args.id === id(41) ? null : 'Example Dental',
       evidence: state.proposalEvidence ?? (args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.'),
       reason: args.id === id(41) ? 'The email names the suite.' : 'The manager needs the floor plan.',
-      what: args.id === id(42) ? 'Send the floor plan' : null,
+      what: args.id === id(42) ? state.proposalInstruction ?? 'Send the floor plan' : null,
       source_activity: mailSource, thread: state.thread,
       ...(args.id === id(41) && state.filingChoices && { filing_choices: state.filingChoices }),
     };
@@ -1094,6 +1097,72 @@ const mailSuggestions = [{ id: id(41) }, { id: id(42) }];
 const mailCard = { ...step(40, 'Review the floor plan request'), item_id: `suggestion:${id(40)}`,
   source_type: 'email_proposal', kind_label: 'Suggestion', suggestions: mailSuggestions, card_id: 'conversation:2',
   action_id: null, action_version: null, open_url: null, deal_id: null, primary_action: null };
+
+for (const grouped of [true, false]) test(`Home uses reported lateness on the ${grouped ? 'grouped' : 'fallback'} read`, async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light', 'UTC');
+  state.dashboard = grouped;
+  await page.clock.setSystemTime(new Date('2026-11-04T02:00:00Z'));
+  state.items = [
+    step(1, 'Send the signed lease', { card_id: 'lease', due_on: '2026-10-31', days_late: 3 }),
+    step(3, 'Check in with the surveyor', { card_id: 'vendor', due_on: '2026-11-01', days_late: 2,
+      deal_id: null, open_url: `/relationships?node=party:${id(90)}&step=${id(3)}` }),
+    step(4, 'Review the completed site visit', { card_id: 'completion', due_on: '2026-11-02', days_late: 1,
+      source_type: 'notification', source_id: id(44), merged_source_ids: [id(44)], action_id: null,
+      why: 'A meeting note says the visit happened.', primary_action: 'Review completion',
+      completion_review: { proposal_id: id(44), next_step_id: id(4), can_resolve: true } }),
+    { ...mailCard, title: 'Review where to file the email', primary_action: 'Choose vendor', filing_choices: [vendorChoice] },
+    step(2, 'Ask the surveyor for pricing', { card_id: 'pricing', due_on: '2026-11-02' }),
+  ];
+  await open('/?mode=live');
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const filing = reminders.getByRole('link', { name: 'Review where to file the email' });
+  await filing.waitFor();
+  assert.ok(await filing.evaluate(node => node.getBoundingClientRect().bottom <
+    node.closest('.home-slice').querySelector('.home-late').getBoundingClientRect().top));
+  const late = reminders.getByRole('region', { name: 'Late', exact: true });
+  assert.deepEqual(await late.locator('article h3').allTextContents(), [
+    'Send the signed lease', 'Check in with the surveyor', 'Review the completed site visit',
+  ]);
+  for (const label of ['3 days late', '2 days late', '1 day late']) {
+    assert.ok(await late.getByText(new RegExp(`${label}$`)).isVisible(), await reminders.innerText());
+  }
+});
+
+for (const width of [390, 1440]) test(`Home review shows the whole next-step instruction at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.proposalInstruction = 'Check the dimensions and send the revised floor plan to the practice manager. '.repeat(8).trim();
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const field = page.getByRole('textbox', { name: 'Next step', exact: true });
+  await field.waitFor();
+  assert.equal(await field.inputValue(), state.proposalInstruction);
+  assert.deepEqual(await field.evaluate(node => [
+    node.scrollWidth <= node.clientWidth, node.scrollHeight <= node.clientHeight,
+    node.clientHeight > 44,
+  ]), [true, true, true]);
+});
+
+test('Home suggestion instructions submit on Enter and add a line on Shift+Enter', async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.filingWrites = [];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const field = page.getByRole('textbox', { name: 'Next step', exact: true });
+  await field.fill('Check the floor plan');
+  await field.press('Shift+Enter');
+  assert.equal(await field.inputValue(), 'Check the floor plan\n');
+  assert.deepEqual(state.filingWrites, []);
+  await field.press('S');
+  await field.press('Enter');
+  await field.waitFor({ state: 'hidden' });
+  assert.deepEqual(state.filingWrites.map(({ decision, edits }) => ({ decision, edits })), [
+    { decision: 'accept', edits: { what: 'Check the floor plan\nS', due_on: null } },
+  ]);
+});
 
 for (const available of [true, false]) test(`Home email suggestions ${available ? 'share one thread' : 'hide a missing mailbox source'}`, async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');

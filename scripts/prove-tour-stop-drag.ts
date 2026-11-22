@@ -134,11 +134,8 @@ export async function prove(options: {
             ),
             { exitCode: 78 },
           );
-        await activePage.locator('iframe[title="Tour shortlist, route and packet"]').waitFor();
-        await activePage
-          .frameLocator('iframe[title="Tour shortlist, route and packet"]')
-          .locator("#route-editing")
-          .waitFor();
+        await activePage.locator('iframe[title="Tour shortlist and route"]').waitFor();
+        await activePage.frameLocator('iframe[title="Tour shortlist and route"]').locator("#route-editing").waitFor();
         const editor = activePage.frames().find((frame) => frame.url().includes("/tours/route-editor.html"));
         if (!editor) throw insufficient();
         await editor.locator("#route-editing").evaluate((el) => {
@@ -153,7 +150,7 @@ export async function prove(options: {
         }, theme);
         const before = await observeStopDrag(activePage);
         await activePage.reload();
-        const refreshed = activePage.frameLocator('iframe[title="Tour shortlist, route and packet"]');
+        const refreshed = activePage.frameLocator('iframe[title="Tour shortlist and route"]');
         await refreshed.locator("#route-stops > li").first().waitFor({ state: "attached" });
         assert.deepEqual(
           await refreshed

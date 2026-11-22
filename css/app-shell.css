@@ -317,7 +317,6 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
   #appShell::before { display: none; }
   .app-shell-header { background: var(--surface-1); display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 44px; align-items: center; gap: 0 !important; padding: var(--space-1) var(--space-2) !important; border: 0; border-top: var(--hairline-width) solid var(--hairline); height: calc(56px + env(safe-area-inset-bottom)); padding-bottom: max(var(--space-1), env(safe-area-inset-bottom)) !important; }
   .app-shell-brand { display: none; }
-  .report-shell .app-shell-search { grid-column: 2; grid-row: 1; }
   .app-shell-menu { grid-column: 1; grid-row: 1; min-width: 0; flex: none !important; }
   .app-shell-navigation { flex-direction: row; justify-content: space-between; gap: 0; overflow-x: auto; }
   .app-shell-navigation > a { flex: 1 1 0; }
@@ -354,7 +353,6 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
 .lead-detail-grid summary { color: var(--fg); cursor: pointer; min-height: var(--touch); display: flex; align-items: center; }
 .has-app-layout dialog#recordPanel { inset: 0; margin: auto; transform: none; box-shadow: var(--shadow-overlay); padding: var(--space-5); }
 .has-app-layout dialog#recordPanel::backdrop { background: var(--scrim); }
-body.report-shell { padding-left: var(--layout-rail); padding-bottom: 34px; }
 .app-layout-today .receipts { padding: 0; margin: 0; border: 0; background: transparent; }
 .app-layout-today .receipts-live:empty { display: none; }
 .entry-original { white-space: pre-wrap; }
@@ -363,7 +361,6 @@ body.report-shell { padding-left: var(--layout-rail); padding-bottom: 34px; }
 .app-layout-sidebar .library-scroll { max-height: 250px; }
 .app-layout-sidebar .library-filter input { width: 100%; }
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
-  body.report-shell { padding-left: 0; padding-bottom: calc(var(--layout-bottom) + var(--space-3)); }
   .lead-detail-grid { grid-template-columns: 1fr; }
 }
 .has-app-layout .card-move, .has-app-layout .lead-move { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

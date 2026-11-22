@@ -3337,7 +3337,42 @@ for (const width of [1440, 390]) {
   });
 }
 
+test('the switched Deals editor submits once on Enter and adds a line on Shift+Enter at 390px', async t => {
+  const nextActions = [{ id: crypto.randomUUID(), owner: 'joe', status: 'open', description: 'Check the floor plan' }];
+  const { page, deal } = await clientWebsitePage(t, { width: 390, nextActions });
+  await page.goto(`${origin}/deals?deal=${deal}&focus=next-step&mode=live`);
+  const form = page.locator('#detailUpdateForm');
+  await form.evaluate(node => {
+    node.dataset.submissionCount = '0';
+    node.addEventListener('submit', event => {
+      node.dataset.submissionCount = String(Number(node.dataset.submissionCount) + 1);
+      event.preventDefault();
+      event.stopPropagation();
+    });
+  });
+  const field = page.getByLabel('Your next step', { exact: true });
+  await field.fill('Send the floor plan');
+  await field.press('Shift+Enter');
+  assert.equal(await field.inputValue(), 'Send the floor plan\n');
+  assert.equal(await form.getAttribute('data-submission-count'), '0');
+  await field.press('Enter');
+  assert.equal(await form.getAttribute('data-submission-count'), '1');
+  assert.equal(await field.inputValue(), 'Send the floor plan\n');
+});
+
 for (const width of [1440, 390]) {
+  test(`the switched Deals editor wraps the saved instruction at ${width}px`, async t => {
+    const instruction = 'Confirm the revised floor plan with the site manager. '.repeat(8).trim();
+    const nextActions = [{ id: crypto.randomUUID(), owner: 'joe', status: 'open', description: instruction }];
+    const { page, deal, enginePaths } = await clientWebsitePage(t, { width, nextActions });
+    await page.goto(`${origin}/deals?deal=${deal}&focus=next-step&mode=live`);
+    const field = page.getByLabel('Your next step', { exact: true });
+    await field.waitFor();
+    assert.equal(await field.inputValue(), instruction);
+    assert.ok(await field.evaluate(node => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight));
+    assert.ok(enginePaths.includes(`/api/engine/deals/${deal}`));
+  });
+
   test(`a Home link focuses the exact deal step at ${width}px`, async t => {
     const nextActions = ['dell', 'joe'].map(owner => ({
       id: crypto.randomUUID(), owner, status: 'open', due_on: '2026-11-10',

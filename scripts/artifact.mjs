@@ -7,7 +7,7 @@ import tarStream from "tar-stream";
 import { Readable } from "node:stream";
 import { isUiAsset, UI_SOURCE, uiAssets } from "./ui-bundle.mjs";
 import { CARR_INTERFACE, carrInterfaceText, composeCarrInterface } from "./carr-interface.mjs";
-import { build, transform } from "esbuild";
+import { transform } from "esbuild";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -16,7 +16,7 @@ import { dirname, join, posix } from "node:path";
 const ROOT_FILES = ["manifest.webmanifest", "contracts/client-needs.v1.json"];
 const GENERATED_PATH = "tours/day-shell.generated.js";
 const isGenerated = path => path === GENERATED_PATH || isUiAsset(path);
-const ROOT_DIRECTORIES = ["css", "data", "js", "public-shell", "reports", "tours", "portal"];
+const ROOT_DIRECTORIES = ["css", "data", "js", "public-shell", "tours", "portal"];
 const CONTRACT_INPUTS = {
   carr_interface: CARR_INTERFACE,
   route_contract: "js/routes.js",
@@ -120,40 +120,6 @@ async function assembleArtifact(commit, paths, sourceContracts, readSource) {
         target: "es2022", legalComments: "none", minify: true, charset: "utf8",
       });
       content = Buffer.from(result.code);
-    }
-    if (path === "reports/share.js") {
-      // Compile the report's explicit module graph from the same admitted bytes
-      // used by assembly and committed-source verification, never the live disk.
-      const result = await build({
-        entryPoints: [path], bundle: true, write: false, format: "iife",
-        platform: "browser", target: "es2022", legalComments: "none", minifyWhitespace: true,
-        plugins: [{ name: "artifact-source", setup(builder) {
-          builder.onResolve({ filter: /.*/ }, (args) => {
-            // The report adapter already serves lazy map assets at /vendor/.
-            if (args.kind === "dynamic-import" && args.path.startsWith("/vendor/") && paths.includes(`reports${args.path}`)) {
-              return { path: args.path, external: true };
-            }
-            const resolved = args.kind === "entry-point" ? posix.normalize(args.path)
-              : posix.normalize(posix.join(posix.dirname(args.importer), args.path));
-            if ((args.kind !== "entry-point" && !args.path.startsWith(".")) || !(paths.includes(resolved) || resolved === "src/ui/public-tour-packet.ts")) {
-              throw new Error(`report import is not an admitted artifact input: ${args.path}`);
-            }
-            return { path: resolved, namespace: "artifact-source" };
-          });
-          builder.onLoad({ filter: /.*/, namespace: "artifact-source" }, async (args) => ({
-            contents: (await readSource(args.path)).toString("utf8"), loader: args.path.endsWith(".ts") ? "ts" : "js",
-          }));
-        } }],
-      });
-      content = Buffer.from(result.outputFiles[0].contents);
-    }
-    if (path === "reports/share.css") {
-      // The share page is served from a restricted asset set, so the V2 tokens and the
-      // shared shell travel inside its one stylesheet: tokens first, shell last.
-      // The shell's own @import of the tokens is dropped because the tokens are inlined here.
-      const [tokens, shell] = await Promise.all([readSource("css/tokens.css"), readSource("css/app-shell.css")]);
-      const inlinedShell = Buffer.from(shell.toString("utf8").replace('@import url("/css/tokens.css");\n', ""));
-      content = Buffer.concat([tokens, Buffer.from("\n"), content, Buffer.from("\n"), inlinedShell]);
     }
     if (["tours/app.js", "tours/planner.js"].includes(path)) {
       const result = await transform(content.toString("utf8"), { loader: "js", format: "esm", target: "es2022", minifyWhitespace: true, legalComments: "none" });

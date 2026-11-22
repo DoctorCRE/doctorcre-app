@@ -582,6 +582,24 @@ test('past replacement date is rejected before saving the update', async t => {
   assert.equal(detail.thread.filter(item => item.text === 'Synthetic past date note').length, 0);
 });
 
+for (const width of [390, 1440]) test(`Deal Overview shows the whole next-step instruction at ${width}px`, async t => {
+  const page = await open(t);
+  await page.setViewportSize({ width, height: 844 });
+  const instruction = 'Check the dimensions and send the revised floor plan to the practice manager. '.repeat(8).trim();
+  await page.evaluate(async text => {
+    const { state } = await import('/js/pipeline.js');
+    const { deal } = await state.client.getDeal('d14');
+    await state.client.setNextStep({ deal: 'd14', text, base_version: deal.version, idempotency_key: 'synthetic-long-step' });
+  }, instruction);
+  await room(page);
+  const field = page.getByLabel('Next step', { exact: true });
+  assert.equal(await field.inputValue(), instruction);
+  assert.deepEqual(await field.evaluate(node => [
+    node.scrollWidth <= node.clientWidth, node.scrollHeight <= node.clientHeight,
+    node.clientHeight > 44,
+  ]), [true, true, true]);
+});
+
 test('next step field bounds input and disables autocomplete', async t => {
   const page = await open(t); await room(page);
   assert.equal(await page.locator('#dealUpdateStep').getAttribute('maxlength'), '10000');

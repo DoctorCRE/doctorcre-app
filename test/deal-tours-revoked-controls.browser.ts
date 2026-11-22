@@ -76,7 +76,7 @@ const row = {
   accepted_route_version: 0,
 };
 
-test("packet editor retirement transitions in the parent workspace", async (t) => {
+test("tour editor retirement transitions in the parent workspace", async (t) => {
   const { buildArtifact } = await import("../scripts/artifact.mjs");
   const { temporaryDirectory } = await import("../scripts/temp-directory.mjs");
   const { ownedServer: startFixtureServer } = await import("./fixture-probe.ts");
@@ -184,8 +184,8 @@ test("packet editor retirement transitions in the parent workspace", async (t) =
           const editor = page.frameLocator("iframe");
           await editor.locator("#tour-name").filter({ hasText: row.name }).waitFor();
           await page.waitForLoadState("networkidle");
-          await editor.locator("#cheat-content").fill("Synthetic unsaved packet notes");
-          assert.equal(await editor.locator("#cheat-content").inputValue(), "Synthetic unsaved packet notes");
+          await editor.locator("#cheat-content").fill("Synthetic unsaved tour notes");
+          assert.equal(await editor.locator("#cheat-content").inputValue(), "Synthetic unsaved tour notes");
           assert.equal(await page.evaluate(() => window.editorRetirementPanel.hasUnsavedChanges()), true);
           if (state !== "Dirty") {
             const request = page.waitForRequest((request) => request.url().includes("/api/tours/cheat-sheet/autosave"));
