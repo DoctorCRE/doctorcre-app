@@ -208,7 +208,7 @@ export function mountDealTours(
       root.render(
         <section className="deal-tours" aria-label="Deal tours">
           <h2>Properties &amp; tours</h2>
-          {!readOnly && <p>Plan and review the shortlist, route and packet for this deal.</p>}
+          {!readOnly && <p>Plan and review the shortlist and route for this deal.</p>}
           {lifecycle === "retired" ? (
             <p role="status">Your session has changed. Reload this deal to continue.</p>
           ) : selection.kind === "ready" || selection.kind === "creating" ? (
@@ -225,7 +225,7 @@ export function mountDealTours(
                 {waitingForReadback && "Finishing save…"}
               </div>
               <iframe
-                title="Tour shortlist, route and packet"
+                title="Tour shortlist and route"
                 src={`/tours/route-editor.html?embedded=1&deal=${encodeURIComponent(dealId)}&generation=${detailGeneration}${selection.kind === "ready" ? `&tour=${encodeURIComponent(selection.tour.id)}` : ""}`}
                 style={{ width: "100%", minHeight: 700, border: 0, display: "block" }}
               />

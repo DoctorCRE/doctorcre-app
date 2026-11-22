@@ -26,7 +26,6 @@ export const routeEntries = [
   ["/relationships","relationships.html","/business"],
   ["/review-workflows","review-workflows.html","/"],
   ["/search","search.html","/business"],
-  ["/share","reports/share.html","/share"],
   ["/status","status.html","/control-room"],
   ["/tours","tours/index.html","/tours"],
   ["/updates","notifications.html","/notifications"],
@@ -88,7 +87,6 @@ export const switcherUtilityPages = [
   toursDestination,
   { label: "Doc Activity", href: "/doc-activity" },
   { label: "Client portal", href: "/client-portal" },
-  { label: "Share", href: "/share" },
 ];
 
 export const sectionForRoute = {
@@ -117,13 +115,14 @@ export const sectionForRoute = {
   "/room.html": "/control-room/progress/work",
   "/progress-board": "/control-room/progress/board/carr-v5",
   "/tours/day.html": "/tours",
-  "/share": "/tours",
   "/notifications": "/updates",
   "/system-work.html": "/work-requests"
 };
 
 export function navigationFor(root) {
-  if (!root.documentElement.hasAttribute('data-deals-saves-from-engine')) return navigationItems;
+  const html = root.documentElement;
+  if (html.getAttribute('data-partner-sign-in') !== 'engine' && !html.hasAttribute('data-deals-saves-from-engine'))
+    return navigationItems;
   return navigationItems.map(item => item.href === '/leases' ? { ...item, label: 'Closing anniversaries' } : item);
 }
 

@@ -40,7 +40,7 @@ test('UI copy CLI requires explicit source paths', () => {
 test('configured CI lint covers React island source', async t => {
   const dir = await temporaryDirectory('doctorcre-copy-roots-');
   t.after(() => rm(dir, { recursive: true, force: true }));
-  for (const path of ['scripts', 'js', 'css', 'data', 'public-shell', 'reports', 'tours', 'test/fixtures', 'tests/fixtures', 'src/ui'])
+  for (const path of ['scripts', 'js', 'css', 'data', 'public-shell', 'tours', 'test/fixtures', 'tests/fixtures', 'src/ui'])
     await mkdir(join(dir, path), { recursive: true });
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { 'copy:check': pkg.scripts['copy:check'] } }));

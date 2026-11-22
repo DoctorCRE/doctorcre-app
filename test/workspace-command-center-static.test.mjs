@@ -10,7 +10,6 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 test("workspace surfaces share navigation while the client portal mounts its dedicated reader", async () => {
   const routes = (await import("../js/routes.js")).routeContract;
   for (const [route, file] of Object.entries(routes.routes)) {
-    if (file === "reports/share.html") continue;
     const html = await readFile(`${ROOT}/${file}`, "utf8");
     if (route === "/client-portal") {
       assert.match(html, /id="portalForm"/);

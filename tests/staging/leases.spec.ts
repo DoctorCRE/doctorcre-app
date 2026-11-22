@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { requireStagingAuthority, withJourneyFixture } from './journey-fixture.mjs';
+import { withJourneyFixture } from './journey-fixture.mjs';
 import { leaseDetails } from './journey-flows.mjs';
 
 test.beforeEach(async ({ page }) => {
@@ -17,7 +17,6 @@ test('Leases switch missing dates and timeline', async ({ page }) => {
 
 test('A lease opens and closes its details', async ({ page }) => {
   test.setTimeout(420000);
-  await requireStagingAuthority(page.request);
   await withJourneyFixture(fixture => leaseDetails(page, fixture));
 });
 

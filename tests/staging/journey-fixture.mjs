@@ -6,29 +6,6 @@ import { join } from 'node:path';
 const execute = promisify(execFile);
 export const fixtureProducerCommit = '517ecc12c0480d859dd1f4cb270f2a283a853065';
 export const homeFixtureCommit = 'c53b791f15d07b4e2c64dfd4aac10f3b03277161';
-const stagingOrigin = 'https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev';
-
-export async function requireStagingAuthority(request) {
-  const response = await request.post('/mcp', {
-    headers: { origin: stagingOrigin, 'sec-fetch-site': 'same-origin' },
-    data: { jsonrpc: '2.0', id: randomUUID(), method: 'tools/call',
-      params: { name: 'issue-tour-share-grant', arguments: {
-        idempotency_key: randomUUID(), projection_id: randomUUID(),
-        token_digest: 'sha256:' + 'a'.repeat(64), permission_scopes: ['invalid-preflight-scope'],
-        expires_at: new Date(Date.now() + 60000).toISOString(), receipt_digest: 'sha256:' + 'b'.repeat(64),
-      } } },
-  });
-  if (response.status() !== 200) throw new Error('staging authority preflight failed to authenticate');
-  const body = await response.json();
-  const value = JSON.parse(body.result?.content?.find(item => item.type === 'text')?.text || '{}');
-  if (value.error === 'authority_connection_unavailable') {
-    throw new Error('staging authority unavailable: CARR_DB_AUTHORITY_JOE_URL must be provisioned on carr-mcp-staging');
-  }
-  if (value.error !== 'tour_share_scope_invalid') {
-    throw new Error(`staging authority preflight returned an unexpected refusal: ${value.error || body.error?.code || 'missing result'}`);
-  }
-}
-
 async function produce(action, run, home = false) {
   const repo = process.env.CARR_JOURNEY_FIXTURE_REPO;
   if (!repo) throw new Error('CARR_JOURNEY_FIXTURE_REPO must name the pinned CARR checkout containing tools/staging-journey-fixtures.py');

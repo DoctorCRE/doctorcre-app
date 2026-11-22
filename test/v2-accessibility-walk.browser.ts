@@ -51,7 +51,7 @@ for (const scenario of [
         </script>`;
       if (scenario === "unavailable surface") body = "Unavailable";
       else if (url.pathname === "/deals" && url.search)
-        body = '<iframe title="Tour shortlist, route and packet" src="/frame"></iframe>';
+        body = '<iframe title="Tour shortlist and route" src="/frame"></iframe>';
       else if (url.pathname === "/frame") body = open ? tour.replace("<details ", "<details open ") : tour;
       else if (url.pathname === "/deals")
         body =
@@ -85,7 +85,7 @@ for (const scenario of [
     const locate = page.locator.bind(page);
     page.locator = (selector, options) => {
       const locator = locate(selector, options);
-      if (selector === 'iframe[title="Tour shortlist, route and packet"]' && scenario === "unavailable frame") {
+      if (selector === 'iframe[title="Tour shortlist and route"]' && scenario === "unavailable frame") {
         const handle = locator.elementHandle.bind(locator);
         locator.elementHandle = async (options) => {
           const element = await handle(options);

@@ -6,15 +6,6 @@ export function activeDestination(pathname) {
   return sectionForRoute[routeKey(actionLinkRoute(pathname))] || pathname;
 }
 
-export function appOriginForReport(origin) {
-  try {
-    const url = new URL(origin);
-    if (!url.hostname.startsWith("reports.")) return "";
-    url.hostname = `app.${url.hostname.slice("reports.".length)}`;
-    return url.origin;
-  } catch { return ""; }
-}
-
 const destinationIcons = {
   "/": "M3 10.5 12 3l9 7.5M5 9v11h5v-6h4v6h5V9",
   "/deals": "M3 5h18v14H3zM9 5v14m6-14v14",
@@ -34,20 +25,20 @@ function icon(path) {
   return `<svg class="app-shell-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
 }
 
-function link({ label, href }, current, base) {
+function link({ label, href }, current) {
   const active = href === current;
   const badge = label === "Updates" ? '<span class="nav-badge" id="navUnreadBadge" hidden></span>' : "";
-  return `<a data-app-nav-item aria-label="${label}" title="${label}" href="${base}${href}"${active ? ' aria-current="page"' : ""}>${icon(destinationIcons[href])}<span class="app-shell-nav-label">${label}</span>${badge}</a>`;
+  return `<a data-app-nav-item aria-label="${label}" title="${label}" href="${href}"${active ? ' aria-current="page"' : ""}>${icon(destinationIcons[href])}<span class="app-shell-nav-label">${label}</span>${badge}</a>`;
 }
 
-export function appShellMarkup(pathname, base = "", search = "", items = navigationItems) {
+export function appShellMarkup(pathname, search = "", items = navigationItems) {
   const current = pathname === "/ideas-events" ? `/ideas-events?tab=${new URLSearchParams(search).get("tab") === "events" ? "events" : "ideas"}` : activeDestination(pathname);
-  const primary = items.filter(item => !item.secondary).map((item) => link(item, current, base)).join("");
+  const primary = items.filter(item => !item.secondary).map((item) => link(item, current)).join("");
   const secondary = items.filter(item => item.secondary);
-  const more = secondary.map(item => link(item, current, base)).join("");
+  const more = secondary.map(item => link(item, current)).join("");
   const moreActive = secondary.some(item => item.href === current);
   return `<header class="app-shell-header" aria-label="Workspace rail">
-    <a class="app-shell-brand" href="${base}/" aria-label="DoctorCRE Home">
+    <a class="app-shell-brand" href="/" aria-label="DoctorCRE Home">
       <svg viewBox="0 0 42 42" role="img" aria-label="Work flows from leads through deals to delivery">
         <path class="app-shell-flow" d="M7 21h9l6-9h9M16 21l6 9h9"/>
         <circle cx="7" cy="21" r="3"/><circle cx="22" cy="12" r="3"/><circle cx="31" cy="12" r="3"/><circle cx="22" cy="30" r="3"/><circle cx="31" cy="30" r="3"/>
@@ -56,9 +47,9 @@ export function appShellMarkup(pathname, base = "", search = "", items = navigat
     <div class="app-shell-menu">
       <nav class="app-shell-navigation" aria-label="Primary navigation">${primary}<div class="app-shell-more"><button type="button" class="app-shell-more-toggle${moreActive ? " app-shell-more-current" : ""}" aria-expanded="false" aria-label="More" title="More">${icon("M5 12h.01M12 12h.01M19 12h.01")}<span class="app-shell-nav-label">More</span></button><div class="app-shell-more-list" hidden>${more}</div></div></nav>
     </div>
-    <a class="app-shell-search" href="${base}/search" aria-label="Search" title="Search"${pathname === "/search" ? ' aria-current="page"' : ""}>${icon("M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0zm-1.5 4.5L21 21")}</a>
+    <a class="app-shell-search" href="/search" aria-label="Search" title="Search"${pathname === "/search" ? ' aria-current="page"' : ""}>${icon("M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0zm-1.5 4.5L21 21")}</a>
     <div class="app-shell-controls" aria-label="Workspace controls">
-      ${pathname === "/share" ? "" : `<a href="${base}/doc-chats" id="askDocLink" class="app-shell-control app-shell-ask-doc" hidden${pathname === "/doc-chats" ? ' aria-current="page"' : ""}>Ask Doc</a>`}
+      <a href="/doc-chats" id="askDocLink" class="app-shell-control app-shell-ask-doc" hidden${pathname === "/doc-chats" ? ' aria-current="page"' : ""}>Ask Doc</a>
       <button class="app-shell-control" type="button" data-pref="theme" data-on="dark" data-off="light" aria-pressed="true" aria-label="Dark mode" title="Dark mode">${icon("M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5z")}</button>
       <button class="app-shell-control" id="callModeButton" type="button" aria-label="Call mode" title="Call mode" aria-haspopup="dialog" hidden><span aria-hidden="true">☎</span></button>
       <button class="app-shell-control" id="colorAssistButton" type="button" aria-pressed="false" aria-label="Color assist" title="Color assist">${icon("M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM12 3v18m-6-5 6-6m-4 9 4-4M4 12l8-8")}</button>
@@ -67,10 +58,10 @@ export function appShellMarkup(pathname, base = "", search = "", items = navigat
           <strong id="accountWorkspace">Workspace</strong>
           <div class="app-shell-account-group" role="group" aria-label="Account"><h3>Account</h3>
           <button type="button" id="accountProfile">Profile</button>
-          ${pathname === "/share" ? "" : '<button type="button" id="accountHelp" aria-haspopup="dialog">How DoctorCRE works</button>'}
-          <a href="${base}/updates#prefForm">Notification preferences</a>
-          <a href="${base}/updates#docLinkSettings" id="accountDocLink" hidden>Doc link</a>
-          <a href="${base}/doc-activity"${pathname === "/doc-activity" ? ' aria-current="page"' : ""}>Doc Activity</a>
+          <button type="button" id="accountHelp" aria-haspopup="dialog">How DoctorCRE works</button>
+          <a href="/updates#prefForm">Notification preferences</a>
+          <a href="/updates#docLinkSettings" id="accountDocLink" hidden>Doc link</a>
+          <a href="/doc-activity"${pathname === "/doc-activity" ? ' aria-current="page"' : ""}>Doc Activity</a>
           </div>
           <div id="accountWorkspaceControls" class="app-shell-workspace-group" role="group" aria-label="Workspace" hidden><h3>Workspace</h3></div>
           <div class="app-shell-call-availability">
@@ -85,8 +76,7 @@ export function appShellMarkup(pathname, base = "", search = "", items = navigat
   </header>`;
 }
 
-// Reports mount this interface without app layout, identity reads or partner controls.
-export function mountNavigation(root = document, pathname = root.defaultView?.location.pathname || "/", { report = false, location = root.defaultView?.location || globalThis.location } = {}) {
+export function mountNavigation(root = document, pathname = root.defaultView?.location.pathname || "/", { location = root.defaultView?.location || globalThis.location } = {}) {
   const host = root.getElementById("appShell");
   if (!host) return;
   const fontStylesheet = root.querySelector('link[data-font-stylesheet][rel="preload"][as="style"]');
@@ -95,12 +85,7 @@ export function mountNavigation(root = document, pathname = root.defaultView?.lo
     if (root.readyState === "complete") activate();
     else root.defaultView.addEventListener("load", activate, { once: true });
   }
-  const base = appOriginForReport(location?.origin || "");
-  host.innerHTML = appShellMarkup(pathname, base, location?.search || "", navigationFor(root));
-  if (report || base) {
-    host.querySelector(".app-shell-controls").remove();
-  }
-  if (report || base || pathname === "/share") root.body.classList.add("report-shell");
+  host.innerHTML = appShellMarkup(pathname, location?.search || "", navigationFor(root));
   const moreButton = host.querySelector(".app-shell-more-toggle");
   const moreList = host.querySelector(".app-shell-more-list");
   moreButton.addEventListener("click", () => {

@@ -16,8 +16,6 @@ export const UI_ENTRIES = {
   'ui-tour-coordinate-review': 'tour-coordinate-review',
   'ui-tour-navigation': 'tour-navigation',
   'ui-tour-stop-drag': 'tour-stop-drag',
-  'ui-tour-client-download': 'tour-client-download',
-  'ui-tour-client-grants': 'tour-client-grants',
   'ui-broker-cheat-sheet': 'broker-cheat-sheet',
   'ui-phone-push': 'phone-push',
   'ui-doc-link-settings': 'doc-link-settings',

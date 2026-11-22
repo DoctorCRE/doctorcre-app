@@ -121,9 +121,6 @@ function domain() {
       assert.ok(body.content && typeof body.content === "object" && !Array.isArray(body.content));
       t.cheat_sheet = { content: structuredClone(body.content), revision_number: revision + 1 };
       result = { ok: true, cheat_sheet_revision_id: uuid(), revision_number: revision + 1 };
-    } else if (path === "/api/tours/projection") {
-      const t = tours.get(body.tour_id); t.projection_status = "draft";
-      result = { projection_id: uuid() };
     } else throw new Error(`Unexpected path: ${path}`);
     replay.set(body.idempotency_key, { body: JSON.stringify(body), result });
     if (fault?.path === path && fault.kind === "lost") { fault = null; throw new Error("response lost"); }
@@ -906,16 +903,6 @@ for (const value of ["[]", "null", "42", '"text"']) test(`S2 broker notes ${valu
   assert.deepEqual(store.calls.find(call => call.path === "/api/tours/cheat-sheet/autosave").body.content, { notes: value }); dom.window.close();
 });
 
-test("S2 projection retry reuses its key and as-of timestamp after a committed lost response", async () => {
-  const store = domain(), { dom, doc } = await open(store); await create(doc); await addCart(doc); await saveAndAccept(doc);
-  store.fail("/api/tours/projection", "lost"); doc.querySelector("#generate-projection").click(); await settle();
-  assert.match(doc.querySelector("#tour-action-state").textContent, /unknown/i);
-  assert.equal(doc.querySelector("#retry-tour-action").hidden, false);
-  doc.querySelector("#retry-tour-action").click(); await settle();
-  const writes = store.calls.filter(call => call.path === "/api/tours/projection");
-  assert.equal(writes.length, 2); assert.deepEqual(writes[1].body, writes[0].body); dom.window.close();
-});
-
 test("S2 sheet reload restores the same draft and request before receipt reconciliation", async () => {
   const store = domain(), first = await open(store); await create(first.doc);
   fill(first.doc, "#cheat-content", "Notes retained across reload"); store.fail("/api/tours/cheat-sheet/autosave", "lost");
@@ -930,19 +917,18 @@ test("S2 sheet reload restores the same draft and request before receipt reconci
   assert.equal(writes.length, 2); assert.deepEqual(writes[1].body, writes[0].body); next.dom.window.close();
 });
 
-for (const kind of ["sheet", "projection"]) test(`S2 pending ${kind} stays bound to its original session after identity changes`, async () => {
+test("S2 pending sheet stays bound to its original session after identity changes", async () => {
   const store = domain(), { dom, doc } = await open(store); await create(doc);
-  if (kind === "projection") { await addCart(doc); await saveAndAccept(doc); }
-  const path = kind === "sheet" ? "/api/tours/cheat-sheet/autosave" : "/api/tours/projection";
-  if (kind === "sheet") fill(doc, "#cheat-content", "Prior session notes");
-  store.fail(path, "lost"); doc.querySelector(kind === "sheet" ? "#save-sheet" : "#generate-projection").click(); await settle();
+  const path = "/api/tours/cheat-sheet/autosave";
+  fill(doc, "#cheat-content", "Prior session notes");
+  store.fail(path, "lost"); doc.querySelector("#save-sheet").click(); await settle();
   const retained = dom.window.sessionStorage.getItem("doctorcre-tour-other-writes-v1");
   const normal = store.fetch;
   dom.window.fetch = async (requestPath, options) => {
     const reply = await normal(requestPath, options), json = await reply.json();
     return { ...reply, json: async () => ({ ...json, csrf_token: "different-synthetic-session" }) };
   };
-  doc.querySelector(kind === "sheet" ? "#save-sheet" : "#retry-tour-action").click(); await settle();
+  doc.querySelector("#save-sheet").click(); await settle();
   assert.equal(store.calls.filter(call => call.path === path).length, 1);
   assert.equal(dom.window.sessionStorage.getItem("doctorcre-tour-other-writes-v1"), retained);
   assert.equal(doc.querySelector("#tour-panel").hidden, false);
@@ -965,11 +951,10 @@ test("S2 malformed successful sheet receipt remains unknown and replays its reta
   assert.equal(writes.length, 2); assert.deepEqual(writes[1].body, writes[0].body); dom.window.close();
 });
 
-for (const status of [401, 403]) for (const kind of ["sheet", "projection"]) test(`S2 POST ${status} clears the ${kind} view without losing its retained request`, async () => {
+for (const status of [401, 403]) test(`S2 POST ${status} clears the sheet view without losing its retained request`, async () => {
   const store = domain(), { dom, doc } = await open(store); await create(doc);
-  if (kind === "projection") { await addCart(doc); await saveAndAccept(doc); }
-  const path = kind === "sheet" ? "/api/tours/cheat-sheet/autosave" : "/api/tours/projection";
-  if (kind === "sheet") fill(doc, "#cheat-content", "Earlier save may already be committed");
+  const path = "/api/tours/cheat-sheet/autosave";
+  fill(doc, "#cheat-content", "Earlier save may already be committed");
   const normal = store.fetch; let posts = 0;
   dom.window.fetch = async (requestPath, options) => {
     const attempt = requestPath === path ? ++posts : 0;
@@ -977,9 +962,9 @@ for (const status of [401, 403]) for (const kind of ["sheet", "projection"]) tes
     if (attempt === 2) return response(null, status);
     return reply;
   };
-  store.fail(path, "lost"); doc.querySelector(kind === "sheet" ? "#save-sheet" : "#generate-projection").click(); await settle();
+  store.fail(path, "lost"); doc.querySelector("#save-sheet").click(); await settle();
   const retained = dom.window.sessionStorage.getItem("doctorcre-tour-other-writes-v1");
-  const retry = doc.querySelector(kind === "sheet" ? "#save-sheet" : "#retry-tour-action");
+  const retry = doc.querySelector("#save-sheet");
   retry.click(); await settle();
   assert.ok(dom.window.sessionStorage.getItem("doctorcre-tour-other-writes-v1"));
   assert.equal(doc.querySelector("#tour-panel").hidden, false);
@@ -1033,11 +1018,10 @@ test("S2 a failed or malformed conflict read preserves the draft and blocks revi
   assert.equal(doc.querySelector("#cheat-content").value, "Do not discard this draft"); dom.window.close();
 });
 
-for (const kind of ["sheet", "projection"]) test(`S2 confirmed ${kind} with a failed refresh still reports the confirmed save`, async () => {
+test("S2 confirmed sheet with a failed refresh still reports the confirmed save", async () => {
   const store = domain(), { dom, doc } = await open(store); await create(doc);
-  if (kind === "projection") { await addCart(doc); await saveAndAccept(doc); }
-  else fill(doc, "#cheat-content", "Confirmed notes");
-  const path = kind === "sheet" ? "/api/tours/cheat-sheet/autosave" : "/api/tours/projection", normal = store.fetch;
+  fill(doc, "#cheat-content", "Confirmed notes");
+  const path = "/api/tours/cheat-sheet/autosave", normal = store.fetch;
   let committed = false;
   dom.window.fetch = async (requestPath, options) => {
     if (committed && requestPath.startsWith("/api/tours/detail")) return response(null, 503);
@@ -1045,7 +1029,7 @@ for (const kind of ["sheet", "projection"]) test(`S2 confirmed ${kind} with a fa
     if (requestPath === path) committed = true;
     return reply;
   };
-  doc.querySelector(kind === "sheet" ? "#save-sheet" : "#generate-projection").click(); await settle();
+  doc.querySelector("#save-sheet").click(); await settle();
   assert.match(doc.querySelector("#status").textContent, /confirmed.*refresh/i);
   assert.equal(dom.window.sessionStorage.getItem("doctorcre-tour-other-writes-v1"), null);
   dom.window.close();
@@ -1138,12 +1122,6 @@ test("phone and iPad composers fit the viewport and reduced motion leaves every 
       assert.ok(layout.targets.every(target => target.height >= 44 && target.width >= 44), `${width}px touch targets: ${JSON.stringify(layout.targets.filter(target => target.height < 44 || target.width < 44))}`);
     }
     await page.setViewportSize({ width: 375, height: 900 });
-    await page.locator(".projection-card > summary").click();
-    for (const label of await page.locator(".share-scopes label").all()) {
-      const box = label.locator("input");
-      const checked = await box.isChecked();
-      await label.click(); assert.equal(await box.isChecked(), !checked, "the full scope label toggles its checkbox");
-    }
     await page.getByRole("button", { name: /Bay.*results/ }).click();
     assert.equal(await page.locator("#property-county").inputValue(), "Bay", "the last county is reachable inside the phone scroller");
     await page.getByRole("button", { name: /Escambia.*results/ }).press("Enter");
@@ -1179,35 +1157,6 @@ test("Dot Tour: default cart labels satisfy accepted membership and accept witho
   await create(doc); await addCart(doc); await saveAndAccept(doc);
   assert.equal([...store.tours.values()][0].routes[0].accepted, true);
   assert.deepEqual(store.calls.filter(call => call.path === "/api/tours/route-stop").map(call => call.body.route_label), ["1", "2"]);
-});
-
-
-for (const next of ["open", "create"]) test(`Dot Tour: ${next} another Tour clears the previous confidential link`, async () => {
-  const store = domain(), normal = store.fetch;
-  store.fetch = async (path, options) => {
-    if (path === "/api/tours/share/issue") return response({ share_grant_id: uuid() });
-    if (path.startsWith("/api/tours/feedback")) return response({ feedback: { items: [] } });
-    return normal(path, options);
-  };
-  const { dom, doc } = await open(store);
-  let copied = null;
-  Object.defineProperty(dom.window.navigator, "clipboard", { value: { writeText: async value => { copied = value; } } });
-  await create(doc);
-  const tour = [...store.tours.values()][0]; tour.projection_id = uuid();
-  doc.querySelector(".tour-button").click(); await settle();
-  fill(doc, "#receipt-digest", `sha256:${"a".repeat(64)}`);
-  doc.querySelector("#share-form").requestSubmit(); await settle();
-  const priorLink = doc.querySelector("#share-url").value;
-  assert.match(priorLink, /^https:\/\/reports.doctorcre.com\/share#token=/);
-  doc.querySelector("#copy-share").click(); await settle(); assert.equal(copied, priorLink);
-  if (next === "open") {
-    const other = uuid(); store.tours.set(other, { id: other, name: "Synthetic other Tour", routes: [{ id: uuid(), route_version: 1, accepted: false, stops: [] }] });
-    doc.querySelector("#refresh").click(); await settle();
-    doc.querySelectorAll(".tour-button")[1].click(); await settle();
-  } else await create(doc);
-  assert.equal(doc.querySelector("#share-url").value, "");
-  assert.equal(doc.querySelector("#share-link").hidden, true);
-  doc.querySelector("#copy-share").click(); await settle(); assert.equal(copied, "");
 });
 
 
