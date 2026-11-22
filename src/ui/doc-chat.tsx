@@ -131,8 +131,12 @@ const initialInvoice =
   (z.guid().safeParse(invoiceKey).success || invoiceKey === `awaiting:${invoiceDeal.id}`)
     ? { key: invoiceKey, deal: invoiceDeal }
     : undefined;
-const initialContext = initialDraft ?? initialInvoice?.deal;
-const composerId = initialDraft?.id ?? initialInvoice?.key ?? null;
+const initialEmail =
+  !initialId && !initialDraft && !initialInvoice
+    ? recordRef.safeParse({ kind: "email", id: params.get("email") }).data
+    : undefined;
+const initialContext = initialDraft ?? initialInvoice?.deal ?? initialEmail;
+const composerId = initialDraft?.id ?? initialInvoice?.key ?? initialEmail?.id ?? null;
 const draftChangeText = {
   changed: "This draft has a newer revision.",
   gone: "This draft is no longer pending.",
@@ -158,6 +162,7 @@ function chatHref(id: string | null) {
   query.delete("version");
   query.delete("invoice");
   query.delete("deal");
+  query.delete("email");
   if (id) query.set("chat", id);
   else query.delete("chat");
   return "/doc-chats" + (query.size ? `?${query}` : "");
@@ -566,7 +571,10 @@ function DocChat() {
         privateDraft.current = storage;
         setTurns(saved);
         const draft = storage("doc-question", chatId ?? composerId);
-        const prefill = !chatId && initialInvoice ? new URLSearchParams(location.hash.slice(1)).get("question") : null;
+        const prefill =
+          !chatId && (initialInvoice || initialEmail)
+            ? new URLSearchParams(location.hash.slice(1)).get("question")
+            : null;
         if (prefill) {
           draft.write(prefill);
           history.replaceState(history.state, "", location.pathname + location.search);

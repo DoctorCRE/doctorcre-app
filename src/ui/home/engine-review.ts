@@ -228,6 +228,7 @@ export type Suggestion = {
   completion: boolean;
   canAccept: boolean;
   filingChoices: FilingChoice[] | undefined;
+  filingEmailId: string | null;
 };
 
 function parseProposal(value: Record<string, unknown>, id: string, canAccept: boolean) {
@@ -254,6 +255,7 @@ function parseProposal(value: Record<string, unknown>, id: string, canAccept: bo
     completion: value.kind === "next_step_done",
     canAccept,
     filingChoices: choices,
+    filingEmailId: choices?.length && activity?.kind === "email" ? string(activity.id) : null,
   };
   return { proposal, thread };
 }

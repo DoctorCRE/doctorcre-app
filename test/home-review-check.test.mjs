@@ -74,6 +74,22 @@ test('Home keeps the exact filing choices from the proposal detail', async () =>
   }
 });
 
+test('A filing review keeps the ID of the originating message, regardless of thread order', async () => {
+  const thread = ['first', 'origin', 'latest'].map((activity_id, index) => ({
+    activity_id, happened_at: `2026-11-0${index + 1}T12:00:00Z`, body: 'Example message',
+  }));
+  for (const [source_activity, expected] of [
+    [{ kind: 'email', id: 'origin' }, 'origin'],
+    [{ kind: 'email', id: null }, null],
+    [{ kind: 'call', id: 'origin' }, null],
+  ]) {
+    const detail = await loadEngineReview(async () => ({
+      ...filingProposal, source_activity, thread, filing_choices: [deal, vendor],
+    }), filingItem);
+    assert.equal(detail.proposals[0].filingEmailId, expected);
+  }
+});
+
 test('Home treats only a 409 already_decided response as a settled filing', async () => {
   const request = { verb: 'decide-engine-home-proposal', args: {
     id: 'sample-proposal', decision: 'accept', vendor_id: 'sample-vendor', idempotency_key: 'sample-key',

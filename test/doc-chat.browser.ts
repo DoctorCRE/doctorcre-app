@@ -60,6 +60,115 @@ async function docChatFixture(
   return { page, origin: server.origin };
 }
 
+test("Ask Doc advises on the filing's originating email without deciding the review", async (t) => {
+  const proposalId = "00000000-0000-4000-8000-000000000011";
+  const activityId = "00000000-0000-4000-8000-000000000012";
+  const reviewKey = `suggestion:${proposalId}`;
+  const reviewPath = `/inbox/card/${encodeURIComponent(reviewKey)}`;
+  const advice = "The east suite deal looks like the best match.";
+  const context = { kind: "email", id: activityId };
+  const asks: unknown[] = [];
+  const writes: unknown[] = [];
+  const { page, origin } = await docChatFixture(t, async (request) => {
+    switch (new URL(request.url).pathname) {
+      case "/api/engine/doc/conversations":
+        return Response.json({ conversations: [], next_before: null });
+      case "/api/engine/doc/turns": {
+        const ask = await request.json();
+        asks.push(ask.context);
+        return Response.json({
+          conversation_id: id,
+          turn: {
+            ...answeredTurn,
+            question: ask.question,
+            idempotency_key: ask.idempotency_key,
+            context,
+            answer: { kind: "answer", text: advice, sources: [], proposal: null },
+          },
+        });
+      }
+      default:
+        if (request.method !== "GET") writes.push(request.url);
+        return new Response(null, { status: 404 });
+    }
+  });
+  const app = "https://app.doctorcre.com";
+  await page.route(`${app}/**`, async (route) => {
+    await route.fulfill({ response: await route.fetch({ url: route.request().url().replace(app, origin) }) });
+  });
+  await page.route("**/mcp", async (route) => {
+    const {
+      id: rpcId,
+      params: { name, arguments: args },
+    } = route.request().postDataJSON();
+    let payload = {};
+    if (name === "read-engine-home-card") {
+      assert.equal(args.item_id, reviewKey);
+      payload = {
+        item_id: reviewKey,
+        source_type: "email_proposal",
+        source_id: proposalId,
+        source_version: "1",
+        source_state: "needs_attention",
+        title: "Review where to file this email",
+        base_version: "1:0:inbox",
+        activity_at: created_at,
+        section: "inbox",
+        disposition: "inbox",
+        unseen: false,
+        snoozed_until: null,
+        hold_until: null,
+        kind_label: "Suggestion",
+        waiting_version: 0,
+        waiting_on: null,
+        merged_source_ids: [],
+        suggestions: [{ id: proposalId }],
+        context_label: null,
+        due_on: null,
+        open_url: null,
+        deal_id: null,
+        action_id: null,
+        action_version: null,
+        completed_at: null,
+      };
+    } else if (name === "read-engine-home-proposal") {
+      assert.equal(args.id, proposalId);
+      payload = {
+        proposal_id: proposalId,
+        kind: "possible_new_deal",
+        evidence: "Synthetic filing evidence",
+        filing_choices: [
+          { kind: "deal", label: "Choose deal" },
+          { kind: "vendor", label: "Choose vendor" },
+        ],
+        source_activity: { kind: "email", id: activityId, subject: "Suite plans" },
+        thread: [
+          { activity_id: id, happened_at: created_at, body: "The first message." },
+          { activity_id: activityId, happened_at: "2026-01-02T00:00:00Z", body: "The message under review." },
+          { activity_id: proposalId, happened_at: "2026-01-03T00:00:00Z", body: "The newest message." },
+        ],
+      };
+    } else if (name.startsWith("decide-") || name.startsWith("set-")) writes.push(name);
+    await route.fulfill({
+      json: { jsonrpc: "2.0", id: rpcId, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } },
+    });
+  });
+  await page.goto(app + reviewPath);
+  const filing = page.getByRole("region", { name: "File this email", exact: true });
+  const askDoc = filing.getByRole("link", { name: "Ask Doc", exact: true });
+  await expect(page.getByRole("region", { name: "Email thread" }).locator("article")).toHaveCount(3);
+  await expect(askDoc).toHaveCount(1);
+  await askDoc.click();
+  await expect(page.getByLabel("Question for Doc")).toHaveValue("Where should I file this email?");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText(advice)).toBeVisible();
+  assert.deepEqual(asks, [context]);
+  assert.deepEqual(writes, []);
+  await page.goto(app + reviewPath);
+  await expect(filing.getByRole("button", { name: "Choose deal" })).toBeVisible();
+  await expect(filing.getByRole("button", { name: "Dismiss" })).toBeVisible();
+});
+
 for (const path of ["list", "detail"] as const) {
   test(`A malformed 200 from the Doc chat ${path} offers a load retry`, async (t) => {
     let malformed = true;
