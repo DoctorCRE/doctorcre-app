@@ -733,103 +733,86 @@ for (const width of [1440, 390]) test(`Relationship records open by ID at ${widt
   assert.equal(await dialog.getByRole('link', { name: /Open .* record/ }).count(), 0);
 });
 
-test('Following a connection updates the link and browser history while keeping the opener', async t => {
+test('Closing a connection restores focus and Back restores the previous filters and tab', async t => {
   const { page } = await open(t);
   await page.goto('http://localhost/relationships?mode=live');
   const opener = page.locator('.relationship-node[data-node="party:demo-build"]');
-  await opener.click();
   const dialog = page.getByRole('dialog');
   const connection = dialog.locator('[data-open-node="party:demo-client"]');
-  const next = await connection.getAttribute('data-open-node');
+  await opener.click();
   await connection.click();
-  assert.equal(new URL(page.url()).searchParams.get('node'), next);
-  const title = await dialog.locator('h2').innerText();
-  const record = await dialog.locator('a[data-card-key="record"]').getAttribute('href');
-  await dialog.locator('[data-close-card]').click();
-  assert.equal(await opener.evaluate(el => el === document.activeElement), true);
-  await page.reload();
-  await dialog.waitFor();
-  assert.equal(await dialog.locator('h2').innerText(), title);
-  assert.equal(await dialog.locator('a[data-card-key="record"]').getAttribute('href'), record);
-  await page.goBack();
-  await page.waitForURL(url => url.searchParams.get('node') === 'party:demo-build');
-  await dialog.locator('h2').getByText('Demo Practice Builders').waitFor();
-});
-
-
-test('A filtered connection remains open after reload', async t => {
-  const { page } = await open(t);
-  await page.goto('http://localhost/relationships?mode=live');
-  await page.locator('#networkKind').selectOption('vendor');
-  await page.locator('#networkNodes [data-node="party:demo-build"]').click();
-  await page.getByRole('dialog').locator('[data-open-node="party:demo-client"]').click();
-  await page.reload();
-  await page.getByRole('dialog').getByRole('link', { name: 'Open client record' }).waitFor();
   assert.equal(new URL(page.url()).searchParams.get('node'), 'party:demo-client');
-});
-
-test('Next step follows the active history entry', async t => {
-  const { page } = await open(t);
-  const step = '11111111-1111-4111-8111-111111111111';
-  await page.goto(`http://localhost/relationships?mode=live&node=party:demo-build&step=${step}`);
-  const dialog = page.getByRole('dialog');
-  await dialog.getByText('Demo next step', { exact: false }).waitFor();
-  await dialog.locator('[data-open-node="party:demo-client"]').click();
-  await dialog.locator('[data-open-node="party:demo-build"]').click();
-  assert.equal(await dialog.locator('[data-card-key="next-step"]').count(), 0);
-  await page.goBack();
-  await page.reload();
-  await dialog.waitFor();
-  await page.goBack();
-  await dialog.getByText('Demo next step', { exact: false }).waitFor();
-});
-
-test('Back restores filters from the previous entry', async t => {
-  const { page } = await open(t);
-  await page.goto('http://localhost/relationships?mode=live');
-  await page.locator('#networkNodes [data-node="party:demo-build"]').click();
-  const dialog = page.getByRole('dialog');
-  await dialog.locator('[data-open-node="party:demo-client"]').click();
-  await dialog.locator('[data-close-card]').click();
+  await dialog.getByRole('button', { name: 'Close relationship' }).click();
+  assert.equal(await opener.evaluate(el => el === document.activeElement), true);
+  assert.equal(new URL(page.url()).searchParams.has('node'), false);
   await page.locator('#networkKind').selectOption('client');
+  await page.locator('#referralsTab').click();
   await page.goBack();
-  await dialog.locator('h2').getByText('Demo Practice Builders').waitFor();
+  await dialog.getByText('Demo Practice Builders', { exact: true }).waitFor();
   assert.equal(await page.locator('#networkKind').inputValue(), '');
+  assert.equal(await page.locator('#graphTab').getAttribute('aria-selected'), 'true');
   assert.equal(new URL(page.url()).searchParams.has('kind'), false);
 });
 
-for (const reload of [false, true]) test(`Back restores a next step after an in-flight background read, reload ${reload}`, async t => {
+test('A filtered connection remains open after reload and Forward', async t => {
+  const { page } = await open(t);
+  await page.goto('http://localhost/relationships?mode=live&kind=vendor&node=party:demo-build');
+  const dialog = page.getByRole('dialog');
+  const client = dialog.getByRole('link', { name: 'Open client record' });
+  await dialog.locator('[data-open-node="party:demo-client"]').click();
+  await page.reload();
+  await client.waitFor();
+  await page.goBack();
+  await dialog.getByText('Demo Practice Builders', { exact: true }).waitFor();
+  await page.goForward();
+  await client.waitFor();
+});
+
+for (const read of ['background', 'after reload', 'first load after reload']) test(`Back restores a next step during the ${read} read`, async t => {
   const { page } = await open(t);
   const step = '11111111-1111-4111-8111-111111111111';
   await page.goto(`http://localhost/relationships?mode=live&node=party:demo-build&step=${step}`);
   const dialog = page.getByRole('dialog');
   await dialog.getByText('Demo next step', { exact: false }).waitFor();
   await dialog.locator('[data-open-node="party:demo-client"]').click();
-  if (reload) { await page.reload(); await dialog.waitFor(); }
-  let release, started;
-  const held = new Promise(resolve => { release = resolve; });
-  const requested = new Promise(resolve => { started = resolve; });
+  if (read === 'background') {
+    await dialog.locator('[data-open-node="party:demo-build"]').click();
+    assert.equal(await dialog.locator('[data-card-key="next-step"]').count(), 0);
+    await page.goBack();
+    await dialog.getByRole('link', { name: 'Open client record' }).waitFor();
+  }
+  if (read === 'after reload') { await page.reload(); await dialog.waitFor(); }
+  const held = Promise.withResolvers(), requested = Promise.withResolvers();
   await page.route('**/api/v1/business/relationships*', async route => {
     if (!new URL(route.request().url()).searchParams.has('step')) {
-      started();
-      await held;
+      requested.resolve();
+      await held.promise;
     }
     await route.fallback();
   });
-  await page.clock.fastForward(61000);
-  await requested;
+  if (read === 'first load after reload') await page.reload({ waitUntil: 'domcontentloaded' });
+  else await page.clock.fastForward(61000);
+  await requested.promise;
   await page.goBack();
   await page.waitForURL(url => url.searchParams.get('step') === step);
-  const stepRead = page.waitForResponse(response => new URL(response.url()).searchParams.get('step') === step, { timeout: 3000 });
-  release();
-  await stepRead;
-  await dialog.getByText('Demo next step', { exact: false }).waitFor({ timeout: 3000 });
+  held.resolve();
+  await dialog.locator('[data-card-key="next-step"]:focus').filter({ hasText: 'Demo next step' }).waitFor({ timeout: 3000 });
 });
 
-test('A missing linked relationship reports that the record is unavailable', async t => {
-  const { page } = await open(t);
-  await page.goto('http://localhost/relationships?mode=live&node=party:missing');
-  await page.getByRole('status').getByText('This record is no longer available.').waitFor({ timeout: 3000 });
-  assert.equal(await page.getByRole('dialog').count(), 0);
-  assert.equal(new URL(page.url()).searchParams.get('node'), 'party:missing');
+test('Back clears the unavailable notice after a refresh removes the linked record', async t => {
+  const { page, setMode } = await open(t);
+  setMode('records');
+  await page.goto('http://localhost/relationships?mode=live');
+  await page.locator('#networkNodes [data-node="party:isolated-vendor"]').click();
+  setMode('ok');
+  await page.clock.fastForward(61000);
+  const notice = page.getByText('This record is no longer available.');
+  await notice.waitFor({ timeout: 3000 });
+  await page.goBack();
+  await notice.waitFor({ state: 'hidden', timeout: 3000 });
+  await page.goForward();
+  await notice.waitFor({ timeout: 3000 });
+  await page.reload();
+  await notice.waitFor({ timeout: 3000 });
+  assert.equal(new URL(page.url()).searchParams.get('node'), 'party:isolated-vendor');
 });
