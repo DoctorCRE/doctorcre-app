@@ -1,6 +1,8 @@
 # Exact action cards
 
-Direct action links read their canonical sources without searching Home. Lead drafts retain v1. Reply drafts, post-call reviews and feedback events use `resolve-action-link-v2`.
+With engine sign-in, saved links resolve through PartnerApp. Reply links open the exact Home review at `/inbox/card/:item_id`. Lead links open the returned Leads drawer. Missing and retired links show **This link is no longer available**. [Engine contract at `bf37e301`](https://github.com/DoctorCRE/doctorcre-engine/blob/bf37e301712db8eb9a5b31fc2c5a82a2d0c8d3ea/docs/new-database.md#saved-action-links)
+
+With CARR sign-in, direct action links read their canonical sources without searching Home. Lead drafts retain v1. Reply drafts, post-call reviews and feedback events use `resolve-action-link-v2`.
 
 Depends on carr 3091. Contracts are copied byte-for-byte through the existing `contracts/carr-interface.v1/` mechanism from CARR `ab4e3bc25e5a50a44b26d5d770500bb2276c070f`. Resolver SHA-256 is `93e494323da2f9cc6d6184d6acd4bd475efd6681d17fdd1bb32ac64ed4f807bb`; review-call-outcome.v1 SHA-256 is `3035b88b8ad143541825ee0caf0e68c907137a19e46dd53e4b5457c61bc12cbe`. The browser validates command, success, replay and public refusal fixtures against these producer contracts, then consumes their MCP envelopes through the production transport parser.
 

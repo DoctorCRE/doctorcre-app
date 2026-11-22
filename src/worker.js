@@ -103,17 +103,33 @@ async function engineFetch(request, env) {
   return noStore(await env.PARTNER_APP.fetch(new Request(request, { headers, redirect: 'manual' })));
 }
 
-function signInPage(request, status = 503) {
-  const refused = status === 401;
-  const title = refused ? 'Google sign-in' : 'DoctorCRE unavailable';
-  const heading = refused ? 'We couldn’t complete Google sign-in' : 'DoctorCRE is temporarily unavailable';
-  const action = refused ? '<a href="/auth/login">Try again</a>' : '<p>Try again in a moment.</p>';
+function shellMessage(request, status, { title, heading, action, style }) {
   return secure(new Response(request.method === 'HEAD' ? null : `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="/js/theme-boot.js"></script><link rel="stylesheet" href="/public-shell/shell.css"><title>${title}</title></head>
-<body class="${refused ? 'shell-refusal' : 'shell-offline'}"><main><h1>${heading}</h1>${action}</main></body></html>`,
+<body class="${style}"><main><h1>${heading}</h1>${action}</main></body></html>`,
   { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }),
   new URL(request.url).pathname);
+}
+
+function signInPage(request, status = 503) {
+  return shellMessage(request, status, status === 401 ? {
+    title: 'Google sign-in',
+    heading: 'We couldn’t complete Google sign-in',
+    action: '<a href="/auth/login">Try again</a>',
+    style: 'shell-refusal',
+  } : {
+    title: 'DoctorCRE unavailable',
+    heading: 'DoctorCRE is temporarily unavailable',
+    action: '<p>Try again in a moment.</p>',
+    style: 'shell-offline',
+  });
+}
+
+function partnerLoginRedirect(url) {
+  const login = new URL('/auth/login', url);
+  login.searchParams.set('return_to', url.pathname + url.search);
+  return noStore(Response.redirect(login, 302));
 }
 
 async function authResponse(request, env, documentRequest) {
@@ -143,9 +159,7 @@ async function pageGate(request, env, gateRequest) {
   void response.body?.cancel().catch(() => {});
   if (response.status === 200) return new Response(null, { headers: response.headers });
   if (response.status !== 401) return signInPage(request);
-  const login = new URL('/auth/login', url);
-  login.searchParams.set('return_to', url.pathname + url.search);
-  return noStore(Response.redirect(login, 302));
+  return partnerLoginRedirect(url);
 }
 
 function gatedResponse(gate, response, env) {
@@ -963,6 +977,47 @@ function release(env) {
   });
 }
 
+function actionLinkDestination(result) {
+  if (!isObject(result) || !isString(result.path)) return null;
+  const draftPath = '/api/engine/home/cards/';
+  if (result.kind === 'reply_draft' && result.path.startsWith(draftPath)) {
+    const card = result.path.slice(draftPath.length);
+    return card.startsWith('reply_draft:') && isHomeReviewId(card) ? `/inbox/card/${card}` : null;
+  }
+  if (result.kind === 'lead' && /^\/leads\?lead=[^&#]+$/.test(result.path)) return result.path;
+  return null;
+}
+
+async function openEngineActionLink(request, env, url) {
+  const resolver = new URL(`/api/engine/action-links/${url.pathname.slice(3)}`, url);
+  try {
+    const response = await engineFetch(new Request(resolver, {
+      headers: request.headers,
+      signal: request.signal,
+    }), env);
+    if (response.status === 404) {
+      void response.body?.cancel().catch(() => {});
+      return shellMessage(request, 404, {
+        title: 'Link unavailable · DoctorCRE',
+        heading: 'This link is no longer available',
+        action: '<a href="/">Back to Home</a>',
+        style: 'shell-refusal',
+      });
+    }
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => {});
+      return response.status === 401 ? partnerLoginRedirect(url) : signInPage(request);
+    }
+    const path = actionLinkDestination(await response.json());
+    if (!path) return signInPage(request);
+    const destination = new URL(path, url);
+    if (url.searchParams.get('mode') === 'live') destination.searchParams.set('mode', 'live');
+    return copySessionCookies(response, Response.redirect(destination, 302));
+  } catch {
+    return signInPage(request);
+  }
+}
+
 async function handleRequest(request, env) {
   const url = new URL(request.url);
   const pathname = url.pathname;
@@ -1005,6 +1060,8 @@ async function handleRequest(request, env) {
     return assetResponse(request, env, `/${APP_ROUTES.get(pathname)}`);
   }
 
+  const route = routeKey(actionLinkRoute(pathname));
+  const engineActionLink = engineSignIn(env) && route === '/a/:ref';
   const engineChat = (pathname === '/doc-chats' || routeKey(pathname) === '/doc/conversations/:conversation_id/turns/:msg_id') && engineSignIn(env);
   const dealView = pathname === '/deals' ? url.searchParams.get('view') : null;
   const reviewView = dealView === 'review' || dealView === 'dropped-prospect';
@@ -1012,11 +1069,12 @@ async function handleRequest(request, env) {
     : reviewView ? 'monday-review.html'
     : dealView === 'national' ? "index.html"
     : pathname === "/" && url.searchParams.get("view") === "charts" ? "charts.html"
-    : APP_ROUTES.get(boardIdFromPath(pathname) ? BOARD_ROUTE : routeKey(actionLinkRoute(pathname)));
+    : APP_ROUTES.get(boardIdFromPath(pathname) ? BOARD_ROUTE : route);
   if (routeAsset) {
     if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method_not_allowed" }, 405);
     const gate = await pageGate(request, env, engineChat ? request : gateRequestFor(request, pathname));
     if (gate.status !== 200) return gate;
+    if (engineActionLink) return gatedResponse(gate, await openEngineActionLink(request, env, url), env);
     const switches = await pageSwitches(env);
     if (reviewView && (!switches.dealsFromEngine || !switches.dealSavesFromEngine)) {
       url.searchParams.delete('view');
