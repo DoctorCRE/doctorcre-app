@@ -478,3 +478,21 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.deepEqual(errors, []);
   });
 }
+
+for (const width of [390, 1440]) test(`vendor conversation provenance is hidden at ${width}px`, async t => {
+ const {page, errors} = await open(t, width);
+ await page.route('**/api/v1/business/vendors/*', r => {
+  const payload = directoryFixture(r.request().url());
+  payload.record.relationship.recent_entries = [{id:'plain', kind:'note', when:'2026-03-02T12:00:00Z', summary:"Met Alex — recovered from Alex's CARR calendar history", detail:"Met Alex — recovered from Alex's CARR calendar history\n\nMarch 2, 2026 from the historical CARR calendar read"}];
+  return r.fulfill({json:payload});
+ });
+ await page.goto(origin+'/vendors?mode=live');
+ await page.locator('.record-row').first().click();
+ const conversation = page.locator('[data-details-key="entry-plain"]');
+ await conversation.locator('summary').click();
+ assert.equal(await conversation.locator('.entry-detail').innerText(), 'Met Alex');
+ assert.equal(await conversation.locator('..').locator('.note-summary').innerText(), 'Met Alex');
+ assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+ await page.screenshot({animations:'disabled', path:`out/test-artifacts/w5/vendor-plain-conversation-${width}.png`});
+ assert.deepEqual(errors, []);
+});
