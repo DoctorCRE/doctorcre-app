@@ -964,7 +964,7 @@ type EngineCallOptions = {
 export function mountEngineCallReview(container: HTMLElement, options: EngineCallOptions) {
   const root = createRoot(container);
   let disposed = false;
-  let state: "loading" | "ready" | "saving" | "unavailable" = "ready";
+  let state: "loading" | "ready" | "saving" = "ready";
   let calls: (ReturnType<typeof engineCall> & { dealId: string; dealName: string | null })[] = [];
   const actions = { accept: "Accept", dismiss: "Dismiss" };
   let pendingProposalId: string | undefined;
@@ -991,7 +991,7 @@ export function mountEngineCallReview(container: HTMLElement, options: EngineCal
         {state === "saving" && <p role="status">Saving your decision…</p>}
         {!busy && readFailed && <p role="alert">Could not load all of the call review. Try refreshing.</p>}
         {showNotice && <p role="alert">{notice}</p>}
-        {ready && !calls.length && <p role="status">No recorded calls found.</p>}
+        {ready && !readFailed && !calls.length && <p role="status">No recorded calls found.</p>}
         {ready && calls.length > 0 && !needsDecision && !readFailed && <p role="status">Call review complete.</p>}
         {calls.map((call) => (
           <section key={`${call.dealId}:${call.id}`}>
@@ -1064,7 +1064,7 @@ export function mountEngineCallReview(container: HTMLElement, options: EngineCal
     if (disposed) return;
     calls = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
     readFailed = results.some((result) => result.status === "rejected");
-    state = readFailed && !calls.length ? "unavailable" : "ready";
+    state = "ready";
     options.onVisibilityChange?.(calls.length > 0);
     render();
   }

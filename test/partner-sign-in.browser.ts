@@ -1738,6 +1738,36 @@ test("retrying a call decision reuses its key and refreshes the proposal state",
   assert.ok(reads > 1);
 });
 
+test("Check outcome replays the original call decision after a failed refresh", async (t) => {
+  const writes: unknown[] = [];
+  let reviewUnavailable = false;
+  const review = await openCallReview(t, async (request) => {
+    if (request.method === "GET") {
+      if (reviewUnavailable) return new Response(null, { status: 503 });
+      return callOutcomes(writes.length ? "accepted" : "pending");
+    }
+    assert.equal(new URL(request.url).pathname, callDecisionPath);
+    writes.push(await request.json());
+    if (writes.length === 1) return new Response(null, { status: 503 });
+    assert.equal(reviewUnavailable, true);
+    reviewUnavailable = false;
+    return Response.json({ proposal_id: callProposalId, status: "accepted", created: {}, replayed: true });
+  });
+  const checkOutcome = review.getByRole("button", { name: "Check outcome", exact: true });
+  await review.getByRole("button", { name: "Accept", exact: true }).click();
+  await checkOutcome.waitFor();
+  reviewUnavailable = true;
+  await review.getByRole("button", { name: "Refresh call review", exact: true }).click();
+  await review.getByText("Could not load all of the call review. Try refreshing.", { exact: true }).waitFor();
+  assert.equal(await review.getByText("No recorded calls found.", { exact: true }).count(), 0);
+  assert.equal(writes.length, 1);
+
+  await checkOutcome.click();
+  await review.getByText("Accepted", { exact: true }).waitFor({ timeout: 5_000 });
+  assert.equal(writes.length, 2);
+  assert.deepEqual(writes[1], writes[0]);
+});
+
 for (const [block, message] of [
   ["private_call", "Accepting would file this private call note on a shared record."],
   ["open_step_exists", "The person assigned already has an open next step on this deal."],
