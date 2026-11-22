@@ -86,6 +86,7 @@ async function open(t, width = 1440) {
         );
       }
       if (mode === "connection-ties" && version) payload.edges.reverse();
+      if (mode === "records") payload.nodes.push({ id: "party:isolated-vendor", record_id: "vendor & 1", name: "Demo Isolated Vendor", kind: "vendor", verticals: [] }, { id: "party:demo-isolated", name: "Demo Isolated", kind: "contact", verticals: [] });
       if (mode === "connector") {
         payload.edges[0].via = "party:demo-build";
         payload.suggestions[0].via = "party:demo-build";
@@ -706,4 +707,26 @@ test('Home loads introduction details on keyboard entry', async t => {
   await page.locator('.relationship-dialog[open]').waitFor();
   assert.equal(await page.locator('#relationshipTitle').innerText(), 'Demo Dental Expansion');
   assert.deepEqual(errors, []);
+});
+
+for (const width of [1440, 390]) test(`Relationship records open by ID at ${width}px`, async t => {
+  const { page, setMode } = await open(t, width);
+  setMode('records');
+  for (const [id, kind, destination] of [
+    ['deal:demo-won', 'deal', '/deals?deal=demo-won'],
+    ['party:demo-client', 'client', '/clients?record=demo-client'],
+    ['party:demo-lender', 'vendor', '/vendors?record=demo-lender'],
+    ['party:isolated-vendor', 'vendor', '/vendors?record=vendor%20%26%201'],
+  ]) {
+    await page.goto(`http://localhost/relationships?mode=live&node=${encodeURIComponent(id)}`);
+    const link = page.getByRole('dialog').getByRole('link', { name: `Open ${kind} record` });
+    await link.waitFor();
+    assert.equal(await link.getAttribute('href'), destination);
+    await link.click();
+    await page.waitForURL(`http://localhost${destination}`);
+  }
+  await page.goto('http://localhost/relationships?mode=live&node=party%3Ademo-isolated');
+  const dialog = page.getByRole('dialog');
+  await dialog.getByText('No connections recorded').waitFor();
+  assert.equal(await dialog.getByRole('link', { name: /Open .* record/ }).count(), 0);
 });
