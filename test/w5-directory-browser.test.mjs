@@ -1,6 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { chromium, settles, waitForAsync } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
 import { handleDoctorcreRequest } from '../src/worker.js';
@@ -495,4 +495,43 @@ for (const width of [390, 1440]) test(`vendor conversation provenance is hidden 
  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
  await page.screenshot({animations:'disabled', path:`out/test-artifacts/w5/vendor-plain-conversation-${width}.png`});
  assert.deepEqual(errors, []);
+});
+
+for (const width of [390, 1440]) test(`vendor results remain visible when focused at ${width}px`, async t => {
+  const { page } = await open(t, width);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const recording = JSON.parse(await readFile(new URL('./fixtures/vendor-meetings/recordings.json', import.meta.url), 'utf8'));
+  await page.route('**/mcp', r => r.fulfill({ json: { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(recording.research) }] } } }));
+  await page.goto(origin + '/vendors?mode=live');
+  await page.locator('.record-row').first().waitFor();
+  await page.evaluate(() => scrollTo(0, document.body.scrollHeight));
+  await page.waitForFunction(() => document.querySelectorAll('.record-row').length >= 50);
+  await page.evaluate(() => scrollTo(0, document.body.scrollHeight));
+  await page.waitForFunction(() => document.querySelectorAll('.record-row').length === 62);
+  if (width === 390) await page.locator('.vendor-meetings > summary').click();
+  const research = page.getByRole('region', { name: 'People worth meeting' });
+  await research.getByText('Ada Synthetic', { exact: true }).waitFor();
+  for (const control of await research.locator('input, button, a').all()) {
+    await control.evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
+    await control.evaluate(el => el.focus({ preventScroll: true }));
+    assert.equal(await control.evaluate(el => {
+      const rect = el.getBoundingClientRect();
+      return document.activeElement === el && document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === el;
+    }), true, 'Research control is covered');
+  }
+  const rows = page.locator('.record-row');
+  for (let i = 0; i < await rows.count(); i++) {
+    const row = rows.nth(i);
+    await row.evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
+    await row.evaluate(el => el.focus({ preventScroll: true }));
+    assert.equal(await row.evaluate(el => {
+      const rect = el.getBoundingClientRect();
+      return document.activeElement === el && document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest('.record-row') === el;
+    }), true, `row ${i + 1} is covered`);
+  }
+  await page.locator('#searchInput').fill('Demo Partner 02');
+  await page.clock.fastForward(400);
+  await page.waitForFunction(() => document.querySelectorAll('.record-row').length === 1);
+  await page.locator('.record-row').click();
+  await page.getByRole('dialog', { name: 'Demo Partner 02' }).waitFor();
 });
