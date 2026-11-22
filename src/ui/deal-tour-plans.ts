@@ -25,6 +25,7 @@ const date = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UT
 type Tour = z.infer<typeof tour>;
 type Editor = { mode: "plan" } | { mode: "edit" | "complete"; saved: Tour };
 type Place = z.infer<typeof place>;
+type Property = z.infer<typeof propertyList>[number];
 type Stop = { property_id: string } | Place;
 type DraftStop = { property: Place; stop: Stop };
 type Read = <T>(schema: z.ZodType<T>, path: string, init?: RequestInit) => Promise<T>;
@@ -81,7 +82,12 @@ async function unavailableStopMessage(read: Read, draft: DraftStop[]) {
   return `A selected property is no longer available. Remove or reselect the unavailable stop.${names ? ` Check these stops. ${names}` : ""}`;
 }
 
-function searchProperties(form: HTMLFormElement, read: Read, add: (property: Place, stop: Stop) => void) {
+function searchProperties(
+  form: HTMLFormElement,
+  read: Read,
+  add: (property: Place, stop: Stop) => boolean,
+  propertyChoice: (property: Property, pick: () => void) => HTMLButtonElement,
+) {
   const query = control<HTMLInputElement>(form, "[data-query]");
   const search = control<HTMLButtonElement>(form, "[data-search]");
   const results = control(form, "[data-results]");
@@ -95,7 +101,7 @@ function searchProperties(form: HTMLFormElement, read: Read, add: (property: Pla
     status.textContent = "";
   }
   function pick(property: Place, stop: Stop) {
-    add(property, stop);
+    if (!add(property, stop)) return;
     clear();
     query.value = address.value = name.value = "";
     query.focus();
@@ -108,9 +114,13 @@ function searchProperties(form: HTMLFormElement, read: Read, add: (property: Pla
     try {
       const { properties } = await findProperties(read, term);
       for (const property of properties)
-        results.append(action(label(property), () => pick(property, { property_id: property.id })));
+        results.append(propertyChoice(property, () => pick(property, { property_id: property.id })));
       noMatch.hidden = properties.length > 0;
-      status.textContent = properties.length ? "" : "No properties match your search.";
+      if (!noMatch.hidden) {
+        status.textContent = "No properties match your search.";
+        control(form, ".tour-editor").scrollIntoView({ block: "end" });
+        address.focus({ preventScroll: true });
+      }
     } catch {
       status.textContent = "Could not search properties. Try again.";
     } finally {
@@ -130,11 +140,15 @@ function searchProperties(form: HTMLFormElement, read: Read, add: (property: Pla
   search.onclick = () => void lookup();
   control(noMatch, "button").onclick = addProperty;
   query.oninput = clear;
-  control(form, "[data-property-search]").onkeydown = (event) => {
-    if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
-    event.preventDefault();
-    if (event.target === query) void lookup();
-    else addProperty();
+  form.onkeydown = (event) => {
+    if (event.key !== "Enter") return;
+    if (event.target === query) {
+      event.preventDefault();
+      void lookup();
+    } else if (event.target === address || event.target === name) {
+      event.preventDefault();
+      addProperty();
+    }
   };
 }
 
@@ -166,19 +180,19 @@ function planForm(
       ${complete ? visitTime : notesField}
     </div>
     <ol class="tour-stops" aria-label="${complete ? "Visited properties" : "Tour stops"}"></ol>
+    <div data-new-property hidden><div class="tour-fields">
+      <label>New property address<input data-address></label>
+      <label>Property name (optional)<input data-name></label>
+      <button type="button" class="btn">Add property</button>
+    </div></div>
     <div class="tour-editor-dock">
-      <fieldset class="tour-fields" aria-label="${complete ? "Add a visited property" : "Add a stop"}" data-property-search>
+      <fieldset class="tour-fields" aria-label="${complete ? "Add a visited property" : "Add a stop"}">
         <div class="tour-search-row">
           <label>Property name or address<input data-query maxlength="100"></label>
           <button type="button" class="btn" data-search>Search properties</button>
         </div>
         <p role="status" data-search-status></p>
         <div data-results class="deal-tour-actions"></div>
-        <div data-new-property hidden><div class="tour-fields">
-          <label>New property address<input data-address></label>
-          <label>Property name (optional)<input data-name></label>
-          <button type="button" class="btn">Add property</button>
-        </div></div>
       </fieldset>
       <p role="alert"></p>
       <div class="deal-tour-actions"><button class="btn btn-primary" type="submit">${complete ? "Save meeting" : "Save tour"}</button>
@@ -193,7 +207,27 @@ function planForm(
   const submit = control<HTMLButtonElement>(form, "[type=submit]");
   control<HTMLInputElement>(form, "[name=date]").value = saved?.planned_on ?? "";
   if (!complete) control<HTMLTextAreaElement>(form, "[name=notes]").value = saved?.notes ?? "";
+  function isSelected(id: string) {
+    return Array.from(stops.values()).some(({ stop }) => "property_id" in stop && stop.property_id === id);
+  }
+  function updatePropertyChoices(id: string, selected: boolean) {
+    for (const button of form.querySelectorAll<HTMLButtonElement>(`[data-tour-property="${id}"]`)) {
+      button.disabled = selected;
+    }
+  }
+  function propertyChoice(property: Property, pick: () => void, prefix = "") {
+    const button = action("", pick);
+    button.dataset.tourProperty = property.id;
+    const caption = element("span");
+    if (prefix) caption.append(Object.assign(element("span", prefix), { className: "tour-choice-add" }));
+    caption.append(label(property), Object.assign(element("span", " (added)"), { className: "tour-choice-added" }));
+    button.append(caption);
+    button.disabled = isSelected(property.id);
+    return button;
+  }
   function addStop(property: Place, stop: Stop) {
+    const id = "property_id" in stop ? stop.property_id : undefined;
+    if (id && isSelected(id)) return false;
     const row = element("li", label(property));
     const up = action("Move up", () => move("up"), "up");
     const down = action("Move down", () => move("down"), "down");
@@ -209,6 +243,7 @@ function planForm(
     const remove = action("Remove", () => {
       stops.delete(row);
       row.remove();
+      if (id) updatePropertyChoices(id, false);
       dirty();
     });
     row.append(
@@ -216,24 +251,27 @@ function planForm(
     );
     stops.set(row, { property, stop });
     list.append(row);
+    if (id) updatePropertyChoices(id, true);
+    return true;
   }
   for (const stop of saved?.stops ?? []) addStop(stop, { property_id: stop.property_id });
   function addDraftStop(property: Place, stop: Stop) {
-    addStop(property, stop);
+    if (!addStop(property, stop)) return false;
     dirty();
+    return true;
   }
   if (properties.length) {
     const linked = element("ul");
     linked.className = "tour-linked-properties";
     linked.setAttribute("aria-label", "Deal properties");
     for (const property of properties) {
-      const button = action(`Add ${label(property)}`, () => addDraftStop(property, { property_id: property.id }));
+      const button = propertyChoice(property, () => addDraftStop(property, { property_id: property.id }), "Add ");
       button.classList.add("btn-quiet");
       linked.append(element("li", button));
     }
     control(form, "[data-linked-properties]").append(element("h3", "Deal properties"), linked);
   }
-  searchProperties(form, read, addDraftStop);
+  searchProperties(form, read, addDraftStop, propertyChoice);
 
   async function save() {
     if (fields.disabled || submit.disabled) return;
