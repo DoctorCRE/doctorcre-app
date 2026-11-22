@@ -70,7 +70,7 @@ Named regression coverage in `test/quick-switcher-browser.test.mjs`:
 ## Exact task destinations
 
 Board tasks use the producer-owned `item_id` from `local-deals-board.v2` 2.1.0.
-The pinned producer is CARR `4a2463c7fee7d1ea2827325cb849bef6a44a88b2`.
+The pinned producer is CARR `599669d7a144355f5e205ef95c264354629f6acf`.
 The switcher passes that identity to `recordRoutes.card` for both pointer and
 Enter selection. Recents use the same canonical identity, so next actions and
 call follow-ups remain distinct even when their table-local UUIDs collide.
