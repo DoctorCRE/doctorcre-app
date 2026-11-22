@@ -108,7 +108,7 @@ for (const dataset of ['clients', 'vendors']) {
       document.querySelector('#recordList').innerHTML = app.rowHtml(dataset, row, null);
       assert.match(document.querySelector('.row-updated').textContent, /\b(?:AM|PM)\b/);
       if (dataset === 'vendors') {
-        assert.match([...document.querySelectorAll('.row-fact')].find(el => el.textContent.includes('Last contacted')).textContent, /\b(?:AM|PM)\b/);
+        assert.equal(document.querySelector('.contact-note time').textContent, 'Sep 30, 2026');
         payload.record.relationship.override = { tier: 'Trial', reason: 'Synthetic review', recorded_by: 'Joe', recorded_at: row.updated_at };
       }
       app.view.recordId = payload.record.id;
@@ -130,14 +130,14 @@ test('Vendors show recorded facts and keep names, phones and notes readable', ()
   const { document, app, row, payload } = setup('vendors');
   row.name = payload.record.name = '(TBD: intake contact) (V-SUP-901)';
   row.owner_label = 'Example Owner';
-  Object.assign(row.relationship, { computed_tier: 'Trial', win_rate: null, last_contact_note: 'Recovered from CARR calendar history' });
-  Object.assign(payload.record, { phone: '+15550102000', intro_notes: row.relationship.last_contact_note });
+  Object.assign(row.relationship, { computed_tier: 'Trial', win_rate: null });
+  Object.assign(payload.record, { phone: '+15550102000', intro_notes: 'Recovered from CARR calendar history' });
   document.querySelector('#recordList').innerHTML = app.rowHtml('vendors', row, row.id);
   const link = document.querySelector('.record-row');
   assert.equal(link.querySelector('.row-name').textContent, '(TBD: intake contact)');
   assert.equal(link.querySelector('.row-owner').textContent, 'Owner: Example Owner');
   assert.doesNotMatch(link.textContent, /Trial|CARR|Not recorded|Win rate/);
-  assert.match(link.textContent, /Recovered from calendar history/);
+  assert.equal(link.querySelector('.contact-note').textContent, 'Last contacted Sep 30, 2026');
   app.view.recordId = payload.record.id;
   app.view.record = { status: 'ready', payload };
   app.renderRecordPanel();
@@ -150,7 +150,7 @@ test('Vendor contact dates keep their calendar day while timestamps use Central'
   const { document, app, row, payload } = setup('vendors');
   row.relationship.last_contacted_at = payload.record.relationship.last_contacted_at = '2026-03-08';
   document.querySelector('#recordList').innerHTML = app.rowHtml('vendors', row, row.id);
-  assert.equal(document.querySelector('.row-last-contact .fact-value').textContent, 'Mar 8, 2026');
+  assert.equal(document.querySelector('.contact-note time').textContent, 'Mar 8, 2026');
   app.view.recordId = payload.record.id;
   app.view.record = { status: 'ready', payload };
   app.renderRecordPanel();

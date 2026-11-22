@@ -34,7 +34,7 @@ export async function startWorkerFixture(options = {}) {
   if (qaSeed !== undefined && demo) throw new TypeError('Fixture profiles are exclusive');
   if (qaSeed !== undefined && Object.keys(env).length) throw new TypeError('QA owns its Worker bindings');
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('Invalid Worker fixture port');
-  fields(env, ['CARR', 'APP_ENV', 'GIT_SHA', 'ENGINE', 'ENGINE_ROUTING', 'PARTNER_APP', 'PARTNER_SIGN_IN', 'WORKSPACE_COMMAND_CENTER_READ_ENABLED']);
+  fields(env, ['CARR', 'APP_ENV', 'GIT_SHA', 'PARTNER_APP', 'PARTNER_SIGN_IN', 'ENGINE', 'ENGINE_ROUTING', 'WORKSPACE_COMMAND_CENTER_READ_ENABLED']);
   if (transport.assets instanceof Map) for (const value of transport.assets.values()) fields(value, ['body', 'contentType', 'status', 'headers']);
   if (!globalThis.HTMLRewriter)
     Object.defineProperty(globalThis, 'HTMLRewriter', { configurable: true, value: FixtureHtmlRewriter });
