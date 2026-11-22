@@ -83,7 +83,7 @@ async function liveDetailRead(page) {
 for(const status of [401,403]) test('PR129 R1 loaded detail clears protected state on HTTP '+status,async t=>{
  const {page,errors}=await open(t);await detail(page);
  const reads=await liveDetailRead(page);
- await page.locator('#detailUpdateForm textarea').fill('Private unsaved draft');
+ await page.locator('#dealUpdate').fill('Private unsaved draft');
  await page.locator('#panelContextOpen').click();
  await page.waitForFunction(()=>document.querySelector('#contextDrawer').open);
  reads.status=status;
@@ -99,7 +99,7 @@ for(const status of [401,403]) test('PR129 R1 loaded detail clears protected sta
  reads.status=200;
  await page.locator('[data-refresh-detail]').click();
  await page.waitForSelector('#detailUpdateForm');
- assert.equal(await page.locator('#detailUpdateForm textarea').inputValue(),'');
+ assert.equal(await page.locator('#dealUpdate').inputValue(),'');
  assert.deepEqual(errors,[]);
 });
 
@@ -122,7 +122,7 @@ for (const status of [401,403]) for (const outcome of ['ok','refused']) test(`PR
  // The one-minute poll must land while the write is pending, before the
  // write's 30-second outcome deadline: spend most of the minute first.
  await page.clock.fastForward(40_000);
- await page.locator('#detailUpdateForm textarea').fill('Pending synthetic next step');
+ await page.locator('#dealUpdate').fill('Pending synthetic next step');
  await page.locator('#detailUpdateForm button[type=submit]').click();
  await page.waitForFunction(()=>typeof finishNext==='function');
  reads.status=status;
@@ -160,7 +160,7 @@ test('PR129 R1 an older successful detail read cannot repopulate refused detail'
 test('PR129 R1 refused next-step revalidation clears detail without sending the draft',async t=>{
  const {page,errors}=await open(t);await detail(page);
  const reads=await liveDetailRead(page);
- await page.locator('#detailUpdateForm textarea').fill('Private unsaved draft');
+ await page.locator('#dealUpdate').fill('Private unsaved draft');
  await page.evaluate(async()=>{
    const {state}=await import('/js/pipeline.js');window.nextSends=0;
    state.client.addDealNote=async()=>{window.nextSends++;throw Object.assign(Error('Forbidden'),{status:403});};
@@ -210,11 +210,11 @@ test('PR129 R1 a context read survives an authorized detail poll but not a refus
 
 test('PR129 transient detail failure keeps the authorized next-step draft',async t=>{
  const {page,errors}=await open(t);await detail(page);
- await page.locator('#detailUpdateForm textarea').fill('Draft retained through outage');
+ await page.locator('#dealUpdate').fill('Draft retained through outage');
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');state.client.getDeal=async()=>({deal:null});});
  await readPanel(page);
  assert.match(await page.locator('#detailReadStatus').textContent(),/Updates temporarily unavailable/);
- assert.equal(await page.locator('#detailUpdateForm textarea').inputValue(),'Draft retained through outage');
+ assert.equal(await page.locator('#dealUpdate').inputValue(),'Draft retained through outage');
  assert.deepEqual(errors,[]);
 });
 
@@ -222,27 +222,27 @@ test('append-only updates preserve a partner next step and start empty after ref
  const {page}=await open(t);await detail(page);
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');await state.client.setNextStep({deal:'d14',base_version:(await state.client.getDeal('d14')).deal.version,text:'Partner step',next_date:'2026-11-01',idempotency_key:'external-1'});});
  await readPanel(page);
- assert.equal(await page.locator('#detailUpdateForm textarea').inputValue(),'');
- await page.locator('#detailUpdateForm textarea').fill('My status update');
+ assert.equal(await page.locator('#dealUpdate').inputValue(),'');
+ await page.locator('#dealUpdate').fill('My status update');
  await page.locator('#detailUpdateForm button[type=submit]').click();
  await page.waitForFunction(()=>document.querySelector('.deal-updates').textContent.includes('My status update'));
  assert.equal(await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');return (await state.client.getDeal('d14')).deal.next_step;}),'Partner step');
- assert.equal(await page.locator('#detailUpdateForm textarea').inputValue(),'');
+ assert.equal(await page.locator('#dealUpdate').inputValue(),'');
 });
 
 test('R2 unknown next step replays exact key and intent; reopened pending form remains guarded', async t=>{
  const {page}=await open(t);await detail(page);
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');const send=state.client.addDealNote.bind(state.client);window.calls=[];state.client.addDealNote=async r=>{calls.push(r);const result=await send(r);if(calls.length===1)throw Error('lost reply');return result;};});
- await page.locator('#detailUpdateForm textarea').fill('Retained step');await page.locator('#detailUpdateForm button[type=submit]').click();
+ await page.locator('#dealUpdate').fill('Retained step');await page.locator('#detailUpdateForm button[type=submit]').click();
  await page.waitForTimeout(30);
  assert.match(await page.locator('#detailUpdateForm button[type=submit]').textContent(),/Check outcome/);
  await page.getByRole('button', { name: 'Back to deals', exact: true }).click();await detail(page);
- assert.equal(await page.locator('#detailUpdateForm textarea').isDisabled(),true);
+ assert.equal(await page.locator('#dealUpdate').isDisabled(),true);
  await page.locator('#detailUpdateForm button[type=submit]').click();await page.waitForTimeout(30);
  assert.equal(await page.evaluate(()=>calls.length),2);
  assert.deepEqual(await page.evaluate(()=>calls[0]),await page.evaluate(()=>calls[1]));
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');state.client.addDealNote=r=>new Promise(resolve=>{calls.push(r);window.finishNext=()=>resolve({ok:true});});});
- await page.locator('#detailUpdateForm textarea').fill('Pending step');await page.locator('#detailUpdateForm button[type=submit]').click();
+ await page.locator('#dealUpdate').fill('Pending step');await page.locator('#detailUpdateForm button[type=submit]').click();
  await page.getByRole('button', { name: 'Back to deals', exact: true }).click();await detail(page);
  assert.equal(await page.locator('#detailUpdateForm button[type=submit]').isDisabled(),true);
  await page.evaluate(()=>finishNext());
@@ -319,7 +319,7 @@ test('R10 Home flagged personal URL reaches only flagged records for current act
 test('R2 a move follow-up cannot replace an unanswered next-step intent or its receipt',async t=>{
  const {page}=await open(t);await detail(page);
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');window.calls=[];const send=state.client.addDealNote.bind(state.client);state.client.addDealNote=async r=>{calls.push(r);const result=await send(r);if(calls.length===1)throw Error('lost reply');return result;};});
- await page.locator('#detailUpdateForm textarea').fill('Original intent');await page.locator('#detailUpdateForm button[type=submit]').click();await page.waitForTimeout(30);
+ await page.locator('#dealUpdate').fill('Original intent');await page.locator('#detailUpdateForm button[type=submit]').click();await page.waitForTimeout(30);
  await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
  await page.locator('.kanban-column [data-id="d14"]').focus();
  await page.keyboard.press('Enter');await page.keyboard.press('ArrowRight');await page.keyboard.press('Enter');

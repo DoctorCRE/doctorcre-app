@@ -300,8 +300,8 @@ test('W4 list attention order, whole-row detail, timed scroll and draft preserva
   assert.equal(await page.locator('.parked-card').count(), 0); await page.locator('#parkedToggle').click(); assert.equal(await page.locator('.parked-card').count(), 2);
   await page.locator('#parkedToggle').click();
   await page.locator('[data-id="demo-50"]').click(); await page.waitForSelector('#detailUpdateForm');
-  await page.locator('#detailUpdateForm textarea').fill('Unsaved demo next step'); await page.locator('#detailUpdateForm textarea').focus();
-  await page.clock.fastForward(61_000); assert.equal(await page.locator('#detailUpdateForm textarea').inputValue(), 'Unsaved demo next step');
+  await page.locator('#dealUpdate').fill('Unsaved demo next step'); await page.locator('#dealUpdate').focus();
+  await page.clock.fastForward(61_000); assert.equal(await page.locator('#dealUpdate').inputValue(), 'Unsaved demo next step');
   await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
   await page.locator('[data-id="demo-50"]').focus(); await page.evaluate(() => scrollBy(0, 350)); const before = await page.evaluate(() => scrollY);
   await refresh(page); assert.equal(await page.evaluate(() => scrollY), before);
@@ -339,7 +339,7 @@ test('W4 lost park response retries the original field exactly once; next-step e
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').operating_state === 'active');
   await page.locator('[data-id="d14"] .card-open').click();
   for (const text of ['Demo first next step', 'Demo second next step']) {
-    await page.locator('#detailUpdateForm textarea').fill(text); await page.locator('#detailUpdateForm button[type=submit]').click();
+    await page.locator('#dealUpdate').fill(text); await page.locator('#detailUpdateForm button[type=submit]').click();
     await page.waitForFunction(expected => document.querySelector('.deal-updates').textContent.includes(expected), text);
   }
   assert.deepEqual(errors, []);
@@ -350,7 +350,7 @@ test('W4 detail polls phase evidence, dates, people and parking while preserving
   await page.locator('[data-id="d14"] .card-open').click();
   await page.locator('.updates-history > summary').click();
     await page.locator('.deal-note[data-id="demo-note"] summary').click();
-  await page.locator('#detailUpdateForm textarea').fill('Demo unsaved draft');
+  await page.locator('#dealUpdate').fill('Demo unsaved draft');
   await page.evaluate(async () => {
     const { state } = await import('/js/pipeline.js'); const original = state.client.getDeal;
     state.client.getDeal = async id => {
@@ -366,7 +366,7 @@ test('W4 detail polls phase evidence, dates, people and parking while preserving
   assert.equal(await page.locator('[data-detail-read="dates"]').count(),1);
 
   assert.match(await page.locator('.deal-updates').textContent(),/Demo scheduled tour/);
-  assert.equal(await page.locator('#detailUpdateForm textarea').inputValue(), 'Demo unsaved draft');
+  assert.equal(await page.locator('#dealUpdate').inputValue(), 'Demo unsaved draft');
   assert.equal(await page.locator('.deal-note[data-id="demo-note"] details').evaluate(e => e.open), true);
   assert.deepEqual(errors, []);
 });
@@ -417,15 +417,15 @@ test('Reload restores the unsaved Deal update for that deal until it is saved', 
 test('detail reads recover without losing an update draft', async t => {
  const {page,errors}=await open(t);
  await page.locator('[data-id="d14"] .card-open').click();
- await page.locator('#detailUpdateForm textarea').fill('Unsaved demo update');
+ await page.locator('#dealUpdate').fill('Unsaved demo update');
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');const read=state.client.getDeal;window.restoreRead=()=>state.client.getDeal=read;state.client.getDeal=async()=>{throw Error('Synthetic outage');};});
  await page.clock.fastForward(61_000);
  await page.getByText('Updates temporarily unavailable',{exact:true}).waitFor();
- assert.equal(await page.locator('#detailUpdateForm textarea').inputValue(),'Unsaved demo update');
+ assert.equal(await page.locator('#dealUpdate').inputValue(),'Unsaved demo update');
  await page.evaluate(()=>restoreRead());await page.clock.fastForward(61_000);
  await page.locator('#detailUpdateForm button[type=submit]').click();
  await page.waitForFunction(()=>document.querySelector('.deal-updates').textContent.includes('Unsaved demo update'));
- assert.equal(await page.locator('#detailUpdateForm textarea').inputValue(),'');
+ assert.equal(await page.locator('#dealUpdate').inputValue(),'');
  assert.deepEqual(errors,[]);
 });
 

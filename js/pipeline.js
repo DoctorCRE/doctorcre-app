@@ -8,6 +8,7 @@ import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
 import { showToast } from './toast.js';
+import { submitOnEnter } from './ui-keyboard-input.generated.js';
 import { renderDealVendors } from './deal-vendors.js';
 import { openEngineClientWebsite, renderClientPortalLink, saveEngineClientWebsite } from './client-portal-link.js';
 import { clearPrivateTextDrafts, privateSession, privateTextDraft, sessionFetch } from './private-session.js';
@@ -1830,7 +1831,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
       <div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
 function dealUpdateFormHtml(stepEditor, today) {
-  const stepFields = `<div class="deal-next-step-fields"><label for="dealUpdateStep">${stepEditor ? 'Your next step' : 'Next step'}</label><input id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${today}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div>`;
+  const stepFields = `<div class="deal-next-step-fields"><label for="dealUpdateStep">${stepEditor ? 'Your next step' : 'Next step'}</label><textarea id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"></textarea><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${today}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div>`;
   const noteField = `<label for="dealUpdate">${stepEditor ? 'Note' : 'Update'}</label><textarea id="dealUpdate" name="text" rows="2" maxlength="10000"${stepEditor ? '' : ' required'}></textarea>`;
   return `<form id="detailUpdateForm" class="deal-update-form" novalidate>
     ${stepEditor ? `${stepFields}<details id="detailNoteEditor"><summary>Add a note</summary>${noteField}</details>`
@@ -2125,8 +2126,23 @@ function paintPanel(detail) {
       toursLoading = true;
       const root = $('workspace-tours');
       root.textContent = 'Loading tours…';
+      const toursUrl = `/deals?deal=${encodeURIComponent(detail.deal.id)}&tab=tours`;
+      if (engineMode && property) {
+        const engineProperty = detail.properties?.find(({ id }) => id === property.toLowerCase());
+        if (!engineProperty) {
+          root.innerHTML = '<p>This property is no longer on this deal.</p>';
+          return;
+        }
+        const { name, address } = engineProperty;
+        root.innerHTML = `<section aria-label="Property from tour feedback">
+          <h2 tabindex="-1">${esc(name || address)}</h2>
+          ${name ? `<p>${esc(address)}</p>` : ''}
+          ${planTours ? `<a href="${esc(toursUrl)}">See deal tours</a>` : ''}
+        </section>`;
+        root.querySelector('h2').focus();
+        return;
+      }
       if (property) {
-        const toursUrl = `/deals?deal=${encodeURIComponent(detail.deal.id)}&tab=tours`;
         root.innerHTML = `<section aria-label="Property from tour feedback"><h2 tabindex="-1">Property from tour feedback</h2><p role="status">Loading property…</p><a href="${esc(toursUrl)}">See deal tours</a></section>`;
         const section = root.firstElementChild;
         section.querySelector('h2').focus();
@@ -2816,6 +2832,12 @@ function wire() {
       $('requirementEmailStatus').textContent = 'Email draft discarded.';
     }
 
+  });
+  $('panelBody').addEventListener('keydown', event => {
+    if (event.target.id !== 'dealUpdateStep') return;
+    const form = event.target.form;
+    const submit = form.querySelector('button[type="submit"]:enabled');
+    if (submit) submitOnEnter(event, () => form.requestSubmit(submit));
   });
   $('panelBody').addEventListener('input', e => {
     if (e.target.closest('#requirementEmailForm') && state.selfActor && draftActor === state.selfActor) {

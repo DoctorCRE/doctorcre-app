@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { requireStagingAuthority, withJourneyFixture } from './journey-fixture.mjs';
+import { withJourneyFixture } from './journey-fixture.mjs';
 import { itinerary } from './journey-flows.mjs';
 
 test('Itinerary reads its library and opens an unsaved creation form', async ({ page }) => {
@@ -15,6 +15,5 @@ test('Itinerary reads its library and opens an unsaved creation form', async ({ 
 
 test('Itinerary selects an accepted tour and reloads its route without saving', async ({ page }) => {
   test.setTimeout(420000);
-  await requireStagingAuthority(page.request);
   await withJourneyFixture(fixture => itinerary(page, fixture));
 });

@@ -19,9 +19,6 @@ const STATIC_EXACT = new Map([
   ["/favicon.ico", "/public-shell/icons/dealroom.svg"],
 ]);
 const STATIC_PREFIXES = ["/css/", "/data/", "/js/", "/public-shell/", "/tours/"];
-const STAGING_ORIGIN = 'https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev';
-const STAGING_REPORT_ASSETS = new Set(['/share.css', '/share.js', '/share-bootstrap.js',
-  ...['maplibre-gl.mjs', 'maplibre-gl-shared.mjs', 'maplibre-gl-worker.mjs', 'maplibre-gl.css'].map(file => `/vendor/maplibre-gl-6.4.1/${file}`)]);
 // V5-UX-C15: the one page route served AHEAD of the CARR gate. Every other app
 // page is gated, so a CARR outage takes the Control Room with it and the gated
 // page cannot be its own fallback (CR-AC-26). This page reads nothing from CARR
@@ -1026,7 +1023,6 @@ async function handleRequest(request, env) {
   }
   if (pathname === '/api/v1/deal-deliverables' || pathname.startsWith('/api/v1/deal-deliverables/'))
     return json({ error: 'not_found' }, 404);
-  const staging = env?.APP_ENV === 'staging' && url.origin === STAGING_ORIGIN;
   const boardDestination = legacyBoardDestination(url);
   if (boardDestination) {
     if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
@@ -1035,16 +1031,6 @@ async function handleRequest(request, env) {
     return gatedResponse(gate, Response.redirect(boardDestination, 308), env);
   }
   if (pathname === "/app-release") return request.method === "GET" ? release(env) : json({ error: "method_not_allowed" }, 405);
-  if (pathname === '/share' && staging) {
-    if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
-    const gateUrl = new URL(url); gateUrl.pathname = '/control-room'; gateUrl.search = '';
-    const gate = await pageGate(request, env, new Request(gateUrl, request));
-    if (gate.status !== 200) return gate;
-    return gatedResponse(gate, await assetResponse(request, env, '/reports/share.html'), env);
-  }
-  if (staging && STAGING_REPORT_ASSETS.has(pathname)) return assetResponse(request, env, `/reports${pathname}`);
-  if (staging && pathname.startsWith('/api/share/')) return carrResponse(request, env);
-  if (pathname === "/share") return Response.redirect(`https://reports.doctorcre.com/share${url.search}`, 302);
   if (REDIRECTS.has(pathname)) {
     if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method_not_allowed" }, 405);
     const target = pathname === "/business" && url.searchParams.has("q") ? "/search"
@@ -1210,6 +1196,7 @@ async function handleRequest(request, env) {
     }
     const refusal = await refuseFrozenSave(request, env, url, call);
     if (refusal) return refusal;
+    if (/^\/api\/tours\/(?:projection|share|pdf|feedback)(?:\/|$)/.test(pathname)) return json({ error: 'not_found' }, 404);
     const legacy = await carrResponse(request, env);
     return call?.method === 'tools/call' && call.params?.name === 'record-commission-receipt'
       ? legacyInvoiceReceipt(legacy) : legacy;

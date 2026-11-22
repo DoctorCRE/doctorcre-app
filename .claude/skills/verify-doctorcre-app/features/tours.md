@@ -4,11 +4,11 @@
 
 With deal-tours-from-engine on, open a saved plan in a deal’s Tours tab to edit it, mark it done with the visited properties, or cancel it. Completed tours appear in Correspondence & notes. Cancellations appear in Timeline.
 
-The legacy Tours view is a cross-deal library. A deal-bound row opens the deal workspace Tours tab. Legacy unbound tours remain readable. Tour creation starts only inside a deal workspace. The workspace embeds the existing route editor, which owns shortlist, route, packet and retained-write recovery.
+The legacy Tours view is a cross-deal library. A deal-bound row opens the deal workspace Tours tab. Legacy unbound tours remain readable. Tour creation starts only inside a deal workspace. The workspace embeds the existing route editor, which owns shortlist, route and retained-write recovery.
 
 ## How to get to it (user POV)
 
-Open Deals, choose a deal board card, then Tours. Open an existing tour or choose Start a tour. Back to deal tours returns to the list. The browser URL stays under /deals and carries the selected tour. Old itinerary URLs for deal-bound tours redirect here. Public share packets keep their existing routes.
+Open Deals, choose a deal board card, then Tours. Open an existing tour or choose Start a tour. Back to deal tours returns to the list. The browser URL stays under /deals and carries the selected tour. Old itinerary URLs for deal-bound tours redirect here.
 
 ## Driving it with Playwright
 
@@ -20,4 +20,4 @@ Run npx playwright test --project=fixtures tests/fixtures/tours-client-drafts.sp
 
 ## Gotchas
 
-The editor is a same-origin frame with its own document. Use frameLocator with the title Tour shortlist, route and packet. The parent URL owns the selection. The frame cannot create without a matching deal workspace parent. Editor responses and recovered requests still use the authenticated CARR contract. Retained requests preserve their original session and tour binding. Reconcile an unresolved request in its original workspace. These tests prove synthetic persistence only.
+The editor is a same-origin frame with its own document. Use frameLocator with the title Tour shortlist and route. The parent URL owns the selection. The frame cannot create without a matching deal workspace parent. Editor responses and recovered requests still use the authenticated CARR contract. Retained requests preserve their original session and tour binding. Reconcile an unresolved request in its original workspace. These tests prove synthetic persistence only.

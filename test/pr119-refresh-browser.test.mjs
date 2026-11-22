@@ -183,7 +183,7 @@ test('all legacy deal links open the shared addressable snapshot',async t=>{
  await page.locator('.deal-link').first().click();
  await page.waitForURL('**/deals?deal=*');
  await page.locator('#detailUpdateForm').waitFor();
- assert.equal(await page.locator('#detailUpdateForm textarea').inputValue(),'');
+ assert.equal(await page.locator('#dealUpdate').inputValue(),'');
  assert.equal(await page.locator('.phase-rail').count(),1);
  assert.deepEqual(errors,[]);
 });

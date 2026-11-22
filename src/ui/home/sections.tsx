@@ -1,4 +1,4 @@
-import { Component, Fragment, type ReactNode, useState } from "react";
+import { Component, type ReactNode, useState } from "react";
 import type { InboxItem } from "./inbox";
 
 const dayFormat = new Intl.DateTimeFormat("en-CA", {
@@ -18,8 +18,8 @@ const completionFormat = new Intl.DateTimeFormat("en-US", {
 });
 export const day = (date: Date) => dayFormat.format(date);
 
-export function lateDays(due: string | null, now = new Date()) {
-  return due ? Math.max(0, (Date.parse(day(now)) - Date.parse(due)) / 86_400_000) : 0;
+export function lateDays(due: string | null, today: string) {
+  return due && due < today ? (Date.parse(today) - Date.parse(due)) / 86_400_000 : 0;
 }
 
 export function completionLabel(item: InboxItem) {
@@ -49,15 +49,9 @@ export function dashboardCards(items: readonly InboxItem[], today = day(new Date
   return {
     reminders: reminders[0]?.dashboard_tile
       ? reminders
-      : reminders.sort((a, b) => Number(isLate(b, today)) - Number(isLate(a, today))),
+      : reminders.sort((a, b) => Number(Boolean(b.days_late)) - Number(Boolean(a.days_late))),
     waiting,
   };
-}
-
-function isLate(item: InboxItem, today: string) {
-  return item.days_late !== undefined
-    ? item.days_late > 0
-    : item.action_id !== null && item.due_on !== null && item.due_on < today;
 }
 
 export function HomeTile({
@@ -109,6 +103,7 @@ export function CardTile({
   current,
   row,
   after = [],
+  showLate = false,
 }: {
   title: string;
   items: readonly InboxItem[];
@@ -116,6 +111,7 @@ export function CardTile({
   current: string | undefined;
   row: (item: InboxItem) => ReactNode;
   after?: ReactNode[];
+  showLate?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const count = items.length + after.length;
@@ -131,16 +127,21 @@ export function CardTile({
         (item, index) =>
           index < tilePreviewCount || item.item_id === current || (pinned && cardKey(item) === cardKey(pinned)),
       );
-  const firstLate = title === "Reminders" ? shown.find((item) => isLate(item, day(new Date()))) : undefined;
+  const regular: InboxItem[] = [];
+  const late: InboxItem[] = [];
+  for (const item of shown) {
+    (showLate && item.days_late ? late : regular).push(item);
+  }
   return (
     <HomeTile title={title} count={count} expanded={expanded} setExpanded={setExpanded}>
-      {shown.map((item) => (
-        <Fragment key={cardKey(item)}>
-          {item === firstLate && <h3 className="home-late">Late</h3>}
-          {row(item)}
-        </Fragment>
-      ))}
+      {regular.map(row)}
       {expanded ? after : after.slice(0, Math.max(0, tilePreviewCount - items.length))}
+      {late.length > 0 && (
+        <section aria-label="Late">
+          <h3 className="home-late">Late</h3>
+          {late.map(row)}
+        </section>
+      )}
     </HomeTile>
   );
 }

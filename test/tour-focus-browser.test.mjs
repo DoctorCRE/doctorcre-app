@@ -43,7 +43,7 @@ test('focusing Tour notes keeps native typing through an automatic detail read',
     return route.fulfill({ status: 404, json: { error: 'not_found' } });
   });
   await page.goto(`${server.url}/deals?deal=${deal}&tab=tours&tour=${tour}`);
-  const editor = page.frameLocator('iframe[title="Tour shortlist, route and packet"]');
+  const editor = page.frameLocator('iframe[title="Tour shortlist and route"]');
   await editor.locator('#tour-name').filter({ hasText: row.name }).waitFor();
   await page.waitForLoadState('networkidle');
   hold = true;
