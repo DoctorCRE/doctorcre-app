@@ -583,7 +583,20 @@ type Plan = { planned_on: string; notes: string | null; stops: Stop[] };
 type Draft = Plan & { idempotency_key: string; revision?: number };
 type Completion = { revision: number; happened_at: string; visited_stops: Stop[]; idempotency_key: string };
 
-function tourFixture(t: TestContext, planned = false) {
+const laterTour = "77777777-7777-4777-8777-777777777777";
+const cancelledAt = "2026-11-24T23:00:00Z";
+function tourCancelledEvent(id: string) {
+  return {
+    id,
+    recorded_at: cancelledAt,
+    actor: "joe",
+    verb: "cancel-tour",
+    field: "cancelled_at",
+    new_value: cancelledAt,
+  };
+}
+
+function tourFixture(t: TestContext, planned = false, cancellationGates?: ReadonlyMap<string, Promise<void>>) {
   const properties = [clinic, annex];
   const writes: Draft[] = [];
   let saved: Plan | undefined = planned
@@ -591,24 +604,13 @@ function tourFixture(t: TestContext, planned = false) {
     : undefined;
   const plan = `${tours}/${tour}`;
   let revision = planned ? 1 : 0;
-  let cancelled_at: string | null = null;
+  const cancelledTours = new Set<string>();
   let meeting: { activity_id: string; happened_at: string; properties: typeof properties } | undefined;
   const completions: Completion[] = [];
   function tourDeal() {
     return {
       correspondence: meeting ? [{ ...meeting, kind: "meeting", title: "Property tour" }] : [],
-      events: cancelled_at
-        ? [
-            {
-              id: "1",
-              recorded_at: cancelled_at,
-              actor: "joe",
-              verb: "cancel-tour",
-              field: "cancelled_at",
-              new_value: cancelled_at,
-            },
-          ]
-        : [],
+      events: [...cancelledTours].map(tourCancelledEvent),
     };
   }
   let failSave = false;
@@ -652,10 +654,12 @@ function tourFixture(t: TestContext, planned = false) {
         const draft: Draft = request.postDataJSON();
         if (path !== tours && draft.revision !== revision)
           return route.fulfill({ status: 409, json: { error: "version_conflict", current_revision: revision } });
-        if (path === `${plan}/cancel`) {
+        if (path === `${plan}/cancel` || (cancellationGates && path === `${tours}/${laterTour}/cancel`)) {
           assert.match(draft.idempotency_key, /^[a-f0-9-]{36}$/);
-          cancelled_at = "2026-11-24T23:00:00Z";
-          return route.fulfill({ json: { id: tour, revision: ++revision, cancelled_at } });
+          const id = path === `${plan}/cancel` ? tour : laterTour;
+          await cancellationGates?.get(id);
+          cancelledTours.add(id);
+          return route.fulfill({ json: { id, revision: revision + 1, cancelled_at: cancelledAt } });
         }
         writes.push(draft);
         if (failSave) return route.fulfill({ status: 422, json: { error: "invalid_field_value", fields: ["stops"] } });
@@ -677,12 +681,14 @@ function tourFixture(t: TestContext, planned = false) {
         saved = { ...draft, stops };
         return route.fulfill({ status: path === tours ? 201 : 200, json: { id: tour, revision: ++revision } });
       }
-      if (path === tours)
-        return route.fulfill({
-          json: { tours: saved && !meeting && !cancelled_at ? [{ id: tour, planned_on: saved.planned_on }] : [] },
-        });
+      if (path === tours) {
+        const plans = saved && !meeting ? [{ id: tour, planned_on: saved.planned_on }] : [];
+        if (cancellationGates) plans.push({ id: laterTour, planned_on: "2026-11-25" });
+        return route.fulfill({ json: { tours: plans.filter(({ id }) => !cancelledTours.has(id)) } });
+      }
       if (path === `${tours}/${tour}/stop-list`) return route.fulfill({ json: { text: preview } });
-      assert.ok(saved && path === `${tours}/${tour}`);
+      assert.ok(saved && (path === plan || (cancellationGates && path === `${tours}/${laterTour}`)));
+      const id = path === plan ? tour : laterTour;
       const stops = saved.stops.map((stop, index) => {
         const property = properties.find((p) => "property_id" in stop && p.id === stop.property_id);
         assert.ok(property);
@@ -692,11 +698,12 @@ function tourFixture(t: TestContext, planned = false) {
         json: {
           ...saved,
           revision,
-          id: tour,
+          id,
           deal_id: dealId,
+          planned_on: id === tour ? saved.planned_on : "2026-11-25",
           stops,
           completed_activity_id: meeting?.activity_id ?? null,
-          cancelled_at,
+          cancelled_at: cancelledTours.has(id) ? cancelledAt : null,
         },
       });
     });
@@ -919,6 +926,79 @@ test("cancelling a tour requires confirmation and records a change without a mee
   await page.getByText("Tour cancelled", { exact: true }).waitFor();
   await page.getByRole("tab", { name: "Correspondence & notes" }).click();
   await page.getByText("No emails or meetings filed to this deal yet.").waitFor();
+});
+
+test("overlapping tour cancellations both leave Planned tours and reach Timeline", async (t) => {
+  const firstCancel = Promise.withResolvers<void>();
+  const secondCancel = Promise.withResolvers<void>();
+  t.after(() => {
+    firstCancel.resolve();
+    secondCancel.resolve();
+  });
+  const page = await tourFixture(
+    t,
+    true,
+    new Map([
+      [tour, firstCancel.promise],
+      [laterTour, secondCancel.promise],
+    ]),
+  ).open();
+  await openPlannedTour(page);
+  const firstRow = page.locator("#workspace-tours details", { hasText: "November 24, 2026" });
+  const secondRow = page.locator("#workspace-tours details", { hasText: "November 25, 2026" });
+  await secondRow.locator("summary").click();
+  for (const [row, id] of [
+    [firstRow, tour],
+    [secondRow, laterTour],
+  ] as const) {
+    const requested = page.waitForRequest((request) => new URL(request.url()).pathname === `${tours}/${id}/cancel`);
+    page.once("dialog", (dialog) => dialog.accept());
+    await row.getByRole("button", { name: "Cancel tour" }).click();
+    await requested;
+  }
+  firstCancel.resolve();
+  await firstRow.waitFor({ state: "detached", timeout: 5000 });
+  await secondRow.locator("summary").waitFor({ timeout: 5000 });
+  const cancellations = page.getByText("Tour cancelled", { exact: true });
+  await cancellations.waitFor({ state: "attached", timeout: 5000 });
+  const committed = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === `${tours}/${laterTour}/cancel`,
+  );
+  secondCancel.resolve();
+  assert.equal((await committed).ok(), true);
+  await page.getByText("No planned tours.", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator("#workspace-tours details").count(), 0);
+  await page.getByRole("tab", { name: "Timeline" }).click();
+  await cancellations.nth(1).waitFor({ timeout: 5000 });
+  assert.equal(await cancellations.count(), 2);
+});
+
+test("the deal tour switch hides visited properties and the cancellation label when off", async (t) => {
+  const { server, context } = await app(t, {
+    tourDeal: () => ({
+      correspondence: [
+        {
+          kind: "meeting",
+          title: "Property tour",
+          activity_id: activityId,
+          happened_at: cancelledAt,
+          properties: [clinic],
+        },
+      ],
+      events: [tourCancelledEvent(tour)],
+    }),
+  });
+  const page = await context.newPage();
+  await page.request.get(`${server.origin}/auth/callback/google?fixture=first`);
+  await page.goto(server.origin + dealPage);
+  assert.equal(await page.locator("html[data-deal-tours-from-engine]").count(), 0);
+  await page.getByRole("tab", { name: "Correspondence & notes" }).click();
+  await page.getByText("Property tour", { exact: true }).waitFor();
+  const visitedProperties = await page.getByRole("list", { name: "Visited properties", includeHidden: true }).count();
+  await page.getByRole("tab", { name: "Timeline" }).click();
+  await page.getByRole("heading", { name: "Dated events" }).waitFor();
+  const cancellationLabels = await page.getByText("Tour cancelled", { exact: true }).count();
+  assert.deepEqual({ visitedProperties, cancellationLabels }, { visitedProperties: 0, cancellationLabels: 0 });
 });
 
 test("a saved Leads link opens on the engine session, supports claim and prompts after expiry", async (t) => {

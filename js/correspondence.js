@@ -30,7 +30,7 @@ export async function loadEvidence(detail = {}) {
   return { threads: { state: 'ready', count: items.length, items }, meetings };
 }
 
-export function renderCorrespondence(entries, waitingEmails = 0) {
+export function renderCorrespondence(entries, waitingEmails = 0, { planTours = false } = {}) {
   const heading = '<h3>Emails and meetings</h3>';
   if (!Array.isArray(entries)) return `${heading}<p>Emails and meetings unavailable.</p><button class="btn" type="button" data-refresh-detail>Retry emails and meetings</button>`;
   if (!entries.length) return waitingEmails
@@ -42,7 +42,7 @@ export function renderCorrespondence(entries, waitingEmails = 0) {
       const title = meeting ? entry.title?.trim() || 'Untitled meeting' : emailSubject(entry.subject);
       const context = meeting ? 'Meeting' : `Email · ${entry.sender_name || entry.sender || 'Unknown sender'}`;
       const when = `<time datetime="${esc(entry.happened_at)}">${esc(sourceTime(entry.happened_at))}</time>`;
-      if (meeting && Array.isArray(entry.properties) && entry.properties.length) {
+      if (planTours && meeting && Array.isArray(entry.properties) && entry.properties.length) {
         return `<li class="evidence-item"><details data-meeting-id="${esc(entry.activity_id)}"><summary data-detail-focus="meeting-${esc(entry.activity_id)}"><span>${esc(title)}</span>${when}</summary>
           <ul aria-label="Visited properties">${entry.properties.map(({ name, address }) =>
             `<li>${esc(name ? `${name}, ${address}` : address)}</li>`).join('')}</ul></details></li>`;

@@ -241,7 +241,7 @@ function planForm(read: Read, path: string, editor: Editor, finish: (id?: string
       const { id } = complete
         ? await send(read, meetingReceipt, `${path}/complete`, body, idempotency_key)
         : await send(read, planReceipt, path, body, idempotency_key);
-      if (form.isConnected) finish(id);
+      finish(id);
     } catch (reason) {
       const failure = refusal.safeParse(reason).data;
       const invalid = failure?.fields;
@@ -314,7 +314,7 @@ function tourRow(
   path: string,
   heading: string,
   open: (editor: Editor) => void,
-  closed: (reopen?: string) => void,
+  reconcile: (reopen?: string) => void,
 ) {
   const body = element("div", "Loading tour…");
   const title = element("summary", heading);
@@ -333,7 +333,7 @@ function tourRow(
       const saved = await read(tour, path);
       if (!row.isConnected) return;
       title.textContent = date.format(new Date(saved.planned_on));
-      if (saved.completed_activity_id || saved.cancelled_at) return closed();
+      if (saved.completed_activity_id || saved.cancelled_at) return reconcile();
       const { stops, notes } = saved;
       const list = element("ol", ...stops.map((stop) => element("li", label(stop))));
       list.setAttribute("aria-label", "Tour stops");
@@ -356,12 +356,12 @@ function tourRow(
         status.textContent = "";
         try {
           await send(read, cancellationReceipt, `${path}/cancel`, { revision: saved.revision }, key);
-          if (row.isConnected) closed();
+          reconcile();
         } catch (reason) {
           if (refusal.safeParse(reason).data?.error === "version_conflict") {
             status.replaceChildren(
               "This tour has changed. ",
-              action("Reload tour", () => closed(saved.id)),
+              action("Reload tour", () => reconcile(saved.id)),
             );
             return;
           }
@@ -387,7 +387,7 @@ function tourRow(
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
 export function mountDealTourPlans(
   host: Element,
-  options: { dealId: string; request: Request; tourClosed: () => void },
+  options: { dealId: string; request: Request; tourSaved: () => void },
 ) {
   const lifetime = new AbortController();
   const path = `/api/engine/deals/${encodeURIComponent(options.dealId)}/tours`;
@@ -396,6 +396,7 @@ export function mountDealTourPlans(
   const panel = Object.assign(element("section", heading, body), { className: "deal-tours" });
   host.replaceChildren(panel);
   let dirty = false;
+  let editorForm: HTMLFormElement | undefined;
   function confirmLeave() {
     if (dirty && !host.ownerDocument.defaultView?.confirm("Leave this tour and discard the unsaved edits?"))
       return false;
@@ -415,35 +416,45 @@ export function mountDealTourPlans(
     heading.textContent = editor.mode === "complete" ? "Mark tour done" : saved ? "Edit tour" : "Plan tour";
     const endpoint = saved ? `${path}/${saved.id}` : path;
     function finish(id?: string) {
-      if (!id && !confirmLeave()) return;
-      dirty = false;
-      if (id && editor.mode === "complete") closed();
-      else void load(id ?? saved?.id, Boolean(id));
+      if (editorForm === form) {
+        if (!id && !confirmLeave()) return;
+        dirty = false;
+        editorForm = undefined;
+        if (!id) return void load(saved?.id);
+      }
+      if (id) reconcile(editor.mode === "complete" ? undefined : id);
     }
     function markDirty() {
       dirty = true;
     }
-    body.replaceChildren(planForm(read, endpoint, editor, finish, markDirty));
-    control(body, "input").focus();
+    const form = planForm(read, endpoint, editor, finish, markDirty);
+    editorForm = form;
+    body.replaceChildren(form);
+    control(form, "input").focus();
   }
-  function closed(reopen?: string) {
-    void load(reopen, !reopen);
-    options.tourClosed();
+  function reconcile(reopen?: string) {
+    if (lifetime.signal.aborted) return;
+    // Leaving the editor reloads the list without interrupting a draft.
+    if (!editorForm) void load(reopen, true);
+    options.tourSaved();
   }
   async function load(saved?: string, changed = false) {
     heading.textContent = "Planned tours";
-    body.replaceChildren(element("p", "Loading tours…"));
+    const loading = element("p", "Loading tours…");
+    body.replaceChildren(loading);
     try {
       const { tours } = await read(plans, path);
+      if (!loading.isConnected) return;
       body.replaceChildren(action("Plan tour", () => open({ mode: "plan" })));
       for (const { id, planned_on } of tours) {
         const title = date.format(new Date(planned_on));
-        const row = tourRow(read, `${path}/${id}`, title, open, closed);
+        const row = tourRow(read, `${path}/${id}`, title, open, reconcile);
         body.append(row);
         row.open = id === saved;
       }
       if (!tours.length) body.append(element("p", "No planned tours."));
     } catch {
+      if (!loading.isConnected) return;
       const message = changed ? "Tour updated. Reload tours to see the change." : "Could not load tours.";
       body.replaceChildren(
         element("p", message),

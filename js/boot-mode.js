@@ -41,6 +41,10 @@ export function dealsSaveToEngine(root = document) {
   return root.documentElement?.hasAttribute('data-deals-saves-from-engine') === true;
 }
 
+export function dealToursFromEngine(root = document) {
+  return root.documentElement?.hasAttribute('data-deal-tours-from-engine') === true;
+}
+
 export function updatesFromEngine(root = document) {
   return root.documentElement?.hasAttribute('data-updates-from-engine') || dealsSaveToEngine(root);
 }
