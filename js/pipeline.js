@@ -1385,6 +1385,7 @@ export const workspaceTabs = [
   {id:'client-view', label:'Client view'},
 ];
 let workspaceTab = 'overview';
+let requestedClientView = false;
 let boardScroll = 0;
 let timelineType = '';
 history.scrollRestoration = 'manual';
@@ -1414,6 +1415,7 @@ function renderWorkspaceFacts(detail) {
 }
 function selectWorkspaceTab(id) {
   workspaceTab = id;
+  requestedClientView = false;
   for (const tab of workspaceTabs) {
     const selected = tab.id === id;
     $(`tab-${tab.id}`).setAttribute('aria-selected', String(selected));
@@ -2118,7 +2120,8 @@ function paintPanel(detail) {
     dispose() { documentsDisposed = true; documentsMounted?.dispose(); },
   };
   $('tab-client-view').hidden = !fromEngine;
-  selectWorkspaceTab(!fromEngine && workspaceTab === 'client-view' ? 'overview' : workspaceTab);
+  selectWorkspaceTab(fromEngine && requestedClientView ? 'client-view'
+    : !fromEngine && workspaceTab === 'client-view' ? 'overview' : workspaceTab);
   mountPanelActivityAttribution();
   void mountPanelEmailFollowups(detail.deal.id);
 }
@@ -2142,8 +2145,9 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   const scope = new URLSearchParams(location.search);
   const focusStep = scope.get('deal') === dealId && scope.get('focus') === 'next-step';
   state.panelStepId = focusStep ? scope.get('step') : null;
-  workspaceTab = scope.get('deal') === dealId && scope.has('property') ? 'tours'
-    : ['tours','client-view'].includes(scope.get('tab')) ? scope.get('tab') : 'overview';
+  const toursLink = (scope.get('deal') === dealId && scope.has('property')) || scope.get('tab') === 'tours';
+  workspaceTab = toursLink ? 'tours' : 'overview';
+  requestedClientView = !toursLink && scope.get('tab') === 'client-view';
   timelineType = '';
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
   const url = new URL(location.href);
@@ -2159,6 +2163,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   $('panelBody').innerHTML = '<p>Updating…</p>';
   $('workspaceFacts').replaceChildren();
   $('workspaceTabs').innerHTML = workspaceTabs.map(tab => `<button class="workspace-tab" type="button" role="tab" id="tab-${tab.id}" aria-controls="workspace-${tab.id}" aria-selected="${tab.id === workspaceTab}" tabindex="${tab.id === workspaceTab ? 0 : -1}" data-workspace-tab="${tab.id}">${tab.label}</button>`).join('');
+  $('tab-client-view').hidden = true;
   $('main').hidden = true; panel.hidden = false;
   document.body.classList.add('workspace-open');
   scrollTo({ top: 0, behavior: 'instant' });

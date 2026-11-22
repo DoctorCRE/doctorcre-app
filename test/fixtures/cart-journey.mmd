@@ -1,8 +1,8 @@
 stateDiagram-v2
  state workspace {
  state journey {
-  state "Saved search" as SavedSearch
-  state "Saved search results" as Results
+  state "Tour editor" as TourEditor
+  state "Property search results" as Results
   state "Local cart draft" as CartDraft
   state "Cart save unconfirmed" as CartUnknown
   state "Cart version changed" as CartConflict
@@ -10,8 +10,8 @@ stateDiagram-v2
   state "Local route draft" as RouteDraft
   state "Saved route awaiting review" as RouteReview
   state "Accepted route" as Accepted
-  [*] --> SavedSearch
-  SavedSearch --> Results: Rerun saved search
+  [*] --> TourEditor
+  TourEditor --> Results: Find properties
   Results --> CartDraft: Choose canonical properties and hand off
   CartDraft --> Results: Undo local selection
   CartDraft --> CartUnknown: Save response is lost
@@ -22,7 +22,7 @@ stateDiagram-v2
   RouteDraft --> RouteReview: Save draft and read back
   RouteReview --> Accepted: Review and accept exact digest
   Accepted --> RouteDraft: Edit accepted route into new version
-  Accepted --> SavedSearch: Reopen saved search
+  Accepted --> Accepted: Reopen tour and read cart and route
  }
  --
  state frame {
