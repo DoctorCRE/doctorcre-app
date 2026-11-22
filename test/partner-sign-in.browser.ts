@@ -62,6 +62,7 @@ async function app(
     touch = false,
     readAttribution,
     tourDeal,
+    callReview,
   }: {
     width?: number;
     touch?: boolean;
@@ -69,6 +70,7 @@ async function app(
     signIn?: "engine" | "carr";
     holdDocIssue?: Promise<void>;
     tourDeal?: () => object;
+    callReview?: (request: Request) => Response | Promise<Response>;
     readAttribution?: (request: Request) => Response | Promise<Response>;
   } = {},
 ) {
@@ -261,6 +263,7 @@ async function app(
         }
         if ((path === attributionPath || path === noteAttributionPath) && readAttribution)
           return readAttribution(input);
+        if (callReview && (path.endsWith("/call-outcomes") || path.endsWith("/decision"))) return callReview(input);
         if (path === "/api/engine/deals") return Response.json(dealBoard);
         if (path === `/api/engine/deals/${dealId}`)
           return Response.json({ ...dealDetail, email_follow_ups: [], ...tourDeal?.() });
@@ -1363,4 +1366,157 @@ test("an engine login opens the original page after clearing the previous sessio
   assert.equal(page.url(), target);
   assert.equal(await page.evaluate(() => localStorage.getItem("doctorcre:previous-session-draft")), null);
   assert.equal(server.requests.filter((request) => request.path === "/auth/callback/google").length, 1);
+});
+
+const callOutcomesPath = `/api/engine/deals/${dealId}/call-outcomes`;
+const callProposalId = "66666666-6666-4666-8666-666666666666";
+const callDecisionPath = `/api/engine/proposals/${callProposalId}/decision`;
+const callEvidence = "Please send the revised demo floor plan.";
+
+function callOutcomes(status: string, block: string | null = null, includeOlder = false) {
+  return Response.json({
+    deal_id: dealId,
+    deal_name: dealName,
+    calls: [
+      {
+        activity_id: activityId,
+        started_at: "2026-11-19T18:00:00Z",
+        call_date: "2026-11-19",
+        proposals: [
+          {
+            proposal_id: callProposalId,
+            status,
+            accept_blocked: block,
+            kind: block === "private_call" ? "log_call" : "next_step",
+            what: "Send the demo floor plan",
+            owner: "joe",
+            due_on: "2026-11-23",
+            from_phase: null,
+            to_phase: null,
+            phase_on: null,
+            next_step_id: null,
+            evidence: callEvidence,
+          },
+        ],
+      },
+      ...(includeOlder ? [{ activity_id: noteId, call_date: "2026-11-10", proposals: [] }] : []),
+    ],
+  });
+}
+
+async function openCallReview(t: TestContext, callReview: (request: Request) => Response | Promise<Response>) {
+  const { server, context } = await app(t, { callReview });
+  const page = await context.newPage();
+  await page.goto(server.origin + dealPage);
+  await page.getByText("Call review", { exact: true }).click({ timeout: 5_000 });
+  return page.getByRole("region", { name: "Review recorded calls" });
+}
+
+test("deal call review reads the selected deal and shows dates, evidence, and pending state", async (t) => {
+  const paths: string[] = [];
+  const review = await openCallReview(t, (request) => {
+    paths.push(new URL(request.url).pathname);
+    return callOutcomes("pending");
+  });
+  await review.getByText(callEvidence, { exact: true }).waitFor();
+  await review.getByText("Thu, Nov 19, 2026", { exact: true }).waitFor();
+  await review.getByText("Needs your decision", { exact: true }).waitFor();
+  assert.deepEqual(paths, [callOutcomesPath]);
+});
+
+test("retrying a call decision reuses its key and refreshes the proposal state", async (t) => {
+  const writes: unknown[] = [];
+  let state = "pending";
+  let reads = 0;
+  const review = await openCallReview(t, async (request) => {
+    const path = new URL(request.url).pathname;
+    if (request.method === "GET") {
+      assert.equal(path, callOutcomesPath);
+      reads++;
+      return callOutcomes(state);
+    }
+    assert.equal(path, callDecisionPath);
+    const decision = await request.json();
+    assert.equal(decision.decision, "accept");
+    assert.match(decision.idempotency_key, /^[0-9a-f-]{36}$/);
+    writes.push(decision);
+    const replay = state === "accepted";
+    state = "accepted";
+    if (!replay) return new Response(null, { status: 503 });
+    return Response.json({ proposal_id: callProposalId, status: state, created: {}, replayed: true });
+  });
+  await review.getByRole("button", { name: "Accept", exact: true }).click();
+  await review.getByRole("button", { name: "Check outcome", exact: true }).click();
+  await review.getByText("Accepted", { exact: true }).waitFor();
+  await review.getByText("Call review complete.", { exact: true }).waitFor();
+  assert.equal(writes.length, 2);
+  assert.deepEqual(writes[1], writes[0]);
+  assert.ok(reads > 1);
+});
+
+for (const [block, message] of [
+  ["private_call", "Accepting would file this private call note on a shared record."],
+  ["open_step_exists", "The person assigned already has an open next step on this deal."],
+] as const) {
+  test(`call review explains ${block} and still lets the partner dismiss`, async (t) => {
+    let state = "pending";
+    const review = await openCallReview(t, async (request) => {
+      if (request.method === "GET") return callOutcomes(state, state === "pending" ? block : null);
+      assert.equal(new URL(request.url).pathname, callDecisionPath);
+      assert.equal((await request.json()).decision, "dismiss");
+      state = "dismissed";
+      return Response.json({ proposal_id: callProposalId, status: state, created: {} });
+    });
+    await review.getByText(message, { exact: true }).waitFor();
+    assert.equal(await review.getByRole("button", { name: "Accept", exact: true }).isEnabled(), false);
+    await review.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await review.getByText("Dismissed", { exact: true }).waitFor();
+  });
+}
+
+test("settled call proposals open as a completed review without a write", async (t) => {
+  const methods: string[] = [];
+  const review = await openCallReview(t, (request) => {
+    methods.push(request.method);
+    return callOutcomes("dismissed");
+  });
+  await review.getByText("Call review complete.", { exact: true }).waitFor();
+  await review.getByText(callEvidence, { exact: true }).waitFor();
+  assert.deepEqual(methods, ["GET"]);
+});
+
+test("Carr sign-in keeps its deal page and makes no engine call review request", async (t) => {
+  const { server, context } = await app(t, { signIn: "carr" });
+  const page = await context.newPage();
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.endsWith("/call-outcomes")) requests.push(request.url());
+  });
+  await page.goto(server.origin + dealPage);
+  await page.getByRole("region", { name: "Deal snapshot" }).waitFor();
+  assert.equal(await page.getByText("Call review", { exact: true }).count(), 0);
+  assert.deepEqual(requests, []);
+});
+
+test("the Call Mode report opens review for its captured activity on the selected deal", async (t) => {
+  const { server, context } = await app(t, { callReview: () => callOutcomes("pending", null, true) });
+  const page = await context.newPage();
+  await page.route("http://127.0.0.1:4682/**", (route) => {
+    const url = new URL(route.request().url());
+    return route.fulfill({
+      headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "x-carr-call-mode" },
+      json:
+        url.pathname === "/api/state"
+          ? { state: "filed", session: "demo-local-session", mode: "weekly_deal_call" }
+          : { status: "filed", report: { engine_call: { activity_id: activityId } } },
+    });
+  });
+  await page.goto(server.origin + dealPage);
+  await page.getByRole("region", { name: "Deal snapshot" }).waitFor();
+  await page.locator("#selfAvatar").click();
+  await page.locator("#callModeRetry").click();
+  await page.locator("#callModeButton").click();
+  const review = page.locator("#callModeDialog").getByRole("region", { name: "Review recorded calls" });
+  await review.getByText(callEvidence, { exact: true }).waitFor({ timeout: 5_000 });
+  assert.equal(await review.getByText("Nov 10", { exact: true }).count(), 0);
 });

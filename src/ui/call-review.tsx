@@ -902,6 +902,206 @@ export function mountCallReview(container: HTMLElement, options: Options) {
   };
 }
 
+const engineProposalStates = {
+  pending: "Needs your decision",
+  accepted: "Accepted",
+  dismissed: "Dismissed",
+  superseded: "Replaced",
+};
+function acceptanceBlock(code: unknown) {
+  switch (code) {
+    case "private_call":
+      return "Accepting would file this private call note on a shared record.";
+    case "open_step_exists":
+      return "The person assigned already has an open next step on this deal.";
+    default:
+      return null;
+  }
+}
+function engineCall(value: unknown) {
+  const call = object(value);
+  return {
+    id: text(call.activity_id),
+    date: text(call.call_date),
+    proposals: list(call.proposals).map((value) => {
+      const proposal = object(value);
+      const status = proposal.status;
+      if (status !== "pending" && status !== "accepted" && status !== "dismissed" && status !== "superseded")
+        throw new Error("Call suggestion state unavailable");
+      return {
+        id: text(proposal.proposal_id),
+        status,
+        statusLabel: engineProposalStates[status],
+        kind: text(proposal.kind),
+        what: optionalText(proposal.what),
+        evidence: optionalText(proposal.evidence),
+        owner: optionalText(proposal.owner),
+        due: optionalText(proposal.due_on),
+        phase: optionalText(proposal.to_phase),
+        phaseDate: optionalText(proposal.phase_on),
+        block:
+          acceptanceBlock(proposal.accept_blocked) ??
+          (proposal.accept_blocked == null ? null : "This suggestion cannot be accepted."),
+      };
+    }),
+  };
+}
+
+type EngineCallDecision = { proposal_id: string; decision: "accept" | "dismiss"; idempotency_key: string };
+type EngineCallOptions = {
+  dealId: string;
+  activityId?: string;
+  client: {
+    readDealCallOutcomes(dealId: string): Promise<unknown>;
+    decideCallProposal(decision: EngineCallDecision): Promise<unknown>;
+  };
+  dateLabel(value: string): string | null;
+  phaseLabel(value: string): string;
+  onChange?(): void;
+};
+
+export function mountEngineCallReview(container: HTMLElement, options: EngineCallOptions) {
+  const root = createRoot(container);
+  let disposed = false;
+  let state: "loading" | "ready" | "saving" | "unavailable" = "ready";
+  let calls: ReturnType<typeof engineCall>[] = [];
+  const actions = { accept: "Accept", dismiss: "Dismiss" };
+  let pending: EngineCallDecision | undefined;
+  let notice = "";
+  function title(proposal: ReturnType<typeof engineCall>["proposals"][number]) {
+    if (proposal.kind === "phase_move" && proposal.phase) return `Move to ${options.phaseLabel(proposal.phase)}`;
+    if (proposal.kind === "log_call") return "File a call note";
+    if (proposal.kind === "next_step_done")
+      return proposal.what ? `Finish next step: ${proposal.what}` : "Finish a next step";
+    return proposal.what ?? "Call suggestion";
+  }
+  function render() {
+    if (disposed) return;
+    const ready = state === "ready",
+      busy = state === "loading" || state === "saving";
+    const needsDecision = calls.some((call) => call.proposals.some((proposal) => proposal.status === "pending"));
+    const showNotice = notice && !calls.some((call) => call.proposals.some((proposal) => proposal.block === notice));
+    container.hidden = false;
+    root.render(
+      <section className="call-review" aria-label="Review recorded calls" aria-busy={busy}>
+        <link rel="stylesheet" href="/css/call-review.css" />
+        {state === "loading" && <p role="status">Loading call review…</p>}
+        {state === "saving" && <p role="status">Saving your decision…</p>}
+        {state === "unavailable" && <p role="alert">Could not load call review. Try refreshing.</p>}
+        {showNotice && <p role="alert">{notice}</p>}
+        {ready && !calls.length && <p role="status">No recorded calls found.</p>}
+        {ready && calls.length > 0 && !needsDecision && <p role="status">Call review complete.</p>}
+        {calls.map((call) => (
+          <section key={call.id}>
+            <h3>
+              <time dateTime={call.date}>{options.dateLabel(call.date) ?? call.date}</time>
+            </h3>
+            {call.proposals.length === 0 && <p>No suggestions from this call.</p>}
+            {call.proposals.map((proposal) => (
+              <article key={proposal.id}>
+                <h4>{title(proposal)}</h4>
+                <p className="call-review-meta">{proposal.statusLabel}</p>
+                {proposal.kind === "log_call" && proposal.what && <p>{proposal.what}</p>}
+                {proposal.owner && <p>Assigned to {partnerNames[proposal.owner] ?? proposal.owner}</p>}
+                {proposal.due && <p>Due {options.dateLabel(proposal.due) ?? proposal.due}</p>}
+                {proposal.phaseDate && <p>Effective {options.dateLabel(proposal.phaseDate) ?? proposal.phaseDate}</p>}
+                {proposal.evidence && <blockquote aria-label="What was said">{proposal.evidence}</blockquote>}
+                {proposal.status === "pending" && (
+                  <>
+                    {proposal.block && <p>{proposal.block}</p>}
+                    <div className="call-review-actions">
+                      {(["accept", "dismiss"] as const).map((choice) => (
+                        <button
+                          key={choice}
+                          type="button"
+                          className={choice === "accept" ? "primary" : undefined}
+                          disabled={!ready || !!pending || (choice === "accept" && !!proposal.block)}
+                          onClick={() => void decide(proposal.id, choice)}
+                        >
+                          {actions[choice]}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </article>
+            ))}
+          </section>
+        ))}
+        <div className="call-review-actions">
+          {pending && (
+            <button type="button" disabled={busy} onClick={() => void send(pending)}>
+              Check outcome
+            </button>
+          )}
+          <button type="button" disabled={busy} onClick={() => void refresh()}>
+            Refresh call review
+          </button>
+        </div>
+      </section>,
+    );
+  }
+  async function refresh() {
+    if (disposed || state === "loading" || state === "saving") return;
+    state = "loading";
+    render();
+    try {
+      const answer = object(await options.client.readDealCallOutcomes(options.dealId));
+      if (answer.deal_id !== options.dealId) throw new Error("Call deal does not match");
+      calls = list(answer.calls)
+        .map(engineCall)
+        .filter((call) => !options.activityId || call.id === options.activityId);
+      state = "ready";
+    } catch {
+      state = "unavailable";
+    }
+    render();
+  }
+  async function decide(proposal_id: string, decision: EngineCallDecision["decision"]) {
+    if (state !== "ready" || pending || disposed) return;
+    await send({ proposal_id, decision, idempotency_key: crypto.randomUUID() });
+  }
+  async function send(command: EngineCallDecision | undefined) {
+    if (!command || disposed || state === "loading" || state === "saving") return;
+    pending = command;
+    state = "saving";
+    notice = "";
+    render();
+    let saved = false;
+    try {
+      const receipt = object(await options.client.decideCallProposal(command));
+      if (
+        receipt.proposal_id !== command.proposal_id ||
+        receipt.status !== (command.decision === "accept" ? "accepted" : "dismissed")
+      )
+        throw new Error("Call decision receipt unavailable");
+      pending = undefined;
+      saved = true;
+    } catch (error) {
+      if (isObject(error) && typeof error.status === "number" && [400, 404, 409, 422].includes(error.status)) {
+        pending = undefined;
+        const code = isObject(error.payload) ? error.payload.error : null;
+        notice = acceptanceBlock(code) ?? "Could not save this decision. Check the updated call review.";
+      } else {
+        notice = "Could not confirm your decision. Choose Check outcome to try the same decision again.";
+      }
+    }
+    if (disposed) return;
+    state = "ready";
+    if (pending) render();
+    else await refresh();
+    if (saved && !disposed) options.onChange?.();
+  }
+  return {
+    refresh,
+    dispose() {
+      disposed = true;
+      root.unmount();
+      container.hidden = true;
+    },
+  };
+}
+
 export function mountCallReviewDialog(document: Document, options: Omit<Options, "sessionId" | "filter">) {
   const dialog = document.createElement("dialog");
   dialog.className = "call-review-dialog";

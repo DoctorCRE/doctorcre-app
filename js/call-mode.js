@@ -1,4 +1,6 @@
 import { dealsSaveToEngine } from './boot-mode.js';
+import { PHASE_BY_SLUG, phaseLabel } from './client.js';
+import { privateSession } from './private-session.js';
 import { createPageBudget } from './read-budget.mjs';
 import { mountLocalTicker } from './visibility-poll.mjs';
 import { createRetainedCommands } from './retained-commands.mjs';
@@ -107,6 +109,7 @@ export function createCallMode(deps) {
   const root = deps.root;
   const $ = (selector) => root.querySelector(selector);
   const engineSaves = dealsSaveToEngine(root);
+  const engineSignIn = () => privateSession()?.engineSignIn === true;
   if (engineSaves) {
     const weekly = $('[data-call-mode-start="weekly_deal_call"]');
     if (weekly) weekly.hidden = true;
@@ -402,10 +405,11 @@ export function createCallMode(deps) {
   }
 
   let outcomes = null;
-  let outcomesLoading = null;
+  let outcomesLoading = null, engineReviewScope;
   function retireOutcomes() {
     outcomes?.dispose();
     outcomes = null;
+    engineReviewScope = undefined;
     const node = $('#postCallOutcomes');
     if (node) { node.innerHTML = ''; node.hidden = true; }
   }
@@ -413,6 +417,26 @@ export function createCallMode(deps) {
     return ['deal_updates', 'joe_tasks', 'dell_tasks', 'draft_proposals', 'drafts'].flatMap(field =>
       (Array.isArray(report[field]) ? report[field] : []).flatMap(item =>
         [item.candidate_id, item.next_step?.candidate_id, item.phase_move?.candidate_id].filter(Boolean)));
+  }
+  async function reviewCapturedCall(report) {
+    const location = root.defaultView?.location;
+    const dealId = location?.pathname === '/deals' && new URLSearchParams(location.search).get('deal');
+    const activityId = report?.engine_call?.activity_id;
+    if (!dealId || typeof activityId !== 'string' || !activityId) {
+      if (engineReviewScope) retireOutcomes();
+      return;
+    }
+    const scope = `${dealId}:${activityId}`;
+    if (engineReviewScope !== scope) retireOutcomes();
+    engineReviewScope = scope;
+    const generation = state.callGeneration;
+    const { mountEngineCallReview } = await import(CALL_REVIEW_MODULE);
+    if (disposed || generation !== state.callGeneration || engineReviewScope !== scope) return;
+    const node = $('#postCallOutcomes'), client = deps.client();
+    if (!node || !client) return;
+    outcomes ||= mountEngineCallReview(node, { dealId, activityId, client, dateLabel,
+      phaseLabel: value => phaseLabel(PHASE_BY_SLUG[value] || value) });
+    return outcomes.refresh();
   }
   async function callOutcomes() {
     const node = $('#postCallOutcomes');
@@ -456,7 +480,7 @@ export function createCallMode(deps) {
     const post = state.postCall;
     panel.hidden = !post.session && post.status === 'idle';
     if (panel.hidden) return;
-    if (engineSaves) {
+    if (engineSaves || engineSignIn()) {
       const summary = post.report?.report?.summary;
       const finished = ['filed', 'review_ready', 'awaiting_context', 'failed'].includes(post.status);
       $('#postCallStatus').textContent = post.error || (summary ? '' : finished
@@ -578,7 +602,16 @@ export function createCallMode(deps) {
       if (['filed', 'failed'].includes(status) || (status === 'review_ready' && (!applying || applyTimedOut))
         || (engineSaves && status === 'awaiting_context')) stopPolling();
       else if (!state.pollTimer) startPolling(session, {immediate:false});
-      if (!engineSaves && ['review_ready', 'filed'].includes(status) && !applying && reportCandidateIds().length) callOutcomes().then(view => view?.refresh()).catch(() => { if (state.postCall.session !== session || state.statusSequence !== sequence) return; const node = $('#postCallOutcomes'); if (node) { node.hidden = false; node.textContent = 'Call review unavailable. Refresh the report to try again.'; } outcomesLoading = null; });
+      if (['review_ready', 'filed'].includes(status) && !applying) {
+        const review = engineSignIn() ? reviewCapturedCall(report)
+          : !engineSaves && reportCandidateIds().length ? callOutcomes().then(view => view?.refresh()) : null;
+        review?.catch(() => {
+          if (state.postCall.session !== session || state.statusSequence !== sequence) return;
+          const node = $('#postCallOutcomes');
+          if (node) { node.hidden = false; node.textContent = 'Call review unavailable. Refresh the report to try again.'; }
+          outcomesLoading = null;
+        });
+      }
       renderPostCall();
       // The stall this closes: a weekly recording whose companion never got
       // the context index. Supply it now, once per session unless a partner
@@ -743,7 +776,7 @@ export function createCallMode(deps) {
     if (signal?.aborted) { close(); return false; }
     startTicker();
     const openingGeneration = state.callGeneration || 0;
-    if (!engineSaves && session && /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(session) && state.callMode.session && session !== state.callMode.session) {
+    if (!engineSaves && !engineSignIn() && session && /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(session) && state.callMode.session && session !== state.callMode.session) {
       try {
         const local = state.callMode.session;
         const payload = await deps.postCallClient.getStatus(local);

@@ -551,6 +551,7 @@ function applyBoardSnapshot(board) {
     disposeChecklist();
     disposeWatchControl();
     disposeActivityAttribution();
+    disposePanelCallReview();
     disposePanelEmailFollowups();
     $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
     $('panelTitle').textContent = 'Deal';
@@ -1137,6 +1138,27 @@ function mountPanelActivityAttribution() {
   if (root?.querySelector('[data-attribution-id]')) activityAttribution = mountActivityAttribution(root, { engineSignIn: privateSession()?.engineSignIn, onDenied: refusePanelDetail });
 }
 let watchControl = null, watchElement = null, watchSubject = null;
+let panelCallReview = null;
+function disposePanelCallReview() {
+  panelCallReview?.dispose();
+  panelCallReview = null;
+}
+async function openPanelCallReview(disclosure) {
+  if (!disclosure.open || panelCallReview) return;
+  const container = disclosure.querySelector('div'), id = state.panelDeal;
+  try {
+    const { mountEngineCallReview } = await import('./ui-call.generated.js');
+    if (!container.isConnected || !disclosure.open || panelCallReview || state.panelDeal !== id) return;
+    panelCallReview = mountEngineCallReview(container, {
+      dealId: id, client: state.client, dateLabel: formatCalendarDate,
+      phaseLabel: phase => columnBySlug(phase)?.label || phase,
+      onChange: () => void refreshPanel({ changed: true }),
+    });
+    void panelCallReview.refresh();
+  } catch {
+    if (container.isConnected) container.textContent = 'Could not open call review. Close and reopen it to try again.';
+  }
+}
 let panelEmailFollowups = null;
 let emailMountSequence = 0;
 function disposePanelEmailFollowups() {
@@ -1195,6 +1217,7 @@ function refusePanelDetail(error) {
   dealToursPanel?.dispose(); dealToursPanel = null;
   bindDraftActor(null);
   disposeActivityAttribution();
+  disposePanelCallReview();
   disposePanelEmailFollowups();
   setContextOpenVisible(false);
   $('contextDrawer').close();
@@ -1714,7 +1737,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="checklist"></div>
     ${ownStep ? '' : dealUpdateFormHtml(false, today)}
     <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail) : '<p role="status">Updating email follow-ups…</p>'}</section>
-    ${requirementEmailHtml(d)}
+    ${engineMode ? '<details id="panelCallReview"><summary>Call review</summary><div></div></details>\n    ' : ''}${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner">${fromEngine ? '' : '<option value="">Unassigned</option>'}${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div></div>` : fromEngine ? `<div data-detail-read="parking">${nextParking && parked ? parkingSummary : parker}</div>` : ''}</div>
     <div data-detail-read="prospect">${!engineSaves && controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
@@ -1972,6 +1995,7 @@ function paintPanel(detail) {
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose();
   const engineMode = privateSession()?.engineSignIn;
+  disposePanelCallReview();
   $('panelBody').innerHTML = workspaceHtml(detail, engineMode);
   mountChecklist(detail);
   const overview = $('workspace-overview');
@@ -2167,6 +2191,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   selectDocRecord('deal', dealId);
   const panel = $('recordPanel');
   disposeActivityAttribution();
+  disposePanelCallReview();
   disposePanelEmailFollowups();
   setContextOpenVisible(false);
   if (!state.panelDeal) boardScroll = history.state?.boardScroll ?? scrollY;
@@ -2245,6 +2270,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
   const id = state.panelReturnTo;
   disposeActivityAttribution();
+  disposePanelCallReview();
   disposePanelEmailFollowups();
   if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); url.searchParams.delete('checklist'); url.searchParams.delete('property'); writeWorkspaceHistory({},url); }
   $('recordPanel').hidden = true; $('main').hidden = false;
@@ -2684,6 +2710,7 @@ function wire() {
   $('parkedToggle').addEventListener('click', () => { state.parkedOpen = !state.parkedOpen; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); renderBoard(); });
   $('kanban').addEventListener('toggle', e => { if(e.target.classList.contains('parked-lane')) { state.parkedOpen=e.target.open; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); } },true);
   $('panelBody').addEventListener('toggle', event => {
+    if (event.target.id === 'panelCallReview') return void openPanelCallReview(event.target);
     if (event.target.id !== 'panelEvidenceSection') return;
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);

@@ -491,6 +491,14 @@ export function createLiveClient(opts = {}) {
     async listEmailThreadFilings() { return rpc('list-email-thread-filings', {}); },
     async undoEmailThreadFiling(args) { return write('undo-email-thread-filing', args); },
 
+    async readDealCallOutcomes(dealId) {
+      return engineRead(`/api/engine/deals/${encodeURIComponent(dealId)}/call-outcomes`);
+    },
+
+    async decideCallProposal({ proposal_id, decision, idempotency_key }) {
+      return engineSave(`/api/engine/proposals/${encodeURIComponent(proposal_id)}/decision`, { decision, idempotency_key });
+    },
+
     async readCallOutcomes() {
       return rpc('read-call-outcomes', {});
     },
