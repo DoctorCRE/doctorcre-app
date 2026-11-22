@@ -20,7 +20,7 @@ import { preserveBoardFocus } from './board-focus.mjs';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient, dealTypeLabel } from './live-client.js';
 import { emailSubject, emailPlaceholderText, loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
-import { dealsSaveToEngine, deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
+import { dealToursFromEngine, dealsSaveToEngine, deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
 import { formatCalendarDate } from './visual-system.js';
@@ -1451,8 +1451,8 @@ function legacyTimelineEntries(detail, nextItem) {
   ].sort((a,b) => b.day.localeCompare(a.day))
     .map(({ type, day, text }) => ({ type, when: day, caption: dateCaption(day), actor: '', text }));
 }
-function workspaceEventsHtml(detail, nextItem, fromEngine) {
-  const events = fromEngine ? engineTimelineEntries(detail) : legacyTimelineEntries(detail, nextItem).filter(event => event.text.trim());
+function workspaceEventsHtml(detail, nextItem, fromEngine, planTours) {
+  const events = fromEngine ? engineTimelineEntries(detail, { planTours }) : legacyTimelineEntries(detail, nextItem).filter(event => event.text.trim());
   if (!events.some(event => event.type === timelineType)) timelineType = '';
   return `<h2>Dated events</h2><label for="timelineType">Filter by kind</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${esc(e.text)}</p></li>`).join('')}</ol>${events.length ? '' : fromEngine ? '<p>No dated events yet.</p>' : '<p>No dated events recorded.</p>'}`;
 }
@@ -1656,6 +1656,7 @@ async function completeDealStep(button) {
 
 function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
   const fromEngine = isEngineDealDetail(detail);
+  const planTours = dealToursFromEngine();
   const ownStep = canEditOwnDealStep(detail);
   const d = detail.deal;
   const items = detail.items || d.items || [];
@@ -1726,9 +1727,9 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
-    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
+    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine, planTours)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2>
-      ${fromEngine ? `<div data-detail-read="correspondence">${renderCorrespondence(detail.correspondence, detail.email_follow_ups.filter(row => row.kind === 'file_to_deal').length)}</div>` : '<details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>'}
+      ${fromEngine ? `<div data-detail-read="correspondence">${renderCorrespondence(detail.correspondence, detail.email_follow_ups.filter(row => row.kind === 'file_to_deal').length, { planTours })}</div>` : '<details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>'}
       <div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
 function dealUpdateFormHtml(stepEditor, today) {
@@ -1876,6 +1877,7 @@ async function readPanel(id) {
           const focusIdentity = focused?.dataset.detailFocus;
           const historyOpen = current.querySelector('.updates-history')?.open;
           const dateOpens = new Set([...current.querySelectorAll('[data-date-id] details[open]')].map(n => n.closest('[data-date-id]').dataset.dateId));
+          const openMeetings = new Set([...current.querySelectorAll('details[data-meeting-id][open]')].map(n => n.dataset.meetingId));
           const oldScroll = current.scrollLeft;
           if (fresh.dataset.detailRead === 'email-followups') {
             for (const input of current.querySelectorAll('[data-email-decision] input')) {
@@ -1890,6 +1892,7 @@ async function readPanel(id) {
           fresh.querySelectorAll('[data-date-id] details').forEach(n => { n.open = dateOpens.has(n.closest('[data-date-id]').dataset.dateId); });
           if (historyOpen && fresh.querySelector('.updates-history')) fresh.querySelector('.updates-history').open = true;
           fresh.querySelectorAll('.deal-note').forEach(n => { if (expanded.has(n.dataset.id)) n.querySelector('details').open = true; });
+          fresh.querySelectorAll('details[data-meeting-id]').forEach(n => { n.open = openMeetings.has(n.dataset.meetingId); });
           if (focusIdentity) {
             const target = [...fresh.querySelectorAll('[data-detail-focus]')].find(n => n.dataset.detailFocus === focusIdentity);
             if (target) target.focus({preventScroll:true});
@@ -2016,7 +2019,7 @@ function paintPanel(detail) {
   const toursParams = new URLSearchParams(location.search);
   const linkedProperty = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;
   const property = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(linkedProperty ?? '') ? linkedProperty : null;
-  const planTours = document.documentElement.hasAttribute('data-deal-tours-from-engine');
+  const planTours = dealToursFromEngine();
   const propertyRead = new AbortController();
   let toursDisposed = false, toursLoading = false, toursMounted;
   dealToursPanel = engineMode && !planTours && !property ? null : {
@@ -2055,7 +2058,9 @@ function paintPanel(detail) {
       try {
         if (planTours) {
           const { mountDealTourPlans } = await import('./ui-deal-tour-plans.generated.js');
-          if (!toursDisposed) toursMounted = mountDealTourPlans(root, { dealId: detail.deal.id, request: sessionFetch });
+          if (!toursDisposed) toursMounted = mountDealTourPlans(root, {
+            dealId: detail.deal.id, request: sessionFetch, tourSaved: () => void refreshPanel({ changed: true }),
+          });
           return;
         }
         const [{ mountDealTours }, { createPlannerClient }] = await Promise.all([

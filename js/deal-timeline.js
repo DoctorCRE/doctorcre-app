@@ -124,7 +124,8 @@ const activityLabels = { call: 'Call', email: 'Email', meeting: 'Meeting' };
 const STEP_STATES = new Map([['done', 'Done'], ['cancelled', 'Cancelled'], ['expired', 'Expired']]);
 const closedMoney = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', trailingZeroDisplay: 'stripIfInteger' });
 
-function changeText({ field, new_value }) {
+function changeText({ verb, field, new_value }, planTours) {
+  if (planTours && verb === 'cancel-tour') return 'Tour cancelled';
   if (field === 'phase') {
     const phase = new_value === 'dead' ? 'Lost' : columnBySlug(new_value)?.label || readableValue(field, new_value);
     return `Moved to ${phase}`;
@@ -148,7 +149,7 @@ function changeText({ field, new_value }) {
   return label ? `${label} · ${value}` : 'Deal changed';
 }
 
-export function engineTimelineEntries(detail) {
+export function engineTimelineEntries(detail, { planTours = false } = {}) {
   const notes = detail.thread || [];
   const noteIds = new Set(notes.map(note => note.id));
   /** @type {{ type: string, when: string, actor: string, text: string }[]} */
@@ -180,7 +181,7 @@ export function engineTimelineEntries(detail) {
     ...(detail.history || []).filter(event => !noteIds.has(event.activity_id)).map(event => ({
       type: event.field === 'note' ? 'Note' : event.field === 'phase' ? 'Phase move' : 'Change',
       when: event.recorded_at, actor: event.actor,
-      text: event.field === 'note' ? noteText(event.new_value) : changeText(event),
+      text: event.field === 'note' ? noteText(event.new_value) : changeText(event, planTours),
     })),
   ];
   return entries.flatMap(({ type, when, actor, text }) => {

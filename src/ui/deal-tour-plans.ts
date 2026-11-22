@@ -2,9 +2,17 @@ import { z } from "zod";
 
 const place = z.object({ address: z.string(), name: z.string().nullable() });
 const plans = z.object({ tours: z.array(z.object({ id: z.uuid(), planned_on: z.iso.date() })) });
-const tour = z.object({ notes: z.string().nullable(), stops: z.array(place) });
+const planReceipt = z.object({ id: z.uuid(), revision: z.int().positive() });
+const tour = planReceipt.extend({
+  planned_on: z.iso.date(),
+  notes: z.string().nullable(),
+  stops: z.array(place.extend({ property_id: z.uuid() })),
+  completed_activity_id: z.uuid().nullable(),
+  cancelled_at: z.string().nullable(),
+});
 const matches = z.object({ properties: z.array(place.extend({ id: z.uuid() })) });
-const receipt = z.object({ id: z.uuid() });
+const meetingReceipt = z.object({ id: z.uuid(), activity_id: z.uuid() });
+const cancellationReceipt = planReceipt.extend({ cancelled_at: z.string() });
 const stopList = z.object({ text: z.string() });
 const refusal = z.object({
   error: z.string().optional(),
@@ -13,6 +21,8 @@ const refusal = z.object({
 });
 const date = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" });
 
+type Tour = z.infer<typeof tour>;
+type Editor = { mode: "plan" } | { mode: "edit" | "complete"; saved: Tour };
 type Place = z.infer<typeof place>;
 type Stop = { property_id: string } | Place;
 type DraftStop = { property: Place; stop: Stop };
@@ -126,14 +136,26 @@ function searchProperties(form: HTMLFormElement, read: Read, add: (property: Pla
   };
 }
 
-function planForm(read: Read, path: string, finish: (id?: string) => void, dirty: () => void) {
+function send<T>(read: Read, schema: z.ZodType<T>, path: string, body: object, idempotency_key: string) {
+  return read(schema, path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...body, idempotency_key }),
+  });
+}
+
+function planForm(read: Read, path: string, editor: Editor, finish: (id?: string) => void, dirty: () => void) {
+  const saved = editor.mode === "plan" ? undefined : editor.saved;
+  const complete = editor.mode === "complete";
+  const visitTime = '<label>Local time<input type="time" name="time" required></label>';
+  const notesField = '<label>Tour notes (optional)<textarea name="notes" rows="3"></textarea></label>';
   const form = element("form");
   form.innerHTML = `<fieldset class="tour-fields">
-    <label>Tour date<input type="date" name="date" required></label>
-    <label>Tour notes (optional)<textarea name="notes" rows="3"></textarea></label>
-    <ol class="tour-stops" aria-label="Tour stops"></ol>
+    <label>${complete ? "Visit date" : "Tour date"}<input type="date" name="date" required></label>
+    ${complete ? visitTime : notesField}
+    <ol class="tour-stops" aria-label="${complete ? "Visited properties" : "Tour stops"}"></ol>
     <fieldset class="tour-fields" data-property-search>
-      <legend>Add a stop</legend>
+      <legend>${complete ? "Add a visited property" : "Add a stop"}</legend>
       <label>Property name or address<input data-query maxlength="100"></label>
       <button type="button" class="btn" data-search>Search properties</button>
       <p role="status" data-search-status></p><div data-results class="deal-tour-actions"></div>
@@ -143,7 +165,7 @@ function planForm(read: Read, path: string, finish: (id?: string) => void, dirty
         <button type="button" class="btn">Add property</button>
       </div></div>
     </fieldset>
-    <div class="deal-tour-actions"><button class="btn" type="submit">Save tour</button>
+    <div class="deal-tour-actions"><button class="btn" type="submit">${complete ? "Save meeting" : "Save tour"}</button>
       <button class="btn btn-quiet" type="button" data-back>Back to tours</button></div>
     <p role="alert"></p>
   </fieldset>`;
@@ -152,7 +174,10 @@ function planForm(read: Read, path: string, finish: (id?: string) => void, dirty
   const error = control(form, "[role=alert]");
   const stops = new Map<Element, DraftStop>();
   const attempts = new Map<string, string>();
-  searchProperties(form, read, (property, stop) => {
+  const submit = control<HTMLButtonElement>(form, "[type=submit]");
+  control<HTMLInputElement>(form, "[name=date]").value = saved?.planned_on ?? "";
+  if (!complete) control<HTMLTextAreaElement>(form, "[name=notes]").value = saved?.notes ?? "";
+  function addStop(property: Place, stop: Stop) {
     const row = element("li", label(property));
     const up = action("Move up", () => move("up"), "up");
     const down = action("Move down", () => move("down"), "down");
@@ -170,14 +195,20 @@ function planForm(read: Read, path: string, finish: (id?: string) => void, dirty
       row.remove();
       dirty();
     });
-    row.append(Object.assign(element("div", up, down, remove), { className: "deal-tour-actions" }));
+    row.append(
+      Object.assign(element("div", ...(complete ? [remove] : [up, down, remove])), { className: "deal-tour-actions" }),
+    );
     stops.set(row, { property, stop });
     list.append(row);
+  }
+  for (const stop of saved?.stops ?? []) addStop(stop, { property_id: stop.property_id });
+  searchProperties(form, read, (property, stop) => {
+    addStop(property, stop);
     dirty();
   });
 
   async function save() {
-    if (fields.disabled) return;
+    if (fields.disabled || submit.disabled) return;
     if (!stops.size) {
       error.textContent = "Add at least one property.";
       return;
@@ -185,29 +216,45 @@ function planForm(read: Read, path: string, finish: (id?: string) => void, dirty
     const values = new FormData(form);
     const notes = String(values.get("notes") ?? "");
     const ordered = Array.from(list.children, (row) => stops.get(row)).filter((stop) => stop !== undefined);
-    const body = {
-      planned_on: values.get("date"),
-      notes: notes.trim() ? notes : null,
-      stops: ordered.map(({ stop }) => stop),
-    };
+    const planned_on = values.get("date");
+    const selected = ordered.map(({ stop }) => stop);
+    let happened_at: string | undefined;
+    if (complete) {
+      const [hours, minutes] = String(values.get("time")).split(":").map(Number);
+      const visit = new Date(`${planned_on}T${values.get("time")}`);
+      if (visit.getHours() !== hours || visit.getMinutes() !== minutes) {
+        error.textContent = "Check the local visit date and time.";
+        return;
+      }
+      happened_at = visit.toISOString();
+    }
+    const revision = saved?.revision;
+    const body = complete
+      ? { revision, happened_at, visited_stops: selected }
+      : { revision, planned_on, notes: notes.trim() ? notes : null, stops: selected };
     const key = JSON.stringify(body);
     const idempotency_key = attempts.get(key) ?? crypto.randomUUID();
     attempts.set(key, idempotency_key);
     fields.disabled = true;
     error.textContent = "";
     try {
-      const headers = { "content-type": "application/json" };
-      const { id } = await read(receipt, path, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ ...body, idempotency_key }),
-      });
-      if (form.isConnected) finish(id);
+      const { id } = complete
+        ? await send(read, meetingReceipt, `${path}/complete`, body, idempotency_key)
+        : await send(read, planReceipt, path, body, idempotency_key);
+      finish(id);
     } catch (reason) {
       const failure = refusal.safeParse(reason).data;
       const invalid = failure?.fields;
-      if (failure?.error === "database_refused_the_statement" && failure.rule === "tour_stop_property_id_fkey")
+      if (saved && failure?.error === "version_conflict") {
+        submit.disabled = true;
+        error.replaceChildren(
+          "This tour has changed. Reload it before editing again. ",
+          action("Reload tour", () => finish()),
+        );
+      } else if (failure?.rule === (complete ? "activity_about_property_id_fkey" : "tour_stop_property_id_fkey"))
         error.textContent = await unavailableStopMessage(read, ordered);
+      else if (invalid?.includes("visited_stops")) error.textContent = "Check the visited properties.";
+      else if (invalid?.includes("happened_at")) error.textContent = "Check the local visit date and time.";
       else if (invalid?.includes("stops")) error.textContent = "Check the properties in the stop list.";
       else if (invalid?.includes("planned_on")) error.textContent = "Check the tour date.";
       else if (invalid?.includes("notes")) error.textContent = "Check the tour notes.";
@@ -262,34 +309,86 @@ function previewButton(content: HTMLElement, read: Read, path: string) {
   content.append(button, status);
 }
 
-function tourRow(read: Read, path: string, heading: string) {
+function tourRow(
+  read: Read,
+  path: string,
+  heading: string,
+  open: (editor: Editor) => void,
+  reconcile: (reopen?: string) => void,
+) {
   const body = element("div", "Loading tour…");
-  const row = element("details", element("summary", heading), body);
+  const title = element("summary", heading);
+  const row = element("details", title, body);
   row.className = "tour-plan";
   row.ontoggle = () => {
     if (row.open) void load();
   };
+  let busy = false;
+  const cancellationKeys = new Map<number, string>();
   async function load() {
-    row.ontoggle = null;
+    if (busy) return;
+    busy = true;
+    body.textContent = "Loading tour…";
     try {
-      const { stops, notes } = await read(tour, path);
+      const saved = await read(tour, path);
+      if (!row.isConnected) return;
+      title.textContent = date.format(new Date(saved.planned_on));
+      if (saved.completed_activity_id || saved.cancelled_at) return reconcile();
+      const { stops, notes } = saved;
       const list = element("ol", ...stops.map((stop) => element("li", label(stop))));
       list.setAttribute("aria-label", "Tour stops");
       body.replaceChildren(list);
       if (notes) body.append(Object.assign(element("p", notes), { className: "note-original" }));
       previewButton(body, read, path);
+      const controls = [
+        action("Edit tour", () => open({ mode: "edit", saved })),
+        action("Mark done", () => open({ mode: "complete", saved })),
+        action("Cancel tour", () => void cancel()),
+      ];
+      const status = element("p");
+      status.setAttribute("role", "alert");
+      async function cancel() {
+        if (!window.confirm("Cancel this tour?")) return;
+        const key = cancellationKeys.get(saved.revision) ?? crypto.randomUUID();
+        cancellationKeys.set(saved.revision, key);
+        busy = true;
+        for (const button of controls) button.disabled = true;
+        status.textContent = "";
+        try {
+          await send(read, cancellationReceipt, `${path}/cancel`, { revision: saved.revision }, key);
+          reconcile();
+        } catch (reason) {
+          if (refusal.safeParse(reason).data?.error === "version_conflict") {
+            status.replaceChildren(
+              "This tour has changed. ",
+              action("Reload tour", () => reconcile(saved.id)),
+            );
+            return;
+          }
+          status.textContent = "Could not confirm the cancellation. Try again.";
+          for (const button of controls) button.disabled = false;
+        } finally {
+          busy = false;
+        }
+      }
+      body.append(Object.assign(element("div", ...controls), { className: "deal-tour-actions" }), status);
     } catch {
       body.replaceChildren(
         "Could not load the tour. ",
         action("Reload tour", () => void load()),
       );
+    } finally {
+      busy = false;
     }
   }
   return row;
 }
 
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
-export function mountDealTourPlans(host: Element, options: { dealId: string; request: Request }) {
+export function mountDealTourPlans(
+  host: Element,
+  options: { dealId: string; request: Request; tourSaved: () => void },
+) {
   const lifetime = new AbortController();
   const path = `/api/engine/deals/${encodeURIComponent(options.dealId)}/tours`;
   const heading = element("h2", "Planned tours");
@@ -297,6 +396,7 @@ export function mountDealTourPlans(host: Element, options: { dealId: string; req
   const panel = Object.assign(element("section", heading, body), { className: "deal-tours" });
   host.replaceChildren(panel);
   let dirty = false;
+  let editorForm: HTMLFormElement | undefined;
   function confirmLeave() {
     if (dirty && !host.ownerDocument.defaultView?.confirm("Leave this tour and discard the unsaved edits?"))
       return false;
@@ -311,36 +411,54 @@ export function mountDealTourPlans(host: Element, options: { dealId: string; req
     if (!response.ok) throw payload;
     return schema.parse(payload);
   };
-  function plan() {
-    heading.textContent = "Plan tour";
-    body.replaceChildren(
-      planForm(read, path, finish, () => {
-        dirty = true;
-      }),
-    );
+  function open(editor: Editor) {
+    const saved = editor.mode === "plan" ? undefined : editor.saved;
+    heading.textContent = editor.mode === "complete" ? "Mark tour done" : saved ? "Edit tour" : "Plan tour";
+    const endpoint = saved ? `${path}/${saved.id}` : path;
+    function finish(id?: string) {
+      if (editorForm === form) {
+        if (!id && !confirmLeave()) return;
+        dirty = false;
+        editorForm = undefined;
+        if (!id) return void load(saved?.id);
+      }
+      if (id) reconcile(editor.mode === "complete" ? undefined : id);
+    }
+    function markDirty() {
+      dirty = true;
+    }
+    const form = planForm(read, endpoint, editor, finish, markDirty);
+    editorForm = form;
+    body.replaceChildren(form);
+    control(form, "input").focus();
   }
-  function finish(id?: string) {
-    if (!id && !confirmLeave()) return;
-    dirty = false;
-    void load(id);
+  function reconcile(reopen?: string) {
+    if (lifetime.signal.aborted) return;
+    // Leaving the editor reloads the list without interrupting a draft.
+    if (!editorForm) void load(reopen, true);
+    options.tourSaved();
   }
-  async function load(saved?: string) {
+  async function load(saved?: string, changed = false) {
     heading.textContent = "Planned tours";
-    body.replaceChildren(element("p", "Loading tours…"));
+    const loading = element("p", "Loading tours…");
+    body.replaceChildren(loading);
     try {
       const { tours } = await read(plans, path);
-      body.replaceChildren(action("Plan tour", plan));
+      if (!loading.isConnected) return;
+      body.replaceChildren(action("Plan tour", () => open({ mode: "plan" })));
       for (const { id, planned_on } of tours) {
-        const row = tourRow(read, `${path}/${id}`, date.format(new Date(planned_on)));
+        const title = date.format(new Date(planned_on));
+        const row = tourRow(read, `${path}/${id}`, title, open, reconcile);
         body.append(row);
         row.open = id === saved;
       }
       if (!tours.length) body.append(element("p", "No planned tours."));
     } catch {
-      const message = saved ? "Tour saved. Reload tours to see it." : "Could not load tours.";
+      if (!loading.isConnected) return;
+      const message = changed ? "Tour updated. Reload tours to see the change." : "Could not load tours.";
       body.replaceChildren(
         element("p", message),
-        action("Reload tours", () => void load(saved)),
+        action("Reload tours", () => void load(saved, changed)),
       );
     }
   }
