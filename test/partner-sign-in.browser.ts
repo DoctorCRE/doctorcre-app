@@ -382,12 +382,12 @@ async function app(
   };
 }
 
-test("Closing anniversaries shows every engine match through PartnerApp", async (t) => {
+test("Closing anniversaries shows all 21 engine matches and opens records with blank names", async (t) => {
   const rows = Array.from({ length: 21 }, (_, index) => ({
     client_id: anniversaryClientId,
-    client_name: anniversaryClientName,
+    client_name: index === 1 ? "" : anniversaryClientName,
     deal_id: index === 0 ? dealId : `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
-    deal_name: index === 0 ? dealName : `Demo closing ${index + 1}`,
+    deal_name: index === 0 ? "  " : `Demo closing ${index + 1}`,
     closed_on: "2024-12-01",
     anniversary_on: "2026-12-01",
     years: 2,
@@ -412,7 +412,7 @@ test("Closing anniversaries shows every engine match through PartnerApp", async 
 
   await page.goto(server.origin + "/leases?mode=live");
   const panel = page.getByRole("region", { name: "Closing anniversaries" });
-  await panel.getByRole("link", { name: "Demo closing 21" }).waitFor({ timeout: 5000 });
+  await panel.getByRole("link", { name: "Demo closing 21" }).or(panel.getByRole("alert")).waitFor({ timeout: 5000 });
   assert.equal(await panel.getByRole("listitem").count(), 21);
   assert.equal(await panel.getByText(/covers deals closed before|showing the next 20|first slice/i).count(), 0);
   assert.equal(partnerReads.get(closingAnniversaries), `${cookieName}=first`);
@@ -421,12 +421,12 @@ test("Closing anniversaries shows every engine match through PartnerApp", async 
     await page.getByRole("link", { name: "Closing anniversaries", exact: true }).getAttribute("href"),
     "/leases",
   );
-  await panel.getByRole("link", { name: anniversaryClientName }).first().click();
+  await panel.getByRole("link", { name: "Unnamed client", exact: true }).click();
   await page.getByRole("dialog", { name: anniversaryClientName }).waitFor({ timeout: 5000 });
   assert.equal(new URL(page.url()).searchParams.get("record"), anniversaryClientId);
 
   await page.goto(server.origin + "/leases?mode=live");
-  await panel.getByRole("link", { name: dealName }).click();
+  await panel.getByRole("link", { name: "Unnamed deal", exact: true }).click();
   await page
     .getByRole("main", { name: "Deal Workspace" })
     .getByRole("heading", { name: dealName })
@@ -463,6 +463,31 @@ test("Closing anniversaries retries a failed engine read", async (t) => {
   await panel.getByRole("button", { name: "Retry closing anniversaries" }).click();
   await panel.getByText("No closing anniversaries in the next 30 days.", { exact: true }).waitFor({ timeout: 5000 });
   assert.equal(reads, 2);
+});
+
+test("Closing anniversaries rejects an engine response with a missing record ID or date", async (t) => {
+  const row = {
+    client_id: anniversaryClientId,
+    client_name: anniversaryClientName,
+    deal_id: dealId,
+    deal_name: dealName,
+    closed_on: "2024-12-01",
+    anniversary_on: "2026-12-01",
+    years: 2,
+    days_until: 10,
+  };
+  for (const missing of ["client_id", "anniversary_on"]) {
+    await t.test(`missing ${missing}`, async (t) => {
+      const { server, context } = await app(t, {
+        readAnniversaries: () => Response.json([row, { ...row, [missing]: undefined }]),
+      });
+      const page = await context.newPage();
+      await page.goto(server.origin + "/leases?mode=live");
+      const panel = page.getByRole("region", { name: "Closing anniversaries" });
+      await panel.getByRole("button", { name: "Retry closing anniversaries" }).waitFor({ timeout: 5000 });
+      assert.equal(await panel.getByRole("listitem").count(), 0);
+    });
+  }
 });
 
 test("Closing anniversaries on CARR keeps its bounded Lease Radar snapshot", async (t) => {
