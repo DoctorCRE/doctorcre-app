@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile } from "node:fs/promises";
 import { after, type TestContext, test } from "node:test";
 import type { Page } from "playwright";
-import { createInvoiceFixture } from "../js/invoice-tracker-fixture.js";
+import { createInvoiceFixture, invoiceTrackerFixture } from "../js/invoice-tracker-fixture.js";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
@@ -78,6 +78,7 @@ const dealDetail = {
 };
 const invoiceDay = "2026-10-02";
 const invoiceName = "Demo Harbor Renewal";
+const invoiceId = "00000000-0000-4000-8000-000000000001";
 const invoicePath = "/api/engine/invoices";
 const paymentPath = invoicePath + "/mark-paid";
 const fitPath = "/api/engine/client-fit";
@@ -157,7 +158,10 @@ async function app(
   let unavailable = false;
   let carrChecks = 0;
   const carrTools: string[] = [];
-  const invoices = createInvoiceFixture({ today: () => invoiceDay });
+  const invoiceEntries = invoiceTrackerFixture(invoiceDay).entries.map((row) =>
+    row.name === invoiceName ? { ...row, deal_id: dealId } : row,
+  );
+  const invoices = createInvoiceFixture({ today: () => invoiceDay, entries: invoiceEntries });
   const screenTools = new Map<string, (args: Parameters<typeof invoices.markInvoicePaid>[0]) => unknown>([
     ["read-invoice-tracker", () => invoices.getInvoiceTracker()],
     ["record-commission-receipt", (args) => invoices.markInvoicePaid(args)],
@@ -177,6 +181,7 @@ async function app(
     PARTNER_SIGN_IN: signIn,
     WORKSPACE_COMMAND_CENTER_READ_ENABLED: "true",
     ...(switchDay && {
+      APP_ENV: "production",
       ENGINE_ROUTING: {
         get: async (key: string) => (key === "deal-cutover-date" ? "2026-11-20" : switchDayKeys.has(key) ? "on" : null),
       },
@@ -184,6 +189,7 @@ async function app(
         async fetch(input: Request) {
           const url = new URL(input.url);
           const path = url.pathname;
+          if (path === invoicePath) return Response.json(await invoices.getInvoiceTracker());
           if (path !== "/api/engine/clients" && path !== "/api/engine/vendors")
             return new Response(null, { status: 404 });
           assert.equal(input.headers.get("cookie"), "__Host-dealroom_session=directory-fixture");
@@ -318,6 +324,24 @@ async function app(
         if (path === `${docLink}/revoke` && input.method === "POST") {
           links.delete(token);
           return new Response(null, { status: 204 });
+        }
+        if (path === "/api/engine/doc/conversations") return Response.json({ conversations: [], next_before: null });
+        if (path === "/api/engine/doc/turns" && input.method === "POST") {
+          const ask = await input.json();
+          return Response.json({
+            conversation_id: "10000000-0000-4000-8000-000000000001",
+            turn: {
+              ...ask,
+              id: "10000000-0000-4000-8000-000000000002",
+              position: 1,
+              created_at: "2026-10-02T17:00:00Z",
+              state: "queued",
+              waiting_reason: "Doc isn't set up on your Mac yet.",
+              draft_review: null,
+              answer: null,
+              confirmation: null,
+            },
+          });
         }
         if (path === invoicePath) return Response.json(await invoices.getInvoiceTracker());
         if (path === paymentPath && input.method === "POST")
@@ -591,6 +615,62 @@ test("engine sign-in opens invoices and records a payment with the invoice switc
   for (const path of [invoicePath, paymentPath]) assert.equal(partnerReads.get(path), cookieName + "=first");
   assert.deepEqual(carrTools, []);
 });
+
+for (const width of [390, 1440]) {
+  test(`Open Doc stays in the invoice header and starts a chat about the invoice at ${width}px`, async (t) => {
+    const { context, server } = await app(t, { width });
+    const page = await context.newPage();
+    await page.setViewportSize({ width, height: 420 });
+    await page.goto(server.origin + "/invoices?mode=live");
+    await page.getByRole("link", { name: "Ask Doc", exact: true }).waitFor({ timeout: 5000 });
+    await page.getByRole("button", { name: new RegExp(invoiceName) }).click({ timeout: 5000 });
+    const drawer = page.getByRole("dialog", { name: invoiceName });
+    const openDoc = drawer.getByRole("link", { name: "Open Doc", exact: true });
+    const close = drawer.getByRole("button", { name: "Close invoice", exact: true });
+    await openDoc.waitFor({ timeout: 5000 });
+    await drawer.getByText("Details", { exact: true }).click();
+    const before = await openDoc.boundingBox();
+    const closeBefore = await close.boundingBox();
+    assert.ok(before && closeBefore);
+    assert.ok(before.x + before.width <= closeBefore.x);
+    assert.ok(before.y < closeBefore.y + closeBefore.height && closeBefore.y < before.y + before.height);
+    const scrolled = await drawer.locator(".invoice-detail-body").evaluate((body) => {
+      body.scrollTop = body.scrollHeight;
+      return body.scrollTop;
+    });
+    assert.ok(scrolled > 0);
+    assert.deepEqual(await openDoc.boundingBox(), before);
+    assert.deepEqual(await close.boundingBox(), closeBefore);
+
+    await openDoc.click();
+    await page.getByRole("heading", { name: "Ask Doc", exact: true }).waitFor();
+    const invoice = page.getByRole("link", { name: "Open invoice", exact: true });
+    assert.equal(await invoice.getAttribute("href"), `/invoices?invoice=${invoiceId}`);
+    await page.getByLabel("Question for Doc").fill("What is the payment status?");
+    const sent = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === "/api/engine/doc/turns" && request.method() === "POST",
+    );
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const ask = (await sent).postDataJSON();
+    assert.deepEqual(ask.context, { kind: "deal", id: dealId });
+    assert.ok(ask.question.includes("What is the payment status?"));
+    assert.ok(ask.question.includes(invoiceId));
+    await page.getByText("Doc isn't set up on your Mac yet.", { exact: true }).waitFor();
+  });
+
+  test(`Open Doc follows Ask Doc availability on switched CARR sign-in at ${width}px`, async (t) => {
+    const { context, server, carrTools } = await app(t, { width, signIn: "carr", switchDay: true });
+    const page = await context.newPage();
+    await page.goto(server.origin + "/invoices?mode=live");
+    await page.getByRole("button", { name: "Joe: account and settings" }).waitFor({ timeout: 5000 });
+    assert.equal(await page.getByRole("link", { name: "Ask Doc", exact: true }).count(), 0);
+    await page.getByRole("button", { name: new RegExp(invoiceName) }).click({ timeout: 5000 });
+    const drawer = page.getByRole("dialog", { name: invoiceName });
+    await drawer.getByRole("button", { name: "Close invoice", exact: true }).waitFor();
+    assert.equal(await drawer.getByRole("link", { name: "Open Doc", exact: true }).count(), 0);
+    assert.ok(!carrTools.includes("read-invoice-tracker"));
+  });
+}
 
 test("engine sign-in shows historical client fit with the charts switch off", async (t) => {
   const { context, server, partnerReads, carrTools, setUnavailable } = await app(t);

@@ -93,7 +93,8 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     snapshot = next;
     rows = projected;
   }
-  const requested=new URL(window.location.href).searchParams.get('invoice');
+  const pageParams = new URL(window.location.href).searchParams;
+  const requested = pageParams.get('invoice');
   let requestHandled=false;
   const focusVisible=element=>{const target=element?.isConnected&&!element.disabled&&!element.closest('[inert]')&&element.getClientRects().length?element:$('refreshInvoices');target.focus();};
   const paint=(target,html)=>{
@@ -151,6 +152,9 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     $('invoiceDetailTitle').textContent=row.name;
     paint($('invoiceDealAction'), /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(row.deal_id)
       ? `<a data-invoice-key="deal:${E(row.key)}" href="/deals?deal=${E(encodeURIComponent(row.deal_id))}">Open deal</a>` : '<span>Deal unavailable</span>');
+    const docParams = new URLSearchParams({ deal: row.deal_id, invoice: row.key });
+    if (pageParams.get('mode') === 'live') docParams.set('mode', 'live');
+    $('invoiceDocAction').href = `/doc-chats?${docParams}`;
     const commissionLabel = row.status === 'paid' ? 'Paid to DoctorCRE'
       : row.status === 'awaiting' ? 'DoctorCRE commission' : 'Owed to DoctorCRE';
     paint($('invoiceDetailFacts'), `

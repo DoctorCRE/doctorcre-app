@@ -120,6 +120,18 @@ const initialDraft = initialId
       id: params.get("draft"),
       version: Number(params.get("version")),
     }).data;
+const invoiceDeal = recordRef.safeParse({ kind: "deal", id: params.get("deal") }).data;
+const invoiceKey = params.get("invoice");
+const initialInvoice =
+  !initialId &&
+  !initialDraft &&
+  invoiceDeal &&
+  invoiceKey &&
+  (z.guid().safeParse(invoiceKey).success || invoiceKey === `awaiting:${invoiceDeal.id}`)
+    ? { key: invoiceKey, deal: invoiceDeal }
+    : undefined;
+const initialContext = initialDraft ?? initialInvoice?.deal;
+const composerId = initialDraft?.id ?? initialInvoice?.key ?? null;
 const draftChangeText = {
   changed: "This draft has a newer revision.",
   gone: "This draft is no longer pending.",
@@ -143,6 +155,8 @@ function chatHref(id: string | null) {
   query.delete("id");
   query.delete("draft");
   query.delete("version");
+  query.delete("invoice");
+  query.delete("deal");
   if (id) query.set("chat", id);
   else query.delete("chat");
   return "/doc-chats" + (query.size ? `?${query}` : "");
@@ -494,6 +508,7 @@ function DocChat() {
         }
       : null);
   const text = question.trim();
+  const askText = !id && initialInvoice ? `${text}\n\nInvoice reference ${initialInvoice.key}` : text;
   const canSend =
     ready &&
     !busy &&
@@ -502,7 +517,7 @@ function DocChat() {
     status !== "loadFailed" &&
     !pendingAsk &&
     text.length > 0 &&
-    [...text].length <= 4000 &&
+    [...askText].length <= 4000 &&
     !text.includes("\0");
 
   const showUnavailable = useCallback(() => {
@@ -550,7 +565,7 @@ function DocChat() {
         const storage = (field: DraftField, id: string | null) => privateTextDraft(window, actor, field, id);
         privateDraft.current = storage;
         setTurns(saved);
-        setQuestion(storage("doc-question", chatId ?? initialDraft?.id ?? null).read());
+        setQuestion(storage("doc-question", chatId ?? composerId).read());
         setReady(true);
       });
     },
@@ -660,7 +675,7 @@ function DocChat() {
       setTurns((rows) => [...rows.filter((row) => row.id !== turn.id), turn]);
       setPendingAsk(null);
       if (latest?.idempotency_key !== ask.idempotency_key) {
-        privateDraft.current?.("doc-question", id ?? initialDraft?.id ?? null).write("");
+        privateDraft.current?.("doc-question", id ?? composerId).write("");
         setQuestion("");
       }
     });
@@ -712,6 +727,11 @@ function DocChat() {
           {ready && draftId && (
             <p>
               <a href={draftReviewHref(draftId)}>{reviewReason ? "Open fresh review" : "Open reply review"}</a>
+            </p>
+          )}
+          {ready && initialInvoice && (
+            <p>
+              <a href={`/invoices?invoice=${encodeURIComponent(initialInvoice.key)}`}>Open invoice</a>
             </p>
           )}
           <ol className="doc-chat__turns" aria-live="polite">
@@ -778,9 +798,9 @@ function DocChat() {
               event.preventDefault();
               if (canSend)
                 send({
-                  question: text,
+                  question: askText,
                   idempotency_key: crypto.randomUUID(),
-                  ...(id ? { conversation_id: id } : initialDraft && { context: initialDraft }),
+                  ...(id ? { conversation_id: id } : initialContext && { context: initialContext }),
                 });
             }}
           >
@@ -793,7 +813,7 @@ function DocChat() {
               readOnly={status === "unavailable" || status === "older"}
               onChange={(event) => {
                 const value = event.currentTarget.value;
-                privateDraft.current?.("doc-question", id ?? initialDraft?.id ?? null).write(value);
+                privateDraft.current?.("doc-question", id ?? composerId).write(value);
                 setQuestion(value);
               }}
             />

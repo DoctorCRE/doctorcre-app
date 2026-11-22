@@ -178,7 +178,7 @@ function mountAccount(root, host, pathname, reactWorkspaceRequested, ready) {
   const preferences = mountPrefs();
   const avatar = host.querySelector("#selfAvatar");
   const panel = host.querySelector("#accountMenu");
-  const askDoc = host.querySelector("#askDocLink");
+  const askDocLinks = root.querySelectorAll("[data-ask-doc]");
   root.body.append(panel);
   let session = null;
   const showPartner = (identity) => {
@@ -239,7 +239,7 @@ function mountAccount(root, host, pathname, reactWorkspaceRequested, ready) {
       else {
         session = await boundary.verify();
         panel.querySelector("#accountDocLink").hidden = !boundary.engineSignIn;
-        if (askDoc) askDoc.hidden = !boundary.engineSignIn;
+        for (const link of askDocLinks) link.hidden = !boundary.engineSignIn;
         lastVerified = new Date().toLocaleTimeString(); sessionStatus.hidden = true;
         panel.querySelector("#accountStatus").textContent = "";
       }
