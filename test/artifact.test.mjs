@@ -130,6 +130,15 @@ test("CLI verification accepts the exact committed artifact", async (t) => {
   await runCli(root, ["verify"]);
 });
 
+test("a retired UI bundle left by a previous build stays out of the verified artifact", async (t) => {
+  const { root, outDir, commit } = await committedFixture(t);
+  const retiredBundle = "js/ui-share-intake.generated.js";
+  await writeFile(join(root, retiredBundle), "export {};");
+  await buildArtifact({ root, outDir, commit });
+  await runCli(root, ["verify"]);
+  await assert.rejects(readFile(join(outDir, "site", retiredBundle)), { code: "ENOENT" });
+});
+
 test("one contract path declaration drives both assembly and committed-source verification", async (t) => {
   const root = await temporaryDirectory("doctorcre-contract-membership-", t);
   const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: "pipe" }).trim();
