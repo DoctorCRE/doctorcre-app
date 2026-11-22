@@ -1047,7 +1047,13 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
         <div className="inbox-empty" role="alert">
           <h2>{home ? "Reminders and waiting items unavailable" : "Inbox unavailable"}</h2>
           <p>{message(query.error)}</p>
-          {!home && <p>Refresh to try again.</p>}
+          {home ? (
+            <button type="button" disabled={!online || query.isFetching} onClick={() => void query.refetch()}>
+              Retry
+            </button>
+          ) : (
+            <p>Refresh to try again.</p>
+          )}
         </div>
       ) : (
         <>
@@ -1138,7 +1144,17 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
       )}
       {home && ((query.isError && query.data) || !online) && (
         <p className="home-read-status" role="status">
-          {!online ? "Offline. Showing the last available update." : "Reminders and waiting items unavailable."}
+          <span>
+            {!online ? "Offline. Showing the last available update." : "Reminders and waiting items unavailable."}
+          </span>
+          {online && (
+            <>
+              {" "}
+              <button type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>
+                Retry
+              </button>
+            </>
+          )}
         </p>
       )}
       {home ? (

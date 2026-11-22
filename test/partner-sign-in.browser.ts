@@ -112,6 +112,37 @@ const clientFit = {
   ],
 };
 const pages = ["/invoices?mode=live", "/doc-chats?mode=live", "/pipeline?mode=live"];
+const filingCard = {
+  card_id: `conversation:${filingId}`,
+  item_id: `suggestion:${filingId}`,
+  source_id: filingId,
+  source_type: "email_proposal",
+  source_version: "1",
+  source_state: "needs_attention",
+  base_version: "1:0:inbox",
+  section: "inbox",
+  disposition: "inbox",
+  activity_at: "2026-11-21T12:00:00Z",
+  hold_until: null,
+  snoozed_until: null,
+  completed_at: null,
+  unseen: false,
+  context_label: null,
+  due_on: null,
+  open_url: null,
+  kind_label: "Suggestion",
+  merged_source_ids: [filingId],
+  deal_id: null,
+  action_id: null,
+  action_version: null,
+  waiting_version: 0,
+  waiting_on: null,
+  title: filingTitle,
+  why: "The sender asked for a floor plan.",
+  primary_action: "Choose vendor",
+  filing_choices: filingChoices,
+  suggestions: [{ id: filingId }],
+};
 const feedbackId = "22222222-2222-4222-8222-222222222223";
 const feedbackItem = `notification:${feedbackId}`;
 const feedbackTitle = "Tour feedback on Example Clinic";
@@ -138,8 +169,6 @@ const switchDayKeys = new Set([
   "search-from-engine",
   "clients-vendors-from-engine",
   "relationships-from-engine",
-  "frame-from-engine",
-  "home-from-engine",
   "deals-saves-from-engine",
 ]);
 
@@ -419,40 +448,9 @@ async function app(
           });
         if (path === "/api/engine/home/inbox" || path === linkedCardRead) {
           const empty = { count: 0, items: [] };
-          const item = {
-            card_id: `conversation:${filingId}`,
-            item_id: `suggestion:${filingId}`,
-            source_id: filingId,
-            source_type: "email_proposal",
-            source_version: "1",
-            source_state: "needs_attention",
-            base_version: "1:0:inbox",
-            section: "inbox",
-            disposition: "inbox",
-            activity_at: "2026-11-21T12:00:00Z",
-            hold_until: null,
-            snoozed_until: null,
-            completed_at: null,
-            unseen: false,
-            context_label: null,
-            due_on: null,
-            open_url: null,
-            kind_label: "Suggestion",
-            merged_source_ids: [filingId],
-            deal_id: null,
-            action_id: null,
-            action_version: null,
-            waiting_version: 0,
-            waiting_on: null,
-            title: filingTitle,
-            why: "The sender asked for a floor plan.",
-            primary_action: "Choose vendor",
-            filing_choices: filingChoices,
-            suggestions: [{ id: filingId }],
-          };
           if (path === linkedCardRead)
             return Response.json({
-              ...item,
+              ...filingCard,
               card_id: `conversation:${successorDraft}`,
               item_id: linkedItem,
               kind_label: "Reply draft",
@@ -465,7 +463,7 @@ async function app(
               suggestions: [],
             });
           const feedback = {
-            ...item,
+            ...filingCard,
             card_id: feedbackItem,
             item_id: feedbackItem,
             source_id: feedbackId,
@@ -482,7 +480,7 @@ async function app(
             suggestions: [],
             filing_choices: [],
           };
-          const items = tourFeedback ? (feedbackOpen ? [feedback] : []) : [item];
+          const items = tourFeedback ? (feedbackOpen ? [feedback] : []) : [filingCard];
           return Response.json({
             ok: true,
             schema_version: "home-inbox.v5",
@@ -644,6 +642,122 @@ async function app(
       loseIssueResponse = true;
     },
   };
+}
+
+for (const lookup of ["stalled", "unknown", "on"]) {
+  const title =
+    lookup === "on"
+      ? "Home retries initial and refresh outages in place"
+      : `Home and the Deals frame ignore ${lookup} Home and Frame switches`;
+  test(title, async (t) => {
+    let unavailable = lookup === "on";
+    const legacyReads: string[] = [];
+    const routingReads: string[] = [];
+    const held = Promise.withResolvers<string>();
+    t.after(() => held.resolve("on"));
+    const productionRouting = new Map([
+      ...[
+        "deals",
+        "deals-saves",
+        "leads",
+        "invoices",
+        "charts",
+        "national-deals",
+        "search",
+        "clients-vendors",
+        "relationships",
+      ].map((name) => [name + "-from-engine", "on"] as const),
+      ["deal-cutover-date", "2026-11-20"],
+    ]);
+    assets ??= appAssetSnapshot();
+    const server = await startWorkerFixture({
+      assets: await assets,
+      env: {
+        APP_ENV: "production",
+        PARTNER_SIGN_IN: "carr",
+        ENGINE_ROUTING: {
+          async get(key: string) {
+            if (key !== "home-from-engine" && key !== "frame-from-engine") return productionRouting.get(key);
+            routingReads.push(key);
+            return lookup === "stalled" ? held.promise : lookup === "unknown" ? "ON" : "on";
+          },
+        },
+        CARR: {
+          async fetch(request: Request) {
+            const path = new URL(request.url).pathname;
+            if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "synthetic" });
+            if (path === "/mcp") return Response.json({ error: "legacy_read" }, { status: 503 });
+            return new Response(null, { status: request.headers.get("sec-fetch-mode") === "navigate" ? 200 : 404 });
+          },
+        },
+        ENGINE: {
+          async fetch(request: Request) {
+            const url = new URL(request.url);
+            if (url.pathname === "/api/engine/deals") return Response.json(dealBoard);
+            if (url.pathname === "/api/engine/home/today")
+              return Response.json({
+                ok: true,
+                schema_version: "home-today.v1",
+                today: "2026-11-21",
+                meetings: { state: "ready", items: [] },
+                reminders: { late: [], upcoming: [] },
+                partners: [],
+              });
+            if (url.pathname === "/api/engine/home/inbox" && url.searchParams.get("view") === "dashboard")
+              return unavailable
+                ? Response.json({ error: "engine_unavailable" }, { status: 503 })
+                : Response.json({
+                    ok: true,
+                    schema_version: "home-inbox.v5",
+                    reminders: { count: 1, items: [filingCard] },
+                    waiting: { count: 0, items: [] },
+                  });
+            return new Response(null, { status: 404 });
+          },
+        },
+      },
+    });
+    t.after(() => server.close());
+    browser ??= chromium.launch();
+    const page = await (await browser).newPage();
+    t.after(() => page.context().close());
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname !== "/mcp") return;
+      const name = request.postDataJSON()?.params?.name;
+      if (["calendar-meeting-prep", "today-triage", "read-home-inbox-v5"].includes(name)) legacyReads.push(name);
+    });
+
+    if (lookup === "on") await page.clock.install();
+    assert.ok((await page.goto(server.origin + "/?mode=live", { timeout: 5000 }))?.ok());
+    if (unavailable) {
+      const failure = page.getByRole("alert").filter({ hasText: "Reminders and waiting items unavailable" });
+      await failure.waitFor({ timeout: 5000 });
+      unavailable = false;
+      await failure.getByRole("button", { name: "Retry", exact: true }).click({ timeout: 5000 });
+    }
+    await page.getByText(filingTitle, { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await page.getByRole("button", { name: "Prepare meetings", exact: true }).count(), 0);
+    assert.equal(await page.getByText("A LITTLE LOOK AHEAD", { exact: true }).count(), 0);
+    if (lookup === "on") {
+      unavailable = true;
+      await page.clock.fastForward(60_001);
+      const failure = page.getByRole("status").filter({ hasText: "Reminders and waiting items unavailable" });
+      await failure.waitFor({ timeout: 5000 });
+      assert.ok(await page.getByText(filingTitle, { exact: true }).isVisible());
+      unavailable = false;
+      await failure.getByRole("button", { name: "Retry", exact: true }).click({ timeout: 5000 });
+      await failure.waitFor({ state: "hidden", timeout: 5000 });
+      assert.ok(await page.getByText(filingTitle, { exact: true }).isVisible());
+    } else {
+      const today = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/engine/home/today", {
+        timeout: 5000,
+      });
+      assert.ok((await page.goto(server.origin + "/deals?mode=live", { timeout: 5000 }))?.ok());
+      assert.ok((await today).ok());
+      assert.deepEqual(routingReads, []);
+    }
+    assert.deepEqual(legacyReads, []);
+  });
 }
 
 test("Closing anniversaries shows all 21 engine matches and opens records with blank names", async (t) => {

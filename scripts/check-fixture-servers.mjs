@@ -319,7 +319,7 @@ export async function checkFixtureServers(root = fileURLToPath(new URL('../', im
     if (source === undefined) { errors.push(`${file}:1: Fixture helper is outside scanned source`); return; }
     const result = checkFixtureSource(source, file, { resolvedLoads: loadResolutions.get(file) });
     errors.push(...result.errors);
-    if (file === transport && result.imports.some(name => !['../src/worker.js', '../js/routes.js', './qa-fixture-dispatch.mjs'].includes(name))) errors.push(`${file}:1: Transport must not import local helpers`);
+    if (file === transport && result.imports.some(name => !['../src/worker.js', '../test/fixtures/worker-html.ts', '../js/routes.js', './qa-fixture-dispatch.mjs'].includes(name))) errors.push(`${file}:1: Transport must not import local helpers`);
     if (file === transport) checkTransportGraph(file);
     for (const imported of result.imports) {
       const path = relative(root, resolve(root, imported.startsWith('/') ? '.' + imported : dirname(file), imported.startsWith('/') ? '' : imported));

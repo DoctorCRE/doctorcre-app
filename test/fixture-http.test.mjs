@@ -189,6 +189,18 @@ test('fixed Worker seam routes POST through the real router and serves a copied 
   await assert.rejects(startWorkerFixture({ listener() {} }), /Unknown fixture field/);
 });
 
+test('staging Worker fixture serves HTML rewritten for the engine frame', async t => {
+  const { startWorkerFixture } = await import('../scripts/fixture-http.mjs');
+  const fixture = await startWorkerFixture({
+    assets: new Map([['/workspace.html', asset('<html><body>Synthetic Home</body></html>', 'text/html')]]),
+    env: { APP_ENV: 'staging', CARR: { fetch: async () => new Response(null) } },
+  });
+  t.after(() => fixture.close());
+  const response = await fetch(fixture.origin + '/');
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /<html data-home-today-from-engine="">/);
+});
+
 test('Worker seam bounds request bodies, preserves cookies and cancels pending bindings on close', async t => {
   const { startWorkerFixture } = await import('../scripts/fixture-http.mjs');
   let reads = 0, entered;

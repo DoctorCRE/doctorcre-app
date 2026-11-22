@@ -21,10 +21,12 @@ export function startWorkerFixture(options?: {
   routes?: Map<string, Descriptor | { sequence: Descriptor[] }>;
   env?: {
     CARR?: ServiceBinding;
-    ENGINE?: ServiceBinding;
-    ENGINE_ROUTING?: { get(key: string): Promise<string | null> };
     APP_ENV?: string;
     GIT_SHA?: string;
+    ENGINE?: ServiceBinding;
+    ENGINE_ROUTING?: {
+      get(key: string, options: { cacheTtl: number }): string | null | undefined | Promise<string | null | undefined>;
+    };
     PARTNER_APP?: ServiceBinding;
     PARTNER_SIGN_IN?: "carr" | "engine";
     WORKSPACE_COMMAND_CENTER_READ_ENABLED?: "true" | "false";
