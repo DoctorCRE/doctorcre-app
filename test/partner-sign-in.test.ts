@@ -1031,3 +1031,26 @@ test("Legacy Home fixture still forwards calendar dismissals through both MCP ca
   }
   assert.deepEqual(proxyCalls, forms);
 });
+
+test("old client portal bookmarks move in engine mode regardless of routing KV", async () => {
+  for (const routing of [
+    undefined,
+    { get: async () => "off" },
+    {
+      get: async () => {
+        throw Error("unavailable");
+      },
+    },
+  ]) {
+    for (const method of ["GET", "HEAD"]) {
+      const { send, calls } = fixture(status, { ENGINE_ROUTING: routing });
+      const moved = await send("/client-portal?slug=example", { method, headers: { cookie } });
+      assert.equal(moved.status, 200);
+      assert.equal(calls.assets.at(-1), "/client-website-moved.html");
+      const linked = await send("/client-portal?deal=example", { method, headers: { cookie } });
+      assert.equal(linked.status, 302);
+      assert.equal(linked.headers.get("location"), "/deals?deal=example&tab=client-view");
+      assert.ok(!calls.assets.includes("/client-portal.html"));
+    }
+  }
+});
