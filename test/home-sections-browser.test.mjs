@@ -366,7 +366,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       body: '&amp;lt; is a literal reference. Our R&D team said &lt;strong&gt;Ready&#33;&lt;/strong&gt;' }] });
   details.set(nested, { ...evidence, proposal_id: nested, kind: 'next_step', what: 'Share the sample plan', due_on: '2026-11-04' });
   details.set(remaining, { ...evidence, proposal_id: remaining, kind: 'possible_new_deal' });
-  details.set(dismissNested, { ...evidence, proposal_id: dismissNested, kind: 'file_to_deal' });
+  details.set(dismissNested, { ...evidence, proposal_id: dismissNested, kind: 'file_to_deal', filing_choices: [{ kind: 'deal', label: 'Choose deal' }] });
   details.set(draft, { draft_id: draft, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
     to: 'sender@example.test', cc: 'partner@example.test', attachments: [{ document_id: dealId, name: 'Sample plan' }],
     source_activity: { kind: 'email', subject: 'Sample email' },
@@ -453,7 +453,14 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).click();
   await suggestions.getByRole('alert').filter({ hasText: /This deal has moved since the suggestion/ }).waitFor();
   assert.equal(await suggestions.getByRole('button', { name: 'Review updated card' }).count(), 0);
-  await suggestions.getByRole('region', { name: /Details for Call suggestions/ }).getByRole('button', { name: 'Drop', exact: true }).click();
+  const callReview = suggestions.getByRole('region', { name: /Details for Call suggestions/ });
+  const callDrop = callReview.getByRole('button', { name: 'Drop', exact: true });
+  await callDrop.click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: 'Drop with a reason' }).waitFor({ state: 'detached' });
+  assert.equal(await callReview.isVisible(), true);
+  assert.equal(await callDrop.evaluate(node => node === document.activeElement), true);
+  await callDrop.click();
   await confirmDrop('The deal already moved.');
   await suggestions.waitFor({ state: 'detached' });
   assert.equal(writes.at(-1)[1].decision, 'dismiss');
@@ -511,12 +518,20 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await reply.getByRole('button', { name: 'Accept', exact: true }).first().click();
   await reply.getByText('Suggestion accepted.', { exact: true }).waitFor();
   assert.match(writes.at(-1)[0], new RegExp(`/proposals/${nested}/decision$`));
-  await reply.getByRole('region', { name: 'File this email', exact: true }).getByRole('button', { name: 'Drop', exact: true }).click();
+  await reply.getByRole('region', { name: 'File this email', exact: true }).getByRole('button', { name: 'Dismiss', exact: true }).click();
+  const filingDialog = page.getByRole('dialog', { name: 'Drop with a reason' });
+  await filingDialog.getByRole('heading', { name: 'Drop this filing suggestion?' }).waitFor();
+  await page.keyboard.press('Escape');
+  await filingDialog.waitFor({ state: 'detached' });
+  const dismissFiling = reply.getByRole('region', { name: 'File this email', exact: true }).getByRole('button', { name: 'Dismiss', exact: true });
+  assert.equal(await dismissFiling.evaluate(node => node === document.activeElement), true);
+  await dismissFiling.click();
   await confirmDrop('Already filed.');
   await reply.getByText('Suggestion dismissed.', { exact: true }).waitFor();
   assert.match(writes.at(-1)[0], new RegExp(`/proposals/${dismissNested}/decision$`));
   assert.equal(writes.at(-1)[1].decision, 'dismiss');
   assert.equal(writes.at(-1)[1].reason, 'Already filed.');
+  assert.equal(await reply.getByRole('region', { name: /Details for Reply to the sample email/ }).evaluate(node => node === document.activeElement), true);
   assert.equal(await reply.getByRole('textbox', { name: 'Message', exact: true }).inputValue(), 'Edited reply.');
   await reply.getByRole('button', { name: 'Save draft', exact: true }).click();
   await reply.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
@@ -576,7 +591,14 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const declinedMessage = declined.getByRole('textbox', { name: 'Message', exact: true });
   assert.equal(await declinedMessage.inputValue(), 'Final edited reply.');
   await declinedMessage.fill('Unsaved text to drop.');
-  await declined.getByRole('region', { name: /Details for Another sample draft/ }).getByRole('button', { name: 'Drop', exact: true }).click();
+  const draftReview = declined.getByRole('region', { name: /Details for Another sample draft/ });
+  const draftDrop = draftReview.getByRole('button', { name: 'Drop', exact: true });
+  await draftDrop.click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: 'Drop with a reason' }).waitFor({ state: 'detached' });
+  assert.equal(await draftReview.isVisible(), true);
+  assert.equal(await draftDrop.evaluate(node => node === document.activeElement), true);
+  await draftDrop.click();
   await confirmDrop('Already answered.');
   await declined.waitFor({ state: 'detached' });
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, reason: 'Already answered.' });
@@ -1222,7 +1244,21 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
         Number(choices.includes(choice)));
     }
     assert.equal(await filing.getByRole('button', { name: 'Accept', exact: true }).count(), 0);
-    if (dismiss) await filing.getByRole('button', { name: 'Dismiss' }).click();
+    if (dismiss) {
+      await filing.getByRole('button', { name: 'Dismiss' }).click();
+      let dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
+      await dialog.waitFor();
+      assert.equal(await dialog.getByRole('button', { name: 'Drop', exact: true }).isDisabled(), true);
+      await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill('   ');
+      assert.equal(await dialog.getByRole('button', { name: 'Drop', exact: true }).isDisabled(), true);
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      assert.deepEqual(state.filingWrites, []);
+      await filing.getByRole('button', { name: 'Dismiss' }).click();
+      dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
+      await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill('  Not relevant  ');
+      await dialog.getByRole('button', { name: 'Drop', exact: true }).click();
+      expected.reason = 'Not relevant';
+    }
     else {
       await filing.getByRole('button', { name: `Choose ${kind}` }).click();
       if (kind === 'vendor') {

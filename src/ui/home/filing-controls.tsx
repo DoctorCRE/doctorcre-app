@@ -226,7 +226,7 @@ export function FilingControls({
   checkReason: CheckReason;
   choices: FilingChoice[];
   file: FileEmail;
-  dismiss(): void;
+  dismiss(opener: HTMLButtonElement): void;
   refusal: FilingReasonRefusal | null;
 }) {
   const [kind, setKind] = useState<FilingChoice["kind"] | null>(null);
@@ -244,7 +244,7 @@ export function FilingControls({
             {choice.label}
           </button>
         ))}
-        <button type="button" onClick={dismiss}>
+        <button type="button" onClick={(event) => dismiss(event.currentTarget)}>
           Dismiss
         </button>
       </div>
