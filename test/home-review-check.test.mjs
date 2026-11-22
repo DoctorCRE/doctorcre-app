@@ -74,6 +74,23 @@ test('Home keeps the exact filing choices from the proposal detail', async () =>
   }
 });
 
+test('A filing review uses the proposal email ID even if the thread shows a display copy', async () => {
+  const thread = ['first', 'display-copy', 'latest'].map((activity_id, index) => ({
+    activity_id, happened_at: `2026-11-0${index + 1}T12:00:00Z`, body: 'Example message',
+  }));
+  for (const [activity_kind, activity_id, expected] of [
+    ['email', 'origin', 'origin'],
+    ['email', null, null],
+    ['call', 'origin', null],
+  ]) {
+    const detail = await loadEngineReview(async () => ({
+      ...filingProposal, thread, filing_choices: [deal, vendor],
+      source_activity: { kind: 'email', id: 'display-copy' },
+    }), { ...filingItem, suggestions: [{ id: filingProposal.proposal_id, activity_kind, activity_id }] });
+    assert.equal(detail.proposals[0].filingEmailId, expected);
+  }
+});
+
 test('Home treats only a 409 already_decided response as a settled filing', async () => {
   const request = { verb: 'decide-engine-home-proposal', args: {
     id: 'sample-proposal', decision: 'accept', vendor_id: 'sample-vendor', idempotency_key: 'sample-key',

@@ -32,13 +32,23 @@ export function draftCardStatus(item: InboxItem) {
   return draft ? draftStatus(draft.status, draft.failureReason) : null;
 }
 
-export function proposalIds(item: ReviewItem) {
+type ProposalReference = { id: string; emailId: string | null };
+
+function proposalReferences(item: ReviewItem): ProposalReference[] {
   const review = "completion_review" in item ? item.completion_review : null;
-  if (object(review) && typeof review.proposal_id === "string") return [review.proposal_id];
+  if (object(review) && typeof review.proposal_id === "string") return [{ id: review.proposal_id, emailId: null }];
   const suggestions = "suggestions" in item ? item.suggestions : null;
   return Array.isArray(suggestions)
-    ? suggestions.flatMap((row: unknown) => (object(row) && typeof row.id === "string" ? [row.id] : []))
+    ? suggestions.flatMap((row: unknown) =>
+        object(row) && typeof row.id === "string"
+          ? [{ id: row.id, emailId: row.activity_kind === "email" ? string(row.activity_id) : null }]
+          : [],
+      )
     : [];
+}
+
+export function proposalIds(item: ReviewItem) {
+  return proposalReferences(item).map(({ id }) => id);
 }
 function matchesProposal(item: ReviewItem, id: string) {
   return proposalIds(item).includes(id);
@@ -228,9 +238,10 @@ export type Suggestion = {
   completion: boolean;
   canAccept: boolean;
   filingChoices: FilingChoice[] | undefined;
+  filingEmailId: string | null;
 };
 
-function parseProposal(value: Record<string, unknown>, id: string, canAccept: boolean) {
+function parseProposal(value: Record<string, unknown>, { id, emailId }: ProposalReference, canAccept: boolean) {
   const label = kinds.get(string(value.kind) ?? "");
   if (value.proposal_id !== id || typeof value.evidence !== "string" || !label) throw unreadable();
   const change = string(value.to_phase) || string(value.to_stage);
@@ -254,22 +265,23 @@ function parseProposal(value: Record<string, unknown>, id: string, canAccept: bo
     completion: value.kind === "next_step_done",
     canAccept,
     filingChoices: choices,
+    filingEmailId: choices?.length ? emailId : null,
   };
   return { proposal, thread };
 }
 
 export async function loadEngineReview(rpc: Rpc, item: ReviewItem, signal?: AbortSignal): Promise<CardReview> {
   const draft = draftReference(item);
-  const ids = proposalIds(item);
-  if (!draft && !ids.length) throw unreadable();
+  const references = proposalReferences(item);
+  if (!draft && !references.length) throw unreadable();
   const completion = "completion_review" in item && object(item.completion_review) ? item.completion_review : null;
   const [reply, details] = await Promise.all([
     draft && loadDraft(rpc, item.item_id, draft, signal),
     Promise.all(
-      ids.map(async (id) =>
+      references.map(async (reference) =>
         parseProposal(
-          await answer(rpc, "read-engine-home-proposal", { id }, signal),
-          id,
+          await answer(rpc, "read-engine-home-proposal", { id: reference.id }, signal),
+          reference,
           completion?.can_resolve !== false,
         ),
       ),

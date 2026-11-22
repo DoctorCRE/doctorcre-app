@@ -218,6 +218,7 @@ export function FilingControls({
   proposalId,
   checkReason,
   choices,
+  askDocHref,
   file,
   dismiss,
   refusal,
@@ -225,6 +226,7 @@ export function FilingControls({
   proposalId: string;
   checkReason: CheckReason;
   choices: FilingChoice[];
+  askDocHref: string | undefined;
   file: FileEmail;
   dismiss(opener: HTMLButtonElement): void;
   refusal: FilingReasonRefusal | null;
@@ -244,6 +246,11 @@ export function FilingControls({
             {choice.label}
           </button>
         ))}
+        {askDocHref && (
+          <a className="btn" href={askDocHref}>
+            Ask Doc
+          </a>
+        )}
         <button type="button" onClick={(event) => dismiss(event.currentTarget)}>
           Dismiss
         </button>

@@ -6,6 +6,8 @@ Run `node --test test/home-sections-browser.test.mjs` against synthetic data at 
 
 Open a suggestion or reply-draft link at `/inbox/card/:item_id` without loading Home. Check that all the card's decisions are actionable and the email thread appears once. Reopen a dropped or replaced draft and check its saved disposition and reason. Open the same link as the other partner and require an unavailable message with no review text. The Home browser suite covers both widths and the existing `/?card=` link.
 
+On a filing review with DoctorCRE sign-in, **Ask Doc** opens a draft question about the exact message under review. The partner still chooses where to file the email or dismisses the review. The browser test in `test/doc-chat.browser.ts` uses an email between two other messages and checks the request Doc receives.
+
 Open a meeting to check its time, attendees, deal link, and any outcome review. Verify that earlier outcomes appear in Reminders and that a calendar failure keeps the last successful calendar and the other tiles visible. Set `HOME_MEETING_SCREENSHOTS` to retain the four meeting captures.
 
 The Home routing cases in `test/partner-sign-in.browser.ts` exercise the app Worker in CARR sign-in mode. Home and the Deals frame load from the engine even when the former Home and Frame switch values are invalid or their lookups would hang. If the dashboard read fails, use **Retry** in its error message. A failed refresh keeps the previously loaded cards visible.
