@@ -34,6 +34,8 @@ export function mountAppLayout(root, host, pathname) {
   const vendorDirectory = pathname === '/vendors';
   const title = pathname === '/' ? 'Home' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
   const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine');
+  const searchInput = pathname === '/search' && root.activeElement === root.getElementById('searchQuery') ? root.activeElement : null;
+  const selection = searchInput && [searchInput.selectionStart, searchInput.selectionEnd, searchInput.selectionDirection];
   const layout = createAppLayout(root, title);
   host.after(layout);
   const skip = root.querySelector('.skip');
@@ -62,6 +64,10 @@ export function mountAppLayout(root, host, pathname) {
   for (const node of [...root.body.children]) {
     if (node === host || node === layout || ['SCRIPT','DIALOG'].includes(node.tagName) || node.matches('.app-shell-account-menu, .skip, .toast, .receipt-dock, .record-backdrop, aside.record-panel, .room-toast')) continue;
     main.insertBefore(node, pageTools);
+  }
+  if (searchInput && root.activeElement === root.body) {
+    searchInput.focus({ preventScroll: true });
+    searchInput.setSelectionRange(...selection);
   }
   const hasPageTools = Boolean(layout.querySelector('#appSidebarSlot').childElementCount);
   pageTools.open = !vendorDirectory && hasPageTools;

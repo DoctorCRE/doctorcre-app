@@ -147,12 +147,13 @@ function replaceAddress() {
  * Back. The query and the chips are restored from the URL and the page
  * reads results for that query rather than reusing another query’s payload.
  */
-function restoreFromAddress({ reread = true } = {}) {
+function restoreFromAddress({ reread = true, query } = {}) {
   clearTimeout(idleTimer);
   const address = parseSearchAddress(globalThis.location?.search || "");
-  if (view.query !== address.query) view.payload = null;
-  view.query = address.query;
+  if (view.query !== (query ?? address.query)) view.payload = null;
+  view.query = query ?? address.query;
   view.kinds = [...address.kinds];
+  if (query !== undefined) replaceAddress();
   if (reread) read({ push: false });
   else render();
   return address;
@@ -264,12 +265,7 @@ export function mountSearch({ client: searchClient, storage: storageImpl } = {})
   $("savedViewNote").textContent = SAVED_VIEW_SENTENCE;
   const typedQuery = $("searchQuery")?.value ?? "";
   wire();
-  const address = restoreFromAddress({ reread: !typedQuery });
-  if (typedQuery) {
-    view.query = typedQuery;
-    replaceAddress();
-    read({ push: false });
-  }
+  const address = restoreFromAddress({ reread: true, query: typedQuery || undefined });
   mountAutoRefresh({ document, window: globalThis.window, refresh: ({ signal }) => view.query ? read({ push: false, signal }) : undefined });
   return { view, address };
 }
