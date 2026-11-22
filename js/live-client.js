@@ -361,7 +361,7 @@ export function createLiveClient(opts = {}) {
 
     async getDeal(dealId, { signal } = {}) {
       const page = await rpc('get-deal-room', { deal: dealId }, signal);
-      const { thread = [], critical_dates = [], events = [], imported_deal_history, correspondence, email_threads, deal_id, ...fields } = page;
+      const { thread = [], critical_dates = [], events = [], imported_deal_history, correspondence, email_threads, properties, deal_id, ...fields } = page;
       // Canonical action fields win over historical notes. The newest note
       // is only a fallback for older producers without an action field.
       // Older next_step rows remain archived; notes pass through.
@@ -408,7 +408,7 @@ export function createLiveClient(opts = {}) {
         documents: page.documents || [],
         ...(isEngineDealDetail(page) ? {
           email_follow_ups: page.email_follow_ups, next_deal_saves: page.next_deal_saves === true,
-          imported_deal_history, correspondence,
+          imported_deal_history, correspondence, properties,
         } : Object.hasOwn(page, 'email_threads') ? { email_threads } : {}),
         lease: page.lease ?? null,
         checklist: page.checklist ?? null,

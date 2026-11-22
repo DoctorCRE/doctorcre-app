@@ -363,6 +363,26 @@ button.client-portal-link:disabled { cursor: wait; }
 .tour-fields { display: grid; gap: var(--space-3); min-width: 0; padding: 0; border: 0; margin: var(--space-3) 0; }
 .tour-fields input, .tour-fields textarea { display: block; width: 100%; min-width: 0; }
 .tour-fields > .btn { justify-self: start; }
+.tour-editor { min-width: 0; padding: 0; margin: 0; border: 0; }
+.tour-editor .tour-fields { max-inline-size: 42rem; }
+html:has(#workspace-tours:not([hidden]) .tour-editor) { scroll-padding-bottom: var(--layout-bottom, 0px); }
+@media (max-width: 760px), (max-height: 600px) {
+  .deal-workspace:has(#workspace-tours:not([hidden]) .tour-editor) .workspace-header { position: static; }
+}
+.tour-editor input[type="date"], .tour-editor input[type="time"] { max-inline-size: 14rem; }
+.tour-editor h3 { margin: 0; font-size: var(--font-size-2); }
+.tour-linked-properties { max-block-size: 7rem; overflow: auto; list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+.tour-linked-properties .btn { text-align: start; }
+[data-tour-property][disabled] .tour-choice-add,
+[data-tour-property]:not([disabled]) .tour-choice-added { display: none; }
+.tour-editor-dock { position: sticky; bottom: var(--layout-bottom, 0px); z-index: 1; background: var(--ground); padding-block: var(--space-2); border-top: 1px solid var(--hairline); }
+.tour-editor-dock > .tour-fields { margin-block: 0 var(--space-2); }
+.tour-editor-dock :is([role="alert"], [role="status"]):empty { position: absolute; }
+.tour-editor-dock [role="status"] { margin: 0; }
+.tour-editor-dock [data-results] { max-block-size: 7rem; overflow: auto; }
+.tour-editor-dock [data-results]:empty, .tour-editor .tour-stops:empty { display: none; }
+.tour-search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--space-2); }
+.tour-search-row input { min-height: 44px; }
 .tour-stops li { margin-block: var(--space-3); }
 .tour-plan > summary { padding-block: var(--space-3); min-height: 44px; cursor: pointer; }
 .tour-stops li:first-child [data-up], .tour-stops li:last-child [data-down] { display: none; }
