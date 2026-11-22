@@ -47,7 +47,7 @@ export function appShellMarkup(pathname, search = "", items = navigationItems) {
     </div>
     <a class="app-shell-search" href="/search" aria-label="Search" title="Search"${pathname === "/search" ? ' aria-current="page"' : ""}>${icon("M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0zm-1.5 4.5L21 21")}</a>
     <div class="app-shell-controls" aria-label="Workspace controls">
-      <a href="/doc-chats" id="askDocLink" class="app-shell-control app-shell-ask-doc" hidden${pathname === "/doc-chats" ? ' aria-current="page"' : ""}>Ask Doc</a>
+      <a href="/doc-chats" id="askDocLink" data-ask-doc class="app-shell-control app-shell-ask-doc" hidden${pathname === "/doc-chats" ? ' aria-current="page"' : ""}>Ask Doc</a>
       <button class="app-shell-control" type="button" data-pref="theme" data-on="dark" data-off="light" aria-pressed="true" aria-label="Dark mode" title="Dark mode">${icon("M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5z")}</button>
       <button class="app-shell-control" id="callModeButton" type="button" aria-label="Call mode" title="Call mode" aria-haspopup="dialog" hidden><span aria-hidden="true">☎</span></button>
       <button class="app-shell-control" id="colorAssistButton" type="button" aria-pressed="false" aria-label="Color assist" title="Color assist">${icon("M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM12 3v18m-6-5 6-6m-4 9 4-4M4 12l8-8")}</button>
