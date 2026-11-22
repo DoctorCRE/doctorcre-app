@@ -19,6 +19,7 @@ const answeredTurn = {
   question,
   state: "answered",
   context: null,
+  draft_review: null,
   waiting_reason: null,
   answer: { kind: "answer", text: "One example deal is open.", sources: [], proposal: null },
   confirmation: null,
@@ -939,6 +940,7 @@ for (const [width, theme, conflict, unavailable] of [
               question: ask.question,
               idempotency_key: ask.idempotency_key,
               context: { ...context, activity_id: emailId, mailbox_user_id: id },
+              draft_review: { draft_id: savedId, version, current: "pending_same" },
               answer: {
                 kind: "answer",
                 text: "I made the timing more specific.",
@@ -1128,9 +1130,14 @@ for (const current of ["changed", "gone", "pending_same"] as const) {
   });
 }
 
-for (const position of [1, 2]) {
+for (const [position, conflict, current, message] of [
+  [1, "version_conflict", "changed", "This draft has a newer revision."],
+  [2, "draft_changed", "gone", "This draft is no longer pending."],
+] as const) {
   test(`Doc retries draft question ${position} with its original context and keeps a new unsent question`, async (t) => {
-    const context = { kind: "reply_draft", id: savedId, version: 7 };
+    const version = 7;
+    const context = { kind: "reply_draft", id: savedId, version };
+    let draftStatus: "pending_same" | typeof current = "pending_same";
     const turn = {
       ...answeredTurn,
       position,
@@ -1150,21 +1157,29 @@ for (const position of [1, 2]) {
           });
         return Response.json({ conversations: [conversation], next_before: id });
       }
-      if (path === detailPath) return Response.json({ conversation, turns: [turn] });
+      if (path === detailPath)
+        return Response.json({
+          conversation,
+          turns: [{ ...turn, draft_review: { draft_id: savedId, version, current: draftStatus } }],
+        });
       assert.equal(path, "/api/engine/doc/turns");
       assert.deepEqual(await request.json(), {
         question,
         idempotency_key: turn.idempotency_key,
         ...(position === 1 ? { context } : { conversation_id: id }),
       });
-      return Response.json({ error: "version_conflict", version: 8 }, { status: 409 });
+      draftStatus = current;
+      return Response.json(
+        { error: conflict, version: current === "changed" ? version + 1 : version },
+        { status: 409 },
+      );
     });
     await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
     const composer = page.getByLabel("Question for Doc");
     await composer.fill("One more thing to ask");
     const retry = page.getByRole("button", { name: "Retry", exact: true });
     await retry.click();
-    await expect(page.getByRole("status")).toHaveText("This draft has a newer revision.");
+    await expect(page.getByRole("status")).toHaveText(message);
     await expect(page.getByRole("link", { name: "Open fresh review" })).toHaveAttribute("href", draftHref);
     await expect(composer).toHaveValue("One more thing to ask");
     await expect(retry).toHaveCount(0);

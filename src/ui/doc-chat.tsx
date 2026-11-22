@@ -53,7 +53,11 @@ const conversation = z.object({
   title: z.string(),
   created_at: z.iso.datetime({ offset: true }),
 });
-const draftRejection = z.enum(["version_conflict", "draft_changed"]);
+const draftReview = z.object({
+  draft_id: z.guid(),
+  version: draftVersion,
+  current: z.enum(["pending_same", "changed", "gone"]),
+});
 const chatTurn = z.object({
   id: z.guid(),
   position: z.int().positive(),
@@ -61,6 +65,7 @@ const chatTurn = z.object({
   question: z.string(),
   idempotency_key: z.guid(),
   context: z.union([recordRef, draftContext]).nullable(),
+  draft_review: draftReview.nullable(),
   state: z.enum(["queued", "working", "failed", "answered"]),
   answer: answer.nullable(),
   confirmation: confirmation.nullable(),
@@ -79,12 +84,11 @@ const conversationDetail = z.object({ conversation, turns: z.array(chatTurn) });
 const sendResponse = z.object({ conversation_id: z.guid(), turn: chatTurn });
 
 type Conversation = Pick<z.infer<typeof conversation>, "id" | "title">;
-type DraftRejection = z.infer<typeof draftRejection>;
-type Turn = z.infer<typeof chatTurn> & { draftRejection?: DraftRejection };
+type Turn = z.infer<typeof chatTurn>;
 type Proposal = z.infer<typeof proposal>;
 type Confirmation = z.infer<typeof confirmation>;
 type ProposalDraft = z.infer<typeof proposalDraft>;
-type DraftField = "doc-question" | "doc-proposal" | "doc-draft-rejection";
+type DraftField = "doc-question" | "doc-proposal";
 type Ask = Pick<Turn, "question" | "idempotency_key"> & {
   conversation_id?: string;
   context?: z.infer<typeof recordRef> | z.infer<typeof draftRequest>;
@@ -116,8 +120,8 @@ const initialDraft = initialId
       version: Number(params.get("version")),
     }).data;
 const draftChangeText = {
-  version_conflict: "This draft has a newer revision.",
-  draft_changed: "This draft is no longer pending.",
+  changed: "This draft has a newer revision.",
+  gone: "This draft is no longer pending.",
 };
 const statusText = {
   signIn: "Sign in again to open your chats.",
@@ -250,7 +254,8 @@ const saveUncertain = "Doc couldn’t tell if this saved. Try again.";
 function draftConflict(error: unknown) {
   if (!(error instanceof DocRequestFailed) || error.status !== 409) return;
   const code = saveRefusal.safeParse(error.payload).data?.error;
-  return draftRejection.safeParse(code).data;
+  if (code === "version_conflict") return "changed";
+  if (code === "draft_changed") return "gone";
 }
 
 function proposalRefusal(error: DocRequestFailed, draftId?: string) {
@@ -462,12 +467,14 @@ function DocChat() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<keyof typeof statusText | null>(null);
-  const [initialDraftRejection, setInitialDraftRejection] = useState<DraftRejection>();
+  const [draftSendConflict, setDraftSendConflict] = useState<keyof typeof draftChangeText>();
   const retired = useRef(false);
   const active = useRef(false);
   const latest = turns.at(-1);
-  const draftId = latest?.context?.kind === "reply_draft" ? latest.context.id : initialDraft?.id;
-  const reviewReason = latest?.draftRejection ?? initialDraftRejection;
+  const review = latest?.draft_review;
+  const draftId = review?.draft_id ?? initialDraft?.id;
+  const draftStatus = latest?.state === "failed" ? review?.current : undefined;
+  const reviewReason = draftStatus === "changed" || draftStatus === "gone" ? draftStatus : draftSendConflict;
   const notice = status ? statusText[status] : reviewReason && draftChangeText[reviewReason];
   const waiting = latest?.state === "queued" || latest?.state === "working";
   const waitingTurnId = waiting ? latest.id : undefined;
@@ -541,14 +548,7 @@ function DocChat() {
         const actor = session.actor.slug;
         const storage = (field: DraftField, id: string | null) => privateTextDraft(window, actor, field, id);
         privateDraft.current = storage;
-        setTurns(
-          saved.map((turn) => {
-            if (turn.context?.kind !== "reply_draft") return turn;
-            const stored = storage("doc-draft-rejection", turn.id).read();
-            const rejection = draftRejection.safeParse(stored).data;
-            return rejection ? { ...turn, draftRejection: rejection } : turn;
-          }),
-        );
+        setTurns(saved);
         setQuestion(storage("doc-question", chatId ?? initialDraft?.id ?? null).read());
         setReady(true);
       });
@@ -566,7 +566,7 @@ function DocChat() {
       setTurns([]);
       setQuestion("");
       setPendingAsk(null);
-      setInitialDraftRejection(undefined);
+      setDraftSendConflict(undefined);
       setReady(false);
       setBusy(false);
       setStatus("signIn");
@@ -635,16 +635,17 @@ function DocChat() {
     void run("send", async () => {
       setPendingAsk(ask);
       const result = await docFetch("/turns", sendResponse, { body: ask }).catch((error: unknown) => {
-        const rejection = draftConflict(error);
-        if (!rejection) throw error;
+        const conflict = draftConflict(error);
+        if (!conflict) throw error;
         if (retired.current) return;
-        if (latest?.context?.kind === "reply_draft") {
-          privateDraft.current?.("doc-draft-rejection", latest.id).write(rejection);
+        if (latest?.state === "failed" && review) {
           setTurns((rows) =>
-            rows.map((turn) => (turn.id === latest.id ? { ...turn, draftRejection: rejection } : turn)),
+            rows.map((turn) =>
+              turn.id === latest.id ? { ...turn, draft_review: { ...review, current: conflict } } : turn,
+            ),
           );
         } else {
-          setInitialDraftRejection(rejection);
+          setDraftSendConflict(conflict);
         }
         setPendingAsk(null);
       });
