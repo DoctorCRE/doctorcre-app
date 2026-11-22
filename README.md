@@ -135,8 +135,10 @@ saves, board polling, client and vendor context, the national capture queue, and
 call recorder context regardless of the legacy routing switches. The app blocks
 the CARR forwarder in engine mode. PartnerApp receives only the engine session
 cookie, with the engine's short-lived OAuth state cookie allowed on the Google
-callback. The board stops polling after its first engine-backed load. Deal watch
-settings, Tours, Compare terms, and deal attribution show “Not available yet” until their engine endpoints are available.
+callback. The board stops polling after its first engine-backed load. Updates
+reads deal attribution from PartnerApp. Compare terms shows an empty state
+while there are no recorded comparable terms. Deal watch settings and Tours
+show “Not available yet” until their engine endpoints are available.
 
 `npm run release:production` consumes the prepared artifact, replaces `dist/site`
 from its verified source bytes, and runs only provider upload, promotion and
