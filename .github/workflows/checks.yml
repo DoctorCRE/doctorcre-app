@@ -50,7 +50,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - run: npm ci --prefix ../carr-producer/mcp-server
-      - run: node --test test/property-producer.test.mjs test/room-write-contract.test.mjs
+      - run: node --test test/property-producer.test.mjs test/room-write-contract-check.test.mjs
         name: Verify the exact CARR runtime interface
         env:
           CARR_PRODUCER_CHECKOUT: ${{ github.workspace }}/carr-producer
@@ -62,7 +62,7 @@ jobs:
         env:
           DOCTORCRE_PRIVACY_CORPUS_JSON: ${{ secrets.DOCTORCRE_PRIVACY_CORPUS_JSON }}
       - run: npm run check
-      - run: node --test test/client-lint.test.mjs
+      - run: node --test test/client-lint-check.test.mjs
       - uses: ./doctorcre-app/.github/actions/setup-browsers
         with:
           working-directory: doctorcre-app
