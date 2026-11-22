@@ -45,6 +45,7 @@ async function app(
   const links = new Map<string, string>();
   const exampleLead = lead(1);
   let leadOwner: string | null = null;
+  let expireOnLeadDetail = false;
   let issueCount = 0;
   let loseIssueResponse = false;
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
@@ -78,6 +79,10 @@ async function app(
           return redirect(url.searchParams.get("return_to") ?? "/", 302, {
             "set-cookie": `${cookieName}=${token}; Secure; HttpOnly; SameSite=Lax; Path=/`,
           });
+        }
+        if (expireOnLeadDetail && path === "/api/engine/leads" && url.searchParams.has("lead_id")) {
+          expireOnLeadDetail = false;
+          live.clear();
         }
         const token = input.headers.get("cookie")?.match(/__Host-doctorcre_session=([^;]+)/)?.[1];
         if (!token || !live.has(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -192,7 +197,9 @@ async function app(
       unavailable = value;
     },
     carrChecks: () => carrChecks,
-    expireSession: () => live.clear(),
+    expireOnNextLeadDetail: () => {
+      expireOnLeadDetail = true;
+    },
     writes: () => writes,
     setDocStatus: (status: string) => links.set("first", status),
     loseNextDocIssue: () => {
@@ -359,7 +366,7 @@ test("a signed-in deal explains unavailable features without requesting them", a
 });
 
 test("a saved Leads link opens on the engine session, supports claim and prompts after expiry", async (t) => {
-  const { server, context, carrChecks, expireSession, writes } = await app(t);
+  const { server, context, carrChecks, expireOnNextLeadDetail, writes } = await app(t);
   const path = "/leads?mode=live&lead=L-1";
   const page = await context.newPage();
   await page.goto(server.origin + path);
@@ -367,12 +374,16 @@ test("a saved Leads link opens on the engine session, supports claim and prompts
   await drawer.getByRole("heading", { name: "Dr. Example 1" }).waitFor({ timeout: 5000 });
   await drawer.getByRole("button", { name: "Claim", exact: true }).click();
   await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
+  await drawer.getByText("Joe", { exact: true }).waitFor({ timeout: 5000 });
   assert.equal(writes(), 1);
 
-  expireSession();
   await drawer.getByRole("button", { name: "Close lead details" }).click();
-  await page.getByRole("button", { name: "Dr. Example 1", exact: true }).click();
+  await drawer.waitFor({ state: "hidden" });
+  expireOnNextLeadDetail();
+  const leadButton = page.getByRole("button", { name: "Dr. Example 1", exact: true });
+  await leadButton.click();
   await page.getByRole("link", { name: "Sign in again" }).waitFor({ timeout: 5000 });
+  assert.equal(await leadButton.count(), 0);
   assert.equal(carrChecks(), 0);
 });
 
