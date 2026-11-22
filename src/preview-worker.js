@@ -14,6 +14,7 @@ export default {
   async fetch(request, env) {
     const response = await handleDoctorcreRequest(request, {
       ASSETS: env.ASSETS, GIT_SHA: env.GIT_SHA, CF_VERSION_METADATA: env.CF_VERSION_METADATA, APP_ENV: 'preview',
+      ENGINE_ROUTING: { get: async () => 'off' },
       CARR: { fetch: async gate => pageGates.has(new URL(gate.url).pathname)
         && ['GET', 'HEAD'].includes(gate.method) ? new Response('') : refused() },
     });
