@@ -109,7 +109,7 @@ export async function proveJourney(options: {
         `${origin}/deals?deal=${encodeURIComponent(options.dealId)}&tab=tours&tour=${encodeURIComponent(options.tourId)}`,
       );
       const editor = page.frameLocator(
-        `iframe[title="Tour shortlist, route and packet"][src*="deal=${encodeURIComponent(options.dealId)}&"][src$="tour=${encodeURIComponent(options.tourId)}"]`,
+        `iframe[title="Tour shortlist and route"][src*="deal=${encodeURIComponent(options.dealId)}&"][src$="tour=${encodeURIComponent(options.tourId)}"]`,
       );
       const panel = editor.getByRole("region", { name: "Saved space searches", exact: true });
       try {

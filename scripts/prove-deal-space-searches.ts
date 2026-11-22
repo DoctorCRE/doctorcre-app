@@ -59,7 +59,7 @@ export async function proveSearch(options: {
       )
         throw Object.assign(Error("Signed-in CDP session, deal ID and saved search ID required"), { exitCode: 78 });
       await page.goto(`${origin}/deals?deal=${options.dealId}&tab=tours&tour=new`);
-      const editor = page.frameLocator('iframe[title="Tour shortlist, route and packet"]');
+      const editor = page.frameLocator('iframe[title="Tour shortlist and route"]');
       const panel = editor.getByRole("region", { name: "Saved space searches" });
       const open = panel.locator(`[data-search-id="${options.searchId}"]`);
       await open.waitFor();

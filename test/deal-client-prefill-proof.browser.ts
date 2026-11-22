@@ -40,7 +40,7 @@ test("production proof CLI passes the real review UI and fails a near-miss sourc
     routes.set(
       "/deals",
       html(
-        '<iframe title="Tour shortlist, route and packet" style="width:100%;height:10000px;border:0" src="/tours/route-editor.html"></iframe>',
+        '<iframe title="Tour shortlist and route" style="width:100%;height:10000px;border:0" src="/tours/route-editor.html"></iframe>',
       ),
     );
     routes.set("/js/private-session.js", {

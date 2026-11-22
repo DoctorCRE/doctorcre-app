@@ -8,7 +8,7 @@ test("46 WR591.S35", async ({ page }) => {
   const tour = page.locator('[data-open-tour]').filter({ hasText: designated }).first();
   needs(!await tour.count(), 'existing TEST tour with long planner fields');
   await tour.click();
-  const frame = page.frameLocator('iframe[title="Tour shortlist, route and packet"]');
+  const frame = page.frameLocator('iframe[title="Tour shortlist and route"]');
   for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     const fields = frame.locator('input:visible:not([type="checkbox"]), textarea:visible');

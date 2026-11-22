@@ -3,7 +3,6 @@ import { navigationFromEvidence } from "../js/ui-tour-navigation.generated.js";
 import { mountStopDrag, reorderFlexibleStops } from "/js/ui-tour-stop-drag.generated.js";
 import { mountSavedSearches } from "/js/ui-deal-space-searches.generated.js";
 import { createMcpRequests } from "../js/mcp-requests.mjs";
-import { prepareClientGrant, grantReceipt, renderClientGrants } from '../js/ui-tour-client-grants.generated.js';
 import { generatedSheet, sheetHistory, appendSheetSections } from "../js/ui-broker-cheat-sheet.generated.js";
 import { createPageBudget } from '../js/read-budget.mjs';
 import { fetchPartnerIdentity, sessionFetch } from '../js/private-session.js';
@@ -11,14 +10,14 @@ import { observeDocRead, selectDocRecord } from '../js/doc-context.js';
 import { mountAutoRefresh } from "../js/auto-refresh.mjs";
 import { mountAcceptedItinerary, acceptedRouteFromDetail } from "./itinerary-map.js";
 import { mountPropertyPanel } from "./property-panel.js";
-import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDisplayName, tourMetaLine } from "./tour-format.js";
+import { cheatSheetText, itinerarySheetText, formatTourDate, tourDisplayName, tourMetaLine } from "./tour-format.js";
 
 (() => {
   "use strict";
   if (window.parent === window) void import('../js/app-shell.js');
   const $ = (selector) => document.querySelector(selector);
   const readOnly = dealsSaveToEngine();
-  const state = { csrf: "", sessionGeneration: 0, sessionInvalidated: false, tours: [], tour: null, feedback: null, feedbackSeq: 0, feedbackStatus: "missing", rawShareToken: "", shareGrantId: "", shareStatus: "missing", shareGrants: [], projectionId: "", projectionDraftId: "", candidateDigest: "", renderJobId: "", pdfQcRunDigest: "", cheatDirty: false, cheatDraftTourId: "", cheatDraftRevision: null,
+  const state = { csrf: "", sessionGeneration: 0, sessionInvalidated: false, tours: [], tour: null, cheatDirty: false, cheatDraftTourId: "", cheatDraftRevision: null,
     searchItems: [], knownProperties: new Map(), searchCursor: null, searchKey: null, searchCompleted: false, searchSeq: 0, hydrationSeq: 0, cart: null, selectedIds: [], selectionDirty: false, selectionTourId: "", pendingSelection: null, selectionSave: null, undoSelectionIds: null };
   let sheetGenerated = "", sheetRegenerating = false;
   let savedSearchPanel = null, coordinatePanel = null, coordinatePanelSeq = 0, coordinatePanelBinding = "";
@@ -68,11 +67,10 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
   }
   $('#create-tour-panel').hidden = readOnly || !embedded;
   if (readOnly) {
-    for (const selector of ["#route-editing", "#coordinate-review", ".projection-card", "#regenerate-sheet",
-      "#restore-sheet", "#save-sheet", "#render-pdf", "#review-pdf", "#retry-tour-action"]) $(selector).hidden = true;
+    for (const selector of ["#route-editing", "#coordinate-review", "#regenerate-sheet",
+      "#restore-sheet", "#save-sheet", "#retry-tour-action"]) $(selector).hidden = true;
     $("#cheat-content").readOnly = true;
     $("#internal-cheat-sheet > p").hidden = true;
-    $(".pdf-card > p").hidden = true;
     $("#route-editing").before($("#route-stops"));
   }
   if (embedded) {
@@ -158,7 +156,8 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     try {
       const saved = JSON.parse(sessionStorage.getItem(otherWritesKey) || "null");
       if (saved?.sessionBinding !== sessionBinding) return;
-      sheetPending = saved.sheet || null; tourAction = saved.action || null;
+      sheetPending = saved.sheet || null;
+      if (tourActionReceipts.has(saved.action?.path)) tourAction = saved.action;
       if (sheetPending) sheetPending.uncertain = true;
       if (tourAction) tourAction.uncertain = true;
       if (sheetPending) sheetMessage = "Save outcome unknown after reload. Check outcome replays the retained request.";
@@ -210,17 +209,15 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     $("#tour-action-state").textContent = tourAction
       ? `${tourAction.label}: ${tourAction.busy ? "sending…" : "outcome unknown. Check outcome replays the retained request."}` : "";
     $("#regenerate-sheet").disabled = !canRegenerateSheet();
-    for (const selector of ["#generate-projection", "#seal-projection", "#render-pdf", "#review-pdf", "#revoke-share", "#save-route", "#reorder-route", "#receipt-digest"]) $(selector).disabled = Boolean(tourAction) || tourActionPreparing;
+    for (const selector of ["#save-route", "#reorder-route"]) $(selector).disabled = Boolean(tourAction) || tourActionPreparing;
   }
-  function confirmedTourWrite(path, data) {
-    const receipt = {
+  const tourActionReceipts = new Map(Object.entries({
       "/api/tours/route-version": "route_version_id", "/api/tours/route-reorder": "route_version_id",
       "/api/tours/route-accept": "route_version_acceptance_id",
       "/api/tours/cheat-sheet/autosave": "cheat_sheet_revision_id", "/api/tours/cheat-sheet/restore": "cheat_sheet_revision_id",
-      "/api/tours/projection": "projection_id", "/api/tours/projection/seal": "projection_id",
-      "/api/tours/share/revoke": "share_grant_id", "/api/tours/pdf/render": "render_job_id",
-      "/api/tours/pdf/review": "review_receipt_id",
-    }[path];
+  }));
+  function confirmedTourWrite(path, data) {
+    const receipt = tourActionReceipts.get(path);
     if (data?.ok === false || !receipt || !id(data?.[receipt])) throw new Error("write_receipt_unavailable");
     return data;
   }
@@ -252,7 +249,6 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       if (tourAction !== pending || pending.binding !== sessionBinding) throw new Error("session_changed");
       confirmedTourWrite(pending.path, await post(pending.path, pending.body, pending.binding)); confirmed = true;
       tourAction = null; persistOtherWrites(); renderTourAction();
-      if (pending.path === "/api/tours/share/revoke") { state.rawShareToken = ""; $("#share-link").hidden = true; }
       if (pending.path === "/api/tours/cheat-sheet/restore") { state.cheatDirty = false; sheetMessage = "Restored sheet confirmed."; }
       await loadTour(pending.tourId, { throwOnFailure:true }); status(`${pending.label} confirmed.`);
     } catch (error) {
@@ -272,22 +268,20 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     state.sessionInvalidated = true; state.sessionGeneration++; sessionBinding = ""; state.csrf = "";
     savedSearchPanel?.retire(); coordinatePanel?.retire(); ++coordinatePanelSeq;
     notify({ type: 'deal-tour-invalidated' });
-    ++tourLoadSeq; ++state.feedbackSeq; ++state.hydrationSeq; ++state.searchSeq;
+    ++tourLoadSeq; ++state.hydrationSeq; ++state.searchSeq;
     cancelSheetAutosave(); sheetComposing = false; createPending = null; createPhase = "ready"; restoredTourId = "";
     stopDrag?.destroy(); stopDrag = null; composer = null; sheetPending = null; sheetConflict = null; tourAction = null; tourActionPreparing = false;
-    state.tours = []; state.tour = null; state.feedback = null; state.feedbackStatus = "missing";
-    state.rawShareToken = ""; state.shareGrantId = ""; state.shareStatus = "missing"; state.shareGrants = [];
-    state.projectionId = ""; state.projectionDraftId = ""; state.candidateDigest = ""; state.renderJobId = ""; state.pdfQcRunDigest = "";
+    state.tours = []; state.tour = null;
     state.cheatDirty = false; state.cheatDraftTourId = ""; state.cheatDraftRevision = null;
     state.searchItems = []; state.knownProperties.clear(); state.searchCursor = null; state.searchKey = null; state.searchCompleted = false;
     state.cart = null; state.selectedIds = []; state.selectionDirty = false; state.selectionTourId = "";
-    state.pendingSelection = null; state.selectionSave = null; state.undoSelectionIds = null; state.pendingShare = null; state.shareBusy = false;
+    state.pendingSelection = null; state.selectionSave = null; state.undoSelectionIds = null;
     routeEndpoints.clear(); itineraryView?.destroy(); itineraryView = null;
     $("#tour-list").replaceChildren(); $("#empty-tours").replaceChildren();
     const workspace = $("#tour-detail");
-    for (const selector of ["#accepted-itinerary", "#route-stops", "#route-changes", "#property-evidence", "#selection-list", "#property-results", "#share-grants", "#feedback-list", "#sheet-current"]) $(selector).replaceChildren();
-    for (const selector of ["#tour-state", "#tour-name", "#tour-meta", "#route-version", "#composer-badge", "#composer-state", "#projection-state", "#share-state", "#projection-note", "#projection-preview", "#selection-tour", "#selection-version", "#selection-state", "#search-count", "#search-state", "#sheet-state", "#tour-action-state", "#pdf-state", "#create-tour-state"]) $(selector).textContent = "";
-    $("#projection-preview").hidden = true; $("#feedback-empty").hidden = true; $("#sheet-conflict").hidden = true;
+    for (const selector of ["#accepted-itinerary", "#route-stops", "#route-changes", "#property-evidence", "#selection-list", "#property-results", "#sheet-current"]) $(selector).replaceChildren();
+    for (const selector of ["#tour-state", "#tour-name", "#tour-meta", "#route-version", "#composer-badge", "#composer-state", "#selection-tour", "#selection-version", "#selection-state", "#search-count", "#search-state", "#sheet-state", "#tour-action-state", "#create-tour-state"]) $(selector).textContent = "";
+    $("#sheet-conflict").hidden = true;
     for (const form of workspace.querySelectorAll("form")) form.reset();
     workspace.querySelectorAll("input, textarea, select").forEach(control => {
       if (control.type === "checkbox" || control.type === "radio") control.checked = false;
@@ -296,11 +290,11 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     });
     workspace.querySelectorAll("button").forEach(control => { control.disabled = true; });
     $("#refresh").disabled = true;
-    for (const selector of ["#preview-pdf", "#download-pdf", "#tour-day-link"]) { const link = $(selector); link.hidden = true; link.removeAttribute("href"); }
+    $("#tour-day-link").hidden = true; $("#tour-day-link").removeAttribute("href");
     $(".discovery").hidden = true; $("#empty-state").hidden = false; $("#empty-copy").textContent = "Your session ended. Sign in to reopen Tours.";
     $("#retry-library").hidden = true; $("#tour-name").textContent = ""; $("#tour-meta").textContent = "";
     sheetGenerated = ""; $("#sheet-generated").textContent = ""; $("#sheet-history").replaceChildren(); $("#sheet-history-status").textContent = "";
-    $("#cheat-content").value = ""; $("#share-url").value = ""; $("#share-link").hidden = true;
+    $("#cheat-content").value = "";
     $("#create-tour-form").reset(); $("#create-tour-panel").open = false;
     const recovery = $("#tour-recovery"), signIn = document.createElement("a");
     signIn.href = "/auth/login"; signIn.dataset.tourSignin = ""; signIn.textContent = "Sign in to continue"; recovery.replaceChildren(signIn); recovery.hidden = false;
@@ -383,7 +377,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
   function renderEmptyTours() {
     const list = $("#empty-tours"); list.replaceChildren();
     for (const tour of state.tours.slice(0, 6)) { const item = document.createElement("li"); item.append(tourButton(tour, "empty-tour")); list.append(item); }
-    $("#empty-copy").textContent = readOnly ? (state.tours.length ? "Choose a saved tour." : "No tours yet.") : state.tours.length ? "Open a tour to edit its route, cheat sheet and client share, or start a new one." : "No tours yet. Start a tour to plan its route.";
+    $("#empty-copy").textContent = readOnly ? (state.tours.length ? "Choose a saved tour." : "No tours yet.") : state.tours.length ? "Open a tour to edit its route and cheat sheet, or start a new one." : "No tours yet. Start a tour to plan its route.";
   }
   const countyNames = ["Escambia", "Santa Rosa", "Okaloosa", "Walton", "Bay"];
   function displayDate(value) { const time = Date.parse(value); return Number.isFinite(time) ? new Date(time).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }) : "unknown"; }
@@ -877,55 +871,8 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     persistPending();
     await runComposerPlan(current); current.busy = false; if (composer === current) renderComposer();
   }
-  function renderShareGrants() { renderClientGrants($("#share-grants"), state.shareGrants); }
-  function renderFeedback() {
-    const list = $("#feedback-list"); list.replaceChildren();
-    const items = Array.isArray(state.feedback?.items) ? state.feedback.items : [];
-    for (const item of items) {
-      if (!item.shortlisted && !item.comments?.length) continue;
-      const row = document.createElement("li");
-      const title = document.createElement("strong"); title.textContent = text(item.route_label, "Tour property"); row.append(title);
-      if (item.shortlisted) { const badge = document.createElement("p"); badge.className = "shortlisted"; badge.textContent = "Shortlisted"; row.append(badge); }
-      for (const entry of Array.isArray(item.comments) ? item.comments : []) {
-        const comment = document.createElement("p"); comment.textContent = text(entry.comment); row.append(comment);
-      }
-      list.append(row);
-    }
-    $("#feedback-empty").hidden = state.feedbackStatus !== "ready" || list.children.length > 0;
-    list.setAttribute("aria-busy", String(state.feedbackStatus === "loading"));
-    $("#feedback-state").textContent = state.feedbackStatus === "loading" ? "Loading client responses…" :
-      state.feedbackStatus === "unavailable" ? "Client responses temporarily unavailable" :
-      state.feedbackStatus === "missing" ? "Client responses unavailable" : "";
-    $("#refresh-feedback").disabled = !id(state.projectionId);
-  }
-  async function loadFeedback() {
-    const projectionId = state.projectionId;
-    const seq = ++state.feedbackSeq;
-    state.feedback = null;
-    state.feedbackStatus = id(projectionId) ? "loading" : "missing";
-    renderFeedback();
-    if (id(projectionId)) {
-      try {
-        const data = await request(`/api/tours/feedback?projection_id=${encodeURIComponent(projectionId)}`);
-        const feedback = data.feedback;
-        if (!Array.isArray(feedback?.items)) throw new Error("read_invalid");
-        if (seq !== state.feedbackSeq || projectionId !== state.projectionId) return;
-        state.feedback = feedback;
-        state.feedbackStatus = "ready";
-        status("Client responses loaded.");
-      }
-      catch {
-        if (seq !== state.feedbackSeq || projectionId !== state.projectionId) return;
-        state.feedbackStatus = "unavailable";
-        status("Client responses are unavailable.");
-      }
-    }
-    if (seq !== state.feedbackSeq || projectionId !== state.projectionId) return;
-    renderFeedback();
-  }
   function renderTour() {
     const tour = state.tour; if (!tour) return;
-    const priorProjectionId = state.projectionId;
     $("#empty-state").hidden = true; $("#tour-panel").hidden = false;
     $("#tour-name").textContent = tourDisplayName(tour.name); $("#tour-name").title = text(tour.name, "Untitled tour"); $("#tour-state").textContent = text(tour.status, "Draft");
     $("#tour-meta").textContent = tourMetaLine(tour);
@@ -933,20 +880,6 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     $("#save-route").hidden = tour.route_version_state !== "accepted";
     $("#reorder-route").hidden = tour.route_version_state !== "draft";
     $("#accept-route").hidden = tour.route_version_state !== "draft";
-    state.projectionId = text(tour.projection_id); state.projectionDraftId = text(tour.projection_draft_id); state.shareGrantId = text(tour.share_grant_id); state.shareStatus = text(tour.share_status, "missing"); state.shareGrants = Array.isArray(tour.share_grants) ? tour.share_grants : [];
-    if (priorProjectionId !== state.projectionId) {
-      ++state.feedbackSeq; state.feedback = null;
-      state.feedbackStatus = id(state.projectionId) ? "loading" : "missing";
-    }
-    renderFeedback();
-    const activeShareCount = state.shareGrants.filter((grant) => grant?.status === "active").length;
-    $("#projection-state").textContent = state.projectionId ? "Approved" : tour.projection_status === "draft" ? "Draft · approval required" : "Not generated"; $("#share-state").textContent = activeShareCount ? `${activeShareCount} active` : state.shareStatus === "expired" ? "Expired · rotate" : "Not issued"; renderShareGrants();
-    if (state.pendingShare) {
-      $("#share-link").hidden = true;
-      $("#share-state").textContent = "Outcome unknown";
-      $("#rotate-share").textContent = "Check link outcome";
-    }
-    $("#projection-note").textContent = state.projectionId ? "The approved projection is ready for a deliberately scoped, expiring share." : tour.projection_status === "draft" ? "A projection draft exists but cannot be shared until a human authority seals it." : "A projection is required before an external link can be issued.";
     if (!state.cheatDirty || state.cheatDraftTourId !== tour.id) {
       $("#cheat-content").value = cheatSheetText(tour.cheat_sheet?.content);
       sheetGenerated = generatedSheet(tour.cheat_sheet?.content);
@@ -963,16 +896,6 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     const list = $("#route-stops"); list.replaceChildren();
     for (const stop of stops()) { const row = document.createElement("li"); row.className = "stop"; row.dataset.stopId = text(stop.id); const label = document.createElement("span"); label.textContent = text(stop.label, text(stop.name, readOnly ? text(stop.property_name, "Tour stop") : "Tour stop")); const controls = document.createElement("span"); for (const [word, delta] of readOnly ? [] : [["Up", -1], ["Down", 1]]) { const button = document.createElement("button"); button.type = "button"; button.textContent = word; button.addEventListener("click", () => moveStop(stop.id, delta)); controls.append(button); } row.append(label, controls); list.append(row); }
     if (!stops().length) list.textContent = "No stops in this route cart.";
-    state.renderJobId = text(tour.pdf_render_job_id); state.pdfQcRunDigest = text(tour.pdf_qc_run_digest);
-    $("#pdf-state").textContent = text(tour.pdf_status, "Not rendered").replaceAll("_", " ");
-    const reviewable = tour.pdf_status === "review_ready" && id(state.renderJobId);
-    $("#preview-pdf").hidden = !reviewable;
-    $("#review-pdf").hidden = readOnly || !reviewable;
-    if (reviewable) $("#preview-pdf").href = `/api/tours/pdf/preview?render_job_id=${encodeURIComponent(state.renderJobId)}`;
-    const downloadable = tour.pdf_status === "available" && id(state.renderJobId);
-    $("#download-pdf").hidden = !downloadable;
-    if (readOnly) $(".pdf-card").hidden = !reviewable && !downloadable;
-    if (downloadable) $("#download-pdf").href = `/api/tours/pdf/download?render_job_id=${encodeURIComponent(state.renderJobId)}`;
     mountPropertyPanel({ tour, request });
     if (composer && tour.routes?.length) renderComposer();
     renderAcceptedItinerary();
@@ -1019,21 +942,18 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
     renderCreate();
     openSavedSearches();
   }
-  async function loadProjectionPreview() { const preview = $("#projection-preview"); state.candidateDigest = ""; preview.hidden = true; preview.textContent = ""; if (!id(state.projectionDraftId)) return; const data = await request(`/api/tours/projection/candidates?projection_id=${encodeURIComponent(state.projectionDraftId)}`); state.candidateDigest = text(data.candidate_digest); const rows = Array.isArray(data.preview) ? data.preview : []; preview.textContent = rows.map(row => { const facts = row?.facts && typeof row.facts === "object" ? row.facts : {}; return `${text(row.route_label, `Stop ${row.route_sequence || ""}`)} · ${text(facts["display.name"], "Unnamed property")}\n${text(facts["display.address"], "Address unavailable")}${factSummary(facts) ? `\n${factSummary(facts)}` : ""}`; }).join("\n\n"); preview.hidden = false; }
   let tourLoadSeq = 0;
   async function loadTour(tourId, { requireComposerDetail = false, throwOnFailure = false, keepEditorVisible = false } = {}) {
     if (state.sessionInvalidated) return false;
     if (state.cheatDirty && state.cheatDraftTourId !== tourId) { status("Save the current sheet before switching Tours."); return; }
     if ((sheetPending || sheetConflict || tourAction) && state.tour?.id !== tourId && (sheetPending?.tourId || sheetConflict?.tourId || tourAction?.tourId) !== tourId) { status("Reconcile the current Tour request before switching Tours."); return; }
     if ((sheetBusy && !keepEditorVisible) || tourAction?.busy) return;
-    if (state.pendingShare && state.pendingShare.tourId !== tourId) { status("Check link outcome before switching Tours."); return; }
-    if (state.shareBusy) return;
     if (restoredTourId && restoredTourId !== tourId) { status("Reconcile the retained Tour before switching Tours."); return; }
     if (navigationBusy || composer?.busy) return;
     if (composer?.tourId !== tourId && (composer?.dirty || composer?.plan || composer?.busy)) { status("Save or reconcile the current route before switching Tours."); return; }
     navigationBusy = true; if (composer) renderComposer(); renderCreate();
     try {
-      const seq = ++tourLoadSeq; ++state.feedbackSeq; status("Loading tour…");
+      const seq = ++tourLoadSeq; status("Loading tour…");
       $("#tour-recovery").hidden = true;
       if (!keepEditorVisible) $("#tour-panel").hidden = true;
       $("#empty-state").hidden = true;
@@ -1045,7 +965,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       if (seq !== tourLoadSeq) return;
       const changed = composer && composer.snapshot !== routeSnapshot(tour);
       if (changed && (composer.dirty || composer.plan || composer.busy)) { $("#tour-panel").hidden = false; status("Saved route changed. Save or reconcile the displayed draft before reloading."); return; }
-      if (state.tour?.id !== tourId) { state.rawShareToken = ""; state.shareGrantId = ""; $("#share-url").value = ""; $("#share-link").hidden = true; ++state.hydrationSeq; if (state.cheatDraftTourId !== tourId) state.cheatDirty = false; state.cheatDraftTourId = tourId; state.selectedIds = []; state.cart = null; state.selectionDirty = false; state.pendingSelection = null; state.undoSelectionIds = null; state.selectionTourId = tourId; }
+      if (state.tour?.id !== tourId) { ++state.hydrationSeq; if (state.cheatDraftTourId !== tourId) state.cheatDirty = false; state.cheatDraftTourId = tourId; state.selectedIds = []; state.cart = null; state.selectionDirty = false; state.pendingSelection = null; state.undoSelectionIds = null; state.selectionTourId = tourId; }
       if (readOnly && state.tour?.id !== tourId) {
         const accepted = tour.routes?.some(route => route.accepted);
         $("#internal-cheat-sheet").open = !accepted;
@@ -1067,10 +987,8 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       itineraryView?.destroy(); itineraryView = null;
       $("#accepted-itinerary").hidden = true;
       if (denied) {
-        ++state.feedbackSeq; ++state.hydrationSeq;
-        state.feedback = null; state.cart = null; state.selectedIds = [];
-        state.rawShareToken = ""; state.projectionId = ""; state.shareGrants = [];
-        $("#share-url").value = ""; $("#share-link").hidden = true;
+        ++state.hydrationSeq;
+        state.cart = null; state.selectedIds = [];
         $("#cheat-content").value = ""; state.cheatDirty = false;
         // Unanswered writes stay bound to the original session for reconciliation.
         if (!composer?.plan) composer = null;
@@ -1089,9 +1007,7 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       if (!sheetBusy && state.cheatDirty && state.tour?.id === tourId) $("#cheat-content").dispatchEvent(new Event("input"));
     }
     if (!readOnly) await loadSelectionCart(tourId);
-    if (state.tour?.id !== tourId) return;
-    await Promise.all([readOnly ? null : loadProjectionPreview(), loadFeedback()]);
-    if (state.tour?.id === tourId) status(state.feedbackStatus === "unavailable" ? "Tour loaded. Client responses are unavailable." : "Tour ready.");
+    if (state.tour?.id === tourId) status("Tour ready.");
   }
   function moveStop(stopId, delta) { const list = stops(); const index = list.findIndex((stop) => stop.id === stopId); const destination = index + delta; if (index < 0 || destination < 0 || destination >= list.length) return; [list[index], list[destination]] = [list[destination], list[index]]; renderTour(); }
   async function saveRoute(reorder = false) {
@@ -1163,69 +1079,6 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
         $("#cheat-content").dispatchEvent(new Event("input"));
       }
     }
-  }
-  async function issueShare(rotate = false) {
-    if (state.shareBusy) return;
-    if (!state.pendingShare && !state.projectionId) throw new Error("projection_required");
-    const tourId = state.tour?.id, projectionId = state.projectionId;
-    if (state.pendingShare && state.pendingShare.tourId !== tourId) throw new Error("Reconcile the retained confidential link before switching Tours.");
-    state.shareBusy = true;
-    try {
-      if (!state.pendingShare) {
-        const scopes = [...document.querySelectorAll('input[name="scope"]:checked')].map(box => box.value);
-        if ((scopes.includes("shortlist") || scopes.includes("comment")) && !scopes.includes("view_packet")) throw new Error("packet_scope_required");
-        const expires = new Date($("#share-expiry").value).toISOString();
-        if (rotate && !id(state.shareGrantId)) throw new Error("share_grant_required");
-        const prepared = await prepareClientGrant({ projectionId, scopes, expiresAt: expires,
-          ...(rotate ? { grantId: state.shareGrantId } : {}) });
-        const raw = prepared.token;
-        if (state.tour?.id !== tourId || state.projectionId !== projectionId) return;
-        const payload = prepared.payload;
-        state.pendingShare = { tourId, projectionId, raw, payload, path: rotate ? "/api/tours/share/rotate" : "/api/tours/share/issue" };
-      }
-      const pending = state.pendingShare;
-      const data = await post(pending.path, pending.payload);
-      if (state.tour?.id !== tourId) return;
-      if (!id(data?.share_grant_id) || data.ok === false) throw new Error("share_receipt_unavailable");
-      state.rawShareToken = pending.raw;
-      const currentProjection = state.projectionId === pending.projectionId;
-      if (currentProjection) state.shareGrantId = data.share_grant_id;
-      state.shareGrants = state.shareGrants.map(grant => pending.payload.share_grant_id === grant.share_grant_id
-        ? { ...grant, status: "rotated" } : grant);
-      if (!state.shareGrants.some(grant => grant.share_grant_id === data.share_grant_id)) state.shareGrants.push({
-        share_grant_id: data.share_grant_id, status: "active", permission_scopes: pending.payload.permission_scopes,
-        expires_at: pending.payload.expires_at });
-      renderShareGrants();
-      state.pendingShare = null;
-      $("#share-url").value = `https://reports.doctorcre.com/share#token=${pending.raw}`;
-      $("#share-link").hidden = false;
-      $("#share-state").textContent = currentProjection ? "Active" : "Active · earlier projection";
-      $("#rotate-share").textContent = "Replace current link";
-      status("Confidential link generated. Copy it now.");
-    } catch (error) {
-      if (state.pendingShare && state.tour?.id === tourId) {
-        const validationRefused = error.status === 400 && typeof error.payload?.error === "string" && !!error.payload.error.trim();
-        if (validationRefused && !state.pendingShare.uncertain) {
-          state.pendingShare = null;
-          $("#share-state").textContent = "Request refused";
-          $("#rotate-share").textContent = "Replace current link";
-          status("Link request refused. Correct the fields and try again.");
-        } else {
-          state.pendingShare.uncertain = true;
-          $("#share-link").hidden = true;
-          $("#share-state").textContent = "Outcome unknown";
-          $("#rotate-share").textContent = "Check link outcome";
-          status("Link outcome unknown. Check link outcome replays the retained request.");
-        }
-      }
-      throw error;
-    } finally { state.shareBusy = false; }
-  }
-  async function revokeShare(grantId) {
-    if (!id(grantId)) return;
-    const payload = { share_grant_id: grantId, reason: "Internal operator revoked link",
-      revoked_at: new Date().toISOString(), idempotency_key: uuid() };
-    await startTourAction("/api/tours/share/revoke", { ...payload, receipt_digest: await grantReceipt(payload) }, "Share link revocation");
   }
   async function action(work) { try { await work(); } catch { if (!state.sessionInvalidated) status("The request could not be completed."); } }
   // Versioned route and cheat-sheet writes ignore a second click while a write to the same record is in flight.
@@ -1418,53 +1271,20 @@ import { cheatSheetText, itinerarySheetText, factSummary, formatTourDate, tourDi
       expected_revision_number: sheetRevision(tour), idempotency_key: uuid() }, "Sheet restoration",
     latest => sheetRevision(latest) === sheetRevision(tour));
   }));
-  $("#generate-projection").addEventListener("click", () => void action(async () => {
-    const tour = state.tour; if (!tour?.route_version_id || tour.route_version_state !== "accepted") return;
-    await startTourAction("/api/tours/projection", { tour_id: tour.id, route_version_id: tour.route_version_id,
-      as_of: new Date().toISOString(), idempotency_key: uuid() }, "Client projection draft",
-    latest => latest.route_version_id === tour.route_version_id && latest.route_version_state === "accepted");
-  }));
-  $("#seal-projection").addEventListener("click", () => void action(async () => {
-    const receipt = $("#receipt-digest").value.trim(), projection = state.projectionDraftId;
-    if (!id(projection) || !digest(state.candidateDigest) || !digest(receipt)) throw new Error("projection_review_required");
-    await startTourAction("/api/tours/projection/seal", { projection_id: projection,
-      candidate_digest: state.candidateDigest, receipt_digest: receipt, idempotency_key: uuid() }, "Reviewed facts approval",
-    latest => latest.projection_draft_id === projection);
-  }));
-  $("#share-form").addEventListener("submit", (event) => { event.preventDefault(); void action(() => issueShare(false)); }); $("#rotate-share").addEventListener("click", () => void action(() => issueShare(true)));
-  $("#revoke-share").addEventListener("click", () => void action(() => revokeShare(state.shareGrantId)));
-  $("#share-grants").addEventListener("click", (event) => { const grantId = event.target?.dataset?.shareGrantId; if (id(grantId)) void action(() => revokeShare(grantId)); });
-  $("#refresh-feedback").addEventListener("click", () => void action(loadFeedback));
-  $("#copy-share").addEventListener("click", () => void action(async () => { await navigator.clipboard.writeText($("#share-url").value); status("Confidential link copied."); }));
-  $("#render-pdf").addEventListener("click", () => void action(async () => {
-    const projection = state.projectionId; if (!id(projection)) throw new Error("projection_required");
-    await startTourAction("/api/tours/pdf/render", { projection_id: projection, idempotency_key: uuid() }, "PDF render",
-    latest => latest.projection_id === projection);
-  }));
-  $("#review-pdf").addEventListener("click", () => void action(async () => {
-    const job = state.renderJobId, qc = state.pdfQcRunDigest;
-    if (!id(job) || !digest(qc)) throw new Error("pdf_review_required");
-    const reviewedAt = new Date().toISOString();
-    await startTourAction("/api/tours/pdf/review", { render_job_id: job, qc_run_digest: qc, decision: "accept", reviewed_at: reviewedAt,
-      review_receipt_digest: await sha256(`tour-pdf-human-review:${job}:${qc}:${reviewedAt}`),
-      reason: "Internal operator visually reviewed the deterministic property pages", idempotency_key: uuid() }, "PDF review",
-    latest => latest.pdf_render_job_id === job && latest.pdf_qc_run_digest === qc);
-  }));
   window.addEventListener('beforeunload', event => {
     if (sheetReadback && !state.cheatDirty && event.detail && typeof event.detail === "object") {
       event.detail.readback = sheetReadback;
     }
     if (savedSearchPanel?.dirty() || state.selectionDirty || state.cheatDirty || sheetBusy || sheetPending || sheetConflict || tourAction ||
-        composer?.dirty || composer?.plan || composer?.busy || createBusy || createPending || state.shareBusy ||
+        composer?.dirty || composer?.plan || composer?.busy || createBusy || createPending ||
         (embedded && !state.tour && [...$('#create-tour-form').querySelectorAll('input')].some(input => input.value && !['create-subject-id', 'create-subject-type'].includes(input.id)))) {
       event.preventDefault(); event.returnValue = '';
     }
   });
-  $("#share-expiry").value = new Date(Date.now() + 7 * 86400000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16); renderCreate(); void action(loadLibrary);
+  renderCreate(); void action(loadLibrary);
   mountAutoRefresh({ document, window, refresh: async () => {
     await loadLibrary();
-    const draftOpen = stopDrag?.active() || state.selectionDirty || state.pendingSelection || state.selectionSave || state.cheatDirty || sheetPending || sheetConflict || sheetBusy || tourAction || composer?.dirty || composer?.plan || composer?.busy || state.shareBusy || navigationBusy;
+    const draftOpen = stopDrag?.active() || state.selectionDirty || state.pendingSelection || state.selectionSave || state.cheatDirty || sheetPending || sheetConflict || sheetBusy || tourAction || composer?.dirty || composer?.plan || composer?.busy || navigationBusy;
     if (id(state.tour?.id) && !draftOpen) await loadTour(state.tour.id, { keepEditorVisible: true });
-    else if (id(state.projectionId)) await loadFeedback();
   } });
 })();

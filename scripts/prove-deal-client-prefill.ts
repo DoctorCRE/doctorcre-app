@@ -23,7 +23,7 @@ export async function provePrefill(options: {
       )
         throw Object.assign(Error("Signed-in CDP session and deal ID required"), { exitCode: 78 });
       await page.goto(`${origin}/deals?deal=${options.dealId}&tab=tours&tour=new`);
-      const editor = page.frameLocator('iframe[title="Tour shortlist, route and packet"]');
+      const editor = page.frameLocator('iframe[title="Tour shortlist and route"]');
       const panel = editor.getByRole("region", { name: "Saved space searches" });
       await panel.getByRole("button", { name: "New space search", exact: true }).waitFor();
       const frame = page.frames().find((f) => f.url().includes("/tours/route-editor.html"));

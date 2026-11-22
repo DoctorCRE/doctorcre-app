@@ -48,7 +48,7 @@ export async function tourDragRoutes(mode: FixtureMode = "pass") {
   add(
     "/deals",
     "text/html",
-    `<iframe title="Tour shortlist, route and packet" style="border:0;width:100%;height:10000px" src="/tours/route-editor.html?deal=${fixtureDeal}&tour=${recorded.detail.data.id}"></iframe>`,
+    `<iframe title="Tour shortlist and route" style="border:0;width:100%;height:10000px" src="/tours/route-editor.html?deal=${fixtureDeal}&tour=${recorded.detail.data.id}"></iframe>`,
   );
   const html = new JSDOM(await read("/tours/route-editor.html"));
   try {

@@ -88,12 +88,3 @@ export function factLabel(key) {
   const words = bare.replace(/[._]+/g, " ").trim().toLowerCase();
   return words ? words[0].toUpperCase() + words.slice(1) : "Property fact";
 }
-
-/** The facts a projection row carries beyond the name and address already shown. */
-export function factSummary(facts) {
-  const labels = Object.keys(facts && typeof facts === "object" ? facts : {})
-    .filter((key) => key !== "display.name" && key !== "display.address")
-    .map(factLabel)
-    .sort((a, b) => a.localeCompare(b));
-  return labels.length ? `Includes: ${[...new Set(labels)].join(", ")}` : "";
-}

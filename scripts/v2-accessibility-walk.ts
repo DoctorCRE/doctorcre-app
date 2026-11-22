@@ -69,7 +69,7 @@ export async function walkV2Accessibility(page: Page, origin: string, capture: (
       let frame = page.mainFrame();
       if (href?.startsWith("/deals?")) {
         await page.goto(new URL(href, origin).href);
-        const editor = page.locator('iframe[title="Tour shortlist, route and packet"]');
+        const editor = page.locator('iframe[title="Tour shortlist and route"]');
         await editor.waitFor({ state: "visible" });
         const element = await editor.elementHandle();
         const embedded = await element?.contentFrame();
