@@ -2198,5 +2198,3 @@ export function mountProgressWire({ scope = {}, onRead = () => {} } = {}) {
     render();
   }, poll };
 }
-
-// Mounted by Progress work detail; old Observatory entry points redirect.

@@ -17,6 +17,8 @@ const originalPaths = [
 ];
 
 const newHomes = {
+  "/control-room/observatory": "/",
+  "/observatory.html": "/",
   "/control-room/automations": "/control-room?tab=automations",
   "/automations.html": "/control-room?tab=automations",
   "/tasks": "/", "/work": "/", "/tasks.html": "/",
