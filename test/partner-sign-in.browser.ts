@@ -130,6 +130,10 @@ const filingCard = {
   filing_choices: filingChoices,
   suggestions: [{ id: filingId }],
 };
+const feedbackId = "22222222-2222-4222-8222-222222222223";
+const feedbackItem = `notification:${feedbackId}`;
+const feedbackTitle = "Tour feedback on Example Clinic";
+const feedbackText = "The exam rooms are bright. Recorded Nov 21, 2026.";
 const artifacts = "out/test-artifacts/partner-sign-in";
 let assets: ReturnType<typeof appAssetSnapshot> | undefined;
 let browser: ReturnType<typeof chromium.launch> | undefined;
@@ -168,6 +172,7 @@ async function app(
     documentText,
     documents = [filedDocument],
     tourDeal,
+    tourFeedback = false,
     callReview,
   }: {
     width?: number;
@@ -177,6 +182,7 @@ async function app(
     switchDay?: boolean;
     holdDocIssue?: Promise<void>;
     tourDeal?: () => object;
+    tourFeedback?: boolean;
     callReview?: (request: Request) => Response | Promise<Response>;
     readAttribution?: (request: Request) => Response | Promise<Response>;
     documentText?: string[] | "missing";
@@ -195,6 +201,7 @@ async function app(
   const partnerReads = new Map<string, string | null>();
   let expiredPath: string | null = null;
   let writes = 0;
+  let feedbackOpen = tourFeedback;
   const live = new Set<string>();
   const links = new Map<string, string>();
   const exampleLead = lead(1);
@@ -388,11 +395,46 @@ async function app(
               reply_draft_status: "pending",
               suggestions: [],
             });
+          const feedback = {
+            ...filingCard,
+            card_id: feedbackItem,
+            item_id: feedbackItem,
+            source_id: feedbackId,
+            source_type: "notification",
+            merged_source_ids: [feedbackId],
+            kind_label: "Tour feedback",
+            kind: "tour_feedback",
+            title: feedbackTitle,
+            why: feedbackText,
+            primary_action: "Review feedback",
+            deal_id: dealId,
+            property_id: clinic.id,
+            open_url: `/deals?mode=live&deal=${dealId}&property=${clinic.id}`,
+            suggestions: [],
+            filing_choices: [],
+          };
+          const items = tourFeedback ? (feedbackOpen ? [feedback] : []) : [filingCard];
           return Response.json({
             ok: true,
             schema_version: "home-inbox.v5",
-            reminders: { count: 1, items: [filingCard] },
-            waiting: empty,
+            ...(tourFeedback && { home_mark_drop: true }),
+            ...(url.searchParams.get("view") === "dashboard"
+              ? { reminders: { count: items.length, items }, waiting: empty }
+              : { items, truncated: false, limit: 1000, working_collapsed: true }),
+          });
+        }
+        if (tourFeedback && path === "/api/engine/home/marks" && input.method === "POST") {
+          const { item_id, action, base_version } = await input.json();
+          assert.deepEqual(
+            { item_id, action, base_version },
+            { item_id: feedbackItem, action: "done", base_version: "1:0:inbox" },
+          );
+          feedbackOpen = false;
+          return Response.json({
+            ok: true,
+            item_id,
+            base_version: "2:0:done",
+            previous: { disposition: null, snoozed_until: null },
           });
         }
         if (path === `/api/engine/proposals/${filingId}`) {
@@ -1150,6 +1192,80 @@ const tours = `/api/engine/deals/${dealId}/tours`;
 const preview = "November 24, 2026\n\n1. Example Clinic, 10 Example Way\n2. 30 Example Way";
 const clinic = { id: first, name: "Example Clinic", address: "10 Example Way" };
 const annex = { id: second, name: null, address: "20 Example Way" };
+
+async function followTourFeedbackLink(page: Page, origin: string, engineTours = false) {
+  page.setDefaultTimeout(5000);
+  const evidenceRequests: string[] = [];
+  page.on("request", (request) => {
+    const { pathname } = new URL(request.url());
+    if (pathname.startsWith("/api/tours/property-evidence")) evidenceRequests.push(pathname);
+  });
+  if (engineTours) {
+    await page.route(origin + tours, (route) => route.fulfill({ json: { tours: [] } }));
+    await page.route("**/deals?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.text()).replace("<html", "<html data-deal-tours-from-engine");
+      await route.fulfill({ response, body });
+    });
+  }
+  await page.goto(`${origin}/?mode=live`);
+  await page.getByRole("button", { name: "Review feedback", exact: true }).click();
+  const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
+  await card.getByText(feedbackText, { exact: true }).waitFor();
+  await card.getByRole("link", { name: "Open property", exact: true }).click();
+  return evidenceRequests;
+}
+
+test("engine sign-in opens the linked property from Home and finishes the feedback review", async (t) => {
+  const { server, context, partnerReads } = await app(t, {
+    tourFeedback: true,
+    tourDeal: () => ({ properties: [annex, clinic] }),
+  });
+  const page = await context.newPage();
+  const evidenceRequests = await followTourFeedbackLink(page, server.origin);
+  const property = page.getByRole("region", { name: "Property from tour feedback" });
+  const address = property.getByText(clinic.address, { exact: true });
+  await address.or(property.getByText("Property details are unavailable.", { exact: true })).waitFor();
+  assert.deepEqual(evidenceRequests, []);
+  await address.waitFor();
+  await property.getByText(clinic.name, { exact: true }).waitFor();
+  assert.equal(await property.getByText(annex.address, { exact: true }).count(), 0);
+
+  await page.goto(`${server.origin}/?mode=live`);
+  const review = page.getByRole("button", { name: "Review feedback", exact: true });
+  await review.click();
+  const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
+  await card.getByRole("button", { name: "Done", exact: true }).click();
+  await review.waitFor({ state: "detached" });
+  assert.equal(partnerReads.has("/api/engine/home/marks"), true);
+});
+
+for (const engineTours of [true, false]) {
+  test(`a missing property from Home opens the deal with engine Tours ${engineTours ? "on" : "off"}`, async (t) => {
+    const { server, context } = await app(t, {
+      tourFeedback: true,
+      tourDeal: () => ({ properties: [annex] }),
+    });
+    const page = await context.newPage();
+    const evidenceRequests = await followTourFeedbackLink(page, server.origin, engineTours);
+    const room = page.getByRole("main", { name: "Deal Workspace" });
+    await room.getByRole("heading", { name: dealName, exact: true }).waitFor();
+    const panel = room.getByRole("tabpanel", { name: "Tours" });
+    const message = "This property is no longer on this deal.";
+    assert.equal(await page.locator("html[data-deal-tours-from-engine]").count(), Number(engineTours));
+    const previousView = engineTours ? "No planned tours." : "Not available yet";
+    await panel
+      .getByText(message, { exact: true })
+      .or(panel.getByText(previousView, { exact: true }))
+      .waitFor();
+    assert.equal(await panel.textContent(), message);
+    assert.deepEqual(evidenceRequests, []);
+
+    await room.getByRole("tab", { name: "Overview", exact: true }).click();
+    await room.getByRole("tabpanel", { name: "Overview" }).waitFor();
+  });
+}
+
 type Stop = { property_id: string } | { address: string; name: string | null };
 type Plan = { planned_on: string; notes: string | null; stops: Stop[] };
 type Draft = Plan & { idempotency_key: string; revision?: number };

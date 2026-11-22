@@ -122,10 +122,18 @@ for (const width of [360, 390, 500]) {
       await page.goto(`${server.url}/deals?deal=${dealId}`);
       const room = page.getByRole("main", { name: "Deal Workspace" });
       const tabs = room.getByRole("tablist", { name: "Deal workspace tabs" });
-      await expect(tabs.getByRole("tab")).toHaveCount(7);
+      await expect(room.getByRole("tabpanel", { name: "Overview" })).toBeVisible();
+      await expect(tabs.getByRole("tab")).toHaveText([
+        "Overview",
+        "Compare terms",
+        "Timeline",
+        "Correspondence & notes",
+        "Tours",
+        "Documents",
+      ]);
       const layout = await tabs.evaluate((nav) => {
         const bounds = nav.getBoundingClientRect();
-        const buttons = Array.from(nav.querySelectorAll('[role="tab"]'));
+        const buttons = Array.from(nav.querySelectorAll('[role="tab"]')).filter((tab) => tab.checkVisibility());
         const clipped = buttons
           .filter((tab) => {
             const range = document.createRange();

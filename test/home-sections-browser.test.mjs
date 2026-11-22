@@ -628,8 +628,10 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
 
   const id = number => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
   const deal = id(1), step = id(2), checklist = id(3), otherStep = id(4), reviewStep = id(5), property = id(14);
+  const carrPropertyRequests = [];
   await page.route('**/api/tours/property-evidence/v1?*', route => {
     const selected = new URL(route.request().url()).searchParams.get('property_id');
+    carrPropertyRequests.push(selected);
     return route.fulfill({ json: { data: { schema: 'tour-property-evidence.v1', property_id: selected,
       facts: { site_address: { status: 'reviewed', value: selected === property ? '100 Cedar Suite' : '200 Other Suite' } },
     } } });
@@ -766,6 +768,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   if (planner) await page.locator('html[data-deal-tours-from-engine]').waitFor({ state: 'attached' });
   const propertyView = page.getByRole('region', { name: 'Property from tour feedback' });
   await propertyView.getByText('100 Cedar Suite', { exact: true }).waitFor();
+  assert.deepEqual(carrPropertyRequests, [property]);
   assert.equal(await propertyView.getByText('200 Other Suite', { exact: true }).count(), 0);
   assert.deepEqual(tourRequests, []);
   await open('/?mode=live');

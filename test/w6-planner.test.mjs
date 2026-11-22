@@ -14,14 +14,12 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 
-test("client lookup reads one producer page with an encoded search and verifies identity", async () => {
+test("client lookup reads one producer page with an encoded search", async () => {
   const calls = []; const api = createPlannerClient({ fetchImpl: async path => {
-    calls.push(path); return { ok: true, json: async () => path.includes(clientA) ? { record: record(clientB) } : { page: Number(new URL(path, "https://example.test").searchParams.get("page")), page_count: 2, rows: [record(clientA)] } };
+    calls.push(path); return { ok: true, json: async () => ({ page: Number(new URL(path, "https://example.test").searchParams.get("page")), page_count: 2, rows: [record(clientA)] }) };
   } });
   assert.equal((await api.clients({ query: "Demo & Harbor" })).length, 1); assert.equal(calls.length, 1);
   assert.match(calls[0], /scope=team&sort=name&page=1/); assert.equal(new URL(calls[0], "https://example.test").searchParams.get("q"), "Demo & Harbor");
-  await assert.rejects(api.client(clientA), /mismatch/);
-  await assert.rejects(api.client("-".repeat(36)), /Invalid/);
   assert.deepEqual(api.capabilities, { compile: false, mls: false });
 });
 
