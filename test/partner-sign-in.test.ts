@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../src/worker.js";
+import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
+
+Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: FixtureHtmlRewriter });
 
 const staging = "https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev";
 const production = "https://app.doctorcre.com";
@@ -76,6 +79,8 @@ test("engine sign-in preserves deep links, gates redirects, and protects GET and
   const pages: [string, string, number][] = [
     ["/?view=charts", "/charts.html", 200],
     ["/leads?owner=partner", "/leads.html", 200],
+    ["/leads?lead=L-123", "/leads.html", 200],
+    ["/business?q=Example", "/search?q=Example", 308],
     ["/a/synthetic", "/action-link.html", 200],
     ["/inbox/card/synthetic?show=mail", "/inbox.html", 200],
     ["/control-room/progress/board/carr-v5", "/progress-board.html", 200],
@@ -247,6 +252,116 @@ const toolsCall = (name: string, args: Record<string, unknown>) => ({
   body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
 });
 
+test("Home, Today, Calendar, Updates and Doc use PartnerApp with the old routing switches off", async (t) => {
+  const mark = { item_id: `home_update:${step}`, base_version: "1:0:inbox", idempotency_key: key };
+  const cases = [
+    ["Home dashboard", "/api/engine/home/inbox?view=dashboard"],
+    ["Inbox", "/api/engine/home/inbox", "read-home-inbox-v5", {}],
+    [
+      "Saved Home card",
+      `/api/engine/home/cards/reply_draft%3A${step}`,
+      "read-engine-home-card",
+      {
+        item_id: `reply_draft:${step}`,
+      },
+    ],
+    [
+      "Home Done",
+      `/api/engine/next-steps/${step}/end`,
+      "end-engine-home-step",
+      {
+        id: step,
+        base_version: 1,
+        idempotency_key: key,
+        resolution: "done",
+      },
+    ],
+    [
+      "Home snooze",
+      "/api/engine/home/marks",
+      "save-engine-home-mark",
+      {
+        ...mark,
+        action: "snooze",
+        until: "2099-01-01T00:00:00Z",
+      },
+    ],
+    [
+      "Home drop",
+      "/api/engine/home/marks",
+      "save-engine-home-mark",
+      {
+        ...mark,
+        action: "drop",
+        reason: "Duplicate reminder",
+      },
+    ],
+    ["Review draft", `/api/engine/reply-drafts/${step}`, "read-engine-home-draft", { id: step }],
+    [
+      "Save draft",
+      `/api/engine/reply-drafts/${step}/edit`,
+      "edit-engine-home-draft",
+      {
+        id: step,
+        version: 1,
+        idempotency_key: key,
+        subject: "Example",
+        body: "Edited reply.",
+      },
+    ],
+    ["Today", "/api/engine/home/today?owner=all"],
+    ["Calendar", "/api/engine/calendar/critical-dates"],
+    ["Updates", "/api/engine/updates"],
+    ["Doc conversation", `/api/engine/doc/conversations/${step}`],
+  ] satisfies [string, string, string?, Record<string, unknown>?][];
+  for (const [name, path, tool, args] of cases) {
+    await t.test(name, async () => {
+      const { send, calls } = fixture(status, { ENGINE_ROUTING: { get: async () => "off" } });
+      const response = await send(tool ? "/mcp" : path, {
+        ...(tool && toolsCall(tool, args ?? {})),
+        headers: { ...proofs, cookie: mixedCookies },
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(
+        calls.partner.map((input) => [input.url, input.headers.get("cookie")]),
+        [[staging + path, cookie]],
+      );
+      const write = calls.partner[0];
+      if (write?.method === "POST") {
+        assert.equal(write.headers.get("origin"), staging);
+        assert.equal(write.headers.get("x-carr-csrf"), session.csrf_token);
+        assert.equal(write.headers.get("sec-fetch-site"), "same-origin");
+      }
+      assert.equal(calls.carr.length + calls.engine.length, 0);
+    });
+  }
+});
+
+test("missing and off sign-in settings keep Home and Updates on CARR", async () => {
+  const legacyCookie = "__Host-dealroom_session=synthetic";
+  for (const setting of [undefined, "off"]) {
+    const old: Request[] = [];
+    const { send, calls } = fixture(null, {
+      PARTNER_SIGN_IN: setting,
+      CARR: {
+        fetch: async (input: Request) => {
+          old.push(input);
+          return Response.json({ ok: true });
+        },
+      },
+    });
+    for (const name of ["read-home-inbox-v5", "notification-feed"]) {
+      const response = await send("/mcp", { ...toolsCall(name, {}), headers: { cookie: legacyCookie } });
+      assert.equal(response.status, 200);
+    }
+    assert.deepEqual(
+      old.map((input) => input.headers.get("cookie")),
+      [legacyCookie, legacyCookie],
+    );
+    assert.equal(calls.partner.length + calls.engine.length, 0);
+  }
+});
+
 test("Search returns versioned results through PartnerApp with only the engine cookie", async () => {
   const results = { schema_version: "search.v1", parties: [], deals: [] };
   const { send, calls } = fixture(
@@ -265,6 +380,129 @@ test("Search returns versioned results through PartnerApp with only the engine c
   assert.deepEqual(JSON.parse((await response.json()).result.content[0].text), results);
   assert.deepEqual(calls.carr, []);
   assert.deepEqual(calls.engine, []);
+});
+
+test("Leads and directory reads use PartnerApp with the routing switches off", async (t) => {
+  const reads = [
+    ["Leads board", "/mcp", "/api/engine/leads?workspace=leads", toolsCall("lead-board", { workspace: "leads" })],
+    [
+      "Lead detail",
+      "/mcp",
+      `/api/engine/leads?workspace=leads&lead_id=${deal}`,
+      toolsCall("lead-board", { workspace: "leads", lead_id: deal }),
+    ],
+    ["Quiet follow-ups", "/mcp", "/api/engine/quiet-follow-ups", toolsCall("quiet-follow-ups", {})],
+    ["Reasons to reach out", "/mcp", "/api/engine/reasons-to-reach-out", toolsCall("list-practice-origination", {})],
+    [
+      "Vendor meetings",
+      "/mcp",
+      "/api/engine/vendor-meetings?view=research",
+      toolsCall("read-vendor-meetings", { view: "research" }),
+    ],
+    [
+      "Recent activity",
+      "/mcp",
+      "/api/engine/recent-activity?query=Example",
+      toolsCall("find-and-catch-up", { query: "Example" }),
+    ],
+    ["Directory search", "/mcp", "/api/engine/find?query=Example", toolsCall("find", { query: "Example" })],
+    ["Vendors list", "/api/v1/business/vendors?q=Example", "/api/engine/vendors?q=Example", { method: "GET" }],
+    [
+      "Vendor detail",
+      `/api/v1/business/vendors/${deal}?people=1`,
+      `/api/engine/vendors/${deal}?people=1`,
+      { method: "GET" },
+    ],
+    ["Client detail", `/api/v1/business/clients/${deal}`, `/api/engine/clients/${deal}`, { method: "GET" }],
+  ] satisfies [string, string, string, RequestInit][];
+  for (const [label, path, expected, init] of reads) {
+    await t.test(label, async () => {
+      const { send, calls } = fixture(status, { ENGINE_ROUTING: { get: async () => "off" } });
+      const response = await send(path, { ...init, headers: { ...proofs, cookie: mixedCookies } });
+      assert.equal(response.status, 200);
+      assert.deepEqual(
+        calls.partner.map((input) => [input.method, input.url, input.headers.get("cookie")]),
+        [["GET", staging + expected, cookie]],
+      );
+      assert.equal(calls.carr.length + calls.engine.length, 0);
+    });
+  }
+});
+
+test("Relationships keeps recorded links and offers without the legacy request action", async () => {
+  const network = { schema: "relationship-network.v1", edges: [], suggestions: [{ id: "example" }] };
+  const { send } = fixture(() => Response.json(network));
+  const response = await send("/api/v1/business/relationships?contract=relationship-network.v1", {
+    headers: { cookie },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ...network, can_request_introductions: false });
+});
+
+test("Lead writes use the same engine session, actor proof and replay key with either routing setting", async () => {
+  const identity = { base_version: 7, expected_actor: session.actor.slug, idempotency_key: key };
+  const lead = { lead: "L-123", lead_id: deal, ...identity };
+  for (const setting of [undefined, "off"]) {
+    const { send, calls } = fixture(() => Response.json({ ok: true }), {
+      ENGINE_ROUTING: { get: async () => setting },
+    });
+    for (const [name, args, command] of [
+      ["claim-lead", lead, { action: "claim" }],
+      [
+        "update-lead",
+        { ...lead, fields: { stage: "archived" }, stage_review: { reason: "Referred elsewhere" } },
+        { action: "stage", stage: "archived", reason: "Referred elsewhere" },
+      ],
+      [
+        "link-lead-client",
+        { ...lead, client_id: step, confirmed: true },
+        { action: "link", client_id: step, confirmed: true },
+      ],
+      ["acknowledge-lead-email", lead, { action: "acknowledge_email" }],
+    ] satisfies [string, Record<string, unknown>, Record<string, unknown>][]) {
+      const response = await send("/mcp", { ...toolsCall(name, args), headers: { ...proofs, cookie: mixedCookies } });
+      assert.equal(response.status, 200, name);
+      assert.deepEqual(JSON.parse((await response.json()).result.content[0].text), { ok: true });
+      const forwarded = calls.partner.at(-1);
+      assert.ok(forwarded);
+      assert.equal(forwarded.method, "POST");
+      assert.equal(forwarded.url, staging + `/api/engine/leads/${deal}/changes`);
+      for (const [header, value] of Object.entries(proofs)) assert.equal(forwarded.headers.get(header), value);
+      assert.deepEqual(await forwarded.json(), { ...identity, ...command });
+    }
+    assert.equal(calls.partner.length, 4);
+    assert.equal(calls.carr.length + calls.engine.length, 0);
+  }
+});
+
+test("missing, off and carr sign-in settings keep Leads and directory on CARR with their routing switches off", async () => {
+  const legacyCookie = "__Host-dealroom_session=synthetic";
+  for (const setting of [undefined, "off", "carr"]) {
+    const oldCalls: Request[] = [];
+    const { send, calls } = fixture(null, {
+      PARTNER_SIGN_IN: setting,
+      CARR: {
+        fetch: async (input: Request) => {
+          oldCalls.push(input);
+          return Response.json({ source: "carr" });
+        },
+      },
+    });
+    for (const [path, init] of [
+      ["/mcp", toolsCall("lead-board", { workspace: "leads" })],
+      ["/mcp", toolsCall("claim-lead", { lead: "L-123", lead_id: deal })],
+      [`/api/v1/business/vendors/${deal}`, { method: "GET" }],
+    ] satisfies [string, RequestInit][]) {
+      const response = await send(path, { ...init, headers: { ...proofs, cookie: legacyCookie } });
+      assert.deepEqual(await response.json(), { source: "carr" });
+    }
+    assert.equal(oldCalls.length, 3);
+    assert.ok(oldCalls.every((input) => input.headers.get("cookie") === legacyCookie));
+    const claim = oldCalls[1];
+    assert.ok(claim);
+    assert.deepEqual((await claim.json()).params.arguments, { lead: "L-123" });
+    assert.equal(calls.partner.length + calls.engine.length, 0);
+  }
 });
 
 test("PartnerApp receives the Search version header only for supported Search requests", async (t) => {

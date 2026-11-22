@@ -5,6 +5,11 @@ import type { Page } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
+import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
+import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
+import { detail, emptyQuietFollowUps, lead, workspace } from "./leads-workspace-fixture.mjs";
+
+Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: FixtureHtmlRewriter });
 
 const cookieName = "__Host-doctorcre_session";
 const partners = new Map([
@@ -12,9 +17,13 @@ const partners = new Map([
   ["second", "dell"],
 ]);
 const deepLink = "/leads?mode=live&filter=open";
+const copiedLeadAlias = "30000000-0000-0000-0000-000000000101";
 const docLink = "/api/engine/doc/link";
 const dealId = "11111111-1111-4111-8111-111111111111";
 const dealName = "Demo deal on engine sign-in";
+const filingId = "55555555-5555-4555-8555-555555555555";
+const filingTitle = "Review where to file this email";
+const filingChoices = [{ kind: "vendor", label: "Choose vendor" }];
 const activityId = "22222222-2222-4222-8222-222222222222";
 const noteId = "44444444-4444-4444-8444-444444444444";
 const noteSummary = "Confirm the demo showing";
@@ -63,9 +72,14 @@ async function app(
 ) {
   let unavailable = false;
   let carrChecks = 0;
+  const partnerReads = new Map<string, string | null>();
+  let expiredPath: string | null = null;
   let writes = 0;
   const live = new Set<string>();
   const links = new Map<string, string>();
+  const exampleLead = lead(1);
+  let leadOwner: string | null = null;
+  let expireOnLeadDetail = false;
   let issueCount = 0;
   let loseIssueResponse = false;
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
@@ -78,6 +92,7 @@ async function app(
         if (path.startsWith("/auth/") || navigation) carrChecks++;
         if (signIn === "carr") {
           if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
+          if (path.startsWith("/api/v1/business/vendors")) return Response.json(directoryFixture(input.url));
           if (path === "/api/v1/market-terms/read") {
             const recordings = JSON.parse(
               await readFile(new URL("./fixtures/market-terms/recordings.json", import.meta.url), "utf8"),
@@ -130,8 +145,14 @@ async function app(
             "set-cookie": `${cookieName}=${token}; Secure; HttpOnly; SameSite=Lax; Path=/`,
           });
         }
+        if (expireOnLeadDetail && path === "/api/engine/leads" && url.searchParams.has("lead_id")) {
+          expireOnLeadDetail = false;
+          live.clear();
+        }
         const token = input.headers.get("cookie")?.match(/__Host-doctorcre_session=([^;]+)/)?.[1];
         if (!token || !live.has(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+        partnerReads.set(url.pathname + url.search, input.headers.get("cookie"));
+        if (path === expiredPath) return Response.json({ error: "unauthorized" }, { status: 401 });
         const csrfToken = "fixture-" + token;
         if (path === "/auth/session")
           return Response.json({
@@ -173,13 +194,105 @@ async function app(
           links.delete(token);
           return new Response(null, { status: 204 });
         }
+        if (path === "/api/engine/home/inbox") {
+          const empty = { count: 0, items: [] };
+          const item = {
+            card_id: `conversation:${filingId}`,
+            item_id: `suggestion:${filingId}`,
+            source_id: filingId,
+            source_type: "email_proposal",
+            source_version: "1",
+            source_state: "needs_attention",
+            base_version: "1:0:inbox",
+            section: "inbox",
+            disposition: "inbox",
+            activity_at: "2026-11-21T12:00:00Z",
+            hold_until: null,
+            snoozed_until: null,
+            completed_at: null,
+            unseen: false,
+            context_label: null,
+            due_on: null,
+            open_url: null,
+            kind_label: "Suggestion",
+            merged_source_ids: [filingId],
+            deal_id: null,
+            action_id: null,
+            action_version: null,
+            waiting_version: 0,
+            waiting_on: null,
+            title: filingTitle,
+            why: "The sender asked for a floor plan.",
+            primary_action: "Choose vendor",
+            filing_choices: filingChoices,
+            suggestions: [{ id: filingId }],
+          };
+          return Response.json({
+            ok: true,
+            schema_version: "home-inbox.v5",
+            reminders: { count: 1, items: [item] },
+            waiting: empty,
+          });
+        }
+        if (path === `/api/engine/proposals/${filingId}`) {
+          return Response.json({
+            proposal_id: filingId,
+            kind: "possible_new_deal",
+            evidence: "The sender asked for a floor plan.",
+            filing_choices: filingChoices,
+          });
+        }
+        if (path === "/api/engine/home/today") {
+          return Response.json({
+            ok: true,
+            schema_version: "home-today.v1",
+            today: "2026-11-21",
+            meetings: { state: "ready", items: [] },
+            reminders: { late: [], upcoming: [] },
+            partners: [],
+          });
+        }
+        if (path === "/api/engine/updates") return Response.json({ unread_count: 0, updates: [] });
+        if (path === "/api/engine/updates/changes") return Response.json({ changes: [], next_before: null });
+        if (path === "/api/engine/preferences") {
+          return Response.json({ time_zone: "America/Chicago", quiet_from: null, quiet_until: null, base_version: 0 });
+        }
         if ((path === attributionPath || path === noteAttributionPath) && readAttribution)
           return readAttribution(input);
         if (path === "/api/engine/deals") return Response.json(dealBoard);
         if (path === `/api/engine/deals/${dealId}`) return Response.json({ ...dealDetail, email_follow_ups: [] });
-        if (path === "/api/engine/leads") {
-          if (input.method === "POST") writes++;
-          return Response.json({ count: 0 });
+        if (path.startsWith("/api/engine/vendors")) {
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          url.pathname = path.replace("/api/engine", "/api/v1/business");
+          return Response.json(directoryFixture(url.href));
+        }
+        if (path === "/api/engine/leads" && url.searchParams.get("workspace") === "leads") {
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          const currentLead = { ...exampleLead, owner: leadOwner, base_version: leadOwner ? 2 : 1 };
+          const requestedId = url.searchParams.get("lead_id");
+          return Response.json({
+            ...workspace(),
+            leads: [currentLead],
+            ...(requestedId && {
+              detail:
+                requestedId === currentLead.id || requestedId === copiedLeadAlias
+                  ? detail({ ...currentLead, id: requestedId })
+                  : null,
+            }),
+          });
+        }
+        if (path === "/api/engine/leads") return Response.json({ count: 0 });
+        if (path === "/api/engine/quiet-follow-ups") return Response.json(emptyQuietFollowUps());
+        if (path === `/api/engine/leads/${exampleLead.id}/changes` && input.method === "POST") {
+          const command = await input.json();
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          const actor = partners.get(token);
+          assert.ok(actor);
+          assert.equal(command.expected_actor, actor);
+          assert.equal(command.action, "claim");
+          leadOwner = actor;
+          writes++;
+          return Response.json({ ok: true, lead_id: exampleLead.id });
         }
         return new Response(null, { status: 404 });
       },
@@ -203,6 +316,13 @@ async function app(
       unavailable = value;
     },
     carrChecks: () => carrChecks,
+    partnerReads,
+    expireOn: (path: string) => {
+      expiredPath = path;
+    },
+    expireOnNextLeadDetail: () => {
+      expireOnLeadDetail = true;
+    },
     writes: () => writes,
     setDocStatus: (status: string) => links.set("first", status),
     loseNextDocIssue: () => {
@@ -210,6 +330,79 @@ async function app(
     },
   };
 }
+
+test("Home and the old Updates link load on the engine session and handle expiry", async (t) => {
+  const { server, context, partnerReads, carrChecks, expireOn } = await app(t);
+  await context.addCookies([
+    { name: "__Host-dealroom_session", value: "old", url: server.origin.replace("http:", "https:"), secure: true },
+  ]);
+  const page = await context.newPage();
+  const legacyReads: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname !== "/mcp") return;
+    const name = request.postDataJSON()?.params?.name;
+    if (
+      [
+        "read-home-inbox-v5",
+        "today-triage",
+        "calendar-meeting-prep",
+        "notification-feed",
+        "read-notification-preferences",
+      ].includes(name)
+    )
+      legacyReads.push(name);
+  });
+  for (const [path, reads] of [
+    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard", "/api/engine/home/today"]],
+    ["/notifications?mode=live", ["/api/engine/updates", "/api/engine/updates/changes", "/api/engine/preferences"]],
+  ] as const) {
+    const pending = reads.map((read) =>
+      page.waitForResponse((response) => response.url() === server.origin + read && response.ok()),
+    );
+    const [, ...responses] = await Promise.all([page.goto(server.origin + path), ...pending]);
+    const first = responses[0];
+    assert.ok(first);
+    assert.match((await first.request().allHeaders()).cookie ?? "", /__Host-dealroom_session=old/);
+    for (const read of reads) assert.equal(partnerReads.get(read), cookieName + "=first", read);
+  }
+  assert.equal(new URL(page.url()).pathname, "/updates");
+  assert.deepEqual(legacyReads, []);
+  assert.equal(carrChecks(), 0);
+
+  expireOn("/api/engine/updates");
+  await page.goto(server.origin + "/updates?mode=live");
+  await page.waitForURL("**/public-shell/session-ended.html");
+  await page.getByRole("heading", { name: "Session ended" }).waitFor();
+  await page.getByRole("link", { name: "Sign in again" }).waitFor();
+});
+
+test("Home filing searches vendors on the engine session", async (t) => {
+  const { server, context, partnerReads, carrChecks } = await app(t);
+  await context.addCookies([
+    { name: "__Host-dealroom_session", value: "old", url: server.origin.replace("http:", "https:"), secure: true },
+  ]);
+  const page = await context.newPage();
+  await page.goto(server.origin + "/?mode=live");
+  await page.getByRole("button", { name: "Review filing", exact: true }).click();
+  const filing = page.getByRole("region", { name: "File this email", exact: true });
+  await filing.getByRole("button", { name: "Choose vendor", exact: true }).click();
+  const name = "Demo Partner 62";
+  await filing.getByRole("searchbox", { name: "Vendor name" }).fill(name);
+  const [response] = await Promise.all([
+    page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/v1/business/vendors" && url.searchParams.get("q") === name;
+    }),
+    filing.getByRole("button", { name: "Search vendors" }).click(),
+  ]);
+  assert.equal(response.status(), 200);
+  assert.match((await response.request().allHeaders()).cookie ?? "", /__Host-dealroom_session=old/);
+  const { search } = new URL(response.url());
+  assert.equal(partnerReads.get("/api/engine/vendors" + search), cookieName + "=first");
+  await filing.getByRole("combobox", { name: "Vendor", exact: true }).selectOption({ label: name });
+  assert.equal(await filing.getByRole("button", { name: "File email", exact: true }).isEnabled(), true);
+  assert.equal(carrChecks(), 0);
+});
 
 test("Doc settings show each Mac status and keep link codes private", async (t) => {
   const { server, context, setDocStatus, loseNextDocIssue } = await app(t, { width: 390 });
@@ -551,6 +744,62 @@ test("an unavailable tour stop is named and the remaining draft can be saved", a
   assert.equal(fixture.writes.length, 2);
   assert.deepEqual(fixture.writes[1]?.stops, [{ property_id: first }]);
   assert.equal(fixture.writes[1]?.notes, "Bring the floor plan");
+});
+
+test("a saved Leads link opens on the engine session, supports claim and prompts after expiry", async (t) => {
+  const { server, context, carrChecks, expireOnNextLeadDetail, writes } = await app(t);
+  const path = "/leads?mode=live&lead=L-1";
+  const page = await context.newPage();
+  await page.goto(server.origin + path);
+  const drawer = page.locator("#leadDetail");
+  await drawer.getByRole("heading", { name: "Dr. Example 1" }).waitFor({ timeout: 5000 });
+  await drawer.getByRole("button", { name: "Claim", exact: true }).click();
+  await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
+  await drawer.getByText("Joe", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(writes(), 1);
+
+  await drawer.getByRole("button", { name: "Close lead details" }).click();
+  await drawer.waitFor({ state: "hidden" });
+  expireOnNextLeadDetail();
+  const leadButton = page.getByRole("button", { name: "Dr. Example 1", exact: true });
+  await leadButton.click();
+  await page.getByRole("link", { name: "Sign in again" }).waitFor({ timeout: 5000 });
+  assert.equal(await leadButton.count(), 0);
+  assert.equal(carrChecks(), 0);
+});
+
+test("a saved Leads link with a second copied UUID opens the lead and supports claim", async (t) => {
+  const { server, context, writes } = await app(t);
+  const page = await context.newPage();
+  await page.goto(`${server.origin}/leads?mode=live&lead=${copiedLeadAlias}`);
+  const drawer = page.locator("#leadDetail");
+  await drawer.getByRole("heading", { name: "Dr. Example 1" }).waitFor({ timeout: 5000 });
+  await drawer.getByText("Planning a dental relocation.", { exact: false }).waitFor({ timeout: 5000 });
+  await drawer.getByRole("button", { name: "Claim", exact: true }).click();
+  await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(writes(), 1);
+});
+
+test("the Vendor drawer keeps the track record and shows the rating editor only in CARR mode", async (t) => {
+  for (const signIn of ["engine", "carr"] as const) {
+    const { server, context, carrChecks } = await app(t, { signIn });
+    await context.addCookies([
+      {
+        name: "__Host-dealroom_session",
+        value: "stale",
+        domain: new URL(server.origin).hostname,
+        path: "/",
+        secure: true,
+      },
+    ]);
+    const page = await context.newPage();
+    await page.goto(server.origin + "/vendors?mode=live&q=Demo+Partner+01");
+    await page.locator(".record-row").filter({ hasText: "Demo Partner 01" }).click({ timeout: 5000 });
+    const drawer = page.getByRole("dialog");
+    await drawer.getByText("Deals worked", { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await drawer.getByText("Trust rating", { exact: true }).count(), signIn === "carr" ? 1 : 0);
+    if (signIn === "engine") assert.equal(carrChecks(), 0);
+  }
 });
 
 function attributionButton(page: Page, update: string) {

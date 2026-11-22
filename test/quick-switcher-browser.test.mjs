@@ -23,6 +23,12 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
       localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
       sessionStorage.setItem('doctorcre.quick-switcher.recents.v1', JSON.stringify(['page:/status']));
     }, theme);
+    await page.route('https://fonts.googleapis.com/**', route => route.fulfill({ contentType: 'text/css', body: '' }));
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(`${message.location().url}: ${message.text()}`);
+    });
     await page.goto(server.url);
     const nav = page.getByRole('navigation', { name: 'Primary navigation' });
     await nav.getByRole('link', { name: 'Home', exact: true }).waitFor();
@@ -52,6 +58,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     if (process.env.PARTNER_MENU_SCREENSHOT_DIR) {
       await page.screenshot({ path: `${process.env.PARTNER_MENU_SCREENSHOT_DIR}/switcher-${width}-${theme}.png` });
     }
+    assert.deepEqual(errors, []);
   });
 }
 
