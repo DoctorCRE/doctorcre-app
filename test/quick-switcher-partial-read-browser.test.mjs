@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
-import { chromium } from './browser-harness.mjs';
+import { chromium, settles } from './browser-harness.mjs';
 import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
 import { readFileSync } from 'node:fs';
 import { relationshipNetworkFixture } from '../js/relationship-network-fixture.js';
@@ -165,21 +165,10 @@ test('shell fixtures match pinned contracts through the production adapter', asy
 async function shell(page, modes = {}) {
   const reads = { board: 0, contacts: 0 };
   const held = {};
-  let active = false;
-  let started;
-  const bothStarted = new Promise(resolve => { started = resolve; });
-  let initialBoard;
-  const initialBoardRead = new Promise(resolve => { initialBoard = resolve; });
   await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic-switcher-session' } }));
   await page.route('**/api/**', route => route.fulfill({ status: 503, json: { error: 'synthetic_unavailable' } }));
   const respond = async (route, source, payload) => {
-    if (!active) {
-      await route.fulfill({ json: payload });
-      if (source === 'board') initialBoard();
-      return;
-    }
     reads[source]++;
-    if (reads.board && reads.contacts) started();
     const mode = modes[source];
     if (mode === 'held' || mode === 'timeout') { held[source] = () => route.fulfill({ json: payload }); return; }
     if (mode === 'network') return route.abort('failed');
@@ -195,11 +184,9 @@ async function shell(page, modes = {}) {
     return respond(route, 'board', { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } });
   });
   await page.goto(`${server.url}/search?mode=live`);
-  await initialBoardRead;
-  active = true;
   await page.getByRole('button', { name: 'Quick switcher' }).click();
   await page.getByRole('combobox').waitFor();
-  await bothStarted;
+  await settles(() => assert.ok(reads.board && reads.contacts, 'the switcher starts both reads'));
   return { reads, held };
 }
 const messages = {

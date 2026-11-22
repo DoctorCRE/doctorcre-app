@@ -74,6 +74,10 @@ test('idle approval keeps its button through session checks; background refusal 
  try {
   page=await browser.newPage();let denied=false,reads=0,writes=0;
   await page.route('**/auth/session',route=>route.fulfill(denied?{status:401,json:{error:'not_authenticated'}}:{json:{actor:{slug:'joe'},csrf_token:'synthetic-csrf'}}));
+  await page.route('**/api/engine/home/today', route => route.fulfill(denied
+    ? { status: 401, json: { error: 'not_authenticated' } }
+    : { json: { ok: true, schema_version: 'home-today.v1', today: '2026-11-19',
+      meetings: { state: 'empty', items: [] }, reminders: { state: 'empty', late: [], upcoming: [] } } }));
   await page.route('**/mcp',route=>{
    if(denied)return route.fulfill({status:401,json:{error:'not_authenticated'}});
    const rpc=route.request().postDataJSON();

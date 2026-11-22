@@ -248,7 +248,10 @@ export async function mountHomeTodayPanel(
         answer = await transport.readWithDeadline(
           async (bounded) => {
             const response = await transport.sessionFetch("/api/engine/home/today", { signal: bounded });
-            if (!response.ok) return null;
+            if (!response.ok) {
+              await response.body?.cancel();
+              return null;
+            }
             return response.json();
           },
           { signal },
