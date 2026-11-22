@@ -28,7 +28,7 @@ export function createDayStore(indexedDB, name = "doctorcre-tour-day-drafts-v1")
     putTour(scope, tour) { return transaction("tours", store => store.put({ scope, id: tour.id, tour, updated_at: new Date().toISOString() })); },
     getTour(scope, id) { return transaction("tours", (store, done) => { const r = store.get([scope, id]); r.onsuccess = () => done(r.result); }, "readonly"); },
     put(note) { return transaction("notes", store => store.put(note)); },
-    list(scope, tourId) { return transaction("notes", (store, done) => { const r = store.getAll(); r.onsuccess = () => done(r.result.filter(n => n.scope === scope && n.tour_id === tourId)); }, "readonly"); },
+    list(scope, tourId) { return transaction("notes", (store, done) => { const r = store.getAll(); r.onsuccess = () => done(r.result.filter(n => n.scope === scope && (tourId === undefined || n.tour_id === tourId))); }, "readonly"); },
     async patch(scope, id, changes) {
       return transaction("notes", (store, done) => {
         const r = store.get([scope, id]);

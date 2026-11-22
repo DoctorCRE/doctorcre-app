@@ -51,7 +51,7 @@ async function seedPrivate(page) {
    await (await caches.open('old-private-cache')).put('/auth/session',new Response('Joe private session'));
  });
 }
-async function assertPurged(page) {
+async function assertPreviousSessionRetired(page) {
  const state=await page.evaluate(async()=>{
    const {offlineTourSession}=await import('/js/offline-tour-session.js');
    const records=await new Promise((resolve,reject)=>{
@@ -61,30 +61,30 @@ async function assertPurged(page) {
    return {text:document.body.textContent,saved:localStorage.getItem('doctorcre.saved-views.v1:joe'),pending:sessionStorage.getItem('doctorcre-tour-pending-v1'),binding:offlineTourSession(window).read('Joe-tour'),caches:await caches.keys(),records};
  });
  assert.doesNotMatch(state.text,/Joe private|Demo — Crestview/);
- assert.equal(state.saved,null);assert.equal(state.pending,null);assert.equal(state.binding,null);assert.deepEqual(state.caches,[]);assert.deepEqual(state.records,[]);
+ assert.equal(state.saved,null);assert.equal(state.pending,'Joe private editor');assert.equal(state.binding,null);assert.deepEqual(state.caches,[]);assert.deepEqual(state.records.map(record => record.id),['note-A']);
 }
-test('S1 browser: sign-out clears both tabs, saved queries, offline itinerary/audio and old CacheStorage',async t=>{
+test('S1 browser: sign-out retires both tabs and offline access while retaining saved Tours work',async t=>{
  const app=await open(t);await seedPrivate(app.page);
  const other=await app.context.newPage();await app.visit(other);await seedPrivate(other);
  await app.page.locator('#selfAvatar').click();await app.page.getByText('Sign out',{exact:true}).click();
  await Promise.all([app.page.waitForURL('**/public-shell/session-ended.html'),other.waitForURL('**/public-shell/session-ended.html')]);
- await assertPurged(app.page);await assertPurged(other);
+ await assertPreviousSessionRetired(app.page);await assertPreviousSessionRetired(other);
  await app.context.setOffline(true);
  const restored=await other.evaluate(async()=>{const {offlineTourSession}=await import('/js/offline-tour-session.js');return offlineTourSession(window).read('Joe-tour');});
  assert.equal(restored,null);assert.deepEqual(app.errors,[]);
 });
-test('S1 browser: account switch with an old editor prevents its write and clears every previous-session copy',async t=>{
+test('S1 browser: account switch with an old editor prevents its write and retires previous-session access',async t=>{
  const app=await open(t);await seedPrivate(app.page);
  app.switchActor();
  await app.page.evaluate(()=>{void import('/js/private-session.js').then(({sessionFetch})=>sessionFetch('/mcp',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({params:{name:'rename-doc-conversation',arguments:{title:'Joe private edit'}}})}));});
  await app.page.waitForURL('**/public-shell/session-ended.html');
- assert.equal(app.writes,0);await assertPurged(app.page);assert.deepEqual(app.errors,[]);
+ assert.equal(app.writes,0);await assertPreviousSessionRetired(app.page);assert.deepEqual(app.errors,[]);
 });
-test('S1 browser: denied later Doc Chat page clears the whole view and private browser stores',async t=>{
+test('S1 browser: denied later Doc Chat page clears the view and retires previous-session access',async t=>{
  const app=await open(t);await seedPrivate(app.page);app.deny();
  await app.page.locator('#showMoreConversations').click();
  await app.page.waitForURL('**/public-shell/session-ended.html');
- await assertPurged(app.page);assert.deepEqual(app.errors,[]);
+ await assertPreviousSessionRetired(app.page);assert.deepEqual(app.errors,[]);
 });
 test('S1 browser: Back reloads private pages once and checks the current session', async t => {
  const app = await open(t);
@@ -107,12 +107,13 @@ test('S1 browser: Back reloads private pages once and checks the current session
  app.switchActor();
  await app.page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
  await app.page.waitForURL('**/public-shell/session-ended.html');
- await assertPurged(app.page);
+ await assertPreviousSessionRetired(app.page);
  assert.deepEqual(app.errors, []);
 });
 
 test('S1 browser: revocation clears a private tab title before asynchronous storage cleanup', async t => {
  const app=await open(t);
+ await seedPrivate(app.page);
  const title=await app.page.evaluate(async()=>{
   const {privateSession}=await import('/js/private-session.js');
   document.title='Joe private conversation title';
@@ -121,5 +122,5 @@ test('S1 browser: revocation clears a private tab title before asynchronous stor
  });
  assert.equal(title,'Session ended');
  await app.page.waitForURL('**/public-shell/session-ended.html');
- await assertPurged(app.page);assert.deepEqual(app.errors,[]);
+ await assertPreviousSessionRetired(app.page);assert.deepEqual(app.errors,[]);
 });

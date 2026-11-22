@@ -24,6 +24,12 @@
 <body class="dealroom-page">
   <div id="appShell"></div><script type="module" src="/js/app-shell.js"></script>
   <nav aria-label="Skip links"><a class="skip" href="#main">Skip to the board</a></nav>
+  <aside id="oldToursRecovery" class="panel-section" aria-label="Old Tours" hidden>
+    <p id="oldToursMoved" hidden>Tour planning moved to Deals. Open a deal and choose Tours.</p>
+    <button class="btn" type="button" id="recoverTourDrafts" hidden>Recover saved tour drafts</button>
+    <p id="tourDraftStatus" role="status" hidden></p>
+    <ul id="tourDraftDownloads" hidden></ul>
+  </aside>
   <p id="prefsLive" class="sr-only" aria-live="polite"></p>
 
   <main id="main" class="shell">
