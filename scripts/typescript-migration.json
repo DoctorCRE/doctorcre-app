@@ -634,7 +634,6 @@
     "test/synthetic-fixtures.test.mjs",
     "test/task-completion-event-required-browser.test.mjs",
     "test/task-completion-event-required.test.mjs",
-    "test/task-page-fixture.mjs",
     "test/task-read-epoch.test.mjs",
     "test/tasks-removed-row-focus-browser.test.mjs",
     "test/tasks-resume.test.mjs",
