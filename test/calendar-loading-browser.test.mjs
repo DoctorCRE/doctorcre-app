@@ -26,6 +26,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
 
   for (const status of [200, 401, 502]) await t.test(String(status), async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    await page.clock.install({ time: new Date('2026-10-20T15:00:00Z') });
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
       if (url.hostname !== 'doctorcre-app-staging.joe-bookout-carr-us.workers.dev') return route.abort();
@@ -35,7 +36,9 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
       });
       return route.fulfill({ response });
     });
-    await page.route('**/api/engine/calendar/critical-dates', route => route.fulfill({ status: 404 }));
+    let calendarStatus = 404;
+    let failAll = false;
+    await page.route('**/api/engine/calendar/critical-dates', route => route.fulfill({ status: calendarStatus }));
     let release;
     const held = new Promise(resolve => { release = resolve; });
     let releaseLate;
@@ -51,6 +54,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         ...(status === 401 ? [{ id: 'late', name: 'Synthetic late deal', owner: 'joe' }] : []),
       ] });
       if (name !== 'get-deal-room') return route.fallback();
+      if (failAll) return route.fulfill({ status: 502 });
       if (args.deal === 'late') await late;
       if (args.deal === 'slow') {
         await held;
@@ -83,6 +87,26 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
         await expect(page.getByRole('main').getByRole('button', { name: /^Refresh/ })).toHaveCount(1);
         await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
+        const updated = await page.locator('#calAsOf').textContent();
+        await page.clock.setSystemTime(new Date('2026-10-20T15:01:00Z'));
+        calendarStatus = 503;
+        await page.locator('#calRefresh').click();
+        await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
+        await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
+        await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
+        await expect(page.locator('#calAsOf')).toHaveText(updated);
+        calendarStatus = 404;
+        await page.getByRole('button', { name: 'Retry', exact: true }).click();
+        await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+        const retriedAt = await page.locator('#calAsOf').textContent();
+        assert.notEqual(retriedAt, updated);
+        await page.clock.setSystemTime(new Date('2026-10-20T15:02:00Z'));
+        failAll = true;
+        await page.locator('#calRefresh').click();
+        await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
+        await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
+        await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
+        await expect(page.locator('#calAsOf')).toHaveText(retriedAt);
       } else {
         await page.waitForURL('**/public-shell/session-ended.html');
         await expect(page.getByRole('heading',{name:'Session ended'})).toBeVisible();
