@@ -104,12 +104,35 @@ let assets: ReturnType<typeof appAssetSnapshot> | undefined;
 let browser: ReturnType<typeof chromium.launch> | undefined;
 after(async () => (await browser)?.close());
 
+const vendorContactNotes = [
+  "Imported from Outlook archive",
+  "Site tour (agent@example.test)",
+  "CARR Financing review",
+  "Discussed a site visit",
+  null,
+];
+
+const switchDayKeys = new Set([
+  "deals-from-engine",
+  "leads-from-engine",
+  "invoices-from-engine",
+  "charts-from-engine",
+  "national-deals-from-engine",
+  "search-from-engine",
+  "clients-vendors-from-engine",
+  "relationships-from-engine",
+  "frame-from-engine",
+  "home-from-engine",
+  "deals-saves-from-engine",
+]);
+
 async function app(
   t: TestContext,
   {
     width = 1440,
     theme = "dark",
     signIn = "engine",
+    switchDay = false,
     holdDocIssue,
     touch = false,
     readAttribution,
@@ -122,6 +145,7 @@ async function app(
     touch?: boolean;
     theme?: "dark" | "light";
     signIn?: "engine" | "carr";
+    switchDay?: boolean;
     holdDocIssue?: Promise<void>;
     tourDeal?: () => object;
     callReview?: (request: Request) => Response | Promise<Response>;
@@ -152,6 +176,31 @@ async function app(
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
     PARTNER_SIGN_IN: signIn,
     WORKSPACE_COMMAND_CENTER_READ_ENABLED: "true",
+    ...(switchDay && {
+      ENGINE_ROUTING: {
+        get: async (key: string) => (key === "deal-cutover-date" ? "2026-11-20" : switchDayKeys.has(key) ? "on" : null),
+      },
+      ENGINE: {
+        async fetch(input: Request) {
+          const url = new URL(input.url);
+          const path = url.pathname;
+          if (path !== "/api/engine/clients" && path !== "/api/engine/vendors")
+            return new Response(null, { status: 404 });
+          assert.equal(input.headers.get("cookie"), "__Host-dealroom_session=directory-fixture");
+          url.pathname = path.replace("/api/engine", "/api/v1/business");
+          const payload = directoryFixture(url.href);
+          if (path === "/api/engine/vendors" && Array.isArray(payload.rows)) {
+            for (const row of payload.rows) {
+              const note = vendorContactNotes[Number(row.ref.split("-").at(-1)) - 1];
+              if (note === undefined) continue;
+              row.relationship.last_contacted_at = note === null ? null : "2026-10-01T01:30:00Z";
+              row.relationship.last_contact_note = note;
+            }
+          }
+          return Response.json(payload);
+        },
+      },
+    }),
     CARR: {
       fetch: async (input) => {
         const path = new URL(input.url).pathname;
@@ -433,6 +482,16 @@ async function app(
     colorScheme: theme,
   });
   t.after(() => context.close());
+  if (switchDay) {
+    await context.addCookies([
+      {
+        name: "__Host-dealroom_session",
+        value: "directory-fixture",
+        url: server.origin.replace("http:", "https:"),
+        secure: true,
+      },
+    ]);
+  }
   await context.addInitScript((theme) => localStorage.setItem("dealroom-theme", theme), theme);
   return {
     server,
@@ -1589,6 +1648,31 @@ test("a saved Leads link with a second copied UUID opens the lead and supports c
   await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
   assert.equal(writes(), 1);
 });
+
+for (const width of [390, 1440]) {
+  test(`Vendor rows show only the contact date on switched CARR sign-in at ${width}px`, async (t) => {
+    const { context, server } = await app(t, { width, signIn: "carr", switchDay: true });
+    const page = await context.newPage();
+    await page.goto(server.origin + "/vendors");
+    for (const [index, note] of vendorContactNotes.entries()) {
+      const row = page.getByRole("link", { name: new RegExp(`^Demo Partner 0${index + 1}\\b`) });
+      const text = (await row.textContent({ timeout: 5000 })) ?? "";
+      if (note === null) {
+        assert.doesNotMatch(text, /Last contacted/);
+      } else {
+        assert.ok(await row.getByText("Last contacted Sep 30, 2026", { exact: true }).isVisible(), text);
+      }
+    }
+  });
+
+  test(`Clients has one level-one heading on switched CARR sign-in at ${width}px`, async (t) => {
+    const { context, server } = await app(t, { width, signIn: "carr", switchDay: true });
+    const page = await context.newPage();
+    await page.goto(server.origin + "/clients");
+    await page.getByRole("link", { name: /^Demo Practice 01\b/ }).waitFor({ timeout: 5000 });
+    assert.deepEqual(await page.getByRole("heading", { level: 1 }).allTextContents(), ["Clients"]);
+  });
+}
 
 test("the Vendor drawer keeps the track record and shows the rating editor only in CARR mode", async (t) => {
   for (const signIn of ["engine", "carr"] as const) {
