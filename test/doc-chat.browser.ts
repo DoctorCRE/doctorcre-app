@@ -60,9 +60,10 @@ async function docChatFixture(
   return { page, origin: server.origin };
 }
 
-test("Ask Doc advises on the filing's originating email without deciding the review", async (t) => {
+async function filingReviewFixture(t: TestContext) {
   const proposalId = "00000000-0000-4000-8000-000000000011";
   const activityId = "00000000-0000-4000-8000-000000000012";
+  const displayId = "00000000-0000-4000-8000-000000000013";
   const reviewKey = `suggestion:${proposalId}`;
   const reviewPath = `/inbox/card/${encodeURIComponent(reviewKey)}`;
   const advice = "The east suite deal looks like the best match.";
@@ -122,7 +123,7 @@ test("Ask Doc advises on the filing's originating email without deciding the rev
         waiting_version: 0,
         waiting_on: null,
         merged_source_ids: [],
-        suggestions: [{ id: proposalId }],
+        suggestions: [{ id: proposalId, activity_id: activityId, activity_kind: "email" }],
         context_label: null,
         due_on: null,
         open_url: null,
@@ -141,10 +142,10 @@ test("Ask Doc advises on the filing's originating email without deciding the rev
           { kind: "deal", label: "Choose deal" },
           { kind: "vendor", label: "Choose vendor" },
         ],
-        source_activity: { kind: "email", id: activityId, subject: "Suite plans" },
+        source_activity: { kind: "email", id: displayId, subject: "Suite plans" },
         thread: [
           { activity_id: id, happened_at: created_at, body: "The first message." },
-          { activity_id: activityId, happened_at: "2026-01-02T00:00:00Z", body: "The message under review." },
+          { activity_id: displayId, happened_at: "2026-01-02T00:00:00Z", body: "The message under review." },
           { activity_id: proposalId, happened_at: "2026-01-03T00:00:00Z", body: "The newest message." },
         ],
       };
@@ -153,9 +154,15 @@ test("Ask Doc advises on the filing's originating email without deciding the rev
       json: { jsonrpc: "2.0", id: rpcId, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } },
     });
   });
-  await page.goto(app + reviewPath);
+  const openReview = () => page.goto(app + reviewPath);
+  await openReview();
   const filing = page.getByRole("region", { name: "File this email", exact: true });
   const askDoc = filing.getByRole("link", { name: "Ask Doc", exact: true });
+  return { page, openReview, filing, askDoc, asks, writes, context, advice };
+}
+
+test("Ask Doc advises on the filing's originating email without deciding the review", async (t) => {
+  const { page, openReview, filing, askDoc, asks, writes, context, advice } = await filingReviewFixture(t);
   await expect(page.getByRole("region", { name: "Email thread" }).locator("article")).toHaveCount(3);
   await expect(askDoc).toHaveCount(1);
   await askDoc.click();
@@ -164,9 +171,22 @@ test("Ask Doc advises on the filing's originating email without deciding the rev
   await expect(page.getByText(advice)).toBeVisible();
   assert.deepEqual(asks, [context]);
   assert.deepEqual(writes, []);
-  await page.goto(app + reviewPath);
+  await openReview();
   await expect(filing.getByRole("button", { name: "Choose deal" })).toBeVisible();
   await expect(filing.getByRole("button", { name: "Dismiss" })).toBeVisible();
+});
+
+test("Reopening Ask Doc from a filing review keeps the unsent question", async (t) => {
+  const { page, openReview, askDoc, asks } = await filingReviewFixture(t);
+  const composer = page.getByLabel("Question for Doc");
+  const unsent = "Could this belong to the example vendor instead?";
+  await askDoc.click();
+  await expect(composer).toHaveValue("Where should I file this email?");
+  await composer.fill(unsent);
+  await openReview();
+  await askDoc.click();
+  await expect(composer).toHaveValue(unsent);
+  assert.deepEqual(asks, []);
 });
 
 for (const path of ["list", "detail"] as const) {

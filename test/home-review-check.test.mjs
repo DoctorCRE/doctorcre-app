@@ -74,18 +74,19 @@ test('Home keeps the exact filing choices from the proposal detail', async () =>
   }
 });
 
-test('A filing review keeps the ID of the originating message, regardless of thread order', async () => {
-  const thread = ['first', 'origin', 'latest'].map((activity_id, index) => ({
+test('A filing review uses the proposal email ID even if the thread shows a display copy', async () => {
+  const thread = ['first', 'display-copy', 'latest'].map((activity_id, index) => ({
     activity_id, happened_at: `2026-11-0${index + 1}T12:00:00Z`, body: 'Example message',
   }));
-  for (const [source_activity, expected] of [
-    [{ kind: 'email', id: 'origin' }, 'origin'],
-    [{ kind: 'email', id: null }, null],
-    [{ kind: 'call', id: 'origin' }, null],
+  for (const [activity_kind, activity_id, expected] of [
+    ['email', 'origin', 'origin'],
+    ['email', null, null],
+    ['call', 'origin', null],
   ]) {
     const detail = await loadEngineReview(async () => ({
-      ...filingProposal, source_activity, thread, filing_choices: [deal, vendor],
-    }), filingItem);
+      ...filingProposal, thread, filing_choices: [deal, vendor],
+      source_activity: { kind: 'email', id: 'display-copy' },
+    }), { ...filingItem, suggestions: [{ id: filingProposal.proposal_id, activity_kind, activity_id }] });
     assert.equal(detail.proposals[0].filingEmailId, expected);
   }
 });

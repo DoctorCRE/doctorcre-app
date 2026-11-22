@@ -571,15 +571,17 @@ function DocChat() {
         privateDraft.current = storage;
         setTurns(saved);
         const draft = storage("doc-question", chatId ?? composerId);
+        const savedQuestion = draft.read();
         const prefill =
           !chatId && (initialInvoice || initialEmail)
             ? new URLSearchParams(location.hash.slice(1)).get("question")
             : null;
+        const question = initialEmail && savedQuestion ? savedQuestion : prefill || savedQuestion;
         if (prefill) {
-          draft.write(prefill);
+          if (question !== savedQuestion) draft.write(question);
           history.replaceState(history.state, "", location.pathname + location.search);
         }
-        setQuestion(prefill || draft.read());
+        setQuestion(question);
         setReady(true);
       });
     },
