@@ -10,8 +10,8 @@ const origin = "https://app.doctorcre.com";
 const originalPaths = [
   "/", "/workspace", "/deals", "/leads",
   "/clients", "/vendors", "/calendar",
-  "/tours", "/share",
-    "/pipeline", "/business", "/status", "/notifications",
+  "/tours",
+  "/pipeline", "/business", "/status", "/notifications",
   "/conversations",
 ];
 
@@ -36,11 +36,6 @@ test("the approved map accounts for every original path with a permanent home", 
   assert.deepEqual(Object.keys(routeContract.redirects || {}).sort(), Object.keys(newHomes).sort());
   for (const path of originalPaths) {
     const response = await handleDoctorcreRequest(new Request(`${origin}${path}`), env);
-    if (path === "/share") {
-      assert.equal(response.status, 302);
-      assert.match(response.headers.get("location"), /^https:\/\/reports\.doctorcre\.com\/share/);
-      continue;
-    }
     let destination = path;
     if (path in newHomes) {
       assert.equal(response.status, 308, `${path}: permanent redirect`);

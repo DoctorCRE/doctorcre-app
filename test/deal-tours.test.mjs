@@ -17,7 +17,7 @@ function open(client, navigate = () => {}) {
   const panel = ui.mountDealTours(root, {dealId:deal, client, navigate});
   return {root,panel,dom};
 }
-test('TOURS-IN-DEAL lists only the current deal and opens its shortlist, route and packet editor', async () => {
+test('TOURS-IN-DEAL lists only the current deal and opens its shortlist and route editor', async () => {
   const {root,panel} = open({library:async () => [row,{...row,id:other,deal_id:other,name:'Other deal'},{...row,id:deal,deal_id:null,name:'Legacy'}],tour:async () => ({...row,stops:[]})});
   await settle();
   assert.match(root.textContent,/Demo tour/); assert.doesNotMatch(root.textContent,/Other deal|Legacy/);

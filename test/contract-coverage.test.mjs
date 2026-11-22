@@ -28,12 +28,6 @@ test('every literal browser MCP call is pinned in the versioned interface', asyn
 
 });
 
-test('Tour client feedback endpoints have an explicit contract newer than the prior search/cart interface', async () => {
-  const contract = carrInterface;
-  for (const path of ['/api/share/feedback', '/api/share/shortlist', '/api/share/comment', '/api/tours/feedback'])
-    assert.ok(contract.http_surfaces.includes(path), `${path} is missing from the feedback interface`);
-});
-
 test('vendor directory revision, selector and content digest are pinned together', async () => {
   const contract = carrInterface;
   const source = await read(contract.vendor_directory.path);

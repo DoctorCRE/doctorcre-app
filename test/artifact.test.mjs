@@ -1,44 +1,15 @@
 import { temporaryDirectory } from '../scripts/temp-directory.mjs';
-import { CHROMIUM_SAFETY_ARGS } from '../scripts/chromium-safety-args.mjs';
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, readFile, rename, rm, writeFile, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { chromium } from './browser-harness.mjs';
 
 import { buildArtifact, runCli, verifyArtifact } from "../scripts/artifact.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const COMMIT = "1".repeat(40);
-
-test('finding 6: emitted public report shell reserves space beside the fixed rail', async t => {
-  const outDir=await temporaryDirectory('doctorcre-report-layout-', t);
-  await buildArtifact({root:ROOT,outDir,commit:COMMIT});
-  const browser=await chromium.launch({ args: [...CHROMIUM_SAFETY_ARGS] });t.after(()=>browser.close());
-  const page=await browser.newPage({viewport:{width:820,height:900}});
-  await page.route('**/*',async route=>{
-    const url=new URL(route.request().url());
-    const name=url.pathname==='/'?'share.html':url.pathname.slice(1);
-    try{await route.fulfill({body:await readFile(join(outDir,'site','reports',name)),contentType:name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'text/html'});}
-    catch{await route.fulfill({status:404,body:''});}
-  });
-  await page.goto('https://reports.doctorcre.com/');await page.locator('.app-shell-header').waitFor();
-  assert.equal(await page.locator('body').evaluate(n=>n.classList.contains('report-shell')),true);
-  assert.equal(await page.locator('.app-shell-controls').count(), 0);
-  assert.equal(await page.locator('#callModeAvailability').count(), 0);
-  assert.equal(await page.getByLabel('DoctorCRE Home', {exact:true}).getAttribute('href'), 'https://app.doctorcre.com/');
-  assert.equal(await page.getByLabel('Leads', {exact:true}).getAttribute('href'), 'https://app.doctorcre.com/leads');
-  await page.getByLabel('More', {exact:true}).click();
-  assert.equal(await page.getByLabel('More', {exact:true}).getAttribute('aria-expanded'), 'true');
-  assert.equal(await page.getByLabel('Deals', {exact:true}).getAttribute('href'), 'https://app.doctorcre.com/deals');
-  await page.keyboard.press('Escape');
-  assert.equal(await page.locator('.app-shell-more-list').isVisible(), false);
-  assert.equal(await page.getByLabel('More', {exact:true}).evaluate(node=>node===document.activeElement), true);
-  const rail=await page.locator('.app-shell-header').boundingBox(), main=await page.locator('main').boundingBox();
-  assert.ok(main.x>=rail.x+rail.width,`${main.x} clears rail ${rail.x+rail.width}`);
-});
 
 test('Deal Room forms ship separately from the shared UI with one React runtime', async t => {
   const outDir = await temporaryDirectory('doctorcre-form-bundle-', t);
@@ -113,8 +84,8 @@ async function committedFixture(t) {
   git(["clone", "--quiet", "--shared", "--no-hardlinks", ROOT, "."]);
   await symlink(join(ROOT, 'node_modules'), join(root, 'node_modules'), 'dir');
   // Exercise the code under test, including edits not yet committed by the maker.
-  for (const path of ["scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "reports/share.js", "js/routes.js", "package.json", "package-lock.json"]) { await mkdir(dirname(join(root, path)), { recursive: true }); await copyFile(join(ROOT, path), join(root, path)); }
-  git(["add", "scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "reports/share.js", "js/routes.js", "package.json", "package-lock.json"]);
+  for (const path of ["scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json"]) { await mkdir(dirname(join(root, path)), { recursive: true }); await copyFile(join(ROOT, path), join(root, path)); }
+  git(["add", "scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json"]);
   git(["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "Synthetic verifier fixture"]);
   const commit = git(["rev-parse", "HEAD"]);
   const outDir = join(root, "dist");
@@ -132,7 +103,7 @@ test("one contract path declaration drives both assembly and committed-source ve
   const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: "pipe" }).trim();
   git(["clone", "--quiet", "--shared", "--no-hardlinks", ROOT, "."]);
   await symlink(join(ROOT, 'node_modules'), join(root, 'node_modules'), 'dir');
-  for (const path of ["scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "reports/share.js", "js/routes.js", "package.json", "package-lock.json"]) { await mkdir(dirname(join(root, path)), { recursive: true }); await copyFile(join(ROOT, path), join(root, path)); }
+  for (const path of ["scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json"]) { await mkdir(dirname(join(root, path)), { recursive: true }); await copyFile(join(ROOT, path), join(root, path)); }
   const contracts = [
     ["carr_interface", "contracts/carr-interface.v1", "contracts/synthetic-interface.v1"],
   ];
@@ -143,7 +114,7 @@ test("one contract path declaration drives both assembly and committed-source ve
     source = source.replace(`"${oldPath}"`, `"${newPath}"`);
   }
   await writeFile(join(root, "scripts/carr-interface.mjs"), source);
-  git(["add", "scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "reports/share.js", "js/routes.js", "package.json", "package-lock.json", ...contracts.flatMap(([, oldPath, newPath]) => [oldPath, newPath])]);
+  git(["add", "scripts/artifact.mjs", "scripts/carr-interface.mjs", "scripts/build-artifact.mjs", "scripts/ui-bundle.mjs", "src/ui/index.tsx", "src/ui/node-host.tsx", "js/navigation.js", "js/app-shell.js", "js/routes.js", "package.json", "package-lock.json", ...contracts.flatMap(([, oldPath, newPath]) => [oldPath, newPath])]);
   git(["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "Synthetic relocated contracts"]);
   for (const command of ["build", "verify"]) {
     execFileSync(process.execPath, ["scripts/build-artifact.mjs", command], {
@@ -247,10 +218,18 @@ test("the static artifact ships no unsupported diagnostic sender", async (t) => 
   }
 });
 
-test('report assembly is independent of app-shell implementation spelling', async t => {
-  const { root, outDir } = await committedFixture(t);
-  const before = await readFile(join(outDir, 'site/reports/share.js'));
-  await writeFile(join(root, 'js/app-shell.js'), '// App-only mounting may change independently of reports.\n');
-  await buildArtifact({ root, outDir, commit:COMMIT });
-  assert.deepEqual(await readFile(join(outDir, 'site/reports/share.js')), before);
+test('Home remains in the artifact while retired Work pages are gone', async (t) => {
+  const outDir = await temporaryDirectory('doctorcre-home-retirement-', t);
+  const built = await buildArtifact({root:ROOT,outDir,commit:COMMIT});
+  const { routeContract, isRetiredPage } = await import("../js/routes.js");
+  assert.equal(routeContract.routes['/'], 'workspace.html');
+  assert.equal(routeContract.redirects['/business'], '/');
+  for (const path of ['/doc-chats/work', '/tasks', '/work']) assert.ok(isRetiredPage(path), path);
+  const paths = built.manifest.files.map(file => file.path);
+  for (const path of ['business-workspace.html', 'js/business-workspace.js', 'js/business-workspace-model.js', 'tasks.html', 'js/task-records.js', 'js/task-records-model.js']) {
+    assert.equal(paths.includes(path), false, `${path} is retired`);
+  }
+  for (const path of ['workspace.html', 'js/workspace-command-center.js', 'js/local-drafts.mjs', 'js/visual-system.js', 'js/command-feedback.mjs', 'css/business-workspace.css']) {
+    assert.equal(paths.includes(path), true, `${path} still serves live callers`);
+  }
 });

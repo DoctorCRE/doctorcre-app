@@ -22,7 +22,7 @@
   "navigation_requirements": "Approved entrance evidence from the pinned authenticated Tour detail contract, exact-route complete promotion receipt, current rendered component version and authenticated user_ref. Navigation is hidden on missing, mismatched or expired evidence.",
   "maplibre": {
     "version": "6.4.1",
-    "source": "existing reports/vendor/maplibre-gl-6.4.1 vendored distribution",
+    "source": "tours/vendor/maplibre-gl-6.4.1 vendored distribution",
     "style": "ordered-stop fallback until a basemap style is configured; no paid key or external tiles"
   },
   "navigation_evidence": {

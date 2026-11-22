@@ -161,11 +161,32 @@ test("lease projection proxies the authenticated GET and CARR refusal unchanged"
   assert.deepEqual(await response.json(), { error: "unauthorized" });
 });
 
-test("share links remain on the isolated reports host and release identity is explicit", async () => {
-  const prod = environment(); prod.APP_ENV = 'production';
-  const share = await handleDoctorcreRequest(request("/share?tour=T-1"), prod);
-  assert.equal(share.status, 302);
-  assert.equal(share.headers.get("location"), "https://reports.doctorcre.com/share?tour=T-1");
+test('retired tour report routes stay closed with CARR sign-in and engine deal saves', async () => {
+  const env = {
+    ...environment({
+      carr: { fetch: async () => new Response('legacy tour response') },
+    }),
+    PARTNER_SIGN_IN: 'carr',
+    ENGINE_ROUTING: { get: async () => 'on' },
+  };
+  for (const path of ['/api/tours/projection', '/api/tours/projection/candidates',
+    '/api/tours/pdf/preview', '/api/tours/pdf/download', '/api/tours/feedback',
+    '/share', '/api/share/report']) {
+    assert.equal((await handleDoctorcreRequest(request(path), env)).status, 404, path);
+  }
+  for (const path of ['/api/tours/projection', '/api/tours/projection/seal', '/api/tours/pdf/render',
+    '/api/tours/pdf/review', '/api/tours/share/issue', '/api/tours/share/rotate', '/api/tours/share/revoke']) {
+    assert.equal((await handleDoctorcreRequest(request(path, { method: 'POST' }), env)).status, 409, path);
+  }
+  env.ENGINE_ROUTING = { get: async () => null };
+  const oldSave = await handleDoctorcreRequest(request('/api/tours/projection', { method: 'POST' }), env);
+  assert.equal(oldSave.status, 404);
+  for (const path of ['/api/tours/library', '/api/tours/detail', '/api/tours/property-evidence/v1']) {
+    assert.equal(await (await handleDoctorcreRequest(request(path), env)).text(), 'legacy tour response');
+  }
+});
+
+test("release identity is explicit", async () => {
   const release = await (await handleDoctorcreRequest(request("/app-release"), environment())).json();
   assert.deepEqual(release, {
     service: "doctorcre-app", environment: "staging", source_commit: "1".repeat(40),
@@ -174,22 +195,6 @@ test("share links remain on the isolated reports host and release identity is ex
     carr_contract: carrContractIdentity,
     route_contract: { schema: routeContract.schema, version: routeContract.version },
   });
-});
-
-test('staging report stays signed in on the staging origin; production keeps its isolated host', async () => {
-  let gatePath;
-  const env = environment({ carr: { fetch: async value => { gatePath = new URL(value.url).pathname; return new Response(null); } } });
-  const share = await handleDoctorcreRequest(request('/share'), env);
-  assert.equal(share.status, 200);
-  assert.equal(gatePath, '/control-room');
-  assert.equal(await share.text(), 'asset:/reports/share.html');
-  for (const name of ['share.css', 'share.js', 'share-bootstrap.js', ...['maplibre-gl.mjs', 'maplibre-gl-shared.mjs', 'maplibre-gl-worker.mjs', 'maplibre-gl.css'].map(file => `vendor/maplibre-gl-6.4.1/${file}`)]) {
-    const asset = await handleDoctorcreRequest(request(`/${name}`), env);
-    assert.equal(await asset.text(), `asset:/reports/${name}`);
-  }
-  env.APP_ENV = 'production';
-  assert.equal((await handleDoctorcreRequest(request('/share'), env)).status, 302);
-  assert.equal((await handleDoctorcreRequest(request('/share.js'), env)).status, 404);
 });
 
 

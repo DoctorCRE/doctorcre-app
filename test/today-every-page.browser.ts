@@ -23,7 +23,7 @@ const legacyVerbs = new Set(["morning-brief", "today-triage", "calendar-meeting-
 const id = "00000000-0000-4000-8000-000000000001";
 const pages = [
   ...Object.keys(routeContract.routes)
-    .filter((path) => !["/", "/share", "/client-portal", "/calendar"].includes(path))
+    .filter((path) => !["/", "/client-portal", "/calendar"].includes(path))
     .map((path) => path.replace(":boardId", "carr-v5").replace(/:\w+/g, id)),
   "/?view=charts",
   "/deals?view=national",

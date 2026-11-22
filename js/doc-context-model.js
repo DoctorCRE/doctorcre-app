@@ -18,7 +18,6 @@ export const DOC_PAGES = Object.freeze({
   charts: { label: 'Charts', reads: ['getBoard'] },
   status: { label: 'Status', reads: ['readAssuranceHealth'] },
   page: { label: 'DoctorCRE', reads: [] },
-  share: { label: 'Tour report', reads: [], approvals: false },
 });
 
 const routes = { '/': 'home', '/review-workflows': 'home', '/workspace': 'home', '/workspace.html': 'home', '/business': 'home',
@@ -29,7 +28,6 @@ const routes = { '/': 'home', '/review-workflows': 'home', '/workspace': 'home',
   '/doc-chats': 'chats', '/doc-chats.html': 'chats', '/conversations.html': 'chats',
   '/updates': 'updates', '/notifications.html': 'updates',
   '/search': 'search', '/search.html': 'search', '/charts.html': 'charts', '/status': 'status', '/status.html': 'status',
-  '/share': 'share', '/reports/share.html': 'share',
 };
 export function docPage(location = {}) {
   const page = routes[location.pathname] || 'page';

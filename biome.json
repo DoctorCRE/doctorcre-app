@@ -3,9 +3,6 @@
   "files": {
     "includes": [
       "**/*.{ts,tsx,mts,cts}",
-      "!reports/vendor/maplibre-gl-6.4.1/maplibre-gl.mjs",
-      "!reports/vendor/maplibre-gl-6.4.1/maplibre-gl-shared.mjs",
-      "!reports/vendor/maplibre-gl-6.4.1/maplibre-gl-worker.mjs",
       "!tours/vendor/maplibre-gl-6.4.1/maplibre-gl.mjs",
       "!tours/vendor/maplibre-gl-6.4.1/maplibre-gl-shared.mjs",
       "!tours/vendor/maplibre-gl-6.4.1/maplibre-gl-worker.mjs"

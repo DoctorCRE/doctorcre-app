@@ -82,7 +82,6 @@ test("engine sign-in preserves deep links, gates redirects, and protects GET and
     ["/leads?lead=L-123", "/leads.html", 200],
     ["/business?q=Example", "/search?q=Example", 308],
     ["/inbox/card/synthetic?show=mail", "/inbox.html", 200],
-    ["/share?view=map", "/reports/share.html", 200],
     ["/pipeline?filter=open", "/deals?view=board&filter=open", 308],
     ["/deals?view=review&filter=open", "/deals?filter=open", 302],
   ];
@@ -711,7 +710,6 @@ test("legacy deal features use CARR only with CARR sign-in", async (t) => {
     ["tour property", "/api/tours/property-evidence/v1?property_id=" + deal, { method: "GET" }],
     ["compare terms", "/api/v1/market-terms/read", { method: "POST", body: "{}" }],
     ["deal attribution", "/mcp", toolsCall("read-activity-deal-attribution", { activity_id: key })],
-    ["direct staging proxy", "/api/share/fixture", { method: "GET" }],
   ] as const;
   for (const mode of ["engine", "carr"]) {
     const { send, calls } = fixture(null, { PARTNER_SIGN_IN: mode, ENGINE_ROUTING: dealsRouting("on", "on") });
