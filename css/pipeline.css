@@ -398,15 +398,6 @@ html:has(#workspace-tours:not([hidden]) .tour-editor) { scroll-padding-bottom: v
 .deal-tour-departure .btn { margin-inline-end: var(--space-2); }
 
 #detailUpdateForm > label { display: flex; align-items: center; min-width: 44px; min-height: 44px; }
-.deal-deliverables { margin-block: 1rem 2rem; }
-.deliverable-drop { border: 1px dashed var(--hairline-strong); border-radius: 12px; padding: 20px; margin-block: 16px; background: var(--surface-1); }
-.deal-deliverables input[type="file"] { max-width: 100%; min-height: 44px; }
-.deal-deliverables .btn { min-height: 44px; white-space: normal; overflow-wrap: anywhere; margin-block: 4px; }
-.deal-deliverables li, .deal-deliverables details { overflow-wrap: anywhere; min-width: 0; }
-
-.deliverable-drop { display: block; width: 100%; color: var(--fg); text-align: left; cursor: pointer; }
-.deliverable-drop:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
-
 .client-publications { max-width: 900px; margin-inline: auto; overflow-wrap: anywhere; }
 .client-preview { border: 1px solid var(--hairline); border-radius: 12px; padding: 20px; margin-block: 24px; background: var(--surface-1); }
 .client-publication-item { border-bottom: 1px solid var(--hairline); padding-block: 16px; }

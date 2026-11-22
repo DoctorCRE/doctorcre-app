@@ -18,7 +18,7 @@ No queues, background jobs, new database access, provider calls, map renderer or
 
 ## Producer binding
 
-The schema in `test/fixtures/deal-space-searches/response-contract.json` and recorded responses in `test/fixtures/deal-space-searches/responses.json` come from DoctorCRE/carr-system commit `0d31536220b19be5c6a6fd2b63a8d60a35ab6fd1`, PR 3187. Source paths are `mcp-server/contracts/deal-space-searches.v1.json` and `mcp-server/test/fixtures/deal-space-searches.json`. The schema stays test-only. Production and fixtures cross the same typed boundary parser, following document text and share intake. A mutation test compares that parser with the pinned schema. The browser imports no schema compiler and works under the Worker CSP without unsafe-eval.
+The schema in `test/fixtures/deal-space-searches/response-contract.json` and recorded responses in `test/fixtures/deal-space-searches/responses.json` come from DoctorCRE/carr-system commit `0d31536220b19be5c6a6fd2b63a8d60a35ab6fd1`, PR 3187. Source paths are `mcp-server/contracts/deal-space-searches.v1.json` and `mcp-server/test/fixtures/deal-space-searches.json`. The schema stays test-only. Production and fixtures cross the same typed boundary parser. A mutation test compares that parser with the pinned schema. The browser imports no schema compiler and works under the Worker CSP without unsafe-eval.
 
 This consumer must remain draft until that producer is merged and deployed. This build does not establish production persistence or independent taste approval.
 

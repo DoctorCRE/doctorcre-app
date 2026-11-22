@@ -12,7 +12,6 @@ const PROXY_EXACT = new Set([
 ]);
 const PROXY_PREFIXES = ["/auth/", "/api/v1/", "/api/system-work/", "/api/tours/", "/api/post-call/"];
 const STATIC_EXACT = new Map([
-  ["/share-intake.html", "/share-intake.html"],
   ["/artifact-manifest.json", "/artifact-manifest.json"],
   ["/manifest.webmanifest", "/manifest.webmanifest"],
   ["/sw.js", "/public-shell/sw.js"],
@@ -916,7 +915,7 @@ async function refuseFrozenSave(request, env, url, call) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return null;
   const hint = pathname.startsWith('/api/tours/') && pathname !== '/api/tours/properties/search'
     ? TOUR_HINT
-    : /^\/api\/v1\/fact-review\/(comparison|record|resolve)$/.test(pathname) || pathname.startsWith('/api/v1/deal-deliverables/')
+    : /^\/api\/v1\/fact-review\/(comparison|record|resolve)$/.test(pathname)
     ? DOCUMENTS_HINT : null;
   return hint && await switchedOn(env, NEXT_DEAL_SAVES) ? json({ error: hint }, 409) : null;
 }
@@ -1021,6 +1020,12 @@ async function openEngineActionLink(request, env, url) {
 async function handleRequest(request, env) {
   const url = new URL(request.url);
   const pathname = url.pathname;
+  if (pathname === '/share-target' || pathname === '/share-intake.html') {
+    if (!['GET', 'HEAD', 'POST'].includes(request.method)) return json({ error: 'method_not_allowed' }, 405);
+    return new Response(null, { status: 303, headers: { location: '/deals', 'cache-control': 'no-store' } });
+  }
+  if (pathname === '/api/v1/deal-deliverables' || pathname.startsWith('/api/v1/deal-deliverables/'))
+    return json({ error: 'not_found' }, 404);
   const staging = env?.APP_ENV === 'staging' && url.origin === STAGING_ORIGIN;
   const boardDestination = legacyBoardDestination(url);
   if (boardDestination) {

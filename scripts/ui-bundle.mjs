@@ -23,7 +23,6 @@ export const UI_ENTRIES = {
   'ui-phone-push': 'phone-push',
   'ui-doc-link-settings': 'doc-link-settings',
   'ui-action-session-return': 'action-session-return',
-  'ui-share-intake': 'share-intake',
   'ui-watches': 'watches/control',
   'ui-meeting-preparation-lifetime': 'meeting-preparation-lifetime',
   'ui-relationship-kind-filter': 'relationship-kind-filter',
