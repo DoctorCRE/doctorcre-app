@@ -4,7 +4,6 @@
 export { mountActionLink } from "./action-link";
 export { mountActivityAttributionView, parseActivityDealAttribution } from "./activity-attribution";
 export { disposeAnswerBlocks, mountAnswerBlocks } from "./answer-blocks";
-export { briefQueueIdentity, briefQueueLabels, briefQueueTitle, createBriefQueueView } from "./brief-queues";
 export { mountCallReview, mountCallReviewDialog } from "./call-review";
 export { mountClientAnniversaries } from "./client-anniversaries";
 export { createContactReasonsView } from "./contact-reasons";

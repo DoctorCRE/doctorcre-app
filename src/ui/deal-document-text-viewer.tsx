@@ -3,7 +3,6 @@ import type { DocumentTextClient, TextChunk, TextIdentity, TextPosition, TextReq
 import { parseDocumentText } from "./deal-document-text";
 import { joinQuoteContinuation, type QuoteFragment } from "./document-quote";
 import { QuoteLines } from "./document-quote-lines";
-import type { QuoteAskClient } from "./document-quote-next-ask";
 
 type Source = TextIdentity & { filename: string };
 type State =
@@ -13,12 +12,10 @@ export function DocumentTextViewer({
   source,
   client,
   onClose,
-  quoteClient,
 }: {
   source: Source;
   client: DocumentTextClient;
   onClose(): void;
-  quoteClient: QuoteAskClient | null;
 }) {
   const initial = useRef({ source, client });
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -202,7 +199,6 @@ export function DocumentTextViewer({
             key={request.current.generation}
             source={{ ...source, text_hash: chunk.text_hash, text_format_version: chunk.text_format_version }}
             fragments={chunk.lines}
-            client={quoteClient}
           />
           {chunk.next && (
             <button

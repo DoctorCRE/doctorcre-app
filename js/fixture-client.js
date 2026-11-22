@@ -8,7 +8,6 @@ import { createInvoiceFixture } from './invoice-tracker-fixture.js';
  * Fixture client: full WO-1 contract against in-memory state seeded from
  * data/board-seed.json. Zero network. Live and fixture share one interface.
  */
-import { CONNECTION_NAMES } from './connections-model.js';
 import { uuidv4 } from './uuid.js';
 import { observeDocClient } from './doc-context.js';
 import { PHASES } from './client.js';
@@ -51,7 +50,6 @@ const VERSION_CONFLICT = 'version_conflict';
 export async function createFixtureClient(opts = {}) {
   let factReview;
   const factReviews = () => factReview ||= import('../data/fixtures/fact-review.mjs').then(module => module.createFactReviewFixture());
-  const activityFixture = (await import('./doc-activity-fixture.js')).createDocActivityFixture();
   const seedUrl = opts.seedUrl || new URL('../data/board-seed.json', import.meta.url).href;
   const seed = await fetch(seedUrl).then((r) => {
     if (!r.ok) throw new Error(`fixture seed failed: ${r.status}`);
@@ -1656,6 +1654,7 @@ export async function createFixtureClient(opts = {}) {
       const section = items => ({ state: items.length ? 'ready' : 'empty', items });
       const board = await this.getBoard();
       const sections = {
+        ...(seed.calendar && { calendar: seed.calendar }),
         ...(selfActor === 'joe' ? { needs_joe: section([]) } : {}),
         claim_card: section([]), renewals: section([]), assurance_cadence: section([]), costs: { ...section([]), providers: [] },
         today: section(briefTodayItems()),
@@ -2551,10 +2550,6 @@ export async function createFixtureClient(opts = {}) {
 
     // Synthetic governance-queue rows follow ops.read_governance_queue (0345).
     // Clock-relative timestamps cover under a day, over a day and past the 48-hour cadence.
-    async readConnections() {
-      const checked_at=nowIso();
-      return {ok:true,schema:'doctorcre-connections.v1',generated_at:checked_at,providers:Object.entries(CONNECTION_NAMES).map(([id,name])=>({id,name,status:id==='grok'?'needs_reconnect':'connected',checked_at,manage_url:'/control-room?tab=connections',spend:{amount:12.34,currency:'USD',kind:id==='jev'?'estimate':'charge',period:'October 2026',as_of:checked_at}})),devices:{state:'read',observed_at:checked_at,items:[{id:'demo-laptop',name:'Demo laptop',connected:true},{id:'demo-workstation',name:'Demo workstation',connected:false}]}};
-    },
     async listProgressBoards(){return {schema:'progress-board-directory.v1',boards:[{board_id:'carr-v5',title:'System Job Board',updated_at:nowIso(),task_counts:{running:1}}]};},
     async readProgressBoard({board_id}={}){return {ok:true,snapshot:{board_id,version:1,updated_at:nowIso(),snapshot_json:{title:'System Job Board',tasks:{}}},questions:[]};},
     // Synthetic work-queue rows: one demo job per derived stage, shaped like the work-queue verb.
@@ -2767,7 +2762,6 @@ export async function createFixtureClient(opts = {}) {
     // Revert requires the latest event for a BASED_FIELDS cell; otherwise refuse event_not_revertible
     // or newer_change_exists. Append a correction event and advance lastFieldEvent, preserving history.
     async revertDealField({ event_id, idempotency_key }) {
-      if (activityFixture.owns(event_id)) return activityFixture.undo({ event_id, idempotency_key });
       return withIdem(idempotency_key, () => {
         const event = events.find((e) => e.id === event_id);
         if (!event || event.subject_type !== 'deal' || !event.field || !BASED_FIELDS.includes(event.field)) {
@@ -2806,7 +2800,6 @@ export async function createFixtureClient(opts = {}) {
       });
     },
 
-    async readDocActivity(args = {}) { return activityFixture.read(args); },
 
     async getPendingConfirms() {
       return { proposals: pendingConfirms.map((p) => ({ ...p })) };

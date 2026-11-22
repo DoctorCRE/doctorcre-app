@@ -124,7 +124,6 @@ body.record-open { overflow: hidden; }
 .record-panel-head .eyebrow { margin-bottom: var(--space-1); }
 .record-panel-head > div:first-child { flex: 1; min-width: 0; }
 .record-panel-actions { display: flex; flex: none; gap: var(--space-2); }
-.record-panel-actions > .doc-presence { position: static; margin: 0; }
 .record-panel-head h2 { margin: 0; font-size: var(--font-size-4); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); overflow-wrap: anywhere; }
 .record-panel-head h2:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: var(--space-1); }
 .panel-close { flex: none; min-width: var(--touch); min-height: var(--touch); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font: inherit; font-size: var(--font-size-3); line-height: 1; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out); }

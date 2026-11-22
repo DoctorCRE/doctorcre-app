@@ -203,19 +203,13 @@ test("an older initial unread response cannot overwrite the returned page's newe
 // test: "free of network calls"): they carry no client at all, so the badge
 // stays in the markup, permanently hidden, wired to nothing.
 const PAGES_WITH_BADGE_JS = [
-  ["control-room.html", "js/control-room.js"],
-  ["incidents.html", "js/incidents.js"],
   ["pipeline.html", "js/pipeline.js"],
   ["notifications.html", "js/notifications.js"],
-  ["tasks.html", "js/task-records.js"],
-  ["work-inventory.html", "js/work-inventory.js"],
   ["conversations.html", "js/conversations.js"],
   ["business.html", "js/workspace-business.js"],
   ["review-workflows.html", "js/workspace-command-center.js"],
   ["calendar.html", "js/calendar.js"],
-  ["ideas.html", "js/ideas.js"],
 ];
-const PAGES_WITHOUT_BADGE_JS = ["design.html", "design-business.html", "design-operations.html"];
 
 test("B12b-shell-8: every page with the shared top bar carries the navUnreadBadge element", async () => {
   const { appShellMarkup } = await import("../js/navigation.js");
@@ -225,10 +219,7 @@ test("B12b-shell-8: every page with the shared top bar carries the navUnreadBadg
     const html = await read(page);
     assert.match(html, /id="appShell"/, page);
   }
-  for (const page of PAGES_WITHOUT_BADGE_JS) {
-    const html = await read(page);
-    assert.match(html, /id="appShell"/, page);
-  }
+
 });
 
 test("B12b-shell-9: every page whose script builds a dealroom client also renders its unread badge", async () => {
@@ -236,11 +227,6 @@ test("B12b-shell-9: every page whose script builds a dealroom client also render
     const source = await read(script);
     assert.match(source, script === "js/notifications.js" ? /renderNotificationBadge\(/ : /mountNotificationBadge\(/, script);
   }
-});
-
-test("B12b-shell-10: the design prototypes stay free of network calls — no client, no badge wiring, matching the visual-system prototype rule", async () => {
-  const source = await read("js/design-prototype.js");
-  assert.doesNotMatch(source, /mountNotificationBadge|createLiveClient|createFixtureClient/, "js/design-prototype.js");
 });
 
 test("B12b-shell-11: the badge is hidden in every page's own markup, so a page whose script never runs shows nothing", async () => {

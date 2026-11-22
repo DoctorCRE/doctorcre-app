@@ -277,14 +277,19 @@ test("Today rejects a reminder with a malformed ended-deal marker", async (t) =>
   assert.equal(await today.getByText("Check the former office", { exact: true }).count(), 0);
 });
 
-test("Today uses the engine without the former page marker", async (t) => {
-  const { today, legacy, readToday } = await open(t, "/invoices", { enabled: false });
+test("Today uses the engine without the former page marker and the shell omits Morning brief", async (t) => {
+  const { page, today, legacy, readToday } = await open(t, "/invoices", { enabled: false });
   await today.getByText("Example site visit", { exact: true }).waitFor({ timeout: 3000 });
+  assert.equal(await page.getByRole("button", { name: "Workspace sidebar", exact: true }).isVisible(), true);
+  assert.equal(await page.locator("#docOpen").count(), 0);
   assert.deepEqual(readToday, ["GET"]);
-  assert.deepEqual(
-    legacy.filter((name) => name !== "morning-brief"),
-    [],
-  );
+  assert.deepEqual(legacy, []);
+
+  const on = await open(t, "/invoices");
+  await on.today.getByText("Example site visit", { exact: true }).waitFor();
+  assert.equal(await on.page.getByRole("button", { name: "Morning brief", exact: true }).count(), 0);
+  assert.equal(await on.page.locator("#docMorningBrief").count(), 0);
+  assert.deepEqual(on.legacy, []);
 });
 
 for (const width of [390, 1440])

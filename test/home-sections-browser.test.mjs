@@ -910,24 +910,6 @@ test('Calendar rail leaves page tools in the center at narrow desktop sizes', as
   }
 });
 
-test('a session ending during the Morning brief download prevents a late mount', async t => {
-  const run = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: {} });
-  const { page } = run;
-  await page.route('**/js/morning-brief.js', async route => {
-    const response = await route.fetch();
-    await route.fulfill({ response, body: `${await response.text()}\nwindow.__morningBriefModuleReady = true;` });
-  });
-  const gate = await run.hold('**/js/morning-brief.js');
-  await run.open('/', { waitUntil: 'domcontentloaded' });
-  await page.locator('.home-slice [data-inbox-row]').first().waitFor();
-  await page.locator('#appSidebarToggle').waitFor();
-  await page.evaluate(() => dispatchEvent(new Event('doctorcre-session-invalidated')));
-  await gate.requested;
-  gate.release();
-  await page.waitForFunction(() => window.__morningBriefModuleReady);
-  assert.equal(await page.locator('#docPresence, #docMorningBrief').count(), 0);
-});
-
 test('late automatic Home walkthrough preserves an open account menu', async t => {
   const run = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: {} });
   const { page } = run;

@@ -11,13 +11,7 @@ test('R7 timestamp and numeric-string revisions outrank old activity; equal revi
   c.finish(c.begin('businessRecord',[{dataset:'clients',id:'sample'}]),{record:{...party,record_version:b,name:'New facts'}});
   assert.equal(c.snapshot().records[0].title,'New facts');assert.deepEqual(c.snapshot().records[0].activity,[]);
  }
- const c=createDocContext({page:'queue'});
- c.finish(c.begin('roomQueue'),{events:[{task_id:'sample',card:{title:'New',status:'done',updated_at:newer}},{task_id:'sample',card:{title:'Old',status:'running',updated_at:old}}]});
- assert.equal(c.snapshot().records[0].title,'New');
-});
-test('R9 summary Ideas uses recorded number, label and version',()=>{
- const rows=normalizeDocRead('loopBoard',{loops:[{number:1,label:'Sample idea',owner:'sample',version:1}]});
- assert.equal(rows?.[0].title,'Sample idea');assert.equal(rows?.[0].version,1);
+
 });
 test('Leads workspace accepts doctor_name and base_version',()=>{
  const rows=normalizeDocRead('getWorkspace',{leads:[{id:'example-lead',doctor_name:'Sample lead',base_version:2}]});
@@ -132,8 +126,4 @@ test('R1/R5/R14 cached projection cannot recover failure or renew its observed t
  now=2000;c.filter({query:'none'});assert.equal(c.project('getBoard',{deals:[]}),true);assert.equal(c.snapshot().observedAt,at);
  const ticket=c.begin('getBoard');c.fail(ticket);c.filter({query:''});
  assert.equal(c.project('getBoard',{deals:[{id:'sample',name:'Sample'}]}),false);assert.equal(c.snapshot().ready,false);
-});
-test('R3 retired task drawer is removed from the retained Progress consumer',async()=>{
- const html=await readFile(new URL('../progress-work.html',import.meta.url),'utf8');const js=await readFile(new URL('../js/queue.js',import.meta.url),'utf8');
- assert.doesNotMatch(html,/queueDrawer/);assert.doesNotMatch(js,/queueDrawer|showModal/);
 });

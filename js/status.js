@@ -1,22 +1,10 @@
 import { mountLocalTicker } from './visibility-poll.mjs';
-import { fetchRead, mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
-// V5-UX-C15 — the independent status page: DOM wiring only.
-//
-// Every decision lives in ./status-model.js. This page reads, paints, and does
-// nothing else: no write verb, no command dock, no Doc mount. Doc needs CARR,
-// and this page has to work when CARR does not.
-//
-// Reads settle independently: app release, Control Room coverage, and the
-// selected assurance scope. Device snapshots contain coverage clocks only.
-// Assurance evidence is never stored or reused as a last-known health label.
+import { fetchRead, mountAutoRefresh } from "./auto-refresh.mjs";
 import {
   APP_READ_ID, INTEGRATION_GAPS, PROVIDER_LINKS, REFUSAL_SENTENCE,
-  readSnapshot, snapshotFromReads, statusChips, statusHeadline, writeSnapshot,
+  readSnapshot, snapshotFromReads, appChip, statusHeadline, writeSnapshot,
 } from "./status-model.js";
 import { assuranceHealthRequest, assuranceHealthState, loadAssuranceHealth } from "./assurance-health-model.js";
-import { READS, READ_LABEL } from "./control-room-model.js";
-import { WORK_INVENTORY_ENDPOINT } from "./work-inventory-model.js";
-import { acceptsResponse } from "./workspace-command-center-model.js";
 import { createLiveClient } from "./live-client.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountPrefs } from "./shell.js";
@@ -31,7 +19,6 @@ const view = {
   sequence: 0,
   outage: null,
   release: { state: "pending" },
-  reads: { incidents: { state: "pending" }, work: { state: "pending" }, needs_joe: { state: "pending" }, census: { state: "pending" } },
   snapshot: null,
   assuranceScope: null,
   assurance: null,
@@ -50,13 +37,12 @@ function storage() {
   }
 }
 
-const settledReads = () => Object.fromEntries(Object.entries(view.reads).filter(([, read]) => read.state !== "pending"));
 
 /* -------------------------------------------------------------------- painting */
 
 function renderHeadline() {
   const release = view.release.state === "pending" ? { state: "pending" } : view.release;
-  const model = statusHeadline({ release, reads: settledReads(), snapshot: view.snapshot });
+  const model = statusHeadline({ release, snapshot: view.snapshot });
   $("statusHeadline").textContent = model.headline;
   $("statusAction").textContent = model.action;
   $("statusOrb").setAttribute("data-state", model.scenario === 1 ? "healthy" : model.scenario === 2 ? "attention" : "urgent");
@@ -64,18 +50,9 @@ function renderHeadline() {
   return model;
 }
 
-function renderChips(model) {
-  const strip = $("statusChips");
-  // Scenario 4 has nothing to state per read, so every chip says the same true
-  // thing rather than implying a read was taken and came back empty.
-  const chips = model.scenario === 4
-    ? [APP_READ_ID, ...READS].map((id) => ({
-      id, state: "unknown", text: `${id === APP_READ_ID ? "app" : READ_LABEL[id]}: ${model.emptyChipText}`,
-    }))
-    : statusChips({ release: view.release, reads: settledReads() });
-  strip.innerHTML = `<span class="chip-label">Last updated</span>${chips
-    .map((chip) => `<span class="chip" data-state="${escapeHtml(chip.state)}">${escapeHtml(chip.text)}</span>`)
-    .join("")}`;
+function renderChips() {
+  const chip = appChip(view.release);
+  $("statusChips").innerHTML = `<span class="chip" data-state="${chip.state}">${escapeHtml(chip.text)}</span>`;
 }
 
 /** C21: a timestamped last-known picture, every chip dimmed and captioned. */
@@ -91,7 +68,7 @@ function renderLastKnown(model) {
   $("lastKnownAsOf").textContent = model.lastKnownAsOf;
   $("lastKnownChips").innerHTML = (view.snapshot?.reads || []).map((row) => {
     const clock = row.state === "read" ? formatClock(row.observed_at) : null;
-    const name = row.id === APP_READ_ID ? "app" : (READ_LABEL[row.id] || row.id);
+    const name = row.id === APP_READ_ID ? "app" : row.id;
     const text = clock ? `${name}: updated ${clock}` : `${name}: unknown (${row.reason || REFUSAL_SENTENCE})`;
     return `<span class="chip" data-state="${escapeHtml(row.coverage_word === "read" ? "read" : "unknown")}" data-current="no">${escapeHtml(text)} · not current</span>`;
   }).join("");
@@ -114,7 +91,7 @@ function renderStatic() {
 
 function render() {
   const model = renderHeadline();
-  renderChips(model);
+  renderChips();
   renderLastKnown(model);
   renderIdentity();
   renderAssurance();
@@ -178,23 +155,6 @@ function readSelectedScope() {
 
 /* --------------------------------------------------------------------- reading */
 
-/** One read, settled on its own. The server's words never survive this guard. */
-async function take(id, run) {
-  const sequence = view.sequence;
-  const isRelease = id === APP_READ_ID;
-  try {
-    const payload = await run();
-    if (!acceptsResponse(view.sequence, sequence)) return;
-    const settled = { state: "read", payload, observed_at: new Date().toISOString() };
-    if (isRelease) view.release = settled; else view.reads[id] = settled;
-  } catch {
-    if (!acceptsResponse(view.sequence, sequence)) return;
-    const settled = { state: "unknown", reason: REFUSAL_SENTENCE };
-    if (isRelease) view.release = settled; else view.reads[id] = settled;
-  }
-  render();
-}
-
 async function appRelease() {
   // In fixture mode the switch rides along as a query param, because the
   // fixture server answers /app-release and this page's own client cannot.
@@ -204,30 +164,20 @@ async function appRelease() {
   return response.json();
 }
 
-async function census() {
-  if (view.outage === "census" || view.outage === "all") throw new Error("census outage requested by the fixture switch");
-  const response = await fetchRead(`${WORK_INVENTORY_ENDPOINT}?kinds=work_request`, { headers: { accept: "application/json" }, cache: "no-store" });
-  if (!response.ok) throw new Error(`census -> ${response.status}`);
-  return response.json();
-}
-
 async function load({ quiet = false } = {}) {
-  view.sequence += 1;
-  if (!quiet) {
-    view.release = { state: "pending" };
-    for (const id of Object.keys(view.reads)) view.reads[id] = { state: "pending" };
-  }
+  const sequence = ++view.sequence;
+  if (!quiet) view.release = { state: "pending" };
   render();
-  await Promise.all([
-    take(APP_READ_ID, () => appRelease()),
-    take("incidents", () => client.incidentBoard({ state: "open" })),
-    take("work", () => client.currentWorkItem()),
-    take("needs_joe", () => client.currentWorkRequests()),
-    take("census", () => census()),
-    takeAssurance({ quiet }),
-  ]);
+  const assurance = takeAssurance({ quiet });
+  const [result] = await Promise.allSettled([appRelease()]);
+  if (view.sequence !== sequence) return;
+  view.release = result.status === "fulfilled"
+    ? { state: "read", payload: result.value, observed_at: new Date().toISOString() }
+    : { state: "unknown", reason: REFUSAL_SENTENCE };
   render();
-  writeSnapshot(storage(), snapshotFromReads({ [APP_READ_ID]: view.release, ...view.reads }, Date.now()));
+  if (view.release.state === "read")
+    writeSnapshot(storage(), snapshotFromReads({ [APP_READ_ID]: view.release }, Date.now()));
+  await assurance;
 }
 
 /* ------------------------------------------------------------------------ boot */
@@ -235,7 +185,7 @@ async function load({ quiet = false } = {}) {
 /** `?outage=all` refuses everything at once; the named values refuse one read. */
 function allDownClient() {
   const refuse = () => { throw new Error("fixture outage: every read is unreachable"); };
-  return { readAssuranceHealth: refuse, incidentBoard: refuse, currentWorkItem: refuse, currentWorkRequests: refuse };
+  return { readAssuranceHealth: refuse };
 }
 
 async function boot() {

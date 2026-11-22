@@ -34,7 +34,7 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
           return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
         }
         if (url.pathname.startsWith('/api/') || url.pathname === '/app-release') return route.fulfill({ json: {} });
-        const file = { '/deals': 'pipeline.html', '/relationships': 'relationships.html', '/control-room/progress/board/density-demo': 'progress-board.html' }[url.pathname] || url.pathname.slice(1);
+        const file = { '/deals': 'pipeline.html', '/relationships': 'relationships.html' }[url.pathname] || url.pathname.slice(1);
         try {
           let body = await readFile(new URL(file, root));
           return route.fulfill({ body, contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.json') ? 'application/json' : 'text/html' });
@@ -92,66 +92,6 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
       }
     });
 
-    test('Progress keeps all five work views visible and reachable without horizontal scrolling', async ({ page }) => {
-      const populated = structuredClone(board);
-      Object.assign(populated.snapshot.snapshot_json.tasks, {
-        build: { title: 'Build the synthetic export', status: 'running', updated_at: at },
-        completed: { title: 'Use the synthetic export', status: 'done' },
-        ...Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`queue-${i}`, {
-          title: `Synthetic queued outcome ${i}`, status: 'queued',
-        }])),
-      });
-      await page.route('**/mcp', async route => {
-        if (route.request().postDataJSON().params.name !== 'read-progress-board') return route.fallback();
-        return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, ...populated }) }] } } });
-      });
-      await page.goto('http://localhost/control-room/progress/board/density-demo?mode=live');
-      const menu = page.getByRole('navigation', { name: 'Work views', exact: true });
-      const options = menu.getByRole('button');
-      await expect(options).toHaveCount(5);
-      for (const label of ['Active', 'Completed', 'Needs a hand', 'Queue', 'History']) {
-        const geometry = await options.evaluateAll(nodes => nodes.map(node => {
-          const rect = node.getBoundingClientRect();
-          const menu = node.parentElement.getBoundingClientRect();
-          return { label: node.textContent, inside: rect.left >= Math.max(0, menu.left)
-            && rect.right <= Math.min(innerWidth, menu.right) && rect.top >= 0 && rect.bottom <= innerHeight };
-        }));
-        expect(geometry.every(option => option.inside), JSON.stringify(geometry)).toBe(true);
-        expect(await menu.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth
-          && document.body.scrollWidth <= innerWidth)).toBe(true);
-        const option = options.filter({ hasText: new RegExp(`^${label} ·`) });
-        await option.click();
-        await expect(option).toHaveAttribute('aria-pressed', 'true');
-        await expect(page.locator('#board-stages .board-card').first()).toBeVisible();
-        await capture(page, `progress-view-${label.toLowerCase().replaceAll(' ', '-')}`);
-        const publication = page.locator('#board-publication');
-        await expect(publication).toBeVisible();
-        await expect(publication).toContainText('Snapshot generation 1');
-        await expect(publication).toContainText('Source revision not supplied');
-        await expect(publication.locator('time')).toHaveAttribute('datetime', at);
-        await publication.evaluate(node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
-        expect(await publication.evaluate(node => {
-          const rect = node.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
-        })).toBe(true);
-        await capture(page, `progress-publication-${label.toLowerCase().replaceAll(' ', '-')}`);
-        await menu.evaluate(node => node.scrollIntoView({ block: 'start', behavior: 'instant' }));
-      }
-    });
 
-    test('Progress puts populated stages first and explains an empty filter', async ({ page }) => {
-      await page.goto('http://localhost/control-room/progress/board/density-demo?mode=live');
-      await expect(page.locator('#board-stages .board-card')).toBeVisible();
-      await expect(page.locator('#directory-error')).toBeHidden();
-      await page.getByRole('button', { name: 'Needs a hand · 1', exact: true }).click();
-      await expect(page.locator('#board-stages .board-card')).toBeVisible();
-      await capture(page, 'progress-board');
-      await expect(page.locator('#board-stages .column').first()).toHaveAttribute('data-stage', 'review');
-      await expect(page.locator('#board-stages .column-empty')).toHaveCount(0);
-      if (width === 390) expect((await page.locator('#board-stages .board-card').boundingBox()).y).toBeLessThan(650);
-      await page.locator('#filter-stage').selectOption('queued');
-      await expect(page.locator('#board-stages')).toContainText('No tasks match these filters.');
-    });
   });
 }

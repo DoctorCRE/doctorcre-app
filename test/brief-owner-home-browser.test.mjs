@@ -24,22 +24,26 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     const browser = await chromium.launch();
     t.after(() => browser.close());
     const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+    await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
+      ok: true, schema_version: 'home-today.v1', today: '2026-10-01', viewer: 'joe',
+      partners: [{ slug: 'joe', name: 'Joe' }, { slug: 'dell', name: 'Dell' }],
+      meetings: { state: 'empty', items: [] },
+      reminders: { state: 'empty', late: [], upcoming: [] },
+    } }));
     await page.goto(server.origin + '/leads');
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
-    if (width === 390) await page.getByRole('button', { name: /account and settings/i }).click();
-    await page.getByRole('button', { name: 'Open morning brief options', exact: true }).click();
-    await page.getByRole('button', { name: /^Morning brief/ }).click();
-    await page.locator('#morningOwners .chip').first().waitFor();
+    if (width === 390) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
     await animationsSettled(page);
-    const targets = await page.locator('#morningOwners .chip').evaluateAll(nodes => nodes.map(node => {
+    const chips = page.locator('#appTodayOwners .chip');
+    await chips.first().waitFor();
+    const targets = await chips.evaluateAll(nodes => nodes.map(node => {
       const { width, height } = node.getBoundingClientRect();
-      return { surface: 'Morning brief', label: node.textContent, width, height };
+      return { label: node.textContent, width, height };
     }));
-    t.diagnostic(JSON.stringify(targets));
     assert.equal(targets.length, 3);
     for (const target of targets) assert.ok(target.width >= 44 && target.height >= 44,
-      `${target.surface} ${target.label}: ${target.width}x${target.height}`);
-    assert.equal(await page.locator('#morningOwners .chip').first().evaluate(node =>
+      `${target.label}: ${target.width}x${target.height}`);
+    assert.equal(await chips.first().evaluate(node =>
       getComputedStyle(node).borderRadius === getComputedStyle(document.documentElement).getPropertyValue('--radius-round').trim()), true);
   });
 }

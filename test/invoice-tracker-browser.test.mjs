@@ -61,9 +61,7 @@ test('phone invoice keeps its title and actions in view while details scroll', a
   const deal = page.getByRole('link', { name: 'Open deal', exact: true });
   assert.equal(await heading.getByRole('link', { name: 'Open deal', exact: true }).count(), 1);
   assert.equal(await deal.getAttribute('href'), '/deals?deal=demo-invoice-deal-4');
-  const doc = heading.getByRole('button', { name: 'Open morning brief options', exact: true });
   const close = heading.getByRole('button', { name: 'Close invoice', exact: true });
-  await doc.waitFor({ state: 'visible' });
   await page.locator('#invoiceOriginal summary').click();
   const before = await heading.boundingBox();
   const scrolled = await page.locator('.invoice-detail-body').evaluate(body => {
@@ -72,9 +70,6 @@ test('phone invoice keeps its title and actions in view while details scroll', a
   });
   assert.ok(scrolled > 0);
   assert.deepEqual(await heading.boundingBox(), before);
-  await doc.click();
-  await page.locator('#docDetail[open]').waitFor();
-  await page.getByRole('button', { name: 'Close morning brief options', exact: true }).click();
   await close.click();
   assert.equal(await row.evaluate(node => node === document.activeElement), true);
 });
@@ -230,10 +225,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.match(await page.locator('#invoiceOriginalFacts').innerText(), /Owner\s+Dell/);
     assert.doesNotMatch(await page.locator('#invoiceOriginalFacts').innerText(), /Due|Paid|Commission|—/);
     const drawer = page.getByRole('dialog');
-    const doc = drawer.getByRole('button', { name: 'Open morning brief options' });
     const close = drawer.getByRole('button', { name: 'Close invoice' });
     const openDeal = drawer.getByRole('link', { name: 'Open deal', exact: true });
-    await doc.waitFor();
     assert.equal(await drawer.getByRole('button', { name: 'Mark paid' }).isVisible(), false);
     await page.screenshot({ path: new URL(`missing-amount-${width}-${theme}.png`, evidence).pathname });
     await page.setViewportSize({ width, height: 360 });
@@ -247,15 +240,13 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await page.screenshot({ path: new URL(`scrolled-${width}-${theme}.png`, evidence).pathname });
 
     const label = await heading.getByText('Commission', { exact: true }).boundingBox();
-    for (const control of [openDeal, doc, close]) {
+    for (const control of [openDeal, close]) {
       const box = await control.boundingBox();
       assert.ok(box.x >= label.x + label.width, 'header actions stay beside the label');
       assert.ok(box.x + box.width <= panel.x + panel.width, 'header actions fit inside the drawer');
       assert.ok(box.y >= header.y && box.y + box.height <= header.y + header.height,
         'header actions stay within the visible header while scrolling');
     }
-    await page.keyboard.press('Shift+Tab');
-    assert.ok(await doc.evaluate(button => button === document.activeElement));
     await page.keyboard.press('Shift+Tab');
     assert.ok(await openDeal.evaluate(link => link === document.activeElement));
     assert.deepEqual(h.errors, []);

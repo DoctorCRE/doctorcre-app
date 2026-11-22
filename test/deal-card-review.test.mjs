@@ -213,7 +213,6 @@ test('an open snapshot removes board controls when a refresh records closure',as
 
 test('phone deal title stays clear of Doc through the full timeline scroll',async t=>{
  const {page}=await open(t,390,{height:844});
- await page.locator('#recordPanel #docPresence').waitFor();
  await animationsSettled(page);
  const maxScroll=await page.evaluate(()=>document.documentElement.scrollHeight-innerHeight);
  assert.ok(maxScroll>0,'fixture exercises a scrolling snapshot');
@@ -296,8 +295,6 @@ test('deal card cleanup shows dates and one summary at 390/1280 in dark/light',a
   assert.equal(await page.locator('#recordPanel').evaluate(n=>n.scrollWidth<=n.clientWidth),true);
   await page.screenshot({path:new URL(`${width}-${theme}.png`,dir).pathname,animations:'disabled'});
   await page.locator('.updates-history > summary').scrollIntoViewIfNeeded();
-  const title=await page.locator('#panelTitle').boundingBox(),doc=await page.locator('#recordPanel #docPresence').boundingBox();
-  assert.ok(title.y>=doc.y+doc.height || title.x>=doc.x+doc.width,'the scrolled title clears Doc');
   await page.screenshot({path:new URL(`${width}-${theme}-summary.png`,dir).pathname,animations:'disabled'});
   await page.locator('.updates-history > summary').click();
   assert.equal(await page.locator('.deal-note:visible').count()>1,true);

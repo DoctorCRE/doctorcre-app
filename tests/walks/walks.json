@@ -581,42 +581,6 @@
     "skip_reason": "Historical client fit consumes the full production cohort. Needs a designated test cohort with independently recorded win IDs."
   },
   {
-    "number": 49,
-    "title": "cr U2 action vocabulary",
-    "work_request": "unit:cr-U2-action-vocabulary",
-    "steps": "Open Control Room work details for an existing test request. Verify every displayed action names the registered operation and its current state, and no unavailable operation appears actionable. Do not execute jobs.",
-    "prs": [
-      "https://github.com/DoctorCRE/carr-system/pull/2921"
-    ],
-    "spec": "49-unit-cr-U2-action-vocabulary.spec.ts",
-    "coverage": "skipped-by-design",
-    "skip_reason": "Needs designated test Control Room request and current registered operation receipt; visible labels alone are insufficient."
-  },
-  {
-    "number": 50,
-    "title": "cr U4 diagnostic questions",
-    "work_request": "unit:cr-U4-diagnostic-questions",
-    "steps": "Open an existing blocked Control Room request by ID. Verify diagnostic questions identify the concrete failed check and required evidence, and distinguish unknown evidence from a proven failure. Do not restart a job.",
-    "prs": [
-      "https://github.com/DoctorCRE/carr-system/pull/2928"
-    ],
-    "spec": "50-unit-cr-U4-diagnostic-questions.spec.ts",
-    "coverage": "skipped-by-design",
-    "skip_reason": "Needs designated blocked test request with failed-check and evidence receipts."
-  },
-  {
-    "number": 51,
-    "title": "cr U6 chronology",
-    "work_request": "unit:cr-U6-chronology",
-    "steps": "Open an existing Control Room request timeline by ID. Verify event order and timestamps against its recorded job IDs and ensure failed and completed attempts retain distinct outcomes.",
-    "prs": [
-      "https://github.com/DoctorCRE/carr-system/pull/2915"
-    ],
-    "spec": "51-unit-cr-U6-chronology.spec.ts",
-    "coverage": "skipped-by-design",
-    "skip_reason": "Needs designated test request timeline with independent job-event timestamps and outcomes."
-  },
-  {
     "number": 52,
     "title": "qa fixture signout",
     "work_request": "unit:qa-fixture-signout",

@@ -24,14 +24,12 @@ async function setup(t,{width=1440,motion='no-preference',onRoute,engine=chromiu
   if(['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({json:{actor:{slug:'joe'},csrf_token:'synthetic-session'}});
   if(url.pathname==='/mcp'){
   const {name,arguments:args}=request.postDataJSON().params;calls.push({name,args});let value=name==='quiet-follow-ups'?emptyQuietFollowUps():{ok:true};
-   if(name==='read-doc-outcome-cards')return rpc(route,await fixture.docOutcomeCards(args));
-   const methods={'read-home-agenda':'getHomeAgenda','read-post-call-followups':'getPostCallFollowups','list-feature-switches':'listFeatureSwitches','deal-room-board':'getBoard','get-deal-room':'getDeal','deal-room-changes':'getChanges','list-doc-suggestions':'listDocSuggestions','decide-doc-suggestion':'decideDocSuggestion','list-doc-conversations':'listDocConversations','read-doc-conversation':'readDocConversation','loop-board':'loopBoard','read-loop':'readLoop','incident-board':'incidentBoard','current-work-item':'currentWorkItem','current-work-requests':'currentWorkRequests','notification-feed':'notificationFeed','list-industry-events':'listIndustryEvents','find':'find','find-and-catch-up':'findAndCatchUp'};
+   const methods={'read-home-agenda':'getHomeAgenda','read-post-call-followups':'getPostCallFollowups','deal-room-board':'getBoard','get-deal-room':'getDeal','deal-room-changes':'getChanges','list-doc-conversations':'listDocConversations','read-doc-conversation':'readDocConversation','notification-feed':'notificationFeed','find':'find','find-and-catch-up':'findAndCatchUp'};
    if(name==='lead-board') value={leads:[],stages:[],as_of:new Date().toISOString()};
    else if(name==='claim-card') value={claimable:0,candidates:[],needs_contact_count:0};
    else if(methods[name]) { value=await fixture[methods[name]](name==='get-deal-room'?args.deal||args.deal_id:name==='deal-room-changes'?args.cursor:args); if(name==='get-deal-room') value={...value.deal,deal_id:value.deal.id,thread:value.thread,critical_dates:value.critical_dates.map(row=>({...row,due_on:row.date})),next_actions:value.next_actions,activities:value.activities,events:[]}; }
    return route.fulfill({contentType:'application/json',body:JSON.stringify({result:{content:[{type:'text',text:JSON.stringify(value)}]}})});
   }
-  if(url.pathname==='/api/system-work/current')return route.fulfill({json:{ok:true,data:await fixture.currentWorkRequests()}});
   if(url.pathname.startsWith('/api/')) return route.fulfill({contentType:'application/json',body:'{}'});
   const file=contract.routes[url.pathname]||url.pathname.slice(1);
   try{return route.fulfill({body:await readFile(new URL(file,root)),contentType:/\.m?js$/.test(file)?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.json')?'application/json':'text/html'});}catch{return route.fulfill({status:404,body:''});}
@@ -60,18 +58,13 @@ async function producerRoute(route,{url,fixture}) {
   const {name,arguments:args}=route.request().postDataJSON().params;
   if(name==='quiet-follow-ups'){await rpc(route,emptyQuietFollowUps());return true;}
   if(name==='lead-board'){const board=workspace();await rpc(route,{...board,...(args.lead_id?{detail:detail(board.leads.find(row=>row.id===args.lead_id))}:{})});return true;}
-  if(name==='loop-board'){await rpc(route,{loops:[{number:1,label:'Sample idea',kind:'idea',owner:'sample',version:1}]});return true;}
-  if(name==='read-loop'){await rpc(route,{loop:{number:1,loop_id:'sample-idea',title:'Sample idea',kind:'idea',version:1}});return true;}
  }
  if(url.pathname.startsWith('/api/')){
   let data;
   if(url.pathname==='/api/tours/library')data={tours:[sampleTour]};
   if(url.pathname==='/api/tours/detail')data=sampleTour;
   if(url.pathname==='/api/v1/business/clients')data={rows:[],page:1,page_count:1};
-  if(url.pathname==='/api/system-work/current'){await route.fulfill({json:{ok:true,data:await fixture.currentWorkRequests()}});return true;}
   // The room answers after its cursor: a caught-up read returns no turns.
-  if(url.pathname==='/api/room/turns'){const caughtUp=Number(url.searchParams.get('after_seq'))>=1;await route.fulfill({json:{turns:caughtUp?[]:[{seq:1,msg_id:'sample-turn',body:'Sample turn',at:new Date().toISOString(),origin_actor:'joe',kind:'turn',seat:'human',sponsor:'joe'}],latest_seq:caughtUp?Number(url.searchParams.get('after_seq')):1,more:false,actor:{slug:'joe'},csrf_token:'synthetic'}});return true;}
-  if(url.pathname==='/api/room/queue'){await route.fulfill({json:{live:true,projected_at:new Date().toISOString(),events:[]}});return true;}
   if(data){await route.fulfill({json:{data,csrf_token:'synthetic'}});return true;}
  }
  return false;
@@ -94,17 +87,6 @@ for(const failure of [null,503,401])test(`R1/R2 Home healthy/partial/expired con
  assert.equal(after.ready,failure===null);if(failure===401)assert.equal(after.records.length,0);
  if(!failure)assert.ok(after.records.some(r=>r.kind==='deal'));
  assert.equal(after.records.some(r=>r.kind==='work'||r.kind==='incident'),false);
-});
-test('initial Queue read uses the mounted Wire filter scope and publishes its first response',async t=>{
- let release,started;const held=new Promise(r=>release=r),entered=new Promise(r=>started=r);t.after(()=>release());
- const {page,goto}=await setup(t,{onRoute:async(route,env)=>{
-  if(env.url.pathname==='/api/room/queue'){started();await held;await route.fulfill({json:queuePayload('running')});return true;}
-  return producerRoute(route,env);
- }});
- await goto('/control-room/progress/work');await entered;
- await page.waitForFunction(()=>window.docContext?.snapshot().records.some(r=>r.kind==='room-turn'));
- release();await page.waitForFunction(()=>document.querySelector('.queue-card-meta')?.textContent.includes('running'));
- const c=await readContext(page);assert.equal(c.ready,true);assert.ok(c.records.some(r=>r.kind==='room-task'));
 });
 test('versioned Leads details bind popup identity and native close clears it',async t=>{
  const {page,goto}=await setup(t,{onRoute:producerRoute});await goto('/leads?mode=live');
@@ -149,14 +131,6 @@ test('close readiness waits until queued context cleanup finishes',async t=>{
  await escapeRecord(page,'#leadDetail');
  assert.equal((await readContext(page)).selected,null);
 });
-test('R14/R15/R16 Ideas searches, Escape and tab return keep correctly scoped observations',async t=>{
- const {page,goto}=await setup(t,{onRoute:producerRoute});await page.goto('https://app.doctorcre.com/ideas-events',{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>document.querySelector('#ideaList')?.textContent.includes('Sample idea'));
- await page.locator('.idea-tile').first().click();await page.waitForFunction(()=>document.querySelector('#ideaDialogBody .idea-rows'));assert.equal((await readContext(page)).selected?.id,'sample-idea');
- await escapeRecord(page,'#ideaDialog');assert.equal((await readContext(page)).selected,null);
- const before=await readContext(page);await page.locator('#ideaSearch').fill('no match');await page.waitForFunction(()=>document.querySelectorAll('.idea-tile').length===0);
- const filtered=await readContext(page);assert.equal(filtered.records.length,0);assert.equal(filtered.filters.query,'no match');assert.equal(filtered.observedAt,before.observedAt);
- await page.locator('#tabEvents').click();await page.waitForFunction(()=>window.docContext?.snapshot().ready);await page.locator('#tabIdeas').click();await page.waitForFunction(()=>window.docContext?.snapshot().ready);assert.equal((await readContext(page)).ready,true);
-});
 test('R6/R14 Tour background failure clears eligibility; search constrains original observation',async t=>{
  let outage=false;const {page,goto}=await setup(t,{onRoute:async(route,env)=>{
   if(outage && env.url.pathname==='/api/tours/detail'){await route.fulfill({status:503,json:{}});return true;}return producerRoute(route,env);
@@ -173,33 +147,6 @@ for(const path of ['/api/tours/library','/api/tours/detail'])test(`R6 Tour autho
  }});await goto('/tours');await page.locator('.tour-button').first().click();await page.waitForFunction(()=>document.querySelector('#detail-title').textContent==='Sample Tour');
  denied=true;await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForFunction(()=>document.querySelector('#tour-library-state').textContent.includes('Sign in'));
  const c=await readContext(page);assert.equal(c.ready,false);assert.equal(c.records.length,0);
-});
-const queuePayload=(status='running',at=new Date().toISOString())=>({live:true,projected_at:new Date().toISOString(),events:[{task_id:'t_sample',summary:'Sample task',projected_at:new Date().toISOString(),card:{title:'Sample task',status,priority:'normal',target:'sol',updated_at:at}}]});
-test('R3 retained Taskboard card navigation opens its own recorded work scope',async t=>{
- const {page,goto}=await setup(t,{onRoute:async(route,env)=>{if(env.url.pathname==='/api/room/queue'){await route.fulfill({json:queuePayload()});return true;}return producerRoute(route,env);}});
- await goto('/control-room/progress/work');await page.locator('.queue-card').first().click();await page.waitForURL('**/control-room/progress/work?board=carr-v5&task=t_sample');
- assert.equal((await readContext(page)).filters.task,'t_sample');
-});
-for(const staleFailure of [false,true])test(`R4 superseded Queue ${staleFailure?'failure':'success'} cannot replace newer facts`,async t=>{
- let reads=0,release,started;const pending=new Promise(r=>release=r),entered=new Promise(r=>started=r);t.after(()=>release());
- const {page,goto}=await setup(t,{onRoute:async(route,env)=>{
-  if(env.url.pathname==='/api/room/queue'){
-   if(++reads===1){started();await pending;await route.fulfill(staleFailure?{status:503,json:{}}:{json:queuePayload('running','2026-10-01T10:00:00Z')});}
-   else await route.fulfill({json:queuePayload('done','2026-10-01T11:00:00Z')});return true;
-  }return producerRoute(route,env);
- }});await page.clock.install();await goto('/control-room/progress/work');await entered;
- // The cadence never overlaps a held read, so the newer read comes from a return to view.
- await page.evaluate(()=>{for(const state of ['hidden','visible']){Object.defineProperty(document,'visibilityState',{configurable:true,value:state});Object.defineProperty(document,'hidden',{configurable:true,value:state==='hidden'});document.dispatchEvent(new Event('visibilitychange'));}});
- await page.waitForFunction(()=>document.querySelector('.queue-card-meta')?.textContent.includes('done'));assert.equal(reads,2);release();await page.waitForTimeout(100);
- const c=await readContext(page);assert.equal(c.ready,true);assert.equal(c.records.find(r=>r.kind==='room-task')?.fields.find(f=>f.label==='Status').value,'done');
- assert.match(await page.locator('.queue-card-meta').textContent(),/done/);
-});
-test('R5 failed Wire read stays unavailable when filtering retained turns',async t=>{
- let denied=false;const {page,goto}=await setup(t,{onRoute:async(route,env)=>{
-  if(denied&&env.url.pathname==='/api/room/turns'){await route.fulfill({status:503,json:{}});return true;}return producerRoute(route,env);
- }});await page.clock.install();await goto('/control-room/progress/work');await page.waitForFunction(()=>document.querySelector('#wireFeed').textContent.includes('Sample turn'));
- assert.equal((await readContext(page)).ready,true);denied=true;await page.clock.fastForward(61_000);await page.waitForFunction(()=>document.querySelector('#roomBanner').textContent.includes('offline'));
- assert.equal((await readContext(page)).ready,false);await page.locator('#wireSearch').fill('Sample');assert.equal((await readContext(page)).ready,false);
 });
 for(const dataset of ['clients','vendors'])test(`R12/R13/R18 ${dataset} facts and unsorted activity use the real directory seam`,async t=>{
  const {page,goto}=await setup(t,{onRoute:async(route,{url})=>{
@@ -234,20 +181,6 @@ test('R14 Tour no-match projection changes scope and preserves the library obser
  const {page,goto}=await setup(t,{onRoute:producerRoute});await goto('/tours');await page.locator('.tour-button').first().waitFor();const before=await readContext(page);
  await page.locator('#tour-filter').fill('no match');await page.waitForFunction(()=>document.querySelectorAll('.tour-button').length===0);
  const after=await readContext(page);assert.equal(after.records.length,0);assert.equal(after.filters.query,'no match');assert.ok(after.epoch>before.epoch);assert.equal(after.observedAt,before.observedAt);assert.equal(after.ready,true);
-});
-test('R15/R16 browser Back restores the Ideas tab scope and pagehide clears selection',async t=>{
- const {page}=await setup(t,{onRoute:producerRoute});await page.goto('https://app.doctorcre.com/ideas-events');await page.locator('.idea-tile').first().waitFor();
- await page.locator('#tabEvents').click();await page.locator('#tabIdeas').click();await page.goBack();await page.waitForFunction(()=>document.querySelector('#tabEvents').getAttribute('aria-selected')==='true');
- assert.equal((await readContext(page)).page,'events');
- await page.locator('#tabIdeas').click();await page.locator('.idea-tile').first().click();await page.waitForFunction(()=>document.querySelector('#ideaDialogBody .idea-rows'));
- await page.evaluate(()=>window.dispatchEvent(new Event('pagehide')));assert.equal((await readContext(page)).selected,null);
-});
-for(const verb of ['loop-board','list-industry-events'])test(`R1/R16 Ideas tab cache cannot recover after ${verb} authorization loss`,async t=>{
- let denied=false,authLost=false;const {page}=await setup(t,{onRoute:async(route,env)=>{
-  if(env.url.pathname==='/mcp'&&(authLost||(denied&&route.request().postDataJSON().params.name===verb))){authLost=true;await route.fulfill({status:401,json:{}});return true;}return producerRoute(route,env);
- }});await page.goto('https://app.doctorcre.com/ideas-events');await page.locator('.idea-tile').first().waitFor();await page.locator('#tabEvents').click();await page.waitForFunction(()=>window.docContext?.snapshot().ready);await page.locator('#tabIdeas').click();
- denied=true;await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForURL('**/public-shell/session-ended.html');
- assert.equal(await page.locator('#tabEvents,#docPresence,.idea-tile').count(),0);
 });
 test('R11/R12 valid empty directory activity remains an authorized empty read',async t=>{
  const {page,goto}=await setup(t,{onRoute:async(route,{url})=>{
@@ -324,88 +257,6 @@ test('R18 a held Search response cannot publish under a later query scope',async
 
 // The dock can resend a retained suggestion request long after its card was
 // clicked. Both its retry and its reconcile must honour the switch.
-test('Dr. CRE suggestion dock retry and reconcile hold while the switch is off and resume when it returns',async t=>{
- let available=true,decision='unavailable',correction='refused';
- const writes=[];
- const {page,goto,calls,errors}=await setup(t,{onRoute:async(route,{url})=>{
-  if(url.pathname!=='/mcp')return false;
-  const {name,arguments:args}=route.request().postDataJSON().params;
-  if(name==='list-feature-switches'){await rpc(route,{ok:true,schema:'feature-switches.v1',switches:[{name:'doc-suggestion-actions',available}]});return true;}
-  if(name!=='decide-doc-suggestion'&&name!=='propose-doc-correction')return false;
-  writes.push({name,key:args.idempotency_key});
-  const outcome=name==='decide-doc-suggestion'?decision:correction;
-  if(outcome==='unavailable'){await route.fulfill({status:503,body:'synthetic outage'});return true;}
-  if(outcome==='refused'){await route.fulfill({contentType:'application/json',body:JSON.stringify({result:{isError:true,content:[{type:'text',text:JSON.stringify({error:'synthetic_refusal',hint:'Synthetic refusal.'})}]}})});return true;}
-  await rpc(route,{ok:true,suggestion_id:args.suggestion_id,version:(args.base_version||0)+1,choice:args.choice});return true;
- }});
- await goto('/doc-chats?mode=live');
- const card=page.locator('[data-suggestion]').first();
- await card.locator('[data-choice="discuss"]').waitFor({state:'visible'});
- const id=await card.getAttribute('data-suggestion');
- await card.locator('[data-choice="discuss"]').click();
- const decisionAction=page.locator(`#receiptDock button[data-event][data-op="doc-suggestion:${id}:decision"]`);
- await decisionAction.waitFor({state:'visible'});
- assert.equal(await decisionAction.getAttribute('data-event'),'reconcile');
- await card.locator('[data-correction]').fill('Synthetic narrower wording.');
- await card.locator('[data-propose]').click();
- const correctionAction=page.locator(`#receiptDock button[data-event][data-op="doc-suggestion:${id}:correction"]`);
- await correctionAction.waitFor({state:'visible'});
- assert.equal(await correctionAction.getAttribute('data-event'),'dispatch');
- assert.equal(writes.length,2);
-
- available=false;
- await page.evaluate(()=>window.dispatchEvent(new Event('online')));
- await card.locator('.suggestion-decisions').waitFor({state:'hidden'});
- await decisionAction.waitFor({state:'hidden'});
- await correctionAction.waitFor({state:'hidden'});
- // A tampered, re-revealed dock control still sends nothing while the switch is off.
- for(const action of [decisionAction,correctionAction]) await action.evaluate(node=>{node.hidden=false;node.click();});
- // So does a re-revealed card control: the gate sits on the one dispatch path, not on each button.
- await card.locator('.suggestion-decisions').evaluate(node=>{node.hidden=false;node.querySelector('[data-choice="dismiss"]').click();});
- await card.locator('.suggestion-correction').evaluate(node=>{node.hidden=false;node.querySelector('[data-propose]').click();});
- await page.waitForTimeout(300);
- assert.equal(writes.length,2);
- assert.equal(await page.locator('#receiptDock .receipt').count(),2,'the held requests stay in the dock');
-
- available=true;decision='ok';correction='ok';
- await page.evaluate(()=>window.dispatchEvent(new Event('online')));
- await decisionAction.waitFor({state:'visible'});
- await decisionAction.click();
- await settles(()=>assert.equal(writes.length,3));
- await correctionAction.click();
- await settles(()=>assert.equal(writes.length,4));
- assert.equal(writes.length,4);
- const [firstDecision,firstCorrection,reconciled,retried]=writes;
- assert.equal(reconciled.name,'decide-doc-suggestion');
- assert.equal(reconciled.key,firstDecision.key,'reconcile resends the retained request under its key');
- assert.equal(retried.name,'propose-doc-correction');
- assert.notEqual(retried.key,firstCorrection.key,'a settled refusal retries under a fresh key');
- assert.deepEqual(calls.filter(call=>!/^(list-|read-|get-|deal-room-|loop-board|incident-board|current-work-|notification-feed|morning-brief|find)/.test(call.name)).map(call=>call.name),[]);
- assert.deepEqual(errors,[]);
-});
-
-test('Dr. CRE suggestion page: a feature_disabled refusal re-reads the switch and hides the controls at once',async t=>{
- let available=true;const writes=[];
- const {page,goto,errors}=await setup(t,{onRoute:async(route,{url})=>{
-  if(url.pathname!=='/mcp')return false;
-  const {name,arguments:args}=route.request().postDataJSON().params;
-  if(name==='list-feature-switches'){await rpc(route,{ok:true,schema:'feature-switches.v1',switches:[{name:'doc-suggestion-actions',available}]});return true;}
-  if(name!=='decide-doc-suggestion')return false;
-  writes.push(args.idempotency_key);
-  await route.fulfill({contentType:'application/json',body:JSON.stringify({result:{isError:true,content:[{type:'text',text:JSON.stringify({error:'feature_disabled',switch:'doc-suggestion-actions',hint:'doc-suggestion-actions is switched off for you.'})}]}})});return true;
- }});
- // A paused clock stops every poll and backoff, so only the refusal can prompt the next read.
- await pausedClock(page,Date.parse('2026-10-12T15:00:00Z'));
- await goto('/doc-chats?mode=live');
- const card=page.locator('[data-suggestion]').first();
- await card.locator('[data-choice="discuss"]').waitFor({state:'visible'});
- available=false;
- await card.locator('[data-choice="discuss"]').click();
- await card.locator('.suggestion-decisions').waitFor({state:'hidden'});
- assert.equal(writes.length,1);
- assert.deepEqual(errors,[]);
-});
-
 for(const trigger of ['resume','identity-failure']) test(`F9 Leads ${trigger} clears Doc while identity is delayed and only fresh workspace restores it`,async t=>{
  let hold=false,release;const held=new Promise(resolve=>release=resolve);t.after(()=>release());
  const {page,goto,errors}=await setup(t,{onRoute:async(route,env)=>{

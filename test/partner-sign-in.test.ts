@@ -82,9 +82,7 @@ test("engine sign-in preserves deep links, gates redirects, and protects GET and
     ["/leads?lead=L-123", "/leads.html", 200],
     ["/business?q=Example", "/search?q=Example", 308],
     ["/inbox/card/synthetic?show=mail", "/inbox.html", 200],
-    ["/control-room/progress/board/carr-v5", "/progress-board.html", 200],
     ["/pipeline?filter=open", "/deals?view=board&filter=open", 308],
-    ["/progress-board.html?board=old", "/control-room/progress/board/carr-v5", 308],
     ["/deals?view=review&filter=open", "/deals?filter=open", 302],
   ];
   for (const [path, destination, expected] of pages) {
@@ -883,4 +881,153 @@ test("Ask Doc uses the engine page gate and forwards writes only to PartnerApp",
   const legacy = fixture(status, { PARTNER_SIGN_IN: "carr" });
   assert.equal((await legacy.send(ask, { method: "POST", headers: proofs })).status, 404);
   assert.equal(legacy.calls.engine.length + legacy.calls.partner.length, 0);
+});
+
+const cutoverSwitches = new Map([
+  ...[
+    "deals",
+    "leads",
+    "invoices",
+    "charts",
+    "national-deals",
+    "search",
+    "clients-vendors",
+    "relationships",
+    "frame",
+    "home",
+  ].map((screen) => [screen + "-from-engine", "on"] as const),
+  ["deals-saves-from-engine", "on"],
+  ["deal-cutover-date", "2026-11-20"],
+]);
+
+for (const mode of ["engine", "carr"]) {
+  const origin = mode === "engine" ? staging : production;
+  const signIn = {
+    APP_ENV: mode === "engine" ? "staging" : "production",
+    PARTNER_SIGN_IN: mode,
+    ENGINE_ROUTING: { get: async (name: string) => cutoverSwitches.get(name) },
+  };
+  const headers = { cookie: mode === "engine" ? cookie : "__Host-dealroom_session=synthetic" };
+
+  test(`${mode} sign-in sends retired app bookmarks to Home`, async () => {
+    const { send, calls } = fixture(status, {
+      ...signIn,
+      CARR: {
+        fetch: async (input: Request) =>
+          input.headers.has("cookie") ? new Response("Admitted by CARR") : Response.redirect(origin + "/auth/login"),
+      },
+    });
+    for (const path of [
+      "/work-requests?work_request=WR-000042",
+      "/system-work.html",
+      "/all-work",
+      "/work-inventory",
+      "/control-room?tab=model-room",
+      "/control-room/automations",
+      "/automations.html",
+      "/control-room/progress",
+      "/control-room/progress/board/example",
+      "/progress-board.html?board=example",
+      "/control-room/progress/work",
+      "/control-room/agents/queue",
+      "/agent-room",
+      "/room.html",
+      "/queue.html",
+      "/incidents",
+      "/ideas-events?tab=events",
+      "/ideas",
+      "/events",
+      "/doc-chats/work",
+      "/doc-activity",
+    ]) {
+      for (const method of ["GET", "HEAD"]) {
+        const response = await send(path, { method, headers }, origin);
+        assert.equal(response.status, 308, path);
+        assert.equal(new URL(response.headers.get("location") ?? "", origin).href, origin + "/", path);
+        assert.equal(response.body, null);
+        assert.equal(response.headers.get("cache-control"), "no-store", path);
+      }
+      const signedOut = await send(path, undefined, origin);
+      assert.equal(signedOut.status, 302, path);
+      assert.equal(new URL(signedOut.headers.get("location") ?? "").searchParams.get("return_to"), path);
+      assert.equal(signedOut.headers.get("cache-control"), "no-store", path);
+    }
+    assert.deepEqual(calls.assets, []);
+  });
+
+  test(`${mode} sign-in closes retired HTTP and MCP proxies`, async () => {
+    const { send, calls } = fixture(status, {
+      ...signIn,
+      CARR: {
+        fetch: async () => {
+          throw Error("Retired request reached CARR");
+        },
+      },
+    });
+    for (const path of [
+      "/api/room/latest",
+      "/api/room/turns",
+      "/api/room/turn",
+      "/api/room/queue",
+      "/api/v1/work-inventory",
+      "/api/v1/atlas-graph",
+      "/api/system-work/current",
+      "/api/system-work/WR-000042",
+      "/api/system-work/challenge",
+      "/api/system-work/report",
+      "/api/system-work/WR-000042/accept-ready-plan",
+    ]) {
+      assert.deepEqual(await (await send(path, { headers }, origin)).json(), { error: "not_found" }, path);
+    }
+    for (const name of [
+      "report-problem",
+      "answer-work-request-for-joe",
+      "answer-board-question",
+      "list-industry-events",
+      "list-feature-switches",
+      "list-doc-suggestions",
+      "submit-doc-request",
+    ]) {
+      for (const params of [
+        { name, arguments: {} },
+        { name: "call-verb", arguments: { verb: name, args: {} } },
+      ]) {
+        const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params });
+        const response = await send("/mcp", { method: "POST", headers, body }, origin);
+        assert.equal(response.status, 404, name);
+        assert.deepEqual(await response.json(), { error: "not_found" }, name);
+      }
+    }
+    assert.equal(calls.engine.length + calls.partner.length + calls.assets.length, 0);
+  });
+}
+
+test("Legacy Home fixture still forwards calendar dismissals through both MCP call forms", async () => {
+  const dismissal = {
+    board_id: "calendar-agenda",
+    question_id: "aaaaaaaaaaaaaaaa",
+    base_version: 1,
+    answer_text: "Dismiss",
+  };
+  const proxyCalls: unknown[] = [];
+  const { send } = fixture(null, {
+    APP_ENV: "fixture",
+    PARTNER_SIGN_IN: "carr",
+    CARR: {
+      fetch: async (input: Request) => {
+        proxyCalls.push((await input.json()).params);
+        return Response.json({ accepted: true });
+      },
+    },
+  });
+  const forms = [
+    { name: "answer-board-question", arguments: dismissal },
+    { name: "call-verb", arguments: { verb: "answer-board-question", args: JSON.stringify(dismissal) } },
+  ];
+  for (const params of forms) {
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params });
+    const response = await send("/mcp", { method: "POST", body }, production);
+    assert.equal(response.status, 200);
+  }
+  assert.deepEqual(proxyCalls, forms);
 });

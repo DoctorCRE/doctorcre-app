@@ -2,11 +2,6 @@ import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
 const pages = {
-  Ideas: { url: 'https://ideas.fixture.test/ideas-events', file: '/ideas.html', ready: async page => {
-    await expect(page.locator('#ideaStatusLabel')).toHaveText('Current');
-    await page.locator('#ideaSearch').fill('Synthetic search');
-    await expect(page.locator('#ideaSearch')).toHaveValue('Synthetic search');
-  } },
   'Home Charts': { url: 'https://ideas.fixture.test/?view=charts', file: '/charts.html', ready: async page => {
     await expect(page.locator('.chart-card').first()).toBeVisible();
   } },
@@ -23,7 +18,7 @@ for (const [name, spec] of Object.entries(pages)) for (const fonts of ['held', '
     }
     if (url.hostname === 'fonts.gstatic.com') return route.abort();
     if (url.origin !== 'https://ideas.fixture.test') return route.abort();
-    const path = url.pathname === '/ideas-events' || (url.pathname === '/' && url.searchParams.get('view') === 'charts') ? spec.file : url.pathname;
+    const path = (url.pathname === '/' && url.searchParams.get('view') === 'charts') ? spec.file : url.pathname;
     if (!/^\/(?:ideas\.html|charts\.html|manifest\.webmanifest|(?:css|js|public-shell|tours|data|contracts)\/[^?]*)$/.test(path) || path.includes('..')) return route.abort();
     const contentType = path.endsWith('.js') || path.endsWith('.mjs') ? 'text/javascript'
       : path.endsWith('.css') ? 'text/css' : path.endsWith('.json') ? 'application/json' : 'text/html';

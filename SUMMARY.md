@@ -28,22 +28,10 @@ fixture. Reviewed DoctorCRE production hosts boot the live adapter.
 |------|----------------|
 | `*.html` | DoctorCRE application surfaces |
 | `js/call-mode.js` | Deal Room Call Mode (decision 7dc47eea): records Joe and Dell's pipeline call through the loopback Quill companion only after a Start press with the consent box ticked, supplies the weekly deal context index to the companion (batched get-call-context, shaped to its contract, re-supplied to a session left `awaiting_context`), and shows the post-call review pack in which every deal update, task and Outlook draft waits for a partner to approve it. There is no send path |
-| `work-inventory.html` | V5-UX-C10 Complete Work Inventory at `/work-inventory`: every work record from all six canonical CARR sources, in every status, with each source's coverage stated |
-| `js/work-inventory-model.js` | Pure census rules: exact-key validation, grouping, coverage summary, query building, page merge |
-| `js/work-inventory.js` | Work Inventory DOM wiring over `GET /api/v1/work-inventory` |
 | `/tasks` and `/tasks.html` | Legacy routes that redirect to Home at `/`, served by `workspace.html`. Declared in `js/routes.js` |
-| `js/task-records-model.js` | Pure task rules: board-row validation, owner scoping, handover/close/due argument sets, the Quick add plan and the operation keys |
-| `js/task-records.js` | Tasks DOM wiring over the loop verbs, through the shared command kernel and dock |
 | `pipeline.html` | V5-UX-B03 Deals at `/pipeline`: the eight-phase Kanban, moved by drag or keyboard, with the completion dialog, the crossed-edits chooser and the record panel |
 | `js/pipeline-model.js` | Pure board rules: the eight columns and their one-to-one phase map, grouping, the move intent, the ordered completion plan and the keyboard target |
 | `js/pipeline.js` | Deals DOM wiring over `deal-room-board` and `patch-deal-field`, through the board coordinator, the field-write kernel and the command dock |
-| `control-room.html` | V5-UX-C01 Control Room at `/control-room`: the five operational questions — broken, running, stuck, needs Joe, changed — with a coverage line built only from the reads that answered, plus the grouped incident queue |
-| `js/control-room-model.js` | Pure Control Room rules: exact-key validation of `incident-board`, `current-work-item` and `current-work-requests`, the five tiles (never 0 for an unanswered read), the cadence-free stall facts, the coverage line and the named scope statements |
-| `js/control-room.js` | Control Room DOM wiring over those three reads, `governance-queue` and `GET /api/v1/work-inventory`, each read settled on its own so one outage makes only its own areas unknown |
-| `js/operations-model.js` | V5-UX-C14 Operations cards: exact-key validation of `governance-queue`, the approvals card (unknown never 0, production-effect approvals named as out of scope), the honest no-read schedule card, and the data-driven motion helpers (stagger, count-up, waiting clock, reduced-motion preference) |
-| `incidents.html` | V5-UX-C14 Incident at `/incidents?ref=INC-…`: one operational incident, its facts kept visibly apart from its hypotheses, and who can clear it |
-| `js/incidents-model.js` | Pure incident rules: the reference test, the detail payload's exact keys, facts and hypotheses as separate rows, the "Who can clear this" line and the one write's arguments |
-| `js/incidents.js` | Incident DOM wiring over `get-incident`, with `link-incident-work-request` sent through the shared command kernel and dock |
 | `notifications.html` | V5-UX-B12a/B12 Notifications at `/notifications`: the items addressed to you, the delivery state per channel including what quiet hours held, a real quiet-hours and device opt-in preference form under a compare-and-swap on `version`, and the accountable activity stream beside them |
 | `js/notifications-model.js` | Pure notification rules: the feed payload's exact keys, the two-value severity vocabulary, the delivery phrases, the deep-link route lookup, the eight UX20 states and the one write's arguments |
 | `js/notifications.js` | Notifications DOM wiring over `notification-feed` and `GET /pipeline/changes`, with `acknowledge-notification` sent through the shared command kernel and dock |
@@ -54,55 +42,20 @@ fixture. Reviewed DoctorCRE production hosts boot the live adapter.
 | `calendar.html` | V5-UX-B04 Calendar at `/calendar?view=month\|week&d=…&day=…`: every deal's critical dates by month or week, read only, with the approach pulse, the day panel, the upcoming agenda and the undated rows |
 | `js/calendar-model.js` | Pure calendar rules: YYYY-MM-DD arithmetic, the month grid and week strip, the URL state, the approach bands, the bounded board-then-each-deal read and its partial/undated/signed-out states |
 | `js/calendar.js` | Calendar DOM wiring over `deal-room-board` and `get-deal-room` (one per deal, at most four in flight) |
-| `ideas.html` | V5-UX-B04 Ideas at `/ideas?tab=ideas\|events&q=…&idea=…`: the open parked ideas (`loop` kind `idea`) with a read-only detail, and an Events tab that names the missing read |
-| `js/ideas-model.js` | Pure idea rules: the board arguments, row normalisation, search, the read-loop answer states, the detail rows and the URL state |
-| `js/ideas.js` | Ideas DOM wiring over `loop-board` and `read-loop` |
 | `js/record-activity-model.js` | V5-UX-B04 recent activity on a Vendors or Clients record: `find-and-catch-up` shown only when its one match is the record's own ref |
 | `status.html` | V5-UX-C15 Status at `/status`: the one page served ahead of the CARR sign-in gate, so an app outage and a record-layer outage can be told apart without signing in |
 | `js/status-model.js` | Pure status rules: the four headline scenarios, the sanitized refusal sentence, the payload-free last-known snapshot and the named integration gaps |
-| `js/status.js` | Status DOM wiring over `GET /app-release` and the four Control Room reads, each settled on its own |
+| `js/status.js` | Status DOM wiring over `GET /app-release` and scoped assurance health |
 | `js/shell.js` | The shell every surface shares: the three presentation icons (one storage key, legacy key migrated), the tab strip, and shared controls |
 | `css/` | Product presentation and responsive behavior; `css/system.css` defines the shared visual system |
 | `src/ui/doc-chat.tsx` | Ask Doc conversations and turns, opened from the shared top bar |
-| `src/ui/` | Strict TypeScript React islands (decision d23358f1, V2-WORKSPACE). `scripts/ui-bundle.mjs` compiles narrow browser entries with shared React chunks into the artifact. Each caller imports its own island: `/ideas-events?ui=react` hosts the Ideas panel in a React node host on a fixture boot. The rest of the app stays static HTML and JavaScript modules |
+| `src/ui/` | Strict TypeScript React islands (decision d23358f1, V2-WORKSPACE). `scripts/ui-bundle.mjs` compiles narrow browser entries with shared React chunks into the artifact. Each caller imports its own island: `/invoices?ui=react` enables the zoomable workspace on a desktop fixture boot. The rest of the app stays static HTML and JavaScript modules |
 | `js/client.js` | Small client interface selected by the app |
 | `js/live-client.js` | Authenticated same-origin CARR adapter |
 | `js/fixture-client.js` | In-memory synthetic adapter |
 | `contracts/` | Pinned CARR consumer boundary and runtime contracts |
 | `data/board-seed.json` | Synthetic local/test fixture only |
 | `tours/` | DoctorCRE tour presentation |
-| `design*.html` | V5-UX-S01 review prototypes on synthetic data |
-
-### V5-UX-S01 information design, after Joe's 2026-09-16 review
-
-The register did not change: same dark cinematic ground, same glass, same
-palette, same light theme. What changed is how information is arranged.
-
-- Each prototype page is a tab strip (`role=tablist`), one screen per tab, with
-  popups instead of a long scroll. A "go to" link switches tabs or opens a
-  popup; a link to another surface opens in a new browser tab.
-- Tiles list their actual items. Every row is a button that opens that item's
-  popup, and an action item's popup carries a small form that answers it into
-  the receipt dock.
-- Doc is ONE floating round icon at the bottom right of every surface, clear of
-  the mobile navigation. It opens a nonmodal chat that names the page it is
-  reading, with a transcript, an input, Send, and a "Dictate with Quill"
-  microphone that toggles a visible listening state. The replies are canned and
-  marked "Prototype reply". There is no per-tile Ask Doc button.
-- Cards move by mouse drag with the drop target highlighted. The keyboard
-  equivalent is the same move on the focused card — Enter lifts, arrows choose,
-  Enter drops, Escape cancels — announced through an aria-live region. The Move
-  menu is retired.
-- Theme, density and motion are one icon each: filled is on, hollow is off.
-- Every clock time is 12-hour AM/PM. Every due date is a calendar date with an
-  `<input type="date">` picker and a typed-date fallback.
-- Motion runs about 1.5x slower and the spinner is gone: waiting is a circular
-  stroke that draws and fades over `--motion-ring`. The reduced-motion floor is
-  unchanged.
-- Titles carry their screens. No description paragraph sits under a heading.
-
-`test/visual-system.test.mjs` covers preferences, ordering, calendar formatting,
-command feedback and contrast arithmetic against CSS tokens.
 
 ## Boundary invariants
 

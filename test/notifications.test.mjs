@@ -25,12 +25,6 @@ import { classifyCommandOutcome } from "../js/command-feedback.mjs";
 import { createFixtureClient } from "../js/fixture-client.js";
 import { carrInterface } from "./carr-contract.mjs";
 
-test('board notifications retain encoded board identity and require the registered board route', () => {
-  const path = '/control-room/progress/board/demo%20project?task=build';
-  assert.equal(deepLinkView(path).href, path);
-  assert.equal(deepLinkView(path, ['/control-room/progress']).href, null);
-});
-
 const root = new URL("..", import.meta.url);
 const read = (file) => readFile(new URL(file, root), "utf8");
 const html = await read("notifications.html");
@@ -139,9 +133,9 @@ test("clause 5: an unroutable deep link is text plus a sentence, and a routable 
 
   // The day a route exists the anchor appears, and its href is byte-identical
   // to the payload value — no normalising, no trailing slash, no rewrite.
-  const routed = deepLinkView("/incidents");
+  const routed = deepLinkView("/deals");
   assert.equal(routed.routed, true);
-  assert.equal(routed.href, "/incidents");
+  assert.equal(routed.href, "/deals");
   assert.equal(routed.sentence, null);
   assert.equal(deepLinkView("/notifications").href, "/updates");
   assert.equal(deepLinkView(null).path, null);

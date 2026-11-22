@@ -1,27 +1,8 @@
-// V5-UX-C15 — what the independent status page says, decided without a DOM.
-//
-// This page exists for the one case the Control Room cannot cover: the Control
-// Room is a gated page, so a CARR outage takes it with it (CR-AC-26). /status
-// is served by the app's own Worker ahead of the gate, so it can still answer
-// when the record layer cannot.
-//
-// Three rules hold this file together:
-//
-//   1. The record layer's own error text NEVER reaches the page. A refusal is
-//      mapped to one fixed app sentence, because CARR's /health reason leaks a
-//      runbook path and the page must not leak operational detail (CR-AC-26).
-//   2. unknown is never a count and never a zero. A read that did not answer
-//      makes only its own chip unknown (CR-AC-02), and the others are untouched.
-//   3. The last-known snapshot carries no payload rows — no titles, no refs, no
-//      counts. It is a dimmed, timestamped picture of which reads answered
-//      (C21), never a value a tile may use.
-import { READS, READ_LABEL, coverageLine } from "./control-room-model.js";
 import { formatClock } from "./visual-system.js";
 
 /** The one sentence any refusal becomes, whatever the server said. */
 export const REFUSAL_SENTENCE = "Temporarily unavailable";
 
-/** The app's own read of itself, stated alongside the four record-layer reads. */
 export const APP_READ_ID = "app";
 const APP_READ_LABEL = "app";
 const APP_REFUSAL_SENTENCE = "the app did not answer";
@@ -46,30 +27,10 @@ export const PROVIDER_LINKS = Object.freeze([
   Object.freeze({ id: "github", label: "GitHub status", href: "https://www.githubstatus.com/" }),
 ]);
 
-const ACTION_RETRY = "Updates resume automatically";
 const ACTION_PROVIDERS = "Check the provider status pages below.";
 
 const answered = (read) => read?.state === "read";
 
-/**
- * Strip the server's words off every read before anything renders it. A read
- * that answered keeps its clock; a read that did not carries the app's own
- * fixed sentence and nothing the record layer wrote.
- */
-function sanitizeReads(reads) {
-  const source = reads && typeof reads === "object" ? reads : {};
-  const out = {};
-  for (const id of READS) {
-    const read = source[id];
-    if (!read) continue;
-    out[id] = answered(read)
-      ? { state: "read", observed_at: read.observed_at }
-      : { state: "unknown", reason: REFUSAL_SENTENCE };
-  }
-  return out;
-}
-
-/** The app's own chip, in the same shape `coverageLine` produces. */
 export function appChip(release) {
   const clock = answered(release) ? formatClock(release.observed_at) : null;
   if (clock) return { id: APP_READ_ID, name: APP_READ_LABEL, state: "read", text: `${APP_READ_LABEL}: updated ${clock}` };
@@ -77,63 +38,18 @@ export function appChip(release) {
   return { id: APP_READ_ID, name: APP_READ_LABEL, state: "unknown", reason, text: `${APP_READ_LABEL}: unknown (${reason})` };
 }
 
-/** The four record-layer chips plus the app chip, each stating its own clock. */
-export function statusChips({ release, reads }) {
-  return [appChip(release), ...coverageLine(sanitizeReads(reads))];
-}
-
-/**
- * Exactly four scenarios. Which one is true is decided by two facts only:
- * whether the app answered about itself, and whether every record-layer read
- * answered. A stored snapshot changes what scenario 3 can show; it never
- * changes whether the app is serving.
- *
- * @param {{release: object, reads: object, snapshot: object|null}} input
- */
-export function statusHeadline({ release, reads, snapshot = null } = {}) {
-  const clean = sanitizeReads(reads);
-  const attempted = READS.filter((id) => clean[id]);
-  const silent = READS.filter((id) => clean[id]?.state !== "read");
-
+export function statusHeadline({ release, snapshot = null }) {
   if (answered(release)) {
-    if (silent.length === 0) {
-      return {
-        scenario: 1,
-        headline: "DoctorCRE is available.",
-        action: "Nothing to do.",
-        silent: [],
-        lastKnown: false,
-      };
-    }
-    return {
-      scenario: 2,
-      headline: `Unavailable: ${silent.map((id) => READ_LABEL[id]).join(", ")}`,
-      action: ACTION_RETRY,
-      silent,
-      lastKnown: false,
-    };
+    return { scenario: 1, headline: "DoctorCRE is available.", action: "Nothing to do.", lastKnown: false };
   }
-
-  const savedAt = formatClock(snapshot?.saved_at) ? snapshot.saved_at : null;
-  if (savedAt) {
-    return {
-      scenario: 3,
-      headline: "The DoctorCRE app itself did not answer.",
-      action: ACTION_PROVIDERS,
-      silent: attempted,
-      lastKnown: true,
-      lastKnownTitle: "Last known",
-      lastKnownAsOf: `as of ${formatClock(savedAt)}`,
-      saved_at: savedAt,
-    };
-  }
+  const savedAt = snapshot?.saved_at;
   return {
-    scenario: 4,
+    scenario: savedAt ? 3 : 4,
     headline: "The DoctorCRE app itself did not answer.",
     action: ACTION_PROVIDERS,
-    silent: attempted,
-    lastKnown: false,
-    emptyChipText: "unknown (no answer and nothing stored on this device)",
+    lastKnown: Boolean(savedAt),
+    lastKnownTitle: "Last known",
+    lastKnownAsOf: savedAt ? `as of ${formatClock(savedAt)}` : null,
   };
 }
 
@@ -145,7 +61,7 @@ export function statusHeadline({ release, reads, snapshot = null } = {}) {
  */
 export function snapshotFromReads(reads, now) {
   const source = reads && typeof reads === "object" ? reads : {};
-  const ids = [APP_READ_ID, ...READS].filter((id) => source[id]);
+  const ids = source[APP_READ_ID] ? [APP_READ_ID] : [];
   return {
     schema: SNAPSHOT_SCHEMA,
     saved_at: new Date(now || Date.now()).toISOString(),
@@ -173,7 +89,7 @@ export function readSnapshot(storage) {
     if (typeof parsed.saved_at !== "string" || !formatClock(parsed.saved_at)) return null;
     if (!Array.isArray(parsed.reads)) return null;
     const reads = parsed.reads
-      .filter((row) => row && typeof row === "object" && typeof row.id === "string")
+      .filter((row) => row && typeof row === "object" && row.id === APP_READ_ID)
       .map((row) => Object.fromEntries(SNAPSHOT_READ_KEYS.map((key) => [key, row[key] ?? null])));
     return { schema: parsed.schema, saved_at: parsed.saved_at, reads };
   } catch {

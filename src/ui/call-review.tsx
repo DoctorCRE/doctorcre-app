@@ -1117,9 +1117,7 @@ export function mountCallReviewDialog(document: Document, options: Omit<Options,
   const node = document.createElement("div");
   const toolbar = document.createElement("header");
   toolbar.className = "call-review-toolbar";
-  const docSlot = document.createElement("div");
-  docSlot.setAttribute("data-doc-presence-slot", "");
-  toolbar.append(docSlot, close);
+  toolbar.append(close);
   dialog.append(toolbar, node);
   document.body.append(dialog);
   let guide: ReturnType<typeof mountCallReview> | undefined,

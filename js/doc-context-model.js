@@ -11,43 +11,28 @@ export const DOC_PAGES = Object.freeze({
   tours: { label: 'Tours', reads: ['tourLibrary', 'tourDetail', 'tourProperties'] },
   clients: { label: 'Clients', reads: ['businessList', 'businessRecord', 'businessActivity'] },
   vendors: { label: 'Vendors', reads: ['businessList', 'businessRecord', 'businessActivity'] },
-  calendar: { label: 'Calendar', reads: ['getBoard', 'getDeal', 'listIndustryEvents'] },
-  ideas: { label: 'Ideas', reads: ['loopBoard', 'readLoop'] },
-  events: { label: 'Events', reads: ['listIndustryEvents'] },
-  control: { label: 'Control Room', reads: ['currentWorkItem', 'currentWorkRequests', 'workRequestCard', 'incidentBoard'] },
-  progress: { label: 'Progress', reads: ['readProgressBoard'] },
-  work: { label: 'Work Requests', reads: ['currentWorkRequests', 'workRequestCard', 'systemCurrent', 'systemRecord', 'unfinishedWork'] },
-  inventory: { label: 'All Work', reads: ['unfinishedWork', 'workInventory'] },
-  incidents: { label: 'Incidents', reads: ['incidentBoard', 'getIncident'] },
-  room: { label: 'Agent Room', reads: ['roomQueue', 'roomTurns'] },
-  queue: { label: 'Agent Queue', reads: ['roomQueue'] },
+  calendar: { label: 'Calendar', reads: ['getBoard', 'getDeal'] },
   updates: { label: 'Updates', reads: ['notificationFeed'] },
-  chats: { label: 'Doc Chats', reads: ['listDocConversations', 'readDocConversation', 'docOutcomeCards'] },
-  tasks: { label: 'Work', reads: ['loopBoard', 'readLoop'] },
+  chats: { label: 'Ask Doc', reads: ['listDocConversations', 'readDocConversation'] },
   search: { label: 'Search', reads: ['find'] },
   charts: { label: 'Charts', reads: ['getBoard'] },
-  status: { label: 'Status', reads: ['readAssuranceHealth', 'incidentBoard', 'currentWorkItem'] },
-  design: { label: 'Design Lab', reads: [] },
+  status: { label: 'Status', reads: ['readAssuranceHealth'] },
+  page: { label: 'DoctorCRE', reads: [] },
 });
 
 const routes = { '/': 'home', '/review-workflows': 'home', '/workspace': 'home', '/workspace.html': 'home', '/business': 'home',
   '/deals': 'deals', '/index.html': 'deals', '/pipeline': 'deals', '/pipeline.html': 'deals',
   '/leads': 'leads', '/leads.html': 'leads', '/tours': 'tours', '/tours/index.html': 'tours', '/tours/route-editor.html':'tours',
   '/clients': 'clients', '/vendors': 'vendors', '/business.html': 'clients',
-  '/calendar': 'calendar', '/calendar.html': 'calendar', '/ideas-events': 'ideas', '/ideas.html': 'ideas',
-  '/control-room': 'control', '/control-room.html': 'control',
-  '/control-room/progress/work':'room', '/progress-work.html':'room', '/control-room/progress': 'progress', '/progress-board.html': 'progress',
-  '/work-requests': 'work', '/system-work.html': 'work', '/all-work': 'inventory', '/work-inventory.html': 'inventory',
-  '/incidents': 'incidents', '/incidents.html': 'incidents', '/agent-room': 'room', '/room.html': 'room',
-  '/control-room/agents/queue': 'queue', '/queue.html': 'queue', '/updates': 'updates', '/notifications.html': 'updates',
-  '/doc-chats': 'chats', '/conversations.html': 'chats', '/doc-chats/work': 'tasks', '/tasks.html': 'tasks',
+  '/calendar': 'calendar', '/calendar.html': 'calendar',
+  '/doc-chats': 'chats', '/doc-chats.html': 'chats', '/conversations.html': 'chats',
+  '/updates': 'updates', '/notifications.html': 'updates',
   '/search': 'search', '/search.html': 'search', '/charts.html': 'charts', '/status': 'status', '/status.html': 'status',
-  '/design-lab': 'design', '/design.html': 'design', '/design-business.html': 'design', '/design-operations.html': 'design',
 };
 export function docPage(location = {}) {
-  const page = routes[location.pathname] || 'design';
+  const page = routes[location.pathname] || 'page';
   if(page === 'home' && new URLSearchParams(location.search).get('view') === 'charts') return 'charts';
-  return page === 'ideas' && new URLSearchParams(location.search).get('tab') === 'events' ? 'events' : page;
+  return page;
 }
 
 function record(kind, row, id, title, fields, activity = []) {
@@ -62,15 +47,6 @@ const deal = (row = {}) => record('deal', row, row.id, row.name, [field('Owner',
   field('Next step', row.next_step), field('Due', row.next_date), field('Needs attention', row.attention)]);
 const lead = (row = {}) => record('lead', row, row.id, row.doctor_name || row.practice_name || row.entity_name || row.name,
   [field('Owner', row.owner), field('Stage', row.stage), field('Score', row.score), field('Next step', row.next_action), field('Market', row.city || row.market)]);
-const work = (row = {}) => record('work', row, row.human_ref || row.id, row.title || row.requested_outcome,
-  [field('Owner', row.owner), field('Status', row.state || row.status || row.controlled_phase),
-    field('Next step', row.next_human_action || row.next_action), field('Due', row.due_on)]);
-const loop = (row = {}) => record('loop', row, row.loop_id || row.number, row.title || row.label,
-  [field('Owner', row.owner), field('Status', row.status), field('Due', row.due_on), field('Next step', row.blocker_detail), field('Number', row.number)]);
-const incident = (row = {}) => record('incident', row, row.ref, row.title,
-  [field('Owner', row.owner_actor), field('Status', row.state), field('Priority', row.severity), field('Next step', row.next_action)]);
-const event = row => record('event', row, row.id, row.name || row.title,
-  [field('Date', row.starts_at || row.start_date || row.starts_on), field('Location', row.location || row.city), field('Status', row.status)]);
 const conversation = (row = {}) => record('conversation', row, row.id, row.title,
   [field('Visibility', row.visibility), field('Last activity', row.latest_turn_at), field('Status', row.archived_at ? 'Archived' : 'Open')]);
 
@@ -101,23 +77,6 @@ export function normalizeDocRead(method, payload, args = []) {
       sortActivity(row);
       return [row];
     }
-    case 'loopBoard': rows = payload.loops; map = loop; break;
-    case 'readLoop':
-      if (!payload.loop || (args[0]?.kind && payload.loop.kind !== args[0].kind) || (args[0]?.loop_id && payload.loop.loop_id !== args[0].loop_id) || (args[0]?.number && String(payload.loop.number) !== String(args[0].number))) return null;
-      rows = [payload.loop]; map = loop; break;
-    case 'listIndustryEvents': rows = payload.events; map = event; break;
-    case 'currentWorkItem': rows = payload.current; map = work; break;
-    case 'currentWorkRequests': rows = payload.items; map = work; break;
-    case 'workRequestCard': case 'systemRecord': {
-      const row = payload.card || payload;
-      const expected = typeof args[0] === 'string' ? args[0] : args[0]?.human_ref;
-      if(expected && (row.human_ref || row.id) !== expected) return null;
-      rows = [row]; map = work; break;
-    }
-    case 'systemCurrent': rows = payload.items || payload.current; map = work; break;
-    case 'unfinishedWork': case 'workInventory': rows = payload.items; map = row => record(row.kind || 'work', row, row.id, row.title, [field('Status', row.status), field('Due', row.due_on)]); break;
-    case 'incidentBoard': rows = payload.incidents; map = incident; break;
-    case 'getIncident': if (args[0]?.ref && payload.incident?.ref !== args[0].ref) return null; rows = payload.incident ? [payload.incident] : null; map = incident; break;
     case 'notificationFeed': rows = payload.notifications; map = row => record('notification', row, row.id, row.reason,
       [field('Priority', row.severity), field('Date', row.created_at), field('Status', row.read_at ? 'Seen' : 'Unseen')]); break;
     case 'listDocConversations': rows = payload.conversations; map = conversation; break;
@@ -129,17 +88,6 @@ export function normalizeDocRead(method, payload, args = []) {
       row.activity = (payload.turns || []).map(item => ({ text: item.body, at: item.at || item.created_at })).filter(item => text(item.text));
       sortActivity(row);
       return [row];
-    }
-    case 'docOutcomeCards': rows = payload.cards; map = row => work({ ...row, id: row.card_id }); break;
-    case 'roomQueue': rows = payload.events; map = row => record('room-task', { ...row.card, revision:row.card?.updated_at }, row.task_id, row.card?.title,
-      [field('Status', row.card?.status), field('Priority', row.card?.priority)], [{ text: row.summary, at: row.projected_at }]); break;
-    case 'roomTurns': rows = payload.turns; map = row => record('room-turn', row, row.msg_id || row.seq, row.body || row.text,
-      [field('Date', row.at), field('Owner', row.origin_actor || row.seat)]); break;
-    case 'readProgressBoard': {
-      const tasks = payload.snapshot?.snapshot_json?.tasks;
-      rows = tasks && typeof tasks === 'object' && !Array.isArray(tasks) ? Object.entries(tasks).map(([id, row]) => ({ ...row, id, version: payload.snapshot.version })) : null;
-      map = row => record('task', row, row.id || row.task_id, row.title,
-      [field('Owner', row.owner), field('Status', row.status || row.stage), field('Next step', row.next_action)]); break;
     }
     case 'businessList': rows = payload.rows; map = row => record(args[0]?.dataset || 'party', row, row.id, row.name,
       [field('Owner', row.owner_label), field('Status', args[0]?.dataset === 'vendors' ? row.recorded_stage_label || row.recorded_stage : row.recorded_status_label || row.recorded_status), field('Market', row.city)]); break;

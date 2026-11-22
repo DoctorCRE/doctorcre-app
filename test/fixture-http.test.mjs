@@ -269,8 +269,8 @@ test('demo profile preserves outage controls without replacing the Worker asset 
   const outage = await fetch(fixture.origin + '/app-release?outage=release');
   assert.equal(outage.status,503);
   assert.equal(outage.headers.get('cache-control'),'no-store');
-  assert.equal((await fetch(fixture.origin + '/api/v1/work-inventory')).status,200);
-  assert.equal((await fetch(fixture.origin + '/api/v1/atlas-graph')).status,200);
+  assert.equal((await fetch(fixture.origin + '/api/v1/work-inventory')).status,404);
+  assert.equal((await fetch(fixture.origin + '/api/v1/atlas-graph')).status,404);
 });
 
 test('Worker admits encoded identifiers only through declared application routes', async t => {

@@ -21,25 +21,16 @@ async function open(t, width) {
 }
 
 for (const width of [390, 1440]) {
-  for (const kind of ['job', 'relationship']) {
-    test(`${kind} preserves a reopened selection through native close, then truly closes at ${width}px`, async t => {
+    test(`Relationship preserves a reopened selection through native close, then truly closes at ${width}px`, async t => {
       const page = await open(t, width);
-      const result = await page.evaluate(async kind => {
-        let detail, dialog, rows;
-        if (kind === 'job') {
-          const {mountJobDetail} = await import('/js/job-detail.js');
-          detail = mountJobDetail({document, client: {}});
-          dialog = document.getElementById('jobDialog');
-          rows = [{id: 'a', title: 'Synthetic first'}, {id: 'b', title: 'Synthetic second'}];
-        } else {
-          const {mountRelationshipDialog} = await import('/js/relationship-dialog.js');
-          detail = mountRelationshipDialog({document});
-          dialog = document.querySelector('.relationship-dialog');
-          rows = [{id: 'a', name: 'Synthetic first', kind: 'person', verticals: []}, {id: 'b', name: 'Synthetic second', kind: 'person', verticals: []}];
-        }
+      const result = await page.evaluate(async () => {
+        const {mountRelationshipDialog} = await import('/js/relationship-dialog.js');
+        const detail = mountRelationshipDialog({document});
+        const dialog = document.querySelector('.relationship-dialog');
+        const rows = [{id: 'a', name: 'Synthetic first', kind: 'person', verticals: []}, {id: 'b', name: 'Synthetic second', kind: 'person', verticals: []}];
         window.dialogOwner = detail;
         const snapshot = () => ({nodes: rows, edges: [], referrals: []});
-        const show = index => kind === 'job' ? detail.open(rows[index]) : detail.open(snapshot(), rows[index].id);
+        const show = index => detail.open(snapshot(), rows[index].id);
         document.getElementById('first').focus(); show(0);
         const staleClose = new Promise(resolve => dialog.addEventListener('close', event => resolve({trusted: event.isTrusted, open: dialog.open}), {once: true}));
         dialog.close();
@@ -47,13 +38,13 @@ for (const width of [390, 1440]) {
         const stale = await staleClose;
         const focusInside = dialog.contains(document.activeElement);
         rows[1] = {...rows[1], title: 'Synthetic updated', name: 'Synthetic updated'};
-        detail.update(kind === 'job' ? rows : snapshot());
+        detail.update(snapshot());
         const reopened = {open: dialog.open, text: dialog.textContent, focusInside};
         const trueClose = new Promise(resolve => dialog.addEventListener('close', event => resolve(event.isTrusted), {once: true}));
         dialog.close();
         const trusted = await trueClose;
         return {stale, reopened, closed: !dialog.open, trusted, focus: document.activeElement.id};
-      }, kind);
+      });
       assert.deepEqual(result.stale, {trusted: true, open: true});
       assert.equal(result.reopened.open, true);
       assert.match(result.reopened.text, /Synthetic updated/);
@@ -62,7 +53,6 @@ for (const width of [390, 1440]) {
       assert.equal(result.trusted, true);
       assert.equal(result.focus, 'second');
     });
-  }
 }
 
 test('shared close cleanup runs only for true native closes and can be disposed', async t => {

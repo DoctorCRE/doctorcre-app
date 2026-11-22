@@ -1,6 +1,4 @@
 import { routeContract, routeKey, actionLinkRoute } from '../js/routes.js';
-import { censusResponse } from './work-inventory-fixture.mjs';
-import { atlasFixtureResponse } from './atlas-fixture.mjs';
 import { createQaDispatcher } from './qa-fixture-dispatch.mjs';
 import { handleDoctorcreRequest } from '../src/worker.js';
 import { FixtureHtmlRewriter } from '../test/fixtures/worker-html.ts';
@@ -140,11 +138,6 @@ async function start(options, worker, port = 0, qaSeed, demo = false) {
         let special;
         if (demo && url.pathname === '/app-release' && ['release','all'].includes(url.searchParams.get('outage')))
           special = Response.json({error:'app_release_outage_requested_by_the_fixture_switch'},{status:503,headers:{'cache-control':'no-store'}});
-        if (demo && url.pathname === '/api/v1/atlas-graph') {
-          const answer = atlasFixtureResponse(url,request.method);
-          special = new Response(answer.body === null ? null : JSON.stringify(answer.body),{status:answer.status,headers:{...answer.headers,'cache-control':'no-store'}});
-        }
-        if (demo && url.pathname === '/api/v1/work-inventory') special = Response.json(censusResponse(url),{headers:{'cache-control':'no-store'}});
         const response = await (special || (qaDispatch ? qaDispatch(request) : handleDoctorcreRequest(request, { ...worker, ASSETS: { fetch: async input => {
           const key = new URL(input.url).pathname;
           try { fixtureKey(key); } catch { return new Response(null, { status: 400 }); }

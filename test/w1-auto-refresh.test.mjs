@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mountAutoRefresh, updatedLabel } from '../js/auto-refresh.mjs';
 import { readFile } from 'node:fs/promises';
 import { createLiveClient } from '../js/live-client.js';
-import { createSystemWorkClient } from '../js/system-work-client.js';
 
 function clock() {
  const document=new EventTarget();document.visibilityState='visible';
@@ -64,14 +63,14 @@ for (const phase of ['request','body']) test('PR119 finding 8: ordinary MCP '+ph
  const client=createLiveClient({readTimeoutMs:10,fetchImpl:async(_path,init)=>{signal=init.signal;if(phase==='request')return new Promise(()=>{});return {ok:true,json:()=>new Promise(()=>{})};}});
  let timer;
  const guard=new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('read did not settle')),100));
- try { await assert.rejects(Promise.race([client.loopBoard({kind:'task'}),guard]),/timed out/i);assert.equal(signal?.aborted,true); }
+ try { await assert.rejects(Promise.race([client.calendarMeetingPrep(),guard]),/timed out/i);assert.equal(signal?.aborted,true); }
  finally{clearTimeout(timer);}
 });
-for(const kind of ['Work Request','HTTP client'])test('PR119 finding 8: '+kind+' read has a deadline',async()=>{
+test('HTTP client read has a deadline',async()=>{
  let signal;const options={readTimeoutMs:10,fetchImpl:async(_path,init)=>{signal=init.signal;return new Promise(()=>{});}};
- const client=kind==='Work Request'?createSystemWorkClient(options):createLiveClient(options);
+ const client=createLiveClient(options);
  let timer;const guard=new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('read did not settle')),100));
- try{await assert.rejects(Promise.race([kind==='Work Request'?client.current():client.commandCenter(),guard]),/timed out/i);assert.equal(signal?.aborted,true);}finally{clearTimeout(timer);}
+ try{await assert.rejects(Promise.race([client.commandCenter(),guard]),/timed out/i);assert.equal(signal?.aborted,true);}finally{clearTimeout(timer);}
 });
 test('update timestamps use a human clock and missing clocks never look current', () => {
   assert.match(updatedLabel('2026-10-01T15:00:00Z'), /^Updated \d{1,2}:\d{2} (AM|PM)$/);
@@ -79,7 +78,7 @@ test('update timestamps use a human clock and missing clocks never look current'
   assert.equal(updatedLabel(null), 'Updating…');
   assert.equal(updatedLabel('invalid'), 'Updating…');
 });
-for(const method of ['readDocConversation','listDocConversations','listDocSuggestions','docOutcomeCards','codexSessions','workRequestCard'])test('PR119 finding 8: aggregate cancellation reaches '+method+' transport',async()=>{
+for(const method of ['readDocConversation','listDocConversations'])test('PR119 finding 8: aggregate cancellation reaches '+method+' transport',async()=>{
  let transportSignal;
  const client=createLiveClient({readTimeoutMs:10,fetchImpl:async(_path,init)=>{transportSignal=init.signal;return new Promise(()=>{});}});
  const controller=new AbortController();
@@ -90,7 +89,7 @@ for(const method of ['readDocConversation','listDocConversations','listDocSugges
  await rejected;
 });
 test('every data surface mounts background refresh or the existing board coordinator', async () => {
-  for (const name of ['workspace-command-center','workspace-business','leads-workspace-app','calendar','ideas','control-room','atlas','notifications','incidents','conversations','task-records','work-inventory','system-work-app','model-room','sessions','charts','search','status']) {
+  for (const name of ['workspace-command-center','workspace-business','leads-workspace-app','calendar','notifications','conversations','charts','search','status']) {
     assert.match(await readFile(new URL(`../js/${name}.js`, import.meta.url), 'utf8'), /mountAutoRefresh\(/, name);
   }
   assert.match(await readFile(new URL('../tours/app.js', import.meta.url), 'utf8'), /mountAutoRefresh\(/);
