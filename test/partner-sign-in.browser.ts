@@ -480,7 +480,7 @@ test("partners plan, open, and copy a tour at phone width", async (t) => {
   assert.equal(await joe.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   fixture.fail(false);
   await button("Save tour").click();
-  await joe.getByRole("heading", { name: "November 24, 2026" }).waitFor();
+  await joe.locator("#workspace-tours summary", { hasText: "November 24, 2026" }).waitFor();
   const stops = [{ property_id: first }, { address: "30 Example Way", name: null }];
   assert.deepEqual(
     fixture.writes.map((draft) => draft.stops),
@@ -497,7 +497,7 @@ test("partners plan, open, and copy a tour at phone width", async (t) => {
 
   const dell = await fixture.open("dell");
   await dell.getByRole("tab", { name: "Tours" }).click();
-  const listed = dell.getByRole("button", { name: "November 24, 2026", exact: true });
+  const listed = dell.locator("#workspace-tours summary", { hasText: "November 24, 2026" });
   await listed.waitFor();
   assert.equal(await listed.count(), 1);
   await listed.click();
