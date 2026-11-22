@@ -154,18 +154,29 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       ? `<a data-invoice-key="deal:${E(row.key)}" href="/deals?deal=${E(encodeURIComponent(row.deal_id))}">Open deal</a>` : '<span>Deal unavailable</span>');
     const docParams = new URLSearchParams({ deal: row.deal_id, invoice: row.key });
     if (pageParams.get('mode') === 'live') docParams.set('mode', 'live');
-    $('invoiceDocAction').href = `/doc-chats?${docParams}`;
+    const installments = rows.filter(entry => entry.deal_id === row.deal_id && entry.commission_id)
+      .sort((a, b) => (a.invoiceDay ?? a.due_on ?? '9999').localeCompare(b.invoiceDay ?? b.due_on ?? '9999')
+        || (a.due_on ?? '').localeCompare(b.due_on ?? '') || a.key.localeCompare(b.key));
+    const installment = installments.length > 1 && row.commission_id
+      ? installments.indexOf(row) + 1 : null;
+    const amount = row.amount === null ? '' : invoiceMoney(row.amount);
+    const due = row.due_on ? invoiceDate(row.due_on) : '';
+    const invoice = installment ? `installment ${installment} invoice` : 'invoice';
+    const status = row.status === 'awaiting' ? 'awaiting invoice' : row.status;
+    const question = `About the ${invoice}${amount ? ` for ${amount}` : ''}${due ? ` due ${due}` : ''} (${status}): `;
+    // The fragment keeps the draft's invoice facts out of HTTP requests.
+    $('invoiceDocAction').href = `/doc-chats?${docParams}#${new URLSearchParams({ question })}`;
     const commissionLabel = row.status === 'paid' ? 'Paid to DoctorCRE'
       : row.status === 'awaiting' ? 'DoctorCRE commission' : 'Owed to DoctorCRE';
     paint($('invoiceDetailFacts'), `
       <div class="invoice-detail-facts">
-        ${row.amount === null ? "" : `<div><span>${commissionLabel}</span><strong>${E(invoiceMoney(row.amount))}</strong></div>`}
+        ${amount ? `<div><span>${commissionLabel}</span><strong>${E(amount)}</strong></div>` : ''}
         <div><span>Status</span><strong class="invoice-status-value">${statusLabel(row)}</strong></div>
         ${row.age === null ? '' : `<div><span>${row.status==='paid'?'Days to payment':'Days outstanding'}</span><strong>${row.age}</strong></div>`}
       </div>`);
     paint($('invoiceTimeline'),[['Closed',row.closed_on],['Invoiced',row.invoiceDay],['Paid',row.received_on]].map(([label,day])=>`<div class="invoice-milestone${day?' done':''}"><strong>${label}</strong>${day?`<time datetime="${day}">${invoiceDate(day)}</time>`:''}</div>`).join(''));
     $('invoiceActivity').textContent=row.status==='paid'?`Payment recorded ${invoiceDate(row.received_on)}.`:row.status==='awaiting'?'Waiting for an invoice date.':row.overdue?`Payment due ${invoiceDate(row.due_on)}.`:`Invoiced ${invoiceDate(row.invoiceDay)}.`;
-    paint($('invoiceOriginalFacts'),[['Owner',ownerLabel(row.owner)],['Closed',row.closed_on && invoiceDate(row.closed_on)],['Invoiced',row.invoiceDay && invoiceDate(row.invoiceDay)],['Commission',row.amount !== null && invoiceMoney(row.amount)],['Due',row.due_on && invoiceDate(row.due_on)],['Paid',row.received_on && invoiceDate(row.received_on)]].filter(([,value])=>value).map(([label,value])=>`<dt>${label}</dt><dd>${E(value)}</dd>`).join(''));
+    paint($('invoiceOriginalFacts'),[['Installment',installment],['Owner',ownerLabel(row.owner)],['Closed',row.closed_on && invoiceDate(row.closed_on)],['Invoiced',row.invoiceDay && invoiceDate(row.invoiceDay)],['Commission',amount],['Due',due],['Paid',row.received_on && invoiceDate(row.received_on)]].filter(([,value])=>value).map(([label,value])=>`<dt>${label}</dt><dd>${E(value)}</dd>`).join(''));
     $('invoicePayment').hidden=!row.canMarkPaid;
     $('invoicePaidDate').min=row.invoiceDay || '';$('invoicePaidDate').max=today();
     const intent=invoiceStates.get(row.key)?.pending;

@@ -109,6 +109,7 @@ function sessionModule(): Promise<{
 }
 
 const api = "/api/engine/doc";
+const questionLimit = 4000;
 const params = new URLSearchParams(location.search);
 const legacyPath = /^\/doc\/conversations\/([^/]+)\/turns\/([^/]+)$/.exec(location.pathname);
 const legacyLink = params.has("id") || Boolean(legacyPath);
@@ -507,8 +508,7 @@ function DocChat() {
             : latest.context && { context: latest.context }),
         }
       : null);
-  const text = question.trim();
-  const askText = !id && initialInvoice ? `${text}\n\nInvoice reference ${initialInvoice.key}` : text;
+  const questionLength = [...question].length;
   const canSend =
     ready &&
     !busy &&
@@ -516,9 +516,9 @@ function DocChat() {
     !reviewReason &&
     status !== "loadFailed" &&
     !pendingAsk &&
-    text.length > 0 &&
-    [...askText].length <= 4000 &&
-    !text.includes("\0");
+    question.trim().length > 0 &&
+    questionLength <= questionLimit &&
+    !question.includes("\0");
 
   const showUnavailable = useCallback(() => {
     setTurns([]);
@@ -565,7 +565,13 @@ function DocChat() {
         const storage = (field: DraftField, id: string | null) => privateTextDraft(window, actor, field, id);
         privateDraft.current = storage;
         setTurns(saved);
-        setQuestion(storage("doc-question", chatId ?? composerId).read());
+        const draft = storage("doc-question", chatId ?? composerId);
+        const prefill = !chatId && initialInvoice ? new URLSearchParams(location.hash.slice(1)).get("question") : null;
+        if (prefill) {
+          draft.write(prefill);
+          history.replaceState(history.state, "", location.pathname + location.search);
+        }
+        setQuestion(prefill || draft.read());
         setReady(true);
       });
     },
@@ -798,7 +804,7 @@ function DocChat() {
               event.preventDefault();
               if (canSend)
                 send({
-                  question: askText,
+                  question,
                   idempotency_key: crypto.randomUUID(),
                   ...(id ? { conversation_id: id } : initialContext && { context: initialContext }),
                 });
@@ -807,6 +813,7 @@ function DocChat() {
             <label htmlFor="docQuestion">Question for Doc</label>
             <textarea
               id="docQuestion"
+              aria-describedby="docQuestionLength"
               rows={3}
               value={question}
               disabled={(!ready && status !== "unavailable" && status !== "older") || !!pendingAsk}
@@ -818,6 +825,9 @@ function DocChat() {
               }}
             />
             <div className="doc-chat__actions">
+              <small id="docQuestionLength">
+                {questionLength.toLocaleString("en-US")} / {questionLimit.toLocaleString("en-US")}
+              </small>
               <button className="btn btn-primary" type="submit" disabled={!canSend}>
                 Send
               </button>
