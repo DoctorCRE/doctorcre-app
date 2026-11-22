@@ -4,6 +4,8 @@ import { after, type TestContext, test } from "node:test";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
+import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
+import { detail, emptyQuietFollowUps, lead, workspace } from "./leads-workspace-fixture.mjs";
 
 const cookieName = "__Host-doctorcre_session";
 const partners = new Map([
@@ -40,6 +42,8 @@ async function app(
   let writes = 0;
   const live = new Set<string>();
   const links = new Map<string, string>();
+  const exampleLead = lead(1);
+  let leadOwner: string | null = null;
   let issueCount = 0;
   let loseIssueResponse = false;
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
@@ -52,6 +56,7 @@ async function app(
         if (path.startsWith("/auth/") || navigation) carrChecks++;
         if (signIn === "carr") {
           if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "fixture-carr" });
+          if (path.startsWith("/api/v1/business/vendors")) return Response.json(directoryFixture(input.url));
           return new Response(null, { status: navigation ? 200 : 404 });
         }
         throw Error("CARR unavailable");
@@ -132,9 +137,32 @@ async function app(
             activities: [{ id: activityId, kind: "note", summary: "Confirm the demo showing" }],
           });
         }
-        if (path === "/api/engine/leads") {
-          if (input.method === "POST") writes++;
-          return Response.json({ count: 0 });
+        if (path.startsWith("/api/engine/vendors")) {
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          url.pathname = path.replace("/api/engine", "/api/v1/business");
+          return Response.json(directoryFixture(url.href));
+        }
+        if (path === "/api/engine/leads" && url.searchParams.get("workspace") === "leads") {
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          const currentLead = { ...exampleLead, owner: leadOwner, base_version: leadOwner ? 2 : 1 };
+          return Response.json({
+            ...workspace(),
+            leads: [currentLead],
+            ...(url.searchParams.has("lead_id") && { detail: detail(currentLead) }),
+          });
+        }
+        if (path === "/api/engine/leads") return Response.json({ count: 0 });
+        if (path === "/api/engine/quiet-follow-ups") return Response.json(emptyQuietFollowUps());
+        if (path === `/api/engine/leads/${exampleLead.id}/changes` && input.method === "POST") {
+          const command = await input.json();
+          assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
+          const actor = partners.get(token);
+          assert.ok(actor);
+          assert.equal(command.expected_actor, actor);
+          assert.equal(command.action, "claim");
+          leadOwner = actor;
+          writes++;
+          return Response.json({ ok: true, lead_id: exampleLead.id });
         }
         return new Response(null, { status: 404 });
       },
@@ -157,6 +185,7 @@ async function app(
       unavailable = value;
     },
     carrChecks: () => carrChecks,
+    expireSession: () => live.clear(),
     writes: () => writes,
     setDocStatus: (status: string) => links.set("first", status),
     loseNextDocIssue: () => {
@@ -320,6 +349,46 @@ test("a signed-in deal explains unavailable features without requesting them", a
       .waitFor({ timeout: 4000 });
   }
   assert.deepEqual(legacyRequests, []);
+});
+
+test("a saved Leads link opens on the engine session, supports claim and prompts after expiry", async (t) => {
+  const { server, context, carrChecks, expireSession, writes } = await app(t);
+  const path = "/leads?mode=live&lead=L-1";
+  const page = await context.newPage();
+  await page.goto(server.origin + path);
+  const drawer = page.locator("#leadDetail");
+  await drawer.getByRole("heading", { name: "Dr. Example 1" }).waitFor({ timeout: 5000 });
+  await drawer.getByRole("button", { name: "Claim", exact: true }).click();
+  await page.getByText("Lead claimed", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(writes(), 1);
+
+  expireSession();
+  await drawer.getByRole("button", { name: "Close lead details" }).click();
+  await page.getByRole("button", { name: "Dr. Example 1", exact: true }).click();
+  await page.getByRole("link", { name: "Sign in again" }).waitFor({ timeout: 5000 });
+  assert.equal(carrChecks(), 0);
+});
+
+test("the Vendor drawer keeps the track record and shows the rating editor only in CARR mode", async (t) => {
+  for (const signIn of ["engine", "carr"] as const) {
+    const { server, context, carrChecks } = await app(t, { signIn });
+    await context.addCookies([
+      {
+        name: "__Host-dealroom_session",
+        value: "stale",
+        domain: new URL(server.origin).hostname,
+        path: "/",
+        secure: true,
+      },
+    ]);
+    const page = await context.newPage();
+    await page.goto(server.origin + "/vendors?mode=live&q=Demo+Partner+01");
+    await page.locator(".record-row").filter({ hasText: "Demo Partner 01" }).click({ timeout: 5000 });
+    const drawer = page.getByRole("dialog");
+    await drawer.getByText("Deals worked", { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await drawer.getByText("Trust rating", { exact: true }).count(), signIn === "carr" ? 1 : 0);
+    if (signIn === "engine") assert.equal(carrChecks(), 0);
+  }
 });
 
 for (const width of [390, 1440])

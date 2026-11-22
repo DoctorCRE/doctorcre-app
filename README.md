@@ -138,6 +138,12 @@ cookie, with the engine's short-lived OAuth state cookie allowed on the Google
 callback. The board stops polling after its first engine-backed load. Deal watch
 settings, Tours, Compare terms, and deal attribution show “Not available yet” until their engine endpoints are available.
 
+PartnerApp also serves Leads reads, claim, stage changes, email acknowledgement
+and client linking. Clients, Vendors, Relationships, Search and recent activity
+use the same session regardless of their legacy routing switches. The Vendors
+drawer shows the track record. The manual rating editor is available with CARR
+sign-in, and Relationships uses recorded links and introduction offers.
+
 `npm run release:production` consumes the prepared artifact, replaces `dist/site`
 from its verified source bytes, and runs only provider upload, promotion and
 readback commands. It refuses a missing `CLOUDFLARE_API_TOKEN`. Run publication from a clean

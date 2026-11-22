@@ -5,6 +5,7 @@ import { createPageBudget } from './read-budget.mjs';
 import { compareInstants } from './change-receipts.mjs';
 import { pageDocContext, selectDocRecord, setDocFilters } from './doc-context.js';
 import { fetchRead, mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
+import { privateSession } from "./private-session.js";
 // Clients and Vendors: the browser half of the Journey 1 business read.
 //
 // THE URL IS THE VIEW'S MEMORY. Search text, every filter, the sort, the page
@@ -448,7 +449,8 @@ function vendorContactsHtml(record) {
   </section>`;
 }
 
-function relationshipHtml(record) {
+function relationshipHtml(record, engineMode) {
+  const canEditRating = initialBootMode.mode === 'live' && !engineMode;
   const stats = record.relationship || {};
   const intro = stats.introductions || [];
   const list = kind => {
@@ -465,7 +467,7 @@ function relationshipHtml(record) {
   return `<section class="record-section relationship-section" aria-label="Partnership">${stats.override ? `<p class="note-summary">${escapeHtml(stats.override.recorded_by)} · ${escapeHtml(formatMoment(stats.override.recorded_at))} · ${escapeHtml(vendorNote(stats.override.reason))}</p>` : ''}
     ${metrics.length ? `<div class="relationship-metrics">${metrics.map(([label, value]) => `<div class="relationship-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`).join('')}</div>` : ''}
     ${contactNote ? `<p class="note-summary">${escapeHtml(contactNote)}</p>` : ''}
-    ${initialBootMode.mode === 'live' ? `<details class="trust-editor" data-details-key="trust"><summary>Trust rating</summary><form class="trust-form" id="trustForm"><label>Rating<select name="tier"><option value="">Use automatic rating</option>${Object.entries(trustRatings).map(([tier, label]) => `<option value="${tier}"${tier === stats.override?.tier ? ' selected' : ''}>${label}</option>`).join('')}</select></label><label>Reason<input name="reason" maxlength="500" value="${escapeHtml(stats.override?.reason || '')}"></label><button class="action primary-action" type="submit"${view.pendingTrust ? ' disabled' : ''}>Save rating</button><p class="trust-status" role="status" id="trustStatus">${view.trustStatus?.id === record.id ? escapeHtml(view.trustStatus.text) : ''}</p></form></details>` : ''}</section>${record.offers || record.loan_programs?.length ? `<section class="record-section"><h3>Services & products</h3>${record.offers ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(record.offers)))}</p>` : ""}${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(record.offers))}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section>` : ''}${intro.length ? `<section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>` : ''}${stats.recent_entries?.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...stats.recent_entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li><p class="note-summary">${escapeHtml(shortNote(vendorNote(entry.summary)))}</p>${entry.when ? `<time>${escapeHtml(formatMoment(entry.when))}</time>` : ''}${entry.detail ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(entry.detail))}</p></details>` : ''}</li>`).join('')}</ol></section>` : ''}`;
+    ${canEditRating ? `<details class="trust-editor" data-details-key="trust"><summary>Trust rating</summary><form class="trust-form" id="trustForm"><label>Rating<select name="tier"><option value="">Use automatic rating</option>${Object.entries(trustRatings).map(([tier, label]) => `<option value="${tier}"${tier === stats.override?.tier ? ' selected' : ''}>${label}</option>`).join('')}</select></label><label>Reason<input name="reason" maxlength="500" value="${escapeHtml(stats.override?.reason || '')}"></label><button class="action primary-action" type="submit"${view.pendingTrust ? ' disabled' : ''}>Save rating</button><p class="trust-status" role="status" id="trustStatus">${view.trustStatus?.id === record.id ? escapeHtml(view.trustStatus.text) : ''}</p></form></details>` : ''}</section>${record.offers || record.loan_programs?.length ? `<section class="record-section"><h3>Services & products</h3>${record.offers ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(record.offers)))}</p>` : ""}${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(record.offers))}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section>` : ''}${intro.length ? `<section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>` : ''}${stats.recent_entries?.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...stats.recent_entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li><p class="note-summary">${escapeHtml(shortNote(vendorNote(entry.summary)))}</p>${entry.when ? `<time>${escapeHtml(formatMoment(entry.when))}</time>` : ''}${entry.detail ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(entry.detail))}</p></details>` : ''}</li>`).join('')}</ol></section>` : ''}`;
 }
 function capturePanelState() {
   const id = dom.panelBody.dataset.recordId;
@@ -836,6 +838,7 @@ function renderRecordPanel() {
   const owner = ownerPresentation(payload.record);
   const kind = partyKindText(payload.record.party_kind);
   const vendor = dataset === "vendors";
+  const engineMode = privateSession()?.engineSignIn;
   if (dom.panelTitle) dom.panelTitle.textContent = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
   const ref = recordedValue(payload.record.ref);
   const referenceDetails = !vendor && ref.known
@@ -856,9 +859,10 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record, engineMode) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
-    if (dataset === 'vendors' && !document.documentElement.hasAttribute('data-deals-saves-from-engine') && !document.documentElement.hasAttribute('data-clients-vendors-from-engine')) {
+    if (vendor && !engineMode && !document.documentElement.hasAttribute('data-deals-saves-from-engine')
+      && !document.documentElement.hasAttribute('data-clients-vendors-from-engine')) {
       if (!vendorClientNeedsHost) {
         vendorClientNeedsHost = document.createElement('div');
         vendorClientNeedsId = payload.record.id;
