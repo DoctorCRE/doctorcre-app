@@ -26,7 +26,11 @@ const docLink = "/api/engine/doc/link";
 const actionLinkRef = (value: string) => `al1_${Buffer.from(value).toString("base64url")}`;
 const leadRef = actionLinkRef("ld:44444444-4444-4444-8444-444444444444");
 const successorDraft = "66666666-6666-4666-8666-666666666666";
-const chat = { id: "33333333-3333-4333-8333-333333333333", title: "Demo relocation chat" };
+const chat = {
+  id: "33333333-3333-4333-8333-333333333333",
+  title: "Demo relocation chat",
+  created_at: "2026-11-20T12:00:00Z",
+};
 const replyTitle = "Reply to the demo relocation email";
 const linkedItem = `reply_draft:${successorDraft}`;
 const linkedCard = `/api/engine/home/cards/${linkedItem}`;
@@ -354,7 +358,6 @@ async function app(
           return new Response(null, { status: 204 });
         }
         if (path === invoicePath) return Response.json(await invoices.getInvoiceTracker());
-        if (path === "/api/engine/closing-anniversaries") return Response.json(anniversaries.ready.output.rows);
         if (path === "/api/engine/doc/conversations")
           return Response.json({ conversations: [chat], next_before: null });
         if (path === paymentPath && input.method === "POST")
@@ -2642,7 +2645,12 @@ for (const signIn of ["engine", "carr"] as const) {
   });
 
   test(`${signIn} sign-in opens retired bookmarks on Home and renders the kept business pages`, async (t) => {
-    const { server, context } = await app(t, { signIn, switchDay: signIn === "carr", tourPlans: true });
+    const { server, context } = await app(t, {
+      signIn,
+      switchDay: signIn === "carr",
+      tourPlans: true,
+      readAnniversaries: () => Response.json(signIn === "engine" ? anniversaries.ready.output.rows : anniversaries.ready.output),
+    });
     const page = await context.newPage();
     page.setDefaultTimeout(5000);
     await page.clock.install({ time: new Date("2026-11-21T16:00:00Z") });
