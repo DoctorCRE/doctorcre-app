@@ -57,7 +57,7 @@ for (const environment of ['staging', undefined]) test(`all proof CLIs refuse ${
       if (['prove-email-deal-picker-auth-retirement.ts', 'prove-reply-draft-recipient-race.ts', 'prove-call-review-decision-replay-key.ts', 'prove-asset-manifest-publication.mjs', 'prove-fact-review-pending-status-view.mjs', 'prove-reply-action-link.ts', 'prove-exact-action-cards.ts'].includes(runner)) args.push('--commit', '1'.repeat(40));
       if (runner === 'prove-introduction-review.ts') args.push('--expected-commit', '1'.repeat(40));
       if (runner === 'prove-reply-action-link.ts') args.push('--ref', 'synthetic', '--proposal-id', 'synthetic', '--foreign-ref', 'synthetic-foreign');
-      if (runner === 'prove-exact-action-cards.ts') args.push('--reply-ref','synthetic','--reply-id','synthetic','--call-ref','synthetic','--call-id','synthetic','--feedback-ref','synthetic','--feedback-id','synthetic','--foreign-ref','foreign');
+      if (runner === 'prove-exact-action-cards.ts') args.push('--reply-ref','synthetic','--reply-id','synthetic','--foreign-ref','foreign');
       args.push('--timeout-ms', '3000');
       await assert.rejects(exec(process.execPath, args, { timeout: 15000 }), error => {
         assert.equal(error.code, 78, `${runner}: ${error.stdout} ${error.stderr}`);
