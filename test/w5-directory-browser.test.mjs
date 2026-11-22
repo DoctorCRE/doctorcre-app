@@ -582,7 +582,9 @@ test('Clients can retry unavailable activity and retain keyboard focus', async t
   const panel = page.getByRole('dialog', { name: /Demo Practice 01/ });
   const activity = panel.getByRole('region', { name: 'Recent activity' });
   await activity.locator('[data-state="unavailable"]').waitFor();
+  assert.equal(await activity.locator('[data-state="unavailable"]').isVisible(), true, 'Activity is unavailable');
   const retry = activity.getByRole('button', { name: 'Retry' });
+  assert.equal(await retry.isVisible(), true, 'Unavailable activity offers a visible Retry button');
   await retry.focus();
   await page.keyboard.press('Enter');
   await started.promise;
@@ -623,7 +625,10 @@ test('A late activity retry cannot paint another client', async t => {
   await page.locator('.record-row').first().click();
   const activity = page.getByRole('dialog', { name: /Demo Practice 01/ }).getByRole('region', { name: 'Recent activity' });
   await activity.locator('[data-state="unavailable"]').waitFor();
-  await activity.getByRole('button', { name: 'Retry' }).click();
+  assert.equal(await activity.locator('[data-state="unavailable"]').isVisible(), true, 'Activity is unavailable');
+  const retry = activity.getByRole('button', { name: 'Retry' });
+  assert.equal(await retry.isVisible(), true, 'Unavailable activity offers a visible Retry button');
+  await retry.click();
   await started.promise;
   await page.keyboard.press('Escape');
   await page.locator('.record-row').nth(1).click();
