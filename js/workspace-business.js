@@ -864,7 +864,7 @@ function activityHtml(recordId) {
   const state = result || { state: "loading" };
   const body = state.state === "ready"
     ? view.dataset === "clients" ? clientActivity(state.rows) : `<ol class="activity-list">${state.rows.map((row) => `<li class="activity-row" data-kind="${escapeHtml(row.kind)}"><span class="activity-dot" aria-hidden="true"></span><span class="activity-what">${escapeHtml(row.what)}${row.owed ? ` <b>· owed: ${escapeHtml(row.owed)}</b>` : ""}</span><span class="activity-when">${escapeHtml(row.when ? formatMoment(row.when) : "an unknown time")}${row.actor ? ` · ${escapeHtml(row.actor)}` : ""}</span></li>`).join("")}</ol>`
-    : `<p class="record-note activity-note" data-state="${escapeHtml(state.state)}">${escapeHtml(activityCopy(state))}</p>`;
+    : `<p class="record-note activity-note" data-state="${escapeHtml(state.state)}">${escapeHtml(activityCopy(state))}${view.dataset === "clients" && state.state === "unavailable" ? ` <button type="button" data-retry="activity">Retry</button>` : ""}</p>`;
   return `<section class="record-section" id="recordActivity" aria-labelledby="recordActivityTitle" aria-live="polite"><h3 id="recordActivityTitle">Recent activity</h3>${body}</section>`;
 }
 
@@ -1237,6 +1237,10 @@ function wireControls() {
   dom.panelClose?.addEventListener("click", () => closeRecord());
   dom.panelBody?.addEventListener("click", (event) => {
     if (event.target.closest("[data-retry='record']") && view.recordId) loadRecord(view.recordId);
+    if (event.target.closest("[data-retry='activity']") && !view.signedOut && view.recordId === view.record.payload?.record?.id) {
+      loadActivity(view.recordId, view.record.payload.record);
+      renderRecordPanel();
+    }
   });
 
   document.addEventListener("keydown", (event) => {

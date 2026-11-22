@@ -562,3 +562,40 @@ test('session invalidation disconnects the search dock observer', async t => {
   await page.evaluate(() => window.dispatchEvent(new Event('doctorcre-session-invalidated')));
   assert.equal(await page.evaluate(() => window.searchDockDisconnected), true);
 });
+
+test('Clients can retry activity without showing an earlier client’s late result', async t => {
+  const { page } = await open(t);
+  const pending = Promise.withResolvers(), started = Promise.withResolvers(), finished = Promise.withResolvers();
+  t.after(() => pending.resolve());
+  let reads = 0;
+  await page.route('**/mcp', async route => {
+    const { name, arguments: args } = route.request().postDataJSON().params;
+    if (name !== 'find-and-catch-up') return route.fallback();
+    const read = ++reads;
+    if (read === 1) return route.fulfill({ status: 503, body: 'Unavailable' });
+    if (read === 3) { started.resolve(); await pending.promise; }
+    await route.fulfill({ json: { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify({
+      state: 'completed', match: { target: args.ref }, catch_up: { timeline: [{ entry_kind: 'activity', verb: 'note', summary: read === 2 ? 'Recovered history' : read === 3 ? 'Earlier client history' : 'Current client history', occurred_at: '2026-09-20T15:00:00Z' }] },
+    }) }] } } });
+    if (read === 3) finished.resolve();
+  });
+  await page.goto(origin + '/clients?mode=live');
+  await page.locator('.record-row').first().click();
+  const panel = page.getByRole('dialog', { name: /Demo Practice 01/ });
+  const activity = panel.getByRole('region', { name: 'Recent activity' });
+  await activity.getByRole('button', { name: 'Retry' }).click();
+  await activity.getByText('Recovered history').waitFor();
+  assert.equal(await panel.isVisible(), true);
+  // Reopen the first client to hold its next activity response while switching records.
+  await page.keyboard.press('Escape');
+  await page.locator('.record-row').first().click();
+  await started.promise;
+  await page.keyboard.press('Escape');
+  await page.locator('.record-row').nth(1).click();
+  const second = page.getByRole('dialog', { name: /Demo Practice 02/ });
+  await second.getByText('Current client history').waitFor();
+  pending.resolve();
+  await finished.promise;
+  assert.equal(await second.isVisible(), true);
+  assert.equal(await second.getByText('Earlier client history').count(), 0);
+});
