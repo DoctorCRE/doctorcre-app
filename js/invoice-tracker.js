@@ -6,7 +6,7 @@ import { mountAutoRefresh, updatedLabel } from './auto-refresh.mjs';
 import { localToday, isCalendarDay } from './calendar-model.js';
 import { partnerName } from './visual-system.js';
 import { uuidv4 } from './uuid.js';
-import { AGES, projectInvoices, validInvoiceTracker, isInvoiceBaseVersion, invoiceSummary, invoiceMoney, invoiceDate } from './invoice-tracker-model.js';
+import { AGES, projectInvoices, validInvoiceTracker, isInvoiceBaseVersion, invoiceSummary, invoiceMoney, invoiceDate, invoiceReturnPath } from './invoice-tracker-model.js';
 const E=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const ownerLabel = owner => partnerName(owner) || 'Unassigned';
 const missingAmounts = count => count ? ` · ${count} without a recorded amount` : '';
@@ -223,7 +223,8 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       render();
     }catch(error){if(disposed||signal?.aborted)return;$('invoiceNotice').hidden=false;
       const signedOut=[401,403].includes(error?.status);
-      $('invoiceNotice').innerHTML=signedOut?'<a href="/auth/login?return_to=%2Finvoices">Sign in</a>':'Invoices temporarily unavailable';
+      const returnTo = invoiceReturnPath(pageParams) ?? '/invoices';
+      $('invoiceNotice').innerHTML=signedOut?`<a href="/auth/login?return_to=${encodeURIComponent(returnTo)}">Sign in</a>`:'Invoices temporarily unavailable';
       if(signedOut){snapshot=null;rows=null;invoiceStates.clear();paymentStore=null;closeDetail();render();}
       else if(!rows){$('invoiceRows').innerHTML='<p>Invoices unavailable</p>';$('invoiceRows').setAttribute('aria-busy','false');}
     }

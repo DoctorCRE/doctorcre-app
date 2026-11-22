@@ -1,7 +1,18 @@
 import { localToday, isCalendarDay as date } from './calendar-model.js';
 const DAY = 86_400_000;
 export const AGES = ['0–30 days', '31–60 days', '61–90 days', '91+ days'];
+const AWAITING_INVOICE_PREFIX = 'awaiting:';
+const INVOICE_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const invoiceKey = row => row.commission_id || `${AWAITING_INVOICE_PREFIX}${row.deal_id}`;
 export const invoiceHref = key => `/invoices?invoice=${encodeURIComponent(key)}`;
+export function invoiceReturnPath(searchParams) {
+  const keys = searchParams.getAll('invoice');
+  if (keys.length === 0) return null;
+  if (keys.length !== 1) return '/invoices';
+  const [key] = keys;
+  const id = key.startsWith(AWAITING_INVOICE_PREFIX) ? key.slice(AWAITING_INVOICE_PREFIX.length) : key;
+  return INVOICE_ID.test(id) ? invoiceHref(key) : '/invoices';
+}
 const nullableDate = value => value === null || date(value);
 export const isInvoiceBaseVersion = value => value === null || (Number.isInteger(value) && value > 0);
 export function validInvoiceTracker(payload) {
@@ -18,7 +29,7 @@ export function validInvoiceTracker(payload) {
       if (row.gross_amount !== null && (!/^\d+(\.\d{1,2})?$/.test(String(row.gross_amount)) || !Number.isFinite(Number(row.gross_amount)))) return false;
       if (row.status === 'received' && (!date(row.received_on) || !date(row.commission_invoiced_on) || row.received_on < row.commission_invoiced_on)) return false;
       if (row.status === 'invoiced' && !date(row.commission_invoiced_on)) return false;
-      const key = row.commission_id || `awaiting:${row.deal_id}`;
+      const key = invoiceKey(row);
       if (ids.has(key)) return false;
       ids.add(key); return true;
     });
@@ -32,7 +43,7 @@ export function projectInvoices(payload, { today = localToday(), scope = 'team' 
     const status = row.status === 'received' ? 'paid' : invoiceDay && row.status !== 'expected' ? 'unpaid' : 'awaiting';
     const age = status === 'awaiting' ? null : Math.max(0, Math.floor((Date.parse(status === 'paid' ? row.received_on : today) - Date.parse(invoiceDay)) / DAY));
     const bucket = age === null ? null : age > 90 ? 3 : age > 60 ? 2 : age > 30 ? 1 : 0;
-    return { ...row, key: row.commission_id || `awaiting:${row.deal_id}`, invoiceDay, status, age, bucket,
+    return { ...row, key: invoiceKey(row), invoiceDay, status, age, bucket,
       amount: row.gross_amount === null ? null : Number(row.gross_amount),
       overdue: status === 'unpaid' && row.due_on !== null && row.due_on < today,
       canMarkPaid: status === 'unpaid' && Boolean(row.commission_id) };

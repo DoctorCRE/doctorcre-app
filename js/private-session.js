@@ -1,3 +1,5 @@
+import { invoiceReturnPath } from './invoice-tracker-model.js';
+import { sessionReturnPath } from './routes.js';
 import { createRequestBudget } from './request-budget.mjs';
 import { resolveDealroomBoot } from './boot-mode.js';
 import { clearPrivateStorage, offlineTourSession, sessionEpoch, SESSION_EPOCH_KEY, TOUR_SIGN_IN_EPOCH_KEY } from './offline-tour-session.js';
@@ -155,8 +157,6 @@ export function privateSession() {
   if (typeof window === 'undefined' || globalThis !== window || resolveDealroomBoot(window.location).mode !== 'live') return null;
   const win = window;
   const { pathname } = win.location;
-  const returnQuery = /^\/a\/al1_[A-Za-z0-9_-]{1,120}$/.test(pathname) ? `?return_to=${encodeURIComponent(pathname)}` : '';
-  const sessionEndedUrl = '/public-shell/session-ended.html' + returnQuery;
   const initialEpoch = sessionEpoch(win);
   let anonymousDiagnostics = false;
   try { anonymousDiagnostics = win.location.pathname === '/status' && !win.localStorage.getItem('doctorcre-session-binding-v1'); } catch {}
@@ -190,6 +190,9 @@ export function privateSession() {
       return true;
     },
     invalidate(reason) {
+      const url = new URL(win.location.href);
+      const returnTo = url.pathname === '/invoices' ? invoiceReturnPath(url.searchParams) : sessionReturnPath(url.pathname);
+      const returnQuery = returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : '';
       // Clear before async cleanup/navigation so private text and controls
       // disappear immediately, including detached dialogs and account labels.
       win.dispatchEvent(new win.Event('doctorcre-session-invalidated'));
@@ -209,7 +212,7 @@ export function privateSession() {
       void cleanup.finally(() => {
         if (win.document !== retiredDocument) return;
         if (reload) win.location.reload();
-        else win.location.replace(sessionEndedUrl);
+        else win.location.replace('/public-shell/session-ended.html' + returnQuery);
       });
     },
   }), {
