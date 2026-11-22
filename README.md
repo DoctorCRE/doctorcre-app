@@ -148,7 +148,9 @@ sign-in, and Relationships uses recorded links and introduction offers.
 
 Home cards and their actions, Today, Calendar dates, and Updates also use
 PartnerApp in engine sign-in mode. Updates reads the engine's Home updates,
-recent changes, and settings.
+recent changes, and settings. Invoices, Mark paid, and Historical client fit
+use PartnerApp regardless of their legacy routing switches. The engine should
+set `INVOICES_READ_SCHEMA=next` so invoices and payments use the same records.
 
 `npm run release:production` consumes the prepared artifact, replaces `dist/site`
 from its verified source bytes, and runs only provider upload, promotion and
