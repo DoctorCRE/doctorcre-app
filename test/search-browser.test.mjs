@@ -221,7 +221,16 @@ test('Back restores a typed search and scope, and clearing removes it', async t 
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage();
+  let releaseSeed;
+  const seedReady = new Promise(resolve => { releaseSeed = resolve; });
+  t.after(() => releaseSeed());
+  await page.route('**/data/board-seed.json', async route => {
+    await seedReady;
+    await route.continue();
+  });
   await page.goto(`${server.origin}/search?mode=fixture`);
+  releaseSeed();
+  await page.getByText('Saved on this device').waitFor({ state: 'attached' });
   await page.locator('#searchQuery').fill('Demo');
   await page.locator('#searchResults a').first().waitFor();
   assert.equal(new URL(page.url()).searchParams.get('q'), 'Demo');
@@ -296,4 +305,132 @@ test('Back restores typing when leaving before the search debounce', async t => 
   assert.equal(new URL(page.url()).searchParams.get('kinds'), 'deals');
   assert.equal(await page.evaluate(() => history.length), historyLength + 1);
   await page.waitForFunction(() => document.querySelector('#searchResults')?.getAttribute('aria-busy') === 'false');
+});
+
+test('Search keeps typing entered while the page loads', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  let releaseLayout;
+  const layoutReady = new Promise(resolve => { releaseLayout = resolve; });
+  t.after(() => releaseLayout());
+  let layoutRequested;
+  const layoutRequest = new Promise(resolve => { layoutRequested = resolve; });
+  await page.route('**/js/app-layout.js', async route => {
+    layoutRequested();
+    await layoutReady;
+    await route.continue();
+  });
+  let releaseModule;
+  const moduleReady = new Promise(resolve => { releaseModule = resolve; });
+  t.after(() => releaseModule());
+  let moduleRequested;
+  const requested = new Promise(resolve => { moduleRequested = resolve; });
+  await page.route('**/js/search.js', async route => {
+    moduleRequested();
+    await moduleReady;
+    await route.continue();
+  });
+  const queries = [];
+  await page.route('**/mcp', route => {
+    const { id, params } = route.request().postDataJSON();
+    if (params.name === 'find') queries.push(params.arguments.query);
+    return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ schema_version: 'search.v1', parties: [], deals: [] }) }] } } });
+  });
+  await page.route('**/{auth/session,api/system-work/session}', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  const navigation = page.goto(`${server.origin}/search?mode=live`);
+  await Promise.all([requested, layoutRequest]);
+  const input = page.locator('#searchQuery');
+  await input.fill('Demo Dental');
+  await input.evaluate(node => node.setSelectionRange(5, 5));
+  releaseLayout();
+  await page.locator('#appLayout').waitFor({ state: 'attached' });
+  assert.equal(await input.evaluate(node => document.activeElement === node), true);
+  assert.equal(await input.evaluate(node => node.selectionStart), 5);
+  await page.keyboard.insertText('New ');
+  releaseModule();
+  await navigation;
+  assert.equal(await input.evaluate(node => document.activeElement === node), true);
+  assert.equal(await input.evaluate(node => node.selectionStart), 9);
+  await page.waitForFunction(() => document.querySelector('#searchState')?.dataset.state === 'no_match');
+  assert.equal(await page.locator('#searchQuery').inputValue(), 'Demo New Dental');
+  assert.deepEqual(queries, ['Demo New Dental']);
+  assert.equal(new URL(page.url()).searchParams.get('q'), 'Demo New Dental');
+});
+
+for (const nativeMove of [true, false]) {
+  test(`Search keeps IME composition through shell layout (state-preserving move ${nativeMove})`, async t => {
+    const server = await fixtureServer();
+    t.after(() => server.close());
+    const browser = await chromium.launch();
+    t.after(() => browser.close());
+    const page = await browser.newPage();
+    if (!nativeMove) await page.addInitScript(() => { Element.prototype.moveBefore = undefined; });
+    let releaseLayout, releaseSearch, layoutRequested, searchRequested;
+    const layoutGate = new Promise(resolve => { releaseLayout = resolve; });
+    const searchGate = new Promise(resolve => { releaseSearch = resolve; });
+    const layoutRequest = new Promise(resolve => { layoutRequested = resolve; });
+    const searchRequest = new Promise(resolve => { searchRequested = resolve; });
+    t.after(() => { releaseLayout(); releaseSearch(); });
+    await page.route('**/js/app-layout.js', async route => { layoutRequested(); await layoutGate; await route.continue(); });
+    await page.route('**/js/search.js', async route => { searchRequested(); await searchGate; await route.continue(); });
+    await page.route('**/mcp', route => {
+      const { id } = route.request().postDataJSON();
+      return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ schema_version: 'search.v1', parties: [], deals: [] }) }] } } });
+    });
+    await page.route('**/{auth/session,api/system-work/session}', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+    const navigation = page.goto(`${server.origin}/search?mode=live`);
+    await Promise.all([layoutRequest, searchRequest]);
+    assert.equal(await page.evaluate(() => typeof Element.prototype.moveBefore === 'function'), nativeMove);
+    const input = page.locator('#searchQuery');
+    await input.focus();
+    await input.evaluate(node => { window.compositionEvents = []; for (const type of ['compositionstart', 'compositionupdate', 'compositionend']) node.addEventListener(type, event => window.compositionEvents.push([event.type, event.data])); });
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 });
+    releaseLayout();
+    await page.locator('#appLayout').waitFor({ state: 'attached' });
+    await cdp.send('Input.imeSetComposition', { text: '日本', selectionStart: 2, selectionEnd: 2 });
+    await cdp.send('Input.insertText', { text: '日本' });
+    assert.equal(await input.inputValue(), '日本');
+    const events = await page.evaluate(() => window.compositionEvents);
+    assert.deepEqual(events.filter(([type]) => type !== 'compositionupdate'), [['compositionstart', ''], ['compositionend', '日本']]);
+    assert.ok(events.some(([type, data]) => type === 'compositionupdate' && data === 'に'));
+    assert.ok(events.some(([type, data]) => type === 'compositionupdate' && data === '日本'));
+    assert.equal(await input.evaluate(node => document.activeElement === node), true);
+    releaseSearch();
+    await navigation;
+    if (!nativeMove) {
+      await page.locator('#searchForm button').focus();
+      assert.equal(await input.evaluate(node => Boolean(node.closest('#appMainSlot'))), false);
+      await page.locator('#appTodayToggle').focus();
+      await page.locator('#appMainSlot #searchQuery').waitFor({ state: 'attached' });
+    }
+  });
+}
+
+test('Fallback waits for composition to end after focus leaves', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.addInitScript(() => { Element.prototype.moveBefore = undefined; });
+  let releaseLayout, layoutRequested;
+  const gate = new Promise(resolve => { releaseLayout = resolve; });
+  const requested = new Promise(resolve => { layoutRequested = resolve; });
+  t.after(() => releaseLayout());
+  await page.route('**/js/app-layout.js', async route => { layoutRequested(); await gate; await route.continue(); });
+  const navigation = page.goto(`${server.origin}/search?mode=fixture`);
+  await requested;
+  const input = page.locator('#searchQuery');
+  await input.focus();
+  await input.dispatchEvent('compositionstart', { data: '' });
+  releaseLayout();
+  await navigation;
+  await page.locator('#appTodayToggle').focus();
+  assert.equal(await input.evaluate(node => Boolean(node.closest('#appMainSlot'))), false);
+  await input.dispatchEvent('compositionend', { data: '日本' });
+  await page.locator('#appMainSlot #searchQuery').waitFor({ state: 'attached' });
 });
