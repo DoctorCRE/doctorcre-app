@@ -2059,7 +2059,8 @@ function paintPanel(detail) {
         if (planTours) {
           const { mountDealTourPlans } = await import('./ui-deal-tour-plans.generated.js');
           if (!toursDisposed) toursMounted = mountDealTourPlans(root, {
-            dealId: detail.deal.id, request: sessionFetch, tourSaved: () => void refreshPanel({ changed: true }),
+            dealId: detail.deal.id, properties: state.panelDetail?.properties, request: sessionFetch,
+            tourSaved: () => void refreshPanel({ changed: true }),
           });
           return;
         }

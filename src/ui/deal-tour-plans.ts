@@ -10,7 +10,8 @@ const tour = planReceipt.extend({
   completed_activity_id: z.uuid().nullable(),
   cancelled_at: z.string().nullable(),
 });
-const matches = z.object({ properties: z.array(place.extend({ id: z.uuid() })) });
+const propertyList = z.array(place.extend({ id: z.uuid() }));
+const matches = z.object({ properties: propertyList });
 const meetingReceipt = z.object({ id: z.uuid(), activity_id: z.uuid() });
 const cancellationReceipt = planReceipt.extend({ cancelled_at: z.string() });
 const stopList = z.object({ text: z.string() });
@@ -24,6 +25,7 @@ const date = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UT
 type Tour = z.infer<typeof tour>;
 type Editor = { mode: "plan" } | { mode: "edit" | "complete"; saved: Tour };
 type Place = z.infer<typeof place>;
+type Property = z.infer<typeof propertyList>[number];
 type Stop = { property_id: string } | Place;
 type DraftStop = { property: Place; stop: Stop };
 type Read = <T>(schema: z.ZodType<T>, path: string, init?: RequestInit) => Promise<T>;
@@ -80,8 +82,14 @@ async function unavailableStopMessage(read: Read, draft: DraftStop[]) {
   return `A selected property is no longer available. Remove or reselect the unavailable stop.${names ? ` Check these stops. ${names}` : ""}`;
 }
 
-function searchProperties(form: HTMLFormElement, read: Read, add: (property: Place, stop: Stop) => void) {
+function searchProperties(
+  form: HTMLFormElement,
+  read: Read,
+  add: (property: Place, stop: Stop) => boolean,
+  propertyChoice: (property: Property, pick: () => void) => HTMLButtonElement,
+) {
   const query = control<HTMLInputElement>(form, "[data-query]");
+  const search = control<HTMLButtonElement>(form, "[data-search]");
   const results = control(form, "[data-results]");
   const noMatch = control(form, "[data-new-property]");
   const status = control(form, "[data-search-status]");
@@ -93,26 +101,30 @@ function searchProperties(form: HTMLFormElement, read: Read, add: (property: Pla
     status.textContent = "";
   }
   function pick(property: Place, stop: Stop) {
-    add(property, stop);
+    if (!add(property, stop)) return;
     clear();
     query.value = address.value = name.value = "";
     query.focus();
   }
   async function lookup() {
     const term = query.value.trim();
-    if (!term || query.disabled) return;
-    query.disabled = true;
+    if (!term || query.readOnly) return;
+    query.readOnly = true;
     clear();
     try {
       const { properties } = await findProperties(read, term);
       for (const property of properties)
-        results.append(action(label(property), () => pick(property, { property_id: property.id })));
+        results.append(propertyChoice(property, () => pick(property, { property_id: property.id })));
       noMatch.hidden = properties.length > 0;
-      status.textContent = properties.length ? "" : "No properties found.";
+      if (!noMatch.hidden) {
+        status.textContent = "No properties match your search.";
+        control(form, ".tour-editor").scrollIntoView({ block: "end" });
+        address.focus({ preventScroll: true });
+      }
     } catch {
       status.textContent = "Could not search properties. Try again.";
     } finally {
-      query.disabled = false;
+      query.readOnly = false;
     }
   }
   function addProperty() {
@@ -125,14 +137,18 @@ function searchProperties(form: HTMLFormElement, read: Read, add: (property: Pla
     const property = { address: value, name: name.value.trim() || null };
     pick(property, property);
   }
-  control(form, "[data-search]").onclick = () => void lookup();
+  search.onclick = () => void lookup();
   control(noMatch, "button").onclick = addProperty;
   query.oninput = clear;
-  control(form, "[data-property-search]").onkeydown = (event) => {
-    if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
-    event.preventDefault();
-    if (event.target === query) void lookup();
-    else addProperty();
+  form.onkeydown = (event) => {
+    if (event.key !== "Enter") return;
+    if (event.target === query) {
+      event.preventDefault();
+      void lookup();
+    } else if (event.target === address || event.target === name) {
+      event.preventDefault();
+      addProperty();
+    }
   };
 }
 
@@ -144,30 +160,44 @@ function send<T>(read: Read, schema: z.ZodType<T>, path: string, body: object, i
   });
 }
 
-function planForm(read: Read, path: string, editor: Editor, finish: (id?: string) => void, dirty: () => void) {
+function planForm(
+  read: Read,
+  path: string,
+  editor: Editor,
+  properties: z.infer<typeof propertyList>,
+  finish: (id?: string) => void,
+  dirty: () => void,
+) {
   const saved = editor.mode === "plan" ? undefined : editor.saved;
   const complete = editor.mode === "complete";
   const visitTime = '<label>Local time<input type="time" name="time" required></label>';
-  const notesField = '<label>Tour notes (optional)<textarea name="notes" rows="3"></textarea></label>';
+  const notesField = '<label>Tour notes (optional)<textarea name="notes" rows="2"></textarea></label>';
   const form = element("form");
-  form.innerHTML = `<fieldset class="tour-fields">
-    <label>${complete ? "Visit date" : "Tour date"}<input type="date" name="date" required></label>
-    ${complete ? visitTime : notesField}
+  form.innerHTML = `<fieldset class="tour-editor">
+    <div data-linked-properties></div>
+    <div class="tour-fields">
+      <label>${complete ? "Visit date" : "Tour date"}<input type="date" name="date" required></label>
+      ${complete ? visitTime : notesField}
+    </div>
     <ol class="tour-stops" aria-label="${complete ? "Visited properties" : "Tour stops"}"></ol>
-    <fieldset class="tour-fields" data-property-search>
-      <legend>${complete ? "Add a visited property" : "Add a stop"}</legend>
-      <label>Property name or address<input data-query maxlength="100"></label>
-      <button type="button" class="btn" data-search>Search properties</button>
-      <p role="status" data-search-status></p><div data-results class="deal-tour-actions"></div>
-      <div data-new-property hidden><div class="tour-fields">
-        <label>New property address<input data-address></label>
-        <label>Property name (optional)<input data-name></label>
-        <button type="button" class="btn">Add property</button>
-      </div></div>
-    </fieldset>
-    <div class="deal-tour-actions"><button class="btn" type="submit">${complete ? "Save meeting" : "Save tour"}</button>
-      <button class="btn btn-quiet" type="button" data-back>Back to tours</button></div>
-    <p role="alert"></p>
+    <div data-new-property hidden><div class="tour-fields">
+      <label>New property address<input data-address></label>
+      <label>Property name (optional)<input data-name></label>
+      <button type="button" class="btn">Add property</button>
+    </div></div>
+    <div class="tour-editor-dock">
+      <fieldset class="tour-fields" aria-label="${complete ? "Add a visited property" : "Add a stop"}">
+        <div class="tour-search-row">
+          <label>Property name or address<input data-query maxlength="100"></label>
+          <button type="button" class="btn" data-search>Search properties</button>
+        </div>
+        <p role="status" data-search-status></p>
+        <div data-results class="deal-tour-actions"></div>
+      </fieldset>
+      <p role="alert"></p>
+      <div class="deal-tour-actions"><button class="btn btn-primary" type="submit">${complete ? "Save meeting" : "Save tour"}</button>
+        <button class="btn btn-quiet" type="button" data-back>Back to tours</button></div>
+    </div>
   </fieldset>`;
   const fields = control<HTMLFieldSetElement>(form, "fieldset");
   const list = control(form, "ol");
@@ -177,7 +207,27 @@ function planForm(read: Read, path: string, editor: Editor, finish: (id?: string
   const submit = control<HTMLButtonElement>(form, "[type=submit]");
   control<HTMLInputElement>(form, "[name=date]").value = saved?.planned_on ?? "";
   if (!complete) control<HTMLTextAreaElement>(form, "[name=notes]").value = saved?.notes ?? "";
+  function isSelected(id: string) {
+    return Array.from(stops.values()).some(({ stop }) => "property_id" in stop && stop.property_id === id);
+  }
+  function updatePropertyChoices(id: string, selected: boolean) {
+    for (const button of form.querySelectorAll<HTMLButtonElement>(`[data-tour-property="${id}"]`)) {
+      button.disabled = selected;
+    }
+  }
+  function propertyChoice(property: Property, pick: () => void, prefix = "") {
+    const button = action("", pick);
+    button.dataset.tourProperty = property.id;
+    const caption = element("span");
+    if (prefix) caption.append(Object.assign(element("span", prefix), { className: "tour-choice-add" }));
+    caption.append(label(property), Object.assign(element("span", " (added)"), { className: "tour-choice-added" }));
+    button.append(caption);
+    button.disabled = isSelected(property.id);
+    return button;
+  }
   function addStop(property: Place, stop: Stop) {
+    const id = "property_id" in stop ? stop.property_id : undefined;
+    if (id && isSelected(id)) return false;
     const row = element("li", label(property));
     const up = action("Move up", () => move("up"), "up");
     const down = action("Move down", () => move("down"), "down");
@@ -193,6 +243,7 @@ function planForm(read: Read, path: string, editor: Editor, finish: (id?: string
     const remove = action("Remove", () => {
       stops.delete(row);
       row.remove();
+      if (id) updatePropertyChoices(id, false);
       dirty();
     });
     row.append(
@@ -200,12 +251,27 @@ function planForm(read: Read, path: string, editor: Editor, finish: (id?: string
     );
     stops.set(row, { property, stop });
     list.append(row);
+    if (id) updatePropertyChoices(id, true);
+    return true;
   }
   for (const stop of saved?.stops ?? []) addStop(stop, { property_id: stop.property_id });
-  searchProperties(form, read, (property, stop) => {
-    addStop(property, stop);
+  function addDraftStop(property: Place, stop: Stop) {
+    if (!addStop(property, stop)) return false;
     dirty();
-  });
+    return true;
+  }
+  if (properties.length) {
+    const linked = element("ul");
+    linked.className = "tour-linked-properties";
+    linked.setAttribute("aria-label", "Deal properties");
+    for (const property of properties) {
+      const button = propertyChoice(property, () => addDraftStop(property, { property_id: property.id }), "Add ");
+      button.classList.add("btn-quiet");
+      linked.append(element("li", button));
+    }
+    control(form, "[data-linked-properties]").append(element("h3", "Deal properties"), linked);
+  }
+  searchProperties(form, read, addDraftStop, propertyChoice);
 
   async function save() {
     if (fields.disabled || submit.disabled) return;
@@ -387,11 +453,12 @@ function tourRow(
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
 export function mountDealTourPlans(
   host: Element,
-  options: { dealId: string; request: Request; tourSaved: () => void },
+  options: { dealId: string; properties?: unknown; request: Request; tourSaved: () => void },
 ) {
   const lifetime = new AbortController();
   const path = `/api/engine/deals/${encodeURIComponent(options.dealId)}/tours`;
   const heading = element("h2", "Planned tours");
+  heading.tabIndex = -1;
   const body = element("div");
   const panel = Object.assign(element("section", heading, body), { className: "deal-tours" });
   host.replaceChildren(panel);
@@ -427,10 +494,14 @@ export function mountDealTourPlans(
     function markDirty() {
       dirty = true;
     }
-    const form = planForm(read, endpoint, editor, finish, markDirty);
+    const properties = editor.mode === "plan" ? (propertyList.safeParse(options.properties).data ?? []) : [];
+    const form = planForm(read, endpoint, editor, properties, finish, markDirty);
     editorForm = form;
     body.replaceChildren(form);
-    control(form, "input").focus();
+    if (editor.mode === "plan") {
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView({ block: "center", behavior: "instant" });
+    } else control(form, "input").focus();
   }
   function reconcile(reopen?: string) {
     if (lifetime.signal.aborted) return;

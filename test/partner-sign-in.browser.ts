@@ -642,8 +642,12 @@ function tourFixture(t: TestContext, planned = false, cancellationGates?: Readon
     };
   }
   let failSave = false;
-  async function open(actor = "joe") {
-    const { server, context } = await app(t, { width: 390, touch: true, tourDeal });
+  async function open(actor = "joe", { width = 390, linked }: { width?: number; linked?: typeof properties } = {}) {
+    const { server, context } = await app(t, {
+      width,
+      touch: width === 390,
+      tourDeal: () => ({ ...tourDeal(), ...(linked && { properties: linked }) }),
+    });
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const page = await context.newPage();
     await page.request.get(`${server.origin}/auth/callback/google?fixture=${actor === "joe" ? "first" : "second"}`);
@@ -749,9 +753,9 @@ function tourFixture(t: TestContext, planned = false, cancellationGates?: Readon
   };
 }
 
-test("partners plan, open, and copy a tour at phone width", async (t) => {
+test("partners plan, open, and copy a tour using a linked property at phone width", async (t) => {
   const fixture = tourFixture(t);
-  const joe = await fixture.open();
+  const joe = await fixture.open("joe", { linked: [clinic] });
   const button = (name: string) => joe.getByRole("button", { name, exact: true });
   await joe.getByRole("tab", { name: "Tours" }).click();
   await joe.getByText("No planned tours.", { exact: true }).waitFor();
@@ -763,13 +767,13 @@ test("partners plan, open, and copy a tour at phone width", async (t) => {
     await joe.getByLabel("Property name or address").fill(query);
     await button("Search properties").click();
   };
-  await search("Clinic");
-  await button("Example Clinic, 10 Example Way").click();
+  await button("Add Example Clinic, 10 Example Way").tap({ timeout: 5000 });
+  await joe.getByRole("list", { name: "Tour stops" }).getByText(clinic.address, { exact: false }).waitFor();
   await search("20 Example Way");
   await button("20 Example Way").click();
   await joe.getByRole("listitem").filter({ hasText: "20 Example Way" }).getByRole("button", { name: "Remove" }).tap();
   await search("30 Example Way");
-  await joe.getByText("No properties found.").waitFor();
+  await joe.getByRole("status").filter({ hasText: "No properties match your search." }).waitFor();
   await joe.getByLabel("New property address").fill("30 Example Way");
   await button("Add property").click();
   await button("Move up").press("Enter");
@@ -810,6 +814,159 @@ test("partners plan, open, and copy a tour at phone width", async (t) => {
     "Example Clinic, 10 Example Way",
     "30 Example Way",
   ]);
+});
+
+test("tour planner keeps Search and the main actions in view on desktop and phone", async (t) => {
+  const fixture = tourFixture(t);
+  const linked = [
+    clinic,
+    annex,
+    ...Array.from({ length: 10 }, (_, index) => ({
+      id: `66666666-6666-4666-8666-${String(index).padStart(12, "0")}`,
+      address: `${40 + index} Example Way`,
+      name: null,
+    })),
+  ];
+  for (const width of [1440, 390]) {
+    const page = await fixture.open("joe", { width, linked });
+    await page.setViewportSize({ width, height: 700 });
+    await page.getByRole("tab", { name: "Tours" }).click();
+    await tourButton(page, "Plan tour").click();
+    await page.screenshot({ path: `${artifacts}/tour-planner-${width}.png` });
+    for (const name of ["Add Example Clinic, 10 Example Way", ...tourActions]) await assertTourActionInView(page, name);
+    const suggestions = page.getByRole("list", { name: "Deal properties" });
+    const buttons = suggestions.getByRole("button");
+    assert.equal(await buttons.count(), linked.length);
+    assert.deepEqual((await buttons.allInnerTexts()).slice(0, 2), [
+      "Add Example Clinic, 10 Example Way",
+      "Add 20 Example Way",
+    ]);
+    const choicesBox = await suggestions.boundingBox();
+    const searchBox = await tourButton(page, "Search properties").boundingBox();
+    assert.ok(choicesBox && searchBox && choicesBox.y < searchBox.y);
+    await tourButton(page, "Add 49 Example Way").click({ timeout: 5000 });
+    await page.getByRole("list", { name: "Tour stops" }).getByText("49 Example Way").waitFor();
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    for (const name of tourActions) await assertTourActionInView(page, name);
+    page.once("dialog", (dialog) => dialog.accept());
+    await tourButton(page, "Back to tours").click();
+    await tourButton(page, "Plan tour").waitFor();
+  }
+});
+
+const tourActions = ["Search properties", "Save tour", "Back to tours"];
+
+async function assertTourActionInView(page: Page, name: string) {
+  const inView = await tourButton(page, name).evaluate((button) => {
+    const { left, top, right, bottom } = button.getBoundingClientRect();
+    return (
+      top >= 0 &&
+      bottom <= innerHeight &&
+      [top + 1, bottom - 1].every((y) => button.contains(document.elementFromPoint((left + right) / 2, y)))
+    );
+  });
+  const viewport = page.viewportSize();
+  assert.ok(inView, `${name} is in view at ${viewport?.width} × ${viewport?.height}`);
+}
+
+for (const { height, ...options } of [
+  { width: 320, height: 568, linked: [clinic, annex] },
+  { width: 390, height: 700 },
+]) {
+  const { width } = options;
+  test(`tour actions stay in view after a no-match search at ${width} × ${height}`, async (t) => {
+    const page = await tourFixture(t).open("joe", options);
+    await page.setViewportSize({ width, height });
+    await page.getByRole("tab", { name: "Tours" }).click();
+    await tourButton(page, "Plan tour").click();
+    await page.getByLabel("Property name or address").fill("30 Example Way");
+    await tourButton(page, "Search properties").click();
+    await page.getByRole("status").filter({ hasText: "No properties match your search." }).waitFor();
+    assert.equal(await page.getByLabel("New property address").isVisible(), true);
+    assert.equal(await tourButton(page, "Add property").isVisible(), true);
+    await page.screenshot({ path: `${artifacts}/tour-no-match-${width}.png` });
+    for (const name of [...tourActions, "Add property"]) await assertTourActionInView(page, name);
+    await page.getByLabel("New property address").fill("30 Example Way");
+    for (const name of tourActions) await assertTourActionInView(page, name);
+    await tourButton(page, "Add property").click({ timeout: 5000 });
+    await page.getByRole("list", { name: "Tour stops" }).getByText("30 Example Way").waitFor();
+  });
+}
+
+test("double-tapping a linked property and picking it in search saves one stop", async (t) => {
+  const fixture = tourFixture(t);
+  const page = await fixture.open("joe", { linked: [clinic] });
+  await page.getByRole("tab", { name: "Tours" }).click();
+  await tourButton(page, "Plan tour").click();
+  await page.getByLabel("Tour date").fill("2026-11-24");
+
+  const suggestions = page.getByRole("list", { name: "Deal properties" });
+  const linked = suggestions.getByRole("button", { name: /10 Example Way/ });
+  await linked.tap();
+  await linked.tap({ force: true });
+  await page.getByLabel("Property name or address").fill(clinic.address);
+  await tourButton(page, "Search properties").click();
+  const linkedMarkedAdded = await suggestions.getByRole("button", { name: /10 Example Way \(added\)/ }).count();
+  const linkedDisabled = await linked.isDisabled();
+  const searchResults = page.locator("[data-results]");
+  const match = searchResults.getByRole("button", { name: /10 Example Way/ });
+  await match.waitFor();
+  const matchMarkedAdded = await searchResults.getByRole("button", { name: /10 Example Way \(added\)/ }).count();
+  const matchDisabled = await match.isDisabled();
+  await match.tap({ force: true });
+  const rows = await page.getByRole("list", { name: "Tour stops" }).getByRole("listitem").count();
+  await tourButton(page, "Save tour").click();
+  await page.getByText("November 24, 2026", { exact: true }).waitFor();
+  assert.deepEqual({ rows, stops: fixture.writes[0]?.stops }, { rows: 1, stops: [{ property_id: first }] });
+  assert.ok(linkedDisabled && matchDisabled);
+  assert.equal(linkedMarkedAdded, 1);
+  assert.equal(matchMarkedAdded, 1);
+});
+
+test("removing and re-adding a stop preserves the other stops' order", async (t) => {
+  const fixture = tourFixture(t);
+  const page = await fixture.open("joe", { linked: [clinic, annex] });
+  await page.getByRole("tab", { name: "Tours" }).click();
+  await tourButton(page, "Plan tour").click();
+  await page.getByLabel("Tour date").fill("2026-11-24");
+  await tourButton(page, "Add Example Clinic, 10 Example Way").click();
+  await tourButton(page, "Add 20 Example Way").click();
+  await page.getByLabel("Property name or address").fill("30 Example Way");
+  await tourButton(page, "Search properties").click();
+  await page.getByLabel("New property address").fill("30 Example Way");
+  await tourButton(page, "Add property").click({ timeout: 5000 });
+
+  await page.getByLabel("Property name or address").fill(clinic.address);
+  await tourButton(page, "Search properties").click();
+  const match = page.locator("[data-results]").getByRole("button", { name: /10 Example Way/ });
+  await match.waitFor();
+  assert.equal(await match.isDisabled(), true);
+  const rows = page.getByRole("list", { name: "Tour stops" }).getByRole("listitem");
+  await rows.filter({ hasText: clinic.address }).getByRole("button", { name: "Remove" }).click();
+  assert.equal(await tourButton(page, "Add Example Clinic, 10 Example Way").isEnabled(), true);
+  await match.click();
+  await tourButton(page, "Save tour").click();
+  await page.getByText("November 24, 2026", { exact: true }).waitFor();
+  assert.deepEqual(fixture.writes[0]?.stops, [
+    { property_id: second },
+    { address: "30 Example Way", name: null },
+    { property_id: first },
+  ]);
+});
+
+test("tour planner can search and save when the deal read omits properties", async (t) => {
+  const fixture = tourFixture(t);
+  const page = await fixture.open();
+  await page.getByRole("tab", { name: "Tours" }).click();
+  await tourButton(page, "Plan tour").click();
+  assert.equal(await page.getByRole("list", { name: "Deal properties" }).count(), 0);
+  await page.getByLabel("Property name or address").fill(annex.address);
+  await tourButton(page, "Search properties").click();
+  await tourButton(page, annex.address).click();
+  await page.getByLabel("Tour date").fill("2026-11-24");
+  await tourButton(page, "Save tour").click();
+  await page.getByText("November 24, 2026", { exact: true }).waitFor();
+  assert.deepEqual(fixture.writes[0]?.stops, [{ property_id: second }]);
 });
 
 test("an unavailable tour stop is named and the remaining draft can be saved", async (t) => {
