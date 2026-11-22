@@ -271,4 +271,5 @@ async function start(element: Element) {
   }
 }
 const element = typeof document === "undefined" ? null : document.querySelector("#phonePush");
-if (element && !document.documentElement.hasAttribute("data-updates-from-engine")) void start(element);
+if (element && !document.querySelector("html[data-updates-from-engine], html[data-deals-saves-from-engine]"))
+  void start(element);

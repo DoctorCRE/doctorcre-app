@@ -26,6 +26,7 @@
 .headline:empty, .as-of:empty { display: none; }
 
 /* --------------------------------------------------------------- the feed */
+#feedBlock .card-heading { flex-wrap: wrap; }
 #feedList { grid-template-columns: minmax(0, 1fr); }
 #feedList .work-item { grid-template-columns: minmax(0, 1fr); background: var(--surface-2); border-color: var(--hairline); }
 #feedList .work-item[data-priority="overdue"] { border-left-color: var(--status-danger); border-left-style: double; border-left-width: 4px; }
@@ -64,6 +65,7 @@
 .pref-form .field { display: grid; gap: var(--space-1); min-width: 0; }
 .pref-form label { color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
 .pref-form input[type="time"], .pref-form input[type="text"] { box-sizing: border-box; width: 100%; min-height: var(--touch); padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: var(--font-weight-regular) var(--font-size-2)/1.2 var(--font-text); font-variant-numeric: tabular-nums; }
+.pref-form input[aria-invalid="true"] { outline: var(--focus-width) solid var(--status-danger); outline-offset: 2px; }
 .pref-form input:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .pref-form input:disabled { color: var(--fg-quiet); border-style: dashed; }
 .pref-form .switch-field { display: flex; align-items: center; gap: var(--space-3); min-height: var(--touch); color: var(--fg); font-size: var(--font-size-2); font-weight: var(--font-weight-regular); }
@@ -73,7 +75,7 @@
 .pref-form[data-quiet="set"] .pref-summary::before { content: "\263E  "; color: var(--status-warn-ink); }
 .pref-form[data-quiet="off"] .pref-summary { border-left: 3px dashed var(--hairline-strong); color: var(--fg-muted); }
 .pref-act { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.pref-act .btn { flex: 1 1 160px; }
+.pref-form .pref-act .btn { flex: 1 1 160px; }
 .pref-message { color: var(--status-warn-ink); overflow-wrap: anywhere; }
 .pref-message:empty { display: none; }
 .pref-form[data-disabled="true"] { opacity: 0.6; }

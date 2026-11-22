@@ -1,7 +1,7 @@
 import { TOUCH_LAYOUT } from './touch-layout.js';
 import { scopedDeals } from './deal-review-model.js';
 import { createClient } from './client.js';
-import { resolveDealroomBoot } from './boot-mode.js';
+import { resolveDealroomBoot, updatesFromEngine } from './boot-mode.js';
 
 import { mountAutoRefresh } from './auto-refresh.mjs';
 import { escapeText as escape } from './change-receipts.mjs';
@@ -29,6 +29,7 @@ export function mountAppLayout(root, host, pathname) {
   const win = root.defaultView || globalThis.window;
   const pageKey = pathname === '/deals' ? '/deals' : pathname;
   const calendarPanel = pathname === '/calendar' && root.getElementById('dayPanel');
+  const deferToday = ['/updates', '/notifications'].includes(pathname) && updatesFromEngine(root);
   const boardPage = ['/leads','/deals','/pipeline'].includes(pathname);
   const vendorDirectory = pathname === '/vendors';
   const title = pathname === '/' ? 'Home' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
@@ -71,14 +72,14 @@ export function mountAppLayout(root, host, pathname) {
   const phone = win.matchMedia(pathname === "/leads" ? "(max-width:1023px)" : TOUCH_LAYOUT);
   const dealBoard = pathname === '/deals' && root.body.classList.contains('dealroom-page');
   const itineraryPage = Boolean(root.getElementById('accepted-itinerary'));
-  let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory, today = true, drawer = null;
+  let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory, today = !deferToday, drawer = null;
   let drawerOpener = null;
   const background = new Map();
   try {
     const saved = win.localStorage.getItem(`doctorcre:sidebar:${pageKey}`);
     if (!engineToday && saved !== null) sidebar = saved === 'open';
     const savedToday = win.localStorage.getItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today');
-    if (savedToday !== null) today = savedToday !== 'closed';
+    if (!deferToday && savedToday !== null) today = savedToday !== 'closed';
   } catch {}
   const sidebarToggle = layout.querySelector('#appSidebarToggle'), todayToggle = layout.querySelector('#appTodayToggle');
   sidebarToggle.hidden = engineToday;
@@ -119,7 +120,7 @@ export function mountAppLayout(root, host, pathname) {
   const toggle = region => {
     if (phone.matches) { if (drawer === region) closeDrawer(); else openRegion(region); return; }
     else if (region === 'sidebar') { sidebar = !sidebar; try { win.localStorage.setItem(`doctorcre:sidebar:${pageKey}`, sidebar ? 'open' : 'closed'); } catch {} }
-    else { today = !today; try { win.localStorage.setItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today', today ? 'open' : 'closed'); } catch {} }
+    else { today = !today; try { if (!deferToday) win.localStorage.setItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today', today ? 'open' : 'closed'); } catch {} }
     paint();
     if (region === 'sidebar' && !sidebar) sidebarToggle.focus();
     if (region === 'today' && !today) todayToggle.focus();
@@ -232,7 +233,8 @@ export function mountAppLayout(root, host, pathname) {
     }
   };
   win.addEventListener('offline', failedRead);
-  const auto = mountAutoRefresh({ document:root, window:win, refresh, onResume:loadingRead, onError:failedRead });
+  let todayRequested = !deferToday;
+  const auto = mountAutoRefresh({ document:root, window:win, refresh, onResume:loadingRead, onError:failedRead, shouldRefresh: () => todayRequested });
   layout.querySelector('#appTodayRetry').onclick = () => auto.refresh();
   let fanOut = false;
   const refreshButton = root.createElement('button');
@@ -246,7 +248,16 @@ export function mountAppLayout(root, host, pathname) {
     try { root.querySelectorAll('[data-layout-refresh]').forEach(button => button.click()); } finally { fanOut = false; }
   };
   pageRefresh?.addEventListener('click', () => { if (!fanOut) auto.refresh(); });
-  void homeToday.then(() => auto.refresh());
+  const startToday = () => {
+    todayToggle.removeEventListener('click', startToday);
+    root.removeEventListener('doctorcre:open-today', startToday);
+    todayRequested = true;
+    void homeToday.then(() => auto.refresh());
+  };
+  if (deferToday) {
+    todayToggle.addEventListener('click', startToday, { once: true });
+    root.addEventListener('doctorcre:open-today', startToday, { once: true });
+  } else startToday();
   const invalidateSession = () => {
     lifetime.abort();
     auto.dispose();

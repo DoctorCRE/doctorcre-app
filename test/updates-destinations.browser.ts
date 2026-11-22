@@ -16,6 +16,15 @@ const preferences = {
   push_to_device: false,
   base_version: 0,
 };
+const legacyPreferences = {
+  ok: true,
+  version: 1,
+  exists: false,
+  device_opt_in: false,
+  timezone: "UTC",
+  quiet_hours_start: null,
+  quiet_hours_end: null,
+};
 const deal = "11111111-1111-4111-8111-111111111111";
 const unread = {
   source_id: "22222222-2222-4222-8222-222222222222",
@@ -28,6 +37,7 @@ const unread = {
   read_at: null,
   unseen: true,
 };
+const property = "44444444-4444-4444-8444-444444444444";
 const seen = {
   ...unread,
   source_id: "33333333-3333-4333-8333-333333333333",
@@ -35,6 +45,7 @@ const seen = {
   why: "Liked the parking",
   primary_action: "Review feedback",
   kind_label: "Tour feedback",
+  open_url: `/deals?deal=${deal}&property=${property}`,
   read_at: "2026-11-20T16:00:00Z",
   unseen: false,
 };
@@ -47,7 +58,7 @@ const change = (who: string, what: string) => ({
   open_url: `/deals?deal=${deal}`,
 });
 const screenshotDir = process.env.UPDATES_SCREENSHOT_DIR;
-const viewports = screenshotDir ? [390, 1440] : [390];
+const viewports = [390, 1440];
 const themes = screenshotDir ? ["light", "dark"] : ["dark"];
 
 const explainers =
@@ -65,7 +76,13 @@ type Reply = NonNullable<Parameters<Route["fulfill"]>[0]>;
 
 type Handler = (request: Request) => Reply | Promise<Reply>;
 
-async function open(t: TestContext, width: number, theme: string, engine: Record<string, Handler> = {}) {
+async function open(
+  t: TestContext,
+  width: number,
+  theme: string,
+  engine: Record<string, Handler> = {},
+  fromEngine = true,
+) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: width === 390 ? 844 : 1000 } });
@@ -77,8 +94,14 @@ async function open(t: TestContext, width: number, theme: string, engine: Record
   );
   const verbs: string[] = [];
   await page.route("**/mcp", (route) => {
-    verbs.push(route.request().postDataJSON()?.params?.name);
-    return route.fulfill({ json: { result: { content: [{ type: "text", text: "{}" }] } } });
+    const verb = route.request().postDataJSON().params.name;
+    verbs.push(verb);
+    const output = verb === "notification-feed" ? { unread_count: 0, notifications: [] } : legacyPreferences;
+    return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(output) }] } } });
+  });
+  await page.route("**/pipeline/changes", (route) => {
+    verbs.push("/pipeline/changes");
+    return route.fulfill({ json: { events: [], cursor: "end" } });
   });
   let saved = preferences;
   const defaults: Record<string, Handler> = {
@@ -102,10 +125,10 @@ async function open(t: TestContext, width: number, theme: string, engine: Record
   });
   const updatesPage = assets.get("/notifications.html")?.body;
   assert.ok(updatesPage);
-  await page.route(`${server.origin}/updates?**`, (route) =>
+  await page.route(/^https?:\/\/[^/]+\/updates(?:\?|$)/, (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: updatesPage.toString().replace("<html ", "<html data-deals-saves-from-engine "),
+      body: fromEngine ? updatesPage.toString().replace("<html ", "<html data-deals-saves-from-engine ") : updatesPage,
     }),
   );
   return { page, sent, verbs };
@@ -271,50 +294,144 @@ const savedFields = (sent: { key: string; body: Record<string, unknown> | null }
     });
 
 test("Updates lists the partner's engine updates with the unread count", async (t) => {
-  const { page, verbs } = await open(t, 390, "dark", {
-    "GET /api/engine/updates": () => ({ json: { unread_count: 1, updates: [unread, seen] } }),
+  const { page, sent, verbs } = await open(t, 390, "dark", {
+    "GET /api/engine/updates": () => ({ json: { unread_count: 1, updates: [unread, seen, seen] } }),
   });
-  await page.goto(updatesPath);
-  await page.getByRole("heading", { name: unread.title }).waitFor();
+  await page.addInitScript(() => {
+    if (location.pathname === "/updates") history.replaceState(null, "", "/updates?mode=live");
+  });
+  await page.goto(server.origin);
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  sent.length = 0;
+  verbs.length = 0;
+  await page.getByRole("link", { name: "Updates", exact: true }).click();
+  await page.getByRole("heading", { name: unread.title }).waitFor({ timeout: 2500 });
   assert.equal(await page.locator("#unreadLine").textContent(), "1 unread notification");
   assert.equal(await page.getByText(unread.why, { exact: true }).count(), 1);
   const open_ = page.getByRole("link", { name: "Open checklist item" });
   assert.equal(await open_.getAttribute("href"), unread.open_url);
   assert.equal(await page.getByRole("heading", { name: seen.title }).count(), 1);
+  assert.equal(await page.getByRole("link", { name: "Review feedback" }).getAttribute("href"), seen.open_url);
+  await page.locator("#prefForm").waitFor();
+  await page.getByText("No recent activity", { exact: true }).waitFor();
+  assert.deepEqual(sent.map(({ key }) => key).sort(), [
+    "GET /api/engine/preferences",
+    "GET /api/engine/updates",
+    "GET /api/engine/updates/changes",
+  ]);
+  assert.deepEqual(verbs, []);
   const unreadCard = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: unread.title }) });
   assert.equal(await unreadCard.getByText("9:00 AM CST", { exact: true }).count(), 1);
-  assert.equal(await page.getByText("Acknowledged at 10:00 AM CST", { exact: true }).count(), 1);
-  assert.equal(await page.getByRole("button", { name: "Acknowledge this notification" }).count(), 1);
-  assert.equal(verbs.filter((verb) => /notification/.test(verb)).length, 0);
+  assert.equal(await unreadCard.getByText("Unread", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("Read at 10:00 AM CST", { exact: true }).count(), 1);
+  const today = page.waitForRequest("**/api/engine/home/today");
+  await page.getByRole("button", { name: "Today sidebar" }).click();
+  await today;
 });
 
-test("marking an update read saves it to the engine and refreshes the count", async (t) => {
-  let marked = false;
+test("opening an unread update uses the saved read time and returned badge count", async (t) => {
   const { page, sent } = await open(t, 390, "dark", {
-    "GET /api/engine/updates": () => ({
-      json: marked
-        ? { unread_count: 0, updates: [{ ...unread, read_at: "2026-11-21T12:00:00Z", unseen: false }] }
-        : { unread_count: 1, updates: [unread] },
+    "GET /api/engine/updates": () => ({ json: { unread_count: 3, updates: [unread] } }),
+    "POST /api/engine/updates/read": () => ({
+      json: { ok: true, updates: [{ id: unread.source_id, read_at: "2026-11-21T12:00:00Z" }], unread_count: 2 },
     }),
-    "POST /api/engine/updates/read": () => {
-      marked = true;
-      return {
-        json: { ok: true, updates: [{ id: unread.source_id, read_at: "2026-11-21T12:00:00Z" }], unread_count: 0 },
-      };
-    },
   });
   await page.goto(updatesPath);
-  const badge = page.locator("#navUnreadBadge");
-  await page.locator('#navUnreadBadge[aria-label="1 unread notification"]').waitFor({ state: "attached" });
-  await page.getByRole("button", { name: "Acknowledge this notification" }).click();
-  await page.locator("#unreadLine").getByText("Nothing unread", { exact: true }).waitFor();
-  assert.equal(await badge.getAttribute("aria-label"), null);
-  assert.equal(await badge.getAttribute("hidden"), "");
-  assert.equal(sent.filter(({ key }) => key === "GET /api/engine/updates").length, 2);
+  await page.getByRole("button", { name: "Mark shown as read" }).waitFor({ timeout: 2500 });
+  const opened = page.waitForEvent("popup");
+  await page.getByRole("link", { name: "Open checklist item" }).click();
+  assert.equal(new URL((await opened).url()).searchParams.get("deal"), deal);
+  await page.getByText("Read at 6:00 AM CST", { exact: true }).waitFor();
+  assert.equal(await page.locator("#navUnreadBadge").getAttribute("aria-label"), "2 unread notifications");
   const [save] = sent.filter(({ key }) => key === "POST /api/engine/updates/read");
   assert.deepEqual(save?.body?.update_ids, [unread.source_id]);
   assert.match(String(save?.body?.idempotency_key), /^[0-9a-f-]{36}$/);
-  assert.equal(await page.getByRole("button", { name: "Acknowledge this notification" }).count(), 0);
+});
+
+test("Mark all read reuses the key after an unanswered save", async (t) => {
+  const second = { ...seen, read_at: null, unseen: true };
+  const shown = [unread, second];
+  const readAt = "2026-11-21T12:00:00Z";
+  const updates = shown.map(({ source_id: id }) => ({ id, read_at: readAt }));
+  let attempts = 0;
+  const { page, sent } = await open(t, 390, "dark", {
+    "GET /api/engine/updates": () => ({
+      json: attempts
+        ? { unread_count: 0, updates: shown.map((row) => ({ ...row, read_at: readAt })) }
+        : { unread_count: 2, updates: shown },
+    }),
+    "POST /api/engine/updates/read": () =>
+      ++attempts === 1
+        ? { status: 503, json: { error: "unavailable" } }
+        : { json: { ok: true, replayed: true, unread_count: 0, updates } },
+  });
+  await page.goto(updatesPath);
+  await page.getByRole("button", { name: "Mark all read", exact: true }).click({ timeout: 2500 });
+  await page.getByRole("button", { name: "Check outcome" }).click();
+  await page.locator("#unreadLine").getByText("Nothing unread", { exact: true }).waitFor();
+  const writes = sent.filter(({ key }) => key === "POST /api/engine/updates/read").map(({ body }) => body);
+  assert.equal(writes.length, 2);
+  assert.deepEqual(writes[0]?.update_ids, [unread.source_id, second.source_id]);
+  assert.deepEqual(writes[1], writes[0]);
+});
+
+test("checking a read outcome keeps the badge from counting an already read update", async (t) => {
+  const firstReadAt = "2026-11-21T12:00:00Z";
+  const secondReadAt = "2026-11-21T13:00:00Z";
+  const second = { ...seen, read_at: null, unseen: true };
+  let firstSaved = false;
+  let secondSaved = false;
+  const { page } = await open(t, 390, "dark", {
+    "GET /api/engine/updates": () => ({
+      json: {
+        unread_count: 2 - Number(firstSaved) - Number(secondSaved),
+        updates: [
+          { ...unread, read_at: firstSaved ? firstReadAt : null },
+          { ...second, read_at: secondSaved ? secondReadAt : null },
+        ],
+      },
+    }),
+    "POST /api/engine/updates/read": (request) => {
+      const [id] = request.postDataJSON().update_ids;
+      if (id === second.source_id) {
+        secondSaved = true;
+        return { json: { ok: true, unread_count: 0, updates: [{ id, read_at: secondReadAt }] } };
+      }
+      if (firstSaved) {
+        return { json: { ok: true, replayed: true, unread_count: 1, updates: [{ id, read_at: firstReadAt }] } };
+      }
+      firstSaved = true;
+      return { status: 503, json: { error: "unavailable" } };
+    },
+  });
+  await page.goto(updatesPath);
+  await page.getByRole("link", { name: unread.primary_action }).click();
+  const check = page.getByRole("button", { name: "Check outcome" });
+  await check.waitFor();
+  await page.getByRole("link", { name: second.primary_action }).press("Enter");
+  await page.getByText("Read at 7:00 AM CST", { exact: true }).waitFor();
+  const badge = page.locator("#navUnreadBadge");
+  assert.equal(await badge.getAttribute("aria-label"), null);
+
+  await check.click();
+  await page.getByText("Read at 6:00 AM CST", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Read at 7:00 AM CST", { exact: true }).count(), 1);
+  assert.equal(await badge.getAttribute("aria-label"), null);
+});
+
+test("a missing update reloads the feed and badge", async (t) => {
+  let missing = false;
+  const { page } = await open(t, 390, "dark", {
+    "GET /api/engine/updates": () => ({ json: missing ? emptyFeed : { unread_count: 1, updates: [unread] } }),
+    "POST /api/engine/updates/read": () => {
+      missing = true;
+      return { status: 404, json: { error: "not_found" } };
+    },
+  });
+  await page.goto(updatesPath);
+  await page.getByRole("button", { name: "Mark all read", exact: true }).click({ timeout: 2500 });
+  await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
+  assert.equal(await page.locator("#navUnreadBadge").getAttribute("aria-label"), null);
 });
 
 test("notification settings load the engine defaults and save all four fields", async (t) => {
@@ -342,6 +459,37 @@ test("notification settings load the engine defaults and save all four fields", 
     .waitFor();
 });
 
+test("checking a settings save outcome keeps newer preferences on screen", async (t) => {
+  const saved = { ...preferences, time_zone: "America/Denver", base_version: 5 };
+  const newer = { ...preferences, time_zone: "America/New_York", base_version: 6 };
+  let current = { ...preferences, base_version: 4 };
+  let savedOnce = false;
+  const { page } = await open(t, 390, "dark", {
+    "GET /api/engine/preferences": () => ({ json: current }),
+    "POST /api/engine/preferences": () => {
+      if (savedOnce) return { json: { ok: true, replayed: true, ...saved } };
+      savedOnce = true;
+      current = saved;
+      return { status: 503, json: { error: "unavailable" } };
+    },
+  });
+  await page.goto(updatesPath);
+  const timeZone = page.getByLabel("Timezone");
+  await timeZone.fill(saved.time_zone);
+  await saveButton(page).click();
+  const check = page.locator("#prefForm").getByRole("button", { name: "Check outcome" });
+  await check.waitFor();
+  current = newer;
+  await page.getByRole("button", { name: "Refresh", exact: true }).press("Enter");
+  const summary = page.locator("#prefSummary");
+  await summary.getByText(/America\/New_York/).waitFor();
+
+  await check.press("Enter");
+  await saveButton(page).waitFor();
+  assert.equal(await timeZone.inputValue(), newer.time_zone);
+  assert.match((await summary.textContent()) ?? "", /America\/New_York/);
+});
+
 test("notification settings explain a refused time zone and an unpaired quiet hour", async (t) => {
   const { page, sent } = await open(t, 390, "dark", {
     "POST /api/engine/preferences": () => ({
@@ -363,6 +511,8 @@ test("notification settings explain a refused time zone and an unpaired quiet ho
   await saveButton(page).click();
   await page.locator("#prefMessage").getByText("Timezone unavailable. Preferences were not saved.").waitFor();
   assert.equal(savedFields(sent)[0]?.time_zone, "Example/Nowhere");
+  assert.equal(await page.getByLabel("Timezone").getAttribute("aria-invalid"), "true");
+  assert.equal(await page.getByLabel("Quiet hours start").getAttribute("aria-invalid"), null);
 });
 
 test("a settings save that crossed another change reloads and says so", async (t) => {
@@ -421,6 +571,42 @@ test("Who did what shows the engine's first page and Show more follows next_befo
     sent.filter(({ key }) => key === "GET /api/engine/updates/changes").map(({ search }) => search),
     ["", "?before=cursor-1"],
   );
+});
+
+test("a rejected activity cursor can be reloaded from the first page", async (t) => {
+  const before = "next+page/==";
+  let failed = false;
+  const { page, sent } = await open(t, 390, "dark", {
+    "GET /api/engine/updates/changes": (request) => {
+      if (new URL(request.url()).searchParams.get("before") === before) {
+        failed = true;
+        return { status: 400, json: { error: "invalid_field_value", fields: ["before"] } };
+      }
+      return { json: { changes: [change("Alex Example", "opened the deal")], next_before: failed ? null : before } };
+    },
+  });
+  await page.goto(updatesPath);
+  await page.getByRole("button", { name: "Show more" }).click();
+  await page.getByRole("button", { name: "Reload activity" }).click({ timeout: 2500 });
+  await page.getByRole("heading", { name: "Alex Example · opened the deal" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Show more" }).isVisible(), false);
+  assert.deepEqual(
+    sent.filter(({ key }) => key.endsWith("/changes")).map(({ search }) => search),
+    ["", `?before=${encodeURIComponent(before)}`, ""],
+  );
+});
+
+test("switch off keeps the old feed, settings and activity reads", async (t) => {
+  const { page, sent, verbs } = await open(t, 390, "dark", {}, false);
+  await page.goto(updatesPath);
+  await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
+  await page.locator("#prefForm").waitFor();
+  await page.getByText("No recent activity", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Timezone").inputValue(), "UTC");
+  assert.ok(verbs.includes("notification-feed"));
+  assert.ok(verbs.includes("read-notification-preferences"));
+  assert.ok(verbs.includes("/pipeline/changes"));
+  assert.ok(sent.every(({ key }) => key === "GET /api/engine/home/today"));
 });
 
 test("a conflict keeps the settings draft and notice visible when the refresh fails", async (t) => {

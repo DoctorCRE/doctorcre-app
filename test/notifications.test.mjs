@@ -16,7 +16,7 @@ import {
   PREFERENCE_REFUSALS, QUIET_NOW_BANNER,
   QUIET_SUPPRESSED_MARK, SEVERITIES, SEVERITY_LABELS, TIME_REFUSAL,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, preferenceTimeLabel, classifyPreferenceFailure,
-  classifyPreferenceReadFailure, classifyReadFailure, changeRows, deepLinkView, deliveryPhrases, feedState,
+  classifyPreferenceReadFailure, classifyReadFailure, changeRows, parseChangesPage, deepLinkView, deliveryPhrases, feedState,
   notificationCards, preferenceState, preferenceSummary,
   preferenceView, quietNowBanner, setPreferenceArgs, toInputTime, unreadLine,
   validFeedPayload, validPreferencePayload,
@@ -790,7 +790,9 @@ test('device delivery evidence distinguishes absence from unavailable without lo
 });
 
 test('update times use the saved zone and default to Central', () => {
-  const row = { who: 'Partner', what: 'Updated', changed_at: '2026-01-15T18:30:00Z' };
-  assert.equal(changeRows([row])[0].clock, '12:30 PM CST');
-  assert.equal(changeRows([row], 'America/New_York')[0].clock, '1:30 PM EST');
+  const row = { id: '1', who: 'Partner', what: 'Updated', record: 'Example Deal',
+    changed_at: '2026-01-15T18:30:00Z', open_url: '/deals?deal=example' };
+  const { changes } = parseChangesPage({ changes: [row], next_before: null });
+  assert.equal(changeRows(changes)[0].clock, '12:30 PM CST');
+  assert.equal(changeRows(changes, 'America/New_York')[0].clock, '1:30 PM EST');
 });

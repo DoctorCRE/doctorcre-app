@@ -285,7 +285,7 @@ test("Dot 14: Updates follows the event cursor to current activity", async () =>
 test("Dot 14: Updates reads Who did what from the engine when saves use the engine", async () => {
   const view={sequence:1,activity:{state:"pending"}};let calls=0;const engine={};
   const changes=[{who:"Alex Example",what:"added a note"}];
-  const h=handlers("js/notifications.js","async function takeChanges(","async function load(",{view,renderActivity:noop,validChangesPage:page=>Array.isArray(page.changes),source:engine,sources:{engine},client:{getChanges:async()=>{calls++;},updateChanges:async()=>({changes,next_before:null})}},["takeActivity"]);
+  const h=handlers("js/notifications.js","async function takeChanges(","async function load(",{view,renderActivity:noop,source:engine,sources:{engine},client:{getChanges:async()=>{calls++;},updateChanges:async()=>({changes,cursor:{kind:"end"}})}},["takeActivity"]);
   await h.takeActivity();assert.equal(JSON.stringify(view.activity.payload.changes),JSON.stringify(changes));assert.equal(calls,0);
 });
 

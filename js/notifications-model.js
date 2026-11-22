@@ -144,9 +144,7 @@ export function deepLinkView(deepLink, routes = APP_ROUTE_PATHS) {
  */
 export function notificationCards(payload, routes = APP_ROUTE_PATHS, zone = BUSINESS_TIME_ZONE) {
   if (!validFeedPayload(payload)) return [];
-  if (payload.updates) return payload.updates
-    .filter((row) => row && typeof row === "object" && isText(row.source_id) && isText(row.title))
-    .map((row) => updateCard(row, routes, zone));
+  if (payload.updates) return payload.updates.map((row) => updateCard(row, zone));
   return payload.notifications
     .filter((row) => row && typeof row === "object" && isText(row.id))
     .map((row) => ({
@@ -170,23 +168,61 @@ export function notificationCards(payload, routes = APP_ROUTE_PATHS, zone = BUSI
     }));
 }
 
-/** An engine update is a Home card: its title, its one-line why, and where it opens. */
-function updateCard(row, routes, zone) {
-  const link = deepLinkView(row.open_url, routes);
+function updateCard(row, zone) {
   return {
-    id: row.source_id,
-    severity: null,
-    severityLabel: isText(row.kind_label) ? row.kind_label : "Update",
+    id: row.id,
+    severityLabel: row.label,
     reason: row.title,
-    subject: isText(row.why) ? row.why : "",
-    details: {},
-    clock: formatClock(row.activity_at, zone),
-    read: isText(row.read_at),
-    readClock: formatClock(row.read_at, zone) || null,
+    subject: row.why,
+    clock: formatClock(row.at, zone),
+    reading: row.reading,
+    readClock: row.reading.kind === "read" ? formatClock(row.reading.at, zone) : null,
+    link: row.link,
     delivery: [],
-    quietSuppressed: false,
-    link: link.routed && isText(row.primary_action) ? { ...link, label: row.primary_action } : link,
+    details: {},
   };
+}
+
+const isCount = (value) => Number.isSafeInteger(value) && value >= 0;
+const isDate = (value) => isText(value) && Number.isFinite(Date.parse(value));
+
+export function updateFailure(error) {
+  const code = error?.payload?.error;
+  if (error?.status === 404 && code === "not_found") return { kind: "missing" };
+  if (error?.status === 409 && code === "version_conflict") return { kind: "conflict" };
+  if (error?.status === 400 && code === "invalid_field_value") return {
+    kind: "invalid_fields",
+    fields: Array.isArray(error.payload.fields) ? error.payload.fields.filter(isText) : [],
+  };
+  return { kind: "unavailable" };
+}
+
+export function parseUpdates(payload) {
+  if (!isCount(payload?.unread_count) || !Array.isArray(payload.updates)) throw new Error("Invalid update list");
+  const updates = new Map();
+  for (const row of payload.updates) {
+    const link = deepLinkView(row?.open_url);
+    if (!UUID.test(row?.source_id) || !link.href?.startsWith("/deals?deal=") ||
+        !isDate(row.activity_at) || (row.read_at !== null && !isDate(row.read_at))) throw new Error("Invalid update");
+    if (!updates.has(row.source_id)) updates.set(row.source_id, {
+      id: row.source_id,
+      title: isText(row.title) ? row.title : "Deal update",
+      why: isText(row.why) ? row.why : "",
+      label: isText(row.kind_label) ? row.kind_label : "Update",
+      at: row.activity_at,
+      link: { ...link, label: isText(row.primary_action) ? row.primary_action : link.label },
+      reading: row.read_at === null ? { kind: "unread" } : { kind: "read", at: row.read_at },
+    });
+  }
+  return { unread_count: payload.unread_count, updates: [...updates.values()] };
+}
+
+export function parseMarkedUpdates(payload, ids) {
+  if (payload?.ok !== true || !isCount(payload.unread_count) || !Array.isArray(payload.updates) ||
+      payload.updates.some((row) => !UUID.test(row?.id) || !isDate(row.read_at))) throw new Error("Invalid read receipt");
+  const readTimes = new Map(payload.updates.map((row) => [row.id, row.read_at]));
+  if (readTimes.size !== ids.length || !ids.every((id) => readTimes.has(id))) throw new Error("Incomplete read receipt");
+  return { ok: true, replayed: payload.replayed === true, unread_count: payload.unread_count, readTimes };
 }
 
 /* -------------------------------------------------------------- the UX20 states */
@@ -279,24 +315,20 @@ export function activityRows(events, zone = BUSINESS_TIME_ZONE) {
     }));
 }
 
-/** Who did what from the engine: newest first already, each row openable. */
-export function changeRows(changes, zone = BUSINESS_TIME_ZONE) {
-  return (Array.isArray(changes) ? changes : [])
-    .filter((row) => row && typeof row === "object" && isText(row.who) && isText(row.what))
-    .map((row) => ({
-      actor: row.who,
-      verb: row.what,
-      subject: isText(row.record) ? row.record : "",
-      details: {},
-      clock: formatClock(row.changed_at, zone),
-      link: deepLinkView(row.open_url),
-    }));
+export function parseChangesPage(page) {
+  if (!Array.isArray(page?.changes) || (page.next_before !== null && !isText(page.next_before))) throw new Error("Invalid changes page");
+  const changes = page.changes.map((row) => {
+    const link = deepLinkView(row?.open_url);
+    if (![row?.id, row?.who, row?.what, row?.record].every(isText) || !link.href ||
+        !isDate(row.changed_at)) throw new Error("Invalid change");
+    return { id: row.id, actor: row.who, verb: row.what, subject: row.record, at: row.changed_at, link, details: {} };
+  });
+  const cursor = page.next_before === null ? { kind: "end" } : { kind: "more", before: page.next_before };
+  return { changes, cursor };
 }
 
-export function validChangesPage(page) {
-  return Boolean(page) && Array.isArray(page.changes)
-    && page.changes.every((row) => isText(row?.id))
-    && (page.next_before === null || isText(page.next_before));
+export function changeRows(changes, zone = BUSINESS_TIME_ZONE) {
+  return changes.map((row) => ({ ...row, clock: formatClock(row.at, zone) }));
 }
 
 /* -------------------------------------------------------------- the one write */
@@ -318,12 +350,6 @@ export function acknowledgeArgs(id) {
   const value = String(id || "").trim();
   if (!UUID.test(value)) return { ok: false, message: ID_REFUSAL };
   return { ok: true, args: { notification_id: value } };
-}
-
-/** The engine's mark-read takes a list of update ids. */
-export function markReadArgs(id) {
-  const built = acknowledgeArgs(id);
-  return built.ok ? { ok: true, args: { update_ids: [built.args.notification_id] } } : built;
 }
 
 /* ------------------------------------------ the preference form (WR-000116) */
@@ -373,27 +399,22 @@ export function preferenceTimeLabel(value) {
   return `${Number(hour) % 12 || 12}:${minute} ${Number(hour) < 12 ? "AM" : "PM"}`;
 }
 
-const validEnginePreference = (payload) => Boolean(payload) && typeof payload === "object"
-  && isText(payload.time_zone) && typeof payload.push_to_device === "boolean"
-  && Number.isSafeInteger(payload.base_version) && payload.base_version >= 0
-  && [payload.quiet_from, payload.quiet_until].every((value) => value === null || typeof value === "string");
+export function parseEnginePreference(payload) {
+  if (!isText(payload?.time_zone) || typeof payload.push_to_device !== "boolean" ||
+      !isCount(payload.base_version) ||
+      ![payload.quiet_from, payload.quiet_until].every((value) => value === null || /^([01]\d|2[0-3]):[0-5]\d$/.test(value)))
+    throw new Error("Invalid preferences");
+  return {
+    deviceOptIn: payload.push_to_device,
+    start: payload.quiet_from,
+    end: payload.quiet_until,
+    timezone: payload.time_zone,
+    version: payload.base_version,
+    quietHoursSet: payload.quiet_from !== null && payload.quiet_until !== null,
+  };
+}
 
-/** Everything the panel draws, decided once, from either answer alone. */
 export function preferenceView(payload) {
-  if (validEnginePreference(payload)) {
-    const start = toInputTime(payload.quiet_from);
-    const end = toInputTime(payload.quiet_until);
-    return {
-      exists: payload.base_version > 0,
-      deviceOptIn: payload.push_to_device,
-      start,
-      end,
-      timezone: payload.time_zone,
-      version: payload.base_version,
-      quietNow: false,
-      quietHoursSet: start !== null && end !== null,
-    };
-  }
   if (!validPreferencePayload(payload)) return null;
   const start = toInputTime(payload.quiet_hours_start);
   const end = toInputTime(payload.quiet_hours_end);
@@ -438,8 +459,8 @@ export function classifyPreferenceReadFailure(error) {
   return { state: "unknown" };
 }
 
-export function preferenceState(read = {}) {
-  if (read.state === "read" && preferenceView(read.payload)) return { state: "ready", sentence: null };
+export function preferenceState(read = {}, model = preferenceView(read.payload)) {
+  if (read.state === "read" && model) return { state: "ready", sentence: null };
   if (["refused", "unavailable", "unknown"].includes(read.state)) {
     return { state: read.state, sentence: PREFERENCE_STATES[read.state] };
   }
@@ -537,9 +558,6 @@ export const PREFERENCE_REFUSALS = Object.freeze({
     "Preferences were not saved.",
   notification_preference_not_set:
     "Preferences were not saved.",
-  // The engine's only field refusal left once the page has checked the quiet-hours pair.
-  invalid_field_value:
-    "Timezone unavailable. Preferences were not saved.",
 });
 
 export const VERSION_CONFLICT = "version_conflict";
