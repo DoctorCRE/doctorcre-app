@@ -81,7 +81,6 @@ test("engine sign-in preserves deep links, gates redirects, and protects GET and
     ["/leads?owner=partner", "/leads.html", 200],
     ["/leads?lead=L-123", "/leads.html", 200],
     ["/business?q=Example", "/search?q=Example", 308],
-    ["/a/synthetic", "/action-link.html", 200],
     ["/inbox/card/synthetic?show=mail", "/inbox.html", 200],
     ["/control-room/progress/board/carr-v5", "/progress-board.html", 200],
     ["/share?view=map", "/reports/share.html", 200],
@@ -113,6 +112,41 @@ test("engine sign-in preserves deep links, gates redirects, and protects GET and
   const publicCount = calls.partner.length;
   for (const path of ["/status", "/css/tokens.css", "/offline.html"]) assert.equal((await send(path)).status, 200);
   assert.equal(calls.partner.length, publicCount);
+});
+
+test("engine action links are gated and accept only known destinations", async () => {
+  const path = "/a/al1_demo?extra=discard";
+  const resolver = staging + "/api/engine/action-links/al1_demo";
+  let answer = () => Response.json({ kind: "lead", path: `/leads?lead=${deal}` });
+  const { send, calls } = fixture((input) => (input.url === resolver ? answer() : status(input)));
+
+  const denied = await send(path);
+  assert.equal(denied.status, 302);
+  assert.equal(new URL(denied.headers.get("location") ?? "").searchParams.get("return_to"), path);
+  assert.deepEqual(
+    calls.partner.map((input) => input.url),
+    [staging + "/auth/session"],
+  );
+
+  const admitted = await send(path, { method: "HEAD", headers: { cookie: mixedCookies } });
+  assert.equal(admitted.status, 302);
+  assert.equal(admitted.body, null);
+  assert.equal(admitted.headers.get("location"), `${staging}/leads?lead=${deal}`);
+  assert.equal(admitted.headers.get("cache-control"), "no-store");
+  assert.equal(calls.partner.at(-1)?.url, resolver);
+  assert.equal(calls.partner.at(-1)?.method, "GET");
+  assert.equal(calls.partner.at(-1)?.headers.get("cookie"), cookie);
+
+  answer = () => Response.json({ error: "unauthorized" }, { status: 401 });
+  const expired = await send(path, { headers: { cookie } });
+  assert.equal(expired.status, 302);
+  assert.equal(new URL(expired.headers.get("location") ?? "").searchParams.get("return_to"), path);
+
+  answer = () => Response.json({ kind: "lead", path: "https://example.test/leads?lead=demo" });
+  const badTarget = await send(path, { headers: { cookie } });
+  assert.equal(badTarget.status, 503);
+  assert.equal(badTarget.headers.get("location"), null);
+  assert.equal(calls.carr.length, 0);
 });
 
 test("the workspace release flag still refuses its feature pages in engine mode", async () => {

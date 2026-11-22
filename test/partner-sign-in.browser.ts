@@ -5,6 +5,7 @@ import type { Page } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
+import carrReply from "./fixtures/action-link-reply.v2.json" with { type: "json" };
 import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
 import { detail, emptyQuietFollowUps, lead, workspace } from "./leads-workspace-fixture.mjs";
@@ -19,6 +20,14 @@ const partners = new Map([
 const deepLink = "/leads?mode=live&filter=open";
 const copiedLeadAlias = "30000000-0000-0000-0000-000000000101";
 const docLink = "/api/engine/doc/link";
+const actionLinkRef = (value: string) => `al1_${Buffer.from(value).toString("base64url")}`;
+const leadRef = actionLinkRef("ld:44444444-4444-4444-8444-444444444444");
+const successorDraft = "66666666-6666-4666-8666-666666666666";
+const replyTitle = "Reply to the demo relocation email";
+const linkedItem = `reply_draft:${successorDraft}`;
+const linkedCard = `/api/engine/home/cards/${linkedItem}`;
+const linkedCardRead = `/api/engine/home/cards/${encodeURIComponent(linkedItem)}`;
+const actionResolver = "/api/engine/action-links/";
 const dealId = "11111111-1111-4111-8111-111111111111";
 const dealName = "Demo deal on engine sign-in";
 const filingId = "55555555-5555-4555-8555-555555555555";
@@ -41,12 +50,7 @@ const dealDetail = {
   activities: [{ id: activityId, kind: "call", summary: callSummary, occurred_at: "2026-01-01T12:00:00Z" }],
   thread: [{ id: noteId, kind: "note", actor: "joe", text: noteSummary, created_at: "2026-01-02T12:00:00Z" }],
 };
-const pages = [
-  "/invoices?mode=live",
-  "/control-room/progress?mode=live",
-  "/pipeline?mode=live",
-  "/a/synthetic?mode=live",
-];
+const pages = ["/invoices?mode=live", "/control-room/progress?mode=live", "/pipeline?mode=live"];
 const artifacts = "out/test-artifacts/partner-sign-in";
 let assets: ReturnType<typeof appAssetSnapshot> | undefined;
 let browser: ReturnType<typeof chromium.launch> | undefined;
@@ -108,18 +112,20 @@ async function app(
                 ? dealBoard
                 : params.name === "get-deal-room"
                   ? dealDetail
-                  : params.name === "read-activity-deal-attribution"
-                    ? {
-                        schema: "activity-deal-attribution.v1",
-                        state: "empty",
-                        attribution: "unknown",
-                        activity: null,
-                        direct: null,
-                        candidates: [],
-                        credited_activity_count: 0,
-                        coverage: "unknown",
-                      }
-                    : {};
+                  : params.name === "resolve-action-link-v2" && params.arguments.ref === carrReply.ref
+                    ? carrReply
+                    : params.name === "read-activity-deal-attribution"
+                      ? {
+                          schema: "activity-deal-attribution.v1",
+                          state: "empty",
+                          attribution: "unknown",
+                          activity: null,
+                          direct: null,
+                          candidates: [],
+                          credited_activity_count: 0,
+                          coverage: "unknown",
+                        }
+                      : {};
             return Response.json({
               jsonrpc: "2.0",
               id,
@@ -196,7 +202,26 @@ async function app(
           links.delete(token);
           return new Response(null, { status: 204 });
         }
-        if (path === "/api/engine/home/inbox") {
+        if (path.startsWith(actionResolver)) {
+          assert.equal(input.method, "GET");
+          assert.equal(url.search, "");
+          if (path === actionResolver + carrReply.ref) return Response.json({ kind: "reply_draft", path: linkedCard });
+          if (path === actionResolver + leadRef)
+            return Response.json({ kind: "lead", path: `/leads?lead=${copiedLeadAlias}` });
+          return Response.json({ error: "action_link_unavailable" }, { status: 404 });
+        }
+        if (path === `/api/engine/reply-drafts/${successorDraft}`)
+          return Response.json({
+            draft_id: successorDraft,
+            version: 2,
+            status: "pending",
+            subject: "Re: Demo relocation",
+            body: "Here is the updated demo reply.",
+            to: "sender@example.test",
+            cc: "partner@example.test",
+            attachments: [],
+          });
+        if (path === "/api/engine/home/inbox" || path === linkedCardRead) {
           const empty = { count: 0, items: [] };
           const item = {
             card_id: `conversation:${filingId}`,
@@ -229,6 +254,20 @@ async function app(
             filing_choices: filingChoices,
             suggestions: [{ id: filingId }],
           };
+          if (path === linkedCardRead)
+            return Response.json({
+              ...item,
+              card_id: `conversation:${successorDraft}`,
+              item_id: linkedItem,
+              kind_label: "Reply draft",
+              merged_source_ids: [successorDraft],
+              source_id: successorDraft,
+              source_version: "2",
+              title: replyTitle,
+              reply_draft_id: successorDraft,
+              reply_draft_status: "pending",
+              suggestions: [],
+            });
           return Response.json({
             ok: true,
             schema_version: "home-inbox.v5",
@@ -378,6 +417,66 @@ test("Home and the old Updates link load on the engine session and handle expiry
   await page.waitForURL("**/public-shell/session-ended.html");
   await page.getByRole("heading", { name: "Session ended" }).waitFor();
   await page.getByRole("link", { name: "Sign in again" }).waitFor();
+});
+
+test("an engine action link opens the successor reply with Home review controls", async (t) => {
+  const { server, context, partnerReads, carrChecks } = await app(t);
+  const page = await context.newPage();
+  const path = `/a/${carrReply.ref}?mode=live`;
+  const response = await page.goto(server.origin + path);
+  assert.ok(response);
+  assert.equal(new URL(response.url()).pathname, `/inbox/card/${linkedItem}`);
+  const login = response.request().redirectedFrom()?.redirectedFrom()?.redirectedFrom();
+  assert.ok(login);
+  assert.equal(new URL(login.url()).searchParams.get("return_to"), path);
+  await page.getByRole("heading", { name: replyTitle }).waitFor({ timeout: 5000 });
+  await page.getByText("Here is the updated demo reply.", { exact: true }).waitFor({ timeout: 5000 });
+  await page.getByRole("button", { name: "Send reply", exact: true }).waitFor({ timeout: 5000 });
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  assert.equal(await page.getByRole("textbox", { name: "Subject", exact: true }).inputValue(), "Re: Demo relocation");
+  assert.equal(partnerReads.get(actionResolver + carrReply.ref), `${cookieName}=first`);
+  assert.equal(partnerReads.get(linkedCardRead), `${cookieName}=first`);
+  assert.equal(partnerReads.has("/api/engine/home/inbox?view=dashboard"), false);
+  assert.equal(carrChecks(), 0);
+});
+
+test("an engine action link opens the resolved lead drawer", async (t) => {
+  const { server, context, partnerReads, carrChecks } = await app(t);
+  const page = await context.newPage();
+  await page.goto(server.origin + `/a/${leadRef}?mode=live`);
+  const destination = new URL(page.url());
+  assert.equal(destination.pathname, "/leads");
+  assert.equal(destination.searchParams.get("lead"), copiedLeadAlias);
+  await page.locator("#leadDetail").getByRole("heading", { name: "Dr. Example 1" }).waitFor({ timeout: 5000 });
+  assert.equal(partnerReads.get(actionResolver + leadRef), `${cookieName}=first`);
+  assert.equal(carrChecks(), 0);
+});
+
+test("unavailable engine action links show the same page for missing and retired records", async (t) => {
+  const { server, context, partnerReads, carrChecks } = await app(t);
+  const page = await context.newPage();
+  const id = "44444444-4444-4444-8444-444444444444";
+  for (const ref of ["missing", actionLinkRef(`cr:${id}:1`), actionLinkRef(`fe:${id}`)]) {
+    const response = await page.goto(server.origin + `/a/${ref}?mode=live`);
+    assert.ok(response);
+    assert.equal(response.status(), 404);
+    assert.equal(response.headers()["cache-control"], "no-store");
+    await page.getByRole("heading", { name: "This link is no longer available", exact: true }).waitFor();
+    assert.equal(await page.getByRole("link", { name: "Back to Home" }).getAttribute("href"), "/");
+    assert.equal(partnerReads.get(actionResolver + ref), `${cookieName}=first`);
+  }
+  assert.equal(carrChecks(), 0);
+});
+
+test("a CARR action link still opens the approval screen through its legacy resolver", async (t) => {
+  const { server, context, partnerReads } = await app(t, { signIn: "carr" });
+  const page = await context.newPage();
+  const path = `/a/${carrReply.ref}?mode=live`;
+  await page.goto(server.origin + path);
+  await page.getByRole("heading", { name: carrReply.card.subject }).waitFor({ timeout: 5000 });
+  await page.getByRole("button", { name: "Submit reply for sending", exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(page.url(), server.origin + path);
+  assert.equal(partnerReads.size, 0);
 });
 
 test("Home filing searches vendors on the engine session", async (t) => {
