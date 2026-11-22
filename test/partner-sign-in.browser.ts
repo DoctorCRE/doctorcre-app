@@ -751,7 +751,9 @@ for (const [scenario, documentText, message] of [
       )
         legacyReads.push(request.url());
     });
-    await page.goto(server.origin + dealPage);
+    await page.goto(server.origin + "/deals?mode=live");
+    const dealCard = page.getByRole("button", { name: dealName, exact: true });
+    await dealCard.click();
     await page.getByRole("tab", { name: "Documents", exact: true }).click();
     const panel = page.getByRole("tabpanel", { name: "Documents" });
     assert.equal(
@@ -759,9 +761,8 @@ for (const [scenario, documentText, message] of [
       `/api/engine/documents/${filedDocument.id}`,
     );
     assert.equal(partnerReads.has(documentTextPath), false);
-    await panel
-      .getByRole("button", { name: `Open text for ${filedDocument.name}, Version 1` })
-      .click({ timeout: 4000 });
+    const openText = panel.getByRole("button", { name: `Open text for ${filedDocument.name}, Version 1` });
+    await openText.click({ timeout: 4000 });
     const dialog = page.getByRole("dialog", { name: filedDocument.name });
     if (message) {
       await dialog.getByText(message, { exact: true }).waitFor();
@@ -782,6 +783,11 @@ for (const [scenario, documentText, message] of [
     assert.deepEqual(legacyReads, []);
     await dialog.getByRole("button", { name: "Close document text" }).click();
     await dialog.waitFor({ state: "hidden" });
+    if (!message) {
+      await openText.click();
+      await page.goBack();
+      await dealCard.click({ timeout: 4000 });
+    }
   });
 }
 

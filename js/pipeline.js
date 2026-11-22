@@ -2308,6 +2308,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); url.searchParams.delete('checklist'); url.searchParams.delete('property'); writeWorkspaceHistory({},url); }
+  $('workspace-documents')?.querySelector('.deal-document-text[open]')?.close();
   $('recordPanel').hidden = true; $('main').hidden = false;
   document.body.classList.remove('workspace-open');
   state.panelDeal = null; state.panelStepId = null; state.panelDetail = null;
