@@ -547,10 +547,6 @@ export function createLiveClient(opts = {}) {
       return data;
     },
 
-    async presenceLease({ deal, field, idempotency_key }) {
-      return write('presence-lease', { deal, field, idempotency_key });
-    },
-
     async patchDealField(args) {
       if (args.field === 'phase' && UI_TO_PHASE[args.value]) {
         args = { ...args, value: UI_TO_PHASE[args.value] };

@@ -2358,12 +2358,6 @@ async function openContextDrawer() {
 }
 
 
-function leasePhase(dealId) {
-  if (state.nextDealSaves) return;
-  state.client.presenceLease({ deal: dealId, field: 'phase', idempotency_key: uuidv4() })
-    .catch(() => { /* a courtesy, never a requirement */ });
-}
-
 function beginMove(dealId, toSlug, deal = state.deals.get(dealId), { wonOrLost = false } = {}) {
   const intent = moveIntent(deal, toSlug);
   state.lifted = null;
@@ -2426,7 +2420,6 @@ function wireBoard() {
     card.dataset.dragging = 'true';
     event.dataTransfer.setData('text/plain', card.dataset.id);
     event.dataTransfer.effectAllowed = 'move';
-    leasePhase(card.dataset.id);
   });
   board.addEventListener('dragend', () => {
     board.querySelectorAll('[data-dragging="true"]').forEach((card) => card.removeAttribute('data-dragging'));
@@ -2471,7 +2464,6 @@ function wireBoard() {
       event.preventDefault();
       state.lifted = id;
       state.target = here ? here.slug : COLUMNS[0].slug;
-      leasePhase(id);
       announce(`${dealTitle(deal)} lifted from ${columnLabel(deal.phase)}. Use the arrow keys to choose a column, Enter to drop, Escape to cancel.`);
       renderBoard();
       document.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`)?.focus();
