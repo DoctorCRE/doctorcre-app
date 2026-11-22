@@ -181,10 +181,10 @@ function assetPath(pathname) {
 }
 
 async function pageSwitches(env) {
-  const [homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine] = await Promise.all([
-    routeToEngine(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES), switchedOn(env, CLIENTS_VENDORS),
+  const [homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine] = await Promise.all([
+    routeToEngine(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES), switchedOn(env, CLIENTS_VENDORS), switchedOn(env, DEAL_TOURS),
   ]);
-  return { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine };
+  return { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine };
 }
 
 async function assetResponse(request, env, path, switches) {
@@ -203,8 +203,9 @@ async function assetResponse(request, env, path, switches) {
   if (path === "/public-shell/sw.js") headers.set("service-worker-allowed", "/");
   const asset = secure(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), path);
   if (request.method !== 'GET' || !asset.ok || !path.endsWith('.html')) return asset;
-  const { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine } = switches ?? await pageSwitches(env);
-  if (!homeToday && !dealsFromEngine && !dealSavesFromEngine && !clientsVendorsFromEngine) return asset;
+  const { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine } = switches ?? await pageSwitches(env);
+  const tourPlanner = path === '/pipeline.html' && dealToursFromEngine;
+  if (!homeToday && !dealsFromEngine && !dealSavesFromEngine && !clientsVendorsFromEngine && !tourPlanner) return asset;
   const date = dealSavesFromEngine && ['/pipeline.html', '/lease-anniversaries.html', '/workspace.html', '/inbox.html'].includes(path)
     ? await env.ENGINE_ROUTING.get('deal-cutover-date', { cacheTtl: 30 }).catch(() => null)
     : null;
@@ -213,6 +214,7 @@ async function assetResponse(request, env, path, switches) {
       if (homeToday) node.setAttribute('data-home-today-from-engine', '');
       if (engineSignIn(env)) node.setAttribute('data-updates-from-engine', '');
       if (clientsVendorsFromEngine) node.setAttribute('data-clients-vendors-from-engine', '');
+      if (tourPlanner) node.setAttribute('data-deal-tours-from-engine', '');
       if (dealsFromEngine) node.setAttribute('data-deals-from-engine', '');
       if (dealSavesFromEngine) node.setAttribute('data-deals-saves-from-engine', /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '');
     },
@@ -243,6 +245,7 @@ const isString = value => typeof value === 'string';
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const DEALS = 'deals-from-engine';
 const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
+const DEAL_TOURS = 'deal-tours-from-engine';
 const LEADS = 'leads-from-engine';
 const HOME = 'home-from-engine';
 const HOME_TODAY = '/api/engine/home/today';
@@ -1047,6 +1050,8 @@ async function handleRequest(request, env) {
   }
 
   if (pathname.startsWith('/api/engine/')) {
+    const tourPlanner = /^\/api\/engine\/deals\/[^/]+\/tours(?:\/|$)/.test(pathname) || pathname === '/api/engine/properties/search';
+    if (tourPlanner && !await switchedOn(env, DEAL_TOURS)) return json({ error: 'not_found' }, 404);
     if (/^\/api\/engine\/doc\/(turns|conversations)(?:\/|$)/.test(pathname) && !engineSignIn(env))
       return json({ error: 'not_found' }, 404);
     const documentWriteMethod = /^\/api\/engine\/files\/[a-f0-9]{64}$/.test(pathname) ? 'PUT'

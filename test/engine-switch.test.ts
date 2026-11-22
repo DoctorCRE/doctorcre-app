@@ -2358,7 +2358,7 @@ test("old settle operations cannot reach the engine Home marks door", async () =
   assert.deepEqual(f.carr, []);
 });
 
-test("workspace HTML selects all three engine switches independently", async (t) => {
+test("workspace HTML selects engine switches independently", async (t) => {
   const html = "<!doctype html><html><body>Example workspace</body></html>";
   const setAttribute = t.mock.fn();
   const transform = t.mock.fn((asset: Response) => asset);
@@ -2398,7 +2398,9 @@ test("workspace HTML selects all three engine switches independently", async (t)
       ]) {
         setAttribute.mock.resetCalls();
         transform.mock.resetCalls();
+        const tourPlans = !deals && !saves;
         const switches = new Map([
+          ["deal-tours-from-engine", tourPlans ? "on" : "off"],
           ["home-from-engine", home ? "on" : "off"],
           ["clients-vendors-from-engine", path === "/vendors" ? "on" : "off"],
           ["deals-from-engine", deals ? "on" : "off"],
@@ -2444,6 +2446,9 @@ test("workspace HTML selects all three engine switches independently", async (t)
         const attributes = setAttribute.mock.calls.map(({ arguments: args }) => args[0]).sort();
         const expected = [
           ...(path === "/vendors" ? ["data-clients-vendors-from-engine"] : []),
+          ...(tourPlans && new URL(chosen?.url ?? "").pathname === "/pipeline.html"
+            ? ["data-deal-tours-from-engine"]
+            : []),
           ...(deals ? ["data-deals-from-engine"] : []),
           ...(saves ? ["data-deals-saves-from-engine"] : []),
           ...(home ? ["data-home-today-from-engine"] : []),
@@ -2452,8 +2457,8 @@ test("workspace HTML selects all three engine switches independently", async (t)
         const date = setAttribute.mock.calls.find(({ arguments: args }) => args[0] === "data-deals-saves-from-engine");
         if (saves)
           assert.equal(date?.arguments[1], ["/", "/inbox", "/deals", "/leases"].includes(path) ? "2025-06-12" : "");
-        assert.equal(transform.mock.callCount(), Number(home || deals || saves || path === "/vendors"));
-        if (!home && !deals && !saves && path !== "/vendors") {
+        assert.equal(transform.mock.callCount(), Number(expected.length > 0));
+        if (!expected.length) {
           assert.equal(await response.text(), html);
         }
       }

@@ -59,9 +59,11 @@ async function app(
     theme = "dark",
     signIn = "engine",
     holdDocIssue,
+    touch = false,
     readAttribution,
   }: {
     width?: number;
+    touch?: boolean;
     theme?: "dark" | "light";
     signIn?: "engine" | "carr";
     holdDocIssue?: Promise<void>;
@@ -302,6 +304,7 @@ async function app(
   browser ??= chromium.launch();
   const context = await (await browser).newContext({
     viewport: { width, height: 850 },
+    hasTouch: touch,
     colorScheme: theme,
   });
   t.after(() => context.close());
@@ -533,7 +536,7 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
   page.on("request", (request) => {
     const { pathname } = new URL(request.url());
     if (
-      pathname.startsWith("/api/tours/") ||
+      /\/api\/(?:tours\/|engine\/(?:deals\/[^/]+\/tours|properties\/search))/.test(pathname) ||
       pathname === "/api/v1/market-terms/read" ||
       (pathname === "/mcp" && /read-subject-watch-v2|read-activity-deal-attribution/.test(request.postData() ?? ""))
     )
@@ -551,7 +554,7 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
     .getByRole("tabpanel", { name: "Compare terms" })
     .getByText("No comparable terms match these filters.", { exact: true })
     .waitFor({ timeout: 4000 });
-  await room.getByRole("tab", { name: "Tours" }).click();
+  await room.getByRole("tab", { name: "Tours", exact: true }).click();
   await room
     .getByRole("tabpanel", { name: "Tours" })
     .getByText("Not available yet", { exact: true })
@@ -561,6 +564,186 @@ test("Compare terms is empty on engine sign-in and legacy deal features make no 
     false,
   );
   assert.deepEqual(legacyRequests, []);
+});
+
+const tour = "33333333-3333-4333-8333-333333333333";
+const first = "44444444-4444-4444-8444-444444444444";
+const second = "55555555-5555-4555-8555-555555555555";
+const added = "66666666-6666-4666-8666-666666666666";
+const tours = `/api/engine/deals/${dealId}/tours`;
+const preview = "November 24, 2026\n\n1. Example Clinic, 10 Example Way\n2. 30 Example Way";
+const clinic = { id: first, name: "Example Clinic", address: "10 Example Way" };
+const annex = { id: second, name: null, address: "20 Example Way" };
+type Stop = { property_id: string } | { address: string; name: string | null };
+type Draft = { planned_on: string; notes: string | null; stops: Stop[]; idempotency_key: string };
+
+function tourFixture(t: TestContext) {
+  const properties = [clinic, annex];
+  const writes: Draft[] = [];
+  let saved: Draft | undefined;
+  let failSave = false;
+  async function open(actor = "joe") {
+    const { server, context } = await app(t, { width: 390, touch: true });
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const page = await context.newPage();
+    await page.request.get(`${server.origin}/auth/callback/google?fixture=${actor === "joe" ? "first" : "second"}`);
+    await page.route("**/deals?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.text()).replace("<html", "<html data-deal-tours-from-engine");
+      await route.fulfill({ response, body });
+    });
+    await page.route(/\/api\/engine\/(deals\/[^/]+\/tours|properties\/search)/, async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const path = url.pathname;
+      if (path === "/api/engine/properties/search") {
+        const query = url.searchParams.get("query")?.toLowerCase();
+        return route.fulfill({
+          json: {
+            properties: properties.filter((p) => query && `${p.name} ${p.address}`.toLowerCase().includes(query)),
+          },
+        });
+      }
+      if (request.method() === "POST") {
+        const draft: Draft = request.postDataJSON();
+        writes.push(draft);
+        assert.equal(request.headers()["x-carr-csrf"], `fixture-${actor === "joe" ? "first" : "second"}`);
+        if (failSave) return route.fulfill({ status: 422, json: { error: "invalid_field_value", fields: ["stops"] } });
+        if (draft.stops.some((stop) => "property_id" in stop && !properties.some((p) => p.id === stop.property_id)))
+          return route.fulfill({
+            status: 422,
+            json: {
+              error: "database_refused_the_statement",
+              rule: "tour_stop_property_id_fkey",
+              correlation_id: tour,
+              hint: "The operation could not be completed. Quote the correlation_id when reporting it.",
+            },
+          });
+        const stops = draft.stops.map((stop) => {
+          if ("property_id" in stop) return stop;
+          properties.push({ ...stop, id: added });
+          return { property_id: added };
+        });
+        saved = { ...draft, stops };
+        return route.fulfill({ status: 201, json: { id: tour, revision: 1 } });
+      }
+      if (path === tours)
+        return route.fulfill({ json: { tours: saved ? [{ id: tour, planned_on: saved.planned_on }] : [] } });
+      if (path === `${tours}/${tour}/stop-list`) return route.fulfill({ json: { text: preview } });
+      assert.ok(saved && path === `${tours}/${tour}`);
+      const stops = saved.stops.map((stop, index) => {
+        const property = properties.find((p) => "property_id" in stop && p.id === stop.property_id);
+        assert.ok(property);
+        return { property_id: property.id, name: property.name, address: property.address, position: index + 1 };
+      });
+      return route.fulfill({
+        json: { ...saved, id: tour, deal_id: dealId, stops, completed_activity_id: null, cancelled_at: null },
+      });
+    });
+    await page.goto(`${server.origin}/deals?mode=live&deal=${dealId}`);
+    return page;
+  }
+  return {
+    open,
+    writes,
+    removeAnnex: () => properties.splice(properties.indexOf(annex), 1),
+    fail: (value: boolean) => {
+      failSave = value;
+    },
+  };
+}
+
+test("partners plan, open, and copy a tour at phone width", async (t) => {
+  const fixture = tourFixture(t);
+  const joe = await fixture.open();
+  const button = (name: string) => joe.getByRole("button", { name, exact: true });
+  await joe.getByRole("tab", { name: "Tours" }).click();
+  await joe.getByText("No planned tours.", { exact: true }).waitFor();
+  await button("Plan tour").click();
+  await joe.getByLabel("Tour date").fill("2026-11-24");
+  await button("Save tour").click();
+  await joe.getByText("Add at least one property.").waitFor();
+  const search = async (query: string) => {
+    await joe.getByLabel("Property name or address").fill(query);
+    await button("Search properties").click();
+  };
+  await search("Clinic");
+  await button("Example Clinic, 10 Example Way").click();
+  await search("20 Example Way");
+  await button("20 Example Way").click();
+  await joe.getByRole("listitem").filter({ hasText: "20 Example Way" }).getByRole("button", { name: "Remove" }).tap();
+  await search("30 Example Way");
+  await joe.getByText("No properties found.").waitFor();
+  await joe.getByLabel("New property address").fill("30 Example Way");
+  await button("Add property").click();
+  await button("Move up").press("Enter");
+  const firstStop = joe.getByRole("list", { name: "Tour stops" }).getByRole("listitem").first();
+  assert.match((await firstStop.textContent()) ?? "", /^30 Example Way/);
+  await button("Move down").tap();
+  await joe.getByLabel("Tour notes (optional)").fill("Private notes for the visit");
+  fixture.fail(true);
+  await button("Save tour").click();
+  await joe.getByText("Check the properties in the stop list.").waitFor();
+  assert.equal(await joe.getByLabel("Tour notes (optional)").inputValue(), "Private notes for the visit");
+  assert.equal(await joe.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  fixture.fail(false);
+  await button("Save tour").click();
+  await joe.locator("#workspace-tours summary", { hasText: "November 24, 2026" }).waitFor();
+  const stops = [{ property_id: first }, { address: "30 Example Way", name: null }];
+  assert.deepEqual(
+    fixture.writes.map((draft) => draft.stops),
+    [stops, stops],
+  );
+  assert.equal(fixture.writes[0]?.idempotency_key, fixture.writes[1]?.idempotency_key);
+  await button("Preview stop list").click();
+  assert.equal(await joe.getByLabel("Client stop list").inputValue(), preview);
+  await joe.locator("#workspace-tours").screenshot({ path: `${artifacts}/tour-plan-390.png` });
+  await button("Copy stop list").click();
+  await joe.getByText("Stop list copied.").waitFor();
+  assert.equal(await joe.evaluate(() => navigator.clipboard.readText()), preview);
+  assert.equal(await joe.getByRole("navigation", { name: "Primary" }).getByText("Tours", { exact: true }).count(), 0);
+
+  const dell = await fixture.open("dell");
+  await dell.getByRole("tab", { name: "Tours" }).click();
+  const listed = dell.locator("#workspace-tours summary", { hasText: "November 24, 2026" });
+  await listed.waitFor();
+  assert.equal(await listed.count(), 1);
+  await listed.click();
+  await dell.getByText("Private notes for the visit").waitFor();
+  assert.deepEqual(await dell.getByRole("list", { name: "Tour stops" }).getByRole("listitem").allTextContents(), [
+    "Example Clinic, 10 Example Way",
+    "30 Example Way",
+  ]);
+});
+
+test("an unavailable tour stop is named and the remaining draft can be saved", async (t) => {
+  const fixture = tourFixture(t);
+  const page = await fixture.open();
+  const button = (name: string) => page.getByRole("button", { name, exact: true });
+  await page.getByRole("tab", { name: "Tours" }).click();
+  await button("Plan tour").click();
+  await page.getByLabel("Tour date").fill("2026-11-24");
+  await page.getByLabel("Tour notes (optional)").fill("Bring the floor plan");
+  for (const property of [clinic, annex]) {
+    await page.getByLabel("Property name or address").fill(property.address);
+    await button("Search properties").click();
+    await button(property.name ? `${property.name}, ${property.address}` : property.address).click();
+  }
+  fixture.removeAnnex();
+  await button("Save tour").click();
+  await page
+    .getByText("20 Example Way is no longer available. Remove or reselect this stop.", { exact: true })
+    .waitFor({ timeout: 5000 });
+  assert.equal(await page.getByLabel("Tour date").inputValue(), "2026-11-24");
+  assert.equal(await page.getByLabel("Tour notes (optional)").inputValue(), "Bring the floor plan");
+  const stops = page.getByRole("list", { name: "Tour stops" }).getByRole("listitem");
+  assert.equal(await stops.count(), 2);
+  await stops.filter({ hasText: annex.address }).getByRole("button", { name: "Remove" }).click();
+  await button("Save tour").click();
+  await page.locator("#workspace-tours summary", { hasText: "November 24, 2026" }).waitFor();
+  assert.equal(fixture.writes.length, 2);
+  assert.deepEqual(fixture.writes[1]?.stops, [{ property_id: first }]);
+  assert.equal(fixture.writes[1]?.notes, "Bring the floor plan");
 });
 
 test("a saved Leads link opens on the engine session, supports claim and prompts after expiry", async (t) => {
