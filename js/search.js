@@ -147,11 +147,13 @@ function replaceAddress() {
  * Back. The query and the chips are restored from the URL and the page
  * reads results for that query rather than reusing another query’s payload.
  */
-function restoreFromAddress({ reread = true } = {}) {
+function restoreFromAddress({ reread = true, query } = {}) {
+  clearTimeout(idleTimer);
   const address = parseSearchAddress(globalThis.location?.search || "");
-  if (view.query !== address.query) view.payload = null;
-  view.query = address.query;
+  if (view.query !== (query ?? address.query)) view.payload = null;
+  view.query = query ?? address.query;
   view.kinds = [...address.kinds];
+  if (query !== undefined) replaceAddress();
   if (reread) read({ push: false });
   else render();
   return address;
@@ -170,12 +172,13 @@ function wire() {
   // Typing invalidates the current answer immediately, then reads once idle.
   $("searchQuery")?.addEventListener("input", () => {
     view.query = $("searchQuery")?.value ?? "";
+    replaceAddress();
     searchReads.invalidate();
     setDocFilters({ query: view.query });
     if (idleTimer) clearTimeout(idleTimer);
     view.payload = null;
     view.status = "idle";
-    if (!view.query.trim()) { read({ push: true }); return; }
+    if (!view.query.trim()) { read({ push: false }); return; }
     render();
     // eslint-disable-next-line no-restricted-syntax -- Search keeps one 300ms debounce and cancels its predecessor.
     idleTimer = setTimeout(() => read({ push: false }), IDLE_REREAD_MS);
@@ -260,8 +263,9 @@ export function mountSearch({ client: searchClient, storage: storageImpl } = {})
   }, {once:true});
   renderSavedViews();
   $("savedViewNote").textContent = SAVED_VIEW_SENTENCE;
+  const typedQuery = $("searchQuery")?.value ?? "";
   wire();
-  const address = restoreFromAddress({ reread: true });
+  const address = restoreFromAddress({ reread: true, query: typedQuery || undefined });
   mountAutoRefresh({ document, window: globalThis.window, refresh: ({ signal }) => view.query ? read({ push: false, signal }) : undefined });
   return { view, address };
 }

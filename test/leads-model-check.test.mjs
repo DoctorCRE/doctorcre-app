@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BOARD_STAGES,FILTER_STAGES,eligibleLead,leadTitle,visibleLeads,marketCounts,stageReview,undoReview } from '../js/leads-model.js';
 import {marketFeatures,marketLocation} from '../js/leads-territory-map.js';
-import {lead,leads,detail} from './leads-workspace-fixture.mjs';
+import {lead,leads,detail,workspace,id,emptyQuietFollowUps} from './leads-workspace-fixture.mjs';
+import { readFile } from 'node:fs/promises';
+import { JSDOM } from 'jsdom';
+import { mountLeadsWorkspace } from '../js/leads-workspace-app.js';
 const projectMarkets = (rows, places) => marketFeatures(marketCounts(rows, {}, row => marketLocation(row, places)));
 test('six stages, filter-only archive, exact lifecycle exclusions, suppression everywhere',()=>{
  assert.deepEqual(BOARD_STAGES.map(x=>x[1]),['New','Qualified','Outreach Active','Engaged','Nurture','Opportunity']);
@@ -142,4 +145,26 @@ test('stage clock orders exact fractional instants before limiting evidence', ()
  const entries = ['2026-03-09T12:00:00.123456789000000000000000000002Z','2026-03-09T06:00:00.123456789000000000000000000003-06:00','2026-03-09T12:00:00.123456789000000000000000000001Z','2026-03-09T12:00:00.123456789000000000000000000003000Z']
   .map((occurred_at,i)=>({id:String(i),kind:'email_in',occurred_at}));
  assert.deepEqual(stageReview({correspondence:entries},'engaged').evidence.map(row=>row.id),['1','3','0']);
+});
+
+
+test('source email displays the saved summary and original outside the current page, with a body fallback', async () => {
+ const dom = new JSDOM(await readFile(new URL('../leads.html', import.meta.url), 'utf8'), { url: 'https://example.test/leads', pretendToBeVisual: true });
+ const w = dom.window, d = w.document, board = workspace();
+ w.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+ w.HTMLDialogElement.prototype.close = function () { this.open = false; };
+ const source = { id: id(800), kind: 'email', occurred_at: '2020-01-01T10:00:00Z', summary: 'Saved summary', detail: 'Original email body' };
+ const client = { getActor: async () => 'example-partner', getWorkspace: async () => board, getQuietFollowUps: async () => emptyQuietFollowUps(), getLeadDetail: async () => ({ detail: { ...detail(board.leads[0]), correspondence_page: { total: 3, has_more: true, next_cursor: { occurred_at: '2026-09-30T12:00:00Z', id: id(601) } }, source_email: source } }) };
+ const app = mountLeadsWorkspace(d, client, { mapFactory: async () => ({ update() {}, dispose() {} }) });
+ try {
+  await app.refresh();
+  await app.readDetail(board.leads[0].id);
+  let panel = [...d.querySelectorAll('.detail-panel')].find(node => node.querySelector('h3')?.textContent === 'Source email');
+  assert.equal(panel.querySelector('p').textContent, 'Saved summary');
+  assert.equal(panel.querySelector('details .original-entry').textContent, 'Original email body');
+  source.summary = '';
+  await app.readDetail(board.leads[0].id);
+  panel = [...d.querySelectorAll('.detail-panel')].find(node => node.querySelector('h3')?.textContent === 'Source email');
+  assert.equal(panel.querySelector('p').textContent, 'Original email body');
+ } finally { app.dispose(); w.close(); }
 });
