@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { after, type TestContext, test } from "node:test";
 import type { Page } from "playwright";
@@ -50,6 +51,8 @@ const noteAttributionPath = `/api/engine/activities/${noteId}/deal-attribution`;
 const attributionPath = `/api/engine/activities/${activityId}/deal-attribution`;
 const dealPage = `/deals?mode=live&deal=${dealId}`;
 const filedDocument = { id: carrDocumentText.attachment_id, name: "Demo lease.pdf", version: 1 };
+const uploadBytes = Buffer.from("%PDF-1.7 synthetic");
+const uploadDigest = createHash("sha256").update(uploadBytes).digest("hex");
 const documentTextPath = `/api/engine/deals/${dealId}/documents/${filedDocument.id}/text`;
 const carrDocumentReads = new Map<string, object>([
   [
@@ -242,6 +245,41 @@ async function app(
   let expireOnLeadDetail = false;
   let issueCount = 0;
   let loseIssueResponse = false;
+  let uploaded: ArrayBuffer | undefined;
+  async function dealDocumentsResponse(input: Request, csrf: string) {
+    if (!documentText) return;
+    const { pathname: path } = new URL(input.url);
+    const dealPath = `/api/engine/deals/${dealId}`;
+    if (path === dealPath) return Response.json({ ...dealDetail, email_follow_ups: [], ...tourDeal?.(), documents });
+    if (path === documentTextPath)
+      return documentText === "missing"
+        ? Response.json({ error: "not_found" }, { status: 404 })
+        : Response.json({ pages: documentText });
+    if (path === `/api/engine/files/${uploadDigest}`) {
+      assert.equal(input.method, "PUT");
+      assert.equal(input.headers.get("x-carr-csrf"), csrf);
+      uploaded = await input.arrayBuffer();
+      assert.deepEqual(Buffer.from(uploaded), uploadBytes);
+      return Response.json({ sha256: uploadDigest }, { status: 201 });
+    }
+    if (path === dealPath + "/documents") {
+      assert.equal(input.method, "POST");
+      assert.equal(input.headers.get("x-carr-csrf"), csrf);
+      assert.ok(uploaded);
+      const { idempotency_key, ...command } = await input.json();
+      assert.match(idempotency_key, /^[a-f0-9-]{36}$/);
+      assert.deepEqual(command, { sha256: uploadDigest, name: filedDocument.name, kind: "lease" });
+      documents.push(filedDocument);
+      return Response.json({ document_id: filedDocument.id, deal_id: dealId }, { status: 201 });
+    }
+    if (path === `/api/engine/documents/${filedDocument.id}` && uploaded && documents.includes(filedDocument))
+      return new Response(uploaded, {
+        headers: {
+          "content-type": "application/pdf",
+          "content-disposition": `attachment; filename="${filedDocument.name}"`,
+        },
+      });
+  }
   const env: NonNullable<Parameters<typeof startWorkerFixture>[0]>["env"] = {
     PARTNER_SIGN_IN: signIn,
     WORKSPACE_COMMAND_CENTER_READ_ENABLED: "true",
@@ -259,6 +297,10 @@ async function app(
           const url = new URL(input.url);
           const path = url.pathname;
           assert.equal(input.headers.get("cookie"), "__Host-dealroom_session=directory-fixture");
+          if (signIn === "carr") {
+            const response = await dealDocumentsResponse(input, "fixture-carr");
+            if (response) return response;
+          }
           if (path !== "/api/engine/clients" && path !== "/api/engine/vendors") {
             assert.ok(env?.PARTNER_APP);
             return env.PARTNER_APP.fetch(input);
@@ -532,6 +574,8 @@ async function app(
         if ((path === attributionPath || path === noteAttributionPath) && readAttribution)
           return readAttribution(input);
         if (callReview && (path.endsWith("/call-outcomes") || path.endsWith("/decision"))) return callReview(input);
+        const documentResponse = await dealDocumentsResponse(input, csrfToken);
+        if (documentResponse) return documentResponse;
         if (path === "/api/engine/deals") return Response.json(dealBoard);
         if (path === tours && tourPlans) return Response.json({ tours: [{ id: tour, planned_on: "2026-11-24" }] });
         if (path === "/api/engine/calendar/critical-dates")
@@ -555,12 +599,7 @@ async function app(
             ...dealDetail,
             email_follow_ups: [],
             ...tourDeal?.(),
-            ...(documentText && { documents }),
           });
-        if (path === documentTextPath && input.method === "GET" && documentText)
-          return documentText === "missing"
-            ? Response.json({ error: "not_found" }, { status: 404 })
-            : Response.json({ pages: documentText });
         if (/^\/api\/engine\/(clients|vendors)(?:\/|$)/.test(path)) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
           url.pathname = path.replace("/api/engine", "/api/v1/business");
@@ -1434,6 +1473,53 @@ for (const [scenario, documentText, message] of [
     assert.deepEqual(legacyReads, []);
     await dialog.getByRole("button", { name: "Close document text" }).click();
     await dialog.waitFor({ state: "hidden" });
+  });
+}
+
+test("the served install manifests omit the old phone share target", async (t) => {
+  const { context, server } = await app(t);
+  for (const path of ["/manifest.webmanifest", "/public-shell/manifest.webmanifest"]) {
+    const reply = await context.request.get(server.origin + path);
+    assert.equal(reply.status(), 200, path);
+    assert.equal(Object.hasOwn(await reply.json(), "share_target"), false, path);
+  }
+});
+
+for (const signIn of ["engine", "carr"] as const) {
+  test(`Deal Documents files, reads and downloads through the engine with ${signIn} sign-in`, async (t) => {
+    const text = "Synthetic lease page.";
+    const { server, context } = await app(t, { signIn, switchDay: true, documentText: [text], documents: [] });
+    const page = await context.newPage();
+    await page.goto(server.origin + dealPage);
+    await page.getByRole("tab", { name: "Documents", exact: true }).click();
+    const panel = page.getByRole("tabpanel", { name: "Documents" });
+    await panel.getByText("No documents filed for this deal.").waitFor();
+    await panel.getByLabel("File", { exact: true }).setInputFiles({
+      name: filedDocument.name,
+      mimeType: "application/pdf",
+      buffer: uploadBytes,
+    });
+    await panel.getByLabel("Document type").selectOption("lease");
+    await panel.getByRole("button", { name: "Upload to this deal" }).click();
+    await panel.getByText("Document added.", { exact: true }).waitFor();
+
+    const fileName = `${filedDocument.name}, Version 1`;
+    await panel.getByRole("button", { name: `Open text for ${fileName}` }).click({ timeout: 4000 });
+    const viewer = page.getByRole("dialog", { name: filedDocument.name });
+    await viewer.getByText(text, { exact: true }).waitFor();
+    await viewer.getByRole("button", { name: "Close document text" }).click();
+    await viewer.waitFor({ state: "hidden" });
+
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      panel.getByRole("link", { name: fileName }).click(),
+    ]);
+    assert.equal(download.suggestedFilename(), filedDocument.name);
+    assert.deepEqual(await readFile(await download.path()), uploadBytes);
+    assert.equal(
+      server.requests.some(({ path }) => path.startsWith("/api/v1/deal-deliverables")),
+      false,
+    );
   });
 }
 
