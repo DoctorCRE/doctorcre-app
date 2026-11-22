@@ -123,7 +123,9 @@ export const sectionForRoute = {
 };
 
 export function navigationFor(root) {
-  if (!root.documentElement.hasAttribute('data-deals-saves-from-engine')) return navigationItems;
+  const html = root.documentElement;
+  if (html.getAttribute('data-partner-sign-in') !== 'engine' && !html.hasAttribute('data-deals-saves-from-engine'))
+    return navigationItems;
   return navigationItems.map(item => item.href === '/leases' ? { ...item, label: 'Closing anniversaries' } : item);
 }
 
