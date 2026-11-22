@@ -646,7 +646,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   });
   const completed = { source_state: 'done', section: 'done', completed_at: NOW.toISOString() };
   const task = row(2, 'next_action', 'Follow-up due for Example Dental — send the lease', 'Pat requested the lease at the tour.', 'Mark done',
-    { action_id: step, action_version: 1, open_url: stepUrl(step), due_on: '2026-11-02' });
+    { action_id: step, action_version: 1, open_url: stepUrl(step), due_on: '2026-11-02', days_late: 1 });
   const followUp = row(19, 'capture_post_call_action', 'Call with Pat Example left a follow-up — call Pat back',
     'Pat asked for a callback.', 'Mark done', { kind_label: 'Call follow-up', action_id: id(19), action_version: 1,
       open_url: `/calls?session=${id(12)}`, source_activity: { kind: 'call', happened_at: NOW.toISOString(), contact: 'Pat Example' } });
@@ -981,7 +981,7 @@ async function dashboard(t, width, theme, timezone) {
 
   const state = {
     items: [
-      step(1, 'Send the signed lease', { due_on: '2026-10-31' }),
+      step(1, 'Send the signed lease', { due_on: '2026-10-31', days_late: 3 }),
       step(2, 'Call the practice manager', { due_on: '2026-11-03' }),
       step(3, 'Ask the surveyor for pricing'),
       step(4, 'Send the sample floor plan'),

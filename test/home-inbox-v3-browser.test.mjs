@@ -49,12 +49,12 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   const id = '00000000-0000-0000-0000-000000000001';
   const step = { item_id: `next_action:${id}`, source_type: 'next_action', source_id: id, source_version: '7',
     source_state: 'needs_attention', title: 'Send sample terms', activity_at: '2026-11-03T12:00:00Z', hold_until: null,
-    due_on: '2026-11-16', unseen: false, disposition: 'settled', snoozed_until: null, explicit_unsettle: false,
+    due_on: '2026-11-16', days_late: 3, unseen: false, disposition: 'settled', snoozed_until: null, explicit_unsettle: false,
     section: 'settled', base_version: '7:1:settled', context_label: 'Example Dental', open_url: null, kind_label: 'Task',
     merged_source_ids: [id], action_id: id, action_version: 7, deal_id: '00000000-0000-0000-0000-000000000010', auto_settled: false,
     completed_at: null, waiting_version: 0, waiting_on: null };
   const feedback = { ...step, item_id: 'notification:00000000-0000-0000-0000-000000000002', source_type: 'notification',
-    kind: 'tour_feedback', kind_label: 'Update', title: 'Example Dental commented on a tour', due_on: null, disposition: 'inbox',
+    kind: 'tour_feedback', kind_label: 'Update', title: 'Example Dental commented on a tour', due_on: null, days_late: null, disposition: 'inbox',
     section: 'inbox', deal_id: null, action_id: null, action_version: null, base_version: '1:0:inbox' };
   await page.addInitScript(() => {
     const url = new URL(location.href);
@@ -132,7 +132,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
     const id = `00000000-0000-4000-8000-00000000001${index}`;
     return { ...step, item_id: `next_action:${id}`, source_id: id, action_id: id, merged_source_ids: [id],
       title: 'Review the site plan', context_label: name, section: 'inbox', disposition: 'inbox',
-      deal_id: null, open_url: `/relationships?node=party:${id}` };
+      deal_id: null, days_late: null, open_url: `/relationships?node=party:${id}` };
   }));
   await page.clock.fastForward(60_000);
   for (const name of names) {

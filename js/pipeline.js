@@ -9,6 +9,7 @@ import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
 import { showToast } from './toast.js';
+import { submitOnEnter } from './ui-keyboard-input.generated.js';
 import { renderDealVendors } from './deal-vendors.js';
 import { openEngineClientWebsite, renderClientPortalLink, saveEngineClientWebsite } from './client-portal-link.js';
 import { clearPrivateTextDrafts, privateSession, privateTextDraft, sessionFetch } from './private-session.js';
@@ -2852,6 +2853,12 @@ function wire() {
       $('requirementEmailStatus').textContent = 'Email draft discarded.';
     }
 
+  });
+  $('panelBody').addEventListener('keydown', event => {
+    if (event.target.id !== 'dealUpdateStep') return;
+    const form = event.target.form;
+    const submit = form.querySelector('button[type="submit"]:enabled');
+    if (submit) submitOnEnter(event, () => form.requestSubmit(submit));
   });
   $('panelBody').addEventListener('input', e => {
     if (e.target.closest('#requirementEmailForm') && state.selfActor && draftActor === state.selfActor) {

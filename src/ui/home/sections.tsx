@@ -22,13 +22,6 @@ export function lateDays(due: string | null, today: string) {
   return due && due < today ? (Date.parse(today) - Date.parse(due)) / 86_400_000 : 0;
 }
 
-export function homeLateDays(item: InboxItem, today: string) {
-  if (item.section !== "inbox" || !item.due_on) return 0;
-  if (item.dashboard_tile) return item.days_late ?? 0;
-  const dealOrVendor = item.deal_id || /^\/(?:deals\?[^#]*\bdeal=|vendors(?:[/?#]|$))/.test(item.open_url ?? "");
-  return item.action_id && dealOrVendor ? lateDays(item.due_on, today) : 0;
-}
-
 export function completionLabel(item: InboxItem) {
   if (!item.completed_at) return "Done, time not recorded";
   const label = item.engine_marks && item.kind_label === "Reply draft" ? "Sent" : "Done";
@@ -56,7 +49,7 @@ export function dashboardCards(items: readonly InboxItem[], today = day(new Date
   return {
     reminders: reminders[0]?.dashboard_tile
       ? reminders
-      : reminders.sort((a, b) => Number(homeLateDays(b, today) > 0) - Number(homeLateDays(a, today) > 0)),
+      : reminders.sort((a, b) => Number(Boolean(b.days_late)) - Number(Boolean(a.days_late))),
     waiting,
   };
 }
@@ -110,7 +103,7 @@ export function CardTile({
   current,
   row,
   after = [],
-  today,
+  showLate = false,
 }: {
   title: string;
   items: readonly InboxItem[];
@@ -118,7 +111,7 @@ export function CardTile({
   current: string | undefined;
   row: (item: InboxItem) => ReactNode;
   after?: ReactNode[];
-  today?: string;
+  showLate?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const count = items.length + after.length;
@@ -137,7 +130,7 @@ export function CardTile({
   const regular: InboxItem[] = [];
   const late: InboxItem[] = [];
   for (const item of shown) {
-    (today && homeLateDays(item, today) > 0 ? late : regular).push(item);
+    (showLate && item.days_late ? late : regular).push(item);
   }
   return (
     <HomeTile title={title} count={count} expanded={expanded} setExpanded={setExpanded}>

@@ -27,7 +27,7 @@ import {
 import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
 import { type DraftEdit, ReviewCard, reviewDispositionLabel } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
-import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, homeLateDays, lateDays } from "./sections";
+import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
 
 type SnoozePreview = Readonly<{
@@ -582,7 +582,7 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
     const daysLate = home
-      ? homeLateDays(item, today)
+      ? (item.days_late ?? 0)
       : item.section === "inbox" && item.action_id && item.engine_marks
         ? (item.days_late ?? lateDays(item.due_on, today))
         : 0;
@@ -1104,7 +1104,7 @@ function Inbox({ client, docLinkRequest }: { client: InboxClient; docLinkRequest
         <HomeGrid snapshot={query.data} calendar={meetings.data}>
           <CardTile
             title="Reminders"
-            today={today}
+            showLate
             items={tiles.reminders}
             pinned={pinnedTile === "reminders" ? reviewing : null}
             current={reviewing?.item_id || item_id}
