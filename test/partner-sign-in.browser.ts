@@ -938,6 +938,7 @@ test("Home and the old Updates link load on the engine session and handle expiry
   const { server, context, partnerReads, carrChecks, expireOn } = await app(t);
   await context.addCookies([
     { name: "__Host-dealroom_session", value: "old", url: server.origin.replace("http:", "https:"), secure: true },
+    { name: "__Host-dealroom_oauth", value: "old-state", url: server.origin.replace("http:", "https:"), secure: true },
   ]);
   const page = await context.newPage();
   const legacyReads: string[] = [];
@@ -965,7 +966,7 @@ test("Home and the old Updates link load on the engine session and handle expiry
     const [, ...responses] = await Promise.all([page.goto(server.origin + path), ...pending]);
     const first = responses[0];
     assert.ok(first);
-    assert.match((await first.request().allHeaders()).cookie ?? "", /__Host-dealroom_session=old/);
+    assert.doesNotMatch((await first.request().allHeaders()).cookie ?? "", /__Host-dealroom_(?:session|oauth)=/);
     for (const read of reads) assert.equal(partnerReads.get(read), cookieName + "=first", read);
   }
   assert.equal(new URL(page.url()).pathname, "/updates");
@@ -1227,7 +1228,7 @@ test("Home filing searches vendors on the engine session", async (t) => {
     filing.getByRole("button", { name: "Search vendors" }).click(),
   ]);
   assert.equal(response.status(), 200);
-  assert.match((await response.request().allHeaders()).cookie ?? "", /__Host-dealroom_session=old/);
+  assert.doesNotMatch((await response.request().allHeaders()).cookie ?? "", /__Host-dealroom_session=/);
   const { search } = new URL(response.url());
   assert.equal(partnerReads.get("/api/engine/vendors" + search), cookieName + "=first");
   await filing.getByRole("combobox", { name: "Vendor", exact: true }).selectOption({ label: name });
