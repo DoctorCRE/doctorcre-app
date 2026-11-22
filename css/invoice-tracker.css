@@ -108,6 +108,8 @@ body { background: var(--ground); color: var(--fg); }
 .invoice-detail-heading { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--invoice-detail-padding); border-bottom: var(--hairline-width) solid var(--hairline); background: var(--surface-1); }
 .invoice-detail-heading > div:first-child { min-width: 0; }
 .invoice-detail-actions { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.invoice-detail-actions #invoiceDocAction { white-space: nowrap; }
+.invoice-detail-actions #invoiceDocAction[hidden] { display: none; }
 .invoice-detail-actions .doc-presence { position: static; }
 .invoice-detail-actions [data-doc-presence-slot]:empty { display: none; }
 .invoice-detail-body { overflow: auto; padding: var(--space-5) var(--invoice-detail-padding) var(--invoice-detail-padding); }
@@ -177,6 +179,9 @@ body { background: var(--ground); color: var(--fg); }
   :where(.invoice-workspace, .invoice-controls, .invoice-detail) :is(input, select) { font-size: var(--font-size-2); }
   .invoice-row { padding: var(--space-3) var(--space-4) !important; }
   .invoice-detail { --invoice-detail-padding: var(--space-4); width: calc(100vw - 20px); max-height: calc(100dvh - 20px); border-radius: var(--radius-3); }
+  .invoice-detail-heading { flex-wrap: wrap; column-gap: var(--space-2); }
+  .invoice-detail-heading > div:first-child { flex: 1 1 6rem; }
+  .invoice-detail-actions { margin-inline-start: auto; }
   .invoice-detail-heading h2 { font-size: var(--font-size-3); }
   .invoice-detail-bottom { grid-template-columns: 1fr; }
   .invoice-timeline { gap: var(--space-2); }

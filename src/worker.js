@@ -73,6 +73,7 @@ function unavailable(documentRequest) {
 }
 
 const engineSignIn = env => env?.PARTNER_SIGN_IN === 'engine';
+const homeOnEngine = env => env?.APP_ENV === 'production' || env?.APP_ENV === 'staging' || engineSignIn(env);
 
 function noStore(response) {
   const copy = new Response(response.body, response);
@@ -192,10 +193,10 @@ function assetPath(pathname) {
 }
 
 async function pageSwitches(env) {
-  const [homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine] = await Promise.all([
-    routeToEngine(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES), switchedOn(env, CLIENTS_VENDORS), switchedOn(env, DEAL_TOURS),
+  const [dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine] = await Promise.all([
+    switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES), switchedOn(env, CLIENTS_VENDORS), switchedOn(env, DEAL_TOURS),
   ]);
-  return { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine };
+  return { homeToday: homeOnEngine(env), dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine };
 }
 
 async function assetResponse(request, env, path, switches) {
@@ -262,7 +263,7 @@ const DEALS = 'deals-from-engine';
 const NEXT_DEAL_SAVES = 'deals-saves-from-engine';
 const DEAL_TOURS = 'deal-tours-from-engine';
 const LEADS = 'leads-from-engine';
-const HOME = 'home-from-engine';
+const HOME = 'home';
 const HOME_TODAY = '/api/engine/home/today';
 const LEGACY_HOME_MARKS = new Set(['snooze-home-inbox', 'settle-home-inbox', 'unsettle-home-inbox']);
 const HOME_WRITES = new Map([
@@ -273,7 +274,7 @@ const HOME_WRITES = new Map([
   ['dismiss-engine-home-draft', ['reply-drafts', 'dismissal']],
   ['submit-engine-home-draft', ['reply-drafts', 'submission']],
 ]);
-const homeDetail = (path, query = {}) => ({ key: HOME, path: '/api/engine/' + path, segment: 'id',
+const homeDetail = (path, query = {}) => ({ key: HOME, path: '/api/engine/' + path, segment: 'id', engineOnly: true,
   args: { id: value => isUuid(value), ...query }, accepts: ({ id }) => isUuid(id) });
 const INVOICES = 'invoices-from-engine';
 const CHARTS = 'charts-from-engine';
@@ -281,8 +282,8 @@ const NATIONAL_DEALS = 'national-deals-from-engine';
 const SEARCH = 'search-from-engine';
 const CLIENTS_VENDORS = 'clients-vendors-from-engine';
 const RELATIONSHIPS = 'relationships-from-engine';
-const FRAME = 'frame-from-engine';
-const ENGINE_SIGN_IN_KEYS = new Set([DEALS, NEXT_DEAL_SAVES, LEADS, CLIENTS_VENDORS, RELATIONSHIPS, SEARCH, HOME, INVOICES, CHARTS]);
+const FRAME = 'frame';
+const ENGINE_SIGN_IN_KEYS = new Set([DEALS, NEXT_DEAL_SAVES, LEADS, CLIENTS_VENDORS, RELATIONSHIPS, SEARCH, INVOICES, CHARTS]);
 // Each old read the engine can answer, by tool name or business GET path: its
 // switch key, its engine path and, for a tool, a check per argument.
 // A `segment` argument becomes the last path segment. `search` seeds fixed query parameters.
@@ -303,7 +304,7 @@ const ENGINE_READS = new Map([
   ['quiet-follow-ups', { key: LEADS, path: '/api/engine/quiet-follow-ups', args: { lead_days: Number.isFinite, vendor_days: Number.isFinite, owner_slug: isString } }],
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
   [HOME_TODAY, { key: HOME, path: HOME_TODAY, engineOnly: true }],
-  ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {} }],
+  ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {}, engineOnly: true }],
   ['/api/v1/intelligence/mail-needs-partner', { key: HOME, path: '/api/engine/home/mail-priorities', forwardQuery: false, engineOnly: true }],
   ['read-engine-home-proposal', homeDetail('proposals', { deal_id: value => isUuid(value) })],
   ['read-engine-home-draft', homeDetail('reply-drafts')],
@@ -319,8 +320,8 @@ const ENGINE_READS = new Map([
   ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
   ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true }],
-  ['today-triage', { key: FRAME, path: '/api/engine/today-triage', args: {} }],
-  ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {} }],
+  ['today-triage', { key: FRAME, path: '/api/engine/today-triage', args: {}, engineOnly: true }],
+  ['calendar-meeting-prep', { key: FRAME, path: '/api/engine/calendar-meeting-prep', args: {}, engineOnly: true }],
 ]);
 const BUSINESS_GET = /^(\/api\/v1\/business\/[a-z]+)(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
 
@@ -366,12 +367,12 @@ function engineRead(request, url, call) {
   return { read, args };
 }
 
-// A switch that can't be read is off.
 async function switchedOn(env, key) {
   try { return await env?.ENGINE_ROUTING?.get(key, { cacheTtl: 30 }) === 'on'; } catch { return false; }
 }
 
 function routeToEngine(env, key, usedOnDeals = false) {
+  if (key === HOME || key === FRAME) return homeOnEngine(env);
   if (engineSignIn(env) && (usedOnDeals || ENGINE_SIGN_IN_KEYS.has(key))) return true;
   return switchedOn(env, key);
 }
@@ -807,7 +808,7 @@ async function engineSave(request, env, call) {
     return mcpReply(call, response, JSON.stringify({ ...body, ok: true }), false);
   }
   if (call.params.name === 'save-engine-home-mark') {
-    if (!await routeToEngine(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+    if (!homeOnEngine(env)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     if (!['snooze', 'unsnooze', 'drop', 'done', 'undo_done'].includes(call.params.arguments.action))
       return saveRefusal(call, 'invalid_arguments', 'Refresh Home and choose an available action.');
     return engineAnswer(request, env, call, { path: '/api/engine/home/marks' }, { allowHandoff: false });
@@ -816,7 +817,7 @@ async function engineSave(request, env, call) {
   if (homeSave) {
     const { id, ...body } = call.params.arguments;
     if (!isUuid(id)) return saveRefusal(call, 'not_found', 'Refresh Home and try again.');
-    if (!await routeToEngine(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+    if (!homeOnEngine(env)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     const [record, action] = homeSave;
     return engineAnswer(request, env, call, { path: `/api/engine/${record}/${id}/${action}` },
       { allowHandoff: false, body, rawClientError: record === 'proposals' });
@@ -907,9 +908,9 @@ async function refuseFrozenSave(request, env, url, call) {
     }
     const calendarAnswer = (verb === 'answer-board-question' && args?.board_id === 'calendar-agenda') ||
       (verb === 'log-activity' && args?.kind === 'meeting' && Object.hasOwn(args, 'calendar_event_key'));
-    if (calendarAnswer && await routeToEngine(env, HOME))
+    if (calendarAnswer && homeOnEngine(env))
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and answer the question in Today.');
-    if ((verb === 'review-deal-update' || LEGACY_HOME_MARKS.has(verb)) && await routeToEngine(env, HOME))
+    if ((verb === 'review-deal-update' || LEGACY_HOME_MARKS.has(verb)) && homeOnEngine(env))
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     const hint = FROZEN_TOOLS.get(verb) ?? (CUTOVER_SAVES.has(verb) ? DEAL_PAGE_HINT : null);
     return hint && await switchedOn(env, NEXT_DEAL_SAVES) ? saveRefusal(call, 'old_save_closed', hint) : null;
@@ -1127,7 +1128,7 @@ async function handleRequest(request, env) {
     const meetingAnswer = request.method === 'POST' &&
       (/^\/api\/engine\/calendar\/reviews\/[a-f0-9]{16}\/dismissal$/.test(pathname)
       || (pathname === '/api/engine/activities' && (await request.clone().json().catch(() => null))?.calendar_review_key !== undefined));
-    if (meetingAnswer && !await routeToEngine(env, HOME)) return json({ error: 'not_found' }, 404);
+    if (meetingAnswer && !homeOnEngine(env)) return json({ error: 'not_found' }, 404);
     if (request.method === 'POST' && /^\/api\/engine\/next-steps\/[^/]+\/end$/.test(pathname)) {
       if (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES))
         return json({ error: 'reload_deals' }, 409);

@@ -370,7 +370,7 @@ test("Home, Today, Calendar, Updates and Doc use PartnerApp with the old routing
   }
 });
 
-test("missing and off sign-in settings keep Home and Updates on CARR", async () => {
+test("CARR sign-in keeps Updates on CARR and uses the engine for Home by default", async () => {
   const legacyCookie = "__Host-dealroom_session=synthetic";
   for (const setting of [undefined, "off"]) {
     const old: Request[] = [];
@@ -389,9 +389,12 @@ test("missing and off sign-in settings keep Home and Updates on CARR", async () 
     }
     assert.deepEqual(
       old.map((input) => input.headers.get("cookie")),
-      [legacyCookie, legacyCookie],
+      [legacyCookie],
     );
-    assert.equal(calls.partner.length + calls.engine.length, 0);
+    assert.equal(calls.partner.length, 0);
+    assert.equal(calls.engine.length, 1);
+    assert.equal(new URL(calls.engine[0]?.url ?? "").pathname, "/api/engine/home/inbox");
+    assert.equal(calls.engine[0]?.headers.get("cookie"), legacyCookie);
   }
 });
 

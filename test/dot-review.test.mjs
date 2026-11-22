@@ -346,7 +346,7 @@ test("Dot 15: an old call status cannot replace the new session review pack", as
 
 test("Dot 16: Calendar uses an admitted CARR authentication gate", async () => {
   const {handleDoctorcreRequest}=await import("../src/worker.js");let path;
-  const env={APP_ENV:"staging",GIT_SHA:"1".repeat(40),CARR:{fetch:async request=>{path=new URL(request.url).pathname;return path==="/business" ? new Response("signed in") : new Response("OAuth fallback",{status:404});}},ASSETS:{fetch:async request=>new Response(new URL(request.url).pathname)}};
+  const env={APP_ENV:"fixture",GIT_SHA:"1".repeat(40),CARR:{fetch:async request=>{path=new URL(request.url).pathname;return path==="/business" ? new Response("signed in") : new Response("OAuth fallback",{status:404});}},ASSETS:{fetch:async request=>new Response(new URL(request.url).pathname)}};
   const res=await handleDoctorcreRequest(new Request("https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev/calendar"),env);
   assert.equal(res.status,200);assert.equal(await res.text(),"/calendar.html");assert.equal(path,"/business");
 });

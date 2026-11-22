@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile } from "node:fs/promises";
 import { after, type TestContext, test } from "node:test";
 import type { Page } from "playwright";
-import { createInvoiceFixture } from "../js/invoice-tracker-fixture.js";
+import { createInvoiceFixture, invoiceTrackerFixture } from "../js/invoice-tracker-fixture.js";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
@@ -82,6 +82,9 @@ const anniversaryClientId = "00000000-0000-4000-8000-000000000001";
 const anniversaryClientName = "Demo Practice 01";
 const invoiceDay = "2026-10-02";
 const invoiceName = "Demo Harbor Renewal";
+const invoiceId = "00000000-0000-4000-8000-000000000001";
+const secondInvoiceId = "00000000-0000-4000-8000-000000000007";
+const firstInvoiceRow = (page: Page) => page.getByRole("button", { name: /Demo Harbor Renewal.*12,500/ });
 const invoicePath = "/api/engine/invoices";
 const paymentPath = invoicePath + "/mark-paid";
 const fitPath = "/api/engine/client-fit";
@@ -103,6 +106,37 @@ const clientFit = {
   ],
 };
 const pages = ["/invoices?mode=live", "/control-room/progress?mode=live", "/pipeline?mode=live"];
+const filingCard = {
+  card_id: `conversation:${filingId}`,
+  item_id: `suggestion:${filingId}`,
+  source_id: filingId,
+  source_type: "email_proposal",
+  source_version: "1",
+  source_state: "needs_attention",
+  base_version: "1:0:inbox",
+  section: "inbox",
+  disposition: "inbox",
+  activity_at: "2026-11-21T12:00:00Z",
+  hold_until: null,
+  snoozed_until: null,
+  completed_at: null,
+  unseen: false,
+  context_label: null,
+  due_on: null,
+  open_url: null,
+  kind_label: "Suggestion",
+  merged_source_ids: [filingId],
+  deal_id: null,
+  action_id: null,
+  action_version: null,
+  waiting_version: 0,
+  waiting_on: null,
+  title: filingTitle,
+  why: "The sender asked for a floor plan.",
+  primary_action: "Choose vendor",
+  filing_choices: filingChoices,
+  suggestions: [{ id: filingId }],
+};
 const feedbackId = "22222222-2222-4222-8222-222222222223";
 const feedbackItem = `notification:${feedbackId}`;
 const feedbackTitle = "Tour feedback on Example Clinic";
@@ -129,8 +163,6 @@ const switchDayKeys = new Set([
   "search-from-engine",
   "clients-vendors-from-engine",
   "relationships-from-engine",
-  "frame-from-engine",
-  "home-from-engine",
   "deals-saves-from-engine",
 ]);
 
@@ -169,7 +201,21 @@ async function app(
   let unavailable = false;
   let carrChecks = 0;
   const carrTools: string[] = [];
-  const invoices = createInvoiceFixture({ today: () => invoiceDay });
+  const invoiceEntries = invoiceTrackerFixture(invoiceDay).entries.map((row) =>
+    row.name === invoiceName ? { ...row, deal_id: dealId } : row,
+  );
+  const firstInvoice = invoiceEntries.find((row) => row.commission_id === invoiceId);
+  assert.ok(firstInvoice);
+  invoiceEntries.push({
+    ...firstInvoice,
+    commission_id: secondInvoiceId,
+    gross_amount: "7500",
+    status: "received",
+    commission_invoiced_on: "2026-09-25",
+    due_on: "2026-10-25",
+    received_on: invoiceDay,
+  });
+  const invoices = createInvoiceFixture({ today: () => invoiceDay, entries: invoiceEntries });
   const screenTools = new Map<string, (args: Parameters<typeof invoices.markInvoicePaid>[0]) => unknown>([
     ["read-invoice-tracker", () => invoices.getInvoiceTracker()],
     ["record-commission-receipt", (args) => invoices.markInvoicePaid(args)],
@@ -190,6 +236,7 @@ async function app(
     PARTNER_SIGN_IN: signIn,
     WORKSPACE_COMMAND_CENTER_READ_ENABLED: "true",
     ...(switchDay && {
+      APP_ENV: "production",
       ENGINE_ROUTING: {
         get: async (key: string) => (key === "deal-cutover-date" ? "2026-11-20" : switchDayKeys.has(key) ? "on" : null),
       },
@@ -197,6 +244,7 @@ async function app(
         async fetch(input: Request) {
           const url = new URL(input.url);
           const path = url.pathname;
+          if (path === invoicePath) return Response.json(await invoices.getInvoiceTracker());
           if (path !== "/api/engine/clients" && path !== "/api/engine/vendors")
             return new Response(null, { status: 404 });
           assert.equal(input.headers.get("cookie"), "__Host-dealroom_session=directory-fixture");
@@ -334,6 +382,24 @@ async function app(
           links.delete(token);
           return new Response(null, { status: 204 });
         }
+        if (path === "/api/engine/doc/conversations") return Response.json({ conversations: [], next_before: null });
+        if (path === "/api/engine/doc/turns" && input.method === "POST") {
+          const ask = await input.json();
+          return Response.json({
+            conversation_id: "10000000-0000-4000-8000-000000000001",
+            turn: {
+              ...ask,
+              id: "10000000-0000-4000-8000-000000000002",
+              position: 1,
+              created_at: "2026-10-02T17:00:00Z",
+              state: "queued",
+              waiting_reason: "Doc isn't set up on your Mac yet.",
+              draft_review: null,
+              answer: null,
+              confirmation: null,
+            },
+          });
+        }
         if (path === invoicePath) return Response.json(await invoices.getInvoiceTracker());
         if (path === paymentPath && input.method === "POST")
           return Response.json(await invoices.markInvoicePaid(await input.json()));
@@ -359,40 +425,9 @@ async function app(
           });
         if (path === "/api/engine/home/inbox" || path === linkedCardRead) {
           const empty = { count: 0, items: [] };
-          const item = {
-            card_id: `conversation:${filingId}`,
-            item_id: `suggestion:${filingId}`,
-            source_id: filingId,
-            source_type: "email_proposal",
-            source_version: "1",
-            source_state: "needs_attention",
-            base_version: "1:0:inbox",
-            section: "inbox",
-            disposition: "inbox",
-            activity_at: "2026-11-21T12:00:00Z",
-            hold_until: null,
-            snoozed_until: null,
-            completed_at: null,
-            unseen: false,
-            context_label: null,
-            due_on: null,
-            open_url: null,
-            kind_label: "Suggestion",
-            merged_source_ids: [filingId],
-            deal_id: null,
-            action_id: null,
-            action_version: null,
-            waiting_version: 0,
-            waiting_on: null,
-            title: filingTitle,
-            why: "The sender asked for a floor plan.",
-            primary_action: "Choose vendor",
-            filing_choices: filingChoices,
-            suggestions: [{ id: filingId }],
-          };
           if (path === linkedCardRead)
             return Response.json({
-              ...item,
+              ...filingCard,
               card_id: `conversation:${successorDraft}`,
               item_id: linkedItem,
               kind_label: "Reply draft",
@@ -405,7 +440,7 @@ async function app(
               suggestions: [],
             });
           const feedback = {
-            ...item,
+            ...filingCard,
             card_id: feedbackItem,
             item_id: feedbackItem,
             source_id: feedbackId,
@@ -422,7 +457,7 @@ async function app(
             suggestions: [],
             filing_choices: [],
           };
-          const items = tourFeedback ? (feedbackOpen ? [feedback] : []) : [item];
+          const items = tourFeedback ? (feedbackOpen ? [feedback] : []) : [filingCard];
           return Response.json({
             ok: true,
             schema_version: "home-inbox.v5",
@@ -564,6 +599,122 @@ async function app(
       loseIssueResponse = true;
     },
   };
+}
+
+for (const lookup of ["stalled", "unknown", "on"]) {
+  const title =
+    lookup === "on"
+      ? "Home retries initial and refresh outages in place"
+      : `Home and the Deals frame ignore ${lookup} Home and Frame switches`;
+  test(title, async (t) => {
+    let unavailable = lookup === "on";
+    const legacyReads: string[] = [];
+    const routingReads: string[] = [];
+    const held = Promise.withResolvers<string>();
+    t.after(() => held.resolve("on"));
+    const productionRouting = new Map([
+      ...[
+        "deals",
+        "deals-saves",
+        "leads",
+        "invoices",
+        "charts",
+        "national-deals",
+        "search",
+        "clients-vendors",
+        "relationships",
+      ].map((name) => [name + "-from-engine", "on"] as const),
+      ["deal-cutover-date", "2026-11-20"],
+    ]);
+    assets ??= appAssetSnapshot();
+    const server = await startWorkerFixture({
+      assets: await assets,
+      env: {
+        APP_ENV: "production",
+        PARTNER_SIGN_IN: "carr",
+        ENGINE_ROUTING: {
+          async get(key: string) {
+            if (key !== "home-from-engine" && key !== "frame-from-engine") return productionRouting.get(key);
+            routingReads.push(key);
+            return lookup === "stalled" ? held.promise : lookup === "unknown" ? "ON" : "on";
+          },
+        },
+        CARR: {
+          async fetch(request: Request) {
+            const path = new URL(request.url).pathname;
+            if (path === "/auth/session") return Response.json({ actor: { slug: "joe" }, csrf_token: "synthetic" });
+            if (path === "/mcp") return Response.json({ error: "legacy_read" }, { status: 503 });
+            return new Response(null, { status: request.headers.get("sec-fetch-mode") === "navigate" ? 200 : 404 });
+          },
+        },
+        ENGINE: {
+          async fetch(request: Request) {
+            const url = new URL(request.url);
+            if (url.pathname === "/api/engine/deals") return Response.json(dealBoard);
+            if (url.pathname === "/api/engine/home/today")
+              return Response.json({
+                ok: true,
+                schema_version: "home-today.v1",
+                today: "2026-11-21",
+                meetings: { state: "ready", items: [] },
+                reminders: { late: [], upcoming: [] },
+                partners: [],
+              });
+            if (url.pathname === "/api/engine/home/inbox" && url.searchParams.get("view") === "dashboard")
+              return unavailable
+                ? Response.json({ error: "engine_unavailable" }, { status: 503 })
+                : Response.json({
+                    ok: true,
+                    schema_version: "home-inbox.v5",
+                    reminders: { count: 1, items: [filingCard] },
+                    waiting: { count: 0, items: [] },
+                  });
+            return new Response(null, { status: 404 });
+          },
+        },
+      },
+    });
+    t.after(() => server.close());
+    browser ??= chromium.launch();
+    const page = await (await browser).newPage();
+    t.after(() => page.context().close());
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname !== "/mcp") return;
+      const name = request.postDataJSON()?.params?.name;
+      if (["calendar-meeting-prep", "today-triage", "read-home-inbox-v5"].includes(name)) legacyReads.push(name);
+    });
+
+    if (lookup === "on") await page.clock.install();
+    assert.ok((await page.goto(server.origin + "/?mode=live", { timeout: 5000 }))?.ok());
+    if (unavailable) {
+      const failure = page.getByRole("alert").filter({ hasText: "Reminders and waiting items unavailable" });
+      await failure.waitFor({ timeout: 5000 });
+      unavailable = false;
+      await failure.getByRole("button", { name: "Retry", exact: true }).click({ timeout: 5000 });
+    }
+    await page.getByText(filingTitle, { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await page.getByRole("button", { name: "Prepare meetings", exact: true }).count(), 0);
+    assert.equal(await page.getByText("A LITTLE LOOK AHEAD", { exact: true }).count(), 0);
+    if (lookup === "on") {
+      unavailable = true;
+      await page.clock.fastForward(60_001);
+      const failure = page.getByRole("status").filter({ hasText: "Reminders and waiting items unavailable" });
+      await failure.waitFor({ timeout: 5000 });
+      assert.ok(await page.getByText(filingTitle, { exact: true }).isVisible());
+      unavailable = false;
+      await failure.getByRole("button", { name: "Retry", exact: true }).click({ timeout: 5000 });
+      await failure.waitFor({ state: "hidden", timeout: 5000 });
+      assert.ok(await page.getByText(filingTitle, { exact: true }).isVisible());
+    } else {
+      const today = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/engine/home/today", {
+        timeout: 5000,
+      });
+      assert.ok((await page.goto(server.origin + "/deals?mode=live", { timeout: 5000 }))?.ok());
+      assert.ok((await today).ok());
+      assert.deepEqual(routingReads, []);
+    }
+    assert.deepEqual(legacyReads, []);
+  });
 }
 
 test("Closing anniversaries shows all 21 engine matches and opens records with blank names", async (t) => {
@@ -747,7 +898,7 @@ test("Home and the old Updates link load on the engine session and handle expiry
 async function recordInvoicePayment(page: Page, origin: string) {
   await page.clock.setFixedTime(new Date(`${invoiceDay}T17:00:00Z`));
   await page.goto(origin + "/invoices?mode=live");
-  const row = page.getByRole("button", { name: new RegExp(invoiceName) });
+  const row = firstInvoiceRow(page);
   await row.click({ timeout: 5000 });
   const invoice = page.getByRole("dialog", { name: invoiceName });
   await invoice.getByLabel("Paid on").fill(invoiceDay);
@@ -774,6 +925,102 @@ test("engine sign-in opens invoices and records a payment with the invoice switc
   for (const path of [invoicePath, paymentPath]) assert.equal(partnerReads.get(path), cookieName + "=first");
   assert.deepEqual(carrTools, []);
 });
+
+for (const width of [390, 1440]) {
+  test(`Open Doc stays in the invoice header and starts a chat about the invoice at ${width}px`, async (t) => {
+    const { context, server } = await app(t, { width });
+    const page = await context.newPage();
+    await page.setViewportSize({ width, height: 420 });
+    await page.goto(server.origin + "/invoices?mode=live");
+    await page.getByRole("link", { name: "Ask Doc", exact: true }).waitFor({ timeout: 5000 });
+    await firstInvoiceRow(page).click({ timeout: 5000 });
+    const drawer = page.getByRole("dialog", { name: invoiceName });
+    const openDoc = drawer.getByRole("link", { name: "Open Doc", exact: true });
+    const close = drawer.getByRole("button", { name: "Close invoice", exact: true });
+    await openDoc.waitFor({ timeout: 5000 });
+    await drawer.getByText("Details", { exact: true }).click();
+    const before = await openDoc.boundingBox();
+    const closeBefore = await close.boundingBox();
+    assert.ok(before && closeBefore);
+    assert.ok(before.x + before.width <= closeBefore.x);
+    assert.ok(before.y < closeBefore.y + closeBefore.height && closeBefore.y < before.y + before.height);
+    const scrolled = await drawer.locator(".invoice-detail-body").evaluate((body) => {
+      body.scrollTop = body.scrollHeight;
+      return body.scrollTop;
+    });
+    assert.ok(scrolled > 0);
+    assert.deepEqual(await openDoc.boundingBox(), before);
+    assert.deepEqual(await close.boundingBox(), closeBefore);
+
+    await openDoc.click();
+    await page.getByRole("heading", { name: "Ask Doc", exact: true }).waitFor();
+    const invoice = page.getByRole("link", { name: "Open invoice", exact: true });
+    assert.equal(await invoice.getAttribute("href"), `/invoices?invoice=${invoiceId}`);
+    const question = page.getByLabel("Question for Doc");
+    const prefill = "About the installment 1 invoice for $12,500.00 due Oct 20, 2026 (unpaid): ";
+    assert.equal(await question.inputValue(), prefill);
+
+    const second = await context.newPage();
+    await second.goto(`${server.origin}/invoices?mode=live&invoice=${secondInvoiceId}`);
+    await second.getByRole("dialog", { name: invoiceName }).getByRole("link", { name: "Open Doc" }).click();
+    await second.getByRole("link", { name: "Open invoice", exact: true }).waitFor();
+    assert.equal(
+      await second.getByLabel("Question for Doc").inputValue(),
+      "About the installment 2 invoice for $7,500.00 due Oct 25, 2026 (paid): ",
+    );
+
+    await question.fill("");
+    assert.ok(await page.getByRole("button", { name: "Send", exact: true }).isDisabled());
+    await page.reload();
+    await invoice.waitFor();
+    assert.equal(await question.inputValue(), "");
+    const editedQuestion = prefill + "When was this sent?";
+    await question.fill(editedQuestion);
+    const sent = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === "/api/engine/doc/turns" && request.method() === "POST",
+    );
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const ask = (await sent).postDataJSON();
+    assert.deepEqual(ask.context, { kind: "deal", id: dealId });
+    assert.equal(ask.question, editedQuestion);
+    await page.getByText("Doc isn't set up on your Mac yet.", { exact: true }).waitFor();
+  });
+
+  test(`The visible Doc question can use all 4,000 characters at ${width}px`, async (t) => {
+    const { context, server } = await app(t, { width });
+    const page = await context.newPage();
+    await page.goto(`${server.origin}/invoices?mode=live&invoice=${invoiceId}`);
+    await page.getByRole("dialog", { name: invoiceName }).getByRole("link", { name: "Open Doc" }).click();
+    const question = page.getByLabel("Question for Doc");
+    const send = page.getByRole("button", { name: "Send", exact: true });
+    const maximum = "a".repeat(3999) + "😊";
+    await question.fill(maximum);
+    assert.ok(await send.isEnabled());
+    assert.ok(await page.getByText("4,000 / 4,000", { exact: true }).isVisible());
+    await question.fill(maximum + " ");
+    assert.ok(await send.isDisabled());
+    assert.ok(await page.getByText("4,001 / 4,000", { exact: true }).isVisible());
+    await question.fill(maximum);
+    const sent = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === "/api/engine/doc/turns" && request.method() === "POST",
+    );
+    await send.click();
+    assert.equal((await sent).postDataJSON().question, maximum);
+  });
+
+  test(`Open Doc follows Ask Doc availability on switched CARR sign-in at ${width}px`, async (t) => {
+    const { context, server, carrTools } = await app(t, { width, signIn: "carr", switchDay: true });
+    const page = await context.newPage();
+    await page.goto(server.origin + "/invoices?mode=live");
+    await page.getByRole("button", { name: "Joe: account and settings" }).waitFor({ timeout: 5000 });
+    assert.equal(await page.getByRole("link", { name: "Ask Doc", exact: true }).count(), 0);
+    await firstInvoiceRow(page).click({ timeout: 5000 });
+    const drawer = page.getByRole("dialog", { name: invoiceName });
+    await drawer.getByRole("button", { name: "Close invoice", exact: true }).waitFor();
+    assert.equal(await drawer.getByRole("link", { name: "Open Doc", exact: true }).count(), 0);
+    assert.ok(!carrTools.includes("read-invoice-tracker"));
+  });
+}
 
 test("engine sign-in shows historical client fit with the charts switch off", async (t) => {
   const { context, server, partnerReads, carrTools, setUnavailable } = await app(t);

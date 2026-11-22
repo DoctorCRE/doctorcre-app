@@ -641,51 +641,30 @@ for (const body of [
   });
 }
 
-const frameOn = new Map([["frame-from-engine", "on"]]);
 for (const [name, path] of [
   ["today-triage", "/api/engine/today-triage"],
   ["calendar-meeting-prep", "/api/engine/calendar-meeting-prep"],
 ] as const) {
-  test(`frame switch routes ${name} to its engine read`, async () => {
-    const f = fixture(frameOn);
+  test(`frame routes ${name} to its engine read without a switch`, async () => {
+    const f = fixture(new Map([["frame-from-engine", "off"]]));
     const response = await f.send(call(name));
     assert.equal(f.engine[0]?.url, `${origin}${path}`);
     assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
-    assert.deepEqual(f.kv, [["frame-from-engine", { cacheTtl: 30 }]]);
+    assert.deepEqual(f.kv, []);
     assert.equal(f.carr.length, 0);
     assert.deepEqual((await response.json()).result, { content: [{ type: "text", text: payload }] });
   });
 
-  test(`frame read ${name} falls back when the engine answers 500`, async () => {
-    const f = fixture(frameOn, async () => new Response("down", { status: 500 }));
-    const body = call(name);
-    assert.equal(await (await f.send(body)).text(), "old");
+  test(`frame read ${name} stays on the engine when it answers 500`, async () => {
+    const f = fixture(new Map(), async () => new Response("down", { status: 500 }));
+    assert.equal((await f.send(call(name))).status, 503);
     assert.equal(f.engine.length, 1);
-    assert.deepEqual(f.carr, [JSON.stringify(body)]);
+    assert.deepEqual(f.carr, []);
   });
-
-  for (const value of [
-    null,
-    "off",
-    "ON",
-    new Error("KV failed"),
-    new Map([
-      ["deals-from-engine", "on"],
-      ["leads-from-engine", "on"],
-    ]),
-  ]) {
-    test(`${name} stays on CARR while the frame switch is not on (${String(value)})`, async () => {
-      const f = fixture(value);
-      const body = call(name);
-      assert.equal(await (await f.send(body)).text(), "old");
-      assert.deepEqual(f.carr, [JSON.stringify(body)]);
-      assert.equal(f.engine.length, 0);
-    });
-  }
 
   for (const args of [{ limit: 5 }, { owners: "all" }, { cursor: "x" }]) {
     test(`${name} with arguments ${JSON.stringify(args)} stays on CARR without reading the switch`, async () => {
-      const f = fixture(frameOn);
+      const f = fixture(new Map());
       assert.equal(await (await f.send(call(name, args))).text(), "old");
       assert.equal(f.engine.length, 0);
       assert.equal(f.kv.length, 0);
@@ -694,7 +673,7 @@ for (const [name, path] of [
 }
 
 test("frame switch alone leaves the Deals board on CARR", async () => {
-  const f = fixture(frameOn);
+  const f = fixture(new Map());
   assert.equal(await (await f.send(call("deal-room-board", { workspace: "all" }))).text(), "old");
   assert.deepEqual(f.kv, [["deals-from-engine", { cacheTtl: 30 }]]);
   assert.equal(f.engine.length, 0);
@@ -837,14 +816,22 @@ for (const path of ["/api/engine", "/api/engine-other/deals"]) {
 }
 
 const remainingScreens = [
-  ["home-from-engine", "read-home-inbox-v5", "/api/engine/home/inbox"],
   ["invoices-from-engine", "read-invoice-tracker", "/api/engine/invoices"],
   ["charts-from-engine", "ideal-client-profile", "/api/engine/client-fit"],
   ["national-deals-from-engine", "capture-queue", "/api/engine/capture-queue"],
 ] as const;
 
+test("Home inbox uses the engine without consulting KV", async () => {
+  const f = fixture(new Map([["home-from-engine", "off"]]), async () => new Response(null, { status: 503 }));
+  const response = await f.send(call("read-home-inbox-v5"));
+  assert.equal(response.status, 503);
+  assert.equal(f.engine[0]?.url, origin + "/api/engine/home/inbox");
+  assert.deepEqual(f.kv, []);
+  assert.deepEqual(f.carr, []);
+});
+
 test("Home keeps legacy completion and review calls on CARR for their other callers", async () => {
-  const f = fixture(new Map([["home-from-engine", "on"]]));
+  const f = fixture(new Map());
   const bodies = [
     "read-home-inbox-v4",
     "read-home-review",
@@ -861,7 +848,7 @@ test("Home keeps legacy completion and review calls on CARR for their other call
 });
 
 test("Home refuses old mark writes from a snapshot loaded before the switch", async () => {
-  const f = fixture(new Map([["home-from-engine", "on"]]));
+  const f = fixture(new Map());
   const response = await f.send(
     call("settle-home-inbox", {
       idempotency_key: "4c719df9-2168-4b5a-a26b-95b20376a75f",
@@ -1997,7 +1984,7 @@ test("the new save switch refuses saves loaded before the read cutover", async (
   assert.deepEqual(f.carr, []);
 });
 
-test("the Home switch gates the single-card engine marks door", async () => {
+test("Home forwards the single-card mark and preserves the engine refusal", async () => {
   const args = {
     idempotency_key: "4c719df9-2168-4b5a-a26b-95b20376a75f",
     item_id: "next_action:00000000-0000-0000-0000-000000000001",
@@ -2006,7 +1993,7 @@ test("the Home switch gates the single-card engine marks door", async () => {
     until: "2099-01-01T00:00:00Z",
   };
   const refused = { error: "version_conflict", current_version: "2147483649:0:inbox" };
-  const f = fixture(new Map([["home-from-engine", "on"]]), async () => Response.json(refused, { status: 409 }));
+  const f = fixture(new Map(), async () => Response.json(refused, { status: 409 }));
   const response = await f.send(call("save-engine-home-mark", args));
   assert.equal(f.carr.length, 0);
   const [request] = f.engine;
@@ -2018,16 +2005,10 @@ test("the Home switch gates the single-card engine marks door", async () => {
     isError: true,
     content: [{ type: "text", text: JSON.stringify(refused) }],
   });
-  const off = fixture(null);
-  const offReply = await off.send(call("save-engine-home-mark", args));
-  assert.equal((await offReply.json()).result.isError, true);
-  assert.equal(off.engine.length + off.carr.length, 0);
 });
 
 test("Home identifies a successful engine snapshot for the app's save routing", async () => {
-  const f = fixture(new Map([["home-from-engine", "on"]]), async () =>
-    Response.json({ ok: true, schema_version: "home-inbox.v5", items: [] }),
-  );
+  const f = fixture(new Map(), async () => Response.json({ ok: true, schema_version: "home-inbox.v5", items: [] }));
   const reply = await (await f.send(call("read-home-inbox-v5"))).json();
   assert.equal(JSON.parse(reply.result.content[0].text).engine_marks, true);
 });
@@ -2055,7 +2036,6 @@ test("the Deals step end HTTP route requires both switches and a versioned reque
       new Map([
         ["deals-from-engine", reads ? "on" : "off"],
         ["deals-saves-from-engine", saves ? "on" : "off"],
-        ["home-from-engine", reads && saves ? "off" : "on"],
       ]),
     );
     const response = await worker.fetch(request(command), f.env);
@@ -2084,9 +2064,9 @@ test("the Deals step end HTTP route requires both switches and a versioned reque
   }
 });
 
-test("the Home switch routes guarded step and review actions through signed-in engine doors", async () => {
+test("Home routes guarded step and review actions through signed-in engine doors", async () => {
   const id = "00000000-0000-0000-0000-000000000001";
-  const f = fixture(new Map([["home-from-engine", "on"]]), async () => Response.json({ success: true }));
+  const f = fixture(new Map(), async () => Response.json({ success: true }));
   const step = { idempotency_key: id, base_version: 2147483648, resolution: "done" };
   await f.send(call("end-engine-home-step", { id, ...step }));
   await f.send(call("read-engine-home-proposal", { id }));
@@ -2109,20 +2089,18 @@ test("the Home switch routes guarded step and review actions through signed-in e
   assert.deepEqual(f.carr, []);
 });
 
-test("the Home switch forwards the selected deal when previewing a filing", async () => {
+test("Home forwards the selected deal when previewing a filing", async () => {
   const id = "00000000-0000-0000-0000-000000000001";
   const deal_id = "00000000-0000-0000-0000-000000000002";
-  const f = fixture(new Map([["home-from-engine", "on"]]), async () =>
-    Response.json({ reason_required: false, hint: null }),
-  );
+  const f = fixture(new Map(), async () => Response.json({ reason_required: false, hint: null }));
   await f.send(call("read-engine-home-proposal", { id, deal_id }));
   assert.equal(f.engine[0]?.url, `${origin}/api/engine/proposals/${id}?deal_id=${deal_id}`);
   assert.deepEqual(f.carr, []);
 });
 
-test("switched Mail priorities use the engine's unfiltered read", async () => {
+test("Mail priorities use the engine's unfiltered read", async () => {
   const result = { ok: true, schema_version: "home-mail-priorities.v1", items: [], more: false };
-  const f = fixture(new Map([["home-from-engine", "on"]]), async () => Response.json(result));
+  const f = fixture(new Map(), async () => Response.json(result));
   const request = new Request(`${origin}/api/v1/intelligence/mail-needs-partner?limit=25`, {
     headers: { cookie: "session=synthetic" },
   });
@@ -2130,9 +2108,6 @@ test("switched Mail priorities use the engine's unfiltered read", async () => {
   assert.equal(f.engine[0]?.url, `${origin}/api/engine/home/mail-priorities`);
   assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
   assert.deepEqual(f.carr, []);
-  const off = fixture(null);
-  assert.equal(await (await worker.fetch(request, off.env)).text(), "old");
-  assert.equal(off.engine.length, 0);
 });
 
 test("client website setup and opening use their Deals switches without changing the legacy save", async () => {
@@ -2348,7 +2323,7 @@ test("market-deal choices and saves use the new engine behind the Deals switches
 });
 
 test("old settle operations cannot reach the engine Home marks door", async () => {
-  const f = fixture(new Map([["home-from-engine", "on"]]));
+  const f = fixture(new Map());
   for (const action of ["settle", "unsettle"]) {
     const response = await f.send(call("save-engine-home-mark", { action }));
     assert.equal((await response.json()).result.isError, true);
@@ -2465,7 +2440,7 @@ test("workspace HTML selects engine switches independently", async (t) => {
         const tourPlans = !deals && !saves;
         const switches = new Map([
           ["deal-tours-from-engine", tourPlans ? "on" : "off"],
-          ["home-from-engine", home ? "on" : "off"],
+          ["home-from-engine", "off"],
           ["clients-vendors-from-engine", path === "/vendors" ? "on" : "off"],
           ["deals-from-engine", deals ? "on" : "off"],
           ["deals-saves-from-engine", saves ? "on" : "off"],
@@ -2485,15 +2460,16 @@ test("workspace HTML selects engine switches independently", async (t) => {
             async (_request: Request) => new Response(html, { headers: { "content-type": "text/html" } }),
           ),
         };
-        const assetEnv = { ...env, ASSETS };
+        const assetEnv = { ...env, APP_ENV: home ? "production" : "fixture", ASSETS };
         const response = await worker.fetch(new Request(origin + path), assetEnv);
         assert.equal(response.status, 200);
-        for (const key of ["home-from-engine", "deals-from-engine", "deals-saves-from-engine"])
+        for (const key of ["deals-from-engine", "deals-saves-from-engine"])
           assert.equal(
             kv.filter((args) => Array.isArray(args) && args[0] === key).length,
             1,
             `${path} reads ${key} once`,
           );
+        assert.ok(!kv.some((args) => Array.isArray(args) && args[0] === "home-from-engine"));
         const chosen = ASSETS.fetch.mock.calls[0]?.arguments[0];
         if (path === "/review-workflows")
           assert.equal(
@@ -2529,28 +2505,24 @@ test("workspace HTML selects engine switches independently", async (t) => {
   }
 });
 
-test("Home Today reads only the engine when the Home switch is on", async () => {
+test("Home Today reads only the engine in the deployed app", async () => {
   const path = "/api/engine/home/today?owner=dell";
   const request = () => new Request(origin + path, { headers: { cookie: "session=synthetic" } });
-  const off = fixture(new Map([["frame-from-engine", "on"]]));
-  assert.equal((await worker.fetch(request(), off.env)).status, 404);
-  assert.deepEqual(off.engine, []);
-  assert.deepEqual(off.carr, []);
 
-  const on = fixture(new Map([["home-from-engine", "on"]]));
+  const on = fixture(new Map([["home-from-engine", "off"]]));
   const response = await worker.fetch(request(), on.env);
   assert.equal(await response.text(), payload);
   assert.equal(on.engine[0]?.url, origin + path);
   assert.equal(on.engine[0]?.headers.get("cookie"), "session=synthetic");
   assert.deepEqual(on.carr, []);
 
-  const unavailable = fixture(new Map([["home-from-engine", "on"]]), async () => new Response(null, { status: 503 }));
+  const unavailable = fixture(new Map(), async () => new Response(null, { status: 503 }));
   assert.equal((await worker.fetch(request(), unavailable.env)).status, 503);
   assert.deepEqual(unavailable.carr, []);
 });
 
 test("Home Today preserves the engine's partner and owner refusals", async () => {
-  const enabled = new Map([["home-from-engine", "on"]]);
+  const enabled = new Map();
   for (const [query, status, error] of [
     ["", 403, "AUTHORIZATION_REFUSED"],
     ["?owner=example", 400, "unknown_owner"],
@@ -2563,7 +2535,7 @@ test("Home Today preserves the engine's partner and owner refusals", async () =>
   }
 });
 
-test("Home meeting answers switch from legacy writes to the signed-in engine routes", async () => {
+test("Home meeting answers use the signed-in engine routes", async () => {
   const review = "0123456789abcdef";
   const key = "00000000-0000-8000-8000-000000000001";
   const activity = "/api/engine/activities";
@@ -2583,14 +2555,7 @@ test("Home meeting answers switch from legacy writes to the signed-in engine rou
       headers: { "content-type": "application/json", "x-carr-csrf": "synthetic" },
       body: JSON.stringify(body),
     });
-  const off = fixture(new Map());
-  for (const request of legacy) assert.equal(await (await off.send(request)).text(), "old");
-  for (const [path, body] of writes) assert.equal((await worker.fetch(post(path, body), off.env)).status, 404);
-  assert.equal(off.carr.length, legacy.length);
-  assert.deepEqual(off.engine, []);
-  assert.equal((await worker.fetch(post(activity, { kind: "note" }), off.env)).status, 200);
-
-  const on = fixture(new Map([["home-from-engine", "on"]]));
+  const on = fixture(new Map());
   for (const request of legacy) {
     const answer = await (await on.send(request)).json();
     assert.equal(answer.result.isError, true);
@@ -2885,10 +2850,9 @@ test("the cutover preserves the local report and read-only Tour search", async (
   assert.equal(f.carr.length, 4);
 });
 
-test("Home-only legacy saves use the Home switch independently", async () => {
+test("Home-only legacy saves are refused independently of Deals", async () => {
   for (const name of ["review-deal-update", "snooze-home-inbox", "settle-home-inbox", "unsettle-home-inbox"]) {
-    assert.equal(await (await fixture(nextDealsOn).send(call(name))).text(), "old", name);
-    const home = fixture(new Map([["home-from-engine", "on"]]));
+    const home = fixture(new Map());
     const reply = await (await home.send(call(name))).json();
     assert.match(JSON.parse(reply.result.content[0].text).hint, /Home/);
     assert.deepEqual(home.carr, []);
