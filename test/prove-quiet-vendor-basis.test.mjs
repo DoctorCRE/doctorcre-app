@@ -34,6 +34,20 @@ async function fixture(t) {
     }]));
     server = await startWorkerFixture({ assets: snapshot, env: {
       APP_ENV: 'production', GIT_SHA: source,
+      ENGINE: {
+        async fetch(request) {
+          const { pathname } = new URL(request.url);
+          if (request.method !== 'GET' || pathname !== '/api/engine/home/today') return new Response(null, { status: 404 });
+          return Response.json({
+            ok: true,
+            schema_version: 'home-today.v1',
+            today: '2026-11-21',
+            meetings: { state: 'empty', items: [] },
+            reminders: { state: 'empty', late: [], upcoming: [] },
+            partners: [],
+          });
+        },
+      },
       CARR: { fetch: async request => {
         const url = new URL(request.url);
         if (url.pathname.startsWith('/api/v1/business/')) return Response.json(directoryFixture(request.url));

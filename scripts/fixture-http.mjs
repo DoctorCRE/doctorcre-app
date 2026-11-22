@@ -3,6 +3,7 @@ import { censusResponse } from './work-inventory-fixture.mjs';
 import { atlasFixtureResponse } from './atlas-fixture.mjs';
 import { createQaDispatcher } from './qa-fixture-dispatch.mjs';
 import { handleDoctorcreRequest } from '../src/worker.js';
+import { FixtureHtmlRewriter } from '../test/fixtures/worker-html.ts';
 import { createServer, validateHeaderName, validateHeaderValue } from 'node:http';
 
 const defaults = Object.freeze({ bytes: 64 * 1024 * 1024, entries: 10000, body: 16 * 1024 * 1024,
@@ -35,7 +36,10 @@ export async function startWorkerFixture(options = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('Invalid Worker fixture port');
   fields(env, ['CARR', 'APP_ENV', 'GIT_SHA', 'PARTNER_APP', 'PARTNER_SIGN_IN', 'ENGINE', 'ENGINE_ROUTING', 'WORKSPACE_COMMAND_CENTER_READ_ENABLED']);
   if (transport.assets instanceof Map) for (const value of transport.assets.values()) fields(value, ['body', 'contentType', 'status', 'headers']);
-  return start(transport, { ...env }, port, qaSeed === undefined ? undefined : structuredClone(qaSeed), demo);
+  if (!globalThis.HTMLRewriter)
+    Object.defineProperty(globalThis, 'HTMLRewriter', { configurable: true, value: FixtureHtmlRewriter });
+  const bindings = { APP_ENV: 'fixture', ...env };
+  return start(transport, bindings, port, qaSeed === undefined ? undefined : structuredClone(qaSeed), demo);
 }
 
 async function start(options, worker, port = 0, qaSeed, demo = false) {
