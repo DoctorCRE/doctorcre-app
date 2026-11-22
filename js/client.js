@@ -103,7 +103,7 @@
  * @property {(args?:{signal?:AbortSignal,step?:string}) => Promise<Object>} getRelationshipNetwork authenticated relationship-network.v1 snapshot, with observed_at and valid_until
  * @property {(args:Object) => Promise<Object>} readAssuranceHealth read-only assurance-health.v1 for an exact workflow scope
  * @property {(args?:{signal?:AbortSignal}) => Promise<Object>} getInvoiceTracker invoice-tracker.v1 snapshot
- * @property {(args:{commission_id:string,base_version:number,received_on:string,idempotency_key:string}) => Promise<Object>} markInvoicePaid record one full commission receipt
+ * @property {(args:{commission_id:string,base_version:number|null,received_on:string,idempotency_key:string}) => Promise<Object>} markInvoicePaid record one full commission receipt
  * @property {(args?:{signal?:AbortSignal}) => Promise<Object>} calendarMeetingPrep authenticated upcoming meetings with possible owned deals and preparation, no audience argument
  * @property {(queue:'today'|'loops'|'needs_joe'|'assurance_cadence',args?:{cursor?:string,signal?:AbortSignal}) => Promise<Object>} morningBriefQueue authenticated stable queue page, no audience argument
  * @property {'fixture'|'live'} mode

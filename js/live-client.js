@@ -44,6 +44,7 @@ export { dealTypeLabel } from './client.js';
 // Concurrent identical page reads (Home's layout, Doc and the morning brief all ask
 // for the same board) share one request. Nothing is cached once it settles.
 const sharedReads = new WeakMap();
+let browserCallDecisions;
 const SHARED_READ_VERBS = new Set(['deal-room-board', 'morning-brief', 'list-feature-switches']);
 
 export function createLiveClient(opts = {}) {
@@ -61,7 +62,7 @@ export function createLiveClient(opts = {}) {
   const dealCreations = new Map();
   const fetchReadImpl = (path, init) => fetchRead(path, init, { fetchImpl, timeoutMs: opts.readTimeoutMs || 10_000 });
   const commands = createRetainedCommands({ scope: () => selfActor });
-  const sessionCommands = createRetainedCommands({ scope: async () => {
+  const commandSession = async () => {
     const response = await fetchReadImpl('/auth/session', { credentials: 'same-origin', cache: 'no-store', headers: { accept: 'application/json' } });
     if (!response.ok) throw Object.assign(new Error('Sign in again before checking this write.'), { status: response.status });
     const session = await response.json();
@@ -69,7 +70,8 @@ export function createLiveClient(opts = {}) {
       throw new Error('The current session could not be verified. No write was sent.');
     if (selfActor && selfActor !== session.actor.slug) throw Object.assign(new Error('Session changed. Reopen the record before writing.'), { code: 'session_changed' });
     return `${session.actor.slug}:${session.csrf_token}`;
-  } });
+  };
+  const sessionCommands = createRetainedCommands({ scope: commandSession });
   const sessionWrites = new Set(['link-parties', 'set-next-step', 'set-market-agent', 'set-national-account-owner', 'create-national-account',
     'create-national-market-deal', 'start-deal-review', 'review-deal', 'end-deal-review',
     'resolve-candidate', 'resolve-post-call-candidate', 'answer-work-request-for-joe', 'add-industry-event', 'update-industry-event',
@@ -111,9 +113,9 @@ export function createLiveClient(opts = {}) {
     return body;
   };
   const engineRead = async path => engineAnswer(await fetchReadImpl(path, { headers: { accept: 'application/json' } }));
-  const engineSave = (path, body) => readWithDeadline(async signal => engineAnswer(await fetchImpl(path, {
+  const engineSave = (path, body, csrf) => readWithDeadline(async signal => engineAnswer(await fetchImpl(path, {
     method: 'POST', credentials: 'same-origin', signal,
-    headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json', ...(csrf && { 'x-carr-csrf': csrf }) }, body: JSON.stringify(body),
   })), { timeoutMs: opts.writeTimeoutMs || 10_000 });
 
   async function rawRpc(verb, args = {}, signal, timeoutMs, headers) {
@@ -490,6 +492,26 @@ export function createLiveClient(opts = {}) {
     async dismissEmailProposal(args) { return write('dismiss-email-proposal', args); },
     async listEmailThreadFilings() { return rpc('list-email-thread-filings', {}); },
     async undoEmailThreadFiling(args) { return write('undo-email-thread-filing', args); },
+
+    async readDealCallOutcomes(dealId) {
+      return engineRead(`/api/engine/deals/${encodeURIComponent(dealId)}/call-outcomes`);
+    },
+
+    async decideCallProposal({ proposal_id, decision }) {
+      const retained = page && !opts.fetchImpl
+        ? (browserCallDecisions ??= createRetainedCommands({ scope: commandSession }))
+        : sessionCommands;
+      const key = JSON.stringify(['call-decision', proposal_id]);
+      const args = decision ? { decision } : retained.pending(key);
+      if (!args) return;
+      return retained.send(key, args, async (request, binding) => {
+        const receipt = await engineSave(`/api/engine/proposals/${encodeURIComponent(proposal_id)}/decision`,
+          request, binding.slice(binding.indexOf(':') + 1));
+        if (receipt?.proposal_id !== proposal_id || receipt.status !== (request.decision === 'accept' ? 'accepted' : 'dismissed'))
+          throw new Error('Call decision receipt unavailable');
+        return { ok: true };
+      });
+    },
 
     async readCallOutcomes() {
       return rpc('read-call-outcomes', {});
