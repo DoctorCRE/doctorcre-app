@@ -1386,6 +1386,9 @@ export const workspaceTabs = [
   {id:'documents', label:'Documents'},
   {id:'client-view', label:'Client view'},
 ];
+const engineTourPlans = () => document.documentElement.hasAttribute('data-deal-tours-from-engine');
+const toursAvailable = () => engineTourPlans() || state.mode === 'fixture';
+const visibleWorkspaceTabs = () => workspaceTabs.filter(tab => tab.id !== 'tours' || toursAvailable());
 let workspaceTab = 'overview';
 let boardScroll = 0;
 let timelineType = '';
@@ -1416,7 +1419,7 @@ function renderWorkspaceFacts(detail) {
 }
 function selectWorkspaceTab(id) {
   workspaceTab = id;
-  for (const tab of workspaceTabs) {
+  for (const tab of visibleWorkspaceTabs()) {
     const selected = tab.id === id;
     $(`tab-${tab.id}`).setAttribute('aria-selected', String(selected));
     $(`tab-${tab.id}`).tabIndex = selected ? 0 : -1;
@@ -1725,7 +1728,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
-    <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
+    ${toursAvailable() ? '<section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden></section>' : ''}
     <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
     <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2>
       ${fromEngine ? `<div data-detail-read="correspondence">${renderCorrespondence(detail.correspondence, detail.email_follow_ups.filter(row => row.kind === 'file_to_deal').length)}</div>` : '<details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>'}
@@ -2017,13 +2020,13 @@ function paintPanel(detail) {
   const property = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;
   const propertyRead = new AbortController();
   let toursDisposed = false, toursLoading = false, toursMounted;
-  dealToursPanel = engineMode ? null : {
+  dealToursPanel = !toursAvailable() ? null : {
     async load() {
       if (toursDisposed || toursLoading || toursMounted) return;
       toursLoading = true;
       const root = $('workspace-tours');
       root.textContent = 'Loading tours…';
-      if (property && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(property)) {
+      if (!engineTourPlans() && property && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(property)) {
         const toursUrl = `/deals?deal=${encodeURIComponent(detail.deal.id)}&tab=tours`;
         root.innerHTML = `<section aria-label="Property from tour feedback"><h2 tabindex="-1">Property from tour feedback</h2><p role="status">Loading property…</p><a href="${esc(toursUrl)}">See deal tours</a></section>`;
         const section = root.firstElementChild;
@@ -2051,6 +2054,11 @@ function paintPanel(detail) {
         return;
       }
       try {
+        if (engineTourPlans()) {
+          const { mountDealTourPlans } = await import('./ui-deal-tour-plans.generated.js');
+          if (!toursDisposed) toursMounted = mountDealTourPlans(root, { dealId: detail.deal.id, request: sessionFetch });
+          return;
+        }
         const [{ mountDealTours }, { createPlannerClient }] = await Promise.all([
           import('./ui-deal-tours.generated.js'), import('../tours/planner-client.js'),
         ]);
@@ -2065,7 +2073,7 @@ function paintPanel(detail) {
         }
       } finally { toursLoading = false; }
     },
-    refresh() { return toursMounted?.refresh(); },
+    refresh() { return toursMounted?.refresh?.(); },
     hasUnsavedChanges() { return toursMounted?.hasUnsavedChanges() || false; },
     confirmLeave() { return toursMounted?.confirmLeave() ?? Promise.resolve(true); },
     dispose() { toursDisposed = true; propertyRead.abort(); toursMounted?.dispose(); },
@@ -2163,6 +2171,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   state.panelStepId = focusStep ? scope.get('step') : null;
   workspaceTab = scope.get('deal') === dealId && scope.has('property') ? 'tours'
     : ['tours','client-view'].includes(scope.get('tab')) ? scope.get('tab') : 'overview';
+  if (workspaceTab === 'tours' && !toursAvailable()) workspaceTab = 'overview';
   timelineType = '';
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
   const url = new URL(location.href);
@@ -2177,7 +2186,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   $('panelTitle').textContent = state.deals.get(dealId)?.name || 'Deal';
   $('panelBody').innerHTML = '<p>Updating…</p>';
   $('workspaceFacts').replaceChildren();
-  $('workspaceTabs').innerHTML = workspaceTabs.map(tab => `<button class="workspace-tab" type="button" role="tab" id="tab-${tab.id}" aria-controls="workspace-${tab.id}" aria-selected="${tab.id === workspaceTab}" tabindex="${tab.id === workspaceTab ? 0 : -1}" data-workspace-tab="${tab.id}">${tab.label}</button>`).join('');
+  $('workspaceTabs').innerHTML = visibleWorkspaceTabs().map(tab => `<button class="workspace-tab" type="button" role="tab" id="tab-${tab.id}" aria-controls="workspace-${tab.id}" aria-selected="${tab.id === workspaceTab}" tabindex="${tab.id === workspaceTab ? 0 : -1}" data-workspace-tab="${tab.id}">${tab.label}</button>`).join('');
   $('main').hidden = true; panel.hidden = false;
   document.body.classList.add('workspace-open');
   scrollTo({ top: 0, behavior: 'instant' });
@@ -2590,9 +2599,10 @@ function wire() {
   $('workspaceTabs').addEventListener('keydown', event => {
     if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
     event.preventDefault();
-    const index = workspaceTabs.findIndex(tab => tab.id === workspaceTab);
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? workspaceTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + workspaceTabs.length) % workspaceTabs.length;
-    selectWorkspaceTab(workspaceTabs[next].id);
+    const tabs = visibleWorkspaceTabs();
+    const index = tabs.findIndex(tab => tab.id === workspaceTab);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    selectWorkspaceTab(tabs[next].id);
     $(`tab-${workspaceTab}`).focus();
     scrollTo(0,0);
   });
