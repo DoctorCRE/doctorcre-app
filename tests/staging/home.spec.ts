@@ -1,40 +1,29 @@
-import { test, expect } from '@playwright/test';
-import { withHomeFixture } from './journey-fixture.mjs';
+import { expect, test } from "@playwright/test";
+import { withJourneyFixture } from "./journey-fixture.ts";
 
 test.beforeEach(async ({ page }) => {
-  await page.addLocatorHandler(page.getByRole('button', { name: 'Dismiss morning brief' }), async dismiss => { await dismiss.click(); });
+  await page.addLocatorHandler(page.getByRole("button", { name: "Dismiss morning brief" }), async (dismiss) => {
+    await dismiss.click();
+  });
 });
 
-test('Home scope switches and refreshes loaded deal attention', async ({ page }) => {
-  test.setTimeout(60_000);
-  await page.goto('/review-workflows');
-  await expect(page.locator('#dealAttention')).toHaveAttribute('aria-busy', 'false', { timeout: 27_000 });
-  await page.getByRole('button', { name: 'Just me', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Just me', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('button', { name: 'Team view', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Team view', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('button', { name: 'Refresh Home', exact: true }).click();
-  await expect(page.locator('#dealAttention')).toHaveAttribute('aria-busy', 'false', { timeout: 27_000 });
-  await expect(page.locator('#observedAt')).not.toContainText(/Unavailable|Sign in/);
-});
-
-test('V2-F03: Charts navigation opens, selects and returns to Overview', async ({ page }) => {
-  await page.goto('/?view=charts');
-  await expect(page.locator('.chart-card').first()).toBeVisible();
-  await page.locator('.chart-pick').first().click();
+test("V2-F03: Charts navigation opens, selects and returns to Overview", async ({ page }) => {
+  await page.goto("/?view=charts");
+  await expect(page.locator(".chart-card").first()).toBeVisible();
+  await page.locator(".chart-pick").first().click();
   await expect(page.locator('.chart-pick[aria-pressed="true"]').first()).toBeVisible();
-  await page.getByRole('link', { name: 'Overview', exact: true }).click();
-  await expect(page).toHaveURL('/');
-  await expect(page.getByRole('heading', { name: 'Welcome home.', exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await expect(page).toHaveURL("/");
+  await expect(page.getByRole("region", { name: "Reminders", exact: true })).toBeVisible();
 });
 
-test('Home deal attention opens the selected deal details', async ({ page }) => {
-  test.setTimeout(420000);
-  await withHomeFixture(async fixture => {
-    await page.goto('/review-workflows');
-    await page.locator(`#dealFlags a[data-home-key="deal:${fixture.deal.id}"]`).click();
-    await expect(page).toHaveURL(new RegExp(`/deals\\?deal=${fixture.deal.id}`));
-    await expect(page.locator('#recordPanel')).toBeVisible();
-    await expect(page.locator('#panelTitle')).toHaveText(fixture.deal.name);
+test("Home opens the deal from its overdue next step", async ({ page }) => {
+  test.setTimeout(180_000);
+  await withJourneyFixture(async (fixture) => {
+    await page.goto(`/?card=${encodeURIComponent(fixture.home_item_id)}`);
+    const dealUrl = `/deals?deal=${fixture.deal_id}&focus=next-step&step=${fixture.next_step_id}`;
+    await page.locator(`[data-inbox-row="${fixture.home_item_id}"] h3 a[href="${dealUrl}"]`).click();
+    await expect(page).toHaveURL(dealUrl);
+    await expect(page.locator("#panelTitle")).toHaveText(fixture.deal_name);
   });
 });

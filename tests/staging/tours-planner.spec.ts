@@ -1,27 +1,24 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from "@playwright/test";
+import { z } from "zod";
+import { withJourneyFixture } from "./journey-fixture.ts";
 
-test.beforeEach(async ({ page }) => {
-  await page.addLocatorHandler(page.getByRole('button', { name: 'Dismiss morning brief' }), async dismiss => { await dismiss.click(); });
-});
+const stops = z.object({ stops: z.array(z.object({ property_id: z.uuid() })) });
 
-test('Tour planner filters its library and refreshes', async ({ page }) => {
-  await page.goto('/tours');
-  await expect(page.locator('#planner-updated')).not.toHaveText('Updating…', { timeout: 27000 });
-  await expect(page.locator('#tour-library-state')).toBeEmpty();
-  await expect(page.locator('#tour-library-state')).not.toContainText('unavailable');
-  await page.locator('#tour-filter').fill('V2 no tour 35f9009c');
-  await expect(page.locator('.tour-button')).toHaveCount(0);
-  await expect(page.locator('#upcoming-tours')).toContainText('No matching tours');
-  await page.locator('#tour-filter').fill('');
-  await page.getByRole('button', { name: 'Refresh tours', exact: true }).click();
-  await expect(page.locator('#planner-updated')).toContainText('Updated');
-});
-
-test('Tours opens deal workspaces and preserves legacy itinerary access', async ({page}) => {
-  await page.goto('/tours');
-  await expect(page.locator('#planner-updated')).not.toHaveText('Updating…', {timeout:27000});
-  await expect(page.locator('#create-tour-form, #plan-form')).toHaveCount(0);
-  const rows = page.locator('.tour-button');
-  test.skip(await rows.count() === 0, 'Staging has no saved tour.');
-  await expect(rows.first()).toHaveAttribute('href', /(?:deals\?deal=|route-editor\.html\?tour=)/);
+test("Deals opens the saved tour plan and shows its stop", async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.addLocatorHandler(page.getByRole("button", { name: "Dismiss morning brief" }), (dismiss) =>
+    dismiss.click(),
+  );
+  await withJourneyFixture(async (fixture) => {
+    await page.goto(`/deals?deal=${fixture.deal_id}`);
+    await expect(page.locator("#panelTitle")).toHaveText(fixture.deal_name);
+    await page.getByRole("tab", { name: "Tours", exact: true }).click();
+    const [plan] = await Promise.all([
+      page.waitForResponse(`**/api/engine/deals/${fixture.deal_id}/tours/${fixture.tour_id}`),
+      page.locator(".tour-plan > summary").click(),
+    ]);
+    expect(plan.ok()).toBe(true);
+    expect(stops.parse(await plan.json()).stops.map((stop) => stop.property_id)).toEqual([fixture.property_id]);
+    await expect(page.getByRole("list", { name: "Tour stops" }).getByRole("listitem")).toContainText("1 Example Way");
+  });
 });

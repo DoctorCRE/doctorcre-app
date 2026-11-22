@@ -43,31 +43,20 @@ jobs:
         run: node scripts/verify-app-release.mjs https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev/app-release "$SOURCE_COMMIT" staging
         env:
           SOURCE_COMMIT: ${{ github.sha }}
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: DoctorCRE/carr-system
-          ref: 517ecc12c0480d859dd1f4cb270f2a283a853065
-          path: carr-fixture-producer
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: DoctorCRE/carr-system
-          ref: c53b791f15d07b4e2c64dfd4aac10f3b03277161
-          path: carr-home-fixture
-          persist-credentials: false
-      - name: Install staging fixture producer
-        run: |
-          python3 -m venv carr-fixture-producer/.venv
-          carr-fixture-producer/.venv/bin/pip install 'psycopg[binary]==3.3.6'
-          npm ci --prefix carr-fixture-producer/mcp-server --ignore-scripts
       - name: Run signed-in staging tests
         id: playwright
-        run: npx playwright test --project=chromium --retries=1 --reporter=line,html,json
+        run: |
+          test -n "$ENGINE_STORAGE_STATE"
+          mkdir -p playwright/.auth
+          umask 077
+          printf '%s' "$ENGINE_STORAGE_STATE" > playwright/.auth/engine.json
+          unset ENGINE_STORAGE_STATE
+          ./node_modules/.bin/playwright test --project=chromium --retries=1 --reporter=line,html,json
         env:
-          E2E_SESSION_SECRET: ${{ secrets.E2E_SESSION_SECRET }}
-          CARR_JOURNEY_FIXTURE_REPO: ${{ github.workspace }}/carr-fixture-producer
-          CARR_HOME_FIXTURE_REPO: ${{ github.workspace }}/carr-home-fixture
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          ENGINE_STORAGE_STATE: ${{ secrets.E2E_ENGINE_STORAGE_STATE }}
+          E2E_ENGINE_STORAGE_STATE: playwright/.auth/engine.json
+          E2E_ENGINE_JOBS_CLIENT_ID: ${{ secrets.E2E_ENGINE_JOBS_CLIENT_ID }}
+          E2E_ENGINE_JOBS_CLIENT_SECRET: ${{ secrets.E2E_ENGINE_JOBS_CLIENT_SECRET }}
           PLAYWRIGHT_HTML_OPEN: never
           PLAYWRIGHT_HTML_OUTPUT_DIR: .e2e/playwright-report
           PLAYWRIGHT_JSON_OUTPUT_FILE: .e2e/staging-results.json
