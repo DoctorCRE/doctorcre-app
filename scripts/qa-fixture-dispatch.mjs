@@ -75,7 +75,7 @@ export function createQaDispatcher({ seed, assets: snapshot }) {
 
   const namespaces = new Map();
   const identities = new Map();
-  const engineRouting = new Map([['home-from-engine', 'off']]);
+  const engineRouting = new Map([['home-from-engine', 'off'], ['frame-from-engine', 'off']]);
   const stateFor = namespace => {
     if(!namespaces.has(namespace)) namespaces.set(namespace,makeState('realistic'));
     return namespaces.get(namespace);
