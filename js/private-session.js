@@ -16,12 +16,16 @@ export function privateTextDraft(win, actor, ...scope) {
       try { return key ? win.sessionStorage.getItem(key) ?? '' : ''; }
       catch { return ''; }
     },
-    write(text) {
+    write(text, { evictOnFailure = false } = {}) {
       if (!key) return;
       try {
         if (text) win.sessionStorage.setItem(key, text);
         else win.sessionStorage.removeItem(key);
-      } catch { /* The editor still works without storage. */ }
+      } catch {
+        if (!evictOnFailure) return;
+        try { win.sessionStorage.removeItem(key); }
+        catch { /* Storage may be blocked even for deletion. */ }
+      }
     },
   };
 }
@@ -156,7 +160,8 @@ export function privateSession() {
   const initialEpoch = sessionEpoch(win);
   let anonymousDiagnostics = false;
   try { anonymousDiagnostics = win.location.pathname === '/status' && !win.localStorage.getItem('doctorcre-session-binding-v1'); } catch {}
-  browserBoundary = createSessionBoundary({ anonymousDiagnostics, epoch: () => sessionEpoch(win),
+  let draftSession = null;
+  browserBoundary = Object.assign(createSessionBoundary({ anonymousDiagnostics, epoch: () => sessionEpoch(win),
     async fetchImpl(path, init, budgetOptions) {
       const response = await browserFetch(path, init, budgetOptions);
       if (pathname === '/tours/day.html' && path === '/auth/session' && response.headers.get(PARTNER_SIGN_IN_HEADER) === 'engine') {
@@ -180,6 +185,7 @@ export function privateSession() {
         // first principal to bootstrap this browser.
         if (!previous) await clearPrivateStorage(win);
         win.localStorage.setItem('doctorcre-session-binding-v1',digest);
+        draftSession = { actor: session.actor.slug, digest };
       } catch { /* Storage-denied browsers cannot restore private offline state. */ }
       return true;
     },
@@ -205,6 +211,11 @@ export function privateSession() {
         if (reload) win.location.reload();
         else win.location.replace(sessionEndedUrl);
       });
+    },
+  }), {
+    textDraft(...scope) {
+      const active = !browserBoundary.revoked && initialEpoch !== null && sessionEpoch(win) === initialEpoch;
+      return privateTextDraft(win, active ? draftSession?.actor : null, draftSession?.digest, initialEpoch, ...scope);
     },
   });
   win.addEventListener('storage', event => {

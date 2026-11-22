@@ -978,7 +978,7 @@ async function dashboard(t, width, theme, timezone) {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now, timezone, page: { viewport: { width, height: 760 } } });
   page.setDefaultTimeout(4000);
   await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences',
-    JSON.stringify({ theme, walkthroughSeen: { joe: true } })), theme);
+    JSON.stringify({ theme, walkthroughSeen: { joe: true, dell: true } })), theme);
   await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
   await page.route(url => url.pathname === '/' && url.searchParams.get('mode') === 'live', async route => {
     const response = await route.fetch();
@@ -1058,7 +1058,7 @@ async function dashboard(t, width, theme, timezone) {
       result = { proposal_id: args.id, status: args.decision === 'accept' ? 'accepted' : 'dismissed' };
     }
     if (name === 'read-engine-home-draft') result = {
-      ...state.draft, to: 'sender@example.test', cc: 'partner@example.test', attachments: [],
+      ...(args.id === state.otherDraft?.draft_id ? state.otherDraft : state.draft), to: 'sender@example.test', cc: 'partner@example.test', attachments: [],
       source_activity: mailSource, thread: state.draftThread ?? state.thread,
     };
     if (name === 'edit-engine-home-draft') {
@@ -1071,6 +1071,12 @@ async function dashboard(t, width, theme, timezone) {
           ? { ...item, source_version: String(state.draft.version) } : item);
         result = state.draft;
       }
+    }
+    if (name === 'dismiss-engine-home-draft') {
+      assert.equal(args.id, state.draft.draft_id);
+      state.items = state.items.filter(item => item.reply_draft_id !== args.id);
+      state.draft = { ...state.draft, version: args.version + 1, status: 'dismissed' };
+      result = state.draft;
     }
     if (name === 'save-engine-home-mark') {
       assert.equal(args.action, 'snooze');
@@ -1763,6 +1769,184 @@ const draftCard = () => ({
   primary_action: null,
 });
 
+test('Home restores reply edits after Back and reload and compares a newer revision', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  const otherDraft = {
+    ...draft, item_id: `reply_draft:${id(21)}`, source_id: id(21), reply_draft_id: id(21), title: 'Reply to a different email',
+    card_id: 'conversation:2',
+  };
+  state.dashboard = true;
+  state.items = [draft, otherDraft];
+  state.otherDraft = { ...state.draft, draft_id: id(21), body: 'Different saved draft.' };
+  await open('/?mode=live');
+  const title = page.getByRole('link', { name: draft.title });
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  const subject = review.getByRole('textbox', { name: 'Subject', exact: true });
+  const message = review.getByRole('textbox', { name: 'Message', exact: true });
+
+  await title.click();
+  await review.getByRole('button', { name: 'Edit', exact: true }).click();
+  await subject.fill('My sample subject');
+  await message.fill('Keep this local edit.');
+  await review.getByRole('button', { name: 'Close review' }).click();
+  await page.getByRole('link', { name: otherDraft.title }).click();
+  const otherReview = page.getByRole('region', { name: `Details for ${otherDraft.title}` });
+  await otherReview.getByText('Different saved draft.', { exact: true }).waitFor();
+  assert.equal(await otherReview.getByRole('textbox', { name: 'Message', exact: true }).count(), 0);
+  await otherReview.getByRole('button', { name: 'Close review' }).click();
+  await title.click();
+  await subject.waitFor();
+  assert.equal(await subject.inputValue(), 'My sample subject');
+  assert.equal(await message.inputValue(), 'Keep this local edit.');
+
+  await page.reload();
+  await title.click();
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  assert.equal(await subject.count(), 1, 'Reload should reopen the editor');
+  assert.equal(await subject.inputValue(), 'My sample subject');
+  assert.equal(await message.inputValue(), 'Keep this local edit.');
+
+  Object.assign(state.draft, { version: 2, subject: 'New saved subject', body: 'Saved somewhere else.' });
+  state.items = [{ ...draft, source_version: '2' }];
+  await page.reload();
+  await title.click();
+  await review.getByText('New saved subject', { exact: true }).waitFor();
+  const unsaved = review.getByRole('region', { name: 'Your unsaved edit' });
+  assert.equal(await unsaved.getByText('My sample subject', { exact: true }).count(), 1);
+  assert.equal(await unsaved.getByText('Keep this local edit.', { exact: true }).count(), 1);
+  assert.equal(await message.count(), 0);
+  assert.deepEqual(state.draftWrites, []);
+});
+
+function sessionHasReplyEdit(page, text) {
+  return page.evaluate(value => Object.values(sessionStorage).some(entry => entry.includes(value)), text);
+}
+
+for (const event of ['sign-out', 'partner change', 'drop']) test(`Home clears reply edits on ${event}`, async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  const localEdit = 'My private sample reply.';
+  let actor = 'joe';
+  state.dashboard = true;
+  state.items = [draft];
+  await page.route('**/auth/session', route => route.fulfill({
+    status: actor ? 200 : 401,
+    headers: { 'x-doctorcre-partner-sign-in': 'engine' },
+    json: actor ? { actor: { slug: actor }, csrf_token: `synthetic-${actor}` } : {},
+  }));
+  await page.route('**/auth/signout', route => {
+    actor = null;
+    return route.fulfill({ status: 302, headers: { location: '/' } });
+  });
+
+  await open('/?mode=live');
+  const title = page.getByRole('link', { name: draft.title });
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await title.click();
+  await review.getByRole('button', { name: 'Edit', exact: true }).click();
+  await review.getByRole('textbox', { name: 'Message', exact: true }).fill(localEdit);
+  assert.equal(await sessionHasReplyEdit(page, localEdit), true);
+
+  if (event === 'drop') {
+    await review.getByRole('button', { name: 'Close review' }).click();
+    await page.locator('[data-inbox-row]').filter({ hasText: draft.title }).getByRole('button', { name: 'Drop', exact: true }).click();
+    const reason = page.getByRole('dialog', { name: 'Drop with a reason' });
+    await reason.getByRole('textbox', { name: 'Reason for dropping' }).fill('Handled elsewhere');
+    await reason.getByRole('button', { name: 'Drop', exact: true }).click();
+    await title.waitFor({ state: 'detached' });
+    assert.equal(state.draft.status, 'dismissed');
+  } else if (event === 'sign-out') {
+    await page.locator('#selfAvatar').click();
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+    await page.waitForURL('**/public-shell/session-ended.html');
+  } else {
+    actor = 'dell';
+    await page.reload();
+    await title.click();
+    await review.getByText('First draft.', { exact: true }).waitFor();
+    assert.equal(await review.getByRole('textbox', { name: 'Message', exact: true }).count(), 0);
+  }
+  assert.equal(await sessionHasReplyEdit(page, localEdit), false);
+});
+
+test('Home skips edits from a retired session when the same partner signs back in elsewhere', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  const edit = 'Sample edit from the retired session.';
+  state.dashboard = true;
+  state.items = [draft];
+  let signedIn = true;
+  const auth = route => route.fulfill({
+    status: signedIn ? 200 : 401,
+    headers: { 'x-doctorcre-partner-sign-in': 'engine' },
+    json: signedIn ? { actor: { slug: 'joe' }, csrf_token: 'synthetic' } : {},
+  });
+  await page.route('**/auth/session', auth);
+  await open('/?mode=live');
+  const home = page.url();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await page.getByRole('link', { name: draft.title }).click();
+  await review.getByRole('button', { name: 'Edit', exact: true }).click();
+  await review.getByRole('textbox', { name: 'Message', exact: true }).fill(edit);
+  await open('/public-shell/session-ended.html');
+
+  const otherTab = await page.context().newPage();
+  await otherTab.route('**/auth/session', auth);
+  await otherTab.route('**/auth/signout', route => {
+    signedIn = false;
+    return route.fulfill({ status: 302, headers: { location: '/' } });
+  });
+  await otherTab.goto(home);
+  await otherTab.locator('#selfAvatar').click();
+  await otherTab.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await otherTab.waitForURL('**/public-shell/session-ended.html');
+  signedIn = true;
+  await otherTab.goto(home);
+  await otherTab.evaluate(async () => {
+    const { privateSession } = await import('/js/private-session.js');
+    await privateSession().verify();
+  });
+  assert.equal(await sessionHasReplyEdit(page, edit), true, 'The inactive tab missed the storage event');
+
+  await page.goto(home);
+  await page.getByRole('link', { name: draft.title }).click();
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  assert.equal(await review.getByRole('textbox', { name: 'Message', exact: true }).count(), 0);
+  assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
+});
+
+test('Home evicts the old reply edit when browser storage rejects its replacement', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  state.dashboard = true;
+  state.items = [draft];
+  await open('/?mode=live');
+  const title = page.getByRole('link', { name: draft.title });
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  const message = review.getByRole('textbox', { name: 'Message', exact: true });
+  await title.click();
+  await review.getByRole('button', { name: 'Edit', exact: true }).click();
+  await message.fill('First local edit.');
+  assert.equal(await sessionHasReplyEdit(page, 'First local edit.'), true);
+  await page.evaluate(() => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (this === sessionStorage && value.includes('Latest local edit.')) throw new DOMException('Full', 'QuotaExceededError');
+      return setItem.call(this, key, value);
+    };
+  });
+  await message.fill('Latest local edit.');
+  await review.getByRole('button', { name: 'Close review' }).click();
+  await title.click();
+  assert.equal(await message.inputValue(), 'Latest local edit.');
+  await page.reload();
+  await title.click();
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  assert.equal(await message.count(), 0, 'A failed write must not restore older text after reload');
+  assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
+});
+
 for (const width of [390, 1440]) test(`Home links open exact mailbox reviews without loading the inbox at ${width}px`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
   const draft = { ...draftCard(), suggestions: [{ id: id(43) }] };
@@ -1850,16 +2034,30 @@ for (const width of [390, 1440]) test(`Home links open exact mailbox reviews wit
   await page.getByText('Suggestion accepted.', { exact: true }).waitFor();
   await filing.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Updated sample draft.');
+  const message = page.getByRole('textbox', { name: 'Message', exact: true });
+  await message.fill('Updated sample draft.');
+  await page.goBack();
+  await page.goForward();
+  await message.waitFor();
+  assert.equal(await message.inputValue(), 'Updated sample draft.');
+  await page.reload();
+  await message.waitFor();
+  assert.equal(await message.inputValue(), 'Updated sample draft.');
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await page.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
+  assert.equal(await sessionHasReplyEdit(page, 'Updated sample draft.'), false);
+
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await message.fill('Ready to send.');
+  assert.equal(await sessionHasReplyEdit(page, 'Ready to send.'), true);
   await page.getByRole('button', { name: 'Send reply', exact: true }).click();
   await page.getByText('Sending', { exact: true }).waitFor();
+  assert.equal(await sessionHasReplyEdit(page, 'Ready to send.'), false);
   assert.deepEqual(writes, [
     ['decision', id(41), 'accept'],
     ['decision', id(43), 'accept'],
     ['edit', id(20), 1, 'Updated sample draft.'],
-    ['submission', id(20), 2, 'Updated sample draft.'],
+    ['submission', id(20), 2, 'Ready to send.'],
   ]);
 
   const otherPartner = await scenario(t, { root: join(outDir, 'site'), page: { viewport: { width, height: 760 } } });
@@ -1951,17 +2149,25 @@ for (const width of [390, 1440]) {
 
 test('A link to a dropped or replaced Home draft shows its saved outcome', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
-  state.draft.status = 'dismissed';
+  const draft = draftCard();
+  const url = `/inbox/card/${encodeURIComponent(draft.item_id)}?mode=live`;
   for (const [disposition, label, reason] of [
     ['dropped', 'Draft dropped.', 'I already replied'],
     ['replaced', 'Draft replaced.', 'Replaced by a newer reply draft in this conversation'],
   ]) {
+    state.draft.status = 'pending';
+    state.linkedDisposition = draft;
+    await open(url);
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Unsent sample edit.');
+    assert.equal(await sessionHasReplyEdit(page, 'Unsent sample edit.'), true);
     state.linkedDisposition = { state: disposition, reason };
-    await open(`/inbox/card/${encodeURIComponent(draftCard().item_id)}?mode=live`);
+    await page.reload();
     await page.getByText(label, { exact: true }).waitFor();
     await page.getByText(reason, { exact: true }).waitFor();
     assert.equal(await page.getByText(/A reply needs the sender/).count(), 0);
     assert.equal(await page.getByRole('button', { name: /^(Edit|Drop|Send reply)$/ }).count(), 0);
+    assert.equal(await sessionHasReplyEdit(page, 'Unsent sample edit.'), false);
   }
 });
 

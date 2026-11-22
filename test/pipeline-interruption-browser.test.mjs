@@ -47,6 +47,26 @@ test('unsent deal updates survive close, another deal, refresh, and reopen witho
   assert.equal(await page.locator('#dealUpdate').inputValue(), '');
 });
 
+test('a Deal update reload recovers the last stored text after a quota failure', async t => {
+  const page = await open(t);
+  await room(page);
+  const update = page.locator('#dealUpdate');
+  await update.fill('Earlier synthetic update.');
+  await page.evaluate(() => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (this === sessionStorage && value === 'Latest synthetic update.')
+        throw new DOMException('Full', 'QuotaExceededError');
+      return setItem.call(this, key, value);
+    };
+  });
+  await update.fill('Latest synthetic update.');
+  assert.equal(await update.inputValue(), 'Latest synthetic update.');
+  await page.reload();
+  await update.waitFor();
+  assert.equal(await update.inputValue(), 'Earlier synthetic update.');
+});
+
 test('phone Back closes a board-opened room and Forward restores its unsent draft', async t => {
   const page = await open(t);
   const before = await page.evaluate(() => history.length);

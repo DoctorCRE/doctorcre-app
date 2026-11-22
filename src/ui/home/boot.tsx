@@ -1,4 +1,5 @@
 import type { DocLinkRequest } from "../doc-link";
+import type { PrivateReplyDraft } from "./draft-edits.ts";
 import { fixtureInboxRpc } from "./fixture.tsx";
 import { inboxRefusal, markHomeReady, mountInbox } from "./home.tsx";
 import { createInboxClient } from "./inbox.tsx";
@@ -41,6 +42,7 @@ export async function bootInbox(host: HTMLElement) {
   try {
     const { resolveDealroomBoot } = await sibling("./boot-mode.js");
     let rpc: Rpc = fixtureInboxRpc();
+    let privateDraft: PrivateReplyDraft | undefined;
     let docLinkRequest: DocLinkRequest | undefined;
     if (resolveDealroomBoot(location).mode === "live") {
       const [{ privateSession }, { createMcpRequests }] = await Promise.all([
@@ -49,6 +51,7 @@ export async function bootInbox(host: HTMLElement) {
       ]);
       const session = privateSession();
       await session.verify();
+      privateDraft = (id) => session.textDraft("home-reply", id);
       if (session.engineSignIn) docLinkRequest = session.fetch;
       const request = createMcpRequests();
       rpc = async (name, args, signal) => {
@@ -72,7 +75,7 @@ export async function bootInbox(host: HTMLElement) {
       };
     }
     if (location.pathname === "/") await sibling("./app-shell.js");
-    mountInbox(host, createInboxClient(rpc), docLinkRequest);
+    mountInbox(host, createInboxClient(rpc), docLinkRequest, privateDraft);
   } catch {
     host.replaceChildren();
     const notice = document.createElement("p");
