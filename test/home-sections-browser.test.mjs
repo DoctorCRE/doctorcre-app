@@ -366,7 +366,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       body: '&amp;lt; is a literal reference. Our R&D team said &lt;strong&gt;Ready&#33;&lt;/strong&gt;' }] });
   details.set(nested, { ...evidence, proposal_id: nested, kind: 'next_step', what: 'Share the sample plan', due_on: '2026-11-04' });
   details.set(remaining, { ...evidence, proposal_id: remaining, kind: 'possible_new_deal' });
-  details.set(dismissNested, { ...evidence, proposal_id: dismissNested, kind: 'file_to_deal' });
+  details.set(dismissNested, { ...evidence, proposal_id: dismissNested, kind: 'file_to_deal', filing_choices: [{ kind: 'deal', label: 'Choose deal' }] });
   details.set(draft, { draft_id: draft, version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.',
     to: 'sender@example.test', cc: 'partner@example.test', attachments: [{ document_id: dealId, name: 'Sample plan' }],
     source_activity: { kind: 'email', subject: 'Sample email' },
@@ -511,7 +511,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await reply.getByRole('button', { name: 'Accept', exact: true }).first().click();
   await reply.getByText('Suggestion accepted.', { exact: true }).waitFor();
   assert.match(writes.at(-1)[0], new RegExp(`/proposals/${nested}/decision$`));
-  await reply.getByRole('region', { name: 'File this email', exact: true }).getByRole('button', { name: 'Drop', exact: true }).click();
+  await reply.getByRole('region', { name: 'File this email', exact: true }).getByRole('button', { name: 'Dismiss', exact: true }).click();
   await confirmDrop('Already filed.');
   await reply.getByText('Suggestion dismissed.', { exact: true }).waitFor();
   assert.match(writes.at(-1)[0], new RegExp(`/proposals/${dismissNested}/decision$`));
@@ -1222,7 +1222,21 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
         Number(choices.includes(choice)));
     }
     assert.equal(await filing.getByRole('button', { name: 'Accept', exact: true }).count(), 0);
-    if (dismiss) await filing.getByRole('button', { name: 'Dismiss' }).click();
+    if (dismiss) {
+      await filing.getByRole('button', { name: 'Dismiss' }).click();
+      let dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
+      await dialog.waitFor();
+      assert.equal(await dialog.getByRole('button', { name: 'Drop', exact: true }).isDisabled(), true);
+      await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill('   ');
+      assert.equal(await dialog.getByRole('button', { name: 'Drop', exact: true }).isDisabled(), true);
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      assert.deepEqual(state.filingWrites, []);
+      await filing.getByRole('button', { name: 'Dismiss' }).click();
+      dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
+      await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill('  Not relevant  ');
+      await dialog.getByRole('button', { name: 'Drop', exact: true }).click();
+      expected.reason = 'Not relevant';
+    }
     else {
       await filing.getByRole('button', { name: `Choose ${kind}` }).click();
       if (kind === 'vendor') {

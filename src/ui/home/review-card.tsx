@@ -528,7 +528,13 @@ export function ReviewCard<Item extends ReviewItem>({
                 choices={proposal.filingChoices}
                 refusal={state.phase === "proposal-refused" && state.id === proposal.id ? state.filing : null}
                 file={(destination, reason) => decideSuggestion(proposal, "accept", reason, destination)}
-                dismiss={() => decideSuggestion(proposal, "dismiss")}
+                dismiss={(opener) =>
+                  setDrop({
+                    title: proposal.label.toLowerCase(),
+                    opener,
+                    confirm: (reason) => decideSuggestion(proposal, "dismiss", reason),
+                  })
+                }
               />
             )}
             <div className="inbox-actions">
