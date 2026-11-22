@@ -369,6 +369,50 @@ test("Mark all read reuses the key after an unanswered save", async (t) => {
   assert.deepEqual(writes[1], writes[0]);
 });
 
+test("checking a read outcome keeps the badge from counting an already read update", async (t) => {
+  const firstReadAt = "2026-11-21T12:00:00Z";
+  const secondReadAt = "2026-11-21T13:00:00Z";
+  const second = { ...seen, read_at: null, unseen: true };
+  let firstSaved = false;
+  let secondSaved = false;
+  const { page } = await open(t, 390, "dark", {
+    "GET /api/engine/updates": () => ({
+      json: {
+        unread_count: 2 - Number(firstSaved) - Number(secondSaved),
+        updates: [
+          { ...unread, read_at: firstSaved ? firstReadAt : null },
+          { ...second, read_at: secondSaved ? secondReadAt : null },
+        ],
+      },
+    }),
+    "POST /api/engine/updates/read": (request) => {
+      const [id] = request.postDataJSON().update_ids;
+      if (id === second.source_id) {
+        secondSaved = true;
+        return { json: { ok: true, unread_count: 0, updates: [{ id, read_at: secondReadAt }] } };
+      }
+      if (firstSaved) {
+        return { json: { ok: true, replayed: true, unread_count: 1, updates: [{ id, read_at: firstReadAt }] } };
+      }
+      firstSaved = true;
+      return { status: 503, json: { error: "unavailable" } };
+    },
+  });
+  await page.goto(updatesPath);
+  await page.getByRole("link", { name: unread.primary_action }).click();
+  const check = page.getByRole("button", { name: "Check outcome" });
+  await check.waitFor();
+  await page.getByRole("link", { name: second.primary_action }).press("Enter");
+  await page.getByText("Read at 7:00 AM CST", { exact: true }).waitFor();
+  const badge = page.locator("#navUnreadBadge");
+  assert.equal(await badge.getAttribute("aria-label"), null);
+
+  await check.click();
+  await page.getByText("Read at 6:00 AM CST", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Read at 7:00 AM CST", { exact: true }).count(), 1);
+  assert.equal(await badge.getAttribute("aria-label"), null);
+});
+
 test("a missing update reloads the feed and badge", async (t) => {
   let missing = false;
   const { page } = await open(t, 390, "dark", {
@@ -407,6 +451,37 @@ test("notification settings load the engine defaults and save all four fields", 
     .locator("#prefSummary")
     .getByText("Quiet hours 10:00 PM to 7:00 AM America/Chicago · device push on")
     .waitFor();
+});
+
+test("checking a settings save outcome keeps newer preferences on screen", async (t) => {
+  const saved = { ...preferences, time_zone: "America/Denver", base_version: 5 };
+  const newer = { ...preferences, time_zone: "America/New_York", base_version: 6 };
+  let current = { ...preferences, base_version: 4 };
+  let savedOnce = false;
+  const { page } = await open(t, 390, "dark", {
+    "GET /api/engine/preferences": () => ({ json: current }),
+    "POST /api/engine/preferences": () => {
+      if (savedOnce) return { json: { ok: true, replayed: true, ...saved } };
+      savedOnce = true;
+      current = saved;
+      return { status: 503, json: { error: "unavailable" } };
+    },
+  });
+  await page.goto(updatesPath);
+  const timeZone = page.getByLabel("Timezone");
+  await timeZone.fill(saved.time_zone);
+  await saveButton(page).click();
+  const check = page.locator("#prefForm").getByRole("button", { name: "Check outcome" });
+  await check.waitFor();
+  current = newer;
+  await page.getByRole("button", { name: "Refresh", exact: true }).press("Enter");
+  const summary = page.locator("#prefSummary");
+  await summary.getByText(/America\/New_York/).waitFor();
+
+  await check.press("Enter");
+  await saveButton(page).waitFor();
+  assert.equal(await timeZone.inputValue(), newer.time_zone);
+  assert.match(await summary.textContent() ?? "", /America\/New_York/);
 });
 
 test("notification settings explain a refused time zone and an unpaired quiet hour", async (t) => {
