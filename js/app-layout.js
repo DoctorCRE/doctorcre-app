@@ -34,8 +34,6 @@ export function mountAppLayout(root, host, pathname) {
   const vendorDirectory = pathname === '/vendors';
   const title = pathname === '/' ? 'Home' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
   const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine');
-  const searchInput = pathname === '/search' && root.activeElement === root.getElementById('searchQuery') ? root.activeElement : null;
-  const selection = searchInput && [searchInput.selectionStart, searchInput.selectionEnd, searchInput.selectionDirection];
   const layout = createAppLayout(root, title);
   host.after(layout);
   const skip = root.querySelector('.skip');
@@ -63,11 +61,24 @@ export function mountAppLayout(root, host, pathname) {
   }
   for (const node of [...root.body.children]) {
     if (node === host || node === layout || ['SCRIPT','DIALOG'].includes(node.tagName) || node.matches('.app-shell-account-menu, .skip, .toast, .receipt-dock, .record-backdrop, aside.record-panel, .room-toast')) continue;
-    main.insertBefore(node, pageTools);
-  }
-  if (searchInput && root.activeElement === root.body) {
-    searchInput.focus({ preventScroll: true });
-    searchInput.setSelectionRange(...selection);
+    const focusedSearch = pathname === '/search' && node.contains(root.getElementById('searchQuery')) && node.contains(root.activeElement);
+    if (focusedSearch && main.moveBefore) main.moveBefore(node, pageTools);
+    else if (focusedSearch) {
+      let composing = root.getElementById('searchQuery').dataset.composing === 'true';
+      const moveWhenReady = event => {
+        if (composing || node.contains(event?.relatedTarget) || node.contains(root.activeElement)) return;
+        node.removeEventListener('focusout', moveWhenReady);
+        node.removeEventListener('compositionstart', startComposition);
+        node.removeEventListener('compositionend', endComposition);
+        main.insertBefore(node, pageTools);
+      };
+      const startComposition = () => { composing = true; };
+      const endComposition = () => { composing = false; moveWhenReady(); };
+      node.addEventListener('compositionstart', startComposition);
+      node.addEventListener('compositionend', endComposition);
+      node.addEventListener('focusout', moveWhenReady);
+    }
+    else main.insertBefore(node, pageTools);
   }
   const hasPageTools = Boolean(layout.querySelector('#appSidebarSlot').childElementCount);
   pageTools.open = !vendorDirectory && hasPageTools;
