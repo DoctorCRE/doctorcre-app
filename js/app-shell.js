@@ -6,7 +6,7 @@ import { TOUCH_LAYOUT } from "./touch-layout.js";
 import { mountPrefs } from "./shell.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
-import { mountNavigation, partnerNavigationItems } from "./navigation.js";
+import { mountNavigation } from "./navigation.js";
 
 export function mountAppShell(root = document, pathname = globalThis.location?.pathname || "/") {
   const location = globalThis.location;
@@ -49,8 +49,10 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
       ]);
       if (retired) return;
       const boot = resolveDealroomBoot(location);
-      const pages = [...navigationItems, ...switcherUtilityPages];
-      openQuickSwitcher({ opener, pages: partnerNavigationItems(root, pages), read: async (publish) => {
+      const engineSignIn = root.documentElement.dataset.partnerSignIn === "engine";
+      const destinations = engineSignIn ? navigationItems.filter(item => !item.carrOnly) : navigationItems;
+      const pages = [...destinations, ...switcherUtilityPages];
+      openQuickSwitcher({ opener, pages, read: async (publish) => {
         const client = await createClient(boot.mode, boot.options);
         return readQuickSwitcherSources(() => client.getBoard(), () => client.getRelationshipNetwork(), switcherInboxReader(createMcpRequests(), boot.mode === "fixture"), publish);
       } });

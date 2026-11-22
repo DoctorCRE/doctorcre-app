@@ -1,12 +1,6 @@
 import { navigationItems, sectionForRoute, routeKey, actionLinkRoute } from "./routes.js";
 export { navigationItems };
 
-export function partnerNavigationItems(root, items = navigationItems) {
-  return root.documentElement.dataset.partnerSignIn === 'engine'
-    ? items.filter(item => item.href !== '/calls')
-    : items;
-}
-
 export function activeDestination(pathname) {
   return sectionForRoute[routeKey(actionLinkRoute(pathname))] || pathname;
 }
@@ -88,7 +82,9 @@ export function mountNavigation(root = document, pathname = root.defaultView?.lo
     if (root.readyState === "complete") activate();
     else root.defaultView.addEventListener("load", activate, { once: true });
   }
-  host.innerHTML = appShellMarkup(pathname, location?.search || "", partnerNavigationItems(root));
+  const engineSignIn = root.documentElement.dataset.partnerSignIn === "engine";
+  const items = engineSignIn ? navigationItems.filter(item => !item.carrOnly) : navigationItems;
+  host.innerHTML = appShellMarkup(pathname, location?.search || "", items);
   const moreButton = host.querySelector(".app-shell-more-toggle");
   const moreList = host.querySelector(".app-shell-more-list");
   moreButton.addEventListener("click", () => {
