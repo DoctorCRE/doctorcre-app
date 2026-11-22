@@ -61,7 +61,8 @@ function stagingProbe(url, credentials = accessEnv) {
 }
 
 test('staging probe sends the service-token pair from its environment', async t => {
-  const { fixture, url } = await serveRelease(t, [[releasePath, releaseResponse(identity)]]);
+  const release = { ...identity, provider_version_id: Object.values(accessEnv).join(' ') };
+  const { fixture, url } = await serveRelease(t, [[releasePath, releaseResponse(release)]]);
   const { stdout, stderr } = await stagingProbe(url);
   const received = fixture.requests.map(({ headers }) => [headers['cf-access-client-id'], headers['cf-access-client-secret']]);
   assert.deepEqual(received, [Object.values(accessEnv)]);
@@ -69,23 +70,36 @@ test('staging probe sends the service-token pair from its environment', async t 
   for (const value of Object.values(accessEnv)) assert.ok(!`${stdout}${stderr}`.includes(value));
 });
 
+for (const [label, overrides, missing] of [
+  ['id only', { E2E_STAGING_ACCESS_CLIENT_SECRET: '' }, 'E2E_STAGING_ACCESS_CLIENT_SECRET'],
+  ['secret only', { E2E_STAGING_ACCESS_CLIENT_ID: '' }, 'E2E_STAGING_ACCESS_CLIENT_ID'],
+  ['neither credential', { E2E_STAGING_ACCESS_CLIENT_ID: '', E2E_STAGING_ACCESS_CLIENT_SECRET: '' },
+    'E2E_STAGING_ACCESS_CLIENT_ID, E2E_STAGING_ACCESS_CLIENT_SECRET'],
+]) {
+  test(`staging probe with ${label} fails before making a request`, async t => {
+    const { fixture, url } = await serveRelease(t, [[releasePath, releaseResponse(identity)]]);
+    await assert.rejects(stagingProbe(url, { ...accessEnv, ...overrides }), error => {
+      assert.equal(error.code, 1);
+      assert.equal(error.stdout, '');
+      assert.equal(error.stderr.trim(), `Missing staging Access credentials: ${missing}`);
+      return true;
+    });
+    assert.deepEqual(fixture.requests, []);
+  });
+}
+
 test('staging probe refuses an Access redirect without visiting its destination or logging credentials', async t => {
   const { fixture, url } = await serveRelease(t, [
     [releasePath, { status: 302, headers: { location: '/login' }, body: Object.values(accessEnv).join(' ') }],
     ['/login', releaseResponse(identity)],
   ]);
-  for (const credentials of [
-    { E2E_STAGING_ACCESS_CLIENT_ID: '', E2E_STAGING_ACCESS_CLIENT_SECRET: '' },
-    accessEnv,
-  ]) {
-    await assert.rejects(stagingProbe(url, credentials), error => {
-      assert.equal(error.code, 1);
-      assert.equal(error.stdout, '');
-      assert.equal(error.stderr.trim(), 'Access refused the probe');
-      return true;
-    });
-  }
-  assert.deepEqual(fixture.requests.map(({ path }) => path), [releasePath, releasePath]);
+  await assert.rejects(stagingProbe(url), error => {
+    assert.equal(error.code, 1);
+    assert.equal(error.stdout, '');
+    assert.equal(error.stderr.trim(), 'Access refused the probe');
+    return true;
+  });
+  assert.deepEqual(fixture.requests.map(({ path }) => path), [releasePath]);
 });
 
 test('staging probe reports Access authorization failures immediately', async t => {
