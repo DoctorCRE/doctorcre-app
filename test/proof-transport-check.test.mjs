@@ -58,7 +58,7 @@ for (const environment of ['staging', undefined]) test(`all proof CLIs refuse ${
       if (runner === 'prove-introduction-review.ts') args.push('--expected-commit', '1'.repeat(40));
       if (runner === 'prove-queued-asks-corrupt-entry-isolation.ts') args.push('--revision', '1'.repeat(40));
       if (runner === 'prove-reply-action-link.ts') args.push('--ref', 'synthetic', '--proposal-id', 'synthetic', '--foreign-ref', 'synthetic-foreign');
-      if (runner === 'prove-exact-action-cards.ts') args.push('--reply-ref','synthetic','--reply-id','synthetic','--call-ref','synthetic','--call-id','synthetic','--feedback-ref','synthetic','--feedback-id','synthetic','--foreign-ref','foreign');
+      if (runner === 'prove-exact-action-cards.ts') args.push('--reply-ref','synthetic','--reply-id','synthetic','--foreign-ref','foreign');
       args.push('--timeout-ms', '3000');
       await assert.rejects(exec(process.execPath, args, { timeout: 15000 }), error => {
         assert.equal(error.code, 78, `${runner}: ${error.stdout} ${error.stderr}`);

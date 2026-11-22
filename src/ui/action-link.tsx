@@ -4,7 +4,6 @@ import { createRoot } from "react-dom/client";
 import type { ExactCard } from "./exact-action-card.ts";
 import { parseExactCard } from "./exact-action-card.ts";
 import { ExactActionCardView } from "./exact-action-card-view.tsx";
-import { reviewCallOutcome } from "./review-call-outcome.ts";
 
 type Request = (
   name: string,
@@ -208,17 +207,16 @@ function refusal(code: unknown): State | null {
 }
 function resolverForRef(ref: string) {
   try {
-    return /^(rd|cr|fe):/.test(atob(ref.slice(4).replace(/-/g, "+").replace(/_/g, "/")))
+    return /^rd:/.test(atob(ref.slice(4).replace(/-/g, "+").replace(/_/g, "/")))
       ? "resolve-action-link-v2"
       : "resolve-action-link";
   } catch {
     return "resolve-action-link";
   }
 }
-type Options = { ref: string; request: Request; principal: () => Promise<string | null> };
-function ActionLink({ ref, request, principal }: Options) {
+type Options = { ref: string; request: Request };
+function ActionLink({ ref, request }: Options) {
   const [state, setState] = useState<State>({ kind: "loading" });
-  const [reviewNotice, setReviewNotice] = useState("");
   const [reload, setReload] = useState(0);
   const lifetime = useRef<AbortController | null>(null);
   const busy = useRef(false);
@@ -276,74 +274,6 @@ function ActionLink({ ref, request, principal }: Options) {
     void read();
     return () => controller.abort(`Resolve generation ${reload} retired`);
   }, [ref, request, reload]);
-  const reviewCall = async () => {
-    if (
-      state.kind !== "exact" ||
-      state.card.kind !== "post_call_review" ||
-      state.card.state !== "pending_review" ||
-      busy.current ||
-      !lifetime.current
-    )
-      return;
-    busy.current = true;
-    const card = state.card,
-      signal = lifetime.current.signal;
-    setReviewNotice("Saving review…");
-    try {
-      const outcome = await reviewCallOutcome({ card, request, signal, principal });
-      if (signal.aborted) return;
-      switch (outcome.kind) {
-        case "terminal-refusal":
-          setState({ kind: "signed-out" });
-          break;
-        case "stale-source":
-          setReviewNotice("");
-          setState({ kind: "exact", card: { ...card, state: "stale", detail: null } });
-          break;
-        case "success":
-          setReviewNotice("");
-          setReload((value) => value + 1);
-          break;
-        case "retryable-error":
-          setReviewNotice("Review was not confirmed. Reload before trying again.");
-          break;
-      }
-    } catch {
-      if (!signal.aborted) setReviewNotice("Review was not confirmed. Reload before trying again.");
-    } finally {
-      busy.current = false;
-    }
-  };
-  const reopenCall = async () => {
-    if (
-      state.kind !== "exact" ||
-      state.card.kind !== "post_call_review" ||
-      state.card.state !== "stale" ||
-      busy.current ||
-      !lifetime.current
-    )
-      return;
-    busy.current = true;
-    const signal = lifetime.current.signal;
-    try {
-      const result = await request("resolve-action-link-v2", { ref }, { signal, timeoutMs: 10_000 });
-      if (signal.aborted) return;
-      if (object(result) && result.kind === "authorization") {
-        setState({ kind: "signed-out" });
-        return;
-      }
-      const card =
-        object(result) && result.kind === "payload" && !result.isError ? parseExactCard(result.payload, ref) : null;
-      if (card?.kind === "post_call_review" && /^[A-Za-z0-9_-]{1,32}$/.test(card.source_version)) {
-        const currentRef = `al1_${btoa(`cr:${card.id}:${card.source_version}`).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")}`;
-        location.assign(`/a/${currentRef}${location.search}`);
-      } else setReviewNotice("The current card could not be opened. Try again.");
-    } catch {
-      if (!signal.aborted) setReviewNotice("The current card could not be opened. Try again.");
-    } finally {
-      busy.current = false;
-    }
-  };
   const approve = async () => {
     if (state.kind !== "ready" || busy.current || !lifetime.current || lifetime.current.signal.aborted) return;
     busy.current = true;
@@ -410,7 +340,7 @@ function ActionLink({ ref, request, principal }: Options) {
     }
   };
   const reply =
-    (state.kind === "exact" && state.card.kind === "reply_draft") ||
+    state.kind === "exact" ||
     (state.kind === "ready" && state.card.kind === "reply_draft") ||
     (state.kind === "approved" && state.draftKind === "reply_draft");
   useEffect(() => {
@@ -450,22 +380,7 @@ function ActionLink({ ref, request, principal }: Options) {
         className="action-link-card"
         aria-busy={state.kind === "loading" || (state.kind === "ready" && state.phase === "saving")}
       >
-        {state.kind === "exact" && (
-          <>
-            <ExactActionCardView card={state.card} />
-            {state.card.kind === "post_call_review" && state.card.state === "pending_review" && (
-              <button type="button" className="btn" onClick={() => void reviewCall()}>
-                Mark call reviewed
-              </button>
-            )}
-            {state.card.kind === "post_call_review" && state.card.state === "stale" && (
-              <button type="button" className="btn" onClick={() => void reopenCall()}>
-                Open current version
-              </button>
-            )}
-            {reviewNotice && <p role="status">{reviewNotice}</p>}
-          </>
-        )}
+        {state.kind === "exact" && <ExactActionCardView card={state.card} />}
         {state.kind === "loading" && <p role="status">Opening draft…</p>}
         {state.kind === "signed-out" && (
           <>
