@@ -62,7 +62,7 @@ for (const screen of screens) {
     await account.click();
     await expect(page.locator("#accountMenu").getByText("Joe's Workspace", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
-    if (testInfo.project.name !== stagingEngineProject) {
+    if (testInfo.project.name !== stagingEngineProject && !process.env.E2E_ENGINE_STORAGE_STATE) {
       await page.screenshot({ path: testInfo.outputPath("signed-in-route.png") });
     }
   });

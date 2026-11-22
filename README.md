@@ -69,12 +69,20 @@ mode and stops. The engine smoke refuses Playwright traces, recordings,
 screenshots, and debug logging. The Google sign-in round trip is a separate
 manual check.
 
-For CARR rollback runs, the disabled staging workflow still uses the
-`chromium` project and `E2E_SESSION_SECRET`. Its setup exchanges the secret
-for the synthetic `e2e-joe` session and saves state in the ignored
-`playwright/.auth/` directory. Keep the secret and state out of logs and commits.
-List known rollback failures with
-`./node_modules/.bin/playwright test --project=chromium --list --grep @fixme`.
+The manual **Signed-in staging tests** workflow deploys the selected app
+revision and runs the Deals, Home, deal tour plan, and signed-in navigation
+specs in the `chromium` project. Its staging environment needs
+`E2E_ENGINE_STORAGE_STATE` (approved storage state JSON for `joe`) and
+`E2E_ENGINE_JOBS_CLIENT_ID` and `E2E_ENGINE_JOBS_CLIENT_SECRET` (staging jobs
+Access credentials). The engine rehearsal job must be deployed and its staging
+schema installed. Deals, Home and Tours each prepare and clean up their own
+synthetic run through that job.
+
+For a CARR rollback rehearsal against a staging release already in CARR mode,
+run `./node_modules/.bin/playwright test --project=chromium` with the same jobs
+credentials and `E2E_SESSION_SECRET`, with `E2E_ENGINE_STORAGE_STATE` unset.
+Setup exchanges the secret for the synthetic `e2e-joe` session. Both modes
+require the staging data routes for Deals, Home and deal tour plans.
 
 `./node_modules/.bin/playwright test --project=fixtures` runs credential-free
 browser tests with Playwright's page and context fixtures.

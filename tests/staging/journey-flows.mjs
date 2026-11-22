@@ -56,9 +56,9 @@ export async function itinerary(page, fixture) {
   expect(await acceptedRoute(page.request, fixture)).toEqual(before);
 }
 
-export async function parkedDeals(page) {
+export async function parkedDeals(page, deal = page.locator('.card-open').first()) {
   await page.goto('/deals');
-  await expect(page.locator('.card-open').first()).toBeVisible();
+  await expect(deal).toBeVisible();
   await page.getByRole('button', { name: 'Parked', exact: true }).click();
   await expect(page.locator('#parkedToggle')).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Parked', exact: true }).click();

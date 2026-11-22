@@ -3362,8 +3362,7 @@ for (const width of [1440, 390]) {
     const { page, deal, enginePaths } = await clientWebsitePage(t, { width, nextActions });
     await page.goto(`${origin}/deals?deal=${deal}&focus=next-step&mode=live`);
     const field = page.getByLabel('Your next step', { exact: true });
-    await field.waitFor();
-    assert.equal(await field.inputValue(), instruction);
+    await page.waitForFunction(expected => document.querySelector('#dealUpdateStep')?.value === expected, instruction);
     assert.ok(await field.evaluate(node => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight));
     assert.ok(enginePaths.includes(`/api/engine/deals/${deal}`));
   });
