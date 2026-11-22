@@ -5,7 +5,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { text } from 'node:stream/consumers';
 import { fileURLToPath } from 'node:url';
-import { JSDOM } from 'jsdom';
+import { FixtureHtmlRewriter } from './fixtures/worker-html.ts';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { chromium } from './browser-harness.mjs';
@@ -14,31 +14,6 @@ import { handleDoctorcreRequest } from '../src/worker.js';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const evidence = join(root, 'out/test-artifacts/dealroom-acceptance');
 let outDir, server, browser, origin;
-
-class FixtureHtmlRewriter {
-  handlers = new Map();
-  on(selector, handler) {
-    this.handlers.set(selector, handler);
-    return this;
-  }
-  transform(response) {
-    const handlers = this.handlers;
-    return new Response(new ReadableStream({
-      async start(stream) {
-        const dom = new JSDOM(await response.text());
-        try {
-          for (const [selector, handler] of handlers) {
-            dom.window.document.querySelectorAll(selector).forEach(element => handler.element(element));
-          }
-          stream.enqueue(new TextEncoder().encode(dom.serialize()));
-          stream.close();
-        } finally {
-          dom.window.close();
-        }
-      },
-    }), response);
-  }
-}
 
 before(async () => {
   globalThis.HTMLRewriter = FixtureHtmlRewriter;

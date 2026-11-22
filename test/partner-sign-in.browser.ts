@@ -4,6 +4,9 @@ import { after, type TestContext, test } from "node:test";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
+import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
+
+Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: FixtureHtmlRewriter });
 
 const cookieName = "__Host-doctorcre_session";
 const partners = new Map([
@@ -37,6 +40,8 @@ async function app(
 ) {
   let unavailable = false;
   let carrChecks = 0;
+  const partnerReads = new Map<string, string | null>();
+  let expiredPath: string | null = null;
   let writes = 0;
   const live = new Set<string>();
   const links = new Map<string, string>();
@@ -75,6 +80,8 @@ async function app(
         }
         const token = input.headers.get("cookie")?.match(/__Host-doctorcre_session=([^;]+)/)?.[1];
         if (!token || !live.has(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+        partnerReads.set(url.pathname + url.search, input.headers.get("cookie"));
+        if (path === expiredPath) return Response.json({ error: "unauthorized" }, { status: 401 });
         const csrfToken = "fixture-" + token;
         if (path === "/auth/session")
           return Response.json({
@@ -115,6 +122,25 @@ async function app(
         if (path === `${docLink}/revoke` && input.method === "POST") {
           links.delete(token);
           return new Response(null, { status: 204 });
+        }
+        if (path === "/api/engine/home/inbox") {
+          const empty = { count: 0, items: [] };
+          return Response.json({ ok: true, schema_version: "home-inbox.v5", reminders: empty, waiting: empty });
+        }
+        if (path === "/api/engine/home/today") {
+          return Response.json({
+            ok: true,
+            schema_version: "home-today.v1",
+            today: "2026-11-21",
+            meetings: { state: "ready", items: [] },
+            reminders: { late: [], upcoming: [] },
+            partners: [],
+          });
+        }
+        if (path === "/api/engine/updates") return Response.json({ unread_count: 0, updates: [] });
+        if (path === "/api/engine/updates/changes") return Response.json({ changes: [], next_before: null });
+        if (path === "/api/engine/preferences") {
+          return Response.json({ time_zone: "America/Chicago", quiet_from: null, quiet_until: null, base_version: 0 });
         }
         if (path === "/api/engine/deals") {
           return Response.json({
@@ -157,6 +183,10 @@ async function app(
       unavailable = value;
     },
     carrChecks: () => carrChecks,
+    partnerReads,
+    expireOn: (path: string) => {
+      expiredPath = path;
+    },
     writes: () => writes,
     setDocStatus: (status: string) => links.set("first", status),
     loseNextDocIssue: () => {
@@ -164,6 +194,51 @@ async function app(
     },
   };
 }
+
+test("Home and the old Updates link load on the engine session and handle expiry", async (t) => {
+  const { server, context, partnerReads, carrChecks, expireOn } = await app(t);
+  await context.addCookies([
+    { name: "__Host-dealroom_session", value: "old", url: server.origin.replace("http:", "https:"), secure: true },
+  ]);
+  const page = await context.newPage();
+  const legacyReads: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname !== "/mcp") return;
+    const name = request.postDataJSON()?.params?.name;
+    if (
+      [
+        "read-home-inbox-v5",
+        "today-triage",
+        "calendar-meeting-prep",
+        "notification-feed",
+        "read-notification-preferences",
+      ].includes(name)
+    )
+      legacyReads.push(name);
+  });
+  for (const [path, reads] of [
+    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard", "/api/engine/home/today"]],
+    ["/notifications?mode=live", ["/api/engine/updates", "/api/engine/updates/changes", "/api/engine/preferences"]],
+  ] as const) {
+    const pending = reads.map((read) =>
+      page.waitForResponse((response) => response.url() === server.origin + read && response.ok()),
+    );
+    const [, ...responses] = await Promise.all([page.goto(server.origin + path), ...pending]);
+    const first = responses[0];
+    assert.ok(first);
+    assert.match((await first.request().allHeaders()).cookie ?? "", /__Host-dealroom_session=old/);
+    for (const read of reads) assert.equal(partnerReads.get(read), cookieName + "=first", read);
+  }
+  assert.equal(new URL(page.url()).pathname, "/updates");
+  assert.deepEqual(legacyReads, []);
+  assert.equal(carrChecks(), 0);
+
+  expireOn("/api/engine/updates");
+  await page.goto(server.origin + "/updates?mode=live");
+  await page.waitForURL("**/public-shell/session-ended.html");
+  await page.getByRole("heading", { name: "Session ended" }).waitFor();
+  await page.getByRole("link", { name: "Sign in again" }).waitFor();
+});
 
 test("Doc settings show each Mac status and keep link codes private", async (t) => {
   const { server, context, setDocStatus, loseNextDocIssue } = await app(t, { width: 390 });

@@ -138,6 +138,10 @@ cookie, with the engine's short-lived OAuth state cookie allowed on the Google
 callback. The board stops polling after its first engine-backed load. Deal watch
 settings, Tours, Compare terms, and deal attribution show “Not available yet” until their engine endpoints are available.
 
+Home cards and their actions, Today, Calendar dates, and Updates also use
+PartnerApp in engine sign-in mode. Updates reads the engine's Home updates,
+recent changes, and settings.
+
 `npm run release:production` consumes the prepared artifact, replaces `dist/site`
 from its verified source bytes, and runs only provider upload, promotion and
 readback commands. It refuses a missing `CLOUDFLARE_API_TOKEN`. Run publication from a clean

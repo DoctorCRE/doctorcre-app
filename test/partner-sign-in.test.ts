@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../src/worker.js";
+import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
+
+Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: FixtureHtmlRewriter });
 
 const staging = "https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev";
 const production = "https://app.doctorcre.com";
@@ -245,6 +248,116 @@ const toolsCall = (name: string, args: Record<string, unknown>) => ({
   method: "POST",
   headers: proofs,
   body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+});
+
+test("Home, Today, Calendar, Updates and Doc use PartnerApp with the old routing switches off", async (t) => {
+  const mark = { item_id: `home_update:${step}`, base_version: "1:0:inbox", idempotency_key: key };
+  const cases = [
+    ["Home dashboard", "/api/engine/home/inbox?view=dashboard"],
+    ["Inbox", "/api/engine/home/inbox", "read-home-inbox-v5", {}],
+    [
+      "Saved Home card",
+      `/api/engine/home/cards/reply_draft%3A${step}`,
+      "read-engine-home-card",
+      {
+        item_id: `reply_draft:${step}`,
+      },
+    ],
+    [
+      "Home Done",
+      `/api/engine/next-steps/${step}/end`,
+      "end-engine-home-step",
+      {
+        id: step,
+        base_version: 1,
+        idempotency_key: key,
+        resolution: "done",
+      },
+    ],
+    [
+      "Home snooze",
+      "/api/engine/home/marks",
+      "save-engine-home-mark",
+      {
+        ...mark,
+        action: "snooze",
+        until: "2099-01-01T00:00:00Z",
+      },
+    ],
+    [
+      "Home drop",
+      "/api/engine/home/marks",
+      "save-engine-home-mark",
+      {
+        ...mark,
+        action: "drop",
+        reason: "Duplicate reminder",
+      },
+    ],
+    ["Review draft", `/api/engine/reply-drafts/${step}`, "read-engine-home-draft", { id: step }],
+    [
+      "Save draft",
+      `/api/engine/reply-drafts/${step}/edit`,
+      "edit-engine-home-draft",
+      {
+        id: step,
+        version: 1,
+        idempotency_key: key,
+        subject: "Example",
+        body: "Edited reply.",
+      },
+    ],
+    ["Today", "/api/engine/home/today?owner=all"],
+    ["Calendar", "/api/engine/calendar/critical-dates"],
+    ["Updates", "/api/engine/updates"],
+    ["Doc conversation", `/api/engine/doc/conversations/${step}`],
+  ] satisfies [string, string, string?, Record<string, unknown>?][];
+  for (const [name, path, tool, args] of cases) {
+    await t.test(name, async () => {
+      const { send, calls } = fixture(status, { ENGINE_ROUTING: { get: async () => "off" } });
+      const response = await send(tool ? "/mcp" : path, {
+        ...(tool && toolsCall(tool, args ?? {})),
+        headers: { ...proofs, cookie: mixedCookies },
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(
+        calls.partner.map((input) => [input.url, input.headers.get("cookie")]),
+        [[staging + path, cookie]],
+      );
+      const write = calls.partner[0];
+      if (write?.method === "POST") {
+        assert.equal(write.headers.get("origin"), staging);
+        assert.equal(write.headers.get("x-carr-csrf"), session.csrf_token);
+        assert.equal(write.headers.get("sec-fetch-site"), "same-origin");
+      }
+      assert.equal(calls.carr.length + calls.engine.length, 0);
+    });
+  }
+});
+
+test("missing and off sign-in settings keep Home and Updates on CARR", async () => {
+  const legacyCookie = "__Host-dealroom_session=synthetic";
+  for (const setting of [undefined, "off"]) {
+    const old: Request[] = [];
+    const { send, calls } = fixture(null, {
+      PARTNER_SIGN_IN: setting,
+      CARR: {
+        fetch: async (input: Request) => {
+          old.push(input);
+          return Response.json({ ok: true });
+        },
+      },
+    });
+    for (const name of ["read-home-inbox-v5", "notification-feed"]) {
+      const response = await send("/mcp", { ...toolsCall(name, {}), headers: { cookie: legacyCookie } });
+      assert.equal(response.status, 200);
+    }
+    assert.deepEqual(
+      old.map((input) => input.headers.get("cookie")),
+      [legacyCookie, legacyCookie],
+    );
+    assert.equal(calls.partner.length + calls.engine.length, 0);
+  }
 });
 
 test("Search returns versioned results through PartnerApp with only the engine cookie", async () => {

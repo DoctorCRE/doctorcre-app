@@ -179,7 +179,7 @@ function assetPath(pathname) {
 
 async function pageSwitches(env) {
   const [homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine] = await Promise.all([
-    switchedOn(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES), switchedOn(env, CLIENTS_VENDORS),
+    routeToEngine(env, HOME), switchedOn(env, DEALS), switchedOn(env, NEXT_DEAL_SAVES), switchedOn(env, CLIENTS_VENDORS),
   ]);
   return { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine };
 }
@@ -208,6 +208,7 @@ async function assetResponse(request, env, path, switches) {
   return new HTMLRewriter().on('html', {
     element(node) {
       if (homeToday) node.setAttribute('data-home-today-from-engine', '');
+      if (engineSignIn(env)) node.setAttribute('data-updates-from-engine', '');
       if (clientsVendorsFromEngine) node.setAttribute('data-clients-vendors-from-engine', '');
       if (dealsFromEngine) node.setAttribute('data-deals-from-engine', '');
       if (dealSavesFromEngine) node.setAttribute('data-deals-saves-from-engine', /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '');
@@ -260,6 +261,7 @@ const SEARCH = 'search-from-engine';
 const CLIENTS_VENDORS = 'clients-vendors-from-engine';
 const RELATIONSHIPS = 'relationships-from-engine';
 const FRAME = 'frame-from-engine';
+const ENGINE_SIGN_IN_KEYS = new Set([DEALS, NEXT_DEAL_SAVES, HOME]);
 // Each old read the engine can answer, by tool name or business GET path: its
 // switch key, its engine path and, for a tool, a check per argument.
 // A `segment` argument becomes the last path segment. `search` seeds fixed query parameters.
@@ -349,7 +351,7 @@ async function switchedOn(env, key) {
 }
 
 function routeToEngine(env, key, usedOnDeals = false) {
-  if (engineSignIn(env) && (usedOnDeals || key === DEALS || key === NEXT_DEAL_SAVES)) return true;
+  if (engineSignIn(env) && (usedOnDeals || ENGINE_SIGN_IN_KEYS.has(key))) return true;
   return switchedOn(env, key);
 }
 
@@ -776,7 +778,7 @@ async function engineSave(request, env, call) {
     return mcpReply(call, response, JSON.stringify({ ...body, ok: true }), false);
   }
   if (call.params.name === 'save-engine-home-mark') {
-    if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+    if (!await routeToEngine(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     if (!['snooze', 'unsnooze', 'drop', 'done', 'undo_done'].includes(call.params.arguments.action))
       return saveRefusal(call, 'invalid_arguments', 'Refresh Home and choose an available action.');
     return engineAnswer(request, env, call, { path: '/api/engine/home/marks' }, { allowHandoff: false });
@@ -785,7 +787,7 @@ async function engineSave(request, env, call) {
   if (homeSave) {
     const { id, ...body } = call.params.arguments;
     if (!isUuid(id)) return saveRefusal(call, 'not_found', 'Refresh Home and try again.');
-    if (!await switchedOn(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
+    if (!await routeToEngine(env, HOME)) return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     const [record, action] = homeSave;
     return engineAnswer(request, env, call, { path: `/api/engine/${record}/${id}/${action}` },
       { allowHandoff: false, body, rawClientError: record === 'proposals' });
@@ -876,9 +878,9 @@ async function refuseFrozenSave(request, env, url, call) {
     }
     const calendarAnswer = (verb === 'answer-board-question' && args?.board_id === 'calendar-agenda') ||
       (verb === 'log-activity' && args?.kind === 'meeting' && Object.hasOwn(args, 'calendar_event_key'));
-    if (calendarAnswer && await switchedOn(env, HOME))
+    if (calendarAnswer && await routeToEngine(env, HOME))
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and answer the question in Today.');
-    if ((verb === 'review-deal-update' || LEGACY_HOME_MARKS.has(verb)) && await switchedOn(env, HOME))
+    if ((verb === 'review-deal-update' || LEGACY_HOME_MARKS.has(verb)) && await routeToEngine(env, HOME))
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
     const hint = FROZEN_TOOLS.get(verb) ?? (CUTOVER_SAVES.has(verb) ? DEAL_PAGE_HINT : null);
     return hint && await switchedOn(env, NEXT_DEAL_SAVES) ? saveRefusal(call, 'old_save_closed', hint) : null;
@@ -1047,7 +1049,7 @@ async function handleRequest(request, env) {
     const meetingAnswer = request.method === 'POST' &&
       (/^\/api\/engine\/calendar\/reviews\/[a-f0-9]{16}\/dismissal$/.test(pathname)
       || (pathname === '/api/engine/activities' && (await request.clone().json().catch(() => null))?.calendar_review_key !== undefined));
-    if (meetingAnswer && !await switchedOn(env, HOME)) return json({ error: 'not_found' }, 404);
+    if (meetingAnswer && !await routeToEngine(env, HOME)) return json({ error: 'not_found' }, 404);
     if (request.method === 'POST' && /^\/api\/engine\/next-steps\/[^/]+\/end$/.test(pathname)) {
       if (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES))
         return json({ error: 'reload_deals' }, 409);
