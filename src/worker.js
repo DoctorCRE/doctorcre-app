@@ -838,6 +838,7 @@ async function engineSave(request, env, call) {
 
 const DEAL_PAGE_HINT = 'Open the deal page to work from the current record.';
 const HOME_HINT = 'Open Home to review the current work.';
+const RETIRED_HOME_READS = new Set(['today-triage', 'calendar-meeting-prep', 'list-email-thread-filings']);
 const TOUR_HINT = 'Open Tours on the deal page to view existing tours.';
 const MONDAY_HINT = 'Open Monday review from Deals.';
 const PROSPECTS_HINT = 'Open Prospects on the Deals board.';
@@ -892,12 +893,13 @@ const FROZEN_TOOLS = new Map([
   ['record-commission-receipt', 'Open Invoices to mark an invoice paid.'],
 ]);
 
-async function refuseFrozenSave(request, env, url, call) {
+async function refuseLegacyRequest(request, env, url, call) {
   const { pathname } = url;
   if (call?.method === 'tools/call') {
     const { name, arguments: supplied } = call.params ?? {};
     const wrapped = name === 'call-verb';
     const verb = wrapped ? supplied?.verb : name;
+    if (RETIRED_HOME_READS.has(verb)) return saveRefusal(call, 'home_routing_changed', HOME_HINT);
     let args = wrapped ? supplied?.args : supplied;
     if (wrapped && isString(args)) {
       try { args = JSON.parse(args); } catch { args = null; }
@@ -1211,7 +1213,7 @@ async function handleRequest(request, env) {
       delete call.params.arguments.ref;
       request = new Request(request, { body: JSON.stringify(call) });
     }
-    const refusal = await refuseFrozenSave(request, env, url, call);
+    const refusal = await refuseLegacyRequest(request, env, url, call);
     if (refusal) return refusal;
     if (/^\/api\/tours\/(?:projection|share|pdf|feedback)(?:\/|$)/.test(pathname)) return json({ error: 'not_found' }, 404);
     const legacy = await carrResponse(request, env);

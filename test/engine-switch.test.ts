@@ -52,6 +52,25 @@ function fixture(value: unknown = "on", answer: () => Promise<Response> = async 
   return { env, send, engine, carr, kv };
 }
 
+for (const verb of ["today-triage", "calendar-meeting-prep", "list-email-thread-filings"]) {
+  for (const [shape, request] of [
+    ["direct", call(verb)],
+    ["wrapped", call("call-verb", { verb, args: {} })],
+    ["wrapped with JSON arguments", call("call-verb", { verb, args: "{}" })],
+  ] as const) {
+    test(`refuses ${shape} ${verb} after Home cutover with CARR sign-in`, async () => {
+      const { send, carr, engine } = fixture(new Map());
+      const response = await send(request);
+      assert.deepEqual(carr, []);
+      assert.deepEqual(engine, []);
+      const reply = await response.json();
+      assert.equal(reply.id, request.id);
+      assert.equal(reply.result.isError, true);
+      assert.equal(JSON.parse(reply.result.content[0].text).error, "home_routing_changed");
+    });
+  }
+}
+
 test("Calendar uses the Deals switch and preserves the engine response", async () => {
   const request = new Request(`${origin}/api/engine/calendar/critical-dates`, {
     headers: { cookie: "session=synthetic" },
