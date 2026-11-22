@@ -56,9 +56,8 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
       ]);
       if (retired) return;
       const boot = resolveDealroomBoot(location);
-      const utilityPages = engineSignIn
-        ? switcherUtilityPages.filter(page => page !== toursDestination) : switcherUtilityPages;
-      const pages = [...navigationItems, ...utilityPages];
+      const pages = [...navigationItems, ...switcherUtilityPages].filter(page =>
+        !engineSignIn || (!page.carrOnly && page !== toursDestination));
       openQuickSwitcher({ opener, pages, read: async (publish) => {
         const client = await createClient(boot.mode, boot.options);
         return readQuickSwitcherSources(() => client.getBoard(), () => client.getRelationshipNetwork(), switcherInboxReader(createMcpRequests(), boot.mode === "fixture"), publish);

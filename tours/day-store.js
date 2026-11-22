@@ -47,3 +47,14 @@ export function noteState(note) {
   if (note.status === "recording") return "Recording";
   return note.audio?.size ? "Saved on phone · Filing unavailable" : "Audio unavailable";
 }
+
+export const PHONE_CALL_AUDIO_TOUR = 'calls';
+
+export function openPhoneCallAudio(actor) {
+  const scope = JSON.stringify([location.origin, actor]);
+  const store = createDayStore(window.indexedDB, 'doctorcre-call-audio-v1');
+  return {
+    scope, store,
+    list: () => store.list(scope, PHONE_CALL_AUDIO_TOUR),
+  };
+}
