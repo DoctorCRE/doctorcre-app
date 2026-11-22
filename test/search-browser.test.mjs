@@ -221,7 +221,16 @@ test('Back restores a typed search and scope, and clearing removes it', async t 
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage();
+  let releaseSeed;
+  const seedReady = new Promise(resolve => { releaseSeed = resolve; });
+  t.after(() => releaseSeed());
+  await page.route('**/data/board-seed.json', async route => {
+    await seedReady;
+    await route.continue();
+  });
   await page.goto(`${server.origin}/search?mode=fixture`);
+  releaseSeed();
+  await page.getByText('Saved on this device').waitFor({ state: 'attached' });
   await page.locator('#searchQuery').fill('Demo');
   await page.locator('#searchResults a').first().waitFor();
   assert.equal(new URL(page.url()).searchParams.get('q'), 'Demo');
