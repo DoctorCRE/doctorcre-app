@@ -1070,7 +1070,8 @@ test('H03 calendar details retire on a replaced meeting snapshot and session los
   await refreshCalendar(page, responses, { state: 'empty', items: [] }, { whileModalOpen: true });
   await detail.waitFor({ state: 'hidden' });
   assert.equal(await calendar.getByRole('button', { name: meeting.title, exact: true }).count(), 0);
-  assert.equal(await calendar.getByRole('region', { name: 'Thursday, October 1, 2026', exact: true }).evaluate(node => node === document.activeElement), true);
+  const day = calendar.getByRole('region', { name: 'Thursday, October 1, 2026', exact: true });
+  await settles(async () => assert.equal(await day.evaluate(node => node === document.activeElement), true));
   await refreshCalendar(page, responses, { state: 'ready', items: [meeting] });
   await calendar.getByRole('button', { name: meeting.title, exact: true }).click();
   await page.evaluate(() => window.dispatchEvent(new Event('doctorcre-session-invalidated')));
