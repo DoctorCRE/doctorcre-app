@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { CookieJar } from "jsdom";
 import worker from "../src/worker.js";
 import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
 
@@ -73,6 +74,45 @@ const status = async (input: Request) =>
   input.headers.get("cookie") === cookie && new URL(input.url).origin === staging
     ? Response.json(session)
     : Response.json({ error: "unauthorized" }, { status: 401 });
+
+const signInCookies = {
+  carr: ["__Host-dealroom_session=current", "__Host-dealroom_oauth=carr-state"],
+  engine: [cookie, "__Host-doctorcre_oauth_state=engine-state"],
+};
+
+for (const [outgoing, incoming] of [
+  ["carr", "engine"],
+  ["engine", "carr"],
+] as const) {
+  for (const method of ["GET", "HEAD"]) {
+    test(`switching from ${outgoing} to ${incoming} expires the outgoing cookies on ${method}`, async () => {
+      const jar = new CookieJar(undefined, { prefixSecurity: "strict" });
+      const unrelated = "__Host-other=fixture";
+      for (const value of [...signInCookies.carr, ...signInCookies.engine, unrelated]) {
+        jar.setCookieSync(value + "; Path=/; Secure; HttpOnly; SameSite=Lax", staging);
+      }
+      const { send } = fixture(status, {
+        PARTNER_SIGN_IN: incoming,
+        CARR: {
+          fetch: async (input: Request) =>
+            input.headers.get("cookie")?.split("; ").includes(signInCookies.carr[0])
+              ? new Response(null)
+              : Response.redirect(staging + "/auth/login", 302),
+        },
+      });
+      const response = await send("/leads", { method, headers: { cookie: jar.getCookieStringSync(staging) } });
+      assert.equal(response.status, 200);
+      if (method === "HEAD") assert.equal(response.body, null);
+      for (const value of response.headers.getSetCookie()) jar.setCookieSync(value, staging);
+      assert.deepEqual(jar.getCookieStringSync(staging).split("; "), [...signInCookies[incoming], unrelated]);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+
+      const next = await send("/leads", { method, headers: { cookie: jar.getCookieStringSync(staging) } });
+      assert.equal(next.status, 200);
+      assert.deepEqual(next.headers.getSetCookie(), []);
+    });
+  }
+}
 
 test("engine sign-in preserves deep links, gates redirects, and protects GET and HEAD responses", async () => {
   const { send, calls } = fixture(status);
