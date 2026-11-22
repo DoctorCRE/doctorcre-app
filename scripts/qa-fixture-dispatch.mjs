@@ -2,7 +2,6 @@ import { handleDoctorcreRequest } from '../src/worker.js';
 import { createFixtureClient, createFixtureDealStore } from '../js/fixture-client.js';
 import { createInvoiceFixture, invoiceTrackerFixture } from '../js/invoice-tracker-fixture.js';
 import { relationshipNetworkFixture } from '../js/relationship-network-fixture.js';
-import { leaseRadarFixture } from '../js/lease-radar-fixture.js';
 import { workspace as leadWorkspace, detail as leadDetail, id as leadId, emptyQuietFollowUps } from '../test/leads-workspace-fixture.mjs';
 import { directoryFixture } from '../test/fixtures/vendor-directory.synthetic.mjs';
 import { parseViewState, PAGE_SIZE } from '../js/workspace-business-model.js';
@@ -148,7 +147,6 @@ export function createQaDispatcher({ seed, assets: snapshot }) {
     const directory=directoryRead(url,state,viewer,namespace);
     if(directory)return request.method==='GET'?directory:json({error:'fixture_method_unavailable'},405);
     if(url.pathname==='/api/v1/business/relationships')return json(relationshipNetworkFixture());
-    if(url.pathname==='/api/v1/business/leases')return json(leaseRadarFixture());
     if(url.pathname==='/api/v1/command-center'){
       const projection=await (await fallback(state,viewer)).commandCenter();
       for(const metric of projection.metrics){const rows=[...state.dealStore.deals.values()].filter(row=>metric.scope==='team'||row.owner===viewer);metric.active_deals=rows.length;metric.flagged_deals=rows.filter(row=>row.attention).length;}

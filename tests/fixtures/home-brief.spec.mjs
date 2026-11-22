@@ -139,7 +139,7 @@ for (const state of ['populated', 'empty', 'loading', 'unavailable', 'call-only'
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   await page.locator('.home-grid').scrollIntoViewIfNeeded();
-  await expect(page.getByRole('button', { name: 'Refresh past-client touches', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Past clients', includeHidden: true })).toHaveCount(0);
   await page.evaluate(() => scrollTo(0, 0));
   await capture();
   if (width === 390) {

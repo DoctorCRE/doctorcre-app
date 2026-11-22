@@ -20,7 +20,6 @@ export async function bootInbox(host: HTMLElement) {
     "homeCallOutcomes",
     "homeEmailFilings",
     "homeInvoices",
-    "homePastClients",
     "homeIntroductions",
     "homeContactReasons",
     "homeLeads",
