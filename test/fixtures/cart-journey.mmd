@@ -12,7 +12,7 @@ stateDiagram-v2
   state "Accepted route" as Accepted
   [*] --> TourEditor
   TourEditor --> Results: Find properties
-  Results --> CartDraft: Choose canonical properties and hand off
+  Results --> CartDraft: Add properties to local selection
   CartDraft --> Results: Undo local selection
   CartDraft --> CartUnknown: Save response is lost
   CartUnknown --> CartSaved: Retry same request and confirm readback
