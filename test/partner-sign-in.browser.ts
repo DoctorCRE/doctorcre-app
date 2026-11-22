@@ -180,6 +180,8 @@ async function app(
   t: TestContext,
   {
     width = 1440,
+    port = 0,
+    keepDayWorker = false,
     theme = "dark",
     signIn = "engine",
     switchDay = false,
@@ -195,6 +197,8 @@ async function app(
     callReview,
   }: {
     width?: number;
+    port?: number;
+    keepDayWorker?: boolean;
     touch?: boolean;
     theme?: "dark" | "light";
     signIn?: "engine" | "carr";
@@ -641,7 +645,14 @@ async function app(
     },
   };
   assets ??= appAssetSnapshot();
-  const server = await startWorkerFixture({ assets: await assets, env });
+  const site = new Map(await assets);
+  const routes = new Map();
+  if (keepDayWorker) {
+    const workerPath = "/tours/day-sw.js";
+    routes.set(workerPath, site.get(workerPath));
+    site.delete(workerPath);
+  }
+  const server = await startWorkerFixture({ assets: site, env, port, routes });
   t.after(() => server.close());
   browser ??= chromium.launch();
   const context = await (await browser).newContext({
@@ -2583,7 +2594,7 @@ test("a delayed session change notification leaves the new engine workspace open
   const target = server.origin + deepLink;
   await stale.addInitScript(() => {
     const delayEpoch = (event: StorageEvent) => {
-      if (event.key !== "doctorcre-session-epoch-v1") return;
+      if (event.key !== "doctorcre-tour-sign-in-epoch-v1") return;
       event.stopImmediatePropagation();
       window.removeEventListener("storage", delayEpoch, true);
       const notification = new StorageEvent("storage", event);
@@ -3171,3 +3182,114 @@ test("the quick switcher offers the standalone Tours page only in CARR mode", as
     assert.equal(await pageOption.count(), signIn === "carr" ? 1 : 0);
   }
 });
+
+test("an old deal bookmark opens the overview with the engine tour planner off", async (t) => {
+  const { server, context } = await app(t);
+  const page = await context.newPage();
+  await page.request.get(server.origin + "/auth/callback/google?fixture=first");
+  await page.goto(server.origin + `/tours/route-editor.html?deal=${dealId}&mode=live`);
+  const room = page.getByRole("main", { name: "Deal Workspace" });
+  await room.getByRole("tabpanel", { name: "Overview" }).waitFor({ timeout: 5000 });
+  assert.equal(new URL(page.url()).searchParams.has("tab"), false);
+});
+
+for (const openDay of [true, false]) {
+  test(
+    openDay
+      ? "engine sign-in in another tab keeps a CARR day recording"
+      : "a first bookmark visit escapes the installed CARR day cache",
+    async (t) => {
+      const carr = await app(t, { signIn: "carr" });
+      const day = await carr.context.newPage();
+      const path = `/tours/day.html?tour=${tour}&mode=live`;
+      await day.goto(carr.server.origin + (openDay ? path : "/tours/property-panel.css"));
+      if (openDay) await day.getByText("Tour unavailable", { exact: true }).waitFor();
+      await day.evaluate(
+        async ({ tourId, openDay, engineBinding }) => {
+          const scope = "a".repeat(64);
+          localStorage.setItem("doctorcre-session-binding-v1", openDay ? "0".repeat(64) : engineBinding);
+          sessionStorage.setItem(
+            "doctorcre-tour-day-session-v1",
+            JSON.stringify({
+              scope,
+              userRef: "joe",
+              tourId,
+              epoch: "initial",
+            }),
+          );
+          if (openDay) {
+            sessionStorage.setItem(
+              "doctorcre-tour-pending-v1",
+              JSON.stringify({ sessionBinding: `sha256:${scope}`, composer: { rows: [] } }),
+            );
+            const request = indexedDB.open("doctorcre-tour-day-drafts-v1", 1);
+            await new Promise<void>((resolve, reject) => {
+              request.onerror = () => reject(request.error);
+              request.onsuccess = () => {
+                const db = request.result;
+                const tx = db.transaction("notes", "readwrite");
+                tx.objectStore("notes").put({ scope, id: "recording", tour_id: tourId, audio: new Blob(["audio"]) });
+                tx.oncomplete = () => {
+                  db.close();
+                  resolve();
+                };
+              };
+            });
+          } else {
+            const worker = await navigator.serviceWorker.register("/tours/day-sw.js");
+            await navigator.serviceWorker.ready;
+            if (!worker.active) throw new Error("Offline day worker did not install");
+          }
+        },
+        {
+          tourId: tour,
+          openDay,
+          engineBinding: createHash("sha256")
+            .update(JSON.stringify(["joe", "fixture-first"]))
+            .digest("hex"),
+        },
+      );
+      if (!openDay) await day.waitForFunction(() => navigator.serviceWorker.controller);
+      const port = Number(new URL(carr.server.origin).port);
+      await carr.server.close();
+      const engine = await app(t, { port, keepDayWorker: !openDay });
+      assert.equal(engine.server.origin, carr.server.origin);
+      await day.request.get(engine.server.origin + "/auth/callback/google?fixture=first");
+      if (openDay) {
+        const partner = await carr.context.newPage();
+        await partner.goto(engine.server.origin + "/deals?mode=live");
+        await day.waitForURL("**/public-shell/session-ended.html", { timeout: 5000 });
+        const saved = await day.evaluate(async () => {
+          const binding = sessionStorage.getItem("doctorcre-tour-day-session-v1");
+          const draft = sessionStorage.getItem("doctorcre-tour-pending-v1");
+          const notes = await new Promise<number>((resolve, reject) => {
+            const request = indexedDB.open("doctorcre-tour-day-drafts-v1", 1);
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+              const db = request.result;
+              const read = db.transaction("notes").objectStore("notes").count();
+              read.onsuccess = () => {
+                db.close();
+                resolve(read.result);
+              };
+            };
+          });
+          return { binding, draft, notes };
+        });
+        assert.equal(saved.notes, 1);
+        assert.ok(saved.binding);
+        assert.ok(saved.draft);
+      } else {
+        const response = day.waitForResponse((response) => new URL(response.url()).pathname === "/tours/day.html");
+        await day.evaluate((path) => {
+          location.href = path;
+        }, path);
+        assert.equal((await response).fromServiceWorker(), true);
+        await day
+          .getByText("Tour planning moved to Deals. Open a deal and choose Tours.", { exact: true })
+          .waitFor({ timeout: 5000 });
+        assert.ok(!engine.server.requests.some(({ path }) => path.startsWith("/api/tours/")));
+      }
+    },
+  );
+}

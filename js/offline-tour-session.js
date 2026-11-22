@@ -15,8 +15,14 @@ export function legacyTourDraftScope(window, actor) {
   } catch { return null; }
 }
 export const SESSION_EPOCH_KEY = 'doctorcre-session-epoch-v1';
+// Old cached pages treat the original epoch as an instruction to erase drafts.
+export const TOUR_SIGN_IN_EPOCH_KEY = 'doctorcre-tour-sign-in-epoch-v1';
 export function sessionEpoch(window) {
-  try { return window.localStorage.getItem(SESSION_EPOCH_KEY) || 'initial'; } catch { return null; }
+  try {
+    const epoch = window.localStorage.getItem(SESSION_EPOCH_KEY) || 'initial';
+    const tourSignIn = window.localStorage.getItem(TOUR_SIGN_IN_EPOCH_KEY);
+    return tourSignIn ? `${epoch}:${tourSignIn}` : epoch;
+  } catch { return null; }
 }
 export async function clearPrivateStorage(window, { shared = true, preserveTourDrafts = false } = {}) {
   for (const name of shared ? ['localStorage','sessionStorage'] : ['sessionStorage']) {
@@ -25,7 +31,7 @@ export async function clearPrivateStorage(window, { shared = true, preserveTourD
       // eslint-disable-next-line no-restricted-syntax -- Revocation visits each storage key once in descending order; deletion cannot extend the finite scan.
       for (let i = storage.length - 1; i >= 0; i--) {
         const k = storage.key(i);
-        if (/^doctorcre[.:-]/.test(k) && k !== SESSION_EPOCH_KEY && k !== 'doctorcre.visual-preferences' &&
+        if (/^doctorcre[.:-]/.test(k) && k !== SESSION_EPOCH_KEY && k !== TOUR_SIGN_IN_EPOCH_KEY && k !== 'doctorcre.visual-preferences' &&
           !(preserveTourDrafts && name === 'sessionStorage' && tourRecoveryKeys.includes(k))) storage.removeItem(k);
       }
     } catch { /* Revocation remains fail-closed when browser storage is denied. */ }
@@ -65,10 +71,11 @@ export function offlineTourSession(window) {
     async revoke({ expectedEpoch, preserveTourDrafts = false } = {}) {
       const shared = expectedEpoch === undefined || expectedEpoch === sessionEpoch(window);
       if (shared) {
-        try { window.localStorage.setItem(SESSION_EPOCH_KEY, window.crypto.randomUUID()); } catch { /* Offline restore requires storage. */ }
+        const epochKey = preserveTourDrafts ? TOUR_SIGN_IN_EPOCH_KEY : SESSION_EPOCH_KEY;
+        try { window.localStorage.setItem(epochKey, window.crypto.randomUUID()); } catch { /* Offline restore requires storage. */ }
       }
       if (!preserveTourDrafts) try { clear(); } catch { /* Private storage may be blocked. */ }
-      window.dispatchEvent(new window.Event('doctorcre-offline-session-revoked'));
+      window.dispatchEvent(new window.CustomEvent('doctorcre-offline-session-revoked', { detail: { preserveTourDrafts } }));
       await clearPrivateStorage(window, { shared, preserveTourDrafts });
     },
   };

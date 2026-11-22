@@ -1,6 +1,6 @@
 import { createRequestBudget } from './request-budget.mjs';
 import { resolveDealroomBoot } from './boot-mode.js';
-import { clearPrivateStorage, offlineTourSession, sessionEpoch, SESSION_EPOCH_KEY } from './offline-tour-session.js';
+import { clearPrivateStorage, offlineTourSession, sessionEpoch, SESSION_EPOCH_KEY, TOUR_SIGN_IN_EPOCH_KEY } from './offline-tour-session.js';
 
 // Twice the 60 s poll, so a steady tab checks once per window. Denials still
 // end the view at once, and every /mcp POST carries the verified CSRF token,
@@ -157,7 +157,16 @@ export function privateSession() {
   let anonymousDiagnostics = false;
   try { anonymousDiagnostics = win.location.pathname === '/status' && !win.localStorage.getItem('doctorcre-session-binding-v1'); } catch {}
   browserBoundary = createSessionBoundary({ anonymousDiagnostics, epoch: () => sessionEpoch(win),
-    fetchImpl: browserFetch,
+    async fetchImpl(path, init, budgetOptions) {
+      const response = await browserFetch(path, init, budgetOptions);
+      if (pathname === '/tours/day.html' && path === '/auth/session' && response.headers.get(PARTNER_SIGN_IN_HEADER) === 'engine') {
+        // The extensionless page is outside the old worker's cached file list.
+        win.location.replace('/tours/day' + win.location.search);
+        void response.body?.cancel().catch(() => {});
+        throw new Error('Tour day moved');
+      }
+      return response;
+    },
     async acceptSession(session, engineSession) {
       const bytes = await win.crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([session.actor.slug,session.csrf_token])));
       const digest = [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2,'0')).join('');
@@ -179,9 +188,15 @@ export function privateSession() {
       // disappear immediately, including detached dialogs and account labels.
       win.dispatchEvent(new win.Event('doctorcre-session-invalidated'));
       const retiredDocument = win.document;
+      const tourSignInChanged = reason === 'tour-sign-in-in-another-tab';
+      const endedInAnotherTab = reason === 'session-ended-in-another-tab';
+      const preserveTourDrafts = tourSignInChanged || (
+        reason !== 'signed-out' && !endedInAnotherTab &&
+        (engineSession || win.document.documentElement.dataset.partnerSignIn === 'engine')
+      );
       const cleanup = offlineTourSession(win).revoke({
-        expectedEpoch: engineSession ? initialEpoch : undefined,
-        preserveTourDrafts: reason !== 'signed-out' && (engineSession || win.document.documentElement.dataset.partnerSignIn === 'engine'),
+        expectedEpoch: engineSession || tourSignInChanged || endedInAnotherTab ? initialEpoch : undefined,
+        preserveTourDrafts,
       });
       const reload = reason === 'reload-after-sign-in';
       const view = win.document.createElement('main');
@@ -201,7 +216,11 @@ export function privateSession() {
       });
     },
   });
-  win.addEventListener('storage', event => { if (event.key === SESSION_EPOCH_KEY && sessionEpoch(win) !== initialEpoch) browserBoundary.revoke('session-changed'); });
+  win.addEventListener('storage', event => {
+    if (event.key !== SESSION_EPOCH_KEY && event.key !== TOUR_SIGN_IN_EPOCH_KEY) return;
+    if (sessionEpoch(win) === initialEpoch) return;
+    browserBoundary.revoke(event.key === TOUR_SIGN_IN_EPOCH_KEY ? 'tour-sign-in-in-another-tab' : 'session-ended-in-another-tab');
+  });
   // eslint-disable-next-line no-restricted-syntax -- A cached Back return navigates once and leaves session reads to normal boot.
   win.addEventListener('pageshow', event => { if (event.persisted) win.location.reload(); });
   return browserBoundary;

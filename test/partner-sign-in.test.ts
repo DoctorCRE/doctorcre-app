@@ -1099,7 +1099,9 @@ test("old client portal bookmarks move in engine mode regardless of routing KV",
 });
 
 test("engine sign-in gates every old Tours page before serving assets", async () => {
-  const { send, calls } = fixture(status);
+  const { send, calls } = fixture(status, {
+    ENGINE_ROUTING: { get: async (key: string) => (key === "deal-tours-from-engine" ? "on" : null) },
+  });
   for (const method of ["GET", "HEAD"]) {
     for (const path of [
       "/tours",
@@ -1162,4 +1164,27 @@ test("CARR sign-in still serves the Tours library, editor and day assets", async
       assert.equal(calls.assets.at(-1), path === "/tours" ? "/tours/index.html" : path);
     }
   }
+});
+
+test("linked old Tours bookmarks open the deal overview when the planner is off or unset", async () => {
+  for (const ENGINE_ROUTING of [undefined, { get: async () => "off" }]) {
+    const { send, calls } = fixture(status, { ENGINE_ROUTING });
+    for (const method of ["GET", "HEAD"]) {
+      const response = await send(`/tours/day.html?deal=${deal}&tour=${step}`, { method, headers: { cookie } });
+      assert.equal(response.headers.get("location"), `/deals?deal=${deal}`);
+    }
+    assert.deepEqual(calls.assets, []);
+    assert.deepEqual(calls.carr, []);
+  }
+});
+
+test("an older cached Tour day session stops before authenticating with the new sign-in", async () => {
+  const { send, calls } = fixture(status);
+  const response = await send("/auth/session", {
+    headers: { cookie, referer: staging + "/tours/day.html?tour=" + step },
+  });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("x-doctorcre-partner-sign-in"), "engine");
+  assert.deepEqual(calls.partner, []);
+  assert.deepEqual(calls.carr, []);
 });

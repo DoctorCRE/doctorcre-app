@@ -1086,9 +1086,12 @@ async function moveOldTours(request, env, url) {
   if (gate.status !== 200) return gate;
   const deal = url.searchParams.get('deal') ?? url.searchParams.get('deal_id');
   const linked = isUuid(deal);
-  const query = new URLSearchParams(linked ? { deal, tab: 'tours' } : { 'tours-moved': '1' });
-  const tour = url.searchParams.get('tour');
-  if (linked && isUuid(tour)) query.set('tour', tour);
+  const query = new URLSearchParams(linked ? { deal } : { 'tours-moved': '1' });
+  if (linked && await switchedOn(env, DEAL_TOURS)) {
+    query.set('tab', 'tours');
+    const tour = url.searchParams.get('tour');
+    if (isUuid(tour)) query.set('tour', tour);
+  }
   if (url.searchParams.get('mode') === 'live') query.set('mode', 'live');
   return gatedResponse(gate, new Response(null, { status: 302, headers: { location: `/deals?${query}` } }), env);
 }
@@ -1135,7 +1138,16 @@ async function handleRequest(request, env) {
       // Replacing the installed worker releases the cached Tour day page.
       const body = request.method === 'HEAD' ? null : `
 self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
-self.addEventListener('activate', event => event.waitUntil(self.registration.unregister()));
+self.addEventListener('activate', event => event.waitUntil((async () => {
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  await self.registration.unregister();
+  await Promise.allSettled(windows.map(client => {
+    const url = new URL(client.url);
+    if (url.pathname !== '/tours/day.html') return;
+    url.pathname = '/tours/day';
+    return client.navigate(url.href);
+  }));
+})()));
 `;
       return secure(new Response(body, { headers: {
         'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store',
@@ -1265,7 +1277,11 @@ self.addEventListener('activate', event => event.waitUntil(self.registration.unr
 
   if (engineSignIn(env) && pathname.startsWith('/auth/')) {
     const session = pathname === '/auth/session';
-    const response = await authResponse(request, env, request.method === 'GET' && !session);
+    const referer = session && URL.parse(request.headers.get('referer') ?? '');
+    // Older cached day pages must stop before seeing a new identity or issuing a CARR read.
+    const retiredDay = referer?.origin === url.origin && referer.pathname === '/tours/day.html';
+    const response = retiredDay ? json({ error: 'tour_day_moved' }, 503)
+      : await authResponse(request, env, request.method === 'GET' && !session);
     if (session) response.headers.set('x-doctorcre-partner-sign-in', 'engine');
     return response;
   }
