@@ -6,7 +6,7 @@ Recording import, Tours microphone capture, scoped pending audio, authenticated 
 
 ## How to get to it (user POV)
 
-With engine sign-in, open the old `/calls` bookmark on the device and browser where the audio was saved. Sign in with the same partner account, then download the recordings. Open the deal page for the recorder and Call review.
+With engine sign-in, open the old `/calls` bookmark on the device and browser where the audio was saved. Sign in with the same partner account, then download the recordings. Each download checks your current sign-in. Switching accounts closes recovery in open tabs and keeps the saved audio. Open the deal page for the recorder and Call review.
 
 With CARR sign-in:
 

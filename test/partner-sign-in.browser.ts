@@ -2887,13 +2887,13 @@ test("engine phone capture bookmark recovers the partner's recordings without ca
 
   assert.equal((await page.goto(server.origin + bookmark))?.status(), 200);
   await page.getByRole("heading", { name: "Phone capture has retired" }).waitFor({ timeout: 5_000 });
-  const recordings = page.getByRole("link", { name: /Download recording/ });
+  const recordings = page.getByText(/^Download recording \d+$/);
   await recordings.nth(1).waitFor();
   assert.equal(await recordings.count(), 2);
   assert.equal(await page.getByRole("button", { name: "Record microphone" }).count(), 0);
   const recovered = [];
-  for (const link of await recordings.all()) {
-    const [download] = await Promise.all([page.waitForEvent("download"), link.click()]);
+  for (const control of await recordings.all()) {
+    const [download] = await Promise.all([page.waitForEvent("download"), control.click()]);
     assert.match(download.suggestedFilename(), /^phone-recording-\d+\.wav$/);
     recovered.push(await readFile(await download.path(), "utf8"));
   }
@@ -2902,11 +2902,38 @@ test("engine phone capture bookmark recovers the partner's recordings without ca
   await recordings.nth(1).waitFor();
   assert.equal(await recordings.count(), 2);
 
-  await page.goto(server.origin + "/auth/callback/google?fixture=second&return_to=" + encodeURIComponent(bookmark));
+  const otherTab = await context.newPage();
+  const switchTo = (fixture: string, returnTo: string) =>
+    otherTab.goto(`${server.origin}/auth/callback/google?fixture=${fixture}&return_to=${encodeURIComponent(returnTo)}`);
+  // A plain response changes the cookie before any app page can publish a session change.
+  const newSession = await switchTo("second", "/auth/session");
+  assert.ok(newSession);
+  assert.equal(newSession.status(), 200);
+  assert.equal((await newSession.json()).actor.slug, "dell");
+  const outcome = Promise.race([
+    page.waitForEvent("download", { timeout: 5_000 }).then(() => "stale recording downloaded"),
+    page.waitForURL("**/public-shell/session-ended.html", { timeout: 5_000 }).then(() => "access closed"),
+  ]);
+  await recordings.first().evaluate((control) => {
+    if (control instanceof HTMLElement) control.click();
+  });
+  assert.equal(await outcome, "access closed");
+
+  await page.goto(server.origin + bookmark);
   await recordings.first().waitFor();
   assert.equal(await recordings.count(), 1);
   const [download] = await Promise.all([page.waitForEvent("download"), recordings.first().click()]);
   assert.equal(await readFile(await download.path(), "utf8"), "other partner audio");
+
+  await switchTo("first", "/deals?mode=live");
+  await otherTab.locator('#selfAvatar[aria-label*="account and settings"]').waitFor();
+  await page.waitForURL("**/public-shell/session-ended.html", { timeout: 5_000 });
+  assert.equal(await recordings.count(), 0);
+
+  await page.goto(server.origin + bookmark);
+  await recordings.nth(1).waitFor();
+  const [saved] = await Promise.all([page.waitForEvent("download"), recordings.first().click()]);
+  assert.ok(recovered.includes(await readFile(await saved.path(), "utf8")));
   assert.deepEqual(sessionRequests, []);
   assert.equal(carrChecks(), 0);
 });
