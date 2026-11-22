@@ -7,7 +7,6 @@ import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { createFixtureClient } from '../js/fixture-client.js';
 import { chromium } from './browser-harness.mjs';
-import { presentedPacket } from './packet-presentation.fixture.ts';
 const root=new URL('../',import.meta.url);
 async function open(t) {
  const outDir=await temporaryDirectory('session-lifecycle-');
@@ -86,33 +85,6 @@ test('S1 browser: denied later Doc Chat page clears the whole view and private b
  await app.page.locator('#showMoreConversations').click();
  await app.page.waitForURL('**/public-shell/session-ended.html');
  await assertPurged(app.page);assert.deepEqual(app.errors,[]);
-});
-test('S1 browser: simultaneous public links keep their own context and a refreshed tab rejects the other link cookie',async t=>{
- const app=await open(t),a=app.page,b=await app.context.newPage();
- const projection=target=>`projection:public:synthetic_projection_${target}`;
- const tokens={A:'synthetic_A'.padEnd(43,'0'),B:'synthetic_B'.padEnd(43,'0')};
- const exchanges=[];
- await app.context.route('**/api/share/exchange',async route=>{
-   const target=route.request().postDataJSON().token===tokens.A?'A':'B';exchanges.push(target);
-   return route.fulfill({json:{ok:true},headers:{'set-cookie':`synthetic-share=${target}; Path=/; HttpOnly; SameSite=Lax`}});
- });
- await app.context.route('**/api/share/{report,map,feedback}',async route=>{
-   const target=/synthetic-share=([^;]+)/.exec(route.request().headers().cookie||'')?.[1];
-   const path=new URL(route.request().url()).pathname;
-   const stop={property_ref:`property:public:synthetic_property_${target}`,name:`Synthetic projection ${target}`,address:'100 Example Street',route_sequence:1,route_label:'A'};
-   const data=path.endsWith('/report')?presentedPacket([stop]):path.endsWith('/map')?{points:[{property_ref:stop.property_ref,route_sequence:1,route_label:'A',latitude:30.4,longitude:-87.2}]}:{projection_ref:projection(target),permission_scopes:[],items:[]};
-   return route.fulfill({json:{data}});
- });
- await Promise.all([a.goto(`${app.origin}/share#${tokens.A}`),b.goto(`${app.origin}/share#${tokens.B}`)]);
- assert.equal(new URL(a.url()).hash,'');assert.equal(new URL(b.url()).hash,'');
- await Promise.all([a.getByRole('button',{name:'Open tour',exact:true}).click(),b.getByRole('button',{name:'Open tour',exact:true}).click()]);
- await Promise.all([a.waitForFunction(()=>/loaded|unavailable/.test(document.querySelector('#status').textContent)),b.waitForFunction(()=>/loaded|unavailable/.test(document.querySelector('#status').textContent))]);
- const last=exchanges.at(-1)==='A'?a:b;
- assert.match(await last.locator('#report-list').textContent(),new RegExp(`Synthetic projection ${exchanges.at(-1)}`));
- const first=exchanges[0]==='A'?a:b,other=exchanges[0]==='A'?'B':'A';
- await first.reload();await first.waitForFunction(()=>document.querySelector('#status').textContent.includes('unavailable'));
- assert.doesNotMatch(await first.locator('body').textContent(),new RegExp(`Synthetic projection ${other}`));
- assert.equal(await first.locator('.report-item').count(),0);assert.deepEqual(app.errors,[]);
 });
 test('S1 browser: Back reloads private pages once and checks the current session', async t => {
  const app = await open(t);

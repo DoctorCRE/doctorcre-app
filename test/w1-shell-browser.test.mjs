@@ -230,7 +230,7 @@ test('workspace pages have global controls and the standalone portal fits deskto
   const { page, errors } = await open(t, { reducedMotion: "reduce" });
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:960});
-    for (const path of Object.keys(contract.routes).filter(path => path !== '/share')) {
+    for (const path of Object.keys(contract.routes)) {
       await page.goto(`http://localhost${path}`);
       if (path === '/client-portal') {
         await page.getByRole('heading', { name: 'Your client portal', exact: true }).waitFor();

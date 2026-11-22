@@ -8,7 +8,6 @@ import { directoryFixture } from '../test/fixtures/vendor-directory.synthetic.mj
 import { parseViewState, PAGE_SIZE } from '../js/workspace-business-model.js';
 import { PHASES } from '../js/client.js';
 import { censusResponse } from './work-inventory-fixture.mjs';
-import { presentedPacket } from '../test/packet-presentation.fixture.ts';
 
 const cookieName = 'doctorcre_qa';
 const now = () => new Date().toISOString();
@@ -59,16 +58,7 @@ function makeState(variant) {
   const leads = Array.from({length:variant==='empty'?0:variant==='large'?180:template.length}, (_, i) => ({ ...structuredClone(template[i%template.length]), id:leadId(i+1), party_id:leadId(i+1000), registry_ref:`L-${i+1}`, name:`Demo Lead ${String(i+1).padStart(3,'0')}`, doctor_name:`Dr. Demo ${i+1}`, owner:i%3===0?'joe':i%3===1?'dell':null, created_at:now(), first_seen_at:now(), score:95-i%70 }));
   const invoiceRows = invoiceTrackerFixture(today).entries;
   const entries = variant==='empty'?[]:variant==='large'?Array.from({length:120},(_,i)=>({...structuredClone(invoiceRows[i%invoiceRows.length]), deal_id:`qa-invoice-deal-${i+1}`,name:`Demo Invoice Practice ${i+1}`,commission_id:invoiceRows[i%invoiceRows.length].commission_id===null?null:`10000000-0000-4000-8000-${String(i+1).padStart(12,'0')}`, owner:i%2?'dell':'joe'})):invoiceRows;
-  const stops = variant === 'empty' ? [] : [
-    { property_ref:'property:public:synthetic_qa_property_01', route_sequence:1, route_label:'A', name:'Demo Meadow Medical', address:'100 Example Meadow Way', suite:'Suite 101' },
-    { property_ref:'property:public:synthetic_qa_property_02', route_sequence:2, route_label:'B', name:'Demo Harbor Offices', address:'200 Sample Harbor Lane', suite:'Suite 202' },
-  ];
-  const sharedTour = {
-    report:presentedPacket(stops),
-    map:{points:stops.map((stop,index) => ({property_ref:stop.property_ref,route_sequence:stop.route_sequence,route_label:stop.route_label,latitude:30.4+index*0.01,longitude:-87.2+index*0.01}))},
-    feedback:{projection_ref:'projection:public:synthetic_qa_tour_01',permission_scopes:['shortlist','comment'],items:stops.map(stop => ({property_ref:stop.property_ref,shortlisted:false,comments:[{comment:'Synthetic feedback for this demo property.'}]}))},
-  };
-  return { variant, dealStore:createFixtureDealStore({deals}), leads, sharedTour, invoices:createInvoiceFixture({entries}), clients:new Map() };
+  return { variant, dealStore:createFixtureDealStore({deals}), leads, invoices:createInvoiceFixture({entries}), clients:new Map() };
 }
 
 export function createQaDispatcher({ seed, assets: snapshot }) {
@@ -175,27 +165,6 @@ export function createQaDispatcher({ seed, assets: snapshot }) {
   }
   async function dispatch(request) {
     const url=new URL(request.url);
-    // Share deploys separately in production. Mount its unmodified build here
-    // so fixture QA cannot follow the app Worker's live reports redirect.
-    const shareAsset=url.pathname==='/share'?'/reports/share.html'
-      :['/share.css','/share-bootstrap.js','/share.js'].includes(url.pathname)||url.pathname.startsWith('/vendor/maplibre-gl-6.4.1/')?`/reports${url.pathname}`:null;
-    if(shareAsset) {
-      if(!['GET','HEAD'].includes(request.method))return json({error:'fixture_method_unavailable'},405);
-      const assetUrl=new URL(url);assetUrl.pathname=shareAsset;assetUrl.search='';
-      const response=await assets(new Request(assetUrl,request));
-      const headers=new Headers(response.headers);
-      headers.set('content-security-policy',"default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'");
-      headers.set('cache-control','no-store');
-      return new Response(response.body,{status:response.status,headers});
-    }
-    if(url.pathname.startsWith('/api/share/')) {
-      const identity=identify(request);
-      if(!identity)return json({error:'not_authenticated'},401);
-      if(request.method!=='GET')return json({error:'fixture_method_unavailable'},405);
-      const resource=url.pathname.slice('/api/share/'.length);
-      if(!['report','map','feedback'].includes(resource))return json({error:'fixture_endpoint_unavailable'},404);
-      return json({data:stateFor(identity.namespace).sharedTour[resource]});
-    }
     if(url.pathname==='/api/test/health')return json({ok:true,synthetic:true});
     if(url.pathname==='/api/test/seed'&&request.method==='POST') {
       const {namespace,variant='realistic',viewer='joe',reset=false}=await request.json();

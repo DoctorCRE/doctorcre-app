@@ -131,7 +131,7 @@ for (const width of [390, 1440])
         assert.ok(editor);
         await editor
           .locator("#status")
-          .filter({ hasText: /^Tour (ready\.|loaded\. Client responses are unavailable\.)$/ })
+          .filter({ hasText: /^Tour ready\.$/ })
           .waitFor();
         await editor.locator("#route-editing").evaluate((node) => {
           if (node instanceof HTMLDetailsElement) node.open = true;

@@ -32,7 +32,7 @@ const rows = [
 ];
 const names = ['Demo Practice A','Demo Practice A','Demo Practice A','Demo Tour','Demo Practice A','Demo Vendor A','Demo Practice A','Demo Review','Demo Event','Demo Request','Demo Progress','Demo Request','Demo Inventory Item','Demo Incident','Demo review is ready','Demo Queue Task','Demo Review requested','Demo Discussion','Demo Review','Demo Practice A','Demo Practice A','demo-workflow'];
 export const docEvaluationSet = rows.map(([page, method, payload, args, kind, recordId, question, answer, prompt], index) => ({ recordName:names[index], page, method, payload, args, kind, recordId, question, answer, prompt }));
-export const unsupportedDocPages = ['design', 'share'];
+export const unsupportedDocPages = ['design'];
 
 // Additional producer states that previously escaped the page-family gate.
 docEvaluationSet.push(

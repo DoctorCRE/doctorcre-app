@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { requireStagingAuthority, withJourneyFixture } from './journey-fixture.mjs';
+import { withJourneyFixture } from './journey-fixture.mjs';
 import { tourDay } from './journey-flows.mjs';
 
 test('Tour day reports a missing tour and disables recording', async ({ page }) => {
@@ -10,6 +10,5 @@ test('Tour day reports a missing tour and disables recording', async ({ page }) 
 
 test('An accepted tour opens day mode, selects a stop and returns from property detail', async ({ page }) => {
   test.setTimeout(420000);
-  await requireStagingAuthority(page.request);
   await withJourneyFixture(fixture => tourDay(page, fixture));
 });

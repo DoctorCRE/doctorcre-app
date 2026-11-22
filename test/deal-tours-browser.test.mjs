@@ -96,7 +96,7 @@ test('deal Tours lists, opens, starts and recovers on the fixture server', async
       await page.screenshot({path:new URL(`../out/test-artifacts/deal-tours/${width}-${theme}-list.png`,import.meta.url).pathname,fullPage:true});
       assert.doesNotMatch(await page.locator('#workspace-tours').textContent(),/Other deal tour/);
       await page.locator('[data-open-tour]').click();
-      const editor = page.frameLocator('iframe[title="Tour shortlist, route and packet"]');
+      const editor = page.frameLocator('iframe[title="Tour shortlist and route"]');
       await editor.locator('#tour-name').filter({hasText:row.name}).waitFor();
       assert.ok(page.url().includes('/deals?'));
       await page.goBack();
@@ -104,7 +104,6 @@ test('deal Tours lists, opens, starts and recovers on the fixture server', async
       assert.equal(new URL(page.url()).searchParams.get('tab'),'tours');
       await page.locator('[data-open-tour]').click();
       await editor.locator('#tour-name').filter({hasText:row.name}).waitFor();
-      await editor.getByText('Hard-copy packet',{exact:true}).waitFor();
       await editor.locator('#cheat-content').fill('Synthetic workspace edit');
       await editor.locator('#save-sheet').click();
       await editor.locator('#sheet-state').filter({hasText:/save confirmed/}).waitFor();
@@ -249,7 +248,7 @@ test('tour departure and pending Open preserve the active editor', async t => {
         });
         await page.goto(`${server.url}/deals?deal=${deal}&tab=tours`);
         await page.locator('[data-open-tour]').click();
-        const editor = page.frameLocator('iframe[title="Tour shortlist, route and packet"]');
+        const editor = page.frameLocator('iframe[title="Tour shortlist and route"]');
         if(scenario !== 'dirty departure') {
           await page.getByText('Opening tour…',{exact:true}).waitFor();
           await page.locator('[data-start-tour]').click();
@@ -365,7 +364,7 @@ test('creation and pending-write departures preserve history and saved notes', a
         await page.getByRole('tab',{name:'Tours',exact:true}).click();
       }
       await page.locator(pending ? '[data-open-tour]' : '[data-start-tour]').click();
-      const editor = page.frameLocator('iframe[title="Tour shortlist, route and packet"]');
+      const editor = page.frameLocator('iframe[title="Tour shortlist and route"]');
       let destinationUrl;
       if(pending) {
         await editor.locator('#tour-name').filter({hasText:row.name}).waitFor();
@@ -451,7 +450,7 @@ test('creation and pending-write departures preserve history and saved notes', a
           assert.equal(await editor.locator('#create-tour-name').inputValue(),'');
         } else {
           await page.waitForURL(url => !url.searchParams.has('tour'));
-          assert.equal(await page.locator('iframe[title="Tour shortlist, route and packet"]').count(),0);
+          assert.equal(await page.locator('iframe[title="Tour shortlist and route"]').count(),0);
         }
       }
     } finally { release(); refresh?.resolve(); await page.close(); }
@@ -498,7 +497,7 @@ test('the save switch keeps saved tours viewable at 390 and 1440 pixels', async 
       });
       if (!await openTour.isVisible()) await page.goto(`${server.url}/deals?deal=${deal}&tab=tours`);
       await openTour.click();
-      const editor = page.frameLocator('iframe[title="Tour shortlist, route and packet"]');
+      const editor = page.frameLocator('iframe[title="Tour shortlist and route"]');
       await editor.getByRole('heading', { name: row.name }).waitFor({ timeout: 5000 });
       await editor.locator('#status').filter({ hasText: 'Tour ready.' }).waitFor({ timeout: 5000 });
       await t.test(`editor saves are absent and Tour Day is reachable at ${width}`, async () => {
