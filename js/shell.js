@@ -1,6 +1,7 @@
 // Shared presentation preferences, notification badge and local page tabs.
 // The app shell owns header controls. Legacy preference keys migrate on entry.
 import { DEFAULT_PREFERENCES, preferenceAttributes, resolvePreferences } from "./visual-system.js";
+import { updatesFromEngine } from "./boot-mode.js";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
 
 export const PREFERENCES_KEY = "doctorcre.visual-preferences";
@@ -159,8 +160,6 @@ export function renderNotificationBadge(count, badge = document.getElementById("
  * takes an already-constructed client rather than building one, so it never
  * decides live vs. fixture mode itself.
  *
- * Once deal saves go to the engine, the count comes from its Updates read.
- *
  * @param {{notificationFeed: (args?: object) => Promise<object>, updates?: () => Promise<object>}} client
  * @param {{elementId?: string}} [options]
  */
@@ -172,7 +171,7 @@ export async function mountNotificationBadge(client, { elementId = "navUnreadBad
     const sequence = ++readSequence;
     renderNotificationBadge(null, badge);
     try {
-      const fromEngine = document.documentElement?.hasAttribute("data-deals-saves-from-engine") && typeof client.updates === "function";
+      const fromEngine = updatesFromEngine() && typeof client.updates === "function";
       const feed = await (fromEngine ? client.updates() : client.notificationFeed({ limit: 1 }));
       if (sequence !== readSequence) return;
       renderNotificationBadge(feed?.unread_count, badge);

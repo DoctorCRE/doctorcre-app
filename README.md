@@ -146,6 +146,10 @@ use the same session regardless of their legacy routing switches. The Vendors
 drawer shows the track record. The manual rating editor is available with CARR
 sign-in, and Relationships uses recorded links and introduction offers.
 
+Home cards and their actions, Today, Calendar dates, and Updates also use
+PartnerApp in engine sign-in mode. Updates reads the engine's Home updates,
+recent changes, and settings.
+
 `npm run release:production` consumes the prepared artifact, replaces `dist/site`
 from its verified source bytes, and runs only provider upload, promotion and
 readback commands. It refuses a missing `CLOUDFLARE_API_TOKEN`. Run publication from a clean

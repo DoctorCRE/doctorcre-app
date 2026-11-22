@@ -4,6 +4,9 @@ import { expect } from "@playwright/test";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium, pausedClock } from "./browser-harness.mjs";
+import { FixtureHtmlRewriter } from "./fixtures/worker-html.ts";
+
+Object.defineProperty(globalThis, "HTMLRewriter", { configurable: true, value: FixtureHtmlRewriter });
 
 const id = "00000000-0000-4000-8000-000000000001";
 const question = "Which example deals are open?";
