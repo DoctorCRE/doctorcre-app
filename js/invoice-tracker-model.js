@@ -1,18 +1,9 @@
+import { AWAITING_INVOICE_PREFIX } from './boot-mode.js';
 import { localToday, isCalendarDay as date } from './calendar-model.js';
 const DAY = 86_400_000;
 export const AGES = ['0–30 days', '31–60 days', '61–90 days', '91+ days'];
-const AWAITING_INVOICE_PREFIX = 'awaiting:';
-const INVOICE_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+export { invoiceHref } from './boot-mode.js';
 const invoiceKey = row => row.commission_id || `${AWAITING_INVOICE_PREFIX}${row.deal_id}`;
-export const invoiceHref = key => `/invoices?invoice=${encodeURIComponent(key)}`;
-export function invoiceReturnPath(searchParams) {
-  const keys = searchParams.getAll('invoice');
-  if (keys.length === 0) return null;
-  if (keys.length !== 1) return '/invoices';
-  const [key] = keys;
-  const id = key.startsWith(AWAITING_INVOICE_PREFIX) ? key.slice(AWAITING_INVOICE_PREFIX.length) : key;
-  return INVOICE_ID.test(id) ? invoiceHref(key) : '/invoices';
-}
 const nullableDate = value => value === null || date(value);
 export const isInvoiceBaseVersion = value => value === null || (Number.isInteger(value) && value > 0);
 export function validInvoiceTracker(payload) {

@@ -1,4 +1,4 @@
-import { invoiceReturnPath } from './invoice-tracker-model.js';
+export { sessionReturnPath } from './boot-mode.js';
 
 export const routeEntries = [
   ["/","workspace.html","/"],
@@ -96,17 +96,3 @@ export function routeKey(pathname) {
   return pathname.startsWith(card) && pathname.length > card.length && !pathname.slice(card.length).includes('/') ? '/inbox/card/:item_id' : pathname;
 }
 export const actionLinkRoute = pathname => /^\/a\/[^/]+$/.test(pathname) ? "/a/:ref" : pathname;
-
-export function sessionReturnPath(destination) {
-  const base = 'https://session-return.invalid';
-  let url;
-  try { url = new URL(destination, base); }
-  catch { return null; }
-  if (url.origin !== base) return null;
-
-  let path;
-  if (url.pathname === '/invoices') path = invoiceReturnPath(url.searchParams) ?? '/invoices';
-  else if (/^\/a\/al1_[A-Za-z0-9_-]{1,120}$/.test(url.pathname)) path = url.pathname;
-  // Accept only the spelling produced by an allowed route, before URL normalization.
-  return destination === path ? path : null;
-}

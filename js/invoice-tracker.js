@@ -1,12 +1,12 @@
 import { BUSINESS_TIME_ZONE } from './business-date.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
 import { createClient } from './client.js';
-import { resolveDealroomBoot } from './boot-mode.js';
+import { invoiceReturnPath, resolveDealroomBoot } from './boot-mode.js';
 import { mountAutoRefresh, updatedLabel } from './auto-refresh.mjs';
 import { localToday, isCalendarDay } from './calendar-model.js';
 import { partnerName } from './visual-system.js';
 import { uuidv4 } from './uuid.js';
-import { AGES, projectInvoices, validInvoiceTracker, isInvoiceBaseVersion, invoiceSummary, invoiceMoney, invoiceDate, invoiceReturnPath } from './invoice-tracker-model.js';
+import { AGES, projectInvoices, validInvoiceTracker, isInvoiceBaseVersion, invoiceSummary, invoiceMoney, invoiceDate } from './invoice-tracker-model.js';
 const E=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const ownerLabel = owner => partnerName(owner) || 'Unassigned';
 const missingAmounts = count => count ? ` · ${count} without a recorded amount` : '';
