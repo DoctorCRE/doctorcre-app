@@ -146,11 +146,11 @@ test("the saved cart and reviewed route preserve property identities and require
           await editor.locator("#save-selection").click();
           await editor.locator("#selection-state").filter({ hasText: "same save request" }).waitFor();
           await editor.locator("#save-selection").click();
+          await editor.locator("#selection-state").filter({ hasText: "saved with this Tour" }).waitFor();
           const cartWrites = writes.filter((w) => w.path === "/api/tours/selection-cart");
           assert.equal(cartWrites.length, 3);
           assert.notEqual(cartWrites[0]?.body.idempotency_key, cartWrites[1]?.body.idempotency_key);
           assert.deepEqual(cartWrites[1]?.body, cartWrites[2]?.body);
-          await editor.locator("#selection-state").filter({ hasText: "saved with this Tour" }).waitFor();
           assert.deepEqual(cart.property_ids, [existing, candidate]);
           await editor.locator("#add-cart-stops").click();
           assert.equal(await editor.locator("#accept-route").isDisabled(), true);
