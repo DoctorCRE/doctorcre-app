@@ -2260,9 +2260,9 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   const scope = new URLSearchParams(location.search);
   const focusStep = scope.get('deal') === dealId && scope.get('focus') === 'next-step';
   state.panelStepId = focusStep ? scope.get('step') : null;
-  const toursLink = (scope.get('deal') === dealId && scope.has('property')) || scope.get('tab') === 'tours';
+  const toursLink = scope.get('deal') === dealId && (scope.has('property') || scope.get('tab') === 'tours');
   workspaceTab = toursLink ? 'tours' : 'overview';
-  requestedClientView = !toursLink && scope.get('tab') === 'client-view';
+  requestedClientView = !toursLink && scope.get('deal') === dealId && scope.get('tab') === 'client-view';
   timelineType = '';
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
   const url = new URL(location.href);
@@ -2337,7 +2337,11 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   disposeActivityAttribution();
   disposePanelCallReview();
   disposePanelEmailFollowups();
-  if (!fromHistory) { const url = new URL(location.href); url.searchParams.delete('deal'); url.searchParams.delete('checklist'); url.searchParams.delete('property'); writeWorkspaceHistory({},url); }
+  if (!fromHistory) {
+    const url = new URL(location.href);
+    for (const key of ['deal', 'checklist', 'property', 'tab', 'tour', 'focus', 'step']) url.searchParams.delete(key);
+    writeWorkspaceHistory({},url,true);
+  }
   closeFiledDocumentText();
   $('recordPanel').hidden = true; $('main').hidden = false;
   document.body.classList.remove('workspace-open');

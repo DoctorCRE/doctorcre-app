@@ -295,3 +295,20 @@ test('an overdue milestone stays in Critical dates and out of the deal header', 
   await page.getByRole('button',{name:'Refresh deal'}).click();
   await expect(dates).not.toContainText('Jan 1, 2020');
 });
+
+test('a tour link stays with its deal when returning to the board', async ({ page }) => {
+  const seed = JSON.parse(await readFile(new URL('../../data/board-seed.json', import.meta.url), 'utf8'));
+  const first = seed.deals.find(deal => deal.id === 'd14');
+  seed.deals.push({...first, id:'demo-second', name:'Demo second practice'});
+  await page.route('**/data/board-seed.json', route => route.fulfill({json:seed}));
+  await page.goto(`${server.url}/deals?deal=d14&tab=tours`);
+  await expect(page.getByRole('tab', {name:'Tours', selected:true})).toBeVisible();
+  await page.getByRole('button', {name:'Back to deals'}).click();
+  await expect(page).not.toHaveURL(/tab=tours/);
+  await page.locator('.kanban-card[data-id="demo-second"] .card-open').click();
+  await expect(page.getByRole('tab', {name:'Overview', selected:true})).toBeVisible();
+  await page.goBack();
+  await page.goBack();
+  await expect(page).toHaveURL(/deal=d14.*tab=tours/);
+  await expect(page.getByRole('tab', {name:'Tours', selected:true})).toBeVisible();
+});
