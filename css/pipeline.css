@@ -94,8 +94,24 @@
 .prospect-management { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .prospect-dialog form label { display: grid; gap: var(--space-2); }
 .prospect-dialog li p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.kanban-column { min-width: 0; padding: 0; background: var(--ground); overflow-wrap: anywhere; }
-.kanban-column > h3 { position: sticky; top: 0; z-index: 2; margin: 0; min-height: var(--touch); gap: var(--space-2); justify-content: flex-start; align-items: center; border-bottom: var(--hairline-width) solid var(--hairline); font-size: var(--font-size-1); white-space: nowrap; background: var(--ground); }
+.kanban-column { --phase: var(--fg-quiet); display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-2); border-radius: var(--radius-3); background: var(--surface-1); overflow-wrap: anywhere; }
+.kanban-column[data-column="research"] { --phase: var(--status-info); }
+.kanban-column[data-column="site_selection"] { --phase: var(--accent); }
+.kanban-column[data-column="negotiation"] { --phase: var(--status-warn); }
+.kanban-column[data-column="legal"] { --phase: var(--status-hold); }
+.kanban-column[data-column="due_diligence"] { --phase: var(--status-danger); }
+.kanban-column[data-column="closing"] { --phase: var(--status-ok); }
+.kanban-column > h3 { position: sticky; top: calc(-1 * var(--space-2)); z-index: 2; margin: 0; min-height: var(--touch); font-size: var(--font-size-1); white-space: nowrap; background: var(--surface-1); }
+.kanban-column > h3 button > span::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: var(--space-2); border-radius: 50%; background: var(--phase); vertical-align: 1px; }
+.kanban-column > h3 small { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.kanban-card.work-card--tile { padding: var(--space-2) var(--space-3); border-radius: var(--radius-2); background: var(--surface-2); box-shadow: 0 1px 2px rgb(0 0 0 / 6%); transition: border-color 140ms ease, transform 140ms ease; }
+.kanban-card.work-card--tile:hover { border-color: var(--hairline-strong); transform: translateY(-1px); }
+.kanban-card.work-card--tile .work-card-meta .owner { display: inline-grid; place-items: center; margin-left: auto; width: 24px; height: 24px; border-radius: 50%; background: var(--surface-3); color: var(--fg); font-size: 11px; font-weight: var(--font-weight-strong); }
+.kanban-card.work-card--tile .deal-board-badge { font-size: 11px; white-space: nowrap; }
+.kanban-card.work-card--tile .deal-board-attention { min-width: 0; }
+.card-due { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.card-due--today { color: var(--status-warn-ink); }
+.card-due--late { color: var(--status-danger-ink); }
 .kanban-column > h3 button { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: var(--touch); padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .kanban-column > h3 button:hover > span { text-decoration: underline; text-underline-offset: 3px; }
 .stage-preview { display: grid; gap: var(--space-2); margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); overflow-wrap: anywhere; }

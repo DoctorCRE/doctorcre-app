@@ -176,12 +176,25 @@ function listNextStepHtml(deal) {
 function dealAttentionHtml(deal) {
   return state.boardFromEngine && deal.attention === true ? '<span class="deal-attention-label">Needs attention</span>' : '';
 }
-function cardAttentionHtml(deal) {
+function cardDue(deal) {
   const steps = ordinaryOpenSteps(deal.open_actions ?? []);
   const step = steps.find(step => step.owner === deal.owner);
   const legacyDue = !state.boardFromEngine && !steps.length && noteText(deal.next_step).trim() ? deal.next_date : null;
-  const due = step?.due_on ?? legacyDue;
-  const late = dealDueDate(due, businessDay())?.late;
+  return dealDueDate(step?.due_on ?? legacyDue, businessDay());
+}
+const cardDay = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+function cardDueHtml(due) {
+  if (!due) return '';
+  const today = due.day === businessDay();
+  const tone = due.late ? ' card-due--late' : today ? ' card-due--today' : '';
+  const label = today ? 'Today' : cardDay.format(new Date(`${due.day}T00:00:00Z`));
+  return `<time class="card-due${tone}" datetime="${esc(due.day)}" title="Next step due ${esc(due.date)}">${esc(label)}</time>`;
+}
+function ownerMarkHtml(name) {
+  return `<span class="owner" title="Owner: ${esc(name)}"><span aria-hidden="true">${esc(name === 'Unassigned' ? '?' : name.slice(0, 1))}</span><span class="sr-only">Owner: ${esc(name)}</span></span>`;
+}
+function cardAttentionHtml(deal) {
+  const late = cardDue(deal)?.late;
   const reasons = [deal.attention === true && 'Flagged by a partner', late && `Step ${late}`].filter(Boolean);
   if (!reasons.length) return '';
   const reason = esc(reasons.join('. '));
@@ -198,7 +211,7 @@ function cardHtml(deal) {
   return workCard({ variant: 'tile', className: `kanban-card${parked ? ' parked-card' : ''}`, heading: 'h4',
     attributes: `data-id="${esc(deal.id)}" ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
-    meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${badge}` });
+    meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}` });
 }
 function legacyRowStepHtml(deal) {
   const nextStep = noteText(deal.next_step);

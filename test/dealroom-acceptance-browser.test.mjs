@@ -968,12 +968,12 @@ for (const width of [1440, 390]) {
       const empty = page.locator(`article[data-id="${checklistOnly.id}"]`);
       const onlyStep = page.locator(`article[data-id="${singleStep.id}"]`);
       if (view === 'Board') {
-        assert.equal(visibleText.replace(/\s+/g, ' '), `${deal.name} Dell Needs attention`);
+        assert.equal(visibleText.replace(/\s+/g, ' '), `${deal.name} Nov 18 Needs attention D Owner: Dell`);
         assert.equal(await card.getByRole('button', { name: 'Needs attention: Step 1 day late', exact: true }).count(), 1);
-        assert.equal((await empty.innerText()).replace(/\s+/g, ' '), `${checklistOnly.name} Dell`);
-        assert.equal((await onlyStep.innerText()).replace(/\s+/g, ' '), `${singleStep.name} Dell`);
+        assert.equal((await empty.innerText()).replace(/\s+/g, ' '), `${checklistOnly.name} D Owner: Dell`);
+        assert.equal((await onlyStep.innerText()).replace(/\s+/g, ' '), `${singleStep.name} D Owner: Dell`);
         const flaggedCard = page.locator(`article[data-id="${flagged.id}"]`);
-        assert.equal((await flaggedCard.innerText()).replace(/\s+/g, ' '), `${flagged.name} Dell Needs attention`);
+        assert.equal((await flaggedCard.innerText()).replace(/\s+/g, ' '), `${flagged.name} Needs attention D Owner: Dell`);
         assert.equal(await flaggedCard.getByRole('button', { name: 'Needs attention: Flagged by a partner', exact: true }).count(), 1);
       } else {
         assert.match(visibleText, /Send the floor plan.*Due Wed, Nov 18.*1 day late/);
