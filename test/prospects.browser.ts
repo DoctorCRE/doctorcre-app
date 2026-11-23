@@ -347,17 +347,20 @@ test("partners see and manage prospects from Deals", async (t) => {
           "board with Prospects fits beside Today at 1280px",
         );
         deals.push(
-          ...Array.from({ length: 12 }, (_, i) => ({
-            ...existingDeal,
-            id: `00000000-0000-4000-8000-0000000002${String(i).padStart(2, "0")}`,
-            name: `Example Negotiation Deal ${i}`,
-            phase: "negotiation",
-          })),
+          ...["pending", "research", "site_selection", "negotiation", "legal", "due_diligence", "closing"].flatMap(
+            (phase, p) =>
+              Array.from({ length: 12 }, (_, i) => ({
+                ...existingDeal,
+                id: `00000000-0000-4000-8000-0000000${p + 1}${String(i).padStart(4, "0")}`,
+                name: `Example Deal ${i}`,
+                phase,
+              })),
+          ),
         );
         await page.reload();
         await open.waitFor();
         const headings = kanban.locator(".kanban-column > h3");
-        for (const narrow of [1280, 1024]) {
+        for (const narrow of [1400, 1280, 1024]) {
           await page.setViewportSize({ width: narrow, height: 900 });
           assert.match((await headings.allTextContents()).join(" "), /Negotiating\s*12/);
           if (narrow === 1280)

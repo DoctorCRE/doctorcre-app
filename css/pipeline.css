@@ -109,8 +109,7 @@
 .kanban-column[data-column="pending"] > h3 button::before { border-style: dashed; }
 .kanban-column[data-column="closing"] > h3 button::before { background: var(--phase); }
 /* The phase ring needs room the name and count don't have on narrower screens. */
-@media (min-width: 1400px) { .kanban:not(:has(#prospectsLane)) { --phase-ring: block; } }
-@media (min-width: 1480px) { .kanban { --phase-ring: block; } }
+@media (min-width: 1400px) { .kanban { --phase-ring: block; } }
 .kanban-column > h3 button > span { min-width: 0; }
 .kanban-column > h3 small { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .kanban-card.work-card--tile .work-card-title { font-size: 14px; font-weight: 500; line-height: 1.35; }
