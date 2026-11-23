@@ -785,3 +785,34 @@ for (const surface of ['graph', 'directory']) for (const [refresh, removed, expe
   });
   assert.deepEqual(focus, [scope.slice(1), expected], 'Focus stays in the original surface');
 });
+
+test('A connection opened inside the drawer becomes the page address', async t => {
+  const { page } = await open(t);
+  const step = '00000000-0000-4000-8000-000000000001';
+  await page.goto(`http://localhost/relationships?mode=live&node=party%3Ademo-build&step=${step}`);
+  const dialog = page.getByRole('dialog');
+  await dialog.locator('[data-open-node="party:demo-client"]').click();
+  const title = await dialog.locator('h2').textContent();
+  const address = new URL(page.url());
+  assert.equal(address.searchParams.get('node'), 'party:demo-client');
+  assert.equal(address.searchParams.has('step'), false, 'The old record\'s step link is cleared');
+  await page.reload();
+  await dialog.locator('h2', { hasText: title }).waitFor();
+});
+
+test('A drawer connection hidden by the filters stays open through a refresh', async t => {
+  const { page } = await open(t);
+  await page.goto('http://localhost/relationships?mode=live&kind=vendor&node=party%3Ademo-build');
+  const dialog = page.getByRole('dialog');
+  await dialog.locator('[data-open-node="party:demo-client"]').click();
+  const title = await dialog.locator('h2').textContent();
+  const refreshed = page.waitForResponse('**/api/v1/business/relationships*');
+  await page.clock.fastForward(61000);
+  await refreshed;
+  await page.waitForFunction(() => document.querySelector('#networkUpdated')?.textContent !== 'Updating…');
+  assert.equal(await dialog.isVisible(), true, 'The drawer stays open');
+  assert.equal(await dialog.locator('h2').textContent(), title);
+  const address = new URL(page.url());
+  assert.equal(address.searchParams.get('node'), 'party:demo-client');
+  assert.equal(address.searchParams.get('kind'), 'vendor');
+});
