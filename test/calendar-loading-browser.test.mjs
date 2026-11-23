@@ -24,7 +24,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
   const browser = await chromium.launch();
   t.after(() => browser.close());
 
-  for (const status of [200, 401, 502]) await t.test(String(status), async () => {
+  for (const status of [200, 401, 502, 503]) await t.test(String(status), async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
     await page.clock.install({ time: new Date('2026-10-20T15:00:00Z') });
     await page.route('**/*', async route => {
@@ -37,7 +37,8 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
       return route.fulfill({ response });
     });
     let calendarStatus = 404;
-    let failAll = false;
+    let failAll = status === 503;
+    let slowFails = status === 502;
     await page.route('**/api/engine/calendar/critical-dates', route => route.fulfill({ status: calendarStatus }));
     let release;
     const held = new Promise(resolve => { release = resolve; });
@@ -59,7 +60,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
       if (args.deal === 'slow') {
         await held;
         if (status === 401) return route.fulfill({ status, json: { error: 'not_authenticated' } });
-        if (status === 502) return route.fulfill({ status });
+        if (slowFails) return route.fulfill({ status: 502 });
       }
       return answer(route, { deal_id: args.deal, critical_dates: [{
         id: args.deal, kind: 'loi_expiry', due_on: '2026-10-20', status: 'open', note: `Synthetic ${args.deal} date`,
@@ -70,6 +71,11 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
     try {
       await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `calendar-${status}`, reset: true } });
       await page.goto('https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev/calendar?d=2026-10-01');
+      if (status === 503) {
+        await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
+        await expect(page.locator('#dayPanelBody')).not.toContainText('No critical dates');
+        return;
+      }
       await expect(page.locator('#calGrid .cal-chip')).toHaveCount(1);
       await expect(page.locator('#calGrid')).toHaveAttribute('aria-busy', 'true');
       await page.locator('.cal-day-open[data-select-day="2026-10-20"]').click();
@@ -87,6 +93,12 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
         await expect(page.getByRole('main').getByRole('button', { name: /^Refresh/ })).toHaveCount(1);
         await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
+        await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
+        await page.locator('.cal-day-open[data-select-day="2026-10-21"]').click();
+        await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
+        await expect(page.locator('#dayPanelBody')).not.toContainText('No critical dates');
+        await expect(page.locator('#calLive')).toContainText('may be incomplete');
+        await page.locator('.cal-day-open[data-select-day="2026-10-20"]').click();
         const updated = await page.locator('#calAsOf').textContent();
         await page.clock.setSystemTime(new Date('2026-10-20T15:01:00Z'));
         calendarStatus = 503;
@@ -107,6 +119,12 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
         await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
         await expect(page.locator('#calAsOf')).toHaveText(retriedAt);
+        await page.locator('.cal-day-open[data-select-day="2026-10-21"]').click();
+        await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
+        failAll = false;
+        slowFails = false;
+        await page.getByRole('button', { name: 'Retry', exact: true }).click();
+        await expect(page.locator('#dayPanelBody')).toContainText('No critical dates or next steps on this day.');
       } else {
         await page.waitForURL('**/public-shell/session-ended.html');
         await expect(page.getByRole('heading',{name:'Session ended'})).toBeVisible();

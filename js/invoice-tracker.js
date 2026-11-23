@@ -1,7 +1,7 @@
 import { BUSINESS_TIME_ZONE } from './business-date.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
 import { createClient } from './client.js';
-import { resolveDealroomBoot } from './boot-mode.js';
+import { invoiceReturnPath, resolveDealroomBoot } from './boot-mode.js';
 import { mountAutoRefresh, updatedLabel } from './auto-refresh.mjs';
 import { localToday, isCalendarDay } from './calendar-model.js';
 import { partnerName } from './visual-system.js';
@@ -223,7 +223,8 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       render();
     }catch(error){if(disposed||signal?.aborted)return;$('invoiceNotice').hidden=false;
       const signedOut=[401,403].includes(error?.status);
-      $('invoiceNotice').innerHTML=signedOut?'<a href="/auth/login?return_to=%2Finvoices">Sign in</a>':'Invoices temporarily unavailable';
+      const returnTo = invoiceReturnPath(pageParams) ?? '/invoices';
+      $('invoiceNotice').innerHTML=signedOut?`<a href="/auth/login?return_to=${encodeURIComponent(returnTo)}">Sign in</a>`:'Invoices temporarily unavailable';
       if(signedOut){snapshot=null;rows=null;invoiceStates.clear();paymentStore=null;closeDetail();render();}
       else if(!rows){$('invoiceRows').innerHTML='<p>Invoices unavailable</p>';$('invoiceRows').setAttribute('aria-busy','false');}
     }

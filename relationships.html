@@ -78,7 +78,8 @@
       <h1 class="app-page-title" data-layout-slot="title">Relationships</h1>
       <p id="networkNotice" role="status" hidden></p>
       <section id="graphView" role="tabpanel" aria-labelledby="graphTab">
-        <div class="relationship-graph-panel">
+        <div class="relationship-graph-panel" data-relationship-surface>
+          <h2 id="networkHeading" class="sr-only" tabindex="-1">Relationship network</h2>
           <div class="relationship-graph-head">
             <div id="networkLegend" class="relationship-legend">
               <span data-kind="vendor">◇ Vendors</span
@@ -103,12 +104,12 @@
             More connections
           </button>
         </div>
-        <section class="relationship-intros">
-          <h2>Suggested introductions</h2>
+        <section class="relationship-intros" data-relationship-surface>
+          <h2 tabindex="-1">Suggested introductions</h2>
           <div id="networkIntroductions"></div>
         </section>
-        <section class="relationship-directory">
-          <h2>Directory <span id="networkCount"></span></h2>
+        <section class="relationship-directory" data-relationship-surface>
+          <h2 tabindex="-1">Directory <span id="networkCount"></span></h2>
           <div id="networkNodes"></div>
         </section>
       </section>
@@ -116,9 +117,10 @@
         id="referralsView"
         role="tabpanel"
         aria-labelledby="referralsTab"
+        data-relationship-surface
         hidden
       >
-        <h2>Deals sent</h2>
+        <h2 tabindex="-1">Deals sent</h2>
         <div id="networkReferrals"></div>
       </section>
     </main>

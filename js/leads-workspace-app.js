@@ -19,6 +19,10 @@ import { BOARD_STAGES, FILTER_STAGES, stageLabel, normalizedStage, eligibleLead,
   visibleLeads, marketCounts, stageReview, automaticMove, undoReview, leadTimestamp, leadReachability } from "./leads-model.js";
 import { mountTerritoryMap } from "./leads-territory-map.js";
 
+const historyKeys = { correspondence: "id", stage_history: "event_id" };
+const historyKinds = Object.keys(historyKeys);
+const historyTail = (detail, kind) => detail?.[kind].at(-1)?.[historyKeys[kind]];
+
 const validateLeadWorkspace = value => validateWorkspace(value, parseOpportunityTiming);
 const validateLeadDetail = (value, id) => validateDetail(value, id, parseOpportunityTiming);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -371,10 +375,15 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       if (state.resumeDetail) await readDetail(resumeDetail.id, { intent: resumeDetail });
       else if (state.detailId && $("leadDetail").open) {
         if (leadById(state.detailId)) {
-          await readDetail(state.detailId, { open: false });
-          const dialog = $("leadDetail");
-          if (dialog.open && detailFocus?.container === "detailBody" && detailFocus.value === state.detailId &&
-              (doc.activeElement === doc.body || doc.activeElement === dialog)) restoreFocus(detailFocus);
+          const detailEpoch = state.detailEpoch, dialog = $("leadDetail");
+          const history = state.historyRequest;
+          if (history?.epoch === detailEpoch) await history.done;
+          if (epoch !== state.epoch) return;
+          if (detailEpoch === state.detailEpoch && dialog.open) {
+            await readDetail(state.detailId, { open: false });
+            if (dialog.open && detailFocus?.container === "detailBody" && detailFocus.value === state.detailId &&
+                (doc.activeElement === doc.body || doc.activeElement === dialog)) restoreFocus(detailFocus);
+          }
         } else if (leads.some(lead => lead.id === state.detailId)) { state.detail = null; $("leadDetail").close(); }
         else { clearGuidance(); state.detail = null; ++state.detailEpoch; $("detailTitle").textContent = "Lead unavailable"; $("detailBody").innerHTML = '<p class="empty">Unavailable</p>'; }
       }
@@ -405,9 +414,12 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const page = detail[`${kind}_page`];
     if (!page) return '<p>History counts unavailable</p>';
     const count = detail[kind].length;
-    return `<p>Showing ${count} of ${page.total} ${kind === "correspondence" ? "captured entries" : "stage changes"}${page.has_more ? ". Newest entries first." : "."}</p>
-      ${state.historyError?.kind === kind ? '<p role="status">Older entries unavailable. Try again.</p>' : ""}
-      ${page.has_more ? `<button type="button" id="load-${kind}" data-load-history="${kind}"${state.historyRequest ? " disabled" : ""}>${state.historyRequest?.kind === kind ? "Loading…" : kind === "correspondence" ? "Load older correspondence" : "Load older stage changes"}</button>` : ""}`;
+    const entries = kind === "correspondence" ? "captured entries" : "stage changes";
+    const counts = `<p>Showing ${count} of ${page.total} ${entries}${page.has_more ? ". Newest entries first." : "."}</p>`;
+    if (!page.has_more) return counts;
+    const unavailable = state.historyError?.kind === kind ? '<p role="status">Older entries unavailable. Try again.</p>' : "";
+    const label = state.historyRequest?.kind === kind ? "Loading…" : kind === "correspondence" ? "Load older correspondence" : "Load older stage changes";
+    return `${counts}${unavailable}<button type="button" id="load-${kind}" data-load-history="${kind}"${state.historyRequest ? " disabled" : ""}>${label}</button>`;
   }
   function paintDetail(detail, intent = null) {
     const active = doc.activeElement;
@@ -475,22 +487,26 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   function appendHistory(detail, nextDetail, kind) {
     const page = detail[`${kind}_page`], next = nextDetail[`${kind}_page`];
     if (!next || (next.has_more && JSON.stringify(next.next_cursor) === JSON.stringify(page.next_cursor))) throw new Error("History did not advance");
-    const key = kind === "correspondence" ? "id" : "event_id";
+    const key = historyKeys[kind];
     const entries = new Map(detail[kind].map(entry => [entry[key], entry]));
     for (const entry of nextDetail[kind]) entries.set(entry[key], entry);
     if (entries.size === detail[kind].length && next.has_more) throw new Error("History did not advance");
     return { ...detail, [kind]: [...entries.values()], [`${kind}_page`]: next };
   }
-  async function loadHistory(kind) {
+  function loadHistory(kind) {
     const detail = state.detail, page = detail?.[`${kind}_page`];
     if (!state.identityReady || !detail || !page?.has_more || !page.next_cursor || state.historyRequest) return;
     const request = { kind, epoch: state.detailEpoch, actor: state.actor, detail };
     state.historyRequest = request; state.historyError = null;
+    request.done = readHistoryPage(request, page.next_cursor);
+  }
+  async function readHistoryPage(request, cursor) {
+    const { kind, detail } = request;
     paintDetail(detail);
     const current = () => request.epoch === state.detailEpoch && request.actor === state.actor &&
       state.detail === detail && state.detailId === detail.id && $("leadDetail").open;
     try {
-      const response = await client.getLeadDetail(detail, { [`${kind}_cursor`]: page.next_cursor });
+      const response = await client.getLeadDetail(detail, { [`${kind}_cursor`]: cursor });
       if (!current()) return;
       if (!response.detail || !leadById(detail.id) || !eligibleLead(response.detail)) {
         state.detail = null; $("leadDetail").close(); return;
@@ -527,31 +543,42 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   }
   async function readDetail(id, { open = true, intent = null, resolvedDetail = null } = {}) {
     const lead = leadById(id), epoch = ++state.detailEpoch, actor = state.actor;
-    state.historyRequest = null; state.historyError = null;
+    state.historyRequest = null;
+    if (open) state.historyError = null;
     if (!lead || !state.identityReady) return;
     if (open && !intent) drawerEmailAttempted = false;
     if (open) { clearGuidance(); state.resumeDetail = intent; state.selectedId = id; render(); selectDocRecord("lead", id); state.detailId = id; state.detail = null; paintDetailFollowUp(); state.trigger = focusIdentity(doc.activeElement); $("detailTitle").textContent = leadTitle(lead); $("detailBody").innerHTML = '<p class="empty">Updating…</p>'; $("leadDetail").showModal(); }
+    const current = () => epoch === state.detailEpoch && actor === state.actor &&
+      state.detailId === id && $("leadDetail").open;
     try {
       const response = resolvedDetail ? { detail: resolvedDetail } : await client.getLeadDetail(lead);
-      if (epoch !== state.detailEpoch || actor !== state.actor) return;
+      if (!current()) return;
       if (!leadById(id) || !response.detail || response.detail.id !== id || !eligibleLead(response.detail)) { state.resumeDetail = null; $("leadDetail").close(); state.detail = null; return; }
       validateLeadDetail(response.detail, id);
       if (resolvedDetail) publishDocRead("getLeadDetail", response, [lead]);
       selectDocRecord("lead", id);
-      // eslint-disable-next-line no-restricted-syntax -- History visits only correspondence and stage_history; each kind has its own 100-page takePage budget.
-      for (const kind of ["correspondence", "stage_history"]) {
-        const retainedCount = intent?.historyCounts?.[kind] ?? (open ? 0 : state.detail?.[kind]?.length || 0);
-        const takePage = createPageBudget({ document: doc });
-        // eslint-disable-next-line no-restricted-syntax -- Lead detail calls takePage before each older page; a max of 100 pages per history kind.
-        while (response.detail[kind].length < retainedCount && response.detail[`${kind}_page`]?.has_more) {
-          takePage();
-          const older = await client.getLeadDetail(lead, { [`${kind}_cursor`]: response.detail[`${kind}_page`].next_cursor });
-          if (epoch !== state.detailEpoch || actor !== state.actor) return;
-          if (!older.detail || !eligibleLead(older.detail)) { $("leadDetail").close(); state.detail = null; return; }
-          validateLeadDetail(older.detail, id);
-          response.detail = appendHistory(response.detail, older.detail, kind);
+      const budgets = new Map(historyKinds.map(kind => [kind, createPageBudget({ document: doc })]));
+      // eslint-disable-next-line no-restricted-syntax -- Max 100 continuation reads per history kind.
+      for (;;) {
+        if (state.historyRequest) {
+          await state.historyRequest.done;
+          if (!current()) return;
         }
+        const kind = historyKinds.find(kind => {
+          const tail = intent?.historyTails[kind] ?? historyTail(open ? null : state.detail, kind);
+          return tail && response.detail[`${kind}_page`]?.has_more &&
+            !response.detail[kind].some(entry => entry[historyKeys[kind]] === tail);
+        });
+        if (!kind) break;
+        budgets.get(kind)();
+        const older = await client.getLeadDetail(lead, { [`${kind}_cursor`]: response.detail[`${kind}_page`].next_cursor });
+        if (!current()) return;
+        if (!older.detail || !eligibleLead(older.detail)) { $("leadDetail").close(); state.detail = null; return; }
+        validateLeadDetail(older.detail, id);
+        response.detail = appendHistory(response.detail, older.detail, kind);
       }
+      const failedKind = state.historyError?.kind;
+      if (failedKind && !response.detail[`${failedKind}_page`]?.has_more) state.historyError = null;
       const unchanged = JSON.stringify(state.detail) === JSON.stringify(response.detail);
       state.detail = response.detail; if (!unchanged || !researchView) paintDetail(response.detail, intent);
       state.resumeDetail = null;
@@ -871,7 +898,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     pageDocContext?.clear();
     if (state.reviewTarget && $("stageDialog").open) state.resumeReview = captureReviewDraft();
     if (state.detailId && $("leadDetail").open && !state.resumeDetail) state.resumeDetail = {
-      historyCounts: Object.fromEntries(["correspondence", "stage_history"].map(kind => [kind, state.detail?.[kind]?.length || 0])),
+      historyTails: Object.fromEntries(historyKinds.map(kind => [kind, historyTail(state.detail, kind)])),
       actor: state.actor, id: state.detailId, scroll: $("leadDetail").scrollTop,
       expanded: [...$("detailBody").querySelectorAll("details[open]")].map(node => node.dataset.entryKey),
     };

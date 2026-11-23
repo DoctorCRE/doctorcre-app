@@ -1,3 +1,5 @@
+export { sessionReturnPath } from './boot-mode.js';
+
 export const routeEntries = [
   ["/","workspace.html","/"],
   ["/a/:ref","action-link.html","/"],

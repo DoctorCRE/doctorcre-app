@@ -211,12 +211,7 @@ export function shortSummary(text) {
   return value.length > 160 ? `${value.slice(0, 157)}…` : value;
 }
 
-export function reconcile(address, { network, error }, inFlight) {
-  const node = network?.nodes.find(node => node.id === address.node) ?? null;
-  const candidate = network?.focused_step;
-  const step = node && address.step && candidate && candidate.id === address.step
-    && node.id === `party:${candidate.party_id}` && typeof candidate.what === "string"
-    ? candidate : null;
-  const notice = error ?? (address.node && network && !node && !inFlight ? "record-unavailable" : null);
-  return { node, step, notice, focusTarget: step ? "next-step" : node ? "title" : null };
+export function closestFocus({ key, index }, keys) {
+  const match = keys.indexOf(key);
+  return match < 0 ? Math.min(index, keys.length - 1) : match;
 }

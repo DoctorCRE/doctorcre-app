@@ -5,7 +5,7 @@ import {
   escapeHtml as E,
   NODE_LABELS,
   indexConnections,
-  reconcile,
+  closestFocus,
   shortSummary,
 } from "./relationship-network-model.js";
 const relationshipDate = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
@@ -34,25 +34,61 @@ function renderConnection({ other, links }) {
   return `<article class="relationship-entry"><span>${E(labels)}</span><button type="button" data-open-node="${E(other.id)}" data-card-key="connection:${E(other.id)}">${E(withoutRecordCodes(other.name))} <span aria-hidden="true">↗</span></button>${date}${evidence}</article>`;
 }
 
-export function mountRelationshipDialog({ document, onReviewIntroduction, onRefresh, onOpenNode, onClose }) {
+const focusKey = el => el.dataset.node ?? el.dataset.introNode ?? el.dataset.cardKey;
+
+export function preserveRelationshipFocus(element, surface = element?.closest("[data-relationship-surface]")) {
+  const items = () => [...surface?.querySelectorAll("[data-node],[data-intro-node],[data-card-key]") ?? []];
+  const anchor = { key: element && focusKey(element), index: items().indexOf(element) };
+  return (returnToOpener = false) => {
+    if (element?.isConnected) {
+      if (returnToOpener) element.focus();
+      return;
+    }
+    const remaining = items(), target = remaining[closestFocus(anchor, remaining.map(focusKey))];
+    const heading = surface?.querySelector("h2");
+    (target ?? heading)?.focus();
+  };
+}
+
+export function mountRelationshipDialog({ document, onReviewIntroduction, onRefresh }) {
   const dialog = document.createElement("dialog");
   dialog.className = "relationship-dialog";
   dialog.setAttribute("aria-labelledby", "relationshipTitle");
   document.body.append(dialog);
-  let snapshot, node, step, focusTarget, returnFocus, openerScope, readFailed;
+  let snapshot, selected, returnFocus;
   let visibleConnections = PAGE_SIZE;
-  const close = onClose ?? (() => dialog.close());
-  if (onClose) dialog.oncancel = event => {
+  let readFailed = false;
+  const setSnapshot = (value) => {
+    snapshot = { ...value, connectionsByNode: value.connectionsByNode ?? indexConnections(value) };
+  };
+  const restoreOpener = () => {
+    selected = null;
+    const restore = returnFocus;
+    returnFocus = null;
+    restore?.(true);
+  };
+  const close = () => {
+    if (!dialog.open) return;
+    dialog.close();
+    restoreOpener();
+  };
+  dialog.oncancel = event => {
     event.preventDefault();
     close();
   };
+  onDialogClosed(dialog, restoreOpener);
   const paint = () => {
+    const node = snapshot?.nodes.find((n) => n.id === selected);
+    if (!node) {
+      selected = null;
+      close();
+      return;
+    }
     const expanded = new Set(
       [...dialog.querySelectorAll("details[open]")].map((d) => d.dataset.entry),
     );
-    const focused = dialog.contains(document.activeElement)
-      ? document.activeElement.dataset.cardKey
-      : null;
+    const active = document.activeElement;
+    const restoreFocus = dialog.contains(active) && preserveRelationshipFocus(active, dialog);
     const connections = snapshot.connectionsByNode.get(node.id) ?? [];
     const headingCount = readFailed && !connections.length ? "" : ` ${connections.length}`;
     const readNotice = readFailed
@@ -67,8 +103,10 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
     const recordLink = destination && typeof node.record_id === "string" && node.record_id
       ? `<a data-card-key="record" href="/${destination[0]}?${destination[1]}=${E(encodeURIComponent(node.record_id))}">Open ${E(node.kind)} record</a>` : "";
     const refs = snapshot.referrals.find((r) => r.node_id === node.id);
-    const origin = step && stepOriginLabel(step);
-    const nextStep = step ? `<p class="relationship-summary" tabindex="-1" data-card-key="next-step"><strong>${step.status === "done" ? "Done" : "Next step"}:</strong> ${E(step.what)}${origin ? `<small> · ${E(origin)}</small>` : ""}</p>` : "";
+    const step = snapshot.focused_step;
+    const showStep = step && node.id === `party:${step.party_id}` && typeof step.what === "string";
+    const origin = showStep && stepOriginLabel(step);
+    const nextStep = showStep ? `<p class="relationship-summary" tabindex="-1" data-card-key="next-step"><strong>${step.status === "done" ? "Done" : "Next step"}:</strong> ${E(step.what)}${origin ? `<small> · ${E(origin)}</small>` : ""}</p>` : "";
     dialog.innerHTML = `<header><div><span class="relationship-kicker">${E(NODE_LABELS[node.kind])}</span><h2 id="relationshipTitle" tabindex="-1" data-card-key="title">${E(withoutRecordCodes(node.name))}</h2></div><button data-card-key="close" data-close-card type="button" aria-label="Close relationship">×</button></header><div class="relationship-detail-grid"><section>${recordLink}${nextStep}${node.contact_state && node.contact_state !== "active" ? `<span class="relationship-hold">Contact hold</span>` : ""}${node.summary ? `<p class="relationship-summary">${E(shortSummary(node.summary))}</p>${node.summary.trim().replace(/\s+/g, " ") !== shortSummary(node.summary) ? `<details data-entry="summary"><summary data-card-key="summary">Details</summary><p>${E(node.summary)}</p></details>` : ""}` : ""}${refs ? `<div class="relationship-metrics"><div><strong>${refs.deals}</strong><span>Deals sent</span></div>${refs.win_rate === null ? "" : `<div><strong>${Math.round(refs.win_rate * 100)}%</strong><span>Win rate · ${refs.won} won / ${refs.won + refs.lost} resolved</span></div>`}</div>` : ""}</section><section><h3>Connections${headingCount}</h3>${readNotice}${empty}${
       connections.slice(0, visibleConnections).map(renderConnection).join("")
     }${more}</section></div>`;
@@ -93,68 +131,48 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
       dialog.querySelectorAll("[data-open-node]")[firstNew]?.focus();
     };
     dialog.querySelectorAll("[data-open-node]").forEach(
-      (b) => (b.onclick = () => onOpenNode ? onOpenNode(b.dataset.openNode) : open(snapshot, b.dataset.openNode)),
+      (b) =>
+        (b.onclick = () => {
+          selected = b.dataset.openNode;
+          visibleConnections = PAGE_SIZE;
+          paint();
+          dialog.querySelector("h2").focus();
+        }),
     );
     dialog.querySelectorAll("details").forEach((d) => {
       d.open = expanded.has(d.dataset.entry);
     });
-    if (focused)
-      (
-        [...dialog.querySelectorAll("[data-card-key]")].find(
-          (n) => n.dataset.cardKey === focused,
-        ) || dialog.querySelector("[data-close-card]")
-      ).focus();
-  };
-  onDialogClosed(dialog, () => {
-    node = null;
-    if (returnFocus?.isConnected) {
-      returnFocus.focus();
-      return;
-    }
-    const key = returnFocus?.dataset.node || returnFocus?.dataset.introNode;
-    if (key) {
-      const replacement = [
-        ...document.getElementById(openerScope)?.querySelectorAll("[data-node],[data-intro-node]") ?? [],
-      ].find((n) => (n.dataset.node || n.dataset.introNode) === key);
-      replacement?.focus();
-    }
-  });
-  const sync = (value, state, trigger = document.activeElement) => {
-    if (!state.node) return clear();
-    const changed = !dialog.open || state.node.id !== node?.id;
-    const failed = state.notice === "read-error";
-    if (!changed && value === snapshot && step === state.step && readFailed === failed) return;
-    const moveFocus = changed || state.focusTarget !== focusTarget;
-    if (!dialog.open) {
-      returnFocus = trigger;
-      openerScope = trigger?.parentElement?.closest("[id]")?.id;
-    }
-    if (changed) visibleConnections = PAGE_SIZE;
-    snapshot = value;
-    ({ node, step, focusTarget } = state);
-    readFailed = failed;
-    paint();
-    if (!dialog.open) dialog.showModal();
-    if (moveFocus) dialog.querySelector(`[data-card-key="${focusTarget}"]`).focus();
-  };
-  const open = (value, id, trigger) => {
-    const network = value.connectionsByNode ? value : { ...value, connectionsByNode: indexConnections(value) };
-    sync(network, reconcile({ node: id, step: value.focused_step?.id }, { network }, false), trigger);
-  };
-  const clear = () => {
-    snapshot = node = step = null;
-    dialog.close();
-    dialog.replaceChildren();
+    if (restoreFocus) restoreFocus();
   };
   return {
-    open,
-    sync,
-    update(value) {
-      if (dialog.open) open(value, node.id);
+    open(value, id, trigger = document.activeElement) {
+      setSnapshot(value);
+      selected = id;
+      visibleConnections = PAGE_SIZE;
+      if (!dialog.open) returnFocus = preserveRelationshipFocus(trigger,
+        trigger?.closest("[data-relationship-surface]") ?? trigger?.parentElement?.closest("[id]"));
+      paint();
+      if (selected) {
+        if (!dialog.open) dialog.showModal();
+        (dialog.querySelector('[data-card-key="next-step"]') ?? dialog.querySelector("h2")).focus();
+      }
     },
-    clear() {
-      returnFocus = null;
-      clear();
+    update(value) {
+      setSnapshot(value);
+      readFailed = false;
+      if (dialog.open) paint();
+    },
+    showReadError() {
+      if (readFailed) return;
+      readFailed = true;
+      if (dialog.open) paint();
+    },
+    clear({ restoreFocus = false } = {}) {
+      snapshot = null;
+      selected = null;
+      if (!restoreFocus) returnFocus = null;
+      close();
+      dialog.replaceChildren();
     },
     dispose() {
       dialog.close();

@@ -19,23 +19,9 @@ import {
   introductionRouteLabel,
   indexConnections,
   focusedNetwork,
-  reconcile,
   escapeHtml as E,
 } from "./relationship-network-model.js";
-import { mountRelationshipDialog } from "./relationship-dialog.js";
-
-function readAddress(search) {
-  const params = new URLSearchParams(search);
-  const node = params.get("node"), step = params.get("step");
-  const partyStep = node?.startsWith("party:") && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(step ?? "");
-  const filters = {
-    q: params.get("q") || "",
-    territory: params.get("territory") || "",
-    vertical: params.get("vertical") || "",
-    kind: relationshipKind(params.get("kind")),
-  };
-  return { node, step: partyStep ? step : null, view: params.get("view"), filters };
-}
+import { mountRelationshipDialog, preserveRelationshipFocus } from "./relationship-dialog.js";
 
 export function mountRelationshipNetwork({
   document,
@@ -49,41 +35,50 @@ export function mountRelationshipNetwork({
       document,
       onReviewIntroduction: id => intro.open(snapshot, id),
       onRefresh: () => auto.refresh(),
-      onOpenNode: id => open(id),
-      onClose: () => navigate({ node: null, step: null }),
     });
   let snapshot = null,
+    epoch = 0,
     disposed = false,
+    focus = null,
     limit = 12,
     zoom = 1,
     positions = new Map();
-  let address, readError = null, inFlight = false, noticeShown;
-
-  const open = (node, trigger) => {
-    if (address.node !== node) navigate({ node, step: null }, true, trigger);
+  const params = new URLSearchParams(window.location.search);
+  const currentFilters = {
+    q: params.get("q") || "",
+    territory: params.get("territory") || "",
+    vertical: params.get("vertical") || "",
+    kind: relationshipKind(params.get("kind")),
   };
-  const navigate = (changes, push = false, trigger) => {
+  $("networkSearch").value = currentFilters.q;
+  focus = params.get("node");
+  const step = params.get("step");
+  let stepId = focus?.startsWith("party:") && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(step ?? "") ? step : null;
+  let openLinkedRecord = Boolean(focus);
+  const address = () => {
     const url = new URL(window.location.href);
-    for (const [key, value] of Object.entries(changes)) {
+    for (const [key, value] of Object.entries({
+      ...currentFilters,
+      view:
+        $("referralsTab").getAttribute("aria-selected") === "true"
+          ? "referrals"
+          : "",
+      node: focus || "",
+      step: stepId || "",
+    })) {
       if (value) url.searchParams.set(key, value);
       else url.searchParams.delete(key);
     }
-    window.history[push ? "pushState" : "replaceState"](null, "", url);
-    renderAddress(trigger);
+    window.history.replaceState(null, "", url);
   };
-  const renderDrawer = trigger => {
-    const state = reconcile(address, { network: snapshot, error: readError }, inFlight);
-    dialog.sync(snapshot, state, trigger);
-    if (state.notice === noticeShown) return;
-    noticeShown = state.notice;
-    const notice = $("networkNotice");
-    notice.hidden = !noticeShown;
-    notice.innerHTML = {
-      "record-unavailable": "This record is no longer available.",
-      "read-error": 'Connections temporarily unavailable. <button type="button">Retry</button>',
-      "sign-in": '<a href="/auth/login?return_to=%2Frelationships">Sign in</a>',
-    }[noticeShown] ?? "";
-    if (noticeShown === "read-error") notice.querySelector("button").onclick = auto.refresh;
+  const open = (id, trigger) => {
+    if (focus !== id) stepId = null;
+    focus = id;
+    address();
+    highlight(id);
+    const active = document.activeElement;
+    const heading = $("referralsView").hidden ? $("networkHeading") : $("referralsView").querySelector("h2");
+    dialog.open(snapshot, id, trigger ?? (active === document.body ? heading : active));
   };
   const highlight = (id) => {
     $("networkCanvas")
@@ -104,7 +99,7 @@ export function mountRelationshipNetwork({
     target
       .querySelectorAll("[data-node]")
       .forEach((b) => (b.onclick = () => open(b.dataset.node, b)));
-  const render = () => {
+  const paintNetwork = () => {
     for (const id of ["networkZoomIn", "networkZoomOut", "networkFit"])
       $(id).disabled = !snapshot;
     if (!snapshot) {
@@ -119,13 +114,18 @@ export function mountRelationshipNetwork({
         $(id).replaceChildren();
       return;
     }
-    const focusedNode = document.activeElement?.dataset.node;
-    const view = filterNetwork(snapshot, address.filters),
+    const view = filterNetwork(snapshot, currentFilters),
       phone = window.matchMedia(TOUCH_LAYOUT).matches;
     const directory = $("networkNodes").parentElement, graphView = $("graphView");
     if (phone && graphView.firstElementChild !== directory) graphView.prepend(directory);
     else if (!phone && graphView.lastElementChild !== directory) graphView.append(directory);
-    const focus = address.node;
+    let selectedWasFiltered = false;
+    if (focus && !view.nodes.some(n => n.id === focus)) {
+      selectedWasFiltered = snapshot.nodes.some(n => n.id === focus);
+      focus = null;
+      stepId = null;
+      address();
+    }
     const selected = view.nodes.some((n) => n.id === focus)
       ? focus
       : view.suggestions[0]?.to || view.nodes[0]?.id;
@@ -246,14 +246,16 @@ export function mountRelationshipNetwork({
           };
         };
         g.onmouseenter = () => highlight(g.dataset.node);
-        g.onmouseleave = () => highlight(address.node);
+        g.onmouseleave = () => highlight(focus);
         g.onfocus = () => highlight(g.dataset.node);
       });
     highlight(focus);
-    if (focusedNode)
-      [...document.querySelectorAll("[data-node]")]
-        .find((n) => n.dataset.node === focusedNode)
-        ?.focus();
+    return selectedWasFiltered;
+  };
+  const render = () => {
+    const restoreFocus = preserveRelationshipFocus(document.activeElement);
+    if (paintNetwork()) dialog.clear({ restoreFocus: true });
+    restoreFocus();
   };
   const facets = () => {
     for (const [id, field, label] of [
@@ -261,7 +263,7 @@ export function mountRelationshipNetwork({
       ["networkVertical", "verticals", "All verticals"],
     ]) {
       const select = $(id),
-        value = address.filters[field === "verticals" ? "vertical" : field];
+        value = currentFilters[field === "verticals" ? "vertical" : field];
       const values = [
         ...new Set(
           (snapshot?.nodes || [])
@@ -279,40 +281,59 @@ export function mountRelationshipNetwork({
   };
   const invalidate = () => {
     snapshot = null;
+    if (!openLinkedRecord) {
+      focus = null;
+      stepId = null;
+    }
     positions.clear();
-  };
-  const renderNetwork = () => {
-    $("networkUpdated").textContent = updatedLabel(readError ? null : snapshot?.observed_at, BUSINESS_TIME_ZONE);
     facets();
     render();
-    renderDrawer();
+    dialog.clear({ restoreFocus: true });
+    $("networkUpdated").textContent = "Updating…";
   };
   const refresh = async ({ signal } = {}) => {
-    // The network is shared by all addresses. Only the requested step varies.
-    const step = address.step;
-    inFlight = true;
+    const seq = ++epoch;
     $("networkRefresh").setAttribute("aria-busy", "true");
     try {
       const next = await readWithDeadline(
-        s => client.getRelationshipNetwork({ signal: s, ...(step && { step }) }),
+        (s) => client.getRelationshipNetwork({ signal: s, ...(stepId && { step: stepId }) }),
         { signal },
       );
-      if (disposed) return;
+      if (disposed || seq !== epoch) return;
       if (!validNetwork(next) || Date.parse(next.valid_until) <= Date.now())
         throw Error("invalid_network");
       const nodes = next.nodes.map(node => node.kind === "deal" ? { ...node, name: dealName(node.name) } : node);
       snapshot = { ...next, nodes, connectionsByNode: indexConnections({ nodes, edges: next.edges }) };
-      readError = null;
+      facets();
+      $("networkNotice").hidden = true;
+      $("networkUpdated").textContent = updatedLabel(next.observed_at, BUSINESS_TIME_ZONE);
+      render();
+      dialog.update(snapshot);
+      if (openLinkedRecord && snapshot.nodes.some(node => node.id === focus)) open(focus);
+      openLinkedRecord = false;
     } catch (error) {
-      if (disposed) return;
+      if (disposed || seq !== epoch) return;
       const expired = [401, 403].includes(error.status);
       if (expired) intro.retire();
-      if (expired || !snapshot || Date.parse(snapshot.valid_until) <= Date.now()) invalidate();
-      readError = expired ? "sign-in" : "read-error";
+      if (
+        expired ||
+        !snapshot ||
+        Date.parse(snapshot.valid_until) <= Date.now()
+      ) {
+        invalidate();
+      }
+      $("networkNotice").hidden = false;
+      $("networkNotice").innerHTML = expired
+        ? '<a href="/auth/login?return_to=%2Frelationships">Sign in</a>'
+        : 'Connections temporarily unavailable. <button type="button">Retry</button>';
+      if (!expired) {
+        $("networkNotice").querySelector("button").onclick = auto.refresh;
+        dialog.showReadError();
+      }
+      $("networkUpdated").textContent = "Updating…";
+    } finally {
+      if (seq === epoch) $("networkRefresh").setAttribute("aria-busy", "false");
     }
-    inFlight = false;
-    $("networkRefresh").setAttribute("aria-busy", "false");
-    renderNetwork();
   };
   const auto = mountAutoRefresh({ document, window, refresh, intervalMs });
   const selectTab = (value) => {
@@ -324,9 +345,10 @@ export function mountRelationshipNetwork({
     }
     $("graphView").hidden = refs;
     $("referralsView").hidden = !refs;
+    address();
   };
   ["graphTab", "referralsTab"].forEach((id) => {
-    $(id).onclick = () => navigate({ view: id === "referralsTab" ? "referrals" : "" });
+    $(id).onclick = () => selectTab(id === "referralsTab" ? "referrals" : "");
     $(id).onkeydown = (e) => {
       if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
         e.preventDefault();
@@ -345,27 +367,36 @@ export function mountRelationshipNetwork({
   });
   const localEvents = new window.AbortController();
   window.addEventListener('doctorcre-session-invalidated', () => intro.retire(), { signal: localEvents.signal });
-  const kindControl = mountRelationshipKindFilter($("networkKindFilter"), { value: "", onChange: kind => navigate({ kind }) });
-  const renderAddress = trigger => {
-    const previous = address;
-    address = readAddress(window.location.search);
-    if (!previous || Object.keys(address.filters).some(key => address.filters[key] !== previous.filters[key])) {
-      limit = 12;
-      positions.clear();
-      $("networkSearch").value = address.filters.q;
-      kindControl.setValue(address.filters.kind);
-      facets();
-      render();
-    }
-    selectTab(address.view);
-    highlight(address.node);
-    renderDrawer(trigger);
-    if (previous && address.step && address.step !== previous.step) auto.revalidate();
+  const applyFilters = () => {
+    if (disposed) return;
+    limit = 12;
+    positions.clear();
+    render();
+    address();
   };
-  for (const [id, key] of [["networkSearch", "q"], ["networkTerritory", "territory"], ["networkVertical", "vertical"]])
+  const kindControl = mountRelationshipKindFilter($("networkKindFilter"), {
+    value: currentFilters.kind,
+    onChange(kind) {
+      $("networkKind").focus();
+      currentFilters.kind = kind;
+      applyFilters();
+    },
+  });
+  for (const id of ["networkSearch", "networkTerritory", "networkVertical"])
     // eslint-disable-next-line no-restricted-syntax -- Registers input/change callbacks for only 3 network filters; 0 lifecycle reads.
-    $(id).addEventListener(key === "q" ? "input" : "change", () => navigate({ [key]: $(id).value }), { signal: localEvents.signal });
-  $("networkReset").onclick = () => navigate({ q: "", territory: "", vertical: "", kind: "" });
+    $(id).addEventListener(id === "networkSearch" ? "input" : "change", () => {
+      currentFilters.q = $("networkSearch").value;
+      currentFilters.territory = $("networkTerritory").value;
+      currentFilters.vertical = $("networkVertical").value;
+      applyFilters();
+    }, { signal: localEvents.signal });
+  $("networkReset").onclick = () => {
+    for (const id of ["networkSearch", "networkTerritory", "networkVertical"])
+      $(id).value = "";
+    Object.assign(currentFilters, { q: "", territory: "", vertical: "", kind: "" });
+    kindControl.setValue("");
+    applyFilters();
+  };
   $("networkRefresh").onclick = auto.refresh;
   $("networkMore").onclick = () => {
     limit += 12;
@@ -384,16 +415,15 @@ export function mountRelationshipNetwork({
     positions.clear();
     render();
   };
-  window.addEventListener("popstate", () => renderAddress(), { signal: localEvents.signal });
   const resize = () => render();
   window.addEventListener("resize", resize);
   const expiry = mountLocalTicker({ document, window, intervalMs: 1000, tick: () => {
     if (!snapshot || Date.parse(snapshot.valid_until) > Date.now()) return;
     invalidate();
-    renderNetwork();
     auto.poll();
   } });
-  renderAddress();
+  selectTab(params.get("view"));
+  render();
   auto.refresh();
   return {
     refresh: auto.refresh,
@@ -402,6 +432,7 @@ export function mountRelationshipNetwork({
       disposed = true;
       localEvents.abort();
       kindControl.dispose();
+      epoch++;
       auto.dispose();
       dialog.dispose();
       intro.dispose();

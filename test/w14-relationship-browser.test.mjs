@@ -37,8 +37,13 @@ async function open(t, width = 1440) {
       const payload = relationshipNetworkFixture(
         await page.evaluate(() => new Date().toISOString()),
       );
-      if (url.searchParams.get("step") === "11111111-1111-4111-8111-111111111111")
-        payload.focused_step = { id: "11111111-1111-4111-8111-111111111111", party_id: "demo-build", what: "Demo next step", status: "open" };
+      if (mode.startsWith("without:")) {
+        const id = mode.slice("without:".length);
+        payload.nodes = payload.nodes.filter(node => id !== "*" && node.id !== id);
+        payload.edges = payload.edges.filter(edge => id !== "*" && ![edge.from, edge.to, edge.via].includes(id));
+        payload.suggestions = payload.suggestions.filter(row => payload.edges.some(edge => edge.id === row.id));
+        payload.referrals = payload.referrals.filter(row => id !== "*" && row.node_id !== id);
+      }
       if (version) payload.nodes[0].summary = "Demo refreshed summary";
       if (mode === "malformed") payload.edges[0].from = "missing";
       if (mode === "territory") payload.nodes[0].territory = 123;
@@ -733,94 +738,50 @@ for (const width of [1440, 390]) test(`Relationship records open by ID at ${widt
   assert.equal(await dialog.getByRole('link', { name: /Open .* record/ }).count(), 0);
 });
 
-for (const surface of ['graph', 'directory']) test(`A refresh keeps ${surface === 'graph' ? 'drawer title' : 'directory opener'} focus`, async t => {
-  const { page } = await open(t);
+for (const surface of ['graph', 'directory']) for (const [refresh, removed, expected] of [
+  ['identical', null, 'demo-build'],
+  ['opener removed', 'party:demo-build', 'demo-won'],
+  ['open record removed', 'party:demo-client', 'demo-build'],
+  ['no records remain', '*', 'heading'],
+]) for (const action of ['none', 'Escape', 'close']) test(`Focus follows the ${surface} after ${refresh} and ${action}`, async t => {
+  const { page, setMode } = await open(t);
+  const scope = surface === 'graph' ? '#networkCanvas' : '#networkNodes';
+  const row = id => page.locator(`${scope} [data-node$=":${id}"]`);
+  const opener = row('demo-build'), dialog = page.getByRole('dialog');
   await page.goto('http://localhost/relationships?mode=live');
-  const opener = page.locator(`${surface === 'graph' ? '#networkCanvas' : '#networkNodes'} [data-node="party:demo-build"]`);
-  const dialog = page.getByRole('dialog');
-  await opener.click();
-  await dialog.locator('[data-open-node="party:demo-client"]').click();
-  assert.equal(new URL(page.url()).searchParams.get('node'), 'party:demo-client');
-  const beforeRefresh = await opener.elementHandle();
-  await page.clock.fastForward(61000);
-  await page.waitForFunction(el => !el.isConnected, beforeRefresh);
-  if (surface === 'graph') {
-    const title = dialog.getByRole('heading', { level: 2 });
-    assert.equal(await title.evaluate(el => el === document.activeElement), true, 'The drawer title keeps keyboard focus');
+  const removesOpenRecord = ['open record removed', 'no records remain'].includes(refresh);
+  const staysOutside = action === 'none' && !removesOpenRecord;
+  if (staysOutside) await opener.focus();
+  else {
+    await opener.click();
+    await dialog.locator('[data-open-node="party:demo-client"]').click();
   }
-  await page.keyboard.press('Escape');
-  await page.waitForFunction(() => document.activeElement.matches('[data-node]'));
-  const focus = await opener.evaluate(el => el === document.activeElement ? 'original opener' : document.activeElement.closest('[id]')?.id);
-  assert.equal(focus, 'original opener', 'Escape restores focus within the original surface');
-  assert.equal(new URL(page.url()).searchParams.has('node'), false);
-  await page.locator('#networkKind').selectOption('client');
-  await page.locator('#referralsTab').click();
-  await page.goBack();
-  await dialog.getByText('Demo Practice Builders', { exact: true }).waitFor();
-  assert.equal(await page.locator('#networkKind').inputValue(), '');
-  assert.equal(await page.locator('#graphTab').getAttribute('aria-selected'), 'true');
-  assert.equal(new URL(page.url()).searchParams.has('kind'), false);
-});
-
-test('A filtered connection remains open after reload and Forward', async t => {
-  const { page } = await open(t);
-  await page.goto('http://localhost/relationships?mode=live&kind=vendor&node=party:demo-build');
-  const dialog = page.getByRole('dialog');
-  const client = dialog.getByRole('link', { name: 'Open client record' });
-  await dialog.locator('[data-open-node="party:demo-client"]').click();
-  await page.reload();
-  await client.waitFor();
-  await page.goBack();
-  await dialog.getByText('Demo Practice Builders', { exact: true }).waitFor();
-  await page.goForward();
-  await client.waitFor();
-});
-
-for (const read of ['background', 'after reload', 'first load after reload']) test(`Back restores a next step during the ${read} read`, async t => {
-  const { page } = await open(t);
-  const step = '11111111-1111-4111-8111-111111111111';
-  await page.goto(`http://localhost/relationships?mode=live&node=party:demo-build&step=${step}`);
-  const dialog = page.getByRole('dialog');
-  await dialog.getByText('Demo next step', { exact: false }).waitFor();
-  await dialog.locator('[data-open-node="party:demo-client"]').click();
-  if (read === 'background') {
-    await dialog.locator('[data-open-node="party:demo-build"]').click();
-    assert.equal(await dialog.locator('[data-card-key="next-step"]').count(), 0);
-    await page.goBack();
-    await dialog.getByRole('link', { name: 'Open client record' }).waitFor();
-  }
-  if (read === 'after reload') { await page.reload(); await dialog.waitFor(); }
-  const held = Promise.withResolvers(), requested = Promise.withResolvers();
+  const dismiss = () => action === 'Escape' ? page.keyboard.press('Escape')
+    : dialog.getByRole('button', { name: 'Close relationship' }).click();
+  const oldRow = await opener.elementHandle();
+  if (removed) setMode(`without:${removed}`);
+  const pending = Promise.withResolvers(), release = Promise.withResolvers();
   await page.route('**/api/v1/business/relationships*', async route => {
-    if (!new URL(route.request().url()).searchParams.has('step')) {
-      requested.resolve();
-      await held.promise;
-    }
+    pending.resolve();
+    await release.promise;
     await route.fallback();
   });
-  if (read === 'first load after reload') await page.reload({ waitUntil: 'domcontentloaded' });
-  else await page.clock.fastForward(61000);
-  await requested.promise;
-  await page.goBack();
-  await page.waitForURL(url => url.searchParams.get('step') === step);
-  held.resolve();
-  await dialog.locator('[data-card-key="next-step"]:focus').filter({ hasText: 'Demo next step' }).waitFor({ timeout: 3000 });
-});
-
-test('Back clears the unavailable notice after a refresh removes the linked record', async t => {
-  const { page, setMode } = await open(t);
-  setMode('records');
-  await page.goto('http://localhost/relationships?mode=live');
-  await page.locator('#networkNodes [data-node="party:isolated-vendor"]').click();
-  setMode('ok');
   await page.clock.fastForward(61000);
-  const notice = page.getByText('This record is no longer available.');
-  await notice.waitFor({ timeout: 3000 });
-  await page.goBack();
-  await notice.waitFor({ state: 'hidden', timeout: 3000 });
-  await page.goForward();
-  await notice.waitFor({ timeout: 3000 });
-  await page.reload();
-  await notice.waitFor({ timeout: 3000 });
-  assert.equal(new URL(page.url()).searchParams.get('node'), 'party:isolated-vendor');
+  await pending.promise;
+  if (removesOpenRecord && action !== 'none') await dismiss();
+  release.resolve();
+  await page.waitForFunction(el => !el.isConnected, oldRow);
+  if (!staysOutside && !removesOpenRecord) {
+    assert.equal(await dialog.isVisible(), true, 'The connected record stays open');
+    assert.equal(await dialog.locator('h2').evaluate(el => el === document.activeElement), true, 'Refresh keeps focus on the drawer title');
+    await dismiss();
+  }
+  if (!staysOutside) await dialog.waitFor({ state: 'hidden' });
+  const focus = await page.evaluate(() => {
+    const active = document.activeElement;
+    const surface = active.closest('.relationship-graph-panel,.relationship-directory');
+    const region = surface?.querySelector('#networkCanvas,#networkNodes').id ?? active.tagName.toLowerCase();
+    return [region, active.matches('h2') ? 'heading' : active.dataset.node?.split(':').at(-1)];
+  });
+  assert.deepEqual(focus, [scope.slice(1), expected], 'Focus stays in the original surface');
 });

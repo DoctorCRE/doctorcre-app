@@ -9,7 +9,6 @@ import {
   introductionSuggestions,
   introductionRouteLabel,
   focusedNetwork,
-  reconcile,
   escapeHtml,
 } from "../js/relationship-network-model.js";
 import { escapeText } from "../js/change-receipts.mjs";
@@ -131,22 +130,4 @@ test("introduction paths retain the known person and recorded connector in order
 test("introduction route labels preserve ordered names as plain text", () => {
   assert.equal(introductionRouteLabel([{ name: 'Source <team> & partners' }, { name: 'Connector' }, { name: 'Destination' }]), 'Source <team> & partners → Connector → Destination');
   assert.equal(introductionRouteLabel([{ name: 'Source' }, { name: 'Destination' }]), 'Source → Destination');
-});
-
-test("Relationship addresses reconcile against the full network and latest read", () => {
-  const network = relationshipNetworkFixture();
-  const node = network.nodes.find(n => n.id === "party:demo-build");
-  const step = { id: "step", party_id: "demo-build", what: "Call the builder" };
-  for (const [address, snapshot, pending, expected] of [
-    [{ node: node.id, step: step.id }, { ...network, focused_step: step }, false, [node, step, null, "next-step"]],
-    [{ node: node.id, filters: { kind: "client" } }, network, false, [node, null, null, "title"]],
-    [{ node: node.id, step: step.id }, network, false, [node, null, null, "title"]],
-    [{ node: node.id, step: "stale" }, { ...network, focused_step: step }, true, [node, null, null, "title"]],
-    [{ node: "missing" }, network, true, [null, null, null, null]],
-    [{ node: "missing" }, network, false, [null, null, "record-unavailable", null]],
-    [{}, network, false, [null, null, null, null]],
-  ]) {
-    const { node, step, notice, focusTarget } = reconcile(address, { network: snapshot }, pending);
-    assert.deepEqual([node, step, notice, focusTarget], expected);
-  }
 });

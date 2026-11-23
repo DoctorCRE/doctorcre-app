@@ -1,2 +1,10 @@
 import type { Page } from "playwright";
-export function routeLeads(page: Page): Promise<void>;
+import type { lead, workspace } from "./leads-workspace-fixture.mjs";
+
+export function routeLeads(
+  page: Page,
+  options?: {
+    getBoard?: typeof workspace;
+    getDetail?: (row: ReturnType<typeof lead> | undefined, args: { correspondence_cursor?: unknown }) => unknown;
+  },
+): Promise<void>;

@@ -1056,11 +1056,11 @@ test('history request forwards cursors through the authenticated lead-board cont
  }
 });
 
-test('older history preserves captured entries on failure and ignores late responses after an actor switch',async()=>{
+for (const action of ['close', 'lead', 'actor']) test(`failed Load older keeps entries and a late retry is ignored after changing the drawer (${action})`, async () => {
  const initial={...detail(workspace().leads[0]),correspondence_page:{total:3,has_more:true,next_cursor:{occurred_at:'2026-09-30T12:00:00Z',id:id(601)}}};
  let attempts=0,release;
  const s=await setup({getLeadDetail:async(l,args={})=>{
-  if(!args.correspondence_cursor)return{detail:{...initial,id:l.id}};
+  if(!args.correspondence_cursor)return{detail:{...detail(l),correspondence_page:initial.correspondence_page}};
   attempts++;
   if(attempts===1)throw new Error('Synthetic lost connection');
   return new Promise(resolve=>{release=resolve});
@@ -1071,10 +1071,19 @@ test('older history preserves captured entries on failure and ignores late respo
   assert.match(s.d.getElementById('detailBody').textContent,/Older entries unavailable. Try again./);
   s.d.querySelector('[data-load-history="correspondence"]').click();await tick();
   assert.equal(s.d.querySelector('[data-load-history="correspondence"]').disabled,true);
-  s.setActor('other-example-partner');await s.app.refresh();
-  release({detail:{...initial,correspondence:[{id:id(602),kind:'email_in',occurred_at:'2026-09-29T12:00:00Z',summary:'Synthetic old actor private entry'}],correspondence_page:{total:3,has_more:false,next_cursor:null}}});await tick();
-  assert.equal(s.d.getElementById('leadDetail').open,false);
-  assert.doesNotMatch(s.d.getElementById('detailBody').textContent,/old actor private entry/);
+  if (action === 'actor') s.setActor('other-example-partner');
+  const refreshing = s.app.refresh();
+  await new Promise(resolve => setImmediate(resolve));
+  if (action !== 'actor') {
+   s.d.getElementById('closeDetail').click();
+   if (action === 'lead') await s.app.readDetail(id(2));
+  }
+  release({detail:{...initial,correspondence:[{id:id(602),kind:'email_in',occurred_at:'2026-09-29T12:00:00Z',summary:'Synthetic previous drawer entry'}],correspondence_page:{total:3,has_more:false,next_cursor:null}}});
+  await refreshing;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(s.d.getElementById('leadDetail').open,action === 'lead');
+  if (action === 'lead') assert.equal(s.d.getElementById('detailTitle').textContent, 'Dr. Example 2');
+  assert.doesNotMatch(s.d.getElementById('detailBody').textContent,/previous drawer entry/);
  }finally{s.close()}
 });
 

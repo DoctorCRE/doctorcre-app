@@ -48,3 +48,29 @@ export function dealToursFromEngine(root = document) {
 export function updatesFromEngine(root = document) {
   return root.documentElement?.hasAttribute('data-updates-from-engine') || dealsSaveToEngine(root);
 }
+
+export const AWAITING_INVOICE_PREFIX = 'awaiting:';
+const INVOICE_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+export const invoiceHref = key => `/invoices?invoice=${encodeURIComponent(key)}`;
+export function invoiceReturnPath(searchParams) {
+  const keys = searchParams.getAll('invoice');
+  if (keys.length === 0) return null;
+  if (keys.length !== 1) return '/invoices';
+  const [key] = keys;
+  const id = key.startsWith(AWAITING_INVOICE_PREFIX) ? key.slice(AWAITING_INVOICE_PREFIX.length) : key;
+  return INVOICE_ID.test(id) ? invoiceHref(key) : '/invoices';
+}
+
+export function sessionReturnPath(destination) {
+  const base = 'https://session-return.invalid';
+  let url;
+  try { url = new URL(destination, base); }
+  catch { return null; }
+  if (url.origin !== base) return null;
+
+  let path;
+  if (url.pathname === '/invoices') path = invoiceReturnPath(url.searchParams) ?? '/invoices';
+  else if (/^\/a\/al1_[A-Za-z0-9_-]{1,120}$/.test(url.pathname)) path = url.pathname;
+  // Accept only the spelling produced by an allowed route, before URL normalization.
+  return destination === path ? path : null;
+}
