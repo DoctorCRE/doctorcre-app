@@ -246,7 +246,7 @@ test('Back restores a typed search and scope, and clearing removes it', async t 
   await page.locator(`#searchChips [data-chip="${selected}"][aria-pressed="false"]`).waitFor();
   await page.locator('#searchResults a').first().waitFor();
   await page.locator('#searchQuery').fill('');
-  assert.equal(new URL(page.url()).searchParams.has('q'), false);
+  await page.waitForURL(url => !url.searchParams.has('q'));
 });
 
 test('A late search response cannot restore an earlier query', async t => {
