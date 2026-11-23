@@ -35,6 +35,7 @@ export function mountRelationshipNetwork({
       document,
       onReviewIntroduction: id => intro.open(snapshot, id),
       onRefresh: () => auto.refresh(),
+      onSelect: id => select(id),
     });
   let snapshot = null,
     epoch = 0,
@@ -71,11 +72,14 @@ export function mountRelationshipNetwork({
     }
     window.history.replaceState(null, "", url);
   };
-  const open = (id, trigger) => {
+  const select = (id) => {
     if (focus !== id) stepId = null;
     focus = id;
     address();
     highlight(id);
+  };
+  const open = (id, trigger) => {
+    select(id);
     const active = document.activeElement;
     const heading = $("referralsView").hidden ? $("networkHeading") : $("referralsView").querySelector("h2");
     dialog.open(snapshot, id, trigger ?? (active === document.body ? heading : active));

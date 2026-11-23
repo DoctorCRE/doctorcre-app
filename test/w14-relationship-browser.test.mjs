@@ -785,3 +785,17 @@ for (const surface of ['graph', 'directory']) for (const [refresh, removed, expe
   });
   assert.deepEqual(focus, [scope.slice(1), expected], 'Focus stays in the original surface');
 });
+
+test('A connection opened inside the drawer becomes the page address', async t => {
+  const { page } = await open(t);
+  const step = '00000000-0000-4000-8000-000000000001';
+  await page.goto(`http://localhost/relationships?mode=live&node=party%3Ademo-build&step=${step}`);
+  const dialog = page.getByRole('dialog');
+  await dialog.locator('[data-open-node="party:demo-client"]').click();
+  const title = await dialog.locator('h2').textContent();
+  const address = new URL(page.url());
+  assert.equal(address.searchParams.get('node'), 'party:demo-client');
+  assert.equal(address.searchParams.has('step'), false, 'The old record\'s step link is cleared');
+  await page.reload();
+  await dialog.locator('h2', { hasText: title }).waitFor();
+});

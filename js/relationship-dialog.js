@@ -50,7 +50,7 @@ export function preserveRelationshipFocus(element, surface = element?.closest("[
   };
 }
 
-export function mountRelationshipDialog({ document, onReviewIntroduction, onRefresh }) {
+export function mountRelationshipDialog({ document, onReviewIntroduction, onRefresh, onSelect }) {
   const dialog = document.createElement("dialog");
   dialog.className = "relationship-dialog";
   dialog.setAttribute("aria-labelledby", "relationshipTitle");
@@ -134,6 +134,7 @@ export function mountRelationshipDialog({ document, onReviewIntroduction, onRefr
       (b) =>
         (b.onclick = () => {
           selected = b.dataset.openNode;
+          onSelect?.(selected);
           visibleConnections = PAGE_SIZE;
           paint();
           dialog.querySelector("h2").focus();
