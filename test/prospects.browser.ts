@@ -355,6 +355,21 @@ test("partners see and manage prospects from Deals", async (t) => {
           [],
           "every phase name shows in full at 1280px",
         );
+        await page.setViewportSize({ width: 1024, height: 900 });
+        const headings = kanban.locator(".kanban-column > h3");
+        assert.equal(
+          new Set(await headings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height))).size,
+          1,
+          "phase headings keep one height at 1024px",
+        );
+        assert.ok(
+          (await kanban
+            .locator(".kanban-column[data-column]")
+            .first()
+            .evaluate((node) => node.clientWidth)) >= 100,
+          "first phase column keeps the floor at 1024px",
+        );
+        await page.setViewportSize({ width: 1280, height: 900 });
         prospectsDown = true;
         await page.reload();
         const retry = lane.getByRole("button", { name: "Try again" });
