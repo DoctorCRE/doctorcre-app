@@ -43,7 +43,7 @@ type Undo = { items: readonly InboxItem[] } & (
 );
 const queryKey = ["home-inbox"];
 const EMPTY_ITEMS: readonly InboxItem[] = [];
-const UNDO_MS = 10_000;
+const UNDO_MS = 3_000;
 const cardDate = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", dateStyle: "medium" });
 const callDate = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Chicago",
