@@ -101,6 +101,18 @@ test('Undo and its message leave 10 seconds after a save', async t => {
   await undo.waitFor({ state: 'detached' });
   assert.equal(await page.getByText('You can undo this change.', { exact: false }).count(), 0);
 });
+test('a refusal that arrives during the Undo window stays after it', async t => {
+  const { page } = await open(t, { taskConflict: true, clock: true });
+  await page.locator('[data-inbox-row="b"]').getByRole('button', { name: 'Snooze', exact: true }).click();
+  await page.getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).waitFor();
+  await page.locator('[data-inbox-row="a"]').getByRole('button', { name: 'Mark done', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo Synthetic a', exact: true }).click();
+  const refusal = page.getByText(/This task changed.*Nothing was overwritten/);
+  await refusal.waitFor();
+  await page.clock.runFor(10_001);
+  assert.equal(await refusal.isVisible(), true);
+});
 test('a partial failure keeps its message after the Undo window', async t => {
   const { page } = await open(t, { partial: true, clock: true });
   await page.getByLabel('Select Synthetic a', { exact: true }).check();

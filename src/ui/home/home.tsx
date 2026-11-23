@@ -237,15 +237,16 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       removeEventListener("offline", update);
     };
   }, [cache, engineHome, home, meetings.refetch, query.refetch]);
+  const undoNotice = useRef("");
   useEffect(() => {
-    if (!undo.length || pending || failures.length) return;
+    if (!undo.length) return;
     // eslint-disable-next-line no-restricted-syntax -- One Undo window, restarted by each save and cleared on unmount.
     const timer = window.setTimeout(() => {
       setUndo([]);
-      setNotice("");
+      setNotice((current) => (current === undoNotice.current ? "" : current));
     }, UNDO_MS);
     return () => window.clearTimeout(timer);
-  }, [undo, pending, failures.length]);
+  }, [undo]);
   useEffect(() => {
     if (!home || !engineHome) return;
     let timer: number;
@@ -385,11 +386,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       }
       const completion =
         operation.request.action === "complete" ? saved.map((item) => `Marked done: ${item.title}.`).join(" ") : "";
-      setNotice(
+      const outcome =
         operation.request.action === "drop" && successes.length
           ? "Dropped."
-          : `${completion} ${successes.length + changed.length} confirmed. ${changed.length ? `${changed.length} changed again after confirmation. Showing the latest state. Undo is unavailable for those cards. ` : ""}${failed.length ? `${failed.length} failed or uncertain. Kept for review.` : successes.length ? (operation.undoing ? "Undone." : "You can undo this change.") : ""}`,
-      );
+          : `${completion} ${successes.length + changed.length} confirmed. ${changed.length ? `${changed.length} changed again after confirmation. Showing the latest state. Undo is unavailable for those cards. ` : ""}${failed.length ? `${failed.length} failed or uncertain. Kept for review.` : successes.length ? (operation.undoing ? "Undone." : "You can undo this change.") : ""}`;
+      setNotice(outcome);
+      if (outcome.endsWith("You can undo this change.")) undoNotice.current = outcome;
       if (!failed.length) setPending(null);
       focusRow(operation.undoing ? operation.before.map((item) => item.item_id) : neighbours);
     } catch (error) {
@@ -878,7 +880,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                   ...entries.filter((entry) => entry.items[0]?.item_id !== current.item_id),
                   { action: "reopen", items: [current], receipt },
                 ]);
-                setNotice(`Marked done: ${current.title}. You can undo this change.`);
+                undoNotice.current = `Marked done: ${current.title}. You can undo this change.`;
+                setNotice(undoNotice.current);
               }
             }}
           >
