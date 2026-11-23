@@ -579,7 +579,10 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await fallback.getByText(/Sending stopped before delivery/).waitFor();
   await fallback.getByRole('button', { name: 'Open', exact: true }).click();
   await fallback.getByRole('button', { name: 'Send reply', exact: true }).click();
-  await fallback.getByRole('button', { name: 'Open', exact: true }).waitFor();
+  // Home pauses polling while the reply is saving.
+  const fallbackReview = fallback.getByRole('region', { name: /Details for Remaining email suggestion/ });
+  await fallbackReview.waitFor({ state: 'detached' });
+  await fallback.getByText('Sending', { exact: true }).waitFor();
   assert.equal(writes.at(-1)[1].version, 4);
   details.set(decline, { ...details.get(draft), draft_id: decline, version: 1, status: 'pending' });
   state.items.push({ ...notice, title: 'Another sample draft', item_id: `reply_draft:${decline}`, source_id: decline,
