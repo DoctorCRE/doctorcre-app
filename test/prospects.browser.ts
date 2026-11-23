@@ -359,6 +359,7 @@ test("partners see and manage prospects from Deals", async (t) => {
           true,
           "board with Prospects fits beside Today at 1280px",
         );
+        const longName = "Example Electroencephalographyassociates";
         deals.push(
           ...["pending", "research", "site_selection", "negotiation", "legal", "due_diligence", "closing"].flatMap(
             (phase, p) =>
@@ -369,6 +370,7 @@ test("partners see and manage prospects from Deals", async (t) => {
                 phase,
               })),
           ),
+          { ...existingDeal, id: "00000000-0000-4000-8000-000000080000", name: longName, phase: "research" },
         );
         await page.reload();
         await open.waitFor();
@@ -390,9 +392,18 @@ test("partners see and manage prospects from Deals", async (t) => {
           if (narrow !== 1024)
             assert.deepEqual(
               await kanban.locator(".kanban-column[data-column] .card-open").evaluateAll(wordsSplitAcrossLines),
-              [],
-              `no deal name breaks inside a word at ${narrow}px`,
+              [longName.split(" ")[1]],
+              `only a word wider than its card breaks at ${narrow}px`,
             );
+          assert.deepEqual(
+            await kanban
+              .locator(".kanban-card")
+              .evaluateAll((cards) =>
+                cards.filter((card) => card.scrollWidth > card.clientWidth).map((card) => card.textContent),
+              ),
+            [],
+            `card contents stay inside their cards at ${narrow}px`,
+          );
           assert.equal(
             new Set(await headings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height)))
               .size,

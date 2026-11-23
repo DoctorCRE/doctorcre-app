@@ -95,7 +95,7 @@
 .prospect-management { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .prospect-dialog form label { display: grid; gap: var(--space-2); }
 .prospect-dialog li p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.kanban-column { --phase: var(--fg-quiet); display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; padding: 0 var(--space-2) var(--space-1); border: 0; border-radius: var(--radius-3); background: color-mix(in srgb, var(--surface-1) 60%, var(--ground)); overflow-wrap: anywhere; }
+.kanban-column { --phase: var(--fg-quiet); display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; padding: 0 var(--space-1) var(--space-1); border: 0; border-radius: var(--radius-3); background: color-mix(in srgb, var(--surface-1) 60%, var(--ground)); overflow-wrap: anywhere; }
 .kanban-column[data-column="research"] { --phase: var(--status-info); }
 .kanban-column[data-column="site_selection"] { --phase: var(--accent); }
 .kanban-column[data-column="negotiation"] { --phase: var(--status-warn); }
@@ -135,7 +135,7 @@
 .next-line { white-space: normal; overflow-wrap: anywhere; margin: 0; font-size: var(--font-size-1); color: var(--fg-muted); }
 .auto-move button { justify-self: start; padding: 0 var(--space-2); min-height: var(--touch); }
 .kanban-card.work-card--tile .work-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); grid-column: 1 / -1; min-height: 22px; font-size: 12px; }
-.kanban-card.work-card--tile .card-open { display: flex; align-items: center; width: 100%; padding: 0; text-align: left; overflow-wrap: break-word; hyphens: auto; }
+.kanban-card.work-card--tile .card-open { display: flex; align-items: center; width: 100%; padding: 0; text-align: left; overflow-wrap: anywhere; }
 .deal-list-next-step { margin: 0; overflow-wrap: anywhere; }
 .deal-attention-label { display: block; flex-basis: 100%; color: var(--status-warn-ink); }
 .deal-board-badge, #prospectsLane .work-card--tile .work-card-status { padding: 2px var(--space-1); border-radius: var(--radius-1); background: color-mix(in srgb, var(--status-warn) 12%, var(--surface-2)); color: var(--status-warn-ink); }
