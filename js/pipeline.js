@@ -2678,7 +2678,8 @@ function wire() {
       unmountDealClientPicker = undefined;
     }
     // The close event fires after a save has already focused the new card.
-    if (prospectConversion || document.activeElement !== document.body) return;
+    const active = document.activeElement;
+    if (prospectConversion || (active !== document.body && !$('addDealDialog').contains(active))) return;
     const columnAdd = addDealPhase && document.querySelector(`[data-add-to="${CSS.escape(addDealPhase)}"]`);
     (columnAdd ?? $('addDealOpen')).focus();
   });

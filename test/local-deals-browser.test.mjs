@@ -642,6 +642,14 @@ for (const savesOn of [false,true]) test(`a column add button opens Add deal in 
  assert.equal(await page.locator('#addDealStage').inputValue(),'Negotiation');
  await page.keyboard.press('Escape');
  assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'Add a deal to Negotiating','focus returns to the column button');
+ await page.getByRole('button',{name:'Add a deal to Negotiating',exact:true}).click();
+ await page.evaluate(()=>{
+  document.querySelectorAll('[data-add-to]').forEach(button=>button.replaceWith(button.cloneNode(true)));
+  window.addDealClosed=new Promise(resolve=>document.querySelector('#addDealDialog').addEventListener('close',()=>setTimeout(resolve),{once:true}));
+ });
+ await page.keyboard.press('Escape');
+ await page.evaluate(()=>window.addDealClosed);
+ assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'Add a deal to Negotiating','focus finds the column button after the board redraws');
  await page.getByRole('button',{name:'Add deal',exact:true}).click();
  assert.notEqual(await page.locator('#addDealStage').inputValue(),'Negotiation','the header Add deal keeps its default phase');
  await page.keyboard.press('Escape');
