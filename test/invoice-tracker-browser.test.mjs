@@ -12,12 +12,22 @@ async function open(t, { width = 1440, theme = 'dark', reducedMotion = 'no-prefe
   await page.addInitScript(theme => localStorage.setItem('dealroom-theme', theme), theme);
   await page.clock.install({ time: new Date(today + 'T17:00:00Z') });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
-  const data = invoiceTrackerFixture(today); let failed = false, denied = false, reads = 0, writes = 0; const attempts = [];
+  const data = invoiceTrackerFixture(today); let failed = false, denied = false, reads = 0, writes = 0, csrf = 'synthetic-session'; const attempts = [], signInDestinations = [];
   const routes = (await import("../js/routes.js")).routeContract.routes;
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.origin !== 'http://localhost') return route.abort();
-    if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ csrf_token:'synthetic-session', actor: { slug: 'joe', display_name: 'Demo Partner' } }) });
+    if (url.pathname === '/auth/login') {
+      const destination = url.searchParams.get('return_to');
+      signInDestinations.push(destination);
+      if (denied) csrf = 'synthetic-renewed-session';
+      denied = false;
+      const next = new URL(destination || '/invoices', url.origin);
+      next.searchParams.set('mode', 'live');
+      const href = next.href.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
+      return route.fulfill({ contentType: 'text/html', body: `<a href="${href}">Continue to workspace</a>` });
+    }
+    if (['/api/system-work/session','/auth/session'].includes(url.pathname)) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ csrf_token:csrf, actor: { slug: 'joe', display_name: 'Demo Partner' } }) });
     if (url.pathname === '/mcp') {
       const req = route.request().postDataJSON().params; let response = {};
       if ((engine || carr) && ['read-invoice-tracker', 'record-commission-receipt'].includes(req.name)) {
@@ -31,7 +41,7 @@ async function open(t, { width = 1440, theme = 'dark', reducedMotion = 'no-prefe
         return route.fulfill({ status: answer.status, headers: Object.fromEntries(answer.headers), body: await answer.text() });
       }
       if (req.name === 'read-invoice-tracker') {
-        reads++; if (denied) return route.fulfill({ status: 401, body: '' }); if (failed) return route.fulfill({ status: 503, body: '' }); response = data;
+        if (denied || route.request().headers()['x-carr-csrf'] !== csrf) return route.fulfill({ status: 401, body: '' }); reads++; if (failed) return route.fulfill({ status: 503, body: '' }); response = data;
       } else if (req.name === 'record-commission-receipt') {
         writes++; attempts.push(structuredClone(req.arguments));
         if (receipt === 'hung') return;
@@ -50,7 +60,7 @@ async function open(t, { width = 1440, theme = 'dark', reducedMotion = 'no-prefe
   });
   await page.goto(`http://localhost/${home ? 'review-workflows' : 'invoices'}?mode=live${query}`);
   await page.waitForFunction(home ? () => document.querySelector('#homeInvoices a[data-home-key]') : () => document.querySelector('[data-invoice], #invoiceNotice:not([hidden])'));
-  return { page, errors, attempts, setReceipt(value) { receipt = value; }, get reads() { return reads; }, get writes() { return writes; }, setFailed(value) { failed = value; }, setDenied(value) { denied = value; }, update(fn) { fn(data); } };
+  return { page, errors, attempts, signInDestinations, setReceipt(value) { receipt = value; }, get reads() { return reads; }, get writes() { return writes; }, setFailed(value) { failed = value; }, setDenied(value) { denied = value; }, update(fn) { fn(data); } };
 }
 test('phone invoice keeps its title and actions in view while details scroll', async t => {
   const { page } = await open(t, { width: 390 });
@@ -143,8 +153,57 @@ test('pending receipt confirmations remain attached to each invoice across popup
 test('deep link, reduced motion and authentication loss keep the screen contract', async t => {
   const h = await open(t, { width: 390, reducedMotion: 'reduce', query: '&invoice=00000000-0000-4000-8000-000000000002' }); await h.page.waitForFunction(() => document.querySelector('#invoiceDetail').open); assert.equal(await h.page.locator('#invoiceDetailTitle').innerText(), 'Demo Oak Purchase');
   await h.page.locator('#closeInvoiceDetail').click(); assert.equal(await h.page.locator('.invoice-row.overdue .invoice-state').first().evaluate(node => getComputedStyle(node, '::before').animationName), 'none');
-  await h.page.screenshot({ path: new URL('out/test-artifacts/w15/reduced-motion-390.png', root).pathname }); h.setDenied(true); await h.page.locator('#refreshInvoices').click(); await h.page.waitForURL('**/public-shell/session-ended.html'); assert.equal(await h.page.locator('[data-invoice]').count(), 0); assert.deepEqual(h.errors, []);
+  await h.page.screenshot({ path: new URL('out/test-artifacts/w15/reduced-motion-390.png', root).pathname }); h.setDenied(true); await h.page.locator('#refreshInvoices').click(); await h.page.waitForURL(url => url.pathname === '/public-shell/session-ended.html'); assert.equal(await h.page.locator('[data-invoice]').count(), 0); assert.deepEqual(h.errors, []);
 });
+const awaitingDeal = '00000000-0000-4000-8000-000000000006';
+for (const [key, title] of [
+  ['00000000-0000-4000-8000-000000000002', 'Demo Oak Purchase'],
+  [`awaiting:${awaitingDeal}`, 'Demo Meadow Renewal'],
+]) test(`signing in after expiry reopens ${title} from a fresh authorized read`, async t => {
+  const target = `/invoices?invoice=${encodeURIComponent(key)}`;
+  const h = await open(t);
+  h.update(data => { data.entries.find(row => row.name === 'Demo Meadow Renewal').deal_id = awaitingDeal; });
+  await h.page.goto(`http://localhost${target}&mode=live`);
+  const drawer = h.page.locator('#invoiceDetail[open]');
+  await drawer.getByText(title, { exact: true }).waitFor();
+
+  h.setDenied(true);
+  await h.page.clock.runFor(61_000);
+  await h.page.waitForURL(url => url.pathname === '/public-shell/session-ended.html');
+  assert.equal(await h.page.getByText(title, { exact: true }).count(), 0);
+  const reads = h.reads;
+  h.update(data => { data.entries.find(row => row.name === title).name = `${title} Updated`; });
+
+  await h.page.getByRole('link', { name: 'Sign in again' }).click();
+  assert.deepEqual(h.signInDestinations, [target]);
+  await h.page.getByRole('link', { name: 'Continue to workspace' }).click();
+  await drawer.getByText(`${title} Updated`, { exact: true }).waitFor();
+  assert.ok(h.reads > reads);
+  assert.deepEqual(h.errors, []);
+});
+
+test('unsafe session return destinations sign in to the local invoice list', async t => {
+  const h = await open(t);
+  for (const target of [
+    '/invoices?invoice=',
+    '//other.example/invoices',
+    'https://other.example/invoices',
+    '%2Finvoices',
+    'javascript:void(0)',
+    '/invoices?invoice=%300000000-0000-4000-8000-000000000002',
+    '/invoices?invoice=00000000-0000-4000-8000-000000000002&invoice=duplicate',
+  ]) {
+    await h.page.goto(`http://localhost/public-shell/session-ended.html?return_to=${encodeURIComponent(target)}`);
+    await h.page.getByRole('link', { name: 'Sign in again' }).click();
+    assert.equal(h.signInDestinations.at(-1), '/invoices', target);
+    await h.page.getByRole('link', { name: 'Continue to workspace' }).click();
+    assert.equal(h.page.url(), 'http://localhost/invoices?mode=live');
+    await h.page.locator('[data-invoice]').first().waitFor();
+    assert.equal(await h.page.locator('#invoiceDetail[open]').count(), 0);
+  }
+  assert.deepEqual(h.errors, []);
+});
+
 for (const width of [1440, 390]) test(`Home invoice attention fits ${width}px`, async t => {
   const h = await open(t, { home: true, width });
   const overflow = await h.page.evaluate(() => ({width:innerWidth,scroll:document.documentElement.scrollWidth,offenders:[...document.querySelectorAll('body *')].filter(node=>node.getBoundingClientRect().right>innerWidth+1).map(node=>({id:node.id,cls:String(node.className),right:node.getBoundingClientRect().right})).slice(0,12)}));
