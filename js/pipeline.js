@@ -2,6 +2,7 @@ import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-
 import { createDayStore } from '../tours/day-store.js';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
+import { cardDueLabel } from './ui-card-due.generated.js';
 import {
   autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
   renderDealItems, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt,
@@ -182,13 +183,10 @@ function cardDue(deal) {
   const legacyDue = !state.boardFromEngine && !steps.length && noteText(deal.next_step).trim() ? deal.next_date : null;
   return dealDueDate(step?.due_on ?? legacyDue, businessDay());
 }
-const cardDay = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
 function cardDueHtml(due) {
   if (!due) return '';
-  const today = due.day === businessDay();
-  const tone = due.late ? ' card-due--late' : today ? ' card-due--today' : '';
-  const label = today ? 'Today' : cardDay.format(new Date(`${due.day}T00:00:00Z`));
-  return `<time class="card-due${tone}" datetime="${esc(due.day)}" title="Next step due ${esc(due.date)}">${esc(label)}</time>`;
+  const { text, tone } = cardDueLabel(due.day, businessDay());
+  return `<time class="card-due${tone ? ` card-due--${tone}` : ''}" datetime="${esc(due.day)}">${esc(text)}</time>`;
 }
 function ownerMarkHtml(name) {
   return `<span class="owner" title="Owner: ${esc(name)}"><span aria-hidden="true">${esc(name === 'Unassigned' ? '?' : name.slice(0, 1))}</span><span class="sr-only">Owner: ${esc(name)}</span></span>`;

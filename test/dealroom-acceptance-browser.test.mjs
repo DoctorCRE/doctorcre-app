@@ -968,7 +968,7 @@ for (const width of [1440, 390]) {
       const empty = page.locator(`article[data-id="${checklistOnly.id}"]`);
       const onlyStep = page.locator(`article[data-id="${singleStep.id}"]`);
       if (view === 'Board') {
-        assert.equal(visibleText.replace(/\s+/g, ' '), `${deal.name} Nov 18 Needs attention D Owner: Dell`);
+        assert.equal(visibleText.replace(/\s+/g, ' '), `${deal.name} Due Nov 18 Needs attention D Owner: Dell`);
         assert.equal(await card.getByRole('button', { name: 'Needs attention: Step 1 day late', exact: true }).count(), 1);
         assert.equal((await empty.innerText()).replace(/\s+/g, ' '), `${checklistOnly.name} D Owner: Dell`);
         assert.equal((await onlyStep.innerText()).replace(/\s+/g, ' '), `${singleStep.name} D Owner: Dell`);
