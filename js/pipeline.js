@@ -237,6 +237,7 @@ function parkingSummaryHtml(deal) {
 let dealCreation = null;
 let nextDealCreation = false;
 let prospectConversion = null;
+let addDealPhase = null;
 let unmountDealClientPicker;
 let creatingDeal = false;
 function syncDealCreation() {
@@ -264,6 +265,7 @@ async function openAddDeal(client = null, conversion = null, phase = null) {
     }
 
     prospectConversion = conversion;
+    addDealPhase = phase;
     nextDealCreation = next;
     unmountDealClientPicker?.();
     $('addDealForm').reset();
@@ -2675,7 +2677,8 @@ function wire() {
       unmountDealClientPicker?.();
       unmountDealClientPicker = undefined;
     }
-    if (!prospectConversion) $('addDealOpen').focus();
+    const columnAdd = addDealPhase && document.querySelector(`[data-add-to="${CSS.escape(addDealPhase)}"]`);
+    if (!prospectConversion) (columnAdd ?? $('addDealOpen')).focus();
   });
 
   let restoreTourHistory = null, departurePending = false;
