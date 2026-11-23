@@ -67,10 +67,10 @@
 .shell { width: 100%; max-width: none; padding-inline: clamp(var(--space-3), 1.5vw, var(--space-6)); }
 .board-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-4); }
 .pipeline-layout { display: block; }
-.kanban { --phase-columns: minmax(min-content, 1fr) repeat(6, minmax(0, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: var(--phase-columns); gap: var(--space-2); align-items: start; }
+.kanban { --phase-columns: minmax(min-content, 1fr) repeat(6, minmax(112px, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: var(--phase-columns); gap: var(--space-2); align-items: start; }
 .kanban:has(.kanban-column) { max-height: 65dvh; }
 @media (min-width: 761px) {
-  .kanban:has(#prospectsLane):not(:has(.deal-list)) { grid-template-columns: minmax(0, 1fr) var(--phase-columns); }
+  .kanban:has(#prospectsLane):not(:has(.deal-list)) { grid-template-columns: minmax(96px, 1fr) var(--phase-columns); }
 }
 .kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); }
 #prospectsLane .work-card { overflow-wrap: anywhere; }
@@ -110,6 +110,7 @@
   .kanban-column[data-column="pending"] > h3 button > span::before { border-style: dashed; }
   .kanban-column[data-column="closing"] > h3 button > span::before { background: var(--phase); }
 }
+.kanban-column > h3 button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kanban-column > h3 small { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .kanban-card.work-card--tile .work-card-title { font-size: 14px; font-weight: 500; line-height: 1.35; }
 .kanban-card.work-card--tile { gap: 0; padding: 0 var(--space-3) var(--space-3); border-radius: var(--radius-2); background: var(--surface-2); box-shadow: 0 1px 2px rgb(0 0 0 / 6%); }
@@ -120,7 +121,7 @@
   :root:not([data-motion="reduced"]) .kanban-card.work-card--tile:hover { transform: translateY(-1px); }
 }
 .kanban-card.work-card--tile .work-card-meta .owner { display: inline-grid; flex: none; place-items: center; margin-left: auto; width: 22px; height: 22px; border-radius: 50%; background: var(--surface-3); color: var(--fg); font-size: 11px; font-weight: var(--font-weight-strong); }
-.kanban-card.work-card--tile .deal-board-badge { font-size: 11px; white-space: nowrap; }
+.kanban-card.work-card--tile .deal-board-badge { font-size: 11px; }
 .card-due { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .card-due::before { content: ""; width: 12px; height: 12px; background: currentColor; -webkit-mask: var(--icon-calendar) center / contain no-repeat; mask: var(--icon-calendar) center / contain no-repeat; }
 .kanban { --icon-calendar: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5'%3E%3Crect x='2' y='3' width='12' height='11' rx='2'/%3E%3Cpath d='M2 7h12M5 1.5v3M11 1.5v3'/%3E%3C/svg%3E"); }
