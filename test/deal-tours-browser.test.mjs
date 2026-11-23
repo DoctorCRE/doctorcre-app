@@ -354,6 +354,7 @@ test('creation and pending-write departures preserve history and saved notes', a
       const forward = scenario.startsWith('forward');
       const steps = pending ? 1 : Number(scenario.at(-1));
       await page.goto(`${server.url}/deals${steps === 1 ? `?deal=${deal}&tab=tours` : ''}`);
+      if(steps === 1) await page.getByRole('tab',{name:'Tours',selected:true}).waitFor();
       if(steps === 3) {
         await page.locator(`.card-open[data-open="${other}"]:visible`).click();
         await page.locator('#panelTitle').filter({hasText:/./}).waitFor();
@@ -447,7 +448,8 @@ test('creation and pending-write departures preserve history and saved notes', a
         await prompt.getByRole('button',{name:'Leave tour',exact:true}).click();
         if(forward) {
           await page.waitForURL(destinationUrl);
-          assert.equal(await editor.locator('#create-tour-name').inputValue(),'');
+          await page.getByRole('tab',{name:'Overview',selected:true}).waitFor();
+          assert.equal(await page.locator('iframe[title="Tour shortlist and route"]').count(),0);
         } else {
           await page.waitForURL(url => !url.searchParams.has('tour'));
           assert.equal(await page.locator('iframe[title="Tour shortlist and route"]').count(),0);
