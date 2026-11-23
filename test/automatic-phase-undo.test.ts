@@ -7,7 +7,7 @@ test("automatic Undo routes invoice receipts and reports a conflict hint", async
   const messages: string[] = [];
   let hint = "Closed because an invoice was recorded; Undo isn't available";
   const controller = createAutomaticPhaseUndo({
-    feedbackByDeal: new Map(),
+    stateByDeal: new Map(),
     state: {
       nextDealSaves: true,
       selfActor: "joe",

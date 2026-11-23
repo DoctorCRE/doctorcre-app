@@ -114,21 +114,22 @@ function say(text) {
 const dateWords = (value) => (value ? formatCalendarDate(value) || value : 'no date recorded');
 
 const automaticPhase = prepareAutomaticPhaseUndo({
-  state, performCommand, newKey: uuidv4, render: renderPhaseUndo, report: announce, refreshedMessage: 'The deal page was refreshed.',
+  state, performCommand, newKey: uuidv4, render: renderBoard, report: announce,
+  renderDetail: renderPhaseUndo, refreshDetail: () => refreshPanel({ fresh: true }),
+  refreshedMessage: 'The deal page was refreshed.',
 });
 
 function detailPhaseMoveHtml(detail) {
   const deal = detail.deal;
   if (!isEngineDealDetail(detail)) return isClosedDeal(deal) ? '' : autoHtml(deal);
-  const receipt = automaticPhaseReceipt(deal, automaticPhase.feedback(deal.id), {
+  const receipt = automaticPhaseReceipt(deal, automaticPhase.detailFeedback(deal.id), {
     showEngineMoves: isPhaseMoveReceipt(deal.phase_change), canUndo: detail.next_deal_saves === true,
   });
   return renderPhaseReceipt(deal, receipt, '');
 }
 
 function renderPhaseUndo() {
-  renderBoard();
-  const host = $('panelBody').querySelector('[data-phase-move]');
+  const host = $('panelBody')?.querySelector('[data-phase-move]');
   if (!host || !state.panelDetail) return;
   const html = detailPhaseMoveHtml(state.panelDetail);
   if (host.innerHTML === html) return;
@@ -1210,6 +1211,7 @@ function refusePanelDetail(error) {
   if (![401,403].includes(error?.status) && !['unauthorized','not_authenticated','forbidden'].includes(error?.payload?.error)) return false;
   ++panelReadSequence;
   ++contextReadSequence;
+  automaticPhase.setOpenDeal(state.panelDeal);
   clearMarketTermsViews();
   state.panelDetail = null;
   disposeChecklist();
@@ -1794,7 +1796,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
       <div data-detail-read="step-overview">
       ${websiteLink}
       ${renderInvoiceClose(d, state.nextDealSaves)}
-      ${fromEngine || phaseMove ? `<div data-phase-move>${phaseMove}</div>` : ''}
+      ${fromEngine || phaseMove ? `<div data-phase-move aria-live="polite">${phaseMove}</div>` : ''}
       ${!fromEngine && ended && (nextStep || otherActions.length) ? `<section aria-labelledby="ended-deal-steps"><h3 id="ended-deal-steps">Open before this deal ended</h3>${stepSummary}</section>` : stepSummary}
       ${completedStep ? `<section aria-label="Completed step"${stepFocusAttrs(completedStep)}>
       <h2>Completed step</h2><p>${esc(completedStep.description)}</p>${stepOrigin(completedStep)}
@@ -1925,19 +1927,20 @@ async function registerClientPortal(id, form) {
     $('detailClientPortalStatus').textContent = result?.message || 'Client website not confirmed';
   }
 }
-function refreshPanel({ changed = false } = {}) {
+function refreshPanel({ changed = false, fresh = false } = {}) {
   const id = state.panelDeal;
-  if (!id) return Promise.resolve();
-  if (panelRead?.id === id && panelRead.sequence === panelReadSequence) {
+  if (!id) return Promise.resolve(false);
+  if (!fresh && panelRead?.id === id && panelRead.sequence === panelReadSequence) {
     if (changed) panelRead.again = true;
     return panelRead.promise;
   }
   const reading = readPanel(id);
   const current = { id, sequence: panelReadSequence, again: false, promise: null };
   panelRead = current;
-  current.promise = reading.then(() => {
+  current.promise = reading.then(applied => {
     if (panelRead === current) panelRead = null;
     if (current.again && state.panelDeal === id && current.sequence === panelReadSequence) return refreshPanel();
+    return applied;
   });
   return current.promise;
 }
@@ -1945,10 +1948,11 @@ async function readPanel(id) {
   const seq = ++panelReadSequence;
   try {
     const detail = await readDealDetail(id);
-    if (state.panelDeal !== id || seq !== panelReadSequence || panelRead?.again) return;
+    if (state.panelDeal !== id || seq !== panelReadSequence || panelRead?.again) return false;
     const wasEngineDetail = isEngineDealDetail(state.panelDetail);
     const savesChanged = state.panelDetail?.next_deal_saves !== detail.next_deal_saves;
     state.panelDetail = detail;
+    automaticPhase.detailReadApplied(id);
     const contextRead = pageDocContext?.begin('getDeal', [id]);
     pageDocContext?.finish(contextRead, detail);
     selectDocRecord('deal', id);
@@ -2007,15 +2011,17 @@ async function readPanel(id) {
       void dealDocumentsPanel?.refresh();
       if ($('panelEvidenceSection')?.open) await refreshEvidence(detail, id, seq);
     }
-    if (state.panelDeal === id && seq === panelReadSequence) setContextOpenVisible(true);
+    if (state.panelDeal !== id || seq !== panelReadSequence) return false;
+    setContextOpenVisible(true);
+    return true;
   } catch (error) {
-    if (state.panelDeal !== id || seq !== panelReadSequence) return;
-    if (refusePanelDetail(error)) return;
+    if (state.panelDeal !== id || seq !== panelReadSequence || refusePanelDetail(error)) return false;
     setContextOpenVisible(false);
     const message = 'Updates temporarily unavailable';
     const status = $('detailReadStatus');
     if (status) status.textContent = message;
     else $('panelBody').innerHTML = `<p role="status">${message}</p>`;
+    return false;
   }
 }
 function updateDetailTimestamp() {
@@ -2264,6 +2270,8 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   workspaceTab = toursLink ? 'tours' : 'overview';
   requestedClientView = !toursLink && scope.get('deal') === dealId && scope.get('tab') === 'client-view';
   timelineType = '';
+  ++panelReadSequence;
+  automaticPhase.setOpenDeal(dealId);
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
   const url = new URL(location.href);
   if (!fromHistory && url.searchParams.get('deal') !== dealId) {
@@ -2346,6 +2354,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   closeFiledDocumentText();
   $('recordPanel').hidden = true; $('main').hidden = false;
   document.body.classList.remove('workspace-open');
+  automaticPhase.setOpenDeal(null);
   state.panelDeal = null; state.panelStepId = null; state.panelDetail = null;
   scrollTo(0, history.state?.boardScroll ?? boardScroll);
   state.panelReturnTo = null;
@@ -2628,10 +2637,7 @@ function wire() {
     if (retry) { retryFieldWrite(retry.dataset.retryWrite); return; }
     const phaseUndo = event.target.closest('button[data-undo-phase], #closedDealsView button[data-undo-invoice]');
     if (phaseUndo) {
-      const onDealPage = $('panelBody').contains(phaseUndo);
-      const result = await automaticPhase.undo(phaseUndo);
-      if (onDealPage && state.panelDeal === phaseUndo.dataset.undoPhase
-          && (result?.status === 'ok' || result?.code === 'version_conflict')) await refreshPanel();
+      await automaticPhase.undo(phaseUndo, $('panelBody').contains(phaseUndo));
       return;
     }
     const undo = event.target.closest('button[data-undo]');
@@ -3095,7 +3101,8 @@ async function boot() {
       beginMove(linkedDeal, CLOSED_SLUG, closingDeal, { wonOrLost: true });
     } else if (incomingScope.get('item')) void itemSheet.open(linkedDeal, incomingScope.get('item'));
   });
-  mountVisibilityPoll({ lifecycle: true, poll: refreshPanel });
+  // A temporary detail outage keeps the open deal on its normal refresh cadence.
+  mountVisibilityPoll({ lifecycle: true, poll: async () => { await refreshPanel(); } });
   mountVisibilityPoll({ poll: () => { return pollOnce().catch(() => false); } });
   mountVisibilityPoll({ lifecycle: state.client.changeFeedEnabled === false, poll: () => state.boardSync.requestRefresh('periodic') });
 
