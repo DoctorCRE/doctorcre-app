@@ -346,29 +346,50 @@ test("partners see and manage prospects from Deals", async (t) => {
           true,
           "board with Prospects fits beside Today at 1280px",
         );
-        assert.deepEqual(
-          await kanban
-            .locator(".kanban-column > h3 button > span")
-            .evaluateAll((names) =>
-              names.filter((name) => name.scrollWidth > name.clientWidth).map((name) => name.textContent),
-            ),
-          [],
-          "every phase name shows in full at 1280px",
+        deals.push(
+          ...Array.from({ length: 12 }, (_, i) => ({
+            ...existingDeal,
+            id: `00000000-0000-4000-8000-0000000002${String(i).padStart(2, "0")}`,
+            name: `Example Negotiation Deal ${i}`,
+            phase: "negotiation",
+          })),
         );
-        await page.setViewportSize({ width: 1024, height: 900 });
+        await page.reload();
+        await open.waitFor();
         const headings = kanban.locator(".kanban-column > h3");
-        assert.equal(
-          new Set(await headings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height))).size,
-          1,
-          "phase headings keep one height at 1024px",
-        );
-        assert.ok(
-          (await kanban
-            .locator(".kanban-column[data-column]")
-            .first()
-            .evaluate((node) => node.clientWidth)) >= 100,
-          "first phase column keeps the floor at 1024px",
-        );
+        for (const narrow of [1280, 1024]) {
+          await page.setViewportSize({ width: narrow, height: 900 });
+          assert.match((await headings.allTextContents()).join(" "), /Negotiating\s*12/);
+          if (narrow === 1280)
+            assert.equal(
+              await kanban.evaluate((element) => element.scrollWidth <= element.clientWidth),
+              true,
+              "board with a two-digit count fits beside Today at 1280px",
+            );
+          assert.deepEqual(
+            await headings.locator("button > span").evaluateAll((names) =>
+              names.flatMap((name) => {
+                const text = name.firstChild;
+                if (!text?.textContent) return [];
+                return [...text.textContent.matchAll(/\S+/g)].flatMap((word) => {
+                  const range = document.createRange();
+                  range.setStart(text, word.index);
+                  range.setEnd(text, word.index + word[0].length);
+                  return new Set([...range.getClientRects()].map((rect) => rect.top)).size > 1 ? [word[0]] : [];
+                });
+              }),
+            ),
+            [],
+            `no phase name breaks inside a word at ${narrow}px`,
+          );
+          assert.equal(
+            new Set(await headings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height)))
+              .size,
+            1,
+            `phase headings keep one height at ${narrow}px`,
+          );
+        }
+        deals.splice(1);
         await page.setViewportSize({ width: 1280, height: 900 });
         prospectsDown = true;
         await page.reload();
