@@ -448,8 +448,8 @@ function renderBoard() {
       const chosen = state.lifted && state.target === column.slug;
       return `<section class="kanban-column" data-column="${esc(column.slug)}" ${!state.boardFromEngine && !cards.length && !state.showEmptyStages ? 'data-hide-empty="true" ' : ''}data-collapsed="${collapsed}"${chosen ? ' data-drop="true"' : ''}
         aria-label="${esc(column.label)}, ${cards.length} cards">
-        <h3 title="${esc(PHASE_TRIGGERS[column.slug])}"><button type="button" data-collapse-stage="${esc(column.slug)}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(column.label)}"><span>${esc(column.label)}</span><small>${cards.length}</small></button><button class="column-add" type="button" data-add-to="${esc(column.value)}" aria-label="Add a deal to ${esc(column.label)}">+</button></h3>
-        ${content}
+        <h3 title="${esc(PHASE_TRIGGERS[column.slug])}"><button type="button" data-collapse-stage="${esc(column.slug)}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(column.label)}"><span>${esc(column.label)}</span><small>${cards.length}</small></button></h3>
+        ${content}${collapsed ? '' : `<button class="column-add" type="button" data-add-to="${esc(column.value)}" aria-label="Add a deal to ${esc(column.label)}">+ Add deal</button>`}
       </section>`;
     }).join('') + (state.boardFromEngine ? '' : emptyStagesNote(grouped.columns.filter(c => !c.deals.length).length)) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${grouped.parked.length}</summary><div class="parked-cards">${grouped.parked.map(cardHtml).join('')}</div></details>`);
   } });

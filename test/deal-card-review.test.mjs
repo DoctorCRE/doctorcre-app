@@ -160,22 +160,22 @@ test('deal review prioritizes cards, page tabs and Add deal in both themes and w
 });
 
 
-test('all seven phases share one row and the board scrolls sideways at 1440px', async t => {
+test('all seven phases fit in one row beside Today at 1440px', async t => {
  const {page}=await open(t,1440,{showDetail:false});
  await page.locator('#appTodayTitle').waitFor();
  const headings=page.locator('#kanban .kanban-column > h3');
- assert.deepEqual(await headings.locator('[data-collapse-stage]').evaluateAll(buttons=>buttons.map(button=>button.getAttribute('aria-label'))),[
+ assert.deepEqual(await headings.getByRole('button').evaluateAll(buttons=>buttons.map(button=>button.getAttribute('aria-label'))),[
   'Collapse Prospective Client','Collapse Research','Collapse Site Selection','Collapse Negotiating','Collapse Legal','Collapse Due Diligence','Collapse Closing'
  ]);
  const board=page.locator('#kanban');
  const widths=await board.evaluate(node=>({visible:node.clientWidth,scrollable:node.scrollWidth}));
- assert.ok(widths.scrollable>widths.visible,'columns keep their width and the board scrolls sideways');
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'the page itself does not scroll sideways');
+ assert.equal(widths.scrollable,widths.visible,'board has no horizontal scroll');
+ const today=await page.locator('#appToday').boundingBox();
  const boxes=await headings.evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().toJSON()));
  assert.equal(new Set(boxes.map(box=>box.top)).size,1,'all phase headings share one row');
- const boardBox=await board.boundingBox(), today=await page.locator('#appToday').boundingBox();
- assert.ok(boardBox.x+boardBox.width<=today.x,'the board sits beside the visible Today panel');
+ assert.ok(boxes.every(box=>box.left>=0&&box.right<=today.x),'every heading fits before the visible Today panel');
  await page.setViewportSize({width:1280,height:960});
+ assert.ok(await board.evaluate(node=>node.scrollWidth===node.clientWidth),'board has no horizontal scroll at 1280px');
  const overflowingCards=await board.locator('.kanban-column .kanban-card').evaluateAll(cards=>
   cards.filter(card=>card.scrollWidth>card.clientWidth).map(card=>card.getAttribute('aria-label')));
  assert.deepEqual(overflowingCards,[],'card content wraps within its own card');
