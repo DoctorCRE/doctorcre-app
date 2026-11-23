@@ -115,6 +115,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       const board = { schema_version: "local-deals-board.v2", actor, deals };
       let enabled = false;
       let savesEnabled = false,
+        prospectsDown = false,
         firstNote = true;
       const writeKeys: string[] = [];
       const env = {
@@ -262,7 +263,7 @@ test("partners see and manage prospects from Deals", async (t) => {
             if (path === `/api/engine/deals/${dealId}`)
               return Response.json({ ...converted, deal_id: dealId, email_follow_ups: [], thread: convertedNotes });
             if (path.endsWith("/prospects")) {
-              return savesEnabled
+              return savesEnabled && !prospectsDown
                 ? Response.json({ count: prospects.length, prospects })
                 : Response.json({ error: "engine_unavailable" }, { status: 503 });
             }
@@ -336,6 +337,81 @@ test("partners see and manage prospects from Deals", async (t) => {
           .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length),
         width === 390 ? 1 : 8,
       );
+      if (width === 1440) {
+        await page.setViewportSize({ width: 1280, height: 900 });
+        const kanban = page.locator("#kanban");
+        assert.equal(await page.locator("#appToday").isVisible(), true);
+        assert.equal(
+          await kanban.evaluate((element) => element.scrollWidth <= element.clientWidth),
+          true,
+          "board with Prospects fits beside Today at 1280px",
+        );
+        deals.push(
+          ...["pending", "research", "site_selection", "negotiation", "legal", "due_diligence", "closing"].flatMap(
+            (phase, p) =>
+              Array.from({ length: 12 }, (_, i) => ({
+                ...existingDeal,
+                id: `00000000-0000-4000-8000-0000000${p + 1}${String(i).padStart(4, "0")}`,
+                name: `Example Deal ${i}`,
+                phase,
+              })),
+          ),
+        );
+        await page.reload();
+        await open.waitFor();
+        const headings = kanban.locator(".kanban-column > h3");
+        for (const narrow of [1400, 1280, 1024]) {
+          await page.setViewportSize({ width: narrow, height: 900 });
+          assert.match((await headings.allTextContents()).join(" "), /Negotiating\s*12/);
+          if (narrow === 1280)
+            assert.equal(
+              await kanban.evaluate((element) => element.scrollWidth <= element.clientWidth),
+              true,
+              "board with a two-digit count fits beside Today at 1280px",
+            );
+          assert.deepEqual(
+            await headings.locator("button > span").evaluateAll((names) =>
+              names.flatMap((name) => {
+                const text = name.firstChild;
+                if (!text?.textContent) return [];
+                return [...text.textContent.matchAll(/\S+/g)].flatMap((word) => {
+                  const range = document.createRange();
+                  range.setStart(text, word.index);
+                  range.setEnd(text, word.index + word[0].length);
+                  return new Set([...range.getClientRects()].map((rect) => rect.top)).size > 1 ? [word[0]] : [];
+                });
+              }),
+            ),
+            [],
+            `no phase name breaks inside a word at ${narrow}px`,
+          );
+          assert.equal(
+            new Set(await headings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height)))
+              .size,
+            1,
+            `phase headings keep one height at ${narrow}px`,
+          );
+        }
+        deals.splice(1);
+        await page.setViewportSize({ width: 1280, height: 900 });
+        prospectsDown = true;
+        await page.reload();
+        const retry = lane.getByRole("button", { name: "Try again" });
+        await retry.waitFor();
+        assert.equal(await kanban.evaluate((element) => element.scrollWidth <= element.clientWidth), true);
+        for (const narrow of [1280, 1100]) {
+          await page.setViewportSize({ width: narrow, height: 900 });
+          const [laneBox, retryBox] = await Promise.all([lane.boundingBox(), retry.boundingBox()]);
+          assert.ok(
+            laneBox && retryBox && retryBox.x + retryBox.width <= laneBox.x + laneBox.width,
+            `Try again stays inside the lane at ${narrow}px`,
+          );
+        }
+        prospectsDown = false;
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.reload();
+        await open.waitFor();
+      }
       assert.match((await lane.textContent()) ?? "", /Unclaimed[\s\S]*Needs attention[\s\S]*Thu, Nov 19/);
       assert.equal(
         await lane
