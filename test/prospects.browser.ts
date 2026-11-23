@@ -10,6 +10,19 @@ import { chromium, pausedClock, settles } from "./browser-harness.mjs";
 const party = "00000000-0000-4000-8000-000000000001";
 const note = { activity_id: party, by: "dell", at: "2026-11-18T15:40:00Z", summary: "First line\nSecond line" };
 
+function wordsSplitAcrossLines(elements: Element[]) {
+  return elements.flatMap((element) => {
+    const text = element.firstChild;
+    if (!text?.textContent) return [];
+    return [...text.textContent.matchAll(/\S+/g)].flatMap((word) => {
+      const range = document.createRange();
+      range.setStart(text, word.index);
+      range.setEnd(text, word.index + word[0].length);
+      return new Set([...range.getClientRects()].map((rect) => rect.top)).size > 1 ? [word[0]] : [];
+    });
+  });
+}
+
 async function routeWorker(page: Page, env: Parameters<typeof worker.fetch>[1]) {
   await page.route(/\/(mcp|api\/engine\/.*)$/, async (route) => {
     const request = route.request();
@@ -352,7 +365,7 @@ test("partners see and manage prospects from Deals", async (t) => {
               Array.from({ length: 12 }, (_, i) => ({
                 ...existingDeal,
                 id: `00000000-0000-4000-8000-0000000${p + 1}${String(i).padStart(4, "0")}`,
-                name: `Example Deal ${i}`,
+                name: `Example Sonography Garabadian ${i}`,
                 phase,
               })),
           ),
@@ -370,21 +383,16 @@ test("partners see and manage prospects from Deals", async (t) => {
               "board with a two-digit count fits beside Today at 1280px",
             );
           assert.deepEqual(
-            await headings.locator("button > span").evaluateAll((names) =>
-              names.flatMap((name) => {
-                const text = name.firstChild;
-                if (!text?.textContent) return [];
-                return [...text.textContent.matchAll(/\S+/g)].flatMap((word) => {
-                  const range = document.createRange();
-                  range.setStart(text, word.index);
-                  range.setEnd(text, word.index + word[0].length);
-                  return new Set([...range.getClientRects()].map((rect) => rect.top)).size > 1 ? [word[0]] : [];
-                });
-              }),
-            ),
+            await headings.locator("button > span").evaluateAll(wordsSplitAcrossLines),
             [],
             `no phase name breaks inside a word at ${narrow}px`,
           );
+          if (narrow !== 1024)
+            assert.deepEqual(
+              await kanban.locator(".kanban-column[data-column] .card-open").evaluateAll(wordsSplitAcrossLines),
+              [],
+              `no deal name breaks inside a word at ${narrow}px`,
+            );
           assert.equal(
             new Set(await headings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height)))
               .size,
