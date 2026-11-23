@@ -245,7 +245,7 @@ function syncDealCreation() {
   $('addDealCancel').disabled = creatingDeal;
   $('addDealSubmit').textContent = creatingDeal ? 'Saving…' : dealCreation ? 'Check creation outcome' : 'Create deal';
 }
-async function openAddDeal(client = null, conversion = null) {
+async function openAddDeal(client = null, conversion = null, phase = null) {
   const dialog = $('addDealDialog');
   if (dialog.open) return;
   if (!dealCreation) {
@@ -278,7 +278,8 @@ async function openAddDeal(client = null, conversion = null) {
     });
     $('addDealOwner').value = prospect ? prospect.owner ?? '' : state.selfActor || 'joe';
     $('addDealStageLabel').textContent = usePicker ? 'Phase' : 'Stage';
-    $('addDealStage').selectedIndex = prospect ? 0 : 1;
+    if (phase) $('addDealStage').value = phase;
+    else $('addDealStage').selectedIndex = prospect ? 0 : 1;
     const legacyType = $('addDealType');
     dialog.classList.toggle('add-deal-with-terms', next);
     $('addDealTypeField').hidden = next;
@@ -445,7 +446,7 @@ function renderBoard() {
       const chosen = state.lifted && state.target === column.slug;
       return `<section class="kanban-column" data-column="${esc(column.slug)}" ${!state.boardFromEngine && !cards.length && !state.showEmptyStages ? 'data-hide-empty="true" ' : ''}data-collapsed="${collapsed}"${chosen ? ' data-drop="true"' : ''}
         aria-label="${esc(column.label)}, ${cards.length} cards">
-        <h3 title="${esc(PHASE_TRIGGERS[column.slug])}"><button type="button" data-collapse-stage="${esc(column.slug)}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(column.label)}"><span>${esc(column.label)}</span><small>${cards.length}</small></button></h3>
+        <h3 title="${esc(PHASE_TRIGGERS[column.slug])}"><button type="button" data-collapse-stage="${esc(column.slug)}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(column.label)}"><span>${esc(column.label)}</span><small>${cards.length}</small></button><button class="column-add" type="button" data-add-to="${esc(column.value)}" aria-label="Add a deal to ${esc(column.label)}">+</button></h3>
         ${content}
       </section>`;
     }).join('') + (state.boardFromEngine ? '' : emptyStagesNote(grouped.columns.filter(c => !c.deals.length).length)) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${grouped.parked.length}</summary><div class="parked-cards">${grouped.parked.map(cardHtml).join('')}</div></details>`);
@@ -2510,6 +2511,8 @@ function wireBoard() {
 
   board.addEventListener('click', (event) => {
     if (event.target.closest('[data-toggle-empty-stages]')) { state.showEmptyStages = !state.showEmptyStages; renderBoard(); return; }
+    const add = event.target.closest('[data-add-to]');
+    if (add) { openAddDeal(null, null, add.dataset.addTo); return; }
     const toggle = event.target.closest('[data-collapse-stage]');
     if (!toggle) return;
     const slug = toggle.dataset.collapseStage;

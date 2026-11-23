@@ -635,6 +635,17 @@ test('deal review works in both themes at 390 and 1280 pixels', async t => {
 });
 
 
+test('a column add button opens Add deal in that phase', async t=>{
+ const {page,errors}=await open(t);
+ await page.getByRole('button',{name:'Add a deal to Negotiating',exact:true}).click();
+ assert.equal(await page.locator('#addDealDialog').evaluate(e=>e.open),true);
+ assert.equal(await page.locator('#addDealStage').inputValue(),'Negotiation');
+ await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:'Add deal',exact:true}).click();
+ assert.notEqual(await page.locator('#addDealStage').inputValue(),'Negotiation','the header Add deal keeps its default phase');
+ assert.deepEqual(errors,[]);
+});
+
 test('closing a deal from its details removes the card and retains its close date in history', async t=>{
  const {page,errors}=await open(t);
  await page.locator('.kanban-column [data-id="d14"] .card-open').click();await page.waitForSelector('#detailPhase');
