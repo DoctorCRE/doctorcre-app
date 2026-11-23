@@ -173,6 +173,8 @@ test('all seven phases share one row and the board scrolls sideways at 1440px', 
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'the page itself does not scroll sideways');
  const boxes=await headings.evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().toJSON()));
  assert.equal(new Set(boxes.map(box=>box.top)).size,1,'all phase headings share one row');
+ const boardBox=await board.boundingBox(), today=await page.locator('#appToday').boundingBox();
+ assert.ok(boardBox.x+boardBox.width<=today.x,'the board sits beside the visible Today panel');
  await page.setViewportSize({width:1280,height:960});
  const overflowingCards=await board.locator('.kanban-column .kanban-card').evaluateAll(cards=>
   cards.filter(card=>card.scrollWidth>card.clientWidth).map(card=>card.getAttribute('aria-label')));

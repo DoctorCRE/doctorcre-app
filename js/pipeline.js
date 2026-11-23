@@ -249,6 +249,7 @@ function syncDealCreation() {
 async function openAddDeal(client = null, conversion = null, phase = null) {
   const dialog = $('addDealDialog');
   if (dialog.open) return;
+  addDealPhase = phase;
   if (!dealCreation) {
     const prospect = conversion?.prospect;
     const next = state.nextDealSaves;
@@ -265,7 +266,6 @@ async function openAddDeal(client = null, conversion = null, phase = null) {
     }
 
     prospectConversion = conversion;
-    addDealPhase = phase;
     nextDealCreation = next;
     unmountDealClientPicker?.();
     $('addDealForm').reset();
@@ -2677,8 +2677,10 @@ function wire() {
       unmountDealClientPicker?.();
       unmountDealClientPicker = undefined;
     }
+    // The close event fires after a save has already focused the new card.
+    if (prospectConversion || document.activeElement !== document.body) return;
     const columnAdd = addDealPhase && document.querySelector(`[data-add-to="${CSS.escape(addDealPhase)}"]`);
-    if (!prospectConversion) (columnAdd ?? $('addDealOpen')).focus();
+    (columnAdd ?? $('addDealOpen')).focus();
   });
 
   let restoreTourHistory = null, departurePending = false;
