@@ -95,7 +95,7 @@
 .prospect-management { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .prospect-dialog form label { display: grid; gap: var(--space-2); }
 .prospect-dialog li p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.kanban-column { --phase: var(--fg-quiet); display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; padding: 0 var(--space-2) var(--space-1); border: 0; border-radius: var(--radius-3); background: color-mix(in srgb, var(--surface-1) 60%, var(--ground)); overflow-wrap: anywhere; }
+.kanban-column { --phase: var(--fg-quiet); display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; padding: 0 var(--space-1) var(--space-1); border: 0; border-radius: var(--radius-3); background: color-mix(in srgb, var(--surface-1) 60%, var(--ground)); overflow-wrap: anywhere; }
 .kanban-column[data-column="research"] { --phase: var(--status-info); }
 .kanban-column[data-column="site_selection"] { --phase: var(--accent); }
 .kanban-column[data-column="negotiation"] { --phase: var(--status-warn); }
@@ -113,7 +113,7 @@
 .kanban-column > h3 button > span { min-width: 0; }
 .kanban-column > h3 small { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .kanban-card.work-card--tile .work-card-title { font-size: 14px; font-weight: 500; line-height: 1.35; }
-.kanban-card.work-card--tile { gap: 0; padding: 0 var(--space-3) var(--space-3); border-radius: var(--radius-2); background: var(--surface-2); box-shadow: 0 1px 2px rgb(0 0 0 / 6%); }
+.kanban-card.work-card--tile { gap: 0; padding: 0 var(--space-2) var(--space-3); border-radius: var(--radius-2); background: var(--surface-2); box-shadow: 0 1px 2px rgb(0 0 0 / 6%); }
 .kanban-card.work-card--tile:hover { border-color: var(--hairline-strong); }
 .kanban-card.work-card--tile[data-lifted="true"] { box-shadow: 0 0 0 2px var(--fg-muted), var(--shadow-overlay); }
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
