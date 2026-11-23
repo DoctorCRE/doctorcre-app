@@ -799,3 +799,20 @@ test('A connection opened inside the drawer becomes the page address', async t =
   await page.reload();
   await dialog.locator('h2', { hasText: title }).waitFor();
 });
+
+test('A drawer connection hidden by the filters stays open through a refresh', async t => {
+  const { page } = await open(t);
+  await page.goto('http://localhost/relationships?mode=live&kind=vendor&node=party%3Ademo-build');
+  const dialog = page.getByRole('dialog');
+  await dialog.locator('[data-open-node="party:demo-client"]').click();
+  const title = await dialog.locator('h2').textContent();
+  const refreshed = page.waitForResponse('**/api/v1/business/relationships*');
+  await page.clock.fastForward(61000);
+  await refreshed;
+  await page.waitForFunction(() => document.querySelector('#networkUpdated')?.textContent !== 'Updating…');
+  assert.equal(await dialog.isVisible(), true, 'The drawer stays open');
+  assert.equal(await dialog.locator('h2').textContent(), title);
+  const address = new URL(page.url());
+  assert.equal(address.searchParams.get('node'), 'party:demo-client');
+  assert.equal(address.searchParams.get('kind'), 'vendor');
+});

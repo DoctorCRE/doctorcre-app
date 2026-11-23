@@ -123,9 +123,8 @@ export function mountRelationshipNetwork({
     const directory = $("networkNodes").parentElement, graphView = $("graphView");
     if (phone && graphView.firstElementChild !== directory) graphView.prepend(directory);
     else if (!phone && graphView.lastElementChild !== directory) graphView.append(directory);
-    let selectedWasFiltered = false;
-    if (focus && !view.nodes.some(n => n.id === focus)) {
-      selectedWasFiltered = snapshot.nodes.some(n => n.id === focus);
+    // A record hidden by the filters stays selected; only a filter change or its removal drops it.
+    if (focus && !snapshot.nodes.some(n => n.id === focus)) {
       focus = null;
       stepId = null;
       address();
@@ -254,11 +253,10 @@ export function mountRelationshipNetwork({
         g.onfocus = () => highlight(g.dataset.node);
       });
     highlight(focus);
-    return selectedWasFiltered;
   };
   const render = () => {
     const restoreFocus = preserveRelationshipFocus(document.activeElement);
-    if (paintNetwork()) dialog.clear({ restoreFocus: true });
+    paintNetwork();
     restoreFocus();
   };
   const facets = () => {
@@ -373,10 +371,17 @@ export function mountRelationshipNetwork({
   window.addEventListener('doctorcre-session-invalidated', () => intro.retire(), { signal: localEvents.signal });
   const applyFilters = () => {
     if (disposed) return;
+    const filteredOut = Boolean(snapshot && focus)
+      && !filterNetwork(snapshot, currentFilters).nodes.some(n => n.id === focus);
+    if (filteredOut) {
+      focus = null;
+      stepId = null;
+    }
     limit = 12;
     positions.clear();
     render();
     address();
+    if (filteredOut) dialog.clear({ restoreFocus: true });
   };
   const kindControl = mountRelationshipKindFilter($("networkKindFilter"), {
     value: currentFilters.kind,
