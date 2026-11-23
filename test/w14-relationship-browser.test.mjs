@@ -37,6 +37,13 @@ async function open(t, width = 1440) {
       const payload = relationshipNetworkFixture(
         await page.evaluate(() => new Date().toISOString()),
       );
+      if (mode.startsWith("without:")) {
+        const id = mode.slice("without:".length);
+        payload.nodes = payload.nodes.filter(node => id !== "*" && node.id !== id);
+        payload.edges = payload.edges.filter(edge => id !== "*" && ![edge.from, edge.to, edge.via].includes(id));
+        payload.suggestions = payload.suggestions.filter(row => payload.edges.some(edge => edge.id === row.id));
+        payload.referrals = payload.referrals.filter(row => id !== "*" && row.node_id !== id);
+      }
       if (version) payload.nodes[0].summary = "Demo refreshed summary";
       if (mode === "malformed") payload.edges[0].from = "missing";
       if (mode === "territory") payload.nodes[0].territory = 123;
@@ -729,4 +736,52 @@ for (const width of [1440, 390]) test(`Relationship records open by ID at ${widt
   const dialog = page.getByRole('dialog');
   await dialog.getByText('No connections recorded').waitFor();
   assert.equal(await dialog.getByRole('link', { name: /Open .* record/ }).count(), 0);
+});
+
+for (const surface of ['graph', 'directory']) for (const [refresh, removed, expected] of [
+  ['identical', null, 'demo-build'],
+  ['opener removed', 'party:demo-build', 'demo-won'],
+  ['open record removed', 'party:demo-client', 'demo-build'],
+  ['no records remain', '*', 'heading'],
+]) for (const action of ['none', 'Escape', 'close']) test(`Focus follows the ${surface} after ${refresh} and ${action}`, async t => {
+  const { page, setMode } = await open(t);
+  const scope = surface === 'graph' ? '#networkCanvas' : '#networkNodes';
+  const row = id => page.locator(`${scope} [data-node$=":${id}"]`);
+  const opener = row('demo-build'), dialog = page.getByRole('dialog');
+  await page.goto('http://localhost/relationships?mode=live');
+  const removesOpenRecord = ['open record removed', 'no records remain'].includes(refresh);
+  const staysOutside = action === 'none' && !removesOpenRecord;
+  if (staysOutside) await opener.focus();
+  else {
+    await opener.click();
+    await dialog.locator('[data-open-node="party:demo-client"]').click();
+  }
+  const dismiss = () => action === 'Escape' ? page.keyboard.press('Escape')
+    : dialog.getByRole('button', { name: 'Close relationship' }).click();
+  const oldRow = await opener.elementHandle();
+  if (removed) setMode(`without:${removed}`);
+  const pending = Promise.withResolvers(), release = Promise.withResolvers();
+  await page.route('**/api/v1/business/relationships*', async route => {
+    pending.resolve();
+    await release.promise;
+    await route.fallback();
+  });
+  await page.clock.fastForward(61000);
+  await pending.promise;
+  if (removesOpenRecord && action !== 'none') await dismiss();
+  release.resolve();
+  await page.waitForFunction(el => !el.isConnected, oldRow);
+  if (!staysOutside && !removesOpenRecord) {
+    assert.equal(await dialog.isVisible(), true, 'The connected record stays open');
+    assert.equal(await dialog.locator('h2').evaluate(el => el === document.activeElement), true, 'Refresh keeps focus on the drawer title');
+    await dismiss();
+  }
+  if (!staysOutside) await dialog.waitFor({ state: 'hidden' });
+  const focus = await page.evaluate(() => {
+    const active = document.activeElement;
+    const surface = active.closest('.relationship-graph-panel,.relationship-directory');
+    const region = surface?.querySelector('#networkCanvas,#networkNodes').id ?? active.tagName.toLowerCase();
+    return [region, active.matches('h2') ? 'heading' : active.dataset.node?.split(':').at(-1)];
+  });
+  assert.deepEqual(focus, [scope.slice(1), expected], 'Focus stays in the original surface');
 });

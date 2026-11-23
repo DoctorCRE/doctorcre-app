@@ -210,3 +210,8 @@ export function shortSummary(text) {
     .trim();
   return value.length > 160 ? `${value.slice(0, 157)}…` : value;
 }
+
+export function closestFocus({ key, index }, keys) {
+  const match = keys.indexOf(key);
+  return match < 0 ? Math.min(index, keys.length - 1) : match;
+}

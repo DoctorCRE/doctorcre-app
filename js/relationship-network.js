@@ -21,7 +21,7 @@ import {
   focusedNetwork,
   escapeHtml as E,
 } from "./relationship-network-model.js";
-import { mountRelationshipDialog } from "./relationship-dialog.js";
+import { mountRelationshipDialog, preserveRelationshipFocus } from "./relationship-dialog.js";
 
 export function mountRelationshipNetwork({
   document,
@@ -42,8 +42,7 @@ export function mountRelationshipNetwork({
     focus = null,
     limit = 12,
     zoom = 1,
-    positions = new Map(),
-    returnId = null;
+    positions = new Map();
   const params = new URLSearchParams(window.location.search);
   const currentFilters = {
     q: params.get("q") || "",
@@ -75,10 +74,11 @@ export function mountRelationshipNetwork({
   const open = (id, trigger) => {
     if (focus !== id) stepId = null;
     focus = id;
-    returnId = id;
     address();
     highlight(id);
-    dialog.open(snapshot, id, trigger);
+    const active = document.activeElement;
+    const heading = $("referralsView").hidden ? $("networkHeading") : $("referralsView").querySelector("h2");
+    dialog.open(snapshot, id, trigger ?? (active === document.body ? heading : active));
   };
   const highlight = (id) => {
     $("networkCanvas")
@@ -99,7 +99,7 @@ export function mountRelationshipNetwork({
     target
       .querySelectorAll("[data-node]")
       .forEach((b) => (b.onclick = () => open(b.dataset.node, b)));
-  const render = () => {
+  const paintNetwork = () => {
     for (const id of ["networkZoomIn", "networkZoomOut", "networkFit"])
       $(id).disabled = !snapshot;
     if (!snapshot) {
@@ -114,20 +114,17 @@ export function mountRelationshipNetwork({
         $(id).replaceChildren();
       return;
     }
-    const focusedNode = document.activeElement?.dataset.node;
     const view = filterNetwork(snapshot, currentFilters),
       phone = window.matchMedia(TOUCH_LAYOUT).matches;
     const directory = $("networkNodes").parentElement, graphView = $("graphView");
     if (phone && graphView.firstElementChild !== directory) graphView.prepend(directory);
     else if (!phone && graphView.lastElementChild !== directory) graphView.append(directory);
+    let selectedWasFiltered = false;
     if (focus && !view.nodes.some(n => n.id === focus)) {
+      selectedWasFiltered = snapshot.nodes.some(n => n.id === focus);
       focus = null;
       stepId = null;
-      returnId = null;
-      dialog.clear();
       address();
-      if (focusedNode || document.activeElement === document.body)
-        $("networkKind").focus();
     }
     const selected = view.nodes.some((n) => n.id === focus)
       ? focus
@@ -253,17 +250,12 @@ export function mountRelationshipNetwork({
         g.onfocus = () => highlight(g.dataset.node);
       });
     highlight(focus);
-    if (focusedNode && !dialog.open)
-      [...document.querySelectorAll("[data-node]")]
-        .find((n) => n.dataset.node === focusedNode)
-        ?.focus();
-    if (returnId && !dialog.open) {
-      const trigger = [
-        ...$("networkNodes").querySelectorAll("[data-node]"),
-      ].find((n) => n.dataset.node === returnId);
-      if (document.activeElement === document.body) trigger?.focus();
-      returnId = null;
-    }
+    return selectedWasFiltered;
+  };
+  const render = () => {
+    const restoreFocus = preserveRelationshipFocus(document.activeElement);
+    if (paintNetwork()) dialog.clear({ restoreFocus: true });
+    restoreFocus();
   };
   const facets = () => {
     for (const [id, field, label] of [
@@ -293,11 +285,10 @@ export function mountRelationshipNetwork({
       focus = null;
       stepId = null;
     }
-    returnId = null;
     positions.clear();
-    dialog.clear();
     facets();
     render();
+    dialog.clear({ restoreFocus: true });
     $("networkUpdated").textContent = "Updating…";
   };
   const refresh = async ({ signal } = {}) => {
@@ -386,6 +377,7 @@ export function mountRelationshipNetwork({
   const kindControl = mountRelationshipKindFilter($("networkKindFilter"), {
     value: currentFilters.kind,
     onChange(kind) {
+      $("networkKind").focus();
       currentFilters.kind = kind;
       applyFilters();
     },
