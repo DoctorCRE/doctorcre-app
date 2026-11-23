@@ -132,6 +132,7 @@ test("the saved cart and reviewed route preserve property identities and require
           await page.locator("[data-open-tour]").click();
           const editor = page.frameLocator("iframe");
           await editor.locator("#tour-name").filter({ hasText: detail.name }).waitFor();
+          await editor.locator("#selection-version").getByText("Saved version 1", { exact: true }).waitFor();
           await editor.getByRole("button", { name: "Find properties", exact: true }).click();
           const candidateResult = editor.locator(`button[data-property-id="${candidate}"]`);
           await candidateResult.click();
@@ -146,11 +147,11 @@ test("the saved cart and reviewed route preserve property identities and require
           await editor.locator("#save-selection").click();
           await editor.locator("#selection-state").filter({ hasText: "same save request" }).waitFor();
           await editor.locator("#save-selection").click();
+          await editor.locator("#selection-state").filter({ hasText: "saved with this Tour" }).waitFor();
           const cartWrites = writes.filter((w) => w.path === "/api/tours/selection-cart");
           assert.equal(cartWrites.length, 3);
           assert.notEqual(cartWrites[0]?.body.idempotency_key, cartWrites[1]?.body.idempotency_key);
           assert.deepEqual(cartWrites[1]?.body, cartWrites[2]?.body);
-          await editor.locator("#selection-state").filter({ hasText: "saved with this Tour" }).waitFor();
           assert.deepEqual(cart.property_ids, [existing, candidate]);
           await editor.locator("#add-cart-stops").click();
           assert.equal(await editor.locator("#accept-route").isDisabled(), true);
@@ -172,6 +173,7 @@ test("the saved cart and reviewed route preserve property identities and require
           await page.locator("[data-open-tour]").waitFor();
           await page.locator("[data-open-tour]").click();
           await editor.locator("#composer-badge").filter({ hasText: "Accepted" }).waitFor({ state: "attached" });
+          await editor.locator("#selection-version").getByText("Saved version 3", { exact: true }).waitFor();
           assert.equal(await editor.locator("#selection-list li").count(), 2);
           await editor.locator("#route-editing > summary").click();
           assert.deepEqual(
