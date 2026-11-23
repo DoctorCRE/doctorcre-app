@@ -16,7 +16,7 @@ test("production can reach CARR without making the app publicly routable", () =>
   ]);
   assert.deepEqual(config.kv_namespaces, [{ binding: "ENGINE_ROUTING", id: "1b69f9569abb4f33b22356bd621349d4" }]);
   assert.equal(config.vars.APP_ENV, "production");
-  assert.equal(config.vars.PARTNER_SIGN_IN, "carr");
+  assert.equal(config.vars.PARTNER_SIGN_IN, "engine");
 });
 
 test("staging remains isolated from production CARR and production hostnames", () => {
