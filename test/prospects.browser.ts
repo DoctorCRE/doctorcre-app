@@ -115,6 +115,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       const board = { schema_version: "local-deals-board.v2", actor, deals };
       let enabled = false;
       let savesEnabled = false,
+        prospectsDown = false,
         firstNote = true;
       const writeKeys: string[] = [];
       const env = {
@@ -262,7 +263,7 @@ test("partners see and manage prospects from Deals", async (t) => {
             if (path === `/api/engine/deals/${dealId}`)
               return Response.json({ ...converted, deal_id: dealId, email_follow_ups: [], thread: convertedNotes });
             if (path.endsWith("/prospects")) {
-              return savesEnabled
+              return savesEnabled && !prospectsDown
                 ? Response.json({ count: prospects.length, prospects })
                 : Response.json({ error: "engine_unavailable" }, { status: 503 });
             }
@@ -336,6 +337,42 @@ test("partners see and manage prospects from Deals", async (t) => {
           .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length),
         width === 390 ? 1 : 8,
       );
+      if (width === 1440) {
+        await page.setViewportSize({ width: 1280, height: 900 });
+        const kanban = page.locator("#kanban");
+        assert.equal(await page.locator("#appToday").isVisible(), true);
+        assert.equal(
+          await kanban.evaluate((element) => element.scrollWidth <= element.clientWidth),
+          true,
+          "board with Prospects fits beside Today at 1280px",
+        );
+        assert.deepEqual(
+          await kanban
+            .locator(".kanban-column > h3 button > span")
+            .evaluateAll((names) =>
+              names.filter((name) => name.scrollWidth > name.clientWidth).map((name) => name.textContent),
+            ),
+          [],
+          "every phase name shows in full at 1280px",
+        );
+        prospectsDown = true;
+        await page.reload();
+        const retry = lane.getByRole("button", { name: "Try again" });
+        await retry.waitFor();
+        assert.equal(await kanban.evaluate((element) => element.scrollWidth <= element.clientWidth), true);
+        for (const narrow of [1280, 1100]) {
+          await page.setViewportSize({ width: narrow, height: 900 });
+          const [laneBox, retryBox] = await Promise.all([lane.boundingBox(), retry.boundingBox()]);
+          assert.ok(
+            laneBox && retryBox && retryBox.x + retryBox.width <= laneBox.x + laneBox.width,
+            `Try again stays inside the lane at ${narrow}px`,
+          );
+        }
+        prospectsDown = false;
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.reload();
+        await open.waitFor();
+      }
       assert.match((await lane.textContent()) ?? "", /Unclaimed[\s\S]*Needs attention[\s\S]*Thu, Nov 19/);
       assert.equal(
         await lane
