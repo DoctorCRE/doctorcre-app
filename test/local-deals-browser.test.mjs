@@ -160,10 +160,10 @@ test('W4 desktop/phone render, owner filters, equal cards, wide detail and reduc
     assert.ok(sizes.every(e => e.transform === 'none' && e.transition === '0s'), JSON.stringify(sizes));
     assert.equal(await page.locator('.kanban-column .kanban-card').evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth)), true);
     await page.screenshot({ path: new URL(`out/test-artifacts/w4/${width === 1440 ? 'desktop' : 'phone-' + width}.png`, root).pathname, fullPage: true });
-    assert.equal(await page.locator('.kanban-column [data-id="d14"] .owner').textContent(), 'Joe');
+    assert.equal(await page.locator('.kanban-column [data-id="d14"] .owner').getAttribute('title'), 'Owner: Joe');
     await page.locator('[data-filter="dell"]').click();
     assert.equal(await page.locator('.kanban-column [data-id="d14"]').count(),0);
-    assert.equal(await page.locator('.kanban-column .owner').evaluateAll(es => es.every(e => e.textContent === 'Dell')), true);
+    assert.equal(await page.locator('.kanban-column .owner').evaluateAll(es => es.every(e => e.title === 'Owner: Dell')), true);
     await page.locator('[data-filter="all"]').click();
     await page.locator('.kanban-column [data-id="d14"] .card-open').click(); await page.waitForSelector('#detailPhase');
     const box = await page.locator('#recordPanel').boundingBox(); assert.ok(box.width >= Math.min(1100, width - 30));
@@ -603,7 +603,7 @@ test('add deal validates input, retains an uncertain request and immediately sho
  const requests=await page.evaluate(()=>window.createRequests);assert.deepEqual(requests[0],requests[1]);
  assert.equal(requests[0].owner,'dell');assert.equal(requests[0].notes,'Demo initial review note');
  const cards=page.locator('.kanban-column .kanban-card').filter({hasText:'Demo Partner Review'});assert.equal(await cards.count(),1);
- assert.equal(await cards.locator('.owner').textContent(), 'Dell');
+ assert.equal(await cards.locator('.owner').getAttribute('title'), 'Owner: Dell');
  assert.equal(await page.evaluate(()=>new URL(location.href).searchParams.get('owner')),'dell');
  await cards.getByRole('button',{name:'Demo Partner Review'}).click();
  await page.waitForSelector('#detailPhase');assert.match(await page.locator('#panelBody').textContent(),/Demo initial review note/);
@@ -634,6 +634,36 @@ test('deal review works in both themes at 390 and 1280 pixels', async t => {
  });
 });
 
+
+for (const savesOn of [false,true]) test(`a column add button opens Add deal in that phase${savesOn ? ' with engine saves' : ''}`, async t=>{
+ const {page,errors}=await open(t,{savesOn});
+ await page.getByRole('button',{name:'Add deal to Negotiating',exact:true}).click();
+ assert.equal(await page.locator('#addDealDialog').evaluate(e=>e.open),true);
+ assert.equal(await page.locator('#addDealStage').inputValue(),'Negotiation');
+ await page.keyboard.press('Escape');
+ assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'Add deal to Negotiating','focus returns to the column button');
+ await page.getByRole('button',{name:'Add deal to Negotiating',exact:true}).click();
+ await page.evaluate(()=>{
+  document.querySelectorAll('[data-add-to]').forEach(button=>button.replaceWith(button.cloneNode(true)));
+  window.addDealClosed=new Promise(resolve=>document.querySelector('#addDealDialog').addEventListener('close',()=>setTimeout(resolve),{once:true}));
+ });
+ await page.keyboard.press('Escape');
+ await page.evaluate(()=>window.addDealClosed);
+ assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'Add deal to Negotiating','focus finds the column button after the board redraws');
+ await page.getByRole('button',{name:'Add deal',exact:true}).click();
+ assert.notEqual(await page.locator('#addDealStage').inputValue(),'Negotiation','the header Add deal keeps its default phase');
+ await page.keyboard.press('Escape');
+ if (!savesOn) {
+  await page.getByRole('button',{name:'Add deal to Negotiating',exact:true}).click();
+  await page.getByLabel('Deal name',{exact:true}).fill('Demo Column Deal');
+  await page.getByLabel('Client',{exact:true}).fill('C-demo');
+  await page.evaluate(()=>{window.addDealClosed=new Promise(resolve=>document.querySelector('#addDealDialog').addEventListener('close',()=>setTimeout(resolve),{once:true}));});
+  await page.getByRole('button',{name:'Create deal',exact:true}).click();
+  await page.evaluate(()=>window.addDealClosed);
+  assert.match(await page.evaluate(()=>document.activeElement?.closest('.kanban-column[data-column="negotiation"] .kanban-card')?.textContent ?? ''),/Demo Column Deal/,'a save focuses the new card');
+ }
+ assert.deepEqual(errors,[]);
+});
 
 test('closing a deal from its details removes the card and retains its close date in history', async t=>{
  const {page,errors}=await open(t);
@@ -1232,7 +1262,7 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     await page.locator('#parkedToggle').click();
     const parked = page.locator('.parked-card[data-id="d14"]');
     await parked.getByText('Parked', { exact: true }).waitFor();
-    assert.equal((await parked.innerText()).replace(/\s+/g, ' '), `${dealName} Joe Parked`);
+    assert.equal((await parked.innerText()).replace(/\s+/g, ' '), `${dealName} Parked J Owner: Joe`);
     assert.equal(await originalColumn.locator('[data-id="d14"]').count(), 0);
     await parked.screenshot({ path: new URL(`${width}-card.png`, artifacts).pathname });
     await parked.getByRole('button', { name: dealName, exact: true }).press('Enter');

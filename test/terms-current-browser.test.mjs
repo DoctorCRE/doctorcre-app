@@ -107,18 +107,18 @@ test('workspace reopen and subject switches retain each cached comparison focus'
       await toggle.check();
       const rows = await page.locator('#workspace-market-terms tbody').textContent();
       await page.locator('#panelClose').click();
-      await page.locator('.kanban-card[data-id="d14"]').click();
+      await page.locator('.kanban-card[data-id="d14"] .card-open').click();
       await page.locator('#tab-market-terms').click();
       assert.equal(await toggle.isChecked(), true, 'reopening reattaches the focused comparison');
       assert.equal(await page.locator('#workspace-market-terms tbody').textContent(), rows);
       await page.locator('#panelClose').click();
-      await page.locator('.kanban-card[data-id="d20"]').click();
+      await page.locator('.kanban-card[data-id="d20"] .card-open').click();
       await page.locator('#tab-market-terms').click();
       assert.equal(await toggle.isChecked(), false, 'new subject starts unfocused');
       await toggle.check();
       await toggle.uncheck();
       await page.locator('#panelClose').click();
-      await page.locator('.kanban-card[data-id="d14"]').click();
+      await page.locator('.kanban-card[data-id="d14"] .card-open').click();
       await page.locator('#tab-market-terms').click();
       assert.equal(await toggle.isChecked(), true, 'returning subject retains its own focus');
       assert.equal(await page.locator('#workspace-market-terms tbody').textContent(), rows);
@@ -137,7 +137,7 @@ test('workspace access retirement disposes cached comparisons and ignores late r
       await page.locator('#tab-market-terms').click();
       await toggle.check();
       await page.locator('#panelClose').click();
-      await page.locator('.kanban-card[data-id="d20"]').click();
+      await page.locator('.kanban-card[data-id="d20"] .card-open').click();
       await page.locator('#tab-market-terms').click();
       await toggle.check();
       await page.evaluate(async () => {
@@ -171,7 +171,7 @@ test('workspace access retirement disposes cached comparisons and ignores late r
       await toggle.waitFor();
       assert.equal(await toggle.isChecked(), false, 'access retirement remounts without focus');
       await page.locator('#panelClose').click();
-      await page.locator('.kanban-card[data-id="d14"]').click();
+      await page.locator('.kanban-card[data-id="d14"] .card-open').click();
       await page.locator('#tab-market-terms').click();
       await toggle.waitFor();
       assert.equal(await toggle.isChecked(), false, 'access retirement also discards hidden cached subjects');
@@ -200,7 +200,7 @@ test('workspace closure caches history, pending and failed comparisons without r
         };
       });
       const reopen = async () => {
-        await page.locator('.kanban-card[data-id="d14"]').click();
+        await page.locator('.kanban-card[data-id="d14"] .card-open').click();
         await page.locator('#tab-market-terms').click();
       };
       await page.locator('#panelClose').click();

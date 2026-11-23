@@ -34,7 +34,7 @@ for (const width of [320, 390, 1280, 1440]) for (const theme of ['light', 'dark'
     if (!national) {
       const name = 'Demo Surgical Practice';
       assert.equal(await card.getByRole('button', { name, exact: true }).count(), 1);
-      assert.equal((await card.innerText()).replace(/\s+/g, ' '), `${name} Joe`);
+      assert.equal((await card.innerText()).replace(/\s+/g, ' '), `${name} J Owner: Joe`);
       assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
       const headings = await page.locator('.kanban-column > h3 button:visible').evaluateAll(headers => headers.map(header => {
         const [name, count] = [...header.children].map(child => child.getBoundingClientRect());

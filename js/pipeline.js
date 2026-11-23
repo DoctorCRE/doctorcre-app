@@ -2,6 +2,7 @@ import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-
 import { createDayStore } from '../tours/day-store.js';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
+import { cardDueLabel } from './ui-card-due.generated.js';
 import {
   autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
   renderDealItems, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt,
@@ -176,12 +177,22 @@ function listNextStepHtml(deal) {
 function dealAttentionHtml(deal) {
   return state.boardFromEngine && deal.attention === true ? '<span class="deal-attention-label">Needs attention</span>' : '';
 }
-function cardAttentionHtml(deal) {
+function cardDue(deal) {
   const steps = ordinaryOpenSteps(deal.open_actions ?? []);
   const step = steps.find(step => step.owner === deal.owner);
   const legacyDue = !state.boardFromEngine && !steps.length && noteText(deal.next_step).trim() ? deal.next_date : null;
-  const due = step?.due_on ?? legacyDue;
-  const late = dealDueDate(due, businessDay())?.late;
+  return dealDueDate(step?.due_on ?? legacyDue, businessDay());
+}
+function cardDueHtml(due) {
+  if (!due) return '';
+  const { text, tone } = cardDueLabel(due.day, businessDay());
+  return `<time class="card-due${tone ? ` card-due--${tone}` : ''}" datetime="${esc(due.day)}">${esc(text)}</time>`;
+}
+function ownerMarkHtml(name) {
+  return `<span class="owner" title="Owner: ${esc(name)}"><span aria-hidden="true">${esc(name === 'Unassigned' ? '?' : name.slice(0, 1))}</span><span class="sr-only">Owner: ${esc(name)}</span></span>`;
+}
+function cardAttentionHtml(deal) {
+  const late = cardDue(deal)?.late;
   const reasons = [deal.attention === true && 'Flagged by a partner', late && `Step ${late}`].filter(Boolean);
   if (!reasons.length) return '';
   const reason = esc(reasons.join('. '));
@@ -198,7 +209,7 @@ function cardHtml(deal) {
   return workCard({ variant: 'tile', className: `kanban-card${parked ? ' parked-card' : ''}`, heading: 'h4',
     attributes: `data-id="${esc(deal.id)}" ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
-    meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${badge}` });
+    meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}` });
 }
 function legacyRowStepHtml(deal) {
   const nextStep = noteText(deal.next_step);
@@ -226,6 +237,7 @@ function parkingSummaryHtml(deal) {
 let dealCreation = null;
 let nextDealCreation = false;
 let prospectConversion = null;
+let addDealPhase = null;
 let unmountDealClientPicker;
 let creatingDeal = false;
 function syncDealCreation() {
@@ -234,9 +246,10 @@ function syncDealCreation() {
   $('addDealCancel').disabled = creatingDeal;
   $('addDealSubmit').textContent = creatingDeal ? 'Saving…' : dealCreation ? 'Check creation outcome' : 'Create deal';
 }
-async function openAddDeal(client = null, conversion = null) {
+async function openAddDeal(client = null, conversion = null, phase = null) {
   const dialog = $('addDealDialog');
   if (dialog.open) return;
+  addDealPhase = phase;
   if (!dealCreation) {
     const prospect = conversion?.prospect;
     const next = state.nextDealSaves;
@@ -267,7 +280,8 @@ async function openAddDeal(client = null, conversion = null) {
     });
     $('addDealOwner').value = prospect ? prospect.owner ?? '' : state.selfActor || 'joe';
     $('addDealStageLabel').textContent = usePicker ? 'Phase' : 'Stage';
-    $('addDealStage').selectedIndex = prospect ? 0 : 1;
+    if (phase) $('addDealStage').value = phase;
+    else $('addDealStage').selectedIndex = prospect ? 0 : 1;
     const legacyType = $('addDealType');
     dialog.classList.toggle('add-deal-with-terms', next);
     $('addDealTypeField').hidden = next;
@@ -435,7 +449,7 @@ function renderBoard() {
       return `<section class="kanban-column" data-column="${esc(column.slug)}" ${!state.boardFromEngine && !cards.length && !state.showEmptyStages ? 'data-hide-empty="true" ' : ''}data-collapsed="${collapsed}"${chosen ? ' data-drop="true"' : ''}
         aria-label="${esc(column.label)}, ${cards.length} cards">
         <h3 title="${esc(PHASE_TRIGGERS[column.slug])}"><button type="button" data-collapse-stage="${esc(column.slug)}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${esc(column.label)}"><span>${esc(column.label)}</span><small>${cards.length}</small></button></h3>
-        ${content}
+        ${content}${collapsed ? '' : `<button class="column-add" type="button" data-add-to="${esc(column.value)}" aria-label="Add deal to ${esc(column.label)}">+ Add deal</button>`}
       </section>`;
     }).join('') + (state.boardFromEngine ? '' : emptyStagesNote(grouped.columns.filter(c => !c.deals.length).length)) + `<details class="parked-lane"${state.parkedOpen ? ' open' : ''}><summary>Parked · ${grouped.parked.length}</summary><div class="parked-cards">${grouped.parked.map(cardHtml).join('')}</div></details>`);
   } });
@@ -2499,6 +2513,8 @@ function wireBoard() {
 
   board.addEventListener('click', (event) => {
     if (event.target.closest('[data-toggle-empty-stages]')) { state.showEmptyStages = !state.showEmptyStages; renderBoard(); return; }
+    const add = event.target.closest('[data-add-to]');
+    if (add) { openAddDeal(null, null, add.dataset.addTo); return; }
     const toggle = event.target.closest('[data-collapse-stage]');
     if (!toggle) return;
     const slug = toggle.dataset.collapseStage;
@@ -2661,7 +2677,11 @@ function wire() {
       unmountDealClientPicker?.();
       unmountDealClientPicker = undefined;
     }
-    if (!prospectConversion) $('addDealOpen').focus();
+    // The close event fires after a save has already focused the new card.
+    const active = document.activeElement;
+    if (prospectConversion || (active !== document.body && !$('addDealDialog').contains(active))) return;
+    const columnAdd = addDealPhase && document.querySelector(`[data-add-to="${CSS.escape(addDealPhase)}"]`);
+    (columnAdd ?? $('addDealOpen')).focus();
   });
 
   let restoreTourHistory = null, departurePending = false;

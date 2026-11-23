@@ -174,8 +174,10 @@ test('all seven phases fit in one row beside Today at 1440px', async t => {
  const boxes=await headings.evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().toJSON()));
  assert.equal(new Set(boxes.map(box=>box.top)).size,1,'all phase headings share one row');
  assert.ok(boxes.every(box=>box.left>=0&&box.right<=today.x),'every heading fits before the visible Today panel');
+ assert.ok(await headings.locator('button').evaluateAll(buttons=>buttons.every(button=>button.scrollWidth<=button.clientWidth)),'every phase name stays inside its column');
  await page.setViewportSize({width:1280,height:960});
  assert.ok(await board.evaluate(node=>node.scrollWidth===node.clientWidth),'board has no horizontal scroll at 1280px');
+ assert.ok(await headings.locator('button').evaluateAll(buttons=>buttons.every(button=>button.scrollWidth<=button.clientWidth)),'every phase name stays inside its column at 1280px');
  const overflowingCards=await board.locator('.kanban-column .kanban-card').evaluateAll(cards=>
   cards.filter(card=>card.scrollWidth>card.clientWidth).map(card=>card.getAttribute('aria-label')));
  assert.deepEqual(overflowingCards,[],'card content wraps within its own card');
@@ -441,12 +443,12 @@ test('phone hides empty collapsed stages and keeps populated collapsed stages', 
  const empty=page.locator('.kanban-column').filter({has:page.locator('h3 small:text-is("0")')}).first();
  assert.ok(await empty.count());
  await page.setViewportSize({width:1280,height:960});
- await empty.locator('button').click();
+ await empty.locator('[data-collapse-stage]').click();
  await page.setViewportSize({width:390,height:960});
  assert.equal(await empty.isVisible(),false);
  const slug=await page.locator('.kanban-column:has(.kanban-card)').first().getAttribute('data-column');
  const populated=page.locator(`[data-column="${slug}"]`);
- await populated.locator('h3 button').click();
+ await populated.locator('[data-collapse-stage]').click();
  assert.equal(await populated.isVisible(),true);
 });
 
