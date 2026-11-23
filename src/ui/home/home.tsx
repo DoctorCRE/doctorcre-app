@@ -43,6 +43,7 @@ type Undo = { items: readonly InboxItem[] } & (
 );
 const queryKey = ["home-inbox"];
 const EMPTY_ITEMS: readonly InboxItem[] = [];
+const UNDO_MS = 10_000;
 const cardDate = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", dateStyle: "medium" });
 const callDate = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Chicago",
@@ -236,6 +237,15 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       removeEventListener("offline", update);
     };
   }, [cache, engineHome, home, meetings.refetch, query.refetch]);
+  useEffect(() => {
+    if (!undo.length || pending || failures.length) return;
+    // eslint-disable-next-line no-restricted-syntax -- One Undo window, restarted by each save and cleared on unmount.
+    const timer = window.setTimeout(() => {
+      setUndo([]);
+      setNotice("");
+    }, UNDO_MS);
+    return () => window.clearTimeout(timer);
+  }, [undo, pending, failures.length]);
   useEffect(() => {
     if (!home || !engineHome) return;
     let timer: number;

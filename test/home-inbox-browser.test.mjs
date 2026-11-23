@@ -89,6 +89,27 @@ test('settle and snooze have reversible Undo, and focus returns to a reachable r
   assert.equal(await page.locator('details[open]').count(), 0);
   await page.waitForFunction(() => document.activeElement.closest('[data-inbox-row]') !== null);
 });
+test('Undo and its message leave 10 seconds after a save', async t => {
+  const { page } = await open(t, { clock: true });
+  await page.locator('[data-inbox-row="a"]').getByRole('button', { name: 'Snooze', exact: true }).click();
+  await page.getByRole('button', { name: /^1 hour/ }).click();
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await undo.waitFor();
+  await page.clock.runFor(9_000);
+  assert.equal(await undo.isVisible(), true, 'Undo is still offered inside its window');
+  await page.clock.runFor(1_001);
+  await undo.waitFor({ state: 'detached' });
+  assert.equal(await page.getByText('You can undo this change.', { exact: false }).count(), 0);
+});
+test('a partial failure keeps its message after the Undo window', async t => {
+  const { page } = await open(t, { partial: true, clock: true });
+  await page.getByLabel('Select Synthetic a', { exact: true }).check();
+  await page.getByLabel('Select Synthetic b', { exact: true }).check();
+  await page.getByRole('button', { name: 'Hide selected', exact: true }).click();
+  await page.getByText('This card changed on the server.', { exact: false }).waitFor();
+  await page.clock.runFor(10_001);
+  assert.equal(await page.getByText('This card changed on the server.', { exact: false }).isVisible(), true);
+});
 test('partial bulk failure keeps failed card and retry preserves key and arguments', async t => {
   const { page, calls } = await open(t, { partial: true });
   await page.getByLabel('Select Synthetic a', { exact: true }).check();
