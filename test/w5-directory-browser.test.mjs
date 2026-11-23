@@ -562,3 +562,81 @@ test('session invalidation disconnects the search dock observer', async t => {
   await page.evaluate(() => window.dispatchEvent(new Event('doctorcre-session-invalidated')));
   assert.equal(await page.evaluate(() => window.searchDockDisconnected), true);
 });
+
+test('Clients can retry unavailable activity and retain keyboard focus', async t => {
+  const { page } = await open(t, 390);
+  const requests = [], release = Promise.withResolvers(), started = Promise.withResolvers();
+  t.after(() => release.resolve());
+  await page.route('**/mcp', async route => {
+    const { name, arguments: args } = route.request().postDataJSON().params;
+    if (name !== 'find-and-catch-up') return route.fallback();
+    requests.push(args.ref);
+    if (requests.length === 2) { started.resolve(); await release.promise; }
+    if (requests.length <= 2) return route.fulfill({ status: 503, body: 'Unavailable' });
+    return route.fulfill({ json: { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify({
+      state: 'completed', match: { target: args.ref }, catch_up: { timeline: [{ entry_kind: 'activity', verb: 'note', summary: 'Recovered history', occurred_at: '2026-09-20T15:00:00Z' }] },
+    }) }] } } });
+  });
+  await page.goto(origin + '/clients?mode=live');
+  await page.locator('.record-row').first().click();
+  const panel = page.getByRole('dialog', { name: /Demo Practice 01/ });
+  const activity = panel.getByRole('region', { name: 'Recent activity' });
+  await activity.locator('[data-state="unavailable"]').waitFor();
+  assert.equal(await activity.locator('[data-state="unavailable"]').isVisible(), true, 'Activity is unavailable');
+  const retry = activity.getByRole('button', { name: 'Retry' });
+  assert.equal(await retry.isVisible(), true, 'Unavailable activity offers a visible Retry button');
+  await retry.focus();
+  await page.keyboard.press('Enter');
+  await started.promise;
+  assert.equal(await activity.evaluate(el => el.contains(document.activeElement)), true);
+  release.resolve();
+  await retry.waitFor();
+  assert.equal(await retry.evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  await activity.getByText('Recovered history').waitFor();
+  assert.equal(await panel.isVisible(), true);
+  assert.equal(requests.length, 3);
+  assert.deepEqual(requests[1], requests[0]);
+  assert.deepEqual(requests[2], requests[0]);
+});
+
+test('A late activity retry cannot paint another client', async t => {
+  const { page } = await open(t);
+  const pending = Promise.withResolvers(), started = Promise.withResolvers();
+  t.after(() => pending.resolve());
+  await page.route(/workspace-business\.js/, async route => {
+    const response = await route.fetch();
+    const original = await readFile(new URL('../js/workspace-business.js', import.meta.url), 'utf8');
+    const source = original.replace('const settle = (result) => {', 'const settle = (result) => { window.activitySettles = (window.activitySettles || 0) + 1;');
+    await route.fulfill({ response, body: source });
+  });
+  let reads = 0;
+  await page.route('**/mcp', async route => {
+    const { name, arguments: args } = route.request().postDataJSON().params;
+    if (name !== 'find-and-catch-up') return route.fallback();
+    const read = ++reads;
+    if (read === 1) return route.fulfill({ status: 503, body: 'Unavailable' });
+    if (read === 2) { started.resolve(); await pending.promise; }
+    return route.fulfill({ json: { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify({
+      state: 'completed', match: { target: args.ref }, catch_up: { timeline: [{ entry_kind: 'activity', verb: 'note', summary: read === 2 ? 'Earlier client history' : 'Current client history', occurred_at: '2026-09-20T15:00:00Z' }] },
+    }) }] } } });
+  });
+  await page.goto(origin + '/clients?mode=live');
+  await page.locator('.record-row').first().click();
+  const activity = page.getByRole('dialog', { name: /Demo Practice 01/ }).getByRole('region', { name: 'Recent activity' });
+  await activity.locator('[data-state="unavailable"]').waitFor();
+  assert.equal(await activity.locator('[data-state="unavailable"]').isVisible(), true, 'Activity is unavailable');
+  const retry = activity.getByRole('button', { name: 'Retry' });
+  assert.equal(await retry.isVisible(), true, 'Unavailable activity offers a visible Retry button');
+  await retry.click();
+  await started.promise;
+  await page.keyboard.press('Escape');
+  await page.locator('.record-row').nth(1).click();
+  const second = page.getByRole('dialog', { name: /Demo Practice 02/ });
+  await second.getByText('Current client history').waitFor();
+  pending.resolve();
+  await page.waitForFunction(() => window.activitySettles >= 3);
+  assert.equal(await second.isVisible(), true);
+  assert.equal(await second.getByText('Earlier client history').count(), 0);
+  assert.equal(await second.getByText('Current client history').count(), 1);
+});
