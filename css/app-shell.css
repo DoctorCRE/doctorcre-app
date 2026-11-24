@@ -18,6 +18,18 @@
 .quick-switcher footer { font-size: var(--font-size-1); }
 .quick-switcher a { display: inline-flex; align-items: center; min-height: var(--touch); color: var(--fg); }
 
+/* ------------------------------------------------------------- keyboard shortcuts list ('?') */
+.has-app-layout dialog.keyboard-shortcuts, dialog.keyboard-shortcuts { box-sizing: border-box; width: min(520px, calc(100vw - 24px)); max-height: min(680px, calc(100dvh - 48px)); padding: var(--space-4); overflow: auto; color: var(--fg); background: var(--surface-1); border: 1px solid var(--hairline-strong); border-radius: var(--radius-3); box-shadow: var(--shadow-overlay); font-family: var(--font-text); }
+.keyboard-shortcuts::backdrop { background: var(--scrim); }
+.keyboard-shortcuts header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+.keyboard-shortcuts h2 { margin: 0; font-size: var(--font-size-3); }
+.keyboard-shortcuts button { min-height: 44px; padding: var(--space-2) var(--space-3); font: inherit; color: var(--fg); background: var(--surface-2); border: 1px solid var(--hairline-strong); border-radius: var(--radius-2); cursor: pointer; }
+.keyboard-shortcuts :focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
+.keyboard-shortcuts table { width: 100%; margin-top: var(--space-3); border-collapse: collapse; }
+.keyboard-shortcuts td { padding: var(--space-2) 0; vertical-align: top; overflow-wrap: anywhere; border-top: 1px solid var(--hairline-strong); }
+.keyboard-shortcuts td:first-child { padding-right: var(--space-3); color: var(--fg-muted); white-space: nowrap; }
+.keyboard-shortcuts kbd { display: inline-block; min-width: 1.5em; padding: 0 var(--space-1); font-family: var(--font-mono); text-align: center; color: var(--fg); background: var(--surface-2); border: 1px solid var(--hairline-strong); border-radius: var(--radius-2); }
+
 /* ------------------------------------------------------------- chips and filters */
 .chip-bar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .chip { display: inline-flex; align-items: center; gap: var(--space-2); min-width: var(--touch); min-height: var(--touch); padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-round); background: var(--surface-1); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
