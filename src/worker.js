@@ -1251,9 +1251,10 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
     if ((weeklyReview && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
         || ((dealRead || pathname.startsWith('/api/engine/documents/')) && !await routeToEngine(env, DEALS)))
       return json({ error: 'not_found' }, 404);
-    const dealClientLookup = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
-      || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname);
-    if (dealClientLookup && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
+    const nextDealsOnly = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
+      || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname)
+      || /^\/api\/engine\/deals\/[^/]+\/(?:star|unstar)$/.test(pathname);
+    if (nextDealsOnly && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
     const prospectSave = prospects && request.method === 'POST';

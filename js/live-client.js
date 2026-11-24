@@ -753,6 +753,13 @@ export function createLiveClient(opts = {}) {
     // layer never supplies, defaults or increments it.
     async notificationPreferences() { return rpc('read-notification-preferences', {}); },
 
+    async setDealStar(dealId, starred) {
+      const binding = await commandSession();
+      const answer = await engineSave(`/api/engine/deals/${encodeURIComponent(dealId)}/${starred ? 'star' : 'unstar'}`,
+        { idempotency_key: uuidv4() }, binding.slice(binding.indexOf(':') + 1));
+      if (answer?.deal_id !== dealId || answer.starred !== starred) throw new Error('Star receipt unavailable');
+    },
+
     // The Updates page's engine routes, used once deal saves go to the engine (#1175).
     async updates() { return parseUpdates(await engineRead('/api/engine/updates')); },
     async markUpdatesRead(args) {
