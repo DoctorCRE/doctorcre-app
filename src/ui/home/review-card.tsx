@@ -95,7 +95,7 @@ function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; hre
 
 function recipientFields(form: HTMLFormElement) {
   const fields = new FormData(form);
-  return { to: [String(fields.get("to")).trim()], cc: [String(fields.get("cc")).trim()] };
+  return { to: [String(fields.get("to"))], cc: [String(fields.get("cc"))] };
 }
 const writesDraftText = (verb: Operation["verb"]) => verb === "edit-email-draft" || verb === "submit-email-draft";
 
