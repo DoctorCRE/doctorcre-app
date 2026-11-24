@@ -1,3 +1,4 @@
+import { failedForGood } from "./engine-review.ts";
 import type { Action, InboxItem } from "./inbox.tsx";
 
 type Target = Pick<InboxItem, "item_id" | "base_version">;
@@ -9,8 +10,10 @@ export type MarkUndo = Target & {
 };
 export const markTarget = (item_id: string) =>
   /^(next_action|capture_post_call_action|notification|suggestion|reply_draft|tour_feedback):/.test(item_id);
-// The engine's Home marks route accepts drop only for call follow-ups and notifications.
-export const markDropTarget = (item_id: string) => /^(capture_post_call_action|notification):/.test(item_id);
+// The engine's Home marks route accepts drop for call follow-ups, notifications and replies that failed for good.
+export const markDropTarget = (item: InboxItem) =>
+  /^(capture_post_call_action|notification):/.test(item.item_id) ||
+  (item.item_id.startsWith("reply_draft:") && failedForGood(item));
 export function restoreMark(previous: MarkUndo): MarkSelection {
   if (previous.completion) return { action: "undo_done" };
   if (previous.disposition === "snoozed" && previous.snoozed_until && Date.parse(previous.snoozed_until) > Date.now())

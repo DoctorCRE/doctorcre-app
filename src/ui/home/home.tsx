@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
 import { showToast } from "../../../js/toast.js";
+import { bindCardQuickMenu } from "../card-quick-menu";
 import type { DocLinkRequest } from "../doc-link";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
@@ -241,6 +242,26 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const [online, setOnline] = useState(navigator.onLine);
   const root = useRef<HTMLElement>(null);
   const gesture = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!root.current) return;
+    return bindCardQuickMenu(root.current, {
+      card: "[data-inbox-row]",
+      // An open review is for reading and copying.
+      exclude: ".home-inline-review",
+      name: (row) => row.querySelector("h3")?.textContent ?? "",
+      actions: (row) => {
+        // Only the row's own buttons: an open review card has actions of its own.
+        const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>(":scope > .inbox-actions > button"))
+          .filter((button) => !button.disabled)
+          .map((button) => ({ label: button.textContent?.trim() ?? "", control: button }));
+        const title = row.querySelector<HTMLElement>("h3 a");
+        return buttons.length || !title ? buttons : [{ label: "Open", control: title }];
+      },
+      focusTarget: (row) =>
+        row.querySelector<HTMLElement>("h3 a") ??
+        row.querySelector<HTMLElement>(":scope > .inbox-actions > button:not(:disabled)"),
+    });
+  }, []);
   useEffect(() => {
     mounted.current = true;
     let lastRefresh = -Infinity;
@@ -724,6 +745,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         key={cardKey(item)}
         className={presentation || isDoneStep(item) ? "inbox-row inbox-row-explained" : "inbox-row"}
         data-inbox-row={item.item_id}
+        data-shortcut-card={home ? "" : undefined}
         data-current={item_id === item.item_id || undefined}
         onTouchStart={(event) => {
           const touch = event.touches[0];
@@ -782,6 +804,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           >
             {canOpen ? (
               <Link
+                data-shortcut-open={home ? "" : undefined}
                 aria-current={item_id === item.item_id ? "true" : undefined}
                 aria-expanded={directUrl ? undefined : open}
                 aria-disabled={openingLocked}

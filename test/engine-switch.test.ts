@@ -2127,16 +2127,13 @@ test("Home forwards the selected deal when previewing a filing", async () => {
   assert.deepEqual(f.carr, []);
 });
 
-test("Mail priorities use the engine's unfiltered read", async () => {
-  const result = { ok: true, schema_version: "home-mail-priorities.v1", items: [], more: false };
-  const f = fixture(new Map(), async () => Response.json(result));
+test("the retired Mail priorities read no longer reaches the engine", async () => {
+  const f = fixture(new Map(), async () => Response.json({ ok: true, items: [] }));
   const request = new Request(`${origin}/api/v1/intelligence/mail-needs-partner?limit=25`, {
     headers: { cookie: "session=synthetic" },
   });
-  assert.deepEqual(await (await worker.fetch(request, f.env)).json(), result);
-  assert.equal(f.engine[0]?.url, `${origin}/api/engine/home/mail-priorities`);
-  assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
-  assert.deepEqual(f.carr, []);
+  await worker.fetch(request, f.env);
+  assert.deepEqual(f.engine, []);
 });
 
 test("client website setup and opening use their Deals switches without changing the legacy save", async () => {
@@ -2805,7 +2802,6 @@ test("legacy HTTP writes in the pinned contracts have a cutover disposition", as
     "/api/v1/fact-review/comparison/validate",
     "/api/v1/fact-review/documents",
     "/api/v1/fact-review/list",
-    "/api/v1/jev-deal-reading",
     "/api/v1/market-terms/read",
     "/api/v1/work-inventory",
     "/pipeline/changes",

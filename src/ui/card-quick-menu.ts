@@ -6,6 +6,8 @@ type QuickAction = { label: string; control: HTMLElement };
 type QuickMenuOptions = {
   /** Selector for a card inside the root. */
   card: string;
+  /** Selector for parts of a card that keep the browser's own menu and long-press. */
+  exclude?: string;
   /** The card's controls in menu order. Missing, hidden or disabled controls are left out. */
   actions: (card: HTMLElement) => QuickAction[];
   /** Where Escape returns focus. Defaults to the card. */
@@ -75,14 +77,15 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
   // The finger still on a card. It outlives a pointercancel, because a browser
   // that starts a touch drag cancels the pointer just before its dragstart.
   let touchHold: { x: number; y: number; card: HTMLElement } | null = null;
-  // Set when a long-press opened the menu: the release's click and any
-  // contextmenu from the same press must not act a second time. It clears
-  // shortly after the finger lifts, so a later keyboard click still acts.
+  // Set when a long-press opened the menu: the lift's touchend and click and
+  // any contextmenu from the same press must not act a second time. It clears
+  // shortly after the touch ends, so a later keyboard click still acts.
   let pressOpened = false;
   let settleTimer = 0;
 
   const cardFrom = (target: EventTarget | null) => {
     const element = target instanceof Element ? target : null;
+    if (options.exclude && element?.closest(options.exclude)) return null;
     const card = element?.closest(options.card);
     return card instanceof HTMLElement && root.contains(card) ? card : null;
   };
@@ -251,7 +254,6 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
   const release = (event: PointerEvent) => {
     if (press && event.pointerId === press.pointer) cancelPress();
     if (event.type === "pointerup") touchHold = null;
-    if (pressOpened) settlePress();
   };
   doc.addEventListener("pointerup", release, { signal });
   doc.addEventListener("pointercancel", release, { signal });
@@ -271,6 +273,16 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
     },
     { signal, capture: true },
   );
+
+  // The finger that opened the menu lifts as a touch too; a card's swipe must not read it.
+  // The settle waits for the touch, not the pointer, which pans and drags cancel early.
+  const touchEnded = (event: TouchEvent) => {
+    if (!pressOpened) return;
+    event.stopImmediatePropagation();
+    if (!event.touches.length) settlePress();
+  };
+  doc.addEventListener("touchend", touchEnded, { signal, capture: true });
+  doc.addEventListener("touchcancel", touchEnded, { signal, capture: true });
 
   // The click that ends a long-press opened the menu; it must not also open the deal.
   doc.addEventListener(

@@ -479,10 +479,11 @@ function ProspectLane({
           <article
             className={`kanban-card work-card work-card--${variant}`}
             data-attention={row.needs_attention}
+            data-shortcut-card=""
             key={row.party_id}
           >
             <h4 className="work-card-title">
-              <button type="button" className="card-open" onClick={() => open(row.party_id)}>
+              <button type="button" className="card-open" data-shortcut-open="" onClick={() => open(row.party_id)}>
                 {row.name}
               </button>
             </h4>

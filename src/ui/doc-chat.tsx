@@ -248,7 +248,11 @@ function SavedProposal({ result }: { result: Confirmation }) {
     <p>
       {status}
       {status && href && " "}
-      {href && <a href={href}>{open}</a>}
+      {href && (
+        <a className="doc-chat__action" href={href}>
+          {open}
+        </a>
+      )}
     </p>
   );
 }
@@ -710,31 +714,31 @@ function DocChat() {
     });
   }
 
+  const noChats = ready && recent.length === 0;
+
   return (
     <>
       <header className="doc-chat__header">
         <h1>Ask Doc</h1>
-        <nav className="doc-chat__actions" aria-label="Chat navigation">
-          <a href="/">Home</a>
-          <a
-            className="btn"
-            href={chatHref(null)}
-            onClick={() => privateDraft.current?.("doc-question", null).write("")}
-          >
-            New chat
-          </a>
-        </nav>
+        <a className="btn" href={chatHref(null)} onClick={() => privateDraft.current?.("doc-question", null).write("")}>
+          New chat
+        </a>
       </header>
       <div className="doc-chat__layout">
-        <button
-          className="btn doc-chat__recent-toggle"
-          type="button"
-          aria-expanded={showRecent}
-          onClick={() => setShowRecent(!showRecent)}
+        {recent.length > 0 && (
+          <button
+            className="btn doc-chat__recent-toggle"
+            type="button"
+            aria-expanded={showRecent}
+            onClick={() => setShowRecent(!showRecent)}
+          >
+            {showRecent ? "Back to conversation" : "Recent chats"}
+          </button>
+        )}
+        <aside
+          className={`doc-chat__recent${showRecent || noChats ? " doc-chat__recent--open" : ""}`}
+          aria-labelledby="docRecent"
         >
-          {showRecent ? "Back to conversation" : "Recent chats"}
-        </button>
-        <aside className={`doc-chat__recent${showRecent ? " doc-chat__recent--open" : ""}`} aria-labelledby="docRecent">
           <h2 id="docRecent">Recent chats</h2>
           <ul>
             {recent.map((chat) => (
@@ -745,7 +749,7 @@ function DocChat() {
               </li>
             ))}
           </ul>
-          {ready && recent.length === 0 && <p>No conversations yet</p>}
+          {noChats && <p>No conversations yet</p>}
           {nextBefore && (
             <button className="btn" type="button" disabled={busy} onClick={loadOlder}>
               Show older chats
@@ -755,12 +759,16 @@ function DocChat() {
         <section aria-label="Conversation">
           {ready && draftId && (
             <p>
-              <a href={draftReviewHref(draftId)}>{reviewReason ? "Open fresh review" : "Open reply review"}</a>
+              <a className="doc-chat__action" href={draftReviewHref(draftId)}>
+                {reviewReason ? "Open fresh review" : "Open reply review"}
+              </a>
             </p>
           )}
           {ready && initialInvoice && (
             <p>
-              <a href={`/invoices?invoice=${encodeURIComponent(initialInvoice.key)}`}>Open invoice</a>
+              <a className="doc-chat__action" href={`/invoices?invoice=${encodeURIComponent(initialInvoice.key)}`}>
+                Open invoice
+              </a>
             </p>
           )}
           <ol className="doc-chat__turns" aria-live="polite">
@@ -772,7 +780,7 @@ function DocChat() {
                 <li key={turn.id}>
                   <p className="doc-chat__question">{turn.question}</p>
                   <p className="doc-chat__reply">{turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}</p>
-                  {turn.state === "answered" && turn.answered_by === "backup" && <small>Answered by the backup.</small>}
+                  {turn.state === "answered" && turn.answered_by === "backup" && <small>Answered by backup</small>}
                   {sources.length > 0 && (
                     <ul className="doc-chat__sources" aria-label="Sources">
                       {sources.map(({ ref, label, href }) => {
@@ -862,5 +870,5 @@ function DocChat() {
   );
 }
 
-const root = document.querySelector("#docChat");
+const root = document.querySelector("#main");
 if (root) createRoot(root).render(<DocChat />);

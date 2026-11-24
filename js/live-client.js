@@ -406,18 +406,6 @@ export function createLiveClient(opts = {}) {
       };
     },
 
-    // The app sends only the deal id to CARR. CARR performs the bounded
-    // on-demand TypeSafe call authorized by Joe in this task.
-    async getJevDealReading(dealId) {
-      const res = await fetchReadImpl('/api/v1/jev-deal-reading', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ deal: dealId }),
-      });
-      if (!res.ok) throw new Error(`Jev deal reading unavailable (${res.status})`);
-      return res.json();
-    },
-
     // Use the client or vendor UUID, not a participant's party_id.
     // A failed read leaves the context drawer unavailable.
     async getPartyRecord({ dataset, id }) {

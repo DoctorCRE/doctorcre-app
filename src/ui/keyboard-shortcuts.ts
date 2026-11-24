@@ -1,9 +1,10 @@
 import { navigationItems } from "../../js/routes.js";
 import { blocksShortcut } from "./keyboard-input";
 
-// One owner for the app shell's single-key shortcuts: 'g' sequences, '/' and
-// '?'. The ⌘/Ctrl+Alt+K switcher key stays in the app shell's capture
-// listener; it is listed here only so the help dialog shows every shortcut.
+// One owner for the app shell's single-key shortcuts: 'g' sequences, '/',
+// '?' and the j/k card traversal. The ⌘/Ctrl+Alt+K switcher key stays in the
+// app shell's capture listener; it is listed here only so the help dialog
+// shows every shortcut.
 const SEQUENCE_MS = 1000;
 const GO_TO = { h: "Home", d: "Deals", l: "Leads", v: "Vendors" } as const;
 
@@ -20,12 +21,47 @@ const shortcuts: Shortcut[] = [
   { keys: ["/"], description: "Search this page, or open the quick switcher" },
   { keys: ["?"], description: "Show keyboard shortcuts" },
   { keys: ["⌘/Ctrl", "Alt", "K"], description: "Open the quick switcher" },
+  { keys: ["j"], description: "Next card (Home, Deals)" },
+  { keys: ["k"], description: "Previous card (Home, Deals)" },
+  // Enter is the focused open control's own activation: listed, not handled.
+  { keys: ["Enter"], description: "Open the selected card" },
 ];
 
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock"]);
 
 const visible = (element: HTMLElement): boolean =>
   element.getClientRects().length > 0 && !(element instanceof HTMLInputElement && element.disabled);
+
+// Pages mark a card with [data-shortcut-card] and its open control with
+// [data-shortcut-open]. A card counts only while its open control is shown.
+const CARD = "[data-shortcut-card]";
+const CARD_STEP = new Map<string, 1 | -1>([
+  ["j", 1],
+  ["k", -1],
+]);
+const shown = (element: HTMLElement): boolean =>
+  element.getClientRects().length > 0 && !element.closest("details:not([open])");
+
+function cardControls(root: Document): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(CARD)).flatMap((card) => {
+    const control = Array.from(card.querySelectorAll<HTMLElement>("[data-shortcut-open]")).find(
+      (node) => node.closest(CARD) === card,
+    );
+    return control && shown(control) ? [control] : [];
+  });
+}
+
+// Moves focus to the next or previous card's open control, without wrapping.
+// With no current card it starts at the first. Returns whether focus moved.
+function stepCard(root: Document, step: 1 | -1): boolean {
+  const controls = cardControls(root);
+  const current = root.activeElement?.closest(CARD);
+  const index = current ? controls.findIndex((control) => control.closest(CARD) === current) : -1;
+  const target = index < 0 ? controls[0] : controls[index + step];
+  if (!target || target === root.activeElement) return false;
+  target.focus();
+  return root.activeElement === target;
+}
 
 function renderHelp(root: Document): HTMLDialogElement {
   const dialog = root.createElement("dialog");
@@ -120,6 +156,9 @@ export function mountKeyboardShortcuts({ root, openSearch }: { root: Document; o
     } else if (event.key === "?") {
       event.preventDefault();
       showHelp();
+    } else {
+      const step = CARD_STEP.get(event.key);
+      if (step && stepCard(root, step)) event.preventDefault();
     }
   };
 

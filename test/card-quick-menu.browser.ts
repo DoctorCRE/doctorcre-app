@@ -49,7 +49,9 @@ async function plainPoint(card: Locator) {
     const plain = points.find(({ x, y }) => {
       const hit = document.elementFromPoint(x, y);
       return (
-        hit && element.contains(hit) && !hit.closest("button,a,input,select,textarea,details,.deal-vendor-details")
+        hit &&
+        element.contains(hit) &&
+        !hit.closest("button,a,input,select,textarea,label,details,.deal-vendor-details")
       );
     });
     return plain ? { x: Math.round(plain.x), y: Math.round(plain.y) } : null;
@@ -72,7 +74,7 @@ async function outsidePoint(page: Page) {
       return (
         hit &&
         !hit.closest(
-          '.kanban-card,[role="menu"],button,a,input,select,textarea,summary,label,nav,[role="navigation"],dialog',
+          '.kanban-card,[data-inbox-row],[role="menu"],button,a,input,select,textarea,summary,label,nav,[role="navigation"],dialog',
         )
       );
     };
@@ -261,4 +263,372 @@ test("a long-press on a phone opens the card menu without opening the deal or dr
         await context.close();
       }
     }
+});
+
+// Home's synthetic fixture inbox: two open tasks that can be marked done and snoozed.
+const REVIEW = { id: "demo-review", title: "Review the practice tour follow-up" };
+const CALL = { id: "demo-call", title: "Confirm next steps from the pipeline call" };
+
+async function openHome(page: Page, origin: string, theme: string) {
+  await page.addInitScript(
+    (theme) =>
+      localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme, walkthroughSeen: { joe: true } })),
+    theme,
+  );
+  await page.goto(`${origin}/?mode=fixture`);
+  await page.locator(`[data-inbox-row="${REVIEW.id}"] h3 a`).waitFor();
+  assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
+}
+
+const homeRow = (page: Page, id: string) => page.locator(`[data-inbox-row="${id}"]`);
+const rowLabels = (row: Locator) =>
+  row
+    .locator(":scope > .inbox-actions > button:not(:disabled)")
+    .evaluateAll((buttons) => buttons.map((button) => button.textContent?.trim() ?? ""));
+const focusedIsTitleOf = (page: Page, id: string) =>
+  page.evaluate((id) => document.activeElement === document.querySelector(`[data-inbox-row="${id}"] h3 a`), id);
+
+test("right-click on a Home card opens a menu of that card's own actions", async (t) => {
+  const server = await startWorkerFixture({
+    assets: await appAssetSnapshot(),
+    env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
+  });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+
+  for (const width of [1440, 390])
+    for (const theme of ["light", "dark"] as const) {
+      const page = await browser.newPage({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+        reducedMotion: "reduce",
+      });
+      try {
+        await openHome(page, server.origin, theme);
+        const row = homeRow(page, REVIEW.id);
+        const labels = await rowLabels(row);
+        assert.deepEqual(labels, ["Open", "Mark done", "Snooze"]);
+
+        // Right-click opens the row's own actions, in its order, focused on the first.
+        await rightClick(page, row);
+        const menu = menuFor(page, REVIEW.title);
+        await menu.waitFor();
+        assert.equal(await page.getByRole("menu").count(), 1);
+        assert.deepEqual(await menu.getByRole("menuitem").allInnerTexts(), labels);
+        assert.equal(await focusedText(page), "Open");
+        await assertInsideViewport(page, menu);
+
+        // Arrow keys move inside the menu and wrap; they never move between rows.
+        await page.keyboard.press("ArrowDown");
+        assert.equal(await focusedText(page), "Mark done");
+        await page.keyboard.press("ArrowDown");
+        assert.equal(await focusedText(page), "Snooze");
+        await page.keyboard.press("ArrowDown");
+        assert.equal(await focusedText(page), "Open");
+        await page.keyboard.press("ArrowUp");
+        assert.equal(await focusedText(page), "Snooze");
+        assert.equal(await menu.isVisible(), true);
+
+        // Escape closes the menu and focuses the row's title link.
+        await page.keyboard.press("Escape");
+        assert.equal(await page.getByRole("menu").count(), 0);
+        assert.equal(await focusedIsTitleOf(page, REVIEW.id), true);
+
+        // The keyboard menu key opens the same menu from a focused row control.
+        await row.getByRole("button", { name: "Snooze", exact: true }).focus();
+        await page.keyboard.press("ContextMenu");
+        await menu.waitFor();
+        assert.deepEqual(await menu.getByRole("menuitem").allInnerTexts(), labels);
+
+        // A press outside closes it without acting.
+        const outside = await outsidePoint(page);
+        await page.mouse.click(outside.x, outside.y);
+        assert.equal(await page.getByRole("menu").count(), 0);
+        assert.equal(await page.getByRole("dialog", { name: "Snooze cards" }).count(), 0);
+
+        // Enter on Snooze opens the snooze dialog; closing it returns to the row's Snooze button.
+        await rightClick(page, row);
+        await menu.waitFor();
+        await page.keyboard.press("End");
+        assert.equal(await focusedText(page), "Snooze");
+        await page.keyboard.press("Enter");
+        const snooze = page.getByRole("dialog", { name: "Snooze cards" });
+        await snooze.waitFor();
+        await page.keyboard.press("Escape");
+        await snooze.waitFor({ state: "detached" });
+        assert.equal(
+          await row.getByRole("button", { name: "Snooze", exact: true }).evaluate((b) => b === document.activeElement),
+          true,
+        );
+
+        // Enter on Mark done completes the card with the same Undo confirmation as a click.
+        const call = homeRow(page, CALL.id);
+        await rightClick(page, call);
+        await menuFor(page, CALL.title).waitFor();
+        await page.keyboard.press("ArrowDown");
+        assert.equal(await focusedText(page), "Mark done");
+        await page.keyboard.press("Enter");
+        const toast = page.locator(".toast").filter({ hasText: `Marked done: ${CALL.title}.` });
+        await toast.getByRole("button", { name: "Undo", exact: true }).waitFor();
+        assert.equal(await page.getByRole("menu").count(), 0);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      } finally {
+        await page.close();
+      }
+    }
+});
+
+test("a long-press on a Home card opens its menu without opening, completing or snoozing it", async (t) => {
+  const server = await startWorkerFixture({
+    assets: await appAssetSnapshot(),
+    env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
+  });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+
+  for (const theme of ["light", "dark"] as const) {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+      isMobile: true,
+      colorScheme: theme,
+      reducedMotion: "reduce",
+    });
+    const page = await context.newPage();
+    try {
+      await openHome(page, server.origin, theme);
+      const row = homeRow(page, REVIEW.id);
+      await row.scrollIntoViewIfNeeded();
+      const point = await plainPoint(row);
+      const start = page.url();
+
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+      await page.waitForTimeout(800);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
+      const menu = menuFor(page, REVIEW.title);
+      await menu.waitFor();
+      await page.waitForTimeout(200);
+      assert.equal(await page.getByRole("menu").count(), 1, "one long-press opens exactly one menu");
+      assert.deepEqual(await menu.getByRole("menuitem").allInnerTexts(), await rowLabels(row));
+      assert.equal(page.url(), start, "the long-press does not open the card");
+      assert.equal(await row.locator("h3 a").getAttribute("aria-expanded"), "false");
+      assert.equal(await page.getByRole("dialog", { name: "Snooze cards" }).count(), 0);
+      assert.equal(await page.getByText(/^Marked done:/).count(), 0);
+      await assertInsideViewport(page, menu);
+
+      // A tap outside closes the menu; a short tap on the title still opens the card.
+      const outside = await outsidePoint(page);
+      await page.touchscreen.tap(outside.x, outside.y);
+      assert.equal(await page.getByRole("menu").count(), 0);
+      const title = row.locator("h3 a");
+      const box = await title.boundingBox();
+      assert.ok(box);
+      await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+      await row.locator('h3 a[aria-expanded="true"]').waitFor();
+      assert.equal(await page.getByRole("menu").count(), 0);
+
+      // A quick left swipe still opens Snooze rather than the menu.
+      await page.goto(start);
+      const call = homeRow(page, CALL.id);
+      await call.locator("h3 a").waitFor();
+      await call.scrollIntoViewIfNeeded();
+      const { y } = await plainPoint(call);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 260, y }] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 120, y }] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await page.getByRole("dialog", { name: "Snooze cards" }).waitFor();
+      assert.equal(await page.getByRole("menu").count(), 0);
+
+      // Once a long-press opens the menu, the same finger sliding 100 px left and lifting is no swipe.
+      // The press lands on the detail line, clear of the links that touch adjustment snaps to.
+      await page.keyboard.press("Escape");
+      await page.getByRole("dialog", { name: "Snooze cards" }).waitFor({ state: "detached" });
+      const detail = await call.locator(".inbox-detail").boundingBox();
+      assert.ok(detail);
+      const line = Math.round(detail.y + detail.height / 2);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 340, y: line }] });
+      await menuFor(page, CALL.title).waitFor();
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 240, y: line }] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await page.waitForTimeout(300);
+      assert.equal(await page.getByRole("dialog", { name: "Snooze cards" }).count(), 0, "the slide does not snooze");
+      assert.equal(await page.getByRole("menu").count(), 1, "the menu stays open");
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test("a long-press never turns into a swipe, a slow one included, and lets later keys act", async (t) => {
+  const server = await startWorkerFixture({
+    assets: await appAssetSnapshot(),
+    env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
+  });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    reducedMotion: "reduce",
+  });
+  t.after(() => context.close());
+  const page = await context.newPage();
+  await openHome(page, server.origin, "light");
+
+  // Drifting down cancels the pointer on a pan-y row; the finger then rests past
+  // the settle time and slides left before it lifts.
+  const call = homeRow(page, CALL.id);
+  await call.scrollIntoViewIfNeeded();
+  const detail = await call.locator(".inbox-detail").boundingBox();
+  assert.ok(detail);
+  const line = Math.round(detail.y + detail.height / 2);
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 340, y: line }] });
+  await menuFor(page, CALL.title).waitFor();
+  for (let drift = 5; drift <= 30; drift += 5)
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 340, y: line + drift }] });
+  await page.waitForTimeout(900);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 230, y: line + 25 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await page.waitForTimeout(300);
+  assert.equal(await page.getByRole("dialog", { name: "Snooze cards" }).count(), 0, "the slow slide does not snooze");
+
+  // A browser that starts a touch drag cancels the pointer and then fires
+  // dragstart; the menu opens there, and the finger lifts after.
+  const row = homeRow(page, REVIEW.id);
+  await row.scrollIntoViewIfNeeded();
+  await row.locator(".inbox-detail").evaluate((target) => {
+    const pointer = { bubbles: true, pointerId: 41, pointerType: "touch", isPrimary: true };
+    target.dispatchEvent(new PointerEvent("pointerdown", pointer));
+    target.dispatchEvent(new PointerEvent("pointercancel", pointer));
+    target.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true }));
+    target.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true }));
+  });
+  await menuFor(page, REVIEW.title).waitFor();
+  await page.waitForTimeout(800);
+  await page.keyboard.press("Escape");
+  assert.equal(await focusedIsTitleOf(page, REVIEW.id), true);
+  await page.keyboard.press("Enter");
+  await row.locator('h3 a[aria-expanded="true"]').waitFor({ timeout: 2000 });
+
+  // The open review is the partner's to read and copy: no card menu inside it.
+  const review = row.locator(".home-inline-review p").first();
+  await review.click({ button: "right" });
+  assert.equal(await page.getByRole("menu").count(), 0, "right-click in the review opens no card menu");
+  const box = await review.boundingBox();
+  assert.ok(box);
+  const inside = { x: Math.round(box.x + 10), y: Math.round(box.y + box.height / 2) };
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [inside] });
+  await page.waitForTimeout(800);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await page.waitForTimeout(200);
+  assert.equal(await page.getByRole("menu").count(), 0, "a long-press in the review opens no card menu");
+});
+
+// Drop shows only on engine cards, and the fixture inbox is not an engine inbox,
+// so this card comes from a synthetic engine snapshot served in place of the server.
+const DROPPABLE = { id: "00000000-0000-0000-0000-000000000001", title: "Send the sample terms" };
+
+async function openEngineHome(page: Page, origin: string) {
+  const card = {
+    item_id: `next_action:${DROPPABLE.id}`,
+    source_type: "next_action",
+    source_id: DROPPABLE.id,
+    source_version: "7",
+    source_state: "needs_attention",
+    title: DROPPABLE.title,
+    activity_at: "2026-11-03T12:00:00Z",
+    hold_until: null,
+    due_on: null,
+    unseen: false,
+    disposition: "inbox",
+    snoozed_until: null,
+    section: "inbox",
+    base_version: "7:0:inbox",
+    context_label: "Example Dental",
+    open_url: null,
+    kind_label: "Task",
+    merged_source_ids: [DROPPABLE.id],
+    action_id: DROPPABLE.id,
+    action_version: 7,
+    deal_id: null,
+    completed_at: null,
+    waiting_version: 0,
+    waiting_on: null,
+  };
+  await page.addInitScript(() =>
+    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ walkthroughSeen: { joe: true } })),
+  );
+  await page.route("**/auth/session", (route) =>
+    route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
+  );
+  await page.route("**/mcp", (route) => {
+    const { name } = route.request().postDataJSON().params;
+    const payload =
+      name === "read-home-inbox-v5"
+        ? {
+            ok: true,
+            schema_version: "home-inbox.v5",
+            engine_marks: true,
+            working_collapsed: true,
+            truncated: false,
+            limit: 1000,
+            items: [card],
+          }
+        : { items: [] };
+    return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
+  });
+  await page.goto(`${origin}/?mode=live`);
+  const row = homeRow(page, card.item_id);
+  await row.getByRole("button", { name: "Drop", exact: true }).waitFor();
+  return row;
+}
+
+test("the Home menu's Drop opens the same drop dialog as the card's Drop button", async (t) => {
+  const server = await startWorkerFixture({
+    assets: await appAssetSnapshot(),
+    env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
+  });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+
+  for (const width of [1440, 390]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: "reduce" });
+    try {
+      const row = await openEngineHome(page, server.origin);
+      const drop = row.getByRole("button", { name: "Drop", exact: true });
+      const dialog = page.getByRole("dialog", { name: "Drop with a reason" });
+      const dropIsFocused = () => drop.evaluate((button) => button === document.activeElement);
+
+      await drop.click();
+      const direct = await dialog.textContent();
+      await page.keyboard.press("Escape");
+      await dialog.waitFor({ state: "detached" });
+      assert.equal(await dropIsFocused(), true);
+
+      await rightClick(page, row);
+      const menu = menuFor(page, DROPPABLE.title);
+      await menu.waitFor();
+      const labels = await rowLabels(row);
+      assert.ok(labels.includes("Drop"), `the card offers Drop: ${labels}`);
+      assert.deepEqual(await menu.getByRole("menuitem").allInnerTexts(), labels);
+      await menu.getByRole("menuitem", { name: "Drop", exact: true }).click();
+      await dialog.waitFor();
+      assert.equal(await page.getByRole("menu").count(), 0);
+      assert.equal(await dialog.textContent(), direct);
+      assert.equal(await dialog.getByRole("button", { name: "Drop", exact: true }).isDisabled(), true);
+      await page.keyboard.press("Escape");
+      await dialog.waitFor({ state: "detached" });
+      assert.equal(await dropIsFocused(), true, "closing the dialog returns focus to the card's Drop button");
+    } finally {
+      await page.close();
+    }
+  }
 });
