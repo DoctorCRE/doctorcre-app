@@ -35,7 +35,6 @@ export const UI_ENTRIES = {
   'ui-email-actions': 'email-followup-actions',
   'ui-host': 'host-node',
   'ui-zoom': 'workspace-zoom',
-  'ui-facts': 'fact-review',
   'ui-market': 'market-terms',
   'ui-market-cutover': 'market-terms-cutover',
   'ui-limit': 'home-list-limit',

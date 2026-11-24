@@ -24,7 +24,7 @@ import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient, dealTypeLabel } from './live-client.js';
 import { emailSubject, emailPlaceholderText, loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
 import { dealToursFromEngine, dealsSaveToEngine, deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
-import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
+import { ACTOR_LABEL, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
 import { formatCalendarDate } from './visual-system.js';
 import { BUSINESS_TIME_ZONE, businessDay } from './business-date.js';
@@ -1498,7 +1498,7 @@ function workspaceEventsHtml(detail, nextItem, fromEngine, planTours) {
   if (!events.some(event => event.type === timelineType)) timelineType = '';
   return `<h2>Dated events</h2><label for="timelineType">Filter by kind</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${esc(e.text)}</p></li>`).join('')}</ol>${events.length ? '' : fromEngine ? '<p>No dated events yet.</p>' : '<p>No dated events recorded.</p>'}`;
 }
-let factReviewPanel, marketTermsPanel, dealToursPanel, dealDocumentsPanel;
+let marketTermsPanel, dealToursPanel, dealDocumentsPanel;
 let checklistPanel;
 function disposeChecklist() { checklistPanel?.dispose(); checklistPanel = null; }
 function disposeWatchControl() { watchControl?.dispose(); watchControl = null; watchElement = null; watchSubject = null; }
@@ -1826,7 +1826,6 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     ${detail.next_deal_saves ? `<div data-detail-read="attention">${Number.isSafeInteger(d.seen) && !ended
       ? `<button class="btn" type="button" data-deal-attention data-detail-focus="attention">${d.attention === true ? 'Clear needs attention' : 'Mark needs attention'}</button>` : ''}</div>` : ''}
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
-    ${engineSaves ? '' : '<section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>'}
     <div data-detail-read="checklist"></div>
     ${ownStep ? '' : dealUpdateFormHtml(false, today)}
     <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail) : '<p role="status">Updating email follow-ups…</p>'}</section>
@@ -2019,7 +2018,6 @@ async function readPanel(id) {
           else if (focused?.id) document.getElementById(focused.id)?.focus({preventScroll:true});
         }
       }
-      void factReviewPanel?.refresh();
       void marketTermsPanel?.refresh();
       void dealToursPanel?.refresh();
       void dealDocumentsPanel?.refresh();
@@ -2055,37 +2053,9 @@ async function refreshEvidence(detail, id, seq) {
   root.innerHTML = template.innerHTML;
   root.querySelectorAll('details').forEach(n => { if (expanded.has(n.querySelector('summary')?.textContent)) n.open = true; });
 }
-function mountSourcedTerms(terms, dealId) {
-  let disposed = false, loading = false, mounted;
-  const observer = new IntersectionObserver(entries => {
-    if (entries.some(entry => entry.isIntersecting)) void loadTerms();
-  });
-  async function loadTerms() {
-    if (disposed || loading) return;
-    loading = true;
-    observer.disconnect();
-    terms.textContent = 'Loading terms…';
-    try {
-      const { mountFactReview } = await import('./ui-facts.generated.js');
-      if (disposed) return;
-      terms.replaceChildren();
-      mounted = mountFactReview(terms, { client: state.client, entityRef: dealId, terms: FACT_TERMS });
-    } catch {
-      if (!disposed) terms.textContent = 'Terms unavailable. Reopen this deal to try again.';
-    }
-  }
-  terms.querySelector('[data-open-terms]').addEventListener('click', loadTerms);
-  observer.observe(terms);
-  return {
-    refresh() { return mounted?.refresh(); },
-    dispose() { disposed = true; observer.disconnect(); mounted?.dispose(); },
-  };
-}
-
 function paintPanel(detail) {
   $('panelTitle').textContent = dealTitle(detail.deal);
   renderWorkspaceFacts(detail);
-  factReviewPanel?.dispose();
   marketTermsPanel?.dispose();
   disposeChecklist();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
@@ -2100,7 +2070,6 @@ function paintPanel(detail) {
   overview.prepend(watchElement);
   watchSubject = detail.deal.id;
   watchControl ||= mountWatchControl(watchElement, {subject:{subject_type:'deal',subject_id:detail.deal.id}, ...(engineMode ? {engineRequest:sessionFetch} : {})});
-  factReviewPanel = $('panelTerms') ? mountSourcedTerms($('panelTerms'), detail.deal.id) : null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   syncUpdateForm();
@@ -2265,8 +2234,6 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   disposeWatchControl();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
-  factReviewPanel?.dispose();
-  factReviewPanel = null;
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
   closeFiledDocumentText();
@@ -2343,8 +2310,6 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   disposeWatchControl();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
-  factReviewPanel?.dispose();
-  factReviewPanel = null;
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
   if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
