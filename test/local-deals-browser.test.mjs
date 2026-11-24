@@ -43,7 +43,8 @@ async function open(t, { width = 1440, height = 960, reducedMotion = 'no-prefere
 }
 const refresh = page => page.evaluate(async () => (await import('/js/pipeline.js')).state.boardSync.refreshBoard({ reason: 'test' }));
 // Stops wall time leaking into an exact toast deadline: only runFor advances the page clock after this.
-const freezeClock = async page => page.clock.pauseAt(await page.evaluate(() => Date.now() + 1));
+// The second of headroom keeps a slow runner from pausing at a time that has already passed.
+const freezeClock = async page => page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
 
 for (const [label, selector] of [['sourced Terms', '#panelTerms'], ['Mark inactive', '#detailInactiveForm']]) {
   test(`the save switch hides ${label} on a deal`, async t => {
