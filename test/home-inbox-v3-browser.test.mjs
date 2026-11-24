@@ -103,7 +103,8 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   assert.equal(await tour.getByRole('button', { name: 'Done', exact: true }).count(), 0);
   capabilities = true;
   await page.clock.fastForward(60_000);
-  await tour.getByRole('button', { name: 'Drop', exact: true }).waitFor();
+  await tour.getByRole('button', { name: 'Done', exact: true }).waitFor();
+  assert.equal(await tour.getByRole('button', { name: 'Drop', exact: true }).count(), 0);
   await tour.getByRole('button', { name: 'Done', exact: true }).click();
   await tour.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
