@@ -356,8 +356,9 @@ test("Edit to an email another record has offers that record, and Keep this emai
 test("Edit opened from the keyboard gives focus back to Edit when it closes", async (t) => {
   const fake = engine(vendorParty, "vendor", vendorProfile);
   const { page } = await setup(t, `/vendors?record=${vendor}`, fake.answer);
-  await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).focus();
-  await page.keyboard.press("Enter");
+  // Settled activity re-renders the panel, which would take keyboard focus off Edit before Enter lands.
+  await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
+  await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).press("Enter");
   await page.getByRole("dialog", { name: "Edit Demo Partner 01" }).waitFor();
   await page.keyboard.press("Escape");
   await page.getByRole("dialog", { name: "Edit Demo Partner 01" }).waitFor({ state: "hidden" });
