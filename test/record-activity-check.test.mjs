@@ -136,3 +136,20 @@ test("a client entry filed to a deal, company or person names where it was filed
     { what: "Unknown filing", filedOn: null },
   ]);
 });
+
+test("a client's next step names its owner, so two partners' identical steps read apart", () => {
+  const client = { name: "Example Practice", ref: "C-901" };
+  const step = { summary: "Run the rent comparison", verb: "next_step", filed_on: { kind: "deal", name: "Example Suite Lease" } };
+  const result = activityState(client, completed("C-901", [
+    row({ ...step, step_owner: "dell" }),
+    row({ ...step, step_owner: "joe" }),
+    row({ ...step, step_owner: null }),
+    row({ summary: "Called the practice", filed_on: null }),
+  ]), "clients");
+  assert.deepEqual(result.rows.map(({ what, stepOwner }) => ({ what, stepOwner })), [
+    { what: "Run the rent comparison", stepOwner: "Dell’s step" },
+    { what: "Run the rent comparison", stepOwner: "Joe’s step" },
+    { what: "Run the rent comparison", stepOwner: null },
+    { what: "Called the practice", stepOwner: null },
+  ]);
+});
