@@ -1153,8 +1153,8 @@ for (const grouped of [true, false]) test(`Home uses reported lateness on the ${
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
   const filing = reminders.getByRole('link', { name: 'Review where to file the email' });
   await filing.waitFor();
-  assert.ok(await filing.evaluate(node => node.getBoundingClientRect().bottom <
-    node.closest('.home-slice').querySelector('.home-late').getBoundingClientRect().top));
+  assert.ok(await filing.evaluate(node => node.getBoundingClientRect().top >
+    node.closest('.home-slice').querySelector('section[aria-label="Late"]').getBoundingClientRect().bottom), 'Late leads the tile');
   const late = reminders.getByRole('region', { name: 'Late', exact: true });
   assert.deepEqual(await late.locator('article h3').allTextContents(), [
     'Send the signed lease', 'Check in with the surveyor', 'Review the completed site visit',
