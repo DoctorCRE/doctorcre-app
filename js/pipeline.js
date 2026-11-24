@@ -44,7 +44,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, starredFirst, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime, stepOriginLabel } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
@@ -200,6 +200,10 @@ function cardAttentionHtml(deal) {
   return `<button class="deal-board-attention" type="button" aria-label="Needs attention: ${reason}" aria-expanded="false" aria-controls="${reasonId}"><span class="deal-board-badge">Needs attention</span></button>
     <span class="deal-board-reason" id="${reasonId}" hidden>${reason}</span>`;
 }
+function starHtml(deal) {
+  if (!state.nextDealSaves || typeof deal.starred !== 'boolean' || deal.operating_state === 'parked') return '';
+  return `<button class="deal-star" type="button" data-star="${esc(deal.id)}" aria-pressed="${deal.starred}" aria-label="Star ${esc(dealTitle(deal))}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></button>`;
+}
 function cardHtml(deal) {
   const parked = deal.operating_state === 'parked';
   const pending = pendingCommand(state.fieldWrites, cellKey(deal.id, 'phase'));
@@ -209,7 +213,7 @@ function cardHtml(deal) {
   return workCard({ variant: 'tile', className: `kanban-card${parked ? ' parked-card' : ''}`, heading: 'h4',
     attributes: `data-id="${esc(deal.id)}" ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
-    meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}` });
+    meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}${starHtml(deal)}` });
 }
 function legacyRowStepHtml(deal) {
   const nextStep = noteText(deal.next_step);
@@ -227,7 +231,7 @@ function rowHtml(deal) {
   const move = automaticPhaseReceipt(deal, null, { showEngineMoves: state.boardFromEngine, canUndo: false });
   return workCard({ variant: 'row', className: `kanban-card deal-row${parked && !state.boardFromEngine ? ' parked-card' : ''}`, heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0" data-attention="${attention}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
-    meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${dealAttentionHtml(deal)}`,
+    meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${dealAttentionHtml(deal)}${starHtml(deal)}`,
     body: `<span class="deal-stage">${esc(columnLabel(deal.phase))}</span><div class="deal-row-next">${summary}${parking}${renderDealVendors(deal.vendors)}${website}${renderPhaseReceipt(deal, move, autoHtml(deal))}${revive}</div>` });
 }
 function parkingSummaryHtml(deal) {
@@ -407,7 +411,7 @@ function dealListHtml(rows, parked) {
   const fromEngine = state.boardFromEngine;
   const phase = fromEngine ? 'Phase' : 'Stage';
   const visible = !fromEngine && state.parkedOpen ? rows : rows.filter(deal => deal.operating_state !== 'parked');
-  const mainRows = urgencyOrder(visible).map(rowHtml).join('');
+  const mainRows = starredFirst(urgencyOrder(visible)).map(rowHtml).join('');
   const parkedGroup = fromEngine && state.parkedOpen ? `<section class="deal-list-parked" aria-labelledby="parkedListHeading">
     <h3 id="parkedListHeading">Parked · ${parked.length}</h3>${urgencyOrder(parked).map(rowHtml).join('')}</section>` : '';
   return `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>${phase}</span><span>Next step</span><span>Owner</span></div>${mainRows}${parkedGroup}</div>`;
@@ -440,7 +444,7 @@ function renderBoard() {
     for (const child of [...board.children]) if (child !== lane) child.remove();
     const insert = list ? 'beforebegin' : 'afterend';
     (lane ?? board).insertAdjacentHTML(lane ? insert : 'afterbegin', list ? dealListHtml(rows, grouped.parked) : grouped.columns.map((column) => {
-      const cards = urgencyOrder(column.deals);
+      const cards = starredFirst(urgencyOrder(column.deals));
       const collapsed = state.collapsedColumns.has(column.slug);
       const content = collapsed
         ? `<p class="stage-preview">${cards.slice(0,2).map(d => `<span>${esc(dealTitle(d))}</span>`).join('')}${cards.length > 2 ? `<span>${cards.length - 2} more</span>` : ''}</p>`
@@ -688,6 +692,25 @@ function confirmLocalWrite(dealId, patch) {
   state.boardSync.requestRefresh('after-write');
   if (state.panelDeal === dealId && Number.isSafeInteger(state.panelDetail?.deal?.seen)) void refreshPanel({ changed: true });
   return deal;
+}
+
+async function toggleDealStar(button) {
+  const id = button.dataset.star;
+  const deal = state.deals.get(id);
+  if (!deal) return;
+  const starred = deal.starred !== true;
+  button.disabled = true;
+  try {
+    await state.client.setDealStar(id, starred);
+  } catch {
+    button.disabled = false;
+    showToast(starred ? 'Could not star this deal. Try again.' : 'Could not unstar this deal. Try again.', { error: true });
+    return;
+  }
+  confirmLocalWrite(id, { starred });
+  renderBoard();
+  document.querySelector(`[data-star="${CSS.escape(id)}"]`)?.focus();
+  announce(`${dealTitle(deal)} ${starred ? 'starred' : 'unstarred'}.`);
 }
 
 async function sendPhaseWrite(dealId, value, extra = null) { return sendFieldWrite(dealId, 'phase', value, extra); }
@@ -2644,6 +2667,8 @@ function wire() {
     }
     const item = event.target.closest('[data-deal-item]');
     if (item) { itemSheet.open(item.dataset.itemDeal,item.dataset.dealItem,item); return; }
+    const star = event.target.closest('button[data-star]');
+    if (star) { toggleDealStar(star); return; }
     const revive = event.target.closest('button[data-revive]');
     if (revive) { setOperatingState(revive.dataset.revive, {state:'active'}); return; }
     const open = event.target.closest('button[data-open]');
