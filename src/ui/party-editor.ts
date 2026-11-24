@@ -1,4 +1,4 @@
-// Add and edit clients and vendors through the engine's party doors.
+// Add, edit and link clients and vendors through the engine's party doors.
 
 type Dataset = "clients" | "vendors";
 type Facet = { slug: string; label: string };
@@ -26,6 +26,10 @@ const STATUSES = [
   ["cold", "Cold"],
   ["engaged", "Engaged"],
   ["paused", "Paused"],
+];
+const LINKS = [
+  ["knows", "Knows"],
+  ["can_introduce", "Can introduce us to"],
 ];
 // No engine read lists these yet, so this copies the engine's how_found list; Not recorded is only for copied records.
 export const HOW_FOUND = [
@@ -63,6 +67,7 @@ const REFUSALS: Record<string, string> = {
   party_exists: "A record like this already exists.",
   already_client: "This record is already a client.",
   already_vendor: "This record is already a vendor.",
+  already_linked: "These two are already linked.",
   invalid_field_value: "Check the highlighted fields.",
   missing_required: "Fill in the highlighted fields.",
 };
@@ -425,15 +430,70 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
     });
   }
 
+  function openLink(partyId: string, name: string) {
+    const body = `${field("Link", "kind", select("kind", LINKS, "knows"))}${field("Find a person or company", "query", input("query", "", 'type="search" autocomplete="off" maxlength="100"'))}<ul class="party-results" data-results></ul>${field("Since", "started_on", input("started_on", "", 'type="date"'))}${field("Note", "note", textarea("note"))}`;
+    let other: string | null = null;
+    let searchTimer = 0;
+    const form = show(`Link ${name.trim() || "this record"} to someone`, body, "Save link", async (form) => {
+      if (!other) return refuse(form, { ok: false, problem: { error: "missing_required", fields: ["query"] } });
+      const answer = await save("party-links", "link", "link_id", {
+        kind: value(form, "kind"),
+        party_id: partyId,
+        other_party_id: other,
+        ...(value(form, "started_on") && { started_on: value(form, "started_on") }),
+        ...(value(form, "note") && { note: value(form, "note") }),
+      });
+      if (!answer.ok) return refuse(form, answer);
+      done(partyId);
+    });
+    const results = form.querySelector<HTMLElement>("[data-results]");
+    form.querySelector('[name="query"]')?.addEventListener("input", () => {
+      other = null;
+      clearTimeout(searchTimer);
+      const query = value(form, "query");
+      // eslint-disable-next-line no-restricted-syntax -- One search after each 250 ms pause in typing.
+      searchTimer = window.setTimeout(async () => {
+        if (!results) return;
+        if (!query) {
+          results.innerHTML = "";
+          return;
+        }
+        const response = await fetch(`/api/engine/parties/search?${new URLSearchParams({ query })}`, {
+          headers: { accept: "application/json" },
+          credentials: "same-origin",
+        }).catch(() => null);
+        const payload: unknown = response?.ok ? await response.json().catch(() => null) : null;
+        if (value(form, "query") !== query) return;
+        const parties = isRecord(payload) && Array.isArray(payload.parties) ? payload.parties.filter(isRecord) : null;
+        results.innerHTML =
+          parties === null
+            ? "<li>Search is unavailable. Try again.</li>"
+            : parties
+                .filter((party) => typeof party.id === "string" && party.id !== partyId)
+                .map(
+                  (party) =>
+                    `<li><label class="party-check"><input type="radio" name="other" value="${escapeHtml(party.id)}">${escapeHtml(party.display_name)}${party.city ? ` · ${escapeHtml(party.city)}` : ""}</label></li>`,
+                )
+                .join("") || "<li>No matches.</li>";
+      }, 250);
+    });
+    results?.addEventListener("change", (event) => {
+      if (event.target instanceof HTMLInputElement) other = event.target.value;
+    });
+  }
+
   return {
     setDataset(kind: Dataset) {
       newButton.textContent = kind === "clients" ? "New client" : "New vendor";
     },
     actionsHtml() {
-      return '<div class="party-record-actions"><button type="button" class="action secondary-action" data-party-edit>Edit</button></div>';
+      return '<div class="party-record-actions"><button type="button" class="action secondary-action" data-party-edit>Edit</button><button type="button" class="action secondary-action" data-party-link>Link to someone</button></div>';
     },
     edit(partyId: string, button: HTMLButtonElement) {
       if (!opening && !dialog.open) void openEdit(partyId, button);
+    },
+    link(partyId: string, name: string) {
+      if (!dialog.open) openLink(partyId, name);
     },
   };
 }

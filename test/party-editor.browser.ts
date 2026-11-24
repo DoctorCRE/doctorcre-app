@@ -375,3 +375,38 @@ test("Without the Clients and Vendors switch there is no New client, and the rec
   assert.equal(await panel.getByText("Vertical", { exact: true }).count(), 0);
   assert.equal(await page.locator(".party-new").count(), 0);
 });
+
+test("Link to someone on a record opened by its old id links the party the record names", async (t) => {
+  const party = "00000000-0000-4000-8000-000000000555";
+  const { page, sent } = await setup(
+    t,
+    `/vendors?record=${vendor}`,
+    ({ method, path }) =>
+      method === "GET" && path.startsWith("/api/engine/parties/search")
+        ? {
+            status: 200,
+            json: {
+              ok: true,
+              parties: [{ id: other, display_name: "Avery Example", kind: "person", city: "Demo City" }],
+            },
+          }
+        : { status: 201, json: { link_id: "00000000-0000-4000-8000-000000000999" } },
+    { record: { party_id: party } },
+  );
+  await page.locator("#recordPanel").getByRole("button", { name: "Link to someone" }).click();
+  const dialog = page.getByRole("dialog", { name: "Link Demo Partner 01 to someone" });
+  await dialog.getByLabel("Link", { exact: true }).selectOption("can_introduce");
+  await dialog.getByLabel("Find a person or company").fill("Avery");
+  await dialog.getByLabel("Avery Example · Demo City").check();
+  await dialog.getByLabel("Note").fill("Met at a study club");
+  await dialog.getByRole("button", { name: "Save link" }).click();
+  await dialog.waitFor({ state: "hidden" });
+  const [link] = posts(sent);
+  assert.equal(link?.path, "/api/engine/party-links");
+  assert.deepEqual(withoutKey(link?.body ?? {}), {
+    kind: "can_introduce",
+    party_id: party,
+    other_party_id: other,
+    note: "Met at a study club",
+  });
+});
