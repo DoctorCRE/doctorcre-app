@@ -81,6 +81,14 @@
 .app-shell-account-menu p:empty { display: none; }
 .app-shell-account-menu :focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 
+/* A card's quick-actions menu: right-click or long-press on a Deals card. */
+.card-quick-menu { position: fixed; z-index: 1250; box-sizing: border-box; display: grid; gap: 2px; min-width: 176px; max-width: calc(100vw - 16px); padding: var(--space-2); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-3); background: var(--surface-2); color: var(--fg); box-shadow: var(--shadow-overlay); }
+.card-quick-menu [role="menuitem"] { box-sizing: border-box; min-height: 36px; padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-2); text-align: left; background: transparent; color: var(--fg); cursor: pointer; font: var(--font-weight-regular) var(--font-size-1) var(--font-text); overflow-wrap: anywhere; transition: background-color var(--duration-hover) var(--ease-out); }
+@media (hover: hover) { .card-quick-menu [role="menuitem"]:hover { background: var(--surface-3); } }
+@media (pointer: coarse) { .card-quick-menu [role="menuitem"] { min-height: 44px; } }
+.card-quick-menu [role="menuitem"]:focus { outline: none; background: var(--surface-3); }
+.card-quick-menu [role="menuitem"]:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: -2px; }
+
 .app-shell-profile, #callModeDialog { box-sizing: border-box; width: min(1050px, calc(100vw - 32px)); max-width: none; max-height: 85vh; overflow: auto; border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-3); background: var(--surface-1); color: var(--fg); padding: var(--space-5); box-shadow: var(--shadow-overlay); }
 .app-shell-profile::backdrop, #callModeDialog::backdrop { background: var(--scrim); }
 .app-shell-profile header, #callModeDialog header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
