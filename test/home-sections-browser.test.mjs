@@ -1755,8 +1755,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   } else {
     assert.equal(first.y, second.y);
     assert.ok(second.x >= first.x + first.width);
-    assert.equal(third.y, second.y);
-    assert.ok(third.x >= second.x + second.width);
+    assert.ok(first.width > 1.8 * second.width, 'Reminders takes the wide column');
+    assert.equal(third.x, second.x);
+    assert.ok(third.y >= second.y + second.height, 'the other tiles stack beside Reminders');
+    assert.equal(await page.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight), true, 'the page itself does not scroll');
   }
   await reminders.getByRole('heading', { name: 'Late', exact: true }).waitFor();
   await reminders.getByText(/3 days late/).waitFor();
@@ -1791,6 +1793,36 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await reminders.waitFor({ state: 'detached' });
   await waiting.waitFor({ state: 'detached' });
   await meetings.waitFor({ state: 'detached' });
+});
+
+for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['light', 'dark']) test(`Home fits one screen with Reminders alone at ${width}x${height} in ${theme}`, async t => {
+  const { page, open, state } = await dashboard(t, width, theme);
+  await page.setViewportSize({ width, height });
+  state.items = [
+    ...state.items.filter(item => item.section === 'inbox'),
+    ...Array.from({ length: 8 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
+  ];
+  await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
+    ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe',
+    meetings: { state: 'partial', items: [], observed_at: '2026-11-03T14:00:00Z' },
+  } }));
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const status = page.getByText(/^Last synced/);
+  await status.waitFor();
+  await reminders.getByRole('button', { name: /^See all/ }).click();
+  if (process.env.HOME_GRID_SCREENSHOTS) {
+    await mkdir(process.env.HOME_GRID_SCREENSHOTS, { recursive: true });
+    await page.screenshot({ path: join(process.env.HOME_GRID_SCREENSHOTS, `home-alone-${width}x${height}-${theme}.png`) });
+  }
+  const [tile, grid, band] = await Promise.all([reminders, page.locator('.home-sections'), page.locator('.app-layout-tabbar')]
+    .map(node => node.boundingBox()));
+  assert.equal(tile.width, grid.width, 'a lone Reminders tile fills the row');
+  assert.ok(band.y + band.height <= 60, 'the page controls take one compact band');
+  assert.deepEqual(await page.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight), true, 'the page itself does not scroll');
+  assert.deepEqual(await reminders.evaluate(node => node.scrollHeight > node.clientHeight), true, 'the long list scrolls inside its tile');
+  await reminders.getByRole('heading', { name: /^Reminders/ }).waitFor();
 });
 
 const draftCard = () => ({
@@ -2279,7 +2311,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const message = review.getByRole('textbox', { name: 'Message', exact: true });
   await message.fill('Unsaved edit for the floor plan.');
   await message.scrollIntoViewIfNeeded();
-  const before = await message.evaluate(node => ({ y: scrollY, top: node.getBoundingClientRect().top }));
+  const before = await message.evaluate(node => ({ y: scrollY + node.closest('.home-slice').scrollTop, top: node.getBoundingClientRect().top }));
   assert.ok(before.y > 0 && before.top >= 0 && before.top < 760);
   const reads = state.dashboardReads;
   const added = { ...step(32, 'Confirm the site visit'), card_id: 'suite:new' };
