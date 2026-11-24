@@ -128,6 +128,14 @@ test("a date pulses faster as it approaches, and a settled date never pulses", (
   assert.equal(approach({ day: "2026-09-23", settled: false }, today).label, "yesterday");
 });
 
+test("a past meeting or tour is settled; a past step is overdue", () => {
+  const today = "2026-09-24";
+  assert.equal(approach({ day: "2026-09-20", type: "meeting", settled: false }, today).band, "settled");
+  assert.equal(approach({ day: "2026-09-20", type: "tour", settled: false }, today).band, "settled");
+  assert.equal(approach({ day: "2026-09-20", type: "step", settled: false }, today).band, "overdue");
+  assert.equal(approach({ day: today, type: "tour", settled: false }, today).band, "today");
+});
+
 /* ------------------------------------------------------------- the entries */
 
 const deal = { id: "d1", name: "Demo Crestview Dental", phase: "Negotiation", owner: "joe", operating_state: "active" };
