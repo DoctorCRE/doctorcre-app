@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import { docLinkMessages } from "./doc-link";
@@ -21,20 +14,14 @@ const recordRef = z.object({
 const draftRef = z.object({ kind: z.literal("reply_draft"), id: z.guid() });
 const draftVersion = z.int().positive();
 const draftRequest = draftRef.extend({ version: draftVersion });
-const draftContext = draftRequest.extend({
-  activity_id: z.guid(),
-  mailbox_user_id: z.guid(),
-});
+const draftContext = draftRequest.extend({ activity_id: z.guid(), mailbox_user_id: z.guid() });
 const source = z.object({
   ref: z.union([recordRef, draftRef]),
   label: z.string(),
   href: z.string(),
 });
 const noteFields = z.object({ text: z.string() });
-const stepFields = z.object({
-  what: z.string(),
-  due_on: z.iso.date().nullable(),
-});
+const stepFields = z.object({ what: z.string(), due_on: z.iso.date().nullable() });
 const replyFields = z.object({ subject: z.string(), body: z.string() });
 const revisionFields = replyFields.partial();
 const revisionTarget = source.extend({ ref: draftRef, version: draftVersion });
@@ -57,23 +44,9 @@ const answer = z.object({
   proposal: proposal.nullable(),
 });
 const confirmation = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.enum(["note", "next_step"]),
-    id: z.guid(),
-    href: z.string(),
-  }),
-  z.object({
-    kind: z.literal("reply_draft"),
-    id: z.guid(),
-    href: z.string(),
-    existing: z.boolean(),
-  }),
-  z.object({
-    kind: z.literal("reply_revision"),
-    id: z.guid(),
-    href: z.string(),
-    version: draftVersion,
-  }),
+  z.object({ kind: z.enum(["note", "next_step"]), id: z.guid(), href: z.string() }),
+  z.object({ kind: z.literal("reply_draft"), id: z.guid(), href: z.string(), existing: z.boolean() }),
+  z.object({ kind: z.literal("reply_revision"), id: z.guid(), href: z.string(), version: draftVersion }),
 ]);
 const conversation = z.object({
   id: z.guid(),
@@ -107,10 +80,7 @@ const chatTurn = z.object({
     ])
     .nullable(),
 });
-const conversationList = z.object({
-  conversations: z.array(conversation),
-  next_before: z.guid().nullable(),
-});
+const conversationList = z.object({ conversations: z.array(conversation), next_before: z.guid().nullable() });
 const conversationDetail = z.object({ conversation, turns: z.array(chatTurn) });
 const sendResponse = z.object({ conversation_id: z.guid(), turn: chatTurn });
 
@@ -125,27 +95,15 @@ type Ask = Pick<Turn, "question" | "idempotency_key"> & {
   context?: z.infer<typeof recordRef> | z.infer<typeof draftRequest>;
 };
 type Session = {
-  verify(options: {
-    fresh: boolean;
-    waitForBudget?: boolean;
-  }): Promise<{ actor: { slug: string } }>;
-  fetch(
-    path: string,
-    init: RequestInit,
-    options: { boundRead: boolean; waitForBudget: boolean },
-  ): Promise<Response>;
+  verify(options: { fresh: boolean; waitForBudget?: boolean }): Promise<{ actor: { slug: string } }>;
+  fetch(path: string, init: RequestInit, options: { boundRead: boolean; waitForBudget: boolean }): Promise<Response>;
 };
 
 type TextDraft = { read(): string; write(text: string): void };
 
 function sessionModule(): Promise<{
   privateSession(): Session | null;
-  privateTextDraft(
-    window: Window,
-    actor: string,
-    field: DraftField,
-    id: string | null,
-  ): TextDraft;
+  privateTextDraft(window: Window, actor: string, field: DraftField, id: string | null): TextDraft;
 }> {
   return import(new URL("./private-session.js", import.meta.url).href);
 }
@@ -153,9 +111,7 @@ function sessionModule(): Promise<{
 const api = "/api/engine/doc";
 const questionLimit = 4000;
 const params = new URLSearchParams(location.search);
-const legacyPath = /^\/doc\/conversations\/([^/]+)\/turns\/([^/]+)$/.exec(
-  location.pathname,
-);
+const legacyPath = /^\/doc\/conversations\/([^/]+)\/turns\/([^/]+)$/.exec(location.pathname);
 const legacyLink = params.has("id") || Boolean(legacyPath);
 const initialId = legacyPath?.[1] ?? params.get("id") ?? params.get("chat");
 const initialDraft = initialId
@@ -165,18 +121,14 @@ const initialDraft = initialId
       id: params.get("draft"),
       version: Number(params.get("version")),
     }).data;
-const invoiceDeal = recordRef.safeParse({
-  kind: "deal",
-  id: params.get("deal"),
-}).data;
+const invoiceDeal = recordRef.safeParse({ kind: "deal", id: params.get("deal") }).data;
 const invoiceKey = params.get("invoice");
 const initialInvoice =
   !initialId &&
   !initialDraft &&
   invoiceDeal &&
   invoiceKey &&
-  (z.guid().safeParse(invoiceKey).success ||
-    invoiceKey === `awaiting:${invoiceDeal.id}`)
+  (z.guid().safeParse(invoiceKey).success || invoiceKey === `awaiting:${invoiceDeal.id}`)
     ? { key: invoiceKey, deal: invoiceDeal }
     : undefined;
 const initialEmail =
@@ -184,8 +136,7 @@ const initialEmail =
     ? recordRef.safeParse({ kind: "email", id: params.get("email") }).data
     : undefined;
 const initialContext = initialDraft ?? initialInvoice?.deal ?? initialEmail;
-const composerId =
-  initialDraft?.id ?? initialInvoice?.key ?? initialEmail?.id ?? null;
+const composerId = initialDraft?.id ?? initialInvoice?.key ?? initialEmail?.id ?? null;
 const draftChangeText = {
   changed: "This draft has a newer revision.",
   gone: "This draft is no longer pending.",
@@ -226,9 +177,7 @@ function conversationPath(id: string) {
 }
 
 function recordHref(href: string) {
-  return href.startsWith("/") && !href.startsWith("//") && !/[\\\s]/.test(href)
-    ? href
-    : undefined;
+  return href.startsWith("/") && !href.startsWith("//") && !/[\\\s]/.test(href) ? href : undefined;
 }
 
 class ConversationUnavailable extends Error {}
@@ -247,11 +196,7 @@ class DocRequestFailed extends Error {
 async function docFetch<T>(
   path: string,
   schema: z.ZodType<T>,
-  {
-    body,
-    signal,
-    boundRead = false,
-  }: { body?: object; signal?: AbortSignal; boundRead?: boolean } = {},
+  { body, signal, boundRead = false }: { body?: object; signal?: AbortSignal; boundRead?: boolean } = {},
 ): Promise<T> {
   const { privateSession } = await sessionModule();
   const session = privateSession();
@@ -274,17 +219,11 @@ async function docFetch<T>(
     { boundRead, waitForBudget },
   );
   signal?.throwIfAborted();
-  const unavailable =
-    response.status === 404 && path.startsWith("/conversations/");
-  if (!boundRead || unavailable)
-    await session.verify({ fresh: true, waitForBudget });
+  const unavailable = response.status === 404 && path.startsWith("/conversations/");
+  if (!boundRead || unavailable) await session.verify({ fresh: true, waitForBudget });
   signal?.throwIfAborted();
   if (unavailable) throw new ConversationUnavailable();
-  if (!response.ok)
-    throw new DocRequestFailed(
-      response.status,
-      await response.json().catch(() => null),
-    );
+  if (!response.ok) throw new DocRequestFailed(response.status, await response.json().catch(() => null));
   const result = schema.safeParse(await response.json());
   if (!result.success) throw Error("Invalid Doc response");
   return result.data;
@@ -292,21 +231,9 @@ async function docFetch<T>(
 
 const proposalCopy = {
   note: { save: "Save note", saved: "Note saved.", open: "Open saved note" },
-  next_step: {
-    save: "Save next step",
-    saved: "Next step saved.",
-    open: "Open saved next step",
-  },
-  reply_draft: {
-    save: "Save draft and open review",
-    saved: "Reply draft saved.",
-    open: "Open reply review",
-  },
-  reply_revision: {
-    save: "Save revision",
-    saved: "Reply revision saved.",
-    open: "Open reply review",
-  },
+  next_step: { save: "Save next step", saved: "Next step saved.", open: "Open saved next step" },
+  reply_draft: { save: "Save draft and open review", saved: "Reply draft saved.", open: "Open reply review" },
+  reply_revision: { save: "Save revision", saved: "Reply revision saved.", open: "Open reply review" },
 };
 
 function SavedProposal({ result }: { result: Confirmation }) {
@@ -325,10 +252,7 @@ function SavedProposal({ result }: { result: Confirmation }) {
   );
 }
 
-function readProposalDraft(
-  storage: TextDraft,
-  suggestion: Proposal,
-): ProposalDraft {
+function readProposalDraft(storage: TextDraft, suggestion: Proposal): ProposalDraft {
   const { kind, target, ...initial } = suggestion;
   const schema = {
     note: noteFields,
@@ -339,9 +263,7 @@ function readProposalDraft(
   const stored = storage.read();
   if (stored) {
     try {
-      const draft = proposalDraft
-        .extend({ edits: schema })
-        .safeParse(JSON.parse(stored));
+      const draft = proposalDraft.extend({ edits: schema }).safeParse(JSON.parse(stored));
       if (draft.success) return draft.data;
     } catch {
       return { edits: initial };
@@ -384,45 +306,25 @@ function proposalRefusal(error: DocRequestFailed, draftId?: string) {
     ["what", "Enter the next step."],
     ["due_on", "Choose a valid due date."],
   ]);
-  if (
-    refusal?.fields?.length &&
-    refusal.fields.every((field) => messages.has(field))
-  ) {
-    return {
-      text: refusal.fields.map((field) => messages.get(field)).join(" "),
-      fields: refusal.fields,
-    };
+  if (refusal?.fields?.length && refusal.fields.every((field) => messages.has(field))) {
+    return { text: refusal.fields.map((field) => messages.get(field)).join(" "), fields: refusal.fields };
   }
-  if (error.status === 404)
-    return { text: "This record is no longer available." };
+  if (error.status === 404) return { text: "This record is no longer available." };
   switch (refusal?.error) {
     case "open_step_exists": {
       const href = refusal.href && recordHref(refusal.href);
       return {
         text: "You already have an open next step on this record.",
-        link: href
-          ? {
-              href,
-              label: refusal.next_step_id
-                ? "Open existing next step"
-                : "Open record",
-            }
-          : undefined,
+        link: href ? { href, label: refusal.next_step_id ? "Open existing next step" : "Open record" } : undefined,
       };
     }
     case "target_changed":
-      return {
-        text: "This record has changed. Open the record or ask Doc again.",
-      };
+      return { text: "This record has changed. Open the record or ask Doc again." };
     case "already_confirmed":
     case "key_reuse":
-      return {
-        text: "Reload this chat to check whether this suggestion was saved.",
-      };
+      return { text: "Reload this chat to check whether this suggestion was saved." };
     default:
-      return {
-        text: "Doc couldn’t save this. Check your edits and try again.",
-      };
+      return { text: "Doc couldn’t save this. Check your edits and try again." };
   }
 }
 
@@ -437,12 +339,10 @@ function ProposalEditor({
   storage: TextDraft;
   onSaved: (result: Confirmation) => void;
 }) {
-  const [draft, setDraft] = useState(() =>
-    readProposalDraft(storage, suggestion),
+  const [draft, setDraft] = useState(() => readProposalDraft(storage, suggestion));
+  const [notice, setNotice] = useState<ReturnType<typeof proposalRefusal> | null>(() =>
+    draft.idempotency_key ? { text: saveUncertain } : null,
   );
-  const [notice, setNotice] = useState<ReturnType<
-    typeof proposalRefusal
-  > | null>(() => (draft.idempotency_key ? { text: saveUncertain } : null));
   const [saving, setSaving] = useState(false);
   const request = useRef<AbortController | null>(null);
   const fieldId = useId();
@@ -465,51 +365,27 @@ function ProposalEditor({
     }
     const controller = new AbortController();
     request.current = controller;
-    const body = {
-      edits,
-      idempotency_key: idempotency_key ?? crypto.randomUUID(),
-    };
+    const body = { edits, idempotency_key: idempotency_key ?? crypto.randomUUID() };
     writeDraft(body);
     setSaving(true);
     setNotice(null);
     try {
-      const { result } = await docFetch(
-        `/turns/${encodeURIComponent(turnId)}/confirmation`,
-        saveResponse,
-        {
-          body,
-          signal: controller.signal,
-        },
-      );
+      const { result } = await docFetch(`/turns/${encodeURIComponent(turnId)}/confirmation`, saveResponse, {
+        body,
+        signal: controller.signal,
+      });
       if (controller.signal.aborted) return;
-      if (
-        result.kind !== kind ||
-        (result.kind === "reply_revision" && result.id !== target.ref.id)
-      )
+      if (result.kind !== kind || (result.kind === "reply_revision" && result.id !== target.ref.id))
         throw Error("Invalid Doc confirmation");
       storage.write("");
       onSaved(result);
       const href = recordHref(result.href);
-      if (
-        (result.kind === "reply_draft" || result.kind === "reply_revision") &&
-        href
-      )
-        location.assign(href);
+      if ((result.kind === "reply_draft" || result.kind === "reply_revision") && href) location.assign(href);
     } catch (error) {
       if (controller.signal.aborted) return;
-      if (
-        error instanceof DocRequestFailed &&
-        error.status >= 400 &&
-        error.status < 500 &&
-        error.status !== 429
-      ) {
+      if (error instanceof DocRequestFailed && error.status >= 400 && error.status < 500 && error.status !== 429) {
         writeDraft({ edits });
-        setNotice(
-          proposalRefusal(
-            error,
-            kind === "reply_revision" ? target.ref.id : undefined,
-          ),
-        );
+        setNotice(proposalRefusal(error, kind === "reply_revision" ? target.ref.id : undefined));
       } else {
         setNotice({ text: saveUncertain });
       }
@@ -520,9 +396,7 @@ function ProposalEditor({
   }
 
   function fieldNotice(field: string) {
-    return notice?.fields?.includes(field) ? (
-      <p role="alert">{notice.text}</p>
-    ) : null;
+    return notice?.fields?.includes(field) ? <p role="alert">{notice.text}</p> : null;
   }
 
   return (
@@ -533,10 +407,7 @@ function ProposalEditor({
         void save();
       }}
     >
-      <p>
-        For{" "}
-        {targetHref ? <a href={targetHref}>{target.label}</a> : target.label}
-      </p>
+      <p>For {targetHref ? <a href={targetHref}>{target.label}</a> : target.label}</p>
       <fieldset disabled={Boolean(idempotency_key)}>
         {"text" in edits ? (
           <>
@@ -546,9 +417,7 @@ function ProposalEditor({
               required
               maxLength={4000}
               value={edits.text}
-              onChange={(event) =>
-                writeDraft({ edits: { text: event.currentTarget.value } })
-              }
+              onChange={(event) => writeDraft({ edits: { text: event.currentTarget.value } })}
             />
             {fieldNotice("text")}
           </>
@@ -560,11 +429,7 @@ function ProposalEditor({
               required
               maxLength={4000}
               value={edits.what}
-              onChange={(event) =>
-                writeDraft({
-                  edits: { ...edits, what: event.currentTarget.value },
-                })
-              }
+              onChange={(event) => writeDraft({ edits: { ...edits, what: event.currentTarget.value } })}
             />
             {fieldNotice("what")}
             <p>Owner: You</p>
@@ -573,14 +438,7 @@ function ProposalEditor({
               id={`${fieldId}-date`}
               type="date"
               value={edits.due_on ?? ""}
-              onChange={(event) =>
-                writeDraft({
-                  edits: {
-                    ...edits,
-                    due_on: event.currentTarget.value || null,
-                  },
-                })
-              }
+              onChange={(event) => writeDraft({ edits: { ...edits, due_on: event.currentTarget.value || null } })}
             />
             {fieldNotice("due_on")}
           </>
@@ -595,11 +453,7 @@ function ProposalEditor({
                   type="text"
                   maxLength={998}
                   value={edits.subject}
-                  onChange={(event) =>
-                    writeDraft({
-                      edits: { ...edits, subject: event.currentTarget.value },
-                    })
-                  }
+                  onChange={(event) => writeDraft({ edits: { ...edits, subject: event.currentTarget.value } })}
                 />
                 {fieldNotice("subject")}
               </>
@@ -611,11 +465,7 @@ function ProposalEditor({
                   id={fieldId}
                   required
                   value={edits.body}
-                  onChange={(event) =>
-                    writeDraft({
-                      edits: { ...edits, body: event.currentTarget.value },
-                    })
-                  }
+                  onChange={(event) => writeDraft({ edits: { ...edits, body: event.currentTarget.value } })}
                 />
                 {fieldNotice("body")}
               </>
@@ -625,20 +475,11 @@ function ProposalEditor({
       </fieldset>
       {notice && !notice.fields && (
         <p role="alert">
-          {notice.text}{" "}
-          {notice.link && <a href={notice.link.href}>{notice.link.label}</a>}
+          {notice.text} {notice.link && <a href={notice.link.href}>{notice.link.label}</a>}
         </p>
       )}
-      <button
-        className="btn"
-        type="submit"
-        disabled={saving || notice?.requiresReview}
-      >
-        {saving
-          ? "Saving…"
-          : idempotency_key
-            ? "Retry save"
-            : proposalCopy[kind].save}
+      <button className="btn" type="submit" disabled={saving || notice?.requiresReview}>
+        {saving ? "Saving…" : idempotency_key ? "Retry save" : proposalCopy[kind].save}
       </button>
     </form>
   );
@@ -652,28 +493,20 @@ function DocChat() {
   const [olderFailed, setOlderFailed] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [question, setQuestion] = useState("");
-  const privateDraft = useRef<
-    ((field: DraftField, id: string | null) => TextDraft) | null
-  >(null);
+  const privateDraft = useRef<((field: DraftField, id: string | null) => TextDraft) | null>(null);
   const [pendingAsk, setPendingAsk] = useState<Ask | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<keyof typeof statusText | null>(null);
-  const [draftSendConflict, setDraftSendConflict] =
-    useState<keyof typeof draftChangeText>();
+  const [draftSendConflict, setDraftSendConflict] = useState<keyof typeof draftChangeText>();
   const retired = useRef(false);
   const active = useRef(false);
   const latest = turns.at(-1);
   const review = latest?.draft_review;
   const draftId = review?.draft_id ?? initialDraft?.id;
   const draftStatus = latest?.state === "failed" ? review?.current : undefined;
-  const reviewReason =
-    draftStatus === "changed" || draftStatus === "gone"
-      ? draftStatus
-      : draftSendConflict;
-  const notice = status
-    ? statusText[status]
-    : reviewReason && draftChangeText[reviewReason];
+  const reviewReason = draftStatus === "changed" || draftStatus === "gone" ? draftStatus : draftSendConflict;
+  const notice = status ? statusText[status] : reviewReason && draftChangeText[reviewReason];
   const waiting = latest?.state === "queued" || latest?.state === "working";
   const waitingTurnId = waiting ? latest.id : undefined;
   const getWaitingReason = useEffectEvent(() => latest?.waiting_reason);
@@ -686,9 +519,7 @@ function DocChat() {
           // The engine hashes the first ask without a conversation ID.
           ...(latest.position > 1 && id ? { conversation_id: id } : {}),
           ...(latest.context?.kind === "reply_draft"
-            ? latest.position === 1 && {
-                context: draftRequest.parse(latest.context),
-              }
+            ? latest.position === 1 && { context: draftRequest.parse(latest.context) }
             : latest.context && { context: latest.context }),
         }
       : null);
@@ -736,23 +567,17 @@ function DocChat() {
   const load = useCallback(
     async (chatId: string | null) => {
       await run("load", async () => {
-        const { conversations, next_before } = await docFetch(
-          "/conversations",
-          conversationList,
-        );
+        const { conversations, next_before } = await docFetch("/conversations", conversationList);
         if (retired.current) return;
         setRecent(conversations);
         setNextBefore(next_before);
-        const saved = chatId
-          ? (await docFetch(conversationPath(chatId), conversationDetail)).turns
-          : [];
+        const saved = chatId ? (await docFetch(conversationPath(chatId), conversationDetail)).turns : [];
         if (retired.current) return;
         const { privateSession, privateTextDraft } = await sessionModule();
         const session = await privateSession()?.verify({ fresh: false });
         if (retired.current || !session) return;
         const actor = session.actor.slug;
-        const storage = (field: DraftField, id: string | null) =>
-          privateTextDraft(window, actor, field, id);
+        const storage = (field: DraftField, id: string | null) => privateTextDraft(window, actor, field, id);
         privateDraft.current = storage;
         setTurns(saved);
         const draft = storage("doc-question", chatId ?? composerId);
@@ -761,17 +586,10 @@ function DocChat() {
           !chatId && (initialInvoice || initialEmail)
             ? new URLSearchParams(location.hash.slice(1)).get("question")
             : null;
-        const question =
-          initialEmail && savedQuestion
-            ? savedQuestion
-            : prefill || savedQuestion;
+        const question = initialEmail && savedQuestion ? savedQuestion : prefill || savedQuestion;
         if (prefill) {
           if (question !== savedQuestion) draft.write(question);
-          history.replaceState(
-            history.state,
-            "",
-            location.pathname + location.search,
-          );
+          history.replaceState(history.state, "", location.pathname + location.search);
         }
         setQuestion(question);
         setReady(true);
@@ -797,8 +615,7 @@ function DocChat() {
     }
     window.addEventListener("doctorcre-session-invalidated", clear);
     void load(initialId);
-    return () =>
-      window.removeEventListener("doctorcre-session-invalidated", clear);
+    return () => window.removeEventListener("doctorcre-session-invalidated", clear);
   }, [load]);
 
   useEffect(() => {
@@ -807,30 +624,18 @@ function DocChat() {
     const stop = refreshWhileVisible(
       async (signal) => {
         try {
-          const { turns: saved } = await docFetch(
-            conversationPath(id),
-            conversationDetail,
-            {
-              signal,
-              boundRead: true,
-            },
-          );
+          const { turns: saved } = await docFetch(conversationPath(id), conversationDetail, {
+            signal,
+            boundRead: true,
+          });
           if (signal.aborted || retired.current) return;
           const turn = saved.find((row) => row.id === waitingTurnId);
           if (!turn) return;
           waitingReason = turn.waiting_reason;
-          setTurns((rows) =>
-            rows.map((row) => (row.id === turn.id ? turn : row)),
-          );
-          if (turn.state !== "queued" && turn.state !== "working")
-            return "stop";
+          setTurns((rows) => rows.map((row) => (row.id === turn.id ? turn : row)));
+          if (turn.state !== "queued" && turn.state !== "working") return "stop";
         } catch (error) {
-          if (
-            !(error instanceof ConversationUnavailable) ||
-            signal.aborted ||
-            retired.current
-          )
-            return;
+          if (!(error instanceof ConversationUnavailable) || signal.aborted || retired.current) return;
           showUnavailable();
           return "stop";
         }
@@ -839,16 +644,13 @@ function DocChat() {
         immediate: false,
         delay(visibleMs) {
           if (visibleMs < 60_000) return 5_000;
-          return waitingReason === docLinkMessages.mac_off ||
-            waitingReason === docLinkMessages.plan_limited
+          return waitingReason === docLinkMessages.mac_off || waitingReason === docLinkMessages.plan_limited
             ? 120_000
             : 30_000;
         },
       },
     );
-    window.addEventListener("doctorcre-session-invalidated", stop, {
-      once: true,
-    });
+    window.addEventListener("doctorcre-session-invalidated", stop, { once: true });
     return () => {
       window.removeEventListener("doctorcre-session-invalidated", stop);
       stop();
@@ -859,10 +661,7 @@ function DocChat() {
     if (!nextBefore) return;
     void run("load", async () => {
       try {
-        const page = await docFetch(
-          `/conversations?before=${encodeURIComponent(nextBefore)}`,
-          conversationList,
-        );
+        const page = await docFetch(`/conversations?before=${encodeURIComponent(nextBefore)}`, conversationList);
         if (retired.current) return;
         setRecent((rows) => [...rows, ...page.conversations]);
         setNextBefore(page.next_before);
@@ -877,18 +676,14 @@ function DocChat() {
   function send(ask: Ask) {
     void run("send", async () => {
       setPendingAsk(ask);
-      const result = await docFetch("/turns", sendResponse, {
-        body: ask,
-      }).catch((error: unknown) => {
+      const result = await docFetch("/turns", sendResponse, { body: ask }).catch((error: unknown) => {
         const conflict = draftConflict(error);
         if (!conflict) throw error;
         if (retired.current) return;
         if (latest?.state === "failed" && review) {
           setTurns((rows) =>
             rows.map((turn) =>
-              turn.id === latest.id
-                ? { ...turn, draft_review: { ...review, current: conflict } }
-                : turn,
+              turn.id === latest.id ? { ...turn, draft_review: { ...review, current: conflict } } : turn,
             ),
           );
         } else {
@@ -901,13 +696,7 @@ function DocChat() {
       if (id !== conversation_id) {
         history.replaceState(history.state, "", chatHref(conversation_id));
         setId(conversation_id);
-        setRecent((rows) => [
-          {
-            id: conversation_id,
-            title: [...turn.question].slice(0, 80).join(""),
-          },
-          ...rows,
-        ]);
+        setRecent((rows) => [{ id: conversation_id, title: [...turn.question].slice(0, 80).join("") }, ...rows]);
       }
       setTurns((rows) => [...rows.filter((row) => row.id !== turn.id), turn]);
       setPendingAsk(null);
@@ -924,11 +713,7 @@ function DocChat() {
     <>
       <header className="doc-chat__header">
         <h1>Ask Doc</h1>
-        <a
-          className="btn"
-          href={chatHref(null)}
-          onClick={() => privateDraft.current?.("doc-question", null).write("")}
-        >
+        <a className="btn" href={chatHref(null)} onClick={() => privateDraft.current?.("doc-question", null).write("")}>
           New chat
         </a>
       </header>
@@ -951,10 +736,7 @@ function DocChat() {
           <ul>
             {recent.map((chat) => (
               <li key={chat.id}>
-                <a
-                  href={chatHref(chat.id)}
-                  aria-current={chat.id === id ? "page" : undefined}
-                >
+                <a href={chatHref(chat.id)} aria-current={chat.id === id ? "page" : undefined}>
                   {chat.title}
                 </a>
               </li>
@@ -962,12 +744,7 @@ function DocChat() {
           </ul>
           {noChats && <p>No conversations yet</p>}
           {nextBefore && (
-            <button
-              className="btn"
-              type="button"
-              disabled={busy}
-              onClick={loadOlder}
-            >
+            <button className="btn" type="button" disabled={busy} onClick={loadOlder}>
               Show older chats
             </button>
           )}
@@ -982,10 +759,7 @@ function DocChat() {
           )}
           {ready && initialInvoice && (
             <p>
-              <a
-                className="doc-chat__action"
-                href={`/invoices?invoice=${encodeURIComponent(initialInvoice.key)}`}
-              >
+              <a className="doc-chat__action" href={`/invoices?invoice=${encodeURIComponent(initialInvoice.key)}`}>
                 Open invoice
               </a>
             </p>
@@ -993,32 +767,19 @@ function DocChat() {
           <ol className="doc-chat__turns" aria-live="polite">
             {turns.map((turn) => {
               const sources = turn.answer?.sources ?? [];
-              const suggestion =
-                turn.state === "answered" &&
-                turn.answer?.kind === "answer" &&
-                turn.answer.proposal;
-              const storage =
-                ready && privateDraft.current?.("doc-proposal", turn.id);
+              const suggestion = turn.state === "answered" && turn.answer?.kind === "answer" && turn.answer.proposal;
+              const storage = ready && privateDraft.current?.("doc-proposal", turn.id);
               return (
                 <li key={turn.id}>
                   <p className="doc-chat__question">{turn.question}</p>
-                  <p className="doc-chat__reply">
-                    {turn.answer?.text ??
-                      turn.waiting_reason ??
-                      stateText[turn.state]}
-                  </p>
-                  {turn.state === "answered" &&
-                    turn.answered_by === "backup" && (
-                      <small>Answered by backup</small>
-                    )}
+                  <p className="doc-chat__reply">{turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}</p>
+                  {turn.state === "answered" && turn.answered_by === "backup" && <small>Answered by backup</small>}
                   {sources.length > 0 && (
                     <ul className="doc-chat__sources" aria-label="Sources">
                       {sources.map(({ ref, label, href }) => {
                         const path = recordHref(href);
                         return (
-                          <li key={`${ref.kind}:${ref.id}${href}`}>
-                            {path ? <a href={path}>{label}</a> : label}
-                          </li>
+                          <li key={`${ref.kind}:${ref.id}${href}`}>{path ? <a href={path}>{label}</a> : label}</li>
                         );
                       })}
                     </ul>
@@ -1034,11 +795,7 @@ function DocChat() {
                         storage={storage}
                         onSaved={(result) =>
                           setTurns((rows) =>
-                            rows.map((row) =>
-                              row.id === turn.id
-                                ? { ...row, confirmation: result }
-                                : row,
-                            ),
+                            rows.map((row) => (row.id === turn.id ? { ...row, confirmation: result } : row)),
                           )
                         }
                       />
@@ -1048,13 +805,7 @@ function DocChat() {
               );
             })}
           </ol>
-          <p role="status">
-            {busy
-              ? pendingAsk
-                ? "Sending question…"
-                : "Loading chats…"
-              : notice}
-          </p>
+          <p role="status">{busy ? (pendingAsk ? "Sending question…" : "Loading chats…") : notice}</p>
           <div className="doc-chat__actions">
             {!pendingAsk && status === "loadFailed" && (
               <button
@@ -1067,12 +818,7 @@ function DocChat() {
               </button>
             )}
             {retry && !reviewReason && status !== "loadFailed" && (
-              <button
-                className="btn"
-                type="button"
-                disabled={busy}
-                onClick={() => send(retry)}
-              >
+              <button className="btn" type="button" disabled={busy} onClick={() => send(retry)}>
                 Retry
               </button>
             )}
@@ -1084,9 +830,7 @@ function DocChat() {
                 send({
                   question,
                   idempotency_key: crypto.randomUUID(),
-                  ...(id
-                    ? { conversation_id: id }
-                    : initialContext && { context: initialContext }),
+                  ...(id ? { conversation_id: id } : initialContext && { context: initialContext }),
                 });
             }}
           >
@@ -1096,29 +840,19 @@ function DocChat() {
               aria-describedby="docQuestionLength"
               rows={3}
               value={question}
-              disabled={
-                (!ready && status !== "unavailable" && status !== "older") ||
-                !!pendingAsk
-              }
+              disabled={(!ready && status !== "unavailable" && status !== "older") || !!pendingAsk}
               readOnly={status === "unavailable" || status === "older"}
               onChange={(event) => {
                 const value = event.currentTarget.value;
-                privateDraft
-                  .current?.("doc-question", id ?? composerId)
-                  .write(value);
+                privateDraft.current?.("doc-question", id ?? composerId).write(value);
                 setQuestion(value);
               }}
             />
             <div className="doc-chat__actions">
               <small id="docQuestionLength">
-                {questionLength.toLocaleString("en-US")} /{" "}
-                {questionLimit.toLocaleString("en-US")}
+                {questionLength.toLocaleString("en-US")} / {questionLimit.toLocaleString("en-US")}
               </small>
-              <button
-                className="btn btn-primary"
-                type="submit"
-                disabled={!canSend}
-              >
+              <button className="btn btn-primary" type="submit" disabled={!canSend}>
                 Send
               </button>
             </div>
