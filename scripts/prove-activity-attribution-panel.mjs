@@ -2,7 +2,7 @@ import { chromium as proofChromium } from './proof-browser.mjs';
 import { chromium } from 'playwright';
 import { CHROMIUM_SAFETY_ARGS } from './chromium-safety-args.mjs';
 import { readAppRelease, proofFetch, launchProofBrowser } from './app-release-reader.mjs';
-import { requireContainingRelease } from './prove-fact-review-pending-status-view.mjs';
+import { requireContainingRelease } from './containing-release.ts';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 const defaultEngine = {

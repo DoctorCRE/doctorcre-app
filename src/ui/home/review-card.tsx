@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { type DocLinkRequest, type DocLinkStatus, docLinkMessages, readDocLinkStatus } from "../doc-link";
 import { submitOnEnter } from "../keyboard-input";
 import type { DraftEdit, DraftEdits } from "./draft-edits.ts";
@@ -35,16 +35,7 @@ const labels: Record<Operation["verb"], string> = {
   "edit-email-draft": "Save draft",
   "dismiss-email-proposal": "Decline draft",
   "submit-email-draft": "Submit reply for sending",
-  "resolve-fact-review": "Save review",
 };
-const availableDecisions = (
-  op: Extract<Operation, { verb: "resolve-fact-review" }>,
-  review: Extract<Review, { kind: "fact_review" }>,
-) =>
-  op.decisions.filter(
-    (d) =>
-      d === "reject" || (review.observations.length > 0 && (d !== "correct" || op.args.fact_key !== "rent_schedule")),
-  );
 const emailDate = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Chicago",
   weekday: "short",
@@ -102,6 +93,10 @@ function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; hre
   );
 }
 
+function recipientFields(form: HTMLFormElement) {
+  const fields = new FormData(form);
+  return { to: [String(fields.get("to"))], cc: [String(fields.get("cc"))] };
+}
 const writesDraftText = (verb: Operation["verb"]) => verb === "edit-email-draft" || verb === "submit-email-draft";
 
 type Props<Item extends ReviewItem> = {
@@ -161,8 +156,6 @@ export function ReviewCard<Item extends ReviewItem>({
     opener: HTMLButtonElement;
     confirm(reason: string): void;
   } | null>(null);
-  const [decision, setDecision] = useState("approve");
-  const [observation, setObservation] = useState("");
   const [message, setMessage] = useState("");
   const lock = useRef(false);
   const alive = useRef(true);
@@ -171,22 +164,6 @@ export function ReviewCard<Item extends ReviewItem>({
   const draftSubject = useRef<HTMLInputElement>(null);
   const focusDraftSubject = useRef(false);
   const anchor = useRef(item);
-  const reconcileFacts = useCallback((detail: Review) => {
-    if (detail.kind !== "fact_review") return;
-    const choices = detail.operations[0] ? availableDecisions(detail.operations[0], detail) : [];
-    setDecision((previous) =>
-      choices.includes(previous)
-        ? previous
-        : choices.includes("approve")
-          ? "approve"
-          : choices.includes("reject")
-            ? "reject"
-            : choices[0] || "",
-    );
-    setObservation((previous) =>
-      detail.observations.some((o) => o.id === previous) ? previous : detail.observations[0]?.id || "",
-    );
-  }, []);
   useEffect(() => {
     host.current?.focus();
     if (!client) return;
@@ -205,7 +182,6 @@ export function ReviewCard<Item extends ReviewItem>({
       })
       .then((review) => {
         if (controller.signal.aborted) return;
-        reconcileFacts(review);
         setState({ phase: "ready", review });
       })
       .catch((error) => {
@@ -222,7 +198,7 @@ export function ReviewCard<Item extends ReviewItem>({
       alive.current = false;
       controller.abort();
     };
-  }, [client, reconcileFacts]);
+  }, [client]);
   const uncertain = state.phase === "uncertain";
   useLayoutEffect(() => {
     if (!uncertain) return;
@@ -282,7 +258,6 @@ export function ReviewCard<Item extends ReviewItem>({
         throw Object.assign(Error("The draft changed."), { payload: { error: "version_conflict" } });
       const updated = await client.load(current);
       if (!alive.current) return;
-      reconcileFacts(updated);
       anchor.current = current;
       await confirmed?.(current);
       if (!alive.current) return;
@@ -406,8 +381,10 @@ export function ReviewCard<Item extends ReviewItem>({
         subject: draft.subject,
         body: draft.body,
         ...(op.verb === "submit-email-draft" &&
-          review.kind === "reply_draft" &&
-          review.attachments && { document_ids: review.attachments.map((row) => row.id) }),
+          review.kind === "reply_draft" && {
+            ...(review.attachments && { document_ids: review.attachments.map((row) => row.id) }),
+            ...(review.correctRecipients && recipientFields(form.current)),
+          }),
       };
     if (op.verb === "dismiss-email-proposal") {
       const explanation = dropReason ?? reason.trim();
@@ -416,36 +393,6 @@ export function ReviewCard<Item extends ReviewItem>({
         return;
       }
       input = { reason: explanation };
-    }
-    if (op.verb === "resolve-fact-review") {
-      if (
-        review.kind !== "fact_review" ||
-        !availableDecisions(op, review).includes(decision) ||
-        (decision === "approve" && !review.observations.some((o) => o.id === observation))
-      ) {
-        setMessage("Choose an available decision and current evidence before saving.");
-        return;
-      }
-      if (!reason.trim()) {
-        setMessage("Give a reason for this review.");
-        return;
-      }
-      input = { decision, reason, ...(decision === "approve" ? { observation_id: observation } : {}) };
-      if (decision === "correct") {
-        const data = new FormData(form.current);
-        input.correction = {
-          fact_key: op.args.fact_key,
-          value: data.get("value"),
-          unit: data.get("unit"),
-          ...(op.args.fact_key === "base_rent_per_sf" ? { expense_basis: data.get("expense_basis") } : {}),
-          source: {
-            document_ref: data.get("document_ref"),
-            page_start: Number(data.get("page_start")),
-            page_end: Number(data.get("page_end")),
-            cited_text: data.get("cited_text"),
-          },
-        };
-      }
     }
     void run({ verb: op.verb, args: { ...op.args, ...input, idempotency_key: crypto.randomUUID() } }, review);
   }
@@ -683,17 +630,26 @@ export function ReviewCard<Item extends ReviewItem>({
                   : proposalLed
                     ? "Suggestions and reply draft"
                     : "Exact reply for review"
-                : review.kind === "fact_review"
-                  ? "Evidence and decision"
-                  : review.kind === "suggestions"
-                    ? "Suggestions"
-                    : "Task"}
+                : review.kind === "suggestions"
+                  ? "Suggestions"
+                  : "Task"}
             </legend>
             {review.kind === "action" && <p>{review.title}</p>}
             {proposalLed && !engineReply && suggestionFields}
             {review.kind === "reply_draft" && draft && (
               <>
-                {review.addresses ? (
+                {review.correctRecipients && review.recipients ? (
+                  <>
+                    <label>
+                      To
+                      <input name="to" type="email" defaultValue={review.recipients.to[0]} maxLength={320} required />
+                    </label>
+                    <label>
+                      CC
+                      <input name="cc" type="email" defaultValue={review.recipients.cc[0]} maxLength={320} required />
+                    </label>
+                  </>
+                ) : review.addresses ? (
                   <>
                     <p>To: {review.addresses.to || "Unavailable"}</p>
                     <p>CC: {review.addresses.cc || "Unavailable"}</p>
@@ -804,128 +760,6 @@ export function ReviewCard<Item extends ReviewItem>({
                 )}
               </>
             )}
-            {review.kind === "fact_review" && (
-              <>
-                <p>Canonical value: {review.canonical}</p>
-                {review.observations.map((o) => (
-                  <section key={o.id}>
-                    <strong>
-                      {o.value} {o.unit}
-                    </strong>
-                    <p>
-                      Document {o.source.document_ref}, pages {o.source.page_start} to {o.source.page_end}
-                    </p>
-                    <blockquote>{o.source.cited_text || "Excerpt no longer available"}</blockquote>
-                  </section>
-                ))}
-                <label>
-                  Decision
-                  <select aria-label="Decision" value={decision} onChange={(event) => setDecision(event.target.value)}>
-                    {!decision && (
-                      <option value="" disabled>
-                        No decision available
-                      </option>
-                    )}
-                    {review.operations[0]?.decisions.map((d) => (
-                      <option
-                        key={d}
-                        value={d}
-                        disabled={
-                          !review.operations[0] || !availableDecisions(review.operations[0], review).includes(d)
-                        }
-                      >
-                        {d === "approve"
-                          ? "Approve a sourced value"
-                          : d === "correct"
-                            ? "Correct with a source"
-                            : "Reject this review"}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {decision === "approve" && (
-                  <label>
-                    Choose a sourced value
-                    <select
-                      aria-label="Choose a sourced value"
-                      value={observation}
-                      onChange={(event) => setObservation(event.target.value)}
-                      required
-                    >
-                      {review.observations.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.value} {o.unit}, pages {o.source.page_start} to {o.source.page_end}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                {decision === "correct" && (
-                  <>
-                    <label>
-                      Corrected value
-                      <input
-                        name="value"
-                        inputMode="decimal"
-                        pattern="(?:0|[1-9][0-9]{0,29})(?:[.][0-9]{1,18})?"
-                        required
-                      />
-                    </label>
-                    <label>
-                      Unit
-                      <select aria-label="Unit" name="unit">
-                        {[...new Set(review.observations.map((o) => o.unit))].map((unit) => (
-                          <option key={unit}>{unit}</option>
-                        ))}
-                      </select>
-                    </label>
-                    {review.operations[0]?.args.fact_key === "base_rent_per_sf" && (
-                      <label>
-                        Expense basis
-                        <select aria-label="Expense basis" name="expense_basis">
-                          <option value="nnn">NNN</option>
-                          <option value="modified_gross">Modified gross</option>
-                          <option value="full_service_gross">Full service gross</option>
-                          <option value="gross">Gross</option>
-                        </select>
-                      </label>
-                    )}
-                    <label>
-                      Source document
-                      <select aria-label="Source document" name="document_ref">
-                        {[...new Set(review.observations.map((o) => o.source.document_ref))].map((id) => (
-                          <option key={id} value={id}>
-                            Document {id}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      First page
-                      <input name="page_start" type="number" min={1} max={100000} defaultValue={1} required />
-                    </label>
-                    <label>
-                      Last page
-                      <input name="page_end" type="number" min={1} max={100000} defaultValue={1} required />
-                    </label>
-                    <label>
-                      Cited text
-                      <textarea name="cited_text" maxLength={4000} required />
-                    </label>
-                  </>
-                )}
-                <label>
-                  Reason
-                  <textarea
-                    aria-label="Reason"
-                    value={reason}
-                    maxLength={2000}
-                    onChange={(event) => setReason(event.target.value)}
-                    required
-                  />
-                </label>
-              </>
-            )}
           </fieldset>
           <div className="inbox-actions">
             {operations?.map((op) => {
@@ -934,12 +768,7 @@ export function ReviewCard<Item extends ReviewItem>({
                 <button
                   type="button"
                   key={op.verb}
-                  disabled={
-                    !editable ||
-                    Boolean(staleEdit && writesDraftText(op.verb)) ||
-                    (op.verb === "resolve-fact-review" &&
-                      (review.kind !== "fact_review" || !availableDecisions(op, review).includes(decision)))
-                  }
+                  disabled={!editable || Boolean(staleEdit && writesDraftText(op.verb))}
                   onClick={(event) => {
                     if (startDraftEdit && draft) beginDraftEdit(draft);
                     else if (item.engine_marks && op.verb === "dismiss-email-proposal")

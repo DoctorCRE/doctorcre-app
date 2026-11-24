@@ -48,8 +48,8 @@ export function createFixtureDealStore(seed) {
 const VERSION_CONFLICT = 'version_conflict';
 
 export async function createFixtureClient(opts = {}) {
-  let factReview;
-  const factReviews = () => factReview ||= import('../data/fixtures/fact-review.mjs').then(module => module.createFactReviewFixture());
+  let dealDocuments;
+  const dealDocumentsFixture = () => dealDocuments ||= import('../data/fixtures/deal-documents.mjs').then(module => module.createDealDocumentsFixture());
   const seedUrl = opts.seedUrl || new URL('../data/board-seed.json', import.meta.url).href;
   const seed = await fetch(seedUrl).then((r) => {
     if (!r.ok) throw new Error(`fixture seed failed: ${r.status}`);
@@ -1273,11 +1273,7 @@ export async function createFixtureClient(opts = {}) {
       })) };
     },
 
-    async listDealDocuments(args) { return (await factReviews()).listDealDocuments(args); },
-    async prepareTermsComparison(args, { signal } = {}) { const fixture = await factReviews(); signal?.throwIfAborted(); return fixture.prepareTermsComparison(args); },
-    async listFactReview(args) { return (await factReviews()).listFactReview(args); },
-    async recordHumanFact(args, { signal } = {}) { const fixture = await factReviews(); signal?.throwIfAborted(); return fixture.recordHumanFact(args); },
-    async resolveFactReview(args, { signal } = {}) { const fixture = await factReviews(); signal?.throwIfAborted(); return fixture.resolveFactReview(args); },
+    async listDealDocuments(args) { return (await dealDocumentsFixture()).listDealDocuments(args); },
 
     async readMarketTerms(args = {}) { return readMarketTerms(args); },
     async getDeal(dealId) {
@@ -1294,7 +1290,7 @@ export async function createFixtureClient(opts = {}) {
         activities: activitiesFor(dealId).slice(0, 4),
         participants: [{ role: 'lead', name: actorLabel(deal.owner), actor: deal.owner },
           ...(extraParticipants.get(dealId) || [])],
-        premises: [], negotiation_rounds: [], attachments: (await factReviews()).attachments(dealId), documents: [], lease: null, schema_version: 'deal-timeline.v1' };
+        premises: [], negotiation_rounds: [], attachments: (await dealDocumentsFixture()).attachments(dealId), documents: [], lease: null, schema_version: 'deal-timeline.v1' };
     },
 
     async readAssuranceHealth(args) {

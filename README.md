@@ -169,8 +169,8 @@ show “Not available yet” until their engine endpoints are available.
 PartnerApp also serves Leads reads, claim, stage changes, email acknowledgement
 and client linking. Clients, Vendors, Relationships, Search and recent activity
 use the same session regardless of their legacy routing switches. The Vendors
-drawer shows the track record. The manual rating editor is available with CARR
-sign-in, and Relationships uses recorded links and introduction offers.
+drawer shows the vendor's track record, computed from deal history, with no
+hand-set rating. Relationships uses recorded links and introduction offers.
 
 Home cards and their actions, Today, Calendar dates, and Updates also use
 PartnerApp in engine sign-in mode. The deal saves switch also routes Updates

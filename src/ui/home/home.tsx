@@ -29,7 +29,16 @@ import {
 import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
 import { ReviewCard, reviewDispositionLabel } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
-import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays } from "./sections";
+import {
+  CardTile,
+  cardKey,
+  completionLabel,
+  dashboardCards,
+  day,
+  HomeGrid,
+  lateDays,
+  PlaceholderTile,
+} from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
 
 type SnoozePreview = Readonly<{
@@ -985,7 +994,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 </a>
               </p>
             )}
-            {!source && !["email_proposal", "fact_review"].includes(item.source_type) && <p>No linked record.</p>}
+            {!source && item.source_type !== "email_proposal" && <p>No linked record.</p>}
             {item.source_type === "email_proposal" && !reviewClient && (
               <p>The email and draft are unavailable for this card.</p>
             )}
@@ -1097,7 +1106,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         </div>
       )}
       {query.isPending ? (
-        <p className="inbox-empty" role="status">
+        <p className={home ? "sr-only" : "inbox-empty"} role="status">
           Loading your inbox…
         </p>
       ) : query.isError && !query.data ? (
@@ -1165,6 +1174,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       )}
       {home && (
         <HomeGrid snapshot={query.data} calendar={meetings.data}>
+          {query.isPending && (
+            <>
+              <PlaceholderTile />
+              <PlaceholderTile />
+            </>
+          )}
           <CardTile
             title="Reminders"
             showLate
@@ -1183,6 +1198,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             current={reviewing?.item_id || item_id}
             row={row}
           />
+          {engineHome && meetings.isPending && <PlaceholderTile />}
           {meetings.data && (
             <MeetingTile
               data={meetings.data}

@@ -121,7 +121,6 @@ test('built Review workflows keeps its data paint compact and preserves overdue 
   assert.ok((await link.innerText()).trim());
   const bytes = (await Promise.all(reads)).reduce((total, size) => total + size, 0);
   t.diagnostic(`Home transferred ${bytes} JavaScript bytes`);
-  assert.ok(scriptUrls.every(url => !url.includes('terms-comparison')), 'Terms comparison loads only in the deal workspace');
   await page.locator('.home-grid').scrollIntoViewIfNeeded();
   await page.locator('#homeIntroductions button:not([disabled])').first().waitFor();
   await page.locator('#homeContactReasons .work-card').first().waitFor();
