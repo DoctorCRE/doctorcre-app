@@ -276,7 +276,6 @@ export function createLiveClient(opts = {}) {
       if (!response.ok) throw Object.assign(new Error('Relationships unavailable'), {status:response.status});
       return response.json();
     },
-    async updateVendorTrust(args) { return write("update-vendor", args); },
 
     // Each deal carries `field_base` — the latest committed event id and time for
     // every editable cell, read in the same statement as the values it belongs
