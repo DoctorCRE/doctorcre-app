@@ -10,10 +10,10 @@ import { chromium } from "./browser-harness.mjs";
 const phases = ["pending", "research", "site_selection", "negotiation", "legal", "due_diligence", "closing"];
 const names = [
   "Example Practitioner, DMD",
-  "Example Westbrook — Pensacolaville Purchase",
-  "Example Sonography Studios – Lakeside Office",
+  "Example Northfield — Riverbendtown Purchase",
+  "Example Imaging Partners – Second Office",
   "Example Dermatology Group",
-  "Example Orthodontics – Beulah / 5 Points",
+  "Example Orthodontics – North / 5 Corners",
 ];
 const deals = Array.from({ length: 70 }, (_, n) => ({
   id: `00000000-0000-4000-8000-${String(n + 1).padStart(12, "0")}`,
