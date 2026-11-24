@@ -277,3 +277,68 @@ body.record-open { overflow: hidden; }
 .client-needs-list h4 { margin: 0 0 .5rem; }
 .client-needs button { margin: .5rem .5rem .5rem 0; min-height: 44px; }
 .business-shell [hidden] { display: none; }
+
+/* Add, edit and link records. Every control is at least one touch target. */
+.result-heading .party-new { margin-top: 0; }
+.party-record-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-4); }
+.party-record-actions .action { margin-top: 0; }
+dialog.party-editor {
+  width: min(560px, calc(100vw - 24px));
+  max-height: 88dvh;
+  overflow: auto;
+  box-sizing: border-box;
+  padding: var(--space-5);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--panel-radius);
+  background: var(--surface-2);
+  color: var(--fg);
+  box-shadow: var(--shadow-overlay);
+}
+dialog.party-editor::backdrop { background: var(--scrim); }
+.party-editor form { display: grid; gap: var(--space-4); }
+.party-editor header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.party-editor h2 { margin: 0; font: var(--font-weight-strong) var(--font-size-3) / var(--line-height-heading) var(--font-text); }
+.party-editor .party-field { display: grid; gap: var(--space-2); }
+.party-editor .party-field { gap: 0; }
+.party-editor .party-field label { display: flex; align-items: flex-end; min-height: var(--touch); padding-bottom: var(--space-1); box-sizing: border-box; color: var(--fg-muted); font-size: var(--font-size-1); }
+.party-editor fieldset { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0; padding: var(--space-3); border: 1px solid var(--hairline); border-radius: var(--radius-2); }
+.party-editor legend { padding: 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); }
+.party-editor :is(input:not([type="checkbox"], [type="radio"]), select, textarea) {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--touch);
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-1);
+  color: var(--fg);
+  font: inherit;
+}
+.party-editor [aria-invalid="true"] { border-color: var(--status-danger); }
+.party-editor label.party-check { display: flex; align-items: center; gap: var(--space-2); min-height: var(--touch); color: var(--fg); }
+.party-editor .party-check input { width: 20px; height: 20px; margin: 0; }
+.party-editor button {
+  min-width: var(--touch);
+  min-height: var(--touch);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-1);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.party-editor button:hover { background: var(--surface-3); }
+.party-editor .party-submit { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: var(--font-weight-strong); }
+.party-editor .party-submit:hover { border-color: var(--accent-hover); background: var(--accent-hover); }
+.party-editor :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.party-editor :is(.party-candidates, .party-results) { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.party-editor .party-candidates button { width: 100%; text-align: left; }
+.party-editor .party-status:empty { display: none; }
+.party-editor .party-status { margin: 0; color: var(--fg); }
+.party-editor .party-actions { display: flex; justify-content: flex-end; }
+@media (max-width: 767px) {
+  dialog.party-editor { padding: var(--space-4); }
+  .party-editor .party-actions button { width: 100%; }
+}

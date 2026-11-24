@@ -178,6 +178,7 @@ async function syncQuietVendors() {
 let searchTimer = null;
 let dealroomClientPromise = null;
 const initialBootMode = resolveDealroomBoot(window.location);
+let partyEditor = null;
 
 /**
  * The one dealroom client this page builds, for the MCP reads it makes (the
@@ -194,6 +195,9 @@ function dealroomClient() {
   }
   return dealroomClientPromise;
 }
+
+// Only a record opened by its party id can be edited through the party doors.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -298,6 +302,7 @@ function optionsHtml(options, emptyLabel, selected) {
  */
 function renderControls({ syncSearch = false } = {}) {
   const { dataset, query, facets } = view;
+  partyEditor?.setDataset(dataset);
   if (dom.search) {
     const next = searchBoxValue({
       current: dom.search.value, query: query.q,
@@ -831,7 +836,8 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record, engineMode) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    const editable = partyEditor && UUID_PATTERN.test(payload.record.id) ? partyEditor.actionsHtml() : "";
+    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${editable}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record, engineMode) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
     const note = dom.panelBody.querySelector(".client-note > p");
@@ -1238,6 +1244,8 @@ function wireControls() {
 
   dom.panelClose?.addEventListener("click", () => closeRecord());
   dom.panelBody?.addEventListener("click", (event) => {
+    const record = view.record.payload?.record;
+    if (record && partyEditor?.handle(event, record.id, record.name ?? "")) return;
     if (event.target.closest("[data-retry='record']") && view.recordId) loadRecord(view.recordId);
     if (event.target.closest("[data-retry='activity']") && !view.signedOut && view.recordId === view.record.payload?.record?.id) {
       loadActivity(view.recordId, view.record.payload.record);
@@ -1284,6 +1292,18 @@ function start() {
     return;
   }
   if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
+  if (initialBootMode.mode === "live") import("./ui-party-editor.generated.js").then(({ mountPartyEditor }) => {
+    partyEditor = mountPartyEditor({
+      document, client: dealroomClient, dataset: () => view.dataset, facets: () => view.facets, phoneLabel,
+      saved: (id) => {
+        if (view.recordId === id) loadRecord(id);
+        else navigate(viewHref(view.query, id));
+        loadList("background");
+      },
+    });
+    partyEditor.setDataset(view.dataset);
+    if (view.recordId) renderRecordPanel();
+  });
   wireControls();
   const searchDock = document.querySelector('.search-dock');
   const searchDockObserver = new ResizeObserver(() => {

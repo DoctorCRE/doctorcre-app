@@ -2910,3 +2910,31 @@ test("live client prospect and Monday review HTTP saves route to the engine", as
   }
   assert.deepEqual(f.carr, []);
 });
+
+test("Party saves and their read reach the engine only with Clients and Vendors on the engine", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const doors: [string, string][] = [
+    ["POST", "/api/engine/parties"],
+    ["POST", `/api/engine/parties/${id}`],
+    ["GET", `/api/engine/parties/${id}`],
+    ["POST", "/api/engine/clients"],
+    ["POST", `/api/engine/clients/${id}`],
+    ["POST", "/api/engine/vendors"],
+    ["POST", `/api/engine/vendors/${id}`],
+    ["POST", "/api/engine/party-links"],
+  ];
+  for (const [method, path] of doors) {
+    const request = () =>
+      new Request(origin + path, {
+        method,
+        headers: { cookie: "session=synthetic", origin },
+        ...(method === "POST" && { body: "{}" }),
+      });
+    const off = fixture(new Map());
+    assert.equal((await worker.fetch(request(), off.env)).status, 404, `${method} ${path}`);
+    assert.deepEqual(off.engine, []);
+    const on = fixture(new Map([["clients-vendors-from-engine", "on"]]));
+    assert.equal((await worker.fetch(request(), on.env)).status, 200, `${method} ${path}`);
+    assert.equal(on.engine[0]?.url, origin + path);
+  }
+});
