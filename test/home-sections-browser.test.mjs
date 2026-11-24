@@ -258,7 +258,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(door, enabled ? '/api/engine/home/marks' : 'snooze-home-inbox');
   if (enabled) {
     const snoozed = waiting.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /^Read the sample lease/ }) });
-    await snoozed.getByText(/^Snoozed until .* Central$/).waitFor();
+    await snoozed.getByText(/^Snoozed until .* [AP]M$/).waitFor();
     assert.deepEqual(await snoozed.getByRole('button').allTextContents(), ['Wake']);
     assert.equal(await snoozed.getByRole('checkbox').isDisabled(), true);
   }
@@ -920,7 +920,7 @@ for (const width of [390, 1440]) test(`Follow-up destinations retain exact steps
     } else await link.click();
     const dialog = page.getByRole('dialog', { name: isProspect ? 'Example Practice' : 'Example Contact' });
     const step = dialog.locator(':focus');
-    await step.getByText(/Set by Example Partner · Nov 3.*10:00 AM Central · From an? (email|meeting)/).waitFor();
+    await step.getByText(/Set by Example Partner · Nov 3.*10:00 AM · From an? (email|meeting)/).waitFor();
     assert.match(await step.innerText(), new RegExp(title));
     assert.match(await step.innerText(), isProspect ? /From an email/ : /From a meeting/);
     if (id === completedStep) assert.match(await step.innerText(), /Done/);
@@ -2119,7 +2119,7 @@ for (const width of [390, 1440]) {
     await review.getByText('First draft.', { exact: true }).waitFor();
     await review.getByRole('region', { name: 'File this email', exact: true }).waitFor();
     assert.equal(await review.getByRole('button', { name: /^(Accept|Drop|Edit|Send reply)$/ }).count(), 0);
-    await page.getByText('Snoozed until Nov 4, 2026, 10:00 AM Central', { exact: true }).waitFor();
+    await page.getByText('Snoozed until Nov 4, 2026, 10:00 AM', { exact: true }).waitFor();
     assert.equal(await page.getByRole('link', { name: 'Back to Home' }).getAttribute('href'), '/');
   });
 
@@ -2136,7 +2136,7 @@ for (const width of [390, 1440]) {
     await review.getByText('First draft.', { exact: true }).waitFor();
     await review.getByRole('region', { name: 'File this email', exact: true }).waitFor();
     assert.equal(await review.getByRole('button', { name: /^(Choose deal|Choose vendor|Dismiss|Drop|Edit|Send reply)$/ }).count(), 0);
-    await page.getByText('Snoozed until Nov 4, 2026, 10:00 AM Central', { exact: true }).waitFor();
+    await page.getByText('Snoozed until Nov 4, 2026, 10:00 AM', { exact: true }).waitFor();
     assert.equal(await page.getByRole('link', { name: 'Back to Home' }).getAttribute('href'), '/');
   });
 
@@ -2351,10 +2351,10 @@ test('Home meetings rolls over at Central midnight even when the refresh fails',
   calendar.unavailable = true;
   await page.clock.fastForward(20_000);
   await meetings.waitFor({ state: 'detached' });
-  await page.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
+  await page.getByText('Last synced Nov 3, 8:00 AM').waitFor();
   await page.clock.fastForward(60_000);
   await page.getByText('Meetings unavailable.', { exact: true }).waitFor();
-  await page.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
+  await page.getByText('Last synced Nov 3, 8:00 AM').waitFor();
 });
 
 test('Home keeps a review-only meeting after its outcome is saved and refreshed', async t => {
@@ -2374,7 +2374,7 @@ test('Home keeps a review-only meeting after its outcome is saved and refreshed'
   calendar.state = 'partial';
   calendar.observed_at = '2026-11-03T14:01:00Z';
   await page.clock.fastForward(60_000);
-  await meetings.getByText('Last synced Nov 3, 8:01 AM Central').waitFor();
+  await meetings.getByText('Last synced Nov 3, 8:01 AM').waitFor();
   await title.waitFor();
 });
 
@@ -2633,7 +2633,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
   await meetings.getByRole('heading', { name: "Today's meetings 6" }).waitFor();
   await reminders.getByRole('heading', { name: 'Reminders 5' }).waitFor();
-  await meetings.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
+  await meetings.getByText('Last synced Nov 3, 8:00 AM').waitFor();
   assert.equal(await meetings.getByText(current.title, { exact: true }).count(), 1);
   assert.equal(await meetings.getByText(laterDay.title, { exact: true }).count(), 0);
   assert.equal(await meetings.locator('summary').count(), 5);

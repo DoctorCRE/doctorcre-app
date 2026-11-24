@@ -25,14 +25,14 @@ export async function observeSourceClock(assetUrl) {
     check(waitingDays(value, now), 'Waiting time unavailable', `missing waiting ${value}`);
   }
   for (const value of ['2024-02-29T12:00:00Z', '2024-02-29T06:00:00-06:00', '2024-02-29T17:30:00+05:30', '2024-02-29T12:00:00.000000Z']) {
-    check(sourceTime(value, now), 'Feb 29, 6:00 AM Central', `valid absolute ${value}`);
+    check(sourceTime(value, now), 'Feb 29, 6:00 AM', `valid absolute ${value}`);
     check(relativeAge(value, now), '1d ago', `valid relative ${value}`);
     check(waitingDays(value, now), '1 day waiting', `valid waiting ${value}`);
   }
   check(relativeAge('2024-02-29T12:00:00.123456Z', now), '23h ago', 'fractional elapsed minutes');
   check(waitingDays('2024-02-29T12:00:00.123456Z', now), '0 days waiting', 'fractional complete days');
-  check(sourceTime('2000-02-29T12:00:00Z', now), 'Feb 29, 2000, 6:00 AM Central', 'prior year leap day');
-  check(sourceTime('2024-07-01T12:00:00Z', now), 'Jul 1, 7:00 AM Central', 'Chicago daylight time');
+  check(sourceTime('2000-02-29T12:00:00Z', now), 'Feb 29, 2000, 6:00 AM', 'prior year leap day');
+  check(sourceTime('2024-07-01T12:00:00Z', now), 'Jul 1, 7:00 AM', 'Chicago daylight time');
   check(relativeAge('2024-03-02T12:00:00Z', now), 'just now', 'future relative clamp');
   check(waitingDays('2024-03-02T12:00:00Z', now), '0 days waiting', 'future waiting clamp');
   return assertions;

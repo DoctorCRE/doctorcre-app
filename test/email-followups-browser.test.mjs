@@ -73,7 +73,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     const defer = card.locator('article').first().getByRole('button', { name: 'Not now', exact: true });
     assert.ok((await defer.boundingBox()).height >= 44, 'actions are full touch targets');
     assert.equal(await card.getByRole('button', { name: 'Wrong deal', exact: true }).count(), 0);
-    assert.match(await card.locator('.email-source').first().innerText(), /Dana Demo · Oct 26, .* Central · \d+ days waiting/);
+    assert.match(await card.locator('.email-source').first().innerText(), /Dana Demo · Oct 26, \d+:\d\d [AP]M · \d+ days waiting/);
     const first = card.locator('article').first();
     await first.getByRole('button', { name: 'Confirm', exact: true }).click();
     await first.getByRole('button', { name: 'Confirm change', exact: true }).waitFor();
@@ -83,7 +83,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     const second = card.locator('article').last();
     await second.getByRole('button', { name: 'Not now', exact: true }).click();
     await second.getByRole('button', { name: 'Defer follow-up', exact: true }).click();
-    await card.getByText(/Returns .*America\/Chicago/).waitFor();
+    await card.getByText(/Returns .*\d:\d\d [AP]M/).waitFor();
     await page.getByRole('button', { name: 'Refresh Home', exact: true }).click();
     await card.getByText('No email follow-ups.', { exact: true }).waitFor();
     assert.deepEqual(errors, []);
@@ -159,7 +159,7 @@ for (const width of [1440, 390]) {
     await review.getByRole('button', { name: 'Not now', exact: true }).click();
     await review.getByLabel('Optional note').fill('Synthetic tour later');
     await review.getByRole('button', { name: 'Defer follow-up', exact: true }).click();
-    await review.getByText(/Returns .*America\/Chicago/).first().waitFor();
+    await review.getByText(/Returns .*\d:\d\d [AP]M/).first().waitFor();
     await panel.getByRole('button', { name: 'Refresh deal', exact: true }).click();
     await review.getByText('No email follow-ups.', { exact: true }).waitFor();
     assert.equal(calls.find(call => call.name === 'snooze-email-proposal').arguments.note, 'Synthetic tour later');
@@ -579,15 +579,15 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     await panel.getByText('Choose the deal before continuing.', { exact: true }).waitFor();
     await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
     await panel.getByRole('button', { name: 'Not now', exact: true }).click();
-    assert.equal(await panel.getByLabel('Return time in America/Chicago').inputValue(), '2026-11-01T09:00');
-    assert.equal(await panel.getByLabel('Return time in America/Chicago').evaluate(node => node === document.activeElement), true);
+    assert.equal(await panel.getByLabel('Return time').inputValue(), '2026-11-01T09:00');
+    assert.equal(await panel.getByLabel('Return time').evaluate(node => node === document.activeElement), true);
     await panel.getByLabel('Optional note').fill('Review tomorrow');
     await panel.screenshot({ path: `out/test-artifacts/email-followups/file-defer-${width}-${theme}.png` });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await panel.getByRole('button', { name: 'Defer follow-up', exact: true }).click();
     await panel.getByRole('button', { name: 'Check outcome', exact: true }).click();
     await panel.getByText('No email follow-ups.', { exact: true }).waitFor();
-    assert.match(await panel.innerText(), /Returns .*America\/Chicago/);
+    assert.match(await panel.innerText(), /Returns .*\d:\d\d [AP]M/);
     const snoozes = calls.filter(call => call.name === 'snooze-email-proposal');
     assert.equal(snoozes.length, 2); assert.deepEqual(snoozes[0], snoozes[1]);
     assert.equal(until, '2026-11-01T15:00:00.000Z');

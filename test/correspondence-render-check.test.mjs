@@ -14,7 +14,7 @@ test('latest email threads keep email classification and message times in newest
   const rows = [...doc.querySelectorAll('[data-kind="thread"]')];
   assert.deepEqual(rows.map(row => row.querySelector('summary span').textContent), ['Newer email', 'Older email']);
   assert.ok(rows.every(row => row.querySelector('p').textContent === 'Email'));
-  assert.equal(rows[0].querySelector('time').textContent, 'Dec 2, 6:00 AM Central');
+  assert.equal(rows[0].querySelector('time').textContent, 'Dec 2, 6:00 AM');
 });
 
 test('missing email thread coverage stays unavailable without reading a mailbox', async () => {

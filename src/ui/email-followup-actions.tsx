@@ -75,9 +75,7 @@ function isRequest(value: unknown): value is Request {
   );
 }
 const returnTime = (value: string) =>
-  new Intl.DateTimeFormat("en-US", { timeZone: zone, dateStyle: "medium", timeStyle: "short" }).format(
-    new Date(value),
-  ) + " America/Chicago";
+  new Intl.DateTimeFormat("en-US", { timeZone: zone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object") throw Error("Unconfirmed response");
   return Object.fromEntries(Object.entries(value));
@@ -166,7 +164,7 @@ export function mountEmailActions(
           </h3>
           {draft.action === "defer" ? (
             <>
-              {field("when", "Return time in America/Chicago", draft.when, "datetime-local")}
+              {field("when", "Return time", draft.when, "datetime-local")}
               <p data-return-time="" />
             </>
           ) : draft.action === "new" ? (

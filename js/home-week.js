@@ -1,10 +1,17 @@
 import { BUSINESS_TIME_ZONE } from './business-date.js';
 import { addDays, toDay } from './calendar-model.js';
 
-export const meetingTime = (value, timeZone, includeDate = false) => new Intl.DateTimeFormat('en-US', {
-  timeZone, ...(includeDate ? { month: 'short', day: 'numeric' } : {}),
-  hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short',
-}).format(new Date(value));
+const zoneName = (date, timeZone) => new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
+  .formatToParts(date).find(part => part.type === 'timeZoneName')?.value;
+
+/** A clock time. Both partners work in Central, so only a time shown in another zone names its zone. */
+export const meetingTime = (value, timeZone, includeDate = false) => {
+  const date = new Date(value);
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone, ...(includeDate ? { month: 'short', day: 'numeric' } : {}), hour: 'numeric', minute: '2-digit', hour12: true,
+    ...(zoneName(date, timeZone) === zoneName(date, BUSINESS_TIME_ZONE) ? {} : { timeZoneName: 'short' }),
+  }).format(date);
+};
 
 export const meetingDate = value => new Date(`${value.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
 

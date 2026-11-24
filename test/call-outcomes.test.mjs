@@ -741,8 +741,8 @@ test('same-day call reviews have distinct recorded Chicago times', () => {
   ]));
   const titles = [...dom.window.document.querySelectorAll('h4')].map(node => node.textContent);
   assert.notEqual(titles[0], titles[1]);
-  assert.match(titles[0], /9:00 AM Central/);
-  assert.match(titles[1], /3:00 PM Central/);
+  assert.match(titles[0], /9:00 AM/);
+  assert.match(titles[1], /3:00 PM/);
   dom.window.close();
 });
 
@@ -786,9 +786,9 @@ test(`Home source calls at ${width} in ${theme}`, async () => {
     ], theme });
     const headings = await page.locator('.call-outcome h4').allTextContents();
     assert.notEqual(headings[0], headings[1]);
-    assert.match(headings[0], /9:00 AM Central/);
-    assert.match(headings[1], /3:00 PM Central/);
-    assert.match(await page.locator('.home-call-source').first().innerText(), /Oct 26.*9:00 AM Central.*7d ago/);
+    assert.match(headings[0], /9:00 AM/);
+    assert.match(headings[1], /3:00 PM/);
+    assert.match(await page.locator('.home-call-source').first().innerText(), /Oct 26.*9:00 AM.*7d ago/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     const directory = process.env.CALL_LABEL_SCREENSHOT_DIR;
     if (directory) {

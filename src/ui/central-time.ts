@@ -23,8 +23,7 @@ export function centralInstant(value: string) {
   const candidates = [5, 6]
     .map((offset) => new Date(wall + offset * 3600000))
     .filter((date) => localParts(date) === value);
-  if (candidates.length !== 1)
-    throw Error("Choose an unambiguous Central time outside the daylight-saving clock change.");
+  if (candidates.length !== 1) throw Error("Choose a time outside the daylight-saving clock change.");
   const chosen = candidates[0];
   if (!chosen) throw Error("Choose a valid return time.");
   return chosen.toISOString();

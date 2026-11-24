@@ -8,7 +8,7 @@ test("Added and source day remain separate across timezones", () => {
   for (const zone of ["UTC", "Pacific/Honolulu", "Asia/Tokyo"]) {
     process.env.TZ = zone;
     const html = timingMarkup(parseOpportunityTiming(supportedTiming), true);
-    assert.match(html, /Oct 31, 2026, 9:30 PM CDT/);
+    assert.match(html, /Oct 31, 2026, 9:30 PM/);
     assert.match(html, /Oct 1, 2026/);
     assert.match(html, /enumeration/);
     assert.match(html, /synthetic-npi/);

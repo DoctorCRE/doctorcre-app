@@ -24,9 +24,8 @@ export function sourceTime(occurredAt, now = new Date(), missing = 'Time unavail
   const sent = parse(occurredAt);
   if (!sent) return missing;
   const year = date => date.toLocaleDateString('en-US', { timeZone: BUSINESS_TIME_ZONE, year: 'numeric' });
-  // "Central", as Home says it, rather than switching between CDT and CST across the year.
-  return `${sent.toLocaleString('en-US', { timeZone: BUSINESS_TIME_ZONE, month: 'short', day: 'numeric',
-    ...(year(sent) === year(now) ? {} : { year: 'numeric' }), hour: 'numeric', minute: '2-digit' })} Central`;
+  return sent.toLocaleString('en-US', { timeZone: BUSINESS_TIME_ZONE, month: 'short', day: 'numeric',
+    ...(year(sent) === year(now) ? {} : { year: 'numeric' }), hour: 'numeric', minute: '2-digit' });
 }
 
 export function waitingDays(occurredAt, now = new Date()) {

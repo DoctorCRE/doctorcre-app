@@ -1396,7 +1396,7 @@ test('deal email threads show latest message dates and escape subjects', async t
     assert.equal(await rows.count(), 2);
     assert.deepEqual(await rows.locator('summary span').allTextContents(), ['Demo <b>newest</b>', 'Demo older']);
     assert.equal(await rows.locator('b').count(), 0);
-    assert.match(await rows.first().locator('time').textContent(), /Oct 1, 7:00 AM Central/);
+    assert.match(await rows.first().locator('time').textContent(), /Oct 1, 7:00 AM/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.deepEqual(errors, []);
   });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { homeWeek } from '../js/home-week.js';
+import { homeWeek, meetingTime } from '../js/home-week.js';
 
 const agenda = { entries: [
   { key: 'task:undated', type: 'task', day: null, label: 'Synthetic social setup' },
@@ -21,7 +21,7 @@ test('Home week assigns dated work and orders repeated DST hours by their actual
   assert.deepEqual(days[0].dated.map(row => row.label), ['Synthetic contract review']);
   assert.notEqual(days[0].dated[0].time, 'All day');
   assert.deepEqual(days[0].timed.map(row => [row.label, row.time]), [
-    ['Synthetic first 1 AM', '1:30 AM CDT'], ['Synthetic second 1 AM', '1:30 AM CST'],
+    ['Synthetic first 1 AM', '1:30 AM'], ['Synthetic second 1 AM', '1:30 AM'],
   ]);
   assert.deepEqual(days[1].allDay.map(row => row.label), ['Synthetic all-day event']);
   assert.deepEqual(days[2].dated.map(row => row.label), ['Synthetic lease date']);
@@ -29,12 +29,21 @@ test('Home week assigns dated work and orders repeated DST hours by their actual
   assert.equal(JSON.stringify(days).includes('Synthetic previous day'), false);
 });
 
+test('a clock time names its zone only when it is not Central', () => {
+  for (const instant of ['2026-01-15T15:00:00Z', '2026-07-15T14:00:00Z']) {
+    assert.equal(meetingTime(instant, 'America/Chicago'), '9:00 AM');
+    assert.equal(meetingTime(instant, 'America/Chicago', true), instant.startsWith('2026-01') ? 'Jan 15, 9:00 AM' : 'Jul 15, 9:00 AM');
+  }
+  assert.equal(meetingTime('2026-01-15T15:00:00Z', 'America/New_York'), '10:00 AM EST');
+  assert.equal(meetingTime('2026-07-15T14:00:00Z', 'America/Los_Angeles'), '7:00 AM PDT');
+});
+
 test('Home week retains partial meeting rows but never presents unavailable rows as current work', () => {
   const partial = homeWeek({ agenda, calendar: { ...calendar, state: 'partial' }, today: '2026-11-01' });
   assert.equal(partial[0].timed.length, 2);
   assert.deepEqual(partial[0].timed[1], {
     ...calendar.items[0], key: partial[0].timed[1].key, type: 'meeting', day: '2026-11-01',
-    label: 'Synthetic second 1 AM', time: '1:30 AM CST',
+    label: 'Synthetic second 1 AM', time: '1:30 AM',
   });
   for (const source of [null, { ...calendar, state: 'unavailable' }, { state: 'empty', items: [] }]) {
     const days = homeWeek({ agenda, calendar: source, today: '2026-11-01' });
@@ -50,10 +59,10 @@ test('Home week keeps cross-midnight meetings on the Chicago day across spring D
     { title: 'Synthetic late previous evening', start: '2026-03-08T05:30:00Z', all_day: false },
   ] } });
   assert.deepEqual(days[0].timed.map(row => [row.label, row.time]), [
-    ['Synthetic late previous evening', '11:30 PM CST'],
+    ['Synthetic late previous evening', '11:30 PM'],
   ]);
   assert.deepEqual(days[1].timed.map(row => [row.label, row.time]), [
-    ['Synthetic before spring jump', '1:30 AM CST'], ['Synthetic after spring jump', '3:05 AM CDT'],
+    ['Synthetic before spring jump', '1:30 AM'], ['Synthetic after spring jump', '3:05 AM'],
   ]);
 });
 

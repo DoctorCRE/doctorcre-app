@@ -239,7 +239,7 @@ function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
           <p>
             {cutover
               ? "Upcoming anniversaries in the next 30 days."
-              : "Next 30 days · America/Chicago calendar · First slice of at most 20. This is not a complete client census."}
+              : "Next 30 days · First slice of at most 20. This is not a complete client census."}
           </p>
         )}
         {state.kind === "loading" && <p role="status">Loading closing anniversaries…</p>}

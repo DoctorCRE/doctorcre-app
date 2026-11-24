@@ -79,7 +79,6 @@ const businessInstant = (v: string) =>
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    timeZoneName: "short",
   });
 const time = (v: string, label: string) => `<time datetime="${escapeText(v)}">${escapeText(label)}</time>`;
 export function timingMarkup(value: Timing | undefined, detail = false, hasLeaseEstimate = false): string {

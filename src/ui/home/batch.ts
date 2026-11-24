@@ -97,7 +97,7 @@ export function batchRequest(action: BatchAction, items: readonly InboxItem[], u
   if (!items.length || items.length > 100 || new Set(items.map((item) => item.item_id)).size !== items.length)
     throw Error("Select between 1 and 100 distinct cards.");
   if (action === "snooze" && (!until || !Number.isFinite(Date.parse(until)) || Date.parse(until) <= Date.now()))
-    throw Error("Choose a future Central time.");
+    throw Error("Choose a future time.");
   const args: ApplyArgs = {
     reversible: true,
     idempotency_key: crypto.randomUUID(),
@@ -105,7 +105,7 @@ export function batchRequest(action: BatchAction, items: readonly InboxItem[], u
   };
   const engine = items.some((item) => item.engine_marks) ? { engine_marks: true as const } : {};
   if (action === "snooze") {
-    if (!until) throw Error("Choose a future Central time.");
+    if (!until) throw Error("Choose a future time.");
     return { ...engine, action, args: { ...args, until } };
   }
   return { ...engine, action, args };
