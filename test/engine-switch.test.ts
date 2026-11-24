@@ -2805,7 +2805,6 @@ test("legacy HTTP writes in the pinned contracts have a cutover disposition", as
     "/api/v1/fact-review/comparison/validate",
     "/api/v1/fact-review/documents",
     "/api/v1/fact-review/list",
-    "/api/v1/jev-deal-reading",
     "/api/v1/market-terms/read",
     "/api/v1/work-inventory",
     "/pipeline/changes",

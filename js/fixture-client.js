@@ -1315,10 +1315,6 @@ export async function createFixtureClient(opts = {}) {
       return { viewer: selfActor, dataset, record: { ...record } };
     },
 
-    async getJevDealReading() {
-      return { schema: 'carr.jev-deal-reading.v1', judged: false, reason: 'jev_unavailable' };
-    },
-
     async getChanges(cursor, { since } = {}) {
       pruneLeases();
       const fresh = eventsAfter(cursor).filter(event => cursor || !since || Date.parse(event.recorded_at) >= Date.parse(since));
