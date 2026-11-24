@@ -3,6 +3,8 @@ import { createLiveClient } from "./live-client.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge, mountPrefs } from "./shell.js";
 import { formatCalendarDate } from "./visual-system.js";
+import { BUSINESS_TIME_ZONE } from "./business-date.js";
+import { meetingTime } from "./home-week.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import {
   addDays, approach, calendarHref, calendarPhase, entriesByDay, localToday, monthGrid, motionDirection,
@@ -52,9 +54,10 @@ const KINDS = [
   { type: "tour", label: "Tour", one: "tour", many: "tours" },
 ];
 const typeLabel = entry => KINDS.find(kind => kind.type === entry.type).label;
-const entryText = entry => entry.time ? `${entry.time} ${entry.label}` : entry.label;
-const ownerName = owner => typeof owner === "string" && owner ? owner[0].toUpperCase() + owner.slice(1) : "";
-const ownerSuffix = owner => ownerName(owner) ? ` · ${escapeHtml(ownerName(owner))}` : "";
+const entryTime = entry => entry.type !== "meeting" ? "" : entry.all_day ? "All day" : meetingTime(entry.at, BUSINESS_TIME_ZONE);
+const entryText = entry => [entryTime(entry), entry.label].filter(Boolean).join(" ");
+const ownerNames = entry => (entry.owners ?? [entry.owner]).filter(owner => typeof owner === "string" && owner)
+  .map(owner => owner[0].toUpperCase() + owner.slice(1)).join(" and ");
 
 function chipHtml(entry, { withDeal }) {
   const near = approach(entry, view.today);
@@ -137,11 +140,11 @@ function paintSelection() {
   paintComingUp(day);
 }
 
-function recordLink(entry) {
-  const url = entry.type === "date" ? entry.deal_id && `/deals?deal=${encodeURIComponent(entry.deal_id)}` : entry.open_url;
-  const name = escapeHtml(recordName(entry));
-  if (!name) return "";
-  return url ? `<a href="${escapeHtml(url)}" data-entry="${escapeHtml(entry.key)}">${name}</a>` : name;
+function recordLinks(entry) {
+  const links = entry.links ?? [{ name: recordName(entry),
+    url: entry.type === "date" ? entry.deal_id && `/deals?deal=${encodeURIComponent(entry.deal_id)}` : entry.open_url }];
+  return links.filter(link => link.name).map(({ name, url }) => url
+    ? `<a href="${escapeHtml(url)}" data-entry="${escapeHtml(entry.key)}">${escapeHtml(name)}</a>` : escapeHtml(name)).join(", ");
 }
 
 function itemCount(rows) {
@@ -154,8 +157,9 @@ function itemCount(rows) {
 function dayList(rows) {
   return `<ol class="cal-day-entries">${rows.map(entry => {
     const near = approach(entry, view.today);
-    const owner = ownerSuffix(entry.owner) + (entry.time ? ` · <time datetime="${escapeHtml(entry.at)}">${escapeHtml(entry.time)}</time>` : "");
-    const record = recordLink(entry);
+    const owner = [ownerNames(entry), entryTime(entry) && `<time datetime="${escapeHtml(entry.at)}">${escapeHtml(entryTime(entry))}</time>`]
+      .filter(Boolean).map(part => ` · ${part}`).join("");
+    const record = recordLinks(entry);
     const late = entry.days_late ? `<span class="cal-late">${entry.days_late} ${entry.days_late === 1 ? "day" : "days"} late · Due ${shortDay(entry.due_on, view.today)}</span>` : "";
     return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}">
       <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${owner}</small>
@@ -181,7 +185,7 @@ function paintDayPanel(day) {
   } else {
     body.textContent = phase === "loading" || phase === "reading" ? "Reading Calendar…"
       : !day ? "Select a day to see its items."
-      : phase === "partial" ? "This day may be incomplete. Refresh to try again." : "No critical dates or next steps on this day.";
+      : phase === "partial" ? "This day may be incomplete. Refresh to try again." : "Nothing on this day.";
   }
 }
 
@@ -191,7 +195,7 @@ function paintComingUp(day) {
   $("calComing").hidden = dates.length === 0;
   $("calAgenda").innerHTML = dates.map(date => {
     const items = view.byDay.get(date).map(entry => `<span class="cal-agenda-detail">
-      ${escapeHtml(entryText(entry))}<small>${escapeHtml([recordName(entry), ownerName(entry.owner)].filter(Boolean).join(" · "))}</small>
+      ${escapeHtml(entryText(entry))}<small>${escapeHtml([recordName(entry), ownerNames(entry)].filter(Boolean).join(" · "))}</small>
     </span>`).join("");
     return `<li><button class="cal-agenda-item" type="button" data-day="${date}">
       <time datetime="${date}">${shortDay(date, view.today)}</time>
@@ -201,7 +205,7 @@ function paintComingUp(day) {
   const missing = view.result.undated || [];
   $("calUndated").hidden = missing.length === 0;
   $("calUndatedList").innerHTML = missing.map(entry =>
-    `<li><b>${escapeHtml(entry.label)}</b> · ${recordLink(entry)} · Date unavailable</li>`).join("");
+    `<li><b>${escapeHtml(entry.label)}</b> · ${recordLinks(entry)} · Date unavailable</li>`).join("");
 }
 
 const STATE_COPY = {
@@ -366,18 +370,21 @@ async function loadMeetings(range) {
 async function load() {
   const sequence = ++view.sequence;
   const showingResults = ["ready", "partial"].includes(view.result.status);
+  // Every load reads the shown period's meetings alongside the dates, so the page paints once.
+  const range = visibleRange(calendarLayout(view.state).days);
+  const meetingSequence = ++view.meetingSequence;
+  if (!sameRange(view.meetings.range, range)) view.meetings = { ...view.meetings, range, entries: [], notes: [] };
   if (!showingResults) {
     view.result = { status: "loading" };
     render();
   }
   view.today = localToday();
-  // A refresh reads the shown period's meetings alongside, so the page paints once.
-  const range = showingResults ? view.meetings.range : null;
   const [result, meetings] = await Promise.all([readCalendar(client, { onProgress: result => {
     if (sequence !== view.sequence || (showingResults && result.status === "reading")) return;
     view.result = result;
     render();
-  } }), range && readMeetings(client, range)]);
+  } }), readMeetings(client, range)]);
+  if (meetingSequence === view.meetingSequence) view.meetings = { ...meetings, range };
   if (sequence !== view.sequence) return;
   if (showingResults && (result.status === "unavailable" ||
       (result.status === "ready" && result.failed.length > 0 && result.readCount === 0))) {
@@ -391,7 +398,6 @@ async function load() {
   const selected = pageDocContext?.snapshot().selected;
   if(selected?.kind === "deal" && result.status === "ready") void client.getDeal(selected.id).catch(() => {});
   if (["ready", "partial"].includes(result.status)) view.updatedAt = new Date().toISOString();
-  if (meetings && sameRange(view.meetings.range, range)) view.meetings = { ...meetings, range };
   view.painted = null;
   render();
   announce(STATE_COPY[calendarPhase(result)] || "");

@@ -81,15 +81,17 @@ const meetings = {
   },
 };
 
-async function routeApp(page: Page, origin: string, ranges: string[], answer: () => Response | object) {
+type Reply = () => Response | object;
+
+async function routeApp(page: Page, origin: string, ranges: string[], answer: Reply, datesAnswer: Reply = () => dates) {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     if (url.origin !== app) return route.abort();
-    if (url.pathname === datesRead) return route.fulfill({ json: dates });
-    if (url.pathname === meetingsRead) {
-      ranges.push(url.search);
-      const reply = answer();
+    const read = url.pathname === datesRead ? datesAnswer : url.pathname === meetingsRead ? answer : null;
+    if (read) {
+      if (read === answer) ranges.push(url.search);
+      const reply = read();
       return reply instanceof Response
         ? route.fulfill({ status: reply.status, body: await reply.text() })
         : route.fulfill({ json: reply });
@@ -140,30 +142,30 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           const panel = page.locator("#dayPanelBody");
           await expect(panel.locator(".cal-day-entry h3")).toHaveText(["Lease review", "Site walk", "LOI expiry"]);
           const review = panel.locator(".cal-day-entry").filter({ hasText: "Lease review" });
-          await expect(review).toContainText("Meeting · Joe · 9:00 AM");
+          await expect(review).toContainText("Meeting · Joe · 9:00 AM CDT");
           await expect(review.getByRole("link", { name: "Example lease" })).toHaveAttribute(
             "href",
             "/deals?deal=qa-deal-1",
           );
           const walk = panel.locator(".cal-day-entry").filter({ hasText: "Site walk" });
-          await expect(walk).toHaveText("Meeting · Dell · 2:30 PM Site walk");
+          await expect(walk).toHaveText("Meeting · Dell · 2:30 PM CDT Site walk");
           if (width === 390) {
             const height = await review.getByRole("link").evaluate((node) => node.getBoundingClientRect().height);
             assert.ok(height >= 44, `the deal link is a 44 px target (${height})`);
           }
           const comingUp = page.getByRole("region", { name: "Coming up" });
           await expect(
-            comingUp.getByRole("button", { name: "Oct 21 11:30 PM Late dinner Joe", exact: true }),
+            comingUp.getByRole("button", { name: "Oct 21 11:30 PM CDT Late dinner Joe", exact: true }),
           ).toBeVisible();
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
           await page.screenshot({ path: join(evidence, `month-${width}-${theme}.png`), fullPage: true });
 
           await page.locator('[data-select-day="2026-10-21"]').click();
-          await expect(panel).toHaveText("Meeting · Joe · 11:30 PM Late dinner");
+          await expect(panel).toHaveText("Meeting · Joe · 11:30 PM CDT Late dinner");
           await page.locator('[data-select-day="2026-10-22"]').click();
-          await expect(panel).toHaveText("No critical dates or next steps on this day.");
+          await expect(panel).toHaveText("Nothing on this day.");
           await page.locator('[data-select-day="2026-10-23"]').click();
-          await expect(panel.locator(".cal-day-entry")).toHaveText("Tour · Dell Tour · 3 stops Example expansion");
+          await expect(panel.locator(".cal-day-entry")).toHaveText("Tour · Dell 3 stops Example expansion");
           await expect(panel.getByRole("link", { name: "Example expansion" })).toHaveAttribute(
             "href",
             "/deals?deal=qa-deal-2",
@@ -172,10 +174,10 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           await page.getByRole("button", { name: "Week", exact: true }).click();
           await expect(page.locator("#calCount")).toHaveText("1 critical date · 3 meetings · 1 tour");
           assert.deepEqual(ranges.at(-1), "?from=2026-10-18&to=2026-10-24");
-          const chip = page.getByRole("button", { name: /^Meeting · 9:00 AM Lease review · Example lease/ });
+          const chip = page.getByRole("button", { name: /^Meeting · 9:00 AM CDT Lease review · Example lease/ });
           await expect(chip).toBeVisible();
-          await expect(chip.locator(".cal-chip-label")).toHaveText("9:00 AM Lease review");
-          await expect(page.getByRole("button", { name: /^Tour · Tour · 3 stops · Example expansion/ })).toBeVisible();
+          await expect(chip.locator(".cal-chip-label")).toHaveText("9:00 AM CDT Lease review");
+          await expect(page.getByRole("button", { name: /^Tour · 3 stops · Example expansion/ })).toBeVisible();
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
           await page.screenshot({ path: join(evidence, `week-${width}-${theme}.png`), fullPage: true });
 
@@ -200,4 +202,100 @@ test("Calendar shows both partners' meetings and tours on their Central day with
         }
       });
     }
+});
+
+const standingNotes = [
+  "May include meetings you declined or that were cancelled or deleted. Check Outlook.",
+  "Invites sent only to a group you belong to are not shown.",
+];
+const sharedMeeting = {
+  key: "0123456789abcdef",
+  title: "Joint  call",
+  start: "2026-10-20T16:00:00Z",
+  end: "2026-10-20T17:00:00Z",
+};
+const sharedMeetings = {
+  ok: true,
+  schema_version: "calendar-meetings.v1",
+  meetings: [
+    {
+      partner: "dell",
+      name: "Example Partner Two",
+      state: "partial",
+      reason: null,
+      notes: standingNotes,
+      meetings_may_be_missing: true,
+      items: [
+        {
+          ...sharedMeeting,
+          context_label: "Example lease, Example expansion",
+          open_url: null,
+          possible_deals: [
+            { id: "qa-deal-1", name: "Example lease", open_url: "/deals?deal=qa-deal-1" },
+            { id: "qa-deal-2", name: "Example expansion", open_url: "/deals?deal=qa-deal-2" },
+          ],
+        },
+      ],
+    },
+    {
+      partner: "joe",
+      name: "Example Partner One",
+      state: "partial",
+      reason: null,
+      notes: standingNotes,
+      meetings_may_be_missing: false,
+      items: [{ ...sharedMeeting, title: "Joint call" }],
+    },
+  ],
+  tours: { state: "empty", reason: null, items: [] },
+};
+
+test("A meeting both partners attend shows once, standing notes stay quiet, and Refresh retries a failed read", async (t) => {
+  const outDir = await temporaryDirectory("calendar-meetings-shared-");
+  t.after(() => rm(outDir, { recursive: true, force: true }));
+  await buildArtifact({ root, outDir, commit: "0".repeat(40) });
+  const server = await (await createQaServer({ buildRoot: join(outDir, "site") })).start();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  t.after(() => page.close());
+  await page.clock.install({ time: new Date("2026-10-21T15:00:00Z") });
+  await page.addInitScript(() => localStorage.setItem("doctorcre:today", "closed"));
+  const ranges: string[] = [];
+  const failed = () => new Response("{}", { status: 503 });
+  let answer: Reply = failed;
+  let datesAnswer: Reply = failed;
+  await routeApp(
+    page,
+    server.origin,
+    ranges,
+    () => answer(),
+    () => datesAnswer(),
+  );
+  await page.request.post(`${server.origin}/api/test/seed`, {
+    data: { namespace: "calendar-meetings-shared", reset: true },
+  });
+
+  await page.goto(`${app}/calendar?view=week&d=2026-10-18&day=2026-10-20`);
+  await expect(page.locator("#calNotices")).toContainText("Meetings could not be loaded. Refresh to try again.");
+  const opened = ranges.length;
+
+  answer = () => sharedMeetings;
+  datesAnswer = () => dates;
+  await page.locator("#calRefresh").click();
+  await expect(page.locator("#calCount")).toHaveText("1 critical date · 1 meeting");
+  assert.equal(ranges.length, opened + 1, "Refresh reads the meetings again");
+  await expect(page.locator("#calNotices")).toHaveText("Dell: Calendar may be incomplete.");
+
+  const panel = page.locator("#dayPanelBody");
+  const joint = panel.locator(".cal-day-entry").filter({ hasText: "Joint call" });
+  await expect(joint).toHaveCount(1);
+  await expect(joint).toContainText("Meeting · Dell and Joe · 11:00 AM CDT");
+  await expect(joint.getByRole("link", { name: "Example lease" })).toHaveAttribute("href", "/deals?deal=qa-deal-1");
+  await expect(joint.getByRole("link", { name: "Example expansion" })).toHaveAttribute("href", "/deals?deal=qa-deal-2");
+  await expect(page.locator('.cal-chip[data-entry="meeting:0123456789abcdef"]')).toHaveAttribute(
+    "data-band",
+    "settled",
+  );
 });

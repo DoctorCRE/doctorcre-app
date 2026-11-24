@@ -152,7 +152,8 @@ export function approach(entry, today) {
   const days = daysBetween(today, entry.day);
   const label = days === 0 ? "today" : days === 1 ? "tomorrow" : days === -1 ? "yesterday"
     : days > 0 ? `in ${days} days` : `${-days} days ago`;
-  if (entry.settled) return { band: "settled", days, pulse: "still", label };
+  // A meeting on a past day happened or did not; either way it is not overdue.
+  if (entry.settled || (days < 0 && entry.type === "meeting")) return { band: "settled", days, pulse: "still", label };
   if (days < 0) return { band: "overdue", days, pulse: "urgent", label };
   if (days === 0) return { band: "today", days, pulse: "urgent", label };
   if (days <= 7) return { band: "soon", days, pulse: "attention", label };
@@ -327,21 +328,39 @@ export function calendarPhase(result) {
 
 /* ---------------------------------------------------------------- meetings */
 
-const centralTime = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" });
 const isInstant = value => typeof value === "string" && Number.isFinite(Date.parse(value));
 const isText = value => typeof value === "string" && value.trim() !== "";
 const recordUrl = value => typeof value === "string" && /^\/(?:deals|relationships)\?/.test(value) ? value : null;
 const SECTION_STATES = ["ready", "empty", "partial", "unavailable"];
+// The Outlook job attaches standing caveats to every snapshot; like Home, only staleness is worth a line.
+const STALE_NOTE = "This calendar was last read from Outlook more than 18 hours ago.";
 const named = (who, text) => text.startsWith(who) ? text : `${who}: ${text}`;
 const partnerName = slug => slug[0].toUpperCase() + slug.slice(1);
+const UNLOADED = { status: "unavailable", entries: [], notes: ["Meetings could not be loaded. Refresh to try again."] };
 
 /** The visible period as the meetings read's inclusive range. */
 export const visibleRange = days => ({ from: days[0].day, to: days.at(-1).day });
+
+function sectionNotes(section, who) {
+  if (section.state === "unavailable") return [section.reason || `${who}'s meetings could not be loaded.`];
+  return [
+    ...(Array.isArray(section.notes) && section.notes.includes(STALE_NOTE) ? [STALE_NOTE] : []),
+    ...(section.meetings_may_be_missing === true ? ["Calendar may be incomplete."] : []),
+  ];
+}
+
+function dealLinks(item) {
+  const matches = Array.isArray(item.possible_deals) ? item.possible_deals : [];
+  const links = matches.flatMap(deal => isText(deal?.name) && recordUrl(deal.open_url) ? [{ name: deal.name, url: deal.open_url }] : []);
+  if (links.length) return links;
+  return isText(item.context_label) ? [{ name: item.context_label, url: recordUrl(item.open_url) }] : [];
+}
 
 /**
  * Both partners' meetings and planned tours for one period, as calendar
  * entries plus the plain notes that say what may be missing. `off` means the
  * engine does not serve the read, so the page says nothing about meetings.
+ * A meeting both partners attend is one entry owned by both.
  */
 export async function readMeetings(client, range) {
   if (!client.getCalendarMeetings) return { status: "off", entries: [], notes: [] };
@@ -349,30 +368,32 @@ export async function readMeetings(client, range) {
   try {
     answer = await client.getCalendarMeetings(range);
   } catch (error) {
-    if (error?.status === 404) return { status: "off", entries: [], notes: [] };
-    return { status: "unavailable", entries: [], notes: ["Meetings could not be loaded. Refresh to try again."] };
+    return error?.status === 404 ? { status: "off", entries: [], notes: [] } : UNLOADED;
   }
   try {
     const notes = [];
-    const meetings = answer.meetings.flatMap(section => {
+    const meetings = new Map();
+    for (const section of answer.meetings) {
       if (!isText(section.partner) || !SECTION_STATES.includes(section.state) || !Array.isArray(section.items))
         throw new Error("Meetings unreadable");
       const who = partnerName(section.partner);
-      const failed = section.state === "unavailable";
-      const said = failed ? [section.reason || `${who}'s meetings could not be loaded.`] : section.notes;
-      notes.push(...(Array.isArray(said) ? said : []).filter(isText).map(note => named(who, note)));
-      if (failed) return [];
-      return section.items.map((item, index) => {
+      notes.push(...sectionNotes(section, who).map(note => named(who, note)));
+      if (section.state === "unavailable") continue;
+      for (const item of section.items) {
         if (!isText(item?.title) || !isInstant(item.start)) throw new Error("Meeting unreadable");
         const start = new Date(item.start);
-        return {
-          key: `meeting:${section.partner}:${item.key ?? index}:${item.start}`, type: "meeting",
-          day: businessDay(start), at: start.toISOString(), time: item.all_day ? "All day" : centralTime.format(start),
-          label: item.title.trim().replace(/\s+/g, " "), owner: section.partner,
-          record_name: isText(item.context_label) ? item.context_label : null, open_url: recordUrl(item.open_url), settled: false,
-        };
-      });
-    });
+        const label = item.title.trim().replace(/\s+/g, " ");
+        // The Outlook job's key is the same for every attendee's copy of a meeting.
+        const key = `meeting:${isText(item.key) ? item.key : `${start.toISOString()}:${label.toLowerCase()}`}`;
+        const known = meetings.get(key);
+        if (known) { if (!known.owners.includes(section.partner)) known.owners.push(section.partner); continue; }
+        const links = dealLinks(item);
+        meetings.set(key, {
+          key, type: "meeting", day: businessDay(start), at: start.toISOString(), all_day: item.all_day === true,
+          label, owners: [section.partner], links, record_name: links.map(link => link.name).join(", ") || null, settled: false,
+        });
+      }
+    }
     const tours = answer.tours;
     if (!SECTION_STATES.includes(tours?.state) || !Array.isArray(tours.items)) throw new Error("Tours unreadable");
     if (tours.state === "unavailable") notes.push(tours.reason || "Planned tours could not be loaded.");
@@ -381,12 +402,12 @@ export async function readMeetings(client, range) {
         throw new Error("Tour unreadable");
       return {
         key: `tour:${tour.id}`, type: "tour", day: tour.planned_on,
-        label: `Tour · ${tour.stop_count} ${tour.stop_count === 1 ? "stop" : "stops"}`, owner: tour.owner,
-        record_name: tour.deal_name, open_url: recordUrl(tour.open_url), settled: false,
+        label: `${tour.stop_count} ${tour.stop_count === 1 ? "stop" : "stops"}`, owners: [tour.owner],
+        links: [{ name: tour.deal_name, url: recordUrl(tour.open_url) }], record_name: tour.deal_name, settled: false,
       };
     });
-    return { status: notes.length ? "partial" : "ready", entries: [...meetings, ...planned], notes: [...new Set(notes)] };
+    return { status: notes.length ? "partial" : "ready", entries: [...meetings.values(), ...planned], notes: [...new Set(notes)] };
   } catch {
-    return { status: "unavailable", entries: [], notes: ["Meetings could not be loaded. Refresh to try again."] };
+    return UNLOADED;
   }
 }
