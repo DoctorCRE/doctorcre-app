@@ -89,17 +89,18 @@ test('settle and snooze have reversible Undo, and focus returns to a reachable r
   assert.equal(await page.locator('details[open]').count(), 0);
   await page.waitForFunction(() => document.activeElement.closest('[data-inbox-row]') !== null);
 });
-test('Undo and its message leave 3 seconds after a save', async t => {
+test('a save is confirmed at the bottom with Undo, and the message leaves after about five seconds', async t => {
   const { page } = await open(t, { clock: true });
   await page.locator('[data-inbox-row="a"]').getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('button', { name: /^1 hour/ }).click();
-  const undo = page.getByRole('button', { name: 'Undo', exact: true });
-  await undo.waitFor();
-  await page.clock.runFor(2_000);
+  const toast = page.getByRole('status').filter({ hasText: 'Snoozed: Synthetic a.' });
+  await toast.waitFor();
+  const undo = toast.getByRole('button', { name: 'Undo', exact: true });
+  await page.clock.runFor(4_000);
   assert.equal(await undo.isVisible(), true, 'Undo is still offered inside its window');
   await page.clock.runFor(1_001);
-  await undo.waitFor({ state: 'detached' });
-  assert.equal(await page.getByText('You can undo this change.', { exact: false }).count(), 0);
+  await toast.waitFor({ state: 'detached' });
+  assert.equal(await page.getByRole('button', { name: /^Undo/ }).count(), 0);
 });
 test('a refusal that arrives during the Undo window stays after it', async t => {
   const { page } = await open(t, { taskConflict: true, clock: true });
@@ -107,10 +108,10 @@ test('a refusal that arrives during the Undo window stays after it', async t => 
   await page.getByRole('button', { name: /^1 hour/ }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).waitFor();
   await page.locator('[data-inbox-row="a"]').getByRole('button', { name: 'Mark done', exact: true }).click();
-  await page.getByRole('button', { name: 'Undo Synthetic a', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
   const refusal = page.getByText(/This task changed.*Nothing was overwritten/);
   await refusal.waitFor();
-  await page.clock.runFor(3_001);
+  await page.clock.runFor(5_001);
   assert.equal(await refusal.isVisible(), true);
 });
 test('a partial failure keeps its message after the Undo window', async t => {
@@ -193,7 +194,7 @@ test('undoing one bulk result keeps the Undo for every other confirmed card', as
   await undoB.waitFor();
   assert.equal(await page.getByRole('button', { name: /^Undo/ }).count(), 1, 'only the remaining card keeps an Undo');
   await undoB.click();
-  await page.getByText(/1 confirmed/).waitFor();
+  await page.locator('.toast').getByText('Undone.').waitFor();
   const unsettles = calls.filter(call => call.name === 'unsettle-home-inbox').map(call => call.args.items.map(item => item.item_id));
   assert.deepEqual(unsettles, [['a'], ['b']], 'each Undo reverses its own card once');
   assert.equal(await page.getByRole('button', { name: /^Undo/ }).count(), 0, 'an undo is not itself offered for undo');
@@ -212,7 +213,7 @@ test('a command receipt does not make an old inbox snapshot look fresh', async t
   await page.clock.fastForward(91_000);
   await page.getByText('Snapshot may be stale', { exact: false }).waitFor();
   await page.locator('[data-inbox-row="a"]').getByRole('button', { name: 'Hide from inbox', exact: true }).click();
-  await page.getByText('1 confirmed.', { exact: false }).waitFor();
+  await page.getByText('Hidden from inbox: Synthetic a.', { exact: true }).waitFor();
   assert.match(await page.locator('.inbox-health').textContent(), /Snapshot may be stale/);
 });
 
@@ -343,15 +344,17 @@ test('a legacy completion receipt stays uncertain and retries without Undo', asy
   assert.equal(calls.some(call => call.name === 'reopen-one-action'), false);
 });
 
-test('independent task receipts survive another Undo and refresh cannot invent one', async t => {
+test('a newer save takes over the Undo and refresh cannot invent one', async t => {
   const { page, calls } = await open(t);
-  for (const id of ['a', 'b']) await page.locator(`[data-inbox-row="${id}"]`).getByRole('button', { name: 'Mark done', exact: true }).click();
-  await page.getByRole('button', { name: 'Undo Synthetic a', exact: true }).click();
-  await page.getByText('Undone.', { exact: false }).waitFor();
+  for (const id of ['a', 'b']) {
+    await page.locator(`[data-inbox-row="${id}"]`).getByRole('button', { name: 'Mark done', exact: true }).click();
+    await page.locator('.toast').getByText(`Marked done: Synthetic ${id}.`).waitFor();
+  }
+  assert.equal(await page.getByRole('button', { name: /^Undo/ }).count(), 1, 'one confirmation, one Undo');
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.getByText('Undone.', { exact: false }).waitFor();
-  assert.deepEqual(calls.filter(call => call.name === 'reopen-one-action').map(call => call.args.action_id), ['00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003']);
-  await page.reload(); await page.locator('[data-inbox-row="a"]').waitFor();
+  assert.deepEqual(calls.filter(call => call.name === 'reopen-one-action').map(call => call.args.action_id), ['00000000-0000-0000-0000-000000000003']);
+  await page.reload(); await page.locator('[data-inbox-row="b"]').waitFor();
   assert.equal(await page.getByRole('button', { name: /^Undo/ }).count(), 0);
 });
 test('snooze Cancel restores its opener and Working cannot be hidden or completed', async t => {
@@ -400,9 +403,8 @@ for (const target of ['extra10', 'extra9']) test(`scrolled completion of ${targe
   await page.locator(`[data-inbox-row="${target}"]`).getByRole('button', { name: 'Mark done', exact: true }).click();
   await page.getByText(`Marked done: Synthetic ${target}.`, { exact: false }).waitFor();
   await page.waitForFunction(id => document.activeElement.closest('[data-inbox-row]')?.dataset.inboxRow === id, target === 'extra10' ? 'extra11' : 'extra8');
-  const notice = await page.locator('.inbox-notice').boundingBox();
+  const notice = await page.locator('.toast').boundingBox();
   const undo = await page.getByRole('button', { name: 'Undo', exact: true }).boundingBox();
-  await page.screenshot({ path: `/tmp/j62-${target}-receipt.png` });
   const safe = await page.evaluate(() => ({ top: Math.max(0, document.querySelector('.app-layout-tabbar')?.getBoundingClientRect().bottom || 0), bottom: Math.min(innerHeight, ...[...document.querySelectorAll('.app-shell-header')].map(node => node.getBoundingClientRect()).filter(box => box.height && box.top > innerHeight / 2).map(box => box.top)) }));
   assert.ok(notice.y >= safe.top && notice.y + notice.height <= safe.bottom, 'named receipt clears fixed mobile chrome');
   assert.ok(undo.y >= safe.top && undo.y + undo.height <= safe.bottom, 'Undo clears fixed mobile chrome');
