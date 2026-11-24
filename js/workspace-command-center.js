@@ -124,7 +124,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     const rows = meetings.items.map(meeting => {
       const time = meeting.all_day
         ? meetingDate(meeting.start)
-        : meetingTime(meeting.start, meetingTimeZone, true);
+        : meetingTime(meeting.start, meetingTimeZone, { date: true });
       const detail = `${meeting.location || 'Place not provided'} · ${meeting.attendee_count} ${meeting.attendee_count === 1 ? 'attendee' : 'attendees'}`;
       return `<div class="home-meeting"><time datetime="${E(meeting.start)}">${E(time)}${meeting.all_day ? ' · All day' : ''}</time><strong>${E(meeting.title)}</strong><span>${E(detail)}</span></div>`;
     }).join('');

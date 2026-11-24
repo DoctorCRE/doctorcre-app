@@ -149,12 +149,15 @@ test("Calendar reads once and shows dates and next steps in the visible period",
               arrowsBracketTitle:
                 Number(box("calPrev")?.right) <= Number(box("calPeriod")?.left) &&
                 Number(box("calPeriod")?.right) <= Number(box("calNext")?.left),
-              panelBesideGrid: Number(box("dayPanel")?.left) >= Number(box("calGrid")?.right),
-              panelBelowGrid: Number(box("dayPanel")?.top) >= Number(box("calGrid")?.bottom),
+              sheet: box("dayPanel")?.toJSON(),
+              viewport: { width: innerWidth, height: innerHeight },
             };
           });
           assert.equal(geometry.arrowsBracketTitle, true);
-          assert.equal(width === 1440 ? geometry.panelBesideGrid : geometry.panelBelowGrid, true);
+          const { sheet, viewport } = geometry;
+          assert.equal(sheet.bottom, viewport.height, "the day sheet reaches the bottom of the screen");
+          if (width === 1440) assert.equal(sheet.right, viewport.width, "the day sheet is pinned to the right edge");
+          else assert.equal(sheet.width, viewport.width, "the day sheet spans the phone");
           const panel = page.locator("#dayPanelBody");
           const step = panel.locator(".cal-day-entry").filter({ hasText: stepTitle });
           const title = step.getByRole("heading", { name: stepTitle });
@@ -185,9 +188,15 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await expect(late.getByText(/1 day late/)).toBeVisible();
             await expect(late.getByText("LOI expiry")).toHaveCount(0);
             assert.equal(await panel.getByRole("heading").first().textContent(), "Late");
-            await page.locator('[data-select-day="2026-10-17"]').click();
-            await expect(late).toHaveCount(0);
-            await expect(panel.getByText(stepTitle)).toHaveCount(0);
+            const dueDay = page.locator('[data-select-day="2026-10-17"]');
+            await page.keyboard.press("Escape");
+            if (width === 390) await expect(dueDay, "the phone agenda leaves the empty due day out").toBeHidden();
+            else {
+              await dueDay.click();
+              await expect(late).toHaveCount(0);
+              await expect(panel.getByText(stepTitle)).toHaveCount(0);
+              await page.keyboard.press("Escape");
+            }
             const lateChip = page.getByRole("button", { name: "2 late steps", exact: true });
             await expect(lateChip).toHaveCount(1);
             await expect(lateChip).toBeVisible();
@@ -222,16 +231,23 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await page.screenshot({ path: join(evidence, `month-${width}-${theme}.png`), fullPage: true });
           await page.locator("#dayPanel").screenshot({ path: join(evidence, `day-${width}-${theme}.png`) });
 
+          // A wide month shows every day, so only the phone keeps Coming up; there a day opens from it.
           const comingUpPanel = page.getByRole("region", { name: "Coming up" });
-          const comingUp = comingUpPanel.getByRole("button", { name: /^Oct 22\b/ });
-          await t.test("Coming up names every item due", async () => {
-            await expect(comingUp).toContainText("Confirm suite availability");
-            await expect(comingUp).toContainText("Dell");
-            const twoItems = comingUpPanel.getByRole("button", { name: /^Oct 26\b/ });
-            await expect(twoItems).toContainText("Confirm suite availability");
-            await expect(twoItems).toContainText("Option notice");
-          });
-          await comingUp.click();
+          const upcoming = (day: string) =>
+            width === 390
+              ? comingUpPanel.getByRole("button", { name: new RegExp(`^${day}\\b`) })
+              : page.locator(`.cal-day-open[data-select-day="2026-10-${day.slice(4)}"]`);
+          if (width === 390)
+            await t.test("Coming up names every item due", async () => {
+              await expect(upcoming("Oct 22")).toContainText("Confirm suite availability");
+              await expect(upcoming("Oct 22")).toContainText("Dell");
+              const twoItems = upcoming("Oct 26");
+              await expect(twoItems).toContainText("Confirm suite availability");
+              await expect(twoItems).toContainText("Option notice");
+            });
+          else await expect(comingUpPanel).toBeHidden();
+          await page.keyboard.press("Escape");
+          await upcoming("Oct 22").click();
           await expect(panel).toContainText("Confirm suite availability");
           await expect(panel).toContainText("Next step · Dell");
           await expect(panel.getByRole("link", { name: "Example clinic" })).toHaveAttribute(
@@ -240,11 +256,24 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           );
           await t.test("a short step appears once when the engine omits its body", async () => {
             await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
-            await comingUpPanel.getByRole("button", { name: /^Oct 24\b/ }).click();
+            await page.keyboard.press("Escape");
+            await upcoming("Oct 24").click();
             await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
           });
-          await page.getByRole("button", { name: "Jump to today" }).click();
-          await expect(step).toBeVisible();
+          await page.keyboard.press("Escape");
+          const todayButton = page.getByRole("button", { name: "Today", exact: true });
+          const todayCell = page.locator('.cal-day-open[data-select-day="2026-10-20"]');
+          await t.test("Today opens the Day view without its sheet; the day opens from its header", async () => {
+            await page.getByRole("button", { name: "Next month" }).click();
+            await todayButton.click();
+            await expect(page.locator("#calPeriod")).toHaveText("Tuesday, Oct 20, 2026");
+            await expect(todayCell).toBeFocused();
+            await expect(page.locator("#dayPanel")).toBeHidden();
+            await page.keyboard.press("Enter");
+            await expect(step).toBeVisible();
+            await page.keyboard.press("Escape");
+            await page.getByRole("button", { name: "Month", exact: true }).click();
+          });
           const week = page.getByRole("button", { name: "Week", exact: true });
           await expect(week).toHaveCSS("border-top-width", "0px");
           const background = await week.evaluate((node) => getComputedStyle(node).backgroundColor);
@@ -271,8 +300,10 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           const updated = page.locator("#calAsOf");
           const record = step.getByRole("link");
           const focusRetained: boolean[] = [];
+          await todayCell.click();
           for (const minute of [1, 2, 3, 4, 5]) {
-            const focused = minute === 1 ? record : comingUp;
+            if (minute === 2) await page.keyboard.press("Escape");
+            const focused = minute === 1 ? record : upcoming("Oct 22");
             await focused.focus();
             const previous = await updated.textContent();
             await page.clock.setSystemTime(new Date(Date.UTC(2026, 9, 20, 15, minute)));
@@ -288,13 +319,15 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await t.test("a sixth focus keeps the last data until the deferred read", async () => {
             const previous = await updated.textContent();
             await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-            await expect(record).toBeVisible({ timeout: 500 });
+            await expect(upcoming("Oct 22")).toBeVisible({ timeout: 500 });
             await expect(updated).toHaveText(previous ?? "");
             assert.equal(reads.length, 6);
             await page.clock.fastForward(120_000);
             await expect(updated).not.toHaveText(previous ?? "");
             assert.equal(reads.length, 7);
           });
+          await todayButton.click();
+          await todayCell.click();
           await panel.locator(".cal-day-entry").filter({ hasText: "LOI expiry" }).getByRole("link").click();
           await page.waitForURL((url) => url.pathname === "/deals" && url.searchParams.get("deal") === "qa-deal-1");
           await expect(page.locator("#recordPanel .deal-opening-snapshot")).toBeVisible();
@@ -303,10 +336,13 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await t.test("failed refresh keeps dates until retry and session expiry clears them", async () => {
             const previous = await updated.textContent();
             await page.route(`**${calendarRead}`, async () => {});
+            await page.keyboard.press("Escape");
             await page.locator("#calRefresh").click();
             await page.clock.fastForward(10_001);
             await expect(page.locator("#calNotices").getByText("Calendar could not refresh. Try again.")).toBeVisible();
-            await expect(panel).toContainText("LOI expiry");
+            await expect(
+              page.locator('#calGrid .cal-chip[data-day="2026-10-20"]').filter({ hasText: "LOI expiry" }),
+            ).toHaveCount(1);
             await expect(page.locator('[data-day="2026-10-20"][aria-selected="true"]')).toHaveCount(1);
             await expect(updated).toHaveText(previous ?? "");
             await page.unroute(`**${calendarRead}`);
@@ -330,7 +366,9 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await page.clock.setSystemTime(new Date("2026-10-20T15:10:00Z"));
             await page.getByRole("button", { name: "Retry" }).click();
             await expect(updated).not.toHaveText(previous ?? "");
-            await expect(panel).toContainText("New date");
+            await expect(
+              page.locator('#calGrid .cal-chip[data-day="2026-10-20"]').filter({ hasText: "New date" }),
+            ).toHaveCount(1);
             await page.unroute(`**${calendarRead}`);
             await expect(page.locator("#calNotices").getByText("Calendar could not refresh. Try again.")).toHaveCount(
               0,

@@ -32,7 +32,7 @@ test('Home week assigns dated work and orders repeated DST hours by their actual
 test('a clock time names its zone only when it is not Central', () => {
   for (const instant of ['2026-01-15T15:00:00Z', '2026-07-15T14:00:00Z']) {
     assert.equal(meetingTime(instant, 'America/Chicago'), '9:00 AM');
-    assert.equal(meetingTime(instant, 'America/Chicago', true), instant.startsWith('2026-01') ? 'Jan 15, 9:00 AM' : 'Jul 15, 9:00 AM');
+    assert.equal(meetingTime(instant, 'America/Chicago', { date: true }), instant.startsWith('2026-01') ? 'Jan 15, 9:00 AM' : 'Jul 15, 9:00 AM');
   }
   assert.equal(meetingTime('2026-01-15T15:00:00Z', 'America/New_York'), '10:00 AM EST');
   assert.equal(meetingTime('2026-07-15T14:00:00Z', 'America/Los_Angeles'), '7:00 AM PDT');

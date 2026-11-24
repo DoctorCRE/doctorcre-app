@@ -3,7 +3,10 @@ import { BUSINESS_TIME_ZONE, businessDay } from './business-date.js';
 import { meetingTime } from './home-week.js';
 // Calendar days use UTC arithmetic. Today uses America/Chicago.
 
-export const CALENDAR_VIEWS = Object.freeze(["month", "week"]);
+/** Widest to narrowest; a change toward the end zooms in. */
+export const CALENDAR_VIEWS = Object.freeze(["month", "week", "day"]);
+/** The sheet's target when it lists the dates that could not be read. */
+export const UNDATED = "undated";
 const READ_CONCURRENCY = 4;
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -110,15 +113,38 @@ export function weekStrip(anchor) {
   return { title, days };
 }
 
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** The anchor alone. */
+function dayStrip(anchor) {
+  const date = asUtc(anchor);
+  return { title: `${WEEKDAY_NAMES[date.getUTCDay()]}, ${shortDate(anchor)}, ${date.getUTCFullYear()}`, days: [{ day: anchor, inMonth: true }] };
+}
+
 /* ---------------------------------------------------------------- URL memory */
 
 /** The view the address names; anything unrecognised falls back, never errors. */
 export function parseCalendarState(search, today) {
   const params = new URLSearchParams(search || "");
   const view = CALENDAR_VIEWS.includes(params.get("view")) ? params.get("view") : "month";
-  const anchor = toDay(params.get("d")) || today;
-  const day = toDay(params.get("day"));
-  return { view, anchor, day };
+  const day = params.get("day") === UNDATED ? UNDATED : toDay(params.get("day"));
+  const anchor = toDay(params.get("d")) || toDay(day) || today;
+  return settleOpenDay({ view, anchor, day });
+}
+
+/** The days a state shows. */
+export function calendarLayout({ view, anchor }) {
+  switch (view) {
+    case "day": return dayStrip(anchor);
+    case "week": return weekStrip(anchor);
+    default: return monthGrid(anchor);
+  }
+}
+
+/** A move that leaves the open day outside the shown period closes it, so the sheet never shows a day the grid does not. */
+export function settleOpenDay(state) {
+  const shown = calendarLayout(state).days.some(cell => cell.inMonth && cell.day === state.day);
+  return state.day && state.day !== UNDATED && !shown ? { ...state, day: null } : state;
 }
 
 export function calendarHref(state) {
@@ -127,16 +153,17 @@ export function calendarHref(state) {
   return `/calendar?${params}`;
 }
 
-/** One month or one week forward (1) or back (-1). The selected day stays. */
+/** One period forward (1) or back (-1). */
 export function stepAnchor(state, direction) {
-  const anchor = state.view === "week" ? addDays(state.anchor, 7 * direction) : addMonths(state.anchor, direction);
+  const anchor = state.view === "month" ? addMonths(state.anchor, direction)
+    : addDays(state.anchor, (state.view === "week" ? 7 : 1) * direction);
   return { ...state, anchor };
 }
 
 /** Which way the grid should move when the view changes from `before` to `after`. */
 export function motionDirection(before, after) {
   if (!before) return "enter";
-  if (before.view !== after.view) return after.view === "week" ? "zoom-in" : "zoom-out";
+  if (before.view !== after.view) return CALENDAR_VIEWS.indexOf(after.view) > CALENDAR_VIEWS.indexOf(before.view) ? "zoom-in" : "zoom-out";
   if (before.anchor === after.anchor) return "none";
   return after.anchor > before.anchor ? "forward" : "back";
 }
@@ -217,6 +244,44 @@ export function entriesByDay(entries) {
       || a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
   }
   return map;
+}
+
+/* ---------------------------------------------------------------- timeline */
+
+const CENTRAL_CLOCK = new Intl.DateTimeFormat("en-US", { timeZone: BUSINESS_TIME_ZONE, hour: "numeric", minute: "numeric", hourCycle: "h23" });
+const DAY_MINUTES = 24 * 60;
+// A meeting without a readable end gets the shortest slot Outlook offers.
+const DEFAULT_MINUTES = 30;
+
+/** Minutes past Central midnight. */
+export function centralMinutes(instant) {
+  const parts = Object.fromEntries(CENTRAL_CLOCK.formatToParts(new Date(instant)).map(part => [part.type, part.value]));
+  return Number(parts.hour) * 60 + Number(parts.minute);
+}
+
+/**
+ * A day's timed meetings as blocks: start and end in minutes past Central
+ * midnight, and the column of `columns` each takes so overlapping ones sit
+ * side by side. A meeting that runs past midnight ends at midnight.
+ */
+export function timelineBlocks(entries) {
+  const blocks = entries.filter(entry => entry.at && !entry.all_day).map(entry => {
+    const start = centralMinutes(entry.at);
+    const length = entry.end ? Math.round((Date.parse(entry.end) - Date.parse(entry.at)) / 60_000) : 0;
+    return { entry, start, end: Math.min(DAY_MINUTES, start + (length > 0 ? length : DEFAULT_MINUTES)), column: 0, columns: 1 };
+  }).sort((a, b) => a.start - b.start || b.end - a.end);
+  let cluster = [];
+  let clusterEnd = -1;
+  const settle = () => { for (const block of cluster) block.columns = Math.max(...cluster.map(other => other.column)) + 1; };
+  for (const block of blocks) {
+    if (block.start >= clusterEnd) { settle(); cluster = []; }
+    const taken = new Set(cluster.filter(other => other.end > block.start).map(other => other.column));
+    block.column = Array.from({ length: cluster.length + 1 }, (_, column) => column).find(column => !taken.has(column));
+    cluster.push(block);
+    clusterEnd = Math.max(clusterEnd, block.end);
+  }
+  settle();
+  return blocks;
 }
 
 /* ------------------------------------------------------------------- the read */
@@ -347,7 +412,7 @@ function sectionNotes(section, who, now) {
   const synced = isInstant(section.observed_at) ? Date.parse(section.observed_at) : null;
   return [
     ...(synced !== null && now - synced > STALE_MS
-      ? [`Last synced ${meetingTime(section.observed_at, BUSINESS_TIME_ZONE, true)}.`] : []),
+      ? [`Last synced ${meetingTime(section.observed_at, BUSINESS_TIME_ZONE, { date: true })}.`] : []),
     ...(section.meetings_may_be_missing === true ? ["Calendar may be incomplete."] : []),
   ];
 }
@@ -393,6 +458,7 @@ export async function readMeetings(client, range, now = Date.now()) {
         const links = dealLinks(item);
         meetings.set(key, {
           key, type: "meeting", day: businessDay(start), at: start.toISOString(), all_day: item.all_day === true,
+          end: isInstant(item.end) ? new Date(item.end).toISOString() : null,
           label, owners: [section.partner], links, record_name: links.map(link => link.name).join(", ") || null, settled: false,
         });
       }

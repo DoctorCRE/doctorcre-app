@@ -176,6 +176,7 @@ async function syncQuietVendors() {
 let searchTimer = null;
 let dealroomClientPromise = null;
 const initialBootMode = resolveDealroomBoot(window.location);
+let partyEditor = null;
 
 /**
  * The one dealroom client this page builds, for the MCP reads it makes (the
@@ -296,6 +297,7 @@ function optionsHtml(options, emptyLabel, selected) {
  */
 function renderControls({ syncSearch = false } = {}) {
   const { dataset, query, facets } = view;
+  partyEditor?.setDataset(dataset);
   if (dom.search) {
     const next = searchBoxValue({
       current: dom.search.value, query: query.q,
@@ -477,7 +479,7 @@ function rowFacts(dataset, row) {
   if (dataset === "clients") {
     const status = recordedCode(row.recorded_status, row.recorded_status_label);
     facts.push({ label: "Status", value: status.text, known: status.known, unresolved: status.known && !status.resolved });
-    facts.push({ label: "Vertical", value: row.vertical || "Not recorded", known: Boolean(row.vertical) });
+    facts.push({ label: "Practice type", value: row.vertical || "Not recorded", known: Boolean(row.vertical) });
     facts.push({ label: "Deal type", value: row.deal_type || "Not recorded", known: Boolean(row.deal_type) });
     const type = recordedCode(row.recorded_client_type, row.recorded_client_type_label);
     facts.push({ label: "Client type", value: type.text, known: type.known, unresolved: type.known && !type.resolved });
@@ -728,9 +730,13 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    // A redraw keeps focus on the record action that had it, such as Edit after a save.
+    const actions = () => [...dom.panelBody.querySelectorAll(".party-record-actions button")];
+    const action = actions().indexOf(document.activeElement);
+    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${partyEditor?.actionsHtml() ?? ""}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
+    if (action >= 0) focusWithoutScrolling(actions()[action]);
     const note = dom.panelBody.querySelector(".client-note > p");
     if (note) note.nextElementSibling.hidden = !note.nextElementSibling.open && note.scrollHeight <= note.clientHeight;
   }
@@ -743,7 +749,8 @@ function clientActivityList(rows) {
     const disclosure = row.email
       ? `<details data-details-key="email-${escapeHtml(row.when)}-${index}"><summary>${link ? "Read email" : text}</summary><p class="entry-detail">${escapeHtml(row.email)}</p></details>`
       : "";
-    const entry = link + disclosure || text;
+    const where = [row.stepOwner, row.filedOn].filter(Boolean).map(part => `· ${escapeHtml(part)}`).join(" ");
+    const entry = (link + disclosure || text) + (where ? ` <span class="activity-filed">${where}</span>` : "");
     return `<li class="activity-row"><span class="activity-dot" aria-hidden="true"></span><div class="activity-what">${entry}</div>${row.when ? `<time class="activity-when">${escapeHtml(formatMoment(row.when))}${row.source ? ` · ${escapeHtml(row.source)}` : ""}</time>` : ""}</li>`;
   }).join("")}</ol>`;
 }
@@ -1126,6 +1133,9 @@ function wireControls() {
 
   dom.panelClose?.addEventListener("click", () => closeRecord());
   dom.panelBody?.addEventListener("click", (event) => {
+    const edit = event.target.closest("[data-party-edit]");
+    if (edit) return partyEditor?.edit();
+    if (event.target.closest("[data-party-link]")) return partyEditor?.link(view.record.payload?.record?.name ?? "");
     if (event.target.closest("[data-retry='record']") && view.recordId) loadRecord(view.recordId);
     if (event.target.closest("[data-retry='activity']") && !view.signedOut && view.recordId === view.record.payload?.record?.id) {
       loadActivity(view.recordId, view.record.payload.record);
@@ -1172,6 +1182,23 @@ function start() {
     return;
   }
   if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
+  // Party saves land in the new database, so the controls follow the Clients and Vendors switch.
+  const partySaves = initialBootMode.mode === "live" && document.documentElement.hasAttribute("data-clients-vendors-from-engine");
+  if (partySaves) import("./ui-party-editor.generated.js").then(({ mountPartyEditor }) => {
+    partyEditor = mountPartyEditor({
+      document, client: dealroomClient, dataset: () => view.dataset, facets: () => view.facets, phoneLabel,
+      // A drawer opened by an old UUID answers that UUID as its id; party_id is the id the party saves take.
+      recordParty: () => { const record = view.record.payload?.record; return record?.party_id ?? record?.id ?? null; },
+      saved: (id, dataset) => {
+        if (dataset !== view.dataset) return navigate(viewHref(defaultQuery(dataset), id));
+        if (view.recordId === id) loadRecord(id);
+        else navigate(viewHref(view.query, id));
+        loadList("background");
+      },
+    });
+    partyEditor.setDataset(view.dataset);
+    if (view.recordId) renderRecordPanel();
+  });
   wireControls();
   const searchDock = document.querySelector('.search-dock');
   const searchDockObserver = new ResizeObserver(() => {

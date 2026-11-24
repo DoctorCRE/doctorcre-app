@@ -236,17 +236,22 @@ const proposalCopy = {
   reply_revision: { save: "Save revision", saved: "Reply revision saved.", open: "Open reply review" },
 };
 
+function keptSavedDraft(result: Confirmation) {
+  return result.kind === "reply_draft" && result.existing;
+}
+
 function SavedProposal({ result }: { result: Confirmation }) {
   const href = recordHref(result.href);
   const { saved, open } = proposalCopy[result.kind];
+  const status = keptSavedDraft(result) ? "Opened your saved draft. Doc’s new wording wasn’t used." : !href && saved;
   return (
     <p>
-      {href ? (
+      {status}
+      {status && href && " "}
+      {href && (
         <a className="doc-chat__action" href={href}>
           {open}
         </a>
-      ) : (
-        saved
       )}
     </p>
   );
@@ -380,7 +385,9 @@ function ProposalEditor({
       storage.write("");
       onSaved(result);
       const href = recordHref(result.href);
-      if ((result.kind === "reply_draft" || result.kind === "reply_revision") && href) location.assign(href);
+      // A kept saved draft stays on the chat so the partner reads that Doc's wording was not used.
+      if ((result.kind === "reply_draft" || result.kind === "reply_revision") && href && !keptSavedDraft(result))
+        location.assign(href);
     } catch (error) {
       if (controller.signal.aborted) return;
       if (error instanceof DocRequestFailed && error.status >= 400 && error.status < 500 && error.status !== 429) {

@@ -6,7 +6,7 @@ import { cardDueLabel } from './ui-card-due.generated.js';
 import { bindCardQuickMenu } from './ui-card-menu.generated.js';
 import {
   autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
-  renderDealItems, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt,
+  renderDealItems, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt, stepText,
 } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
@@ -174,7 +174,7 @@ function dealOwnerFirstSteps(deal, actions) {
 function listNextStepHtml(deal) {
   const [step] = dealOwnerFirstSteps(deal, deal.open_actions);
   if (!step) return '<p class="deal-list-next-step">No next step set</p>';
-  return `<p class="deal-list-next-step"><span>${esc(step.description.trim())}</span> · ${dueDateHtml(calendarDay(step.due_on), businessDay())}</p>`;
+  return `<p class="deal-list-next-step"><span>${esc(stepText(step))}</span> · ${dueDateHtml(calendarDay(step.due_on), businessDay())}</p>`;
 }
 function dealAttentionHtml(deal) {
   return state.boardFromEngine && deal.attention === true ? '<span class="deal-attention-label">Needs attention</span>' : '';

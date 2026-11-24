@@ -137,27 +137,25 @@ export function CardTile({
   const visible = changed ? retainOrder(order.cards, preserve ? [...items, pinned] : items) : order.cards;
   if (changed) setOrder({ incoming: items, pinned, cards: visible });
   if (!visible.length && !after.length) return null;
+  const isLate = (item: InboxItem) => showLate && Boolean(item.days_late);
+  const ordered = [...visible.filter(isLate), ...visible.filter((item) => !isLate(item))];
   const shown = expanded
-    ? visible
-    : visible.filter(
+    ? ordered
+    : ordered.filter(
         (item, index) =>
           index < tilePreviewCount || item.item_id === current || (pinned && cardKey(item) === cardKey(pinned)),
       );
-  const regular: InboxItem[] = [];
-  const late: InboxItem[] = [];
-  for (const item of shown) {
-    (showLate && item.days_late ? late : regular).push(item);
-  }
+  const late = shown.filter(isLate);
   return (
     <HomeTile title={title} count={count} expanded={expanded} setExpanded={setExpanded}>
-      {regular.map(row)}
-      {expanded ? after : after.slice(0, Math.max(0, tilePreviewCount - items.length))}
       {late.length > 0 && (
         <section aria-label="Late">
           <h3 className="home-late">Late</h3>
           {late.map(row)}
         </section>
       )}
+      {shown.filter((item) => !isLate(item)).map(row)}
+      {expanded ? after : after.slice(0, Math.max(0, tilePreviewCount - items.length))}
     </HomeTile>
   );
 }

@@ -62,7 +62,7 @@ const meetings = {
           open_url: "/deals?deal=qa-deal-1",
           context_label: "Example lease",
         },
-        // 11:30 PM on Oct 21 is already Oct 22 in UTC.
+        // 11:30 PM Central on Oct 21 is already Oct 22 in UTC.
         { title: "Late dinner", start: "2026-10-22T04:30:00Z", end: "2026-10-22T05:30:00Z" },
       ],
     },
@@ -139,7 +139,8 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
           await expect(page.locator("#calCount")).toHaveText("1 critical date · 3 meetings · 1 tour");
           assert.deepEqual(ranges, ["?from=2026-09-27&to=2026-11-07"]);
-          await expect(page.locator("#calMeetingsNote")).toHaveText("Meetings show for about the next two weeks.");
+          await expect(page.locator("main")).not.toContainText("two weeks");
+          await expect(page.locator("body")).not.toContainText(/\b(CST|CDT)\b/);
           await expect(page.locator("#calNotices")).toHaveText(staleNotice);
 
           const panel = page.locator("#dayPanelBody");
@@ -156,24 +157,43 @@ test("Calendar shows both partners' meetings and tours on their Central day with
             const height = await review.getByRole("link").evaluate((node) => node.getBoundingClientRect().height);
             assert.ok(height >= 44, `the deal link is a 44 px target (${height})`);
           }
-          const comingUp = page.getByRole("region", { name: "Coming up" });
-          await expect(
-            comingUp.getByRole("button", { name: "Oct 21 11:30 PM Late dinner Joe", exact: true }),
-          ).toBeVisible();
+          // A wide month shows every day, so only the phone keeps Coming up.
+          if (width === 390) {
+            const comingUp = page.getByRole("region", { name: "Coming up" });
+            await expect(
+              comingUp.getByRole("button", { name: "Oct 21 11:30 PM Late dinner Joe", exact: true }),
+            ).toBeVisible();
+          }
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
           await page.screenshot({ path: join(evidence, `month-${width}-${theme}.png`), fullPage: true });
 
-          await page.locator('[data-select-day="2026-10-21"]').click();
+          // A phone's day sheet is modal, so a partner closes it before tapping another day.
+          const closeOnPhone = async () => {
+            if (width === 390) await page.getByRole("button", { name: "Close day" }).click();
+          };
+          const openDay = async (day: string) => {
+            await closeOnPhone();
+            await page.locator(`[data-select-day="${day}"]`).click();
+          };
+          await openDay("2026-10-21");
           await expect(panel).toHaveText("Meeting · Joe · 11:30 PM Late dinner");
-          await page.locator('[data-select-day="2026-10-22"]').click();
-          await expect(panel).toHaveText("Nothing on this day.");
-          await page.locator('[data-select-day="2026-10-23"]').click();
+          if (width === 390) {
+            await expect(
+              page.locator('#calGrid .cal-day[data-day="2026-10-22"]'),
+              "the phone agenda skips an empty day",
+            ).toBeHidden();
+          } else {
+            await openDay("2026-10-22");
+            await expect(panel).toHaveText("Nothing on this day.");
+          }
+          await openDay("2026-10-23");
           await expect(panel.locator(".cal-day-entry")).toHaveText("Tour · Dell 3 stops Example expansion");
           await expect(panel.getByRole("link", { name: "Example expansion" })).toHaveAttribute(
             "href",
             "/deals?deal=qa-deal-2",
           );
 
+          await closeOnPhone();
           await page.getByRole("button", { name: "Week", exact: true }).click();
           await expect(page.locator("#calCount")).toHaveText("1 critical date · 3 meetings · 1 tour");
           assert.deepEqual(ranges.at(-1), "?from=2026-10-18&to=2026-10-24");
@@ -191,6 +211,7 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           await expect(page.locator("#calCount")).toHaveText("1 critical date");
           await page.locator('[data-select-day="2026-11-12"]').click();
           await expect(panel.locator(".cal-day-entry h3")).toHaveText(["LOI expiry"]);
+          await closeOnPhone();
 
           answer = () => meetings;
           await page.locator("#calRefresh").click();
@@ -198,7 +219,6 @@ test("Calendar shows both partners' meetings and tours on their Central day with
 
           answer = () => new Response("{}", { status: 404 });
           await page.getByRole("button", { name: "Next month" }).click();
-          await expect(page.locator("#calMeetingsNote")).toBeHidden();
           await expect(page.locator("#calNotices")).toBeEmpty();
         } finally {
           await page.close();

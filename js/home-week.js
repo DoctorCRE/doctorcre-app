@@ -5,12 +5,12 @@ const zoneName = (date, timeZone) => new Intl.DateTimeFormat('en-US', { timeZone
   .formatToParts(date).find(part => part.type === 'timeZoneName')?.value;
 
 /** A clock time. Both partners work in Central, so only a time shown in another zone names its zone. */
-export const meetingTime = (value, timeZone, includeDate = false) => {
-  const date = new Date(value);
+export const meetingTime = (value, timeZone, { date = false } = {}) => {
+  const instant = new Date(value);
   return new Intl.DateTimeFormat('en-US', {
-    timeZone, ...(includeDate ? { month: 'short', day: 'numeric' } : {}), hour: 'numeric', minute: '2-digit', hour12: true,
-    ...(zoneName(date, timeZone) === zoneName(date, BUSINESS_TIME_ZONE) ? {} : { timeZoneName: 'short' }),
-  }).format(date);
+    timeZone, ...(date ? { month: 'short', day: 'numeric' } : {}), hour: 'numeric', minute: '2-digit', hour12: true,
+    ...(zoneName(instant, timeZone) === zoneName(instant, BUSINESS_TIME_ZONE) ? {} : { timeZoneName: 'short' }),
+  }).format(instant);
 };
 
 export const meetingDate = value => new Date(`${value.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
