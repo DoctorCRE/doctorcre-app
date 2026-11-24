@@ -697,6 +697,8 @@ function DocChat() {
     });
   }
 
+  const noChats = ready && recent.length === 0;
+
   return (
     <>
       <header className="doc-chat__header">
@@ -706,15 +708,20 @@ function DocChat() {
         </a>
       </header>
       <div className="doc-chat__layout">
-        <button
-          className="btn doc-chat__recent-toggle"
-          type="button"
-          aria-expanded={showRecent}
-          onClick={() => setShowRecent(!showRecent)}
+        {recent.length > 0 && (
+          <button
+            className="btn doc-chat__recent-toggle"
+            type="button"
+            aria-expanded={showRecent}
+            onClick={() => setShowRecent(!showRecent)}
+          >
+            {showRecent ? "Back to conversation" : "Recent chats"}
+          </button>
+        )}
+        <aside
+          className={`doc-chat__recent${showRecent || noChats ? " doc-chat__recent--open" : ""}`}
+          aria-labelledby="docRecent"
         >
-          {showRecent ? "Back to conversation" : "Recent chats"}
-        </button>
-        <aside className={`doc-chat__recent${showRecent ? " doc-chat__recent--open" : ""}`} aria-labelledby="docRecent">
           <h2 id="docRecent">Recent chats</h2>
           <ul>
             {recent.map((chat) => (
@@ -725,7 +732,7 @@ function DocChat() {
               </li>
             ))}
           </ul>
-          {ready && recent.length === 0 && <p>No conversations yet</p>}
+          {noChats && <p>No conversations yet</p>}
           {nextBefore && (
             <button className="btn" type="button" disabled={busy} onClick={loadOlder}>
               Show older chats

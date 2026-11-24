@@ -57,7 +57,7 @@
 
 .app-shell-search { display: grid; place-items: center; border: 0; border-radius: var(--radius-2); color: var(--fg-muted); background: transparent; transition: background-color var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out); }
 @media (hover: hover) { .app-shell-search:hover { background: var(--surface-2); color: var(--fg); } }
-.app-shell-search[aria-current="page"] { background: var(--surface-3); color: var(--fg); }
+.app-shell-search[aria-current="page"], .app-shell-ask-doc[aria-current="page"] { background: var(--surface-3); color: var(--fg); }
 .app-shell-icon { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
 .app-shell-more-toggle .app-shell-icon { stroke-width: 3; }
 
