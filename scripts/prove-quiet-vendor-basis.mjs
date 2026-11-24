@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
-import { requireContainingRelease } from './prove-fact-review-pending-status-view.mjs';
+import { requireContainingRelease } from './containing-release.ts';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { chromium as driver } from 'playwright';

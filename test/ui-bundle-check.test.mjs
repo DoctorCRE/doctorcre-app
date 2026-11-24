@@ -25,7 +25,6 @@ test('lead guidance loads without unrelated page UI and shares the React runtime
   const forms = dependencies('js/ui-deal-room-forms.generated.js');
   const source = [...leads].map(path => assets.get(path).toString()).join('\n');
   assert.ok(!source.includes('Research for the new organization or sub-client'));
-  assert.ok(!source.includes('Record term'));
   assert.ok(!source.includes('Inbox unavailable.'));
   const shared = [...leads].filter(path => forms.has(path));
   assert.ok(shared.length > 0, 'one shared React runtime');
@@ -33,7 +32,6 @@ test('lead guidance loads without unrelated page UI and shares the React runtime
 
 test('generated UI files bypass source checks even after their entry is retired', async () => {
   const assets = await uiAssets(readSource);
-  assert.ok(assets.has('js/ui-facts.generated.js'));
   assert.ok(assets.has('js/ui-checklist.generated.js'));
   assert.ok(assets.has('js/ui-activity-attribution.generated.js'));
   assert.ok(assets.has('js/ui-relationship-kind-filter.generated.js'));

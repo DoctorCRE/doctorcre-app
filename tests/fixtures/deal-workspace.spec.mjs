@@ -25,8 +25,9 @@ for (const width of [390, 1440]) {
     await page.clock.install({ time: new Date('2026-11-18T17:00:00Z') });
     await page.goto(`${server.url}/deals`);
     const card = page.locator('.kanban-column [data-id="d14"]');
+    await expect(card.locator('.card-open')).toBeVisible();
     await expect(card.getByText(next, { exact: true })).toHaveCount(0);
-    await expect(card.locator(`time[datetime="${keyDate}"]`)).toHaveCount(0);
+    await expect(card.locator(`time[datetime="${keyDate}"]`)).toHaveText('Due Nov 20');
     await card.locator('.card-open').click();
 
     const room = page.getByRole('main', { name: 'Deal Workspace' });
