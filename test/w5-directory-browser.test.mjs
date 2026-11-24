@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile } from 'node:fs/promises';
 import { chromium, settles, waitForAsync } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
-import { handleDoctorcreRequest } from '../src/worker.js';
 import { directoryFixture } from './fixtures/vendor-directory.synthetic.mjs';
 let server, origin;
 before(async()=>{
@@ -16,35 +15,16 @@ async function open(t,width=1440){
   const page=await browser.newPage({viewport:{width,height:width===390?844:1000}}), errors=[], overrides=new Map(), calls=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.clock.install({time:new Date('2026-10-01T18:00:00Z')});await page.route('https://**',r=>r.abort());
-  let fail=false,expired=false,writes=0,writeMode='saved';
-  const cutoverStarted = Promise.withResolvers();
-  const releaseRefusal = Promise.withResolvers();
-  t.after(() => releaseRefusal.resolve());
-  await page.route('**/api/v1/business/**',r=>{calls.push(r.request().url());return expired?r.fulfill({status:401,json:{error:'AUTHENTICATION_REQUIRED'}}):fail?r.fulfill({status:503,json:{error:'DEPENDENCY_UNAVAILABLE'}}):r.fulfill({json:directoryFixture(r.request().url(),{overrides})});});
+  let fail=false;const writes=[];
+  await page.route('**/api/v1/business/**',r=>{calls.push(r.request().url());return fail?r.fulfill({status:503,json:{error:'DEPENDENCY_UNAVAILABLE'}}):r.fulfill({json:directoryFixture(r.request().url(),{overrides})});});
   await page.route('**/{api/system-work/session,auth/session}',r=>r.fulfill({json:{csrf_token:'synthetic-session',actor:{slug:'joe'}}}));
-  await page.route('**/mcp',async r=>{
-    const {name,arguments:args}=r.request().postDataJSON().params;let payload={ok:true};
-    if(name==='update-vendor'){
-      if (writeMode === 'cutover') {
-        const id = `00000000-0000-4000-8000-${args.vendor.split('-').at(-1).padStart(12, '0')}`;
-        overrides.set(id, { ...args.fields.trust_override, recorded_by: 'joe', recorded_at: '2026-10-01T18:00:00Z' });
-        cutoverStarted.resolve();
-        await releaseRefusal.promise;
-        const response = await handleDoctorcreRequest(new Request(r.request().url(), {
-          method: 'POST', body: r.request().postData(),
-        }), {
-          ENGINE_ROUTING: { get: async key => key === 'deals-saves-from-engine' ? 'on' : null },
-          CARR: { fetch: async () => { writes++; return Response.json({}); } },
-        });
-        return r.fulfill({ status: response.status, body: await response.text(), contentType: 'application/json' });
-      }
-      assert.match(args.vendor,/^V-DEMO-\d+$/);assert.equal(args.base_version,1);assert.deepEqual(Object.keys(args.fields),['trust_override']);assert.match(args.idempotency_key,/^[a-f0-9-]{36}$/);if(args.fields.trust_override){assert.ok(['Trial','Established','Proven'].includes(args.fields.trust_override.tier));assert.ok(args.fields.trust_override.reason);}writes++;payload={ok:true,updated:['trust_override']};if(writeMode==='rejected')return r.fulfill({json:{jsonrpc:'2.0',id:1,result:{isError:true,content:[{type:'text',text:JSON.stringify({error:'AUTHORIZATION_REFUSED'})}]}}});if(writeMode==='unknownAck')return r.fulfill({json:{jsonrpc:'2.0',id:1,result:{content:[{type:'text',text:JSON.stringify({ok:true,updated:[]})}]}}});if(writeMode==='unknownTool')return r.fulfill({json:{jsonrpc:'2.0',id:1,result:{isError:true,content:[{type:'text',text:JSON.stringify({error:'DEPENDENCY_UNAVAILABLE'})}]}}});if(writeMode==='unknown200')return r.fulfill({json:{jsonrpc:'2.0',id:1,result:{content:[{type:'text',text:'{}'}]}}});if(writeMode==='uncertain')return r.fulfill({status:502,body:'Synthetic lost response'});const n=Number(args.vendor.split('-').at(-1));const id=`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
-      overrides.set(id,args.fields.trust_override?{...args.fields.trust_override,recorded_by:'joe',recorded_at:'2026-10-01T18:00:00Z'}:null);
-    if(writeMode==='lost')return r.fulfill({status:502,body:'Synthetic lost response'});
-    }else if(name==='find-and-catch-up')payload={state:'not_found',candidates:[]};
+  await page.route('**/mcp',r=>{
+    const {name}=r.request().postDataJSON().params;
+    if(name==='update-vendor')writes.push(name);
+    const payload=name==='find-and-catch-up'?{state:'not_found',candidates:[]}:{ok:true};
     return r.fulfill({json:{jsonrpc:'2.0',id:1,result:{content:[{type:'text',text:JSON.stringify(payload)}]}}});
   });
-  return {page,errors,calls,cutoverStarted:cutoverStarted.promise,releaseRefusal:releaseRefusal.resolve,get writes(){return writes;},setFail:value=>{fail=value;},setExpired:value=>{expired=value;},setWriteMode:value=>{writeMode=value;}};
+  return {page,errors,calls,overrides,writes,setFail:value=>{fail=value;}};
 }
 test('V01 shared directory has neutral loading identity before its module starts', async t => {
   const { page } = await open(t);
@@ -86,7 +66,7 @@ for(const width of [1440,390])test(`W5 rendered directories and wide dialog at $
   assert.equal(await page.locator('#pager').count(),0);assert.doesNotMatch(await page.locator('main').innerText(),/Checked a while ago|About this list|source|No filters|read again/i);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/vendors-${width}.png`});
-  await page.locator('.record-row').first().click();await page.waitForSelector('#trustForm',{state:'attached'});
+  await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');
   assert.equal(await page.locator('#recordPanel').getAttribute('role'),'dialog');assert.equal(await page.locator('#appShell').evaluate(el=>el.inert),true);
   const box=await page.locator('#recordPanel').boundingBox();assert.ok(box.width>width*.7);await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/vendor-overview-${width}.png`});
   const head=await page.locator('#recordTitle').boundingBox();assert.ok(head.y>=box.y && head.y+head.height<box.y+box.height);
@@ -95,12 +75,26 @@ for(const width of [1440,390])test(`W5 rendered directories and wide dialog at $
   await page.locator('[data-details-key="intro-demo-intro"] summary').click();assert.match(await page.locator('[data-details-key="intro-demo-intro"]').innerText(),/Original synthetic introduction entry/);
   await page.locator('[data-details-key="entry-demo-entry"] summary').click();assert.match(await page.locator('[data-details-key="entry-demo-entry"]').innerText(),/Original synthetic email/);
   await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/vendor-detail-${width}.png`});
-  await page.locator('[data-details-key="trust"] summary').click();await page.locator('[name="reason"]').fill('Synthetic reviewed exception');await page.locator('[name="tier"]').selectOption('Trial');
-  await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForTimeout(80);assert.equal(await page.locator('[name="reason"]').inputValue(),'Synthetic reviewed exception');
-  await page.locator('#trustForm button').click();await page.getByText('Rating saved', { exact: true }).waitFor();
-  assert.equal(h.writes,1);assert.equal(await page.locator('[name="tier"] option:checked').textContent(), 'New working relationship');
   await page.keyboard.press('Escape');assert.equal(await page.locator('#recordPanel').isVisible(),false);assert.equal(await page.locator('#appShell').evaluate(el=>el.inert),false);
   await page.goto(origin+'/clients', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/clients-${width}.png`});assert.deepEqual(h.errors,[]);
+});
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`vendor track record comes from deal history alone at ${width}px in ${theme}`, async t => {
+  const h = await open(t, width), { page } = h;
+  await page.addInitScript(theme => localStorage.setItem('dealroom-theme', theme), theme);
+  h.overrides.set('00000000-0000-4000-8000-000000000001', { tier: 'Trial', reason: 'Synthetic hand-set reason', recorded_by: 'joe', recorded_at: '2026-09-01T12:00:00Z' });
+  await page.goto(origin + '/vendors?mode=live', { waitUntil: 'domcontentloaded' });
+  await page.locator('.record-row').first().click();
+  const record = page.locator('.relationship-section');
+  await record.waitFor();
+  assert.equal(await record.locator('.relationship-tier').textContent(), 'Strong track record');
+  assert.doesNotMatch(await page.locator('#recordBody').innerText(), /New working relationship|Synthetic hand-set reason|Trust rating|Save rating/);
+  assert.equal(await page.locator('#recordBody form, #recordBody select, #recordBody input').count(), 0);
+  assert.equal(await record.locator('.relationship-metric').count(), 4);
+  assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ animations: 'disabled', path: `out/test-artifacts/w5/vendor-track-record-${width}-${theme}.png` });
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.errors, []);
 });
 test('an old market bookmark opens the vendor list and its drawer', async t => {
   const { page } = await open(t);
@@ -111,27 +105,6 @@ test('an old market bookmark opens the vendor list and its drawer', async t => {
   await page.getByRole('dialog').waitFor();
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').isVisible(), false);
-});
-
-test('Vendor version conflict keeps recorded people while retaining the rating draft', async t => {
-  const h = await open(t), { page } = h;
-  let detailReads = 0;
-  await page.route(/\/api\/v1\/business\/vendors\/[a-f0-9-]+\?/, route => {
-    const payload = directoryFixture(route.request().url());
-    if (++detailReads > 1) payload.record.record_version = 2;
-    return route.fulfill({ json: payload });
-  });
-  await page.goto(origin + '/vendors?mode=live');
-  await page.locator('.record-row').first().click();
-  await page.waitForSelector('#trustForm', { state: 'attached' });
-  await page.locator('[data-details-key="trust"] summary').click();
-  await page.locator('[name="tier"]').selectOption('Trial');
-  await page.locator('[name="reason"]').fill('Demo draft reason');
-  await page.locator('#trustForm button').click();
-  await page.waitForFunction(() => document.querySelector('#trustStatus')?.textContent.startsWith('Vendor changed.'));
-  assert.equal(await page.locator('.vendor-contacts > li').count(), 3);
-  assert.equal(await page.locator('[name="reason"]').inputValue(), 'Demo draft reason');
-  assert.equal(h.writes, 0);
 });
 
 test('W5 filters, traversal and autonomous refresh recover without losing search',async t=>{
@@ -179,124 +152,15 @@ test('W5 reduced motion stops hover travel and pulse while keeping content visib
   assert.equal(await page.locator('.business-hero').evaluate(el=>getComputedStyle(el,'::before').animationName),'none');await page.screenshot({animations:'disabled',path:'out/test-artifacts/w5/reduced-motion.png'});
 });
 
-for(const mode of ['lost','rejected','uncertain','unknown200','unknownAck','unknownTool'])test(`W5 ${mode} override response is reconciled without replay`,async t=>{
-  const h=await open(t);h.setWriteMode(mode);const {page}=h;await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('#trustForm',{state:'attached'});await page.locator('[data-details-key="trust"] summary').click();await page.locator('[name="tier"]').selectOption('Trial');await page.locator('[name="reason"]').fill('Demo exception');await page.locator('#trustForm button').click();
-  if(mode==='rejected'){await page.waitForURL('**/public-shell/session-ended.html');assert.equal(h.writes,1);assert.equal(await page.locator('#trustForm').count(),0);assert.deepEqual(h.errors,[]);return;}
-  await page.waitForFunction(()=>['Rating confirmed','Rating not confirmed'].includes(document.querySelector('#trustStatus')?.textContent));assert.equal(h.writes,1);
-  if(mode==='lost'){assert.equal(await page.locator('[name="tier"]').inputValue(), 'Trial');assert.equal(await page.locator('#trustStatus').textContent(),'Rating confirmed');assert.equal(await page.locator('#trustForm button').isDisabled(),false);}
-  else assert.equal(await page.locator('#trustForm button').isDisabled(),['uncertain','unknown200','unknownAck','unknownTool'].includes(mode));
-  await page.clock.fastForward(31000);await page.waitForTimeout(80);assert.equal(h.writes,1,'polling never repeats a write');assert.deepEqual(h.errors,[]);
-});
-
-test('a cutover refusal cannot confirm a vendor rating from a concurrent save', async t => {
-  const fixture = await open(t);
-  fixture.setWriteMode('cutover');
-  const { page } = fixture;
-  await page.goto(origin + '/vendors?mode=live');
-  await page.locator('.record-row').first().click();
-  await page.locator('[data-details-key="trust"] summary').click();
-  await page.locator('[name="tier"]').selectOption('Trial');
-  await page.locator('[name="reason"]').fill('Same rating from another tab');
-  await page.locator('#trustForm button').click();
-  await fixture.cutoverStarted;
-  await page.evaluate(() => window.dispatchEvent(new Event('online')));
-  await page.locator('.relationship-section .note-summary').filter({ hasText: 'Same rating from another tab' }).waitFor();
-  const statusWhileSending = await page.locator('#trustStatus').textContent();
-  fixture.releaseRefusal();
-  await page.waitForFunction(() => document.querySelector('#trustStatus')?.textContent !== 'Saving…');
-  assert.equal(statusWhileSending, 'Saving…');
-  assert.equal(await page.locator('#trustStatus').textContent(), 'Open Vendors to see the current records.');
-  assert.equal(await page.locator('#trustForm button').isDisabled(), false);
-  assert.equal(fixture.writes, 0);
-  assert.deepEqual(fixture.errors, []);
-});
-
 test('W5 Clients exposes every requested sort and owner without territory controls',async t=>{
  const {page,calls}=await open(t);await page.goto(origin+'/clients');await page.waitForSelector('.record-row');assert.equal(await page.locator('#territoryField').isVisible(),false);
  for(const sort of ['vertical','name','deal_type','last_deal_desc','last_deal_asc']){await page.locator('#sortSelect').selectOption(sort);await page.waitForFunction(s=>document.querySelector('#sortSelect').value===s,sort);await settles(()=>assert.ok(calls.some(url=>new URL(url).searchParams.get('sort')===sort)||sort==='name'));}
  await page.locator('[data-owner="joe"]').click();await page.waitForFunction(()=>document.querySelector('#resultSummary').textContent.startsWith('31 '));
 });
 
-test('W5 session expiry erases a pending trust draft and recovery permits a fresh action without replay',async t=>{
- const h=await open(t),{page}=h;h.setWriteMode('uncertain');await page.goto(origin+'/vendors?mode=live');await page.locator('.record-row').first().click();await page.locator('[data-details-key="trust"] summary').click();await page.locator('[name="tier"]').selectOption('Trial');await page.locator('[name="reason"]').fill('Demo pending draft');await page.locator('#trustForm button').click();await page.waitForFunction(()=>document.querySelector('#trustStatus')?.textContent==='Rating not confirmed');
- await expireOpenRecord(h);assert.doesNotMatch(await page.locator('body').innerText(),/Demo pending draft/);
- h.setExpired(false);await page.goto(origin+'/vendors?mode=live');await page.locator('.record-row').first().click();await page.waitForSelector('#trustForm',{state:'attached'});await page.locator('[data-details-key="trust"] summary').click();assert.equal(await page.locator('[name="reason"]').inputValue(),'');assert.equal(await page.locator('#trustForm button').isDisabled(),false);assert.equal(h.writes,1);assert.deepEqual(h.errors,[]);
-});
-
-// The refresh that discovers expiry reads the list, then the open record. Signal
-// recovery only once that record answer is in: a resume during a refresh joins it.
-async function expireOpenRecord(h) {
- h.setExpired(true);await h.page.evaluate(()=>window.dispatchEvent(new Event('online')));
- await h.page.waitForURL('**/public-shell/session-ended.html');
-}
-async function beginRating(page, reason='Synthetic pending rating') {
- await page.locator('[data-details-key="trust"] summary').click();
- await page.locator('[name="tier"]').selectOption('Trial');
- await page.locator('[name="reason"]').fill(reason);
-}
-test('W5 session revocation retires a pending rating before its deadline',async t=>{
- const h=await open(t),{page}=h;h.setWriteMode('rejected');
- await page.goto(origin+'/vendors?mode=live');
- await page.locator('.record-row').first().click();
- await beginRating(page,'Synthetic retired rating draft');
- await page.evaluate(()=>{
-  const keys=caches.keys.bind(caches);
-  caches.keys=()=>new Promise(resolve=>{window.releasePrivateCleanup=()=>{caches.keys=keys;resolve([]);};});
- });
- try {
-  await page.locator('#trustForm button').click();
-  await page.waitForFunction(()=>document.querySelector('h1')?.textContent==='Session ended');
-  await page.clock.fastForward(15001);
-  assert.deepEqual(h.errors,[]);
-  assert.equal(await page.locator('#recordPanel,.record-row,#trustForm').count(),0);
-  assert.doesNotMatch(await page.locator('body').innerText(),/Demo Partner|Synthetic retired rating draft/);
- } finally {
-  await page.evaluate(()=>window.releasePrivateCleanup?.());
-  await page.waitForURL('**/public-shell/session-ended.html');
- }
-});
-const ack = r => r.fulfill({json:{jsonrpc:'2.0',id:1,result:{content:[{type:'text',text:JSON.stringify({ok:true,updated:['trust_override']})}]}}});
-async function holdWrites(page) {
- const held=[];
- await page.route('**/mcp', r => r.request().postDataJSON().params.name==='update-vendor' ? held.push(r) : r.fallback());
- return held;
-}
-test('W5 late successful save cannot repaint another selected vendor',async t=>{
- const {page}=await open(t);const held=await holdWrites(page);
- await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await beginRating(page);await page.locator('#trustForm button').click();await page.waitForFunction(()=>document.querySelector('#trustStatus').textContent==='Saving…');
- await page.locator('#recordClose').click();await page.locator('.record-row').nth(1).click();await page.waitForFunction(()=>document.querySelector('#recordTitle').textContent==='Demo Partner 02');
- await ack(held[0]);await page.waitForTimeout(150);
- assert.equal(await page.locator('#recordTitle').textContent(),'Demo Partner 02');assert.equal(await page.locator('#trustForm').count(),1);assert.equal(await page.locator('#trustForm button').isDisabled(),false);
-});
-for (const status of [200,502]) test(`W5 pre-expiry save response ${status} cannot release a recovered session save`,async t=>{
- const h=await open(t),{page}=h;const held=await holdWrites(page);
- await page.goto(origin+'/vendors?mode=live');await page.locator('.record-row').first().click();await beginRating(page);await page.locator('#trustForm button').click();await settles(()=>assert.equal(held.length,1));
- await expireOpenRecord(h);
- h.setExpired(false);await page.goto(origin+'/vendors?mode=live');await page.locator('.record-row').first().click();await page.waitForSelector('#trustForm',{state:'attached'});await beginRating(page,'Synthetic second save');await page.locator('#trustForm button').click();await settles(()=>assert.equal(held.length,2));
- if (status===200) await ack(held[0]); else await held[0].fulfill({status,body:'Synthetic lost response'});
- await page.waitForTimeout(150);assert.equal(await page.locator('#trustForm button').isDisabled(),true);assert.equal(await page.locator('#trustStatus').textContent(),'Saving…');await ack(held[1]);
-});
-test('W5 a read dispatched before a new save cannot reconcile that save',async t=>{
- const {page}=await open(t);const writes=await holdWrites(page), reads=[];
- const reason='Synthetic repeated rating';
- await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await beginRating(page,reason);
- await page.locator('#trustForm button').click();await settles(()=>assert.equal(writes.length,1));
- // Let each save's fresh preflight finish; hold only the first post-save read.
- await page.route('**/api/v1/business/vendors/*',r=>reads.length===0?reads.push(r):r.fallback());
- await ack(writes[0]);
- await page.waitForFunction(()=>!document.querySelector('#trustForm button').disabled);await settles(()=>assert.equal(reads.length,1));
- await page.locator('#trustForm button').click();await settles(()=>assert.equal(writes.length,2));
- const id='00000000-0000-4000-8000-000000000001';
- const payload=directoryFixture(reads[0].request().url(),{overrides:new Map([[id,{tier:'Trial',reason,recorded_by:'joe',recorded_at:'2026-10-01T18:00:00Z'}]])});
- await reads[0].fulfill({json:payload});await page.waitForTimeout(150);
- assert.equal(await page.locator('#trustForm button').isDisabled(),true);assert.equal(await page.locator('#trustStatus').textContent(),'Saving…');
- await page.unroute('**/api/v1/business/vendors/*');await ack(writes[1]);
-});
-test('W5 keyboard reaches disclosures and skips closed controls',async t=>{
- const {page}=await open(t);await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('#trustForm',{state:'attached'});
- await page.locator('[data-details-key="trust"] summary').focus();await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.activeElement.tagName),'SUMMARY');
- await page.locator('[data-details-key="trust"] summary').focus();await page.keyboard.press('Enter');await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.activeElement.name),'tier');
- await page.keyboard.press('Shift+Tab');assert.equal(await page.evaluate(()=>document.activeElement.tagName),'SUMMARY');
+test('W5 keyboard reaches disclosures and keeps focus across a refresh',async t=>{
+ const {page}=await open(t);await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');
+ await page.locator('[data-details-key="intro-demo-intro"] summary').focus();await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.activeElement.tagName),'SUMMARY');
  await page.locator('[data-details-key="entry-demo-entry"] summary').focus();await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForTimeout(150);assert.equal(await page.evaluate(()=>document.activeElement.closest('details')?.dataset.detailsKey),'entry-demo-entry');
 });
 test('W5 Back restores cached query rows while its read is pending',async t=>{
@@ -305,12 +169,6 @@ test('W5 Back restores cached query rows while its read is pending',async t=>{
  const held=[];await page.route('**/api/v1/business/vendors?**',r=>new URL(r.request().url()).searchParams.get('owner')==='joe'?held.push(r):r.fallback());
  await page.goBack();await settles(async()=>{assert.equal(await page.locator('[data-owner="joe"]').getAttribute('aria-pressed'),'true');assert.equal(await page.locator('.row-owner').evaluateAll(rows=>rows.every(row=>row.textContent.includes('Joe'))),true);});
  for(const r of held)await r.fulfill({json:directoryFixture(r.request().url())});
-});
-test('W5 ordinary record read failure preserves the unsaved rating draft',async t=>{
- const h=await open(t),{page}=h;await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await beginRating(page,'Synthetic draft survives');
- h.setFail(true);await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForFunction(()=>document.querySelector('#recordTitle').textContent==='This did not load');
- h.setFail(false);await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForSelector('#trustForm',{state:'attached'});
- assert.equal(await page.locator('[name="reason"]').inputValue(),'Synthetic draft survives');assert.equal(await page.locator('[name="tier"]').inputValue(),'Trial');
 });
 test('W5 failed continuous page is visible and polling retries without scroll',async t=>{
  const {page}=await open(t);let fail=true;
@@ -321,16 +179,12 @@ test('W5 failed continuous page is visible and polling retries without scroll',a
 });
 test('W5 missing original details never displays summary as original',async t=>{
  const {page}=await open(t);await page.route('**/api/v1/business/vendors/*',r=>{const p=directoryFixture(r.request().url());p.record.relationship.recent_entries[0].detail=null;return r.fulfill({json:p});});
- await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('#trustForm',{state:'attached'});assert.equal(await page.locator('[data-details-key="entry-demo-entry"]').count(),0);
+ await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');assert.equal(await page.locator('[data-details-key="entry-demo-entry"]').count(),0);
 });
 test('W5 vendor business facts remain visible in the modal',async t=>{
  const {page}=await open(t);await page.route('**/api/v1/business/vendors/*',r=>{const p=directoryFixture(r.request().url());p.record.verticals=['Synthetic specialist vertical'];return r.fulfill({json:p});});
- await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('#trustForm',{state:'attached'});const body=await page.locator('#recordBody').innerText();for(const value of ['Synthetic specialist vertical','Banking','Warm','Active'])assert.ok(body.includes(value),value);
+ await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');const body=await page.locator('#recordBody').innerText();for(const value of ['Synthetic specialist vertical','Banking','Warm','Active'])assert.ok(body.includes(value),value);
 });
-test('W5 fixture adapter withholds unsupported rating action',async t=>{
- const h=await open(t),{page}=h;await page.goto(origin+'/vendors', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForFunction(()=>document.querySelector('#recordTitle').textContent==='Demo Partner 01');assert.equal(await page.locator('#trustForm').count(),0);assert.equal(h.writes,0);
-});
-
 for(const width of [1440,390]) test(`vendor Conversations show newest notes first at ${width}px`,async t=>{
  const h=await open(t,width),{page}=h;
  await page.route('**/api/v1/business/vendors/*',r=>{
@@ -351,7 +205,7 @@ for(const width of [1440,390]) test(`vendor Conversations show newest notes firs
  assert.equal(await conversations.locator('.entry-detail').first().textContent(),'Synthetic latest original');
  assert.equal(await conversations.locator('li').last().locator('time').count(),0);
  assert.equal(await conversations.locator('time').count(),2);
- assert.equal(h.writes,0);
+ assert.deepEqual(h.writes,[]);
  assert.deepEqual(h.errors,[]);
 });
 
@@ -372,7 +226,7 @@ for(const kind of ['introduced','can_introduce']) test(`vendor ${kind} notes sho
  await network.waitFor();
  assert.deepEqual(await network.locator('.note-summary').allTextContents(),['Synthetic latest introduction','Synthetic earlier introduction','Synthetic undated introduction']);
  assert.equal(await network.locator('[data-details-key="intro-latest"] .entry-detail').textContent(),'Synthetic latest introduction');
- assert.equal(h.writes,0);
+ assert.deepEqual(h.writes,[]);
  assert.deepEqual(h.errors,[]);
 });
 for(const dataset of ['clients','vendors']) test(`${dataset} record panel shows no deal evidence block`,async t=>{

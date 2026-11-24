@@ -2349,7 +2349,7 @@ for (const width of [390, 1440]) {
   });
 }
 
-test("the Vendor drawer keeps the track record and shows the rating editor only in CARR mode", async (t) => {
+test("the Vendor drawer shows the track record from deal history with no rating editor in either sign-in", async (t) => {
   for (const signIn of ["engine", "carr"] as const) {
     const { server, context, carrChecks } = await app(t, { signIn });
     await context.addCookies([
@@ -2366,7 +2366,8 @@ test("the Vendor drawer keeps the track record and shows the rating editor only 
     await page.locator(".record-row").filter({ hasText: "Demo Partner 01" }).click({ timeout: 5000 });
     const drawer = page.getByRole("dialog");
     await drawer.getByText("Deals worked", { exact: true }).waitFor({ timeout: 5000 });
-    assert.equal(await drawer.getByText("Trust rating", { exact: true }).count(), signIn === "carr" ? 1 : 0);
+    assert.equal(await drawer.getByText("Strong track record", { exact: true }).count(), 1);
+    assert.equal(await drawer.getByText("Trust rating", { exact: true }).count(), 0);
     if (signIn === "engine") assert.equal(carrChecks(), 0);
   }
 });
