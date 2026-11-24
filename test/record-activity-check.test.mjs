@@ -123,11 +123,15 @@ test("a client entry filed to a deal, company or person names where it was filed
   const client = { name: "Example Practice", ref: "C-901" };
   const result = activityState(client, completed("C-901", [
     row({ summary: "Toured the suite", filed_on: { kind: "deal", name: " Example Suite Lease " } }),
+    row({ summary: "Signed the lease", filed_on: { kind: "company", name: "Example Dental Group" } }),
+    row({ summary: "Sent the plans", filed_on: { kind: "person", name: "Pat Example" } }),
     row({ summary: "Called the practice", filed_on: null }),
     row({ summary: "Unknown filing", filed_on: { kind: "property", name: "Example" } }),
   ]), "clients");
   assert.deepEqual(result.rows.map(({ what, filedOn }) => ({ what, filedOn })), [
     { what: "Toured the suite", filedOn: "on deal Example Suite Lease" },
+    { what: "Signed the lease", filedOn: "on Example Dental Group" },
+    { what: "Sent the plans", filedOn: "on Pat Example" },
     { what: "Called the practice", filedOn: null },
     { what: "Unknown filing", filedOn: null },
   ]);
