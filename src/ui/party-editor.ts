@@ -537,11 +537,14 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
   }
 
   function openLink(partyId: string, name: string) {
-    const body = `${field("Link", "kind", select("kind", LINKS, "knows"))}${field("Find a person or company", "query", input("query", "", 'type="search" autocomplete="off" maxlength="100"'))}<ul class="party-results" data-results></ul>${field("Since", "started_on", input("started_on", "", 'type="date"'))}${field("Note", "note", textarea("note"))}`;
+    const body = `${field("Link", "kind", select("kind", LINKS, "knows"))}${field("Find a person or company", "query", input("query", "", 'type="search" autocomplete="off" maxlength="100"'))}<div role="radiogroup" aria-label="Who to link" aria-live="polite" data-results></div>${field("Since", "started_on", input("started_on", "", 'type="date"'))}${field("Note", "note", textarea("note"))}`;
     let other: string | null = null;
     let searchTimer = 0;
     const form = show(`Link ${name.trim() || "this record"} to someone`, body, "Save link", async (form) => {
-      if (!other) return refuse(form, { ok: false, problem: { error: "missing_required", fields: ["query"] } });
+      if (!other) {
+        form.querySelector<HTMLElement>('[name="query"]')?.focus();
+        return status("Choose who to link.");
+      }
       const answer = await save("party-links", "link", "link_id", {
         kind: value(form, "kind"),
         party_id: partyId,
@@ -555,6 +558,11 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
     const results = form.querySelector<HTMLElement>("[data-results]");
     form.querySelector('[name="query"]')?.addEventListener("input", () => {
       other = null;
+      // Matches for the old words stay visible until the new ones arrive, but can no longer be picked.
+      for (const choice of results?.querySelectorAll("input") ?? []) {
+        choice.checked = false;
+        choice.disabled = true;
+      }
       clearTimeout(searchTimer);
       const query = value(form, "query");
       // eslint-disable-next-line no-restricted-syntax -- One search after each 250 ms pause in typing.
@@ -571,16 +579,20 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
         const payload: unknown = response?.ok ? await response.json().catch(() => null) : null;
         if (value(form, "query") !== query) return;
         const parties = isRecord(payload) && Array.isArray(payload.parties) ? payload.parties.filter(isRecord) : null;
+        // A record cannot link to itself, so it is never offered.
+        const matches = (parties ?? [])
+          .filter((party) => typeof party.id === "string" && party.id !== partyId)
+          .map(
+            (party) =>
+              `<li><label class="party-check"><input type="radio" name="other" value="${escapeHtml(party.id)}">${escapeHtml(party.display_name)}${party.city ? ` · ${escapeHtml(party.city)}` : ""}</label></li>`,
+          )
+          .join("");
         results.innerHTML =
           parties === null
-            ? "<li>Search is unavailable. Try again.</li>"
-            : parties
-                .filter((party) => typeof party.id === "string" && party.id !== partyId)
-                .map(
-                  (party) =>
-                    `<li><label class="party-check"><input type="radio" name="other" value="${escapeHtml(party.id)}">${escapeHtml(party.display_name)}${party.city ? ` · ${escapeHtml(party.city)}` : ""}</label></li>`,
-                )
-                .join("") || "<li>No matches.</li>";
+            ? "<p>Search is unavailable. Try again.</p>"
+            : matches
+              ? `<ul class="party-results">${matches}</ul>`
+              : "<p>No matches.</p>";
       }, 250);
     });
     results?.addEventListener("change", (event) => {
