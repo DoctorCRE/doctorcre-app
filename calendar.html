@@ -48,6 +48,13 @@
             <h2 class="cal-period" id="calPeriod" aria-live="polite">Calendar</h2>
             <button class="cal-icon" type="button" id="calNext" aria-label="Next month"><span aria-hidden="true">›</span></button>
           </div>
+          <p class="cal-count" id="calCount" aria-live="polite"></p>
+          <ul class="cal-legend" aria-label="What each marker means">
+            <li><span class="cal-mark" data-kind="step" aria-hidden="true"></span>Next step</li>
+            <li><span class="cal-mark" data-kind="date" aria-hidden="true"></span>Critical date</li>
+            <li><span class="cal-mark" data-kind="late" aria-hidden="true"></span>Late</li>
+            <li><span class="cal-soon" aria-hidden="true"></span>This week</li>
+          </ul>
           <div class="cal-view-switch" id="calViewSwitch" role="group" aria-label="Calendar view">
             <button class="cal-today" type="button" id="calToday">Today</button>
             <div class="cal-segments">
@@ -56,32 +63,28 @@
             </div>
           </div>
         </div>
-        <p class="small cal-count" id="calCount" aria-live="polite"></p>
         <div id="calState"><p>Reading Calendar…</p></div>
         <div class="cal-grid" id="calGrid" role="grid" aria-labelledby="calPeriod" data-view="month"></div>
-        <ul class="cal-legend" aria-label="What each marker means">
-          <li><span class="cal-swatch" data-kind="step" aria-hidden="true"></span>Next step</li>
-          <li><span class="cal-swatch" data-kind="date" aria-hidden="true"></span>Critical date</li>
-          <li><span class="cal-swatch" data-kind="late" aria-hidden="true"></span>Late</li>
-          <li><span class="cal-pulse" data-pulse="urgent" aria-hidden="true"></span>Today or overdue</li>
-          <li><span class="cal-pulse" data-pulse="attention" aria-hidden="true"></span>This week</li>
-          <li><span class="cal-pulse" data-pulse="calm" aria-hidden="true"></span>This month</li>
-          <li><span class="cal-pulse" data-pulse="still" aria-hidden="true"></span>Later</li>
-        </ul>
       </section>
 
-      <aside class="cal-day-panel" id="dayPanel" aria-labelledby="dayPanelTitle">
-        <h2 id="dayPanelTitle">Choose a day</h2>
+      <aside class="cal-day-panel" id="dayPanel" aria-labelledby="dayPanelTitle" hidden>
+        <div class="cal-day-panel-head">
+          <h2 id="dayPanelTitle">Choose a day</h2>
+          <button class="cal-icon" type="button" id="dayPanelClose" aria-label="Close day"><span aria-hidden="true">×</span></button>
+        </div>
         <div id="dayPanelBody"></div>
-        <section class="cal-coming" id="calComing" aria-labelledby="agendaTitle" hidden>
-          <h3 id="agendaTitle">Coming up</h3>
-          <ol class="cal-agenda" id="calAgenda"></ol>
-        </section>
-        <section class="cal-undated" id="calUndated" hidden>
-          <h3>No readable date</h3>
-          <ul id="calUndatedList"></ul>
-        </section>
       </aside>
+    </div>
+
+    <div class="cal-extras">
+      <section class="cal-coming" id="calComing" aria-labelledby="agendaTitle" hidden>
+        <h3 id="agendaTitle">Coming up</h3>
+        <ol class="cal-agenda" id="calAgenda"></ol>
+      </section>
+      <section class="cal-undated" id="calUndated" hidden>
+        <h3>No readable date</h3>
+        <ul id="calUndatedList"></ul>
+      </section>
     </div>
   </main>
 

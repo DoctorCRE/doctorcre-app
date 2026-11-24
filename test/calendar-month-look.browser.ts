@@ -51,10 +51,11 @@ const calendar = {
   next_steps: [
     ...["A", "B", "C", "D", "E"].map((letter) => step(`s-${letter}`, busyDay, `Synthetic step ${letter}`)),
     step("s-long", "2026-10-22", longTitle),
+    { ...step("s-late", "2026-10-20", "Synthetic late step"), due_on: "2026-10-17", days_late: 3 },
   ],
 };
 
-test("Calendar month grid marks today, colors chips by kind, folds overflow and turns into an agenda on a phone", async (t) => {
+test("Calendar month grid marks today, marks chips by kind, folds overflow and turns into an agenda on a phone", async (t) => {
   const outDir = await temporaryDirectory("calendar-month-look-");
   t.after(() => rm(outDir, { recursive: true, force: true }));
   await buildArtifact({ root, outDir, commit: "0".repeat(40) });
@@ -117,8 +118,31 @@ test("Calendar month grid marks today, colors chips by kind, folds overflow and 
           const step = busy.locator('.cal-chip[data-kind="step"]').first();
           const date = busy.locator('.cal-chip[data-kind="date"]');
           const tint = (locator: typeof step) => locator.evaluate((node) => getComputedStyle(node).backgroundColor);
-          assert.notEqual(await tint(step), await tint(date), "a next step and a critical date have different tints");
+          const mark = (locator: typeof step) =>
+            locator.locator(".cal-mark").evaluate((node) => {
+              const style = getComputedStyle(node);
+              return { color: style.backgroundColor, shape: style.transform };
+            });
+          const stepMark = await mark(step);
+          const dateMark = await mark(date);
+          assert.notEqual(stepMark.color, dateMark.color, "a next step and a critical date have different mark colors");
+          assert.notEqual(stepMark.shape, dateMark.shape, "and different mark shapes");
+          assert.equal(await tint(step), await tint(date), "chips share one light surface");
           await expect(chips).toHaveCount(6);
+          await expect(page.locator(".cal-pulse").filter({ visible: true })).toHaveCount(0);
+
+          const late = grid.getByRole("button", { name: "1 late step", exact: true });
+          await expect(late).toHaveAttribute("data-kind", "late");
+          await expect(late).toHaveText("1 late");
+          const danger = await page.evaluate(() => {
+            const probe = document.body.appendChild(document.createElement("i"));
+            probe.style.color = "var(--status-danger-ink)";
+            const color = getComputedStyle(probe).color;
+            probe.remove();
+            return color;
+          });
+          await expect(late.locator(".cal-chip-label")).toHaveCSS("color", danger);
+          assert.equal(await tint(late), await tint(step), "a late chip is light too");
 
           const long = grid.getByRole("button", { name: new RegExp(longTitle) });
           const line = await long.locator(".cal-chip-label").evaluate((node) => ({
@@ -129,6 +153,25 @@ test("Calendar month grid marks today, colors chips by kind, folds overflow and 
           await expect(long).toHaveAttribute("title", longTitle);
 
           if (width === 1440) {
+            await t.test("with no day chosen the grid fills the page and the panel stays closed", async () => {
+              await expect(page.locator("#dayPanel")).toBeHidden();
+              await expect(page.locator("#appSidebar")).toHaveAttribute("inert", "");
+              const day = await grid
+                .locator('.cal-day[data-day="2026-10-13"]')
+                .evaluate((node) => node.getBoundingClientRect().width);
+              assert.ok(day >= 160, `each day is at least 160 px wide (${day})`);
+            });
+            await t.test("mouse chips are 24 px tall and every week row is the same height", async () => {
+              const heights = await chips
+                .filter({ visible: true })
+                .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+              assert.deepEqual(heights, [24, 24, 24]);
+              const rows = await grid
+                .locator(".cal-week:has(.cal-day)")
+                .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+              assert.equal(rows.length, 6);
+              assert.equal(new Set(rows).size, 1, `rows are even: ${rows}`);
+            });
             await t.test("the grid has Sun-Sat headers, six weeks and muted outside days", async () => {
               await expect(grid.getByRole("columnheader")).toHaveText([
                 "Sun",
@@ -148,8 +191,13 @@ test("Calendar month grid marks today, colors chips by kind, folds overflow and 
               await expect(chips.filter({ visible: true })).toHaveCount(3);
               const more = busy.getByRole("button", { name: /^3 more on/ });
               await expect(more).toHaveText("+3 more");
+              await expect(more).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
               await more.click();
+              await expect(page.locator("#dayPanel")).toBeVisible();
               await expect(page.locator("#dayPanelBody .cal-day-entry")).toHaveCount(6);
+              await page.getByRole("button", { name: "Close day" }).click();
+              await expect(page.locator("#dayPanel")).toBeHidden();
+              await expect(busy.locator(".cal-day-open")).toBeFocused();
             });
           } else {
             await t.test("the phone agenda lists only days with items and today, every chip shown", async () => {
@@ -159,6 +207,7 @@ test("Calendar month grid marks today, colors chips by kind, folds overflow and 
                 .filter({ visible: true })
                 .evaluateAll((cells) => cells.map((cell) => cell.getAttribute("data-day")));
               assert.deepEqual(shown, [busyDay, "2026-10-20", "2026-10-22", "2026-10-27"]);
+              await expect(page.locator("#dayPanel")).toBeHidden();
               await expect(chips.filter({ visible: true })).toHaveCount(6);
               await expect(busy.locator(".cal-more")).toBeHidden();
               assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
