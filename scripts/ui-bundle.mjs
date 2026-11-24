@@ -29,13 +29,14 @@ export const UI_ENTRIES = {
   'ui-portal': 'portal/shell-home-sources',
   'ui-answers': 'answer-blocks',
   'ui-keyboard-input': 'keyboard-input',
+  'ui-keyboard-shortcuts': 'keyboard-shortcuts',
   'ui-card-due': 'card-due',
+  'ui-card-menu': 'card-quick-menu',
   'ui-quick-switcher': 'quick-switcher',
   'ui-switcher-history': 'switcher-history',
   'ui-email-actions': 'email-followup-actions',
   'ui-host': 'host-node',
   'ui-zoom': 'workspace-zoom',
-  'ui-facts': 'fact-review',
   'ui-market': 'market-terms',
   'ui-market-cutover': 'market-terms-cutover',
   'ui-limit': 'home-list-limit',
@@ -105,7 +106,7 @@ async function buildUi(readSource, options) {
         if (args.kind !== "entry-point" && args.namespace !== "ui-source") return undefined;
         const base = args.kind === "entry-point" ? posix.normalize(args.path)
           : posix.normalize(posix.join(posix.dirname(args.importer), args.path));
-        if (['js/boot-mode.js', 'js/routes.js', 'js/read-budget.mjs', 'js/email-action-receipt.mjs', 'js/visibility-poll.mjs', 'js/read-on-resume.mjs', 'contracts/client-needs.v1.json'].includes(base)) {
+        if (['js/boot-mode.js', 'js/routes.js', 'js/read-budget.mjs', 'js/email-action-receipt.mjs', 'js/visibility-poll.mjs', 'js/read-on-resume.mjs', 'js/toast.js', 'contracts/client-needs.v1.json'].includes(base)) {
           const contents = await read(base);
           if (contents !== null) return { path: base, namespace: 'ui-source', pluginData: contents };
         }

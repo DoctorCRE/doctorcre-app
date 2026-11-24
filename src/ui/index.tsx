@@ -12,7 +12,6 @@ export { mountDealDocuments } from "./deal-documents";
 export { mountDealRoomAgenda } from "./deal-room-agenda";
 export { mountDealRoomBoard } from "./deal-room-board";
 export { mountDealTours } from "./deal-tours";
-export { mountFactReview } from "./fact-review";
 export { mountDealUpdateReviews } from "./home/deal-update-reviews";
 export { mountMissingNextStep } from "./home/missing-next-step";
 export * as homeTaskDone from "./home/task-done";

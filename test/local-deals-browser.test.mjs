@@ -291,7 +291,9 @@ for (const width of [1440, 390]) test(`keyboard move into a collapsed stage rest
   assert.equal(await destination.locator('.kanban-card').count(), 0);
   assert.ok((await destination.locator('.stage-preview').textContent()).includes(name));
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-collapse-stage')), 'legal');
-  assert.equal(await page.locator('#dragLive').textContent(), `${name} moved to Legal.`);
+  const announced = await page.evaluate(text => [...document.querySelectorAll('[aria-live], [role="status"], [role="alert"]')]
+    .filter(region => region.textContent.includes(text)).map(region => region.classList.contains('toast') ? 'toast' : region.id), `${name} moved to Legal`);
+  assert.deepEqual(announced, ['toast'], 'one move is announced in exactly one live region');
   assert.deepEqual(errors, []);
 });
 
@@ -474,7 +476,7 @@ for (const theme of ['dark', 'light']) {
     const { page, errors } = await open(t, { width, height: 844 });
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
     await moveDeal(page);
-    for (const advance of [350, 1400]) {
+    for (const advance of [350, 3800]) {
       await page.clock.runFor(advance);
       assert.equal(await page.locator('.toast').isVisible(), true);
       const boxes = await page.evaluate(() => {
@@ -490,7 +492,7 @@ for (const theme of ['dark', 'light']) {
     }
     await mkdir(new URL('out/test-artifacts/share-followup/', root), { recursive: true });
     await page.screenshot({ path: new URL(`out/test-artifacts/share-followup/feedback-${width}-${theme}.png`, root).pathname });
-    await page.clock.runFor(4101);
+    await page.clock.runFor(851);
     assert.equal(await page.locator('.toast').count(), 0);
     assert.equal(await page.locator('.receipt-dock .receipt').count(), 0, 'success feedback leaves no permanent receipt');
     assert.deepEqual(errors, []);
@@ -520,6 +522,42 @@ for (const theme of ['dark', 'light']) {
     assert.equal(reverted.length, 1);
     await refresh(page);
     await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').phase === 'Negotiation');
+    assert.deepEqual(errors, []);
+  });
+
+  for (const width of [390, 1440]) test(`${width} ${theme} engine move toast Undo moves the deal back`, async t => {
+    const { page, errors } = await open(t, { width, height: 844, reducedMotion: 'reduce' });
+    await page.evaluate(async theme => {
+      document.documentElement.dataset.theme = theme;
+      const { state } = await import('/js/pipeline.js');
+      const getBoard = state.client.getBoard.bind(state.client);
+      state.client.getBoard = async (...args) => ({ ...await getBoard(...args), next_deal_saves: true });
+      // The fixture keeps the board; the answer is the engine's: a change id and no revertible event.
+      const patch = state.client.patchDealField.bind(state.client);
+      window.phaseWrites = [];
+      state.client.patchDealField = async args => {
+        window.phaseWrites.push(args);
+        const { event_id, event_recorded_at, ...saved } = await patch(args);
+        return { ...saved, deal_id: args.deal, change_id: 40 + window.phaseWrites.length };
+      };
+    }, theme);
+    await refresh(page);
+    await moveDeal(page);
+    const toast = page.getByRole('status').filter({ hasText: 'moved to Legal' });
+    const undo = toast.getByRole('button', { name: 'Undo', exact: true });
+    assert.equal(await undo.getAttribute('data-undo'), null, 'engine saves have no change-receipt revert');
+    await mkdir(new URL('out/test-artifacts/save-confirmation/', root), { recursive: true });
+    await page.screenshot({ path: new URL(`out/test-artifacts/save-confirmation/deals-${width}-${theme}.png`, root).pathname });
+    await undo.click();
+    await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').phase === 'Negotiation');
+    const writes = await page.evaluate(() => window.phaseWrites);
+    assert.equal(writes.length, 2);
+    assert.deepEqual([writes[1].field, writes[1].phase_from, writes[1].seen_change_id], ['phase', 'legal', 41], 'moves back from the version the move made');
+    const back = page.getByRole('status').filter({ hasText: 'Demo Surgical Practice moved back to Negotiating' });
+    await back.waitFor();
+    assert.equal(await back.getByRole('button').count(), 0, 'moving back is not itself offered for undo');
+    await page.clock.runFor(5001);
+    assert.equal(await page.locator('.toast').count(), 0);
     assert.deepEqual(errors, []);
   });
 
@@ -720,16 +758,16 @@ test('a move offers Undo only in its temporary toast, never on cards after reloa
   assert.deepEqual(errors, []);
 });
 
-test('move Undo uses the same two-second success hold and fade, without permanent notifications', async t => {
+test('move Undo uses the same five-second success life, without permanent notifications', async t => {
   const {page, errors} = await open(t);
   await page.locator('.kanban-column [data-id="d14"] .card-open').click();
   await page.locator('#detailPhase').selectOption('legal');
   await page.locator('#completionConfirm').click();
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').phase === 'Legal');
   await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
-  await page.clock.runFor(1900);
+  await page.clock.runFor(4900);
   assert.equal(await page.locator('.toast [data-undo]').count(), 1, 'Undo remains available during the success hold');
-  await page.clock.runFor(1000);
+  await page.clock.runFor(101);
   assert.equal(await page.locator('.toast').count(), 0, 'the expired Undo toast leaves the DOM');
   assert.equal(await page.locator('#receiptDock .receipt').count(), 0, 'a confirmed move leaves no permanent bottom notification');
   assert.equal(await page.locator('[data-undo]').count(), 0, 'history is not another Undo surface');
@@ -737,7 +775,7 @@ test('move Undo uses the same two-second success hold and fade, without permanen
 });
 
 
-test('successful deal updates disappear from the DOM within three seconds in both motion modes', async t => {
+test('successful deal updates disappear from the DOM after five seconds in both motion modes', async t => {
   for (const reducedMotion of ['no-preference', 'reduce']) await t.test(reducedMotion, async t => {
     const {page, errors} = await open(t, {reducedMotion});
     await page.locator('.kanban-column [data-id="d14"] .card-open').click();
@@ -746,9 +784,10 @@ test('successful deal updates disappear from the DOM within three seconds in bot
     await page.locator('#detailParkForm button').click();
     await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').operating_state === 'parked');
     assert.equal(await page.locator('.toast').textContent(), 'Deal parked');
-    await page.clock.runFor(1900);
+    assert.equal(await page.locator('.toast button').count(), 0, 'a save with no reverse route offers no Undo');
+    await page.clock.runFor(4900);
     assert.equal(await page.locator('.toast').isVisible(), true);
-    await page.clock.runFor(1000);
+    await page.clock.runFor(101);
     assert.equal(await page.locator('.toast').count(), 0);
     assert.equal(await page.locator('#receiptDock .receipt').count(), 0);
     assert.deepEqual(errors, []);
@@ -774,8 +813,8 @@ for (const width of [390,1280]) test(`move follow-ups preserve the original Undo
   await page.locator('#completionDialog').waitFor({state:'hidden'});
   assert.equal(await page.locator('.toast [data-undo]').count(),1,'evidence and next-step confirmations preserve move Undo');
   assert.equal(await page.locator('.toast [data-undo]').getAttribute('data-undo'),eventId);
-  await page.clock.runFor(1001);
-  assert.equal(await page.locator('.toast').evaluate(n=>n.classList.contains('is-leaving')),true,'follow-ups never restart the original two-second hold');
+  await page.clock.runFor(3201);
+  assert.equal(await page.locator('.toast').evaluate(n=>n.classList.contains('is-leaving')),true,'follow-ups never restart the original hold');
   assert.equal(await page.locator('.toast [data-undo]').isEnabled(),true,'Undo remains usable through the fade');
   await page.clock.runFor(800);
   assert.equal(await page.locator('.toast').count(),0);
@@ -822,7 +861,7 @@ for (const width of [390,1280]) test(`Undo survives workspace navigation without
   const box = await undo.boundingBox();
   assert.ok(box && box.x >= 0 && box.y >= 0 && box.x+box.width <= width && box.y+box.height <= 960,'Undo stays inside the viewport while the detail scrolls');
   assert.equal(await undo.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),true,'the scrolled detail never covers Undo');
-  await page.clock.runFor(1501);
+  await page.clock.runFor(3701);
   assert.equal(await undo.isEnabled(),true);
   assert.equal(await page.locator('.toast').evaluate(n=>n.classList.contains('is-leaving')),true);
   await page.clock.runFor(800);
@@ -830,19 +869,19 @@ for (const width of [390,1280]) test(`Undo survives workspace navigation without
   assert.deepEqual(errors,[]);
 });
 
-for (const width of [390,1280]) test(`move success fades after two seconds and Undo is clickable during the fade at ${width}px`, async t => {
+for (const width of [390,1280]) test(`move success fades after its hold and Undo is clickable during the fade at ${width}px`, async t => {
   const {page,errors}=await open(t,{width});
   await page.locator('.kanban-column [data-id="d14"] .card-open').click();
   await page.locator('#detailPhase').selectOption('legal');
   await page.locator('#completionConfirm').click();
   await page.locator('#completionDialog').waitFor({state:'hidden'});
-  await page.clock.runFor(2001);
+  await page.clock.runFor(4201);
   assert.equal(await page.locator('.toast').evaluate(n=>n.classList.contains('is-leaving')),true,'moves use the ordinary success fade');
   const undo=page.locator('.toast [data-undo]');
   assert.equal(await undo.isEnabled(),true);
   await undo.click({timeout:500});
   await waitForAsync(page,async()=>(await import('/js/pipeline.js')).state.deals.get('d14').phase==='Negotiation');
-  await page.clock.runFor(2801);
+  await page.clock.runFor(5001);
   assert.equal(await page.locator('.toast').count(),0);
   assert.deepEqual(errors,[]);
 });

@@ -23,7 +23,6 @@ export const readOnlyVerbs: readonly string[] = [
   "list-doc-conversations",
   "list-doc-suggestions",
   "list-email-proposals",
-  "list-fact-review",
   "list-feature-switches",
   "list-industry-events",
   "list-my-codex-sessions",

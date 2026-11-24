@@ -75,7 +75,7 @@ export function createLiveClient(opts = {}) {
   const sessionWrites = new Set(['link-parties', 'set-next-step', 'set-market-agent', 'set-national-account-owner', 'create-national-account',
     'create-national-market-deal', 'start-deal-review', 'review-deal', 'end-deal-review',
     'resolve-candidate', 'resolve-post-call-candidate',
-    'undo-call-change', 'review-call-outcome', 'review-deal-update', 'confirm-email-filing', 'confirm-email-next-step', 'confirm-email-deal-progress', 'dismiss-email-proposal', 'snooze-email-proposal', 'handle-email-proposal', 'edit-email-draft', 'submit-email-draft', 'register-client-portal', 'record-human-fact', 'resolve-fact-review', 'decide-engine-deal-email']);
+    'undo-call-change', 'review-call-outcome', 'review-deal-update', 'confirm-email-filing', 'confirm-email-next-step', 'confirm-email-deal-progress', 'dismiss-email-proposal', 'snooze-email-proposal', 'handle-email-proposal', 'edit-email-draft', 'submit-email-draft', 'register-client-portal', 'decide-engine-deal-email']);
 
   const readTimeoutMs = opts.readTimeoutMs || 10_000;
   const rpc = (verb, args = {}, signal, headers) => {
@@ -142,12 +142,6 @@ export function createLiveClient(opts = {}) {
           && ['refused', 'conflict'].includes(classifyCommandOutcome({ error: err }).status));
       throw err;
     }
-    if (['list-fact-review', 'record-human-fact', 'resolve-fact-review'].includes(verb) && (payload?.ok !== true || payload.schema_version !== 'fact-review.v1'))
-      throw unknownMcpOutcome(new Error('Term review receipt unavailable'));
-    if (verb === 'record-human-fact' && !payload?.observation?.id)
-      throw unknownMcpOutcome(new Error('Recorded term receipt unavailable'));
-    if (verb === 'resolve-fact-review' && (!Object.hasOwn(payload, 'canonical_fact') || payload.review_receipt?.decision !== args.decision))
-      throw unknownMcpOutcome(new Error('Term decision receipt unavailable'));
     if (verb === 'start-deal-review') requireReviewReceipt(payload);
     if (['confirm-email-next-step', 'confirm-email-deal-progress'].includes(verb)) {
       const contract = verb === 'confirm-email-next-step' ? 'email-next-step.v1' : 'email-deal-progress.v1';
@@ -346,17 +340,6 @@ export function createLiveClient(opts = {}) {
     async readDealDocumentText(args = {}, { signal } = {}) { return rpc('read-deal-document-text', args, signal); },
 
     async listDealDocuments(args = {}, { signal } = {}) { return rpc('list-deal-documents', args, signal); },
-    async prepareTermsComparison(args, { signal } = {}) {
-      if (!online()) throw Object.assign(new Error('Offline'), { payload: { error: 'offline' } });
-      return sessionCommands.send(JSON.stringify(['prepare-terms-comparison', args.deal_id]), args, async (request, binding) => {
-        const { prepareComparisonHttp } = await (opts.loadComparison ? opts.loadComparison() : import('./terms-comparison-http.mjs'));
-        requireActive(signal);
-        return prepareComparisonHttp(fetchImpl, request, binding.slice(binding.indexOf(':') + 1), opts.writeTimeoutMs || 10_000, signal);
-      });
-    },
-    async listFactReview(args = {}, { signal } = {}) { return rpc('list-fact-review', args, signal); },
-    async recordHumanFact(args, { signal } = {}) { return write('record-human-fact', args, undefined, signal); },
-    async resolveFactReview(args, { signal } = {}) { return write('resolve-fact-review', args, undefined, signal); },
 
     async getDeal(dealId, { signal } = {}) {
       const page = await rpc('get-deal-room', { deal: dealId }, signal);

@@ -420,7 +420,7 @@ test("confirmed command feedback uses one transient toast instead of a dock rece
   t.mock.timers.tick(1000);
   dock.record("deal:1|phase", { summary: "Move deal", status: "ok" });
   dock.render();
-  t.mock.timers.tick(999);
+  t.mock.timers.tick(3199);
   assert.equal(toast.classList.contains("is-leaving"), false);
   t.mock.timers.tick(1);
   assert.equal(toast.classList.contains("is-leaving"), true, "re-record and render do not restart its timer");
