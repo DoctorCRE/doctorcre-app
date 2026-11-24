@@ -172,9 +172,6 @@
     "/test/*": [
       "test/*"
     ],
-    "/panel.js": [
-      "src/ui/home/mail-priorities.tsx"
-    ],
     "/home.js": [
       "src/ui/home/home.tsx"
     ],
