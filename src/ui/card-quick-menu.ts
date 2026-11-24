@@ -13,7 +13,13 @@ type QuickMenuOptions = {
   /** The card's name for the menu label. Defaults to the card's own label. */
   name?: (card: HTMLElement) => string;
 };
-type OpenMenu = { root: HTMLElement; card: HTMLElement; menu: HTMLElement; focusTarget: () => HTMLElement; anchor: DOMRect };
+type OpenMenu = {
+  root: HTMLElement;
+  card: HTMLElement;
+  menu: HTMLElement;
+  focusTarget: () => HTMLElement;
+  anchor: DOMRect;
+};
 
 const LONG_PRESS_MS = 500;
 // How long after the finger lifts a long-press still swallows its own click.

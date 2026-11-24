@@ -58,21 +58,25 @@ async function plainPoint(card: Locator) {
   return point;
 }
 
-// A visible point away from the menu, the cards and every control.
+// A visible point away from the menu, the cards and every control. The space
+// around it is clear too, since touch adjustment moves a tap onto a nearby control.
 async function outsidePoint(page: Page) {
   const point = await page.evaluate(() => {
     const steps = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
     const points = steps.flatMap((row) =>
       steps.map((column) => ({ x: (innerWidth * column) / 16, y: (innerHeight * row) / 16 })),
     );
-    return (
-      points.find(({ x, y }) => {
-        const hit = document.elementFromPoint(x, y);
-        return (
-          hit && !hit.closest('.kanban-card,[role="menu"],button,a,input,select,textarea,summary,label,nav,dialog')
-        );
-      }) ?? null
-    );
+    const reach = [-24, 0, 24];
+    const plain = (x: number, y: number) => {
+      const hit = document.elementFromPoint(x, y);
+      return (
+        hit &&
+        !hit.closest(
+          '.kanban-card,[role="menu"],button,a,input,select,textarea,summary,label,nav,[role="navigation"],dialog',
+        )
+      );
+    };
+    return points.find(({ x, y }) => reach.every((dx) => reach.every((dy) => plain(x + dx, y + dy)))) ?? null;
   });
   assert.ok(point, "the page has a plain surface outside the menu");
   return { x: Math.round(point.x), y: Math.round(point.y) };
