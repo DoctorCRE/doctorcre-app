@@ -412,7 +412,7 @@ function sectionNotes(section, who, now) {
   const synced = isInstant(section.observed_at) ? Date.parse(section.observed_at) : null;
   return [
     ...(synced !== null && now - synced > STALE_MS
-      ? [`Last synced ${meetingTime(section.observed_at, BUSINESS_TIME_ZONE, true)}.`] : []),
+      ? [`Last synced ${meetingTime(section.observed_at, BUSINESS_TIME_ZONE, { date: true, zone: false })}.`] : []),
     ...(section.meetings_may_be_missing === true ? ["Calendar may be incomplete."] : []),
   ];
 }

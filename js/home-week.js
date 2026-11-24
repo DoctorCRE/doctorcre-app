@@ -1,9 +1,9 @@
 import { BUSINESS_TIME_ZONE } from './business-date.js';
 import { addDays, toDay } from './calendar-model.js';
 
-export const meetingTime = (value, timeZone, includeDate = false) => new Intl.DateTimeFormat('en-US', {
-  timeZone, ...(includeDate ? { month: 'short', day: 'numeric' } : {}),
-  hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short',
+export const meetingTime = (value, timeZone, { date = false, zone = true } = {}) => new Intl.DateTimeFormat('en-US', {
+  timeZone, ...(date ? { month: 'short', day: 'numeric' } : {}),
+  hour: 'numeric', minute: '2-digit', hour12: true, ...(zone ? { timeZoneName: 'short' } : {}),
 }).format(new Date(value));
 
 export const meetingDate = value => new Date(`${value.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });

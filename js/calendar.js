@@ -62,7 +62,7 @@ const KINDS = [
   { type: "tour", label: "Tour", one: "tour", many: "tours" },
 ];
 const typeLabel = entry => KINDS.find(kind => kind.type === entry.type).label;
-const entryTime = entry => entry.type !== "meeting" ? "" : entry.all_day ? "All day" : meetingTime(entry.at, BUSINESS_TIME_ZONE);
+const entryTime = entry => entry.type !== "meeting" ? "" : entry.all_day ? "All day" : meetingTime(entry.at, BUSINESS_TIME_ZONE, { zone: false });
 const entryText = entry => [entryTime(entry), entry.label].filter(Boolean).join(" ");
 const ownerNames = entry => (entry.owners ?? [entry.owner]).filter(owner => typeof owner === "string" && owner)
   .map(owner => owner[0].toUpperCase() + owner.slice(1)).join(" and ");
@@ -341,7 +341,6 @@ function render() {
   view.byDay = ["ready", "partial", "reading", "empty"].includes(phase)
     ? entriesByDay([...(view.result.entries || []), ...view.meetings.entries]) : new Map();
   paintNotices(phase);
-  $("calMeetingsNote").hidden = view.meetings.status === "off";
   const periodRows = layout.days.flatMap(cell => cell.inMonth ? view.byDay.get(cell.day) || [] : []);
   const count = $("calCount");
   const total = ["ready", "partial", "empty"].includes(phase) ? itemCount(periodRows) : "";
@@ -447,7 +446,11 @@ function closeDay() {
   target?.focus();
 }
 
-const ARROW_STEP = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+/** Days an arrow key moves the cursor; Up and Down move a row, and a Day view row is one day. */
+const arrowStep = (key, shown) => {
+  const row = shown === "day" ? 1 : 7;
+  return { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -row, ArrowDown: row }[key];
+};
 
 function wire() {
   $("calViewSwitch")?.addEventListener("click", (event) => {
@@ -495,7 +498,7 @@ function wire() {
   });
   $("calGrid")?.addEventListener("keydown", (event) => {
     const open = event.target.closest(".cal-day-open");
-    const step = ARROW_STEP[event.key];
+    const step = arrowStep(event.key, view.state.view);
     if (!open || !step) return;
     event.preventDefault();
     moveCursor(addDays(open.dataset.selectDay, step));

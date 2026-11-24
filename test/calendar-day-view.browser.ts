@@ -155,6 +155,12 @@ test("Today opens a one-day timeline that fits the screen", async (t) => {
           Math.abs(short.height - nine.height / 2) <= 1,
           `a 30-minute meeting is half an hour tall: ${short.height}`,
         );
+        const shortChip = await box(page, '.cal-blocks [title*="Short call"]');
+        assert.ok(
+          Math.abs(shortChip.height - (short.height - 2)) <= 1,
+          `a 30-minute meeting's chip fills its half hour: ${shortChip.height} in ${short.height}`,
+        );
+        if (width < 760) assert.ok(shortChip.height >= 44, `a phone chip is a 44px tap target: ${shortChip.height}`);
         const lane = await box(page, ".cal-blocks");
         const review = await box(page, '.cal-blocks li:has([title*="Lease review"])');
         const lender = await box(page, '.cal-blocks li:has([title*="Lender call"])');
@@ -170,6 +176,8 @@ test("Today opens a one-day timeline that fits the screen", async (t) => {
         const timeline = await box(page, ".cal-timeline");
         const now = await box(page, ".cal-now");
         assert.ok(now.top >= timeline.top && now.top <= timeline.top + timeline.height, "the now-line is on screen");
+        const ten = await box(page, '.cal-hours [data-hour="10"]');
+        assert.ok(Math.abs(now.top - ten.top) <= 2, `the now-line sits at 10:00 AM Central: ${now.top} vs ${ten.top}`);
         const page_ = await page.evaluate(() => ({
           height: document.documentElement.scrollHeight,
           width: document.documentElement.scrollWidth,
@@ -189,6 +197,10 @@ test("Today opens a one-day timeline that fits the screen", async (t) => {
         await page.getByRole("button", { name: "Previous day" }).click();
         await expect(page.locator("#calPeriod")).toHaveText("Tuesday, Oct 20, 2026");
         await page.locator(".cal-day-open").focus();
+        await page.keyboard.press("ArrowDown");
+        await expect(page.locator('.cal-day-open[data-select-day="2026-10-21"]')).toBeFocused();
+        await page.keyboard.press("ArrowUp");
+        await expect(page.locator('.cal-day-open[data-select-day="2026-10-20"]')).toBeFocused();
         await page.keyboard.press("ArrowRight");
         await expect(page.locator('.cal-day-open[data-select-day="2026-10-21"]')).toBeFocused();
         await page.goBack();

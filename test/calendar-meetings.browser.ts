@@ -16,7 +16,7 @@ const datesRead = "/api/engine/calendar/critical-dates";
 const meetingsRead = "/api/engine/calendar/meetings";
 // The engine sends its own wording too; Calendar words the stale line from observed_at, like Home.
 const engineStaleNote = "This calendar was last read from Outlook more than 18 hours ago.";
-const staleNotice = "Example Partner Two: Last synced Oct 19, 9:00 AM CDT.";
+const staleNotice = "Example Partner Two: Last synced Oct 19, 9:00 AM.";
 
 const dates = {
   schema_version: "calendar-critical-dates.v1",
@@ -139,19 +139,20 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
           await expect(page.locator("#calCount")).toHaveText("1 critical date · 3 meetings · 1 tour");
           assert.deepEqual(ranges, ["?from=2026-09-27&to=2026-11-07"]);
-          await expect(page.locator("#calMeetingsNote")).toHaveText("Meetings show for about the next two weeks.");
+          await expect(page.locator("main")).not.toContainText("two weeks");
+          await expect(page.locator("body")).not.toContainText(/\b(CST|CDT)\b/);
           await expect(page.locator("#calNotices")).toHaveText(staleNotice);
 
           const panel = page.locator("#dayPanelBody");
           await expect(panel.locator(".cal-day-entry h3")).toHaveText(["Lease review", "Site walk", "LOI expiry"]);
           const review = panel.locator(".cal-day-entry").filter({ hasText: "Lease review" });
-          await expect(review).toContainText("Meeting · Joe · 9:00 AM CDT");
+          await expect(review).toContainText("Meeting · Joe · 9:00 AM");
           await expect(review.getByRole("link", { name: "Example lease" })).toHaveAttribute(
             "href",
             "/deals?deal=qa-deal-1",
           );
           const walk = panel.locator(".cal-day-entry").filter({ hasText: "Site walk" });
-          await expect(walk).toHaveText("Meeting · Dell · 2:30 PM CDT Site walk");
+          await expect(walk).toHaveText("Meeting · Dell · 2:30 PM Site walk");
           if (width === 390) {
             const height = await review.getByRole("link").evaluate((node) => node.getBoundingClientRect().height);
             assert.ok(height >= 44, `the deal link is a 44 px target (${height})`);
@@ -160,7 +161,7 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           if (width === 390) {
             const comingUp = page.getByRole("region", { name: "Coming up" });
             await expect(
-              comingUp.getByRole("button", { name: "Oct 21 11:30 PM CDT Late dinner Joe", exact: true }),
+              comingUp.getByRole("button", { name: "Oct 21 11:30 PM Late dinner Joe", exact: true }),
             ).toBeVisible();
           }
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -175,7 +176,7 @@ test("Calendar shows both partners' meetings and tours on their Central day with
             await page.locator(`[data-select-day="${day}"]`).click();
           };
           await openDay("2026-10-21");
-          await expect(panel).toHaveText("Meeting · Joe · 11:30 PM CDT Late dinner");
+          await expect(panel).toHaveText("Meeting · Joe · 11:30 PM Late dinner");
           if (width === 390) {
             await expect(
               page.locator('#calGrid .cal-day[data-day="2026-10-22"]'),
@@ -196,9 +197,9 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           await page.getByRole("button", { name: "Week", exact: true }).click();
           await expect(page.locator("#calCount")).toHaveText("1 critical date · 3 meetings · 1 tour");
           assert.deepEqual(ranges.at(-1), "?from=2026-10-18&to=2026-10-24");
-          const chip = page.getByRole("button", { name: /^Meeting · 9:00 AM CDT Lease review · Example lease/ });
+          const chip = page.getByRole("button", { name: /^Meeting · 9:00 AM Lease review · Example lease/ });
           await expect(chip).toBeVisible();
-          await expect(chip.locator(".cal-chip-label")).toHaveText("9:00 AM CDT Lease review");
+          await expect(chip.locator(".cal-chip-label")).toHaveText("9:00 AM Lease review");
           await expect(page.getByRole("button", { name: /^Tour · 3 stops · Example expansion/ })).toBeVisible();
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
           await page.screenshot({ path: join(evidence, `week-${width}-${theme}.png`), fullPage: true });
@@ -218,7 +219,6 @@ test("Calendar shows both partners' meetings and tours on their Central day with
 
           answer = () => new Response("{}", { status: 404 });
           await page.getByRole("button", { name: "Next month" }).click();
-          await expect(page.locator("#calMeetingsNote")).toBeHidden();
           await expect(page.locator("#calNotices")).toBeEmpty();
         } finally {
           await page.close();
@@ -314,7 +314,7 @@ test("A meeting both partners attend shows once, standing notes stay quiet, and 
   const panel = page.locator("#dayPanelBody");
   const joint = panel.locator(".cal-day-entry").filter({ hasText: "Joint call" });
   await expect(joint).toHaveCount(1);
-  await expect(joint).toContainText("Meeting · Dell and Joe · 11:00 AM CDT");
+  await expect(joint).toContainText("Meeting · Dell and Joe · 11:00 AM");
   await expect(joint.getByRole("link", { name: "Example lease" })).toHaveAttribute("href", "/deals?deal=qa-deal-1");
   await expect(joint.getByRole("link", { name: "Example expansion" })).toHaveAttribute("href", "/deals?deal=qa-deal-2");
   await expect(page.locator('.cal-chip[data-entry="meeting:0123456789abcdef"]')).toHaveAttribute(
@@ -364,7 +364,7 @@ test("November meetings show Central standard time, all-day meetings say so, and
   await page.goto(`${app}/calendar?view=week&d=2026-11-08&day=2026-11-10`);
   await expect(page.locator("#calCount")).toHaveText("1 critical date · 2 meetings");
   const panel = page.locator("#dayPanelBody");
-  await expect(panel).toHaveText("Meeting · Joe · 9:00 AM CST Budget call");
+  await expect(panel).toHaveText("Meeting · Joe · 9:00 AM Budget call");
   await page.locator('[data-select-day="2026-11-11"]').click();
   await expect(panel).toHaveText("Meeting · Joe · All day Office closed");
 
@@ -373,7 +373,7 @@ test("November meetings show Central standard time, all-day meetings say so, and
   await expect(page.locator("#calNotices")).toHaveText("Calendar could not refresh. Try again.Retry");
   await expect(page.locator("#calCount")).toHaveText("1 critical date · 2 meetings");
   await expect(panel).toHaveText("Meeting · Joe · All day Office closed");
-  await expect(page.getByRole("button", { name: /^Meeting · 9:00 AM CST Budget call/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Meeting · 9:00 AM Budget call/ })).toBeVisible();
 
   answer = () => november;
   await page.getByRole("button", { name: "Retry" }).click();

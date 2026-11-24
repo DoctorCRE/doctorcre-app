@@ -92,6 +92,7 @@ test("The whole month fits on one screen, with or without the day sheet beside i
           const full = page.locator(`#calGrid .cal-day[data-day="${fullDay}"]`);
           const more = full.locator(".cal-more");
           await expect(more).toHaveText(/^\+\d+ more$/);
+          // One read per poll: the week rows settle after the read lands, and a repaint between reads would split the count.
           const measure = () =>
             full.evaluate((cell) => {
               const box = cell.getBoundingClientRect();
@@ -100,21 +101,17 @@ test("The whole month fits on one screen, with or without the day sheet beside i
                 return part.top >= box.top && part.bottom <= box.bottom;
               };
               const chips = [...cell.querySelectorAll(".cal-chip")].filter((chip) => chip.checkVisibility());
+              const more = [...cell.querySelectorAll(".cal-more")].find((node) => node.checkVisibility());
               return {
-                chips: chips.length,
+                chipsShown: chips.length > 0,
+                total: chips.length + Number(more?.textContent?.match(/^\+(\d+) more$/)?.[1] ?? Number.NaN),
                 clipped: chips.filter((chip) => !inside(chip)).length,
-                moreInside: [...cell.querySelectorAll(".cal-more")].some(inside),
+                moreInside: more ? inside(more) : false,
               };
             });
-          // The week rows settle after the read lands, so wait until the cell agrees with its own "+N more".
           await expect
-            .poll(async () => (await measure()).chips + Number((await more.textContent())?.match(/\d+/)?.[0]))
-            .toBe(fullDayItems);
-          const shown = await measure();
-          assert.ok(shown.chips >= 1, "a full day shows at least one chip");
-          assert.equal(shown.clipped, 0, "no chip is cut off");
-          assert.ok(shown.moreInside, "+N more sits inside the day");
-          await expect(more).toHaveText(`+${fullDayItems - shown.chips} more`);
+            .poll(measure, { message: "the full day shows whole chips and counts the rest in +N more" })
+            .toEqual({ chipsShown: true, total: fullDayItems, clipped: 0, moreInside: true });
         } finally {
           await page.close();
         }
