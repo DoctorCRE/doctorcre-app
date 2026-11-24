@@ -259,6 +259,43 @@ test('engine card Drop selects the reason-bearing door and confirms no Undo rece
   }
 });
 
+test('engine inbox cards that need attention or failed drop through a mark, except Fact review', async () => {
+  const { dropTarget } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
+  const id = '00000000-0000-0000-0000-000000000001';
+  const engine = (item_id, source_type, kind_label, fields = {}) => item(item_id, {
+    source_type, kind_label, engine_marks: true, section: 'inbox', source_state: 'needs_attention',
+    home_mark_drop: true, home_proposal_drop: true, action_id: null, action_version: null, ...fields,
+  });
+  const reply = engine(`reply_draft:${id}`, 'email_proposal', 'Reply draft', { reply_draft_id: id, reply_draft_status: 'approved' });
+  const suggestion = engine(`suggestion:${id}`, 'email_proposal', 'Suggestion');
+  for (const card of [
+    engine(`capture_post_call_action:${id}`, 'capture_post_call_action', 'Call follow-up'),
+    engine(`notification:${id}`, 'notification', 'Update'),
+    engine(`tour_feedback:${id}`, 'tour_feedback', 'Tour feedback'),
+    reply,
+    suggestion,
+  ]) assert.deepEqual(dropTarget(card), { kind: 'mark' }, card.item_id);
+  assert.deepEqual(dropTarget({ ...reply, source_state: 'failed' }), { kind: 'mark' });
+  assert.equal(dropTarget({ ...reply, home_mark_drop: undefined }), null);
+  assert.equal(dropTarget({ ...suggestion, home_mark_drop: undefined }), null);
+  assert.equal(dropTarget({ ...suggestion, suggestions: [{ id }], home_proposal_drop: undefined }), null);
+});
+
+test('engine suggestion refusals say drop, never dismiss', async () => {
+  const review = await build({ entryPoints: ['src/ui/home/engine-review.ts'], bundle: true, write: false, platform: 'node', format: 'esm' });
+  const { proposalRefusal } = await import(`data:text/javascript;base64,${Buffer.from(review.outputFiles[0].contents).toString('base64')}`);
+  for (const payload of [
+    { http_status: 409, error: 'version_conflict', current_stage: 'x' },
+    { http_status: 409, error: 'version_conflict' },
+    { http_status: 409, error: 'open_step_exists' },
+    { http_status: 422, error: 'other' },
+  ]) {
+    const text = proposalRefusal({ payload });
+    assert.match(text, /drop/i, payload.error);
+    assert.doesNotMatch(text, /ismiss/, payload.error);
+  }
+});
+
 test('engine Home v5 reads open and completed work without settlement fields', () => {
   const { auto_settled, explicit_unsettle, ...open } = item('next_action:open', {
     waiting_version: 0, waiting_on: null,

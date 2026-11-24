@@ -121,7 +121,7 @@ export function reviewDispositionLabel(state: Exclude<LinkedReview["state"], "ac
     case "done":
       return draft ? "Sent" : "Suggestion accepted.";
     case "dropped":
-      return draft ? "Draft dropped." : "Suggestion dismissed.";
+      return draft ? "Draft dropped." : "Suggestion dropped.";
     case "replaced":
       return draft ? "Draft replaced." : "Suggestion replaced.";
   }

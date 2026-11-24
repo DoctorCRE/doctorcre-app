@@ -148,9 +148,7 @@ export function dropTarget(item: InboxItem): DropTarget | null {
   if (ids.length && item.home_proposal_drop) return { kind: "suggestions", ids };
   if (item.source_type === "next_action") return { kind: "step", id: item.action_id, version: item.action_version };
   if (ids.length) return null;
-  return item.home_mark_drop &&
-    ["Call follow-up", "Update", "Tour feedback"].includes(item.kind_label) &&
-    markTarget(item.item_id)
+  return item.home_mark_drop && item.source_type !== "fact_review" && markTarget(item.item_id)
     ? { kind: "mark" }
     : null;
 }

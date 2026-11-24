@@ -252,7 +252,7 @@ export function FilingControls({
           </a>
         )}
         <button type="button" onClick={(event) => dismiss(event.currentTarget)}>
-          Dismiss
+          Drop
         </button>
       </div>
       {active?.kind === "deal" && (

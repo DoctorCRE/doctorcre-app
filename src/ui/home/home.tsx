@@ -436,6 +436,11 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         }
         void query.refetch();
         focusRow(neighbours);
+      } else if (operation.request.action === "drop" && code === "not_allowed") {
+        setPending(null);
+        setNotice("This card can't be dropped. Nothing was saved.");
+        void query.refetch();
+        focusRow([operation.before[0]?.item_id ?? ""]);
       } else
         setNotice(
           `Result uncertain. ${typeof code === "string" ? inboxRefusal(code) : message(error)} Retry the same request.`,

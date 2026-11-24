@@ -197,17 +197,17 @@ export function proposalRefusal(error: unknown) {
   if (!payload || typeof status !== "number" || status < 400 || status >= 500) return null;
   switch (payload.error) {
     case "open_step_exists":
-      return `${openStepRefusal} Or dismiss this suggestion.`;
+      return `${openStepRefusal} Or drop this suggestion.`;
     case "version_conflict":
       return "current_stage" in payload
-        ? "This lead has moved since the suggestion. Dismiss it, or open the lead."
-        : "This deal has moved since the suggestion. Dismiss it, or open the deal.";
+        ? "This lead has moved since the suggestion. Drop it, or open the lead."
+        : "This deal has moved since the suggestion. Drop it, or open the deal.";
     case "home_review_resolved":
       return "This suggestion is already gone. Refresh the inbox to see what remains.";
     default:
       return status === 401 || status === 403
         ? "Sign in as the partner who can decide this suggestion."
-        : "This suggestion could not be saved. Review the linked record or dismiss the suggestion.";
+        : "This suggestion could not be saved. Review the linked record or drop the suggestion.";
   }
 }
 export type FilingChoice = { kind: "deal" | "vendor"; label: string };
