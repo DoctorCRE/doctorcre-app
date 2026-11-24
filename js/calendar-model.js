@@ -209,7 +209,10 @@ export function entriesByDay(entries) {
     map.get(entry.day).push(entry);
   }
   for (const rows of map.values()) {
-    rows.sort((a, b) => Number(a.settled) - Number(b.settled) || a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
+    // Timed meetings come first, in the order they start.
+    rows.sort((a, b) => Number(a.settled) - Number(b.settled) || Number(!a.at) - Number(!b.at)
+      || (a.at ?? "").localeCompare(b.at ?? "")
+      || a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
   }
   return map;
 }
@@ -320,4 +323,70 @@ export function calendarPhase(result) {
   if (result.failed.length > 0) return "partial";
   if (result.entries.length === 0 && result.undated.length === 0) return "empty";
   return "ready";
+}
+
+/* ---------------------------------------------------------------- meetings */
+
+const centralTime = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" });
+const isInstant = value => typeof value === "string" && Number.isFinite(Date.parse(value));
+const isText = value => typeof value === "string" && value.trim() !== "";
+const recordUrl = value => typeof value === "string" && /^\/(?:deals|relationships)\?/.test(value) ? value : null;
+const SECTION_STATES = ["ready", "empty", "partial", "unavailable"];
+const named = (who, text) => text.startsWith(who) ? text : `${who}: ${text}`;
+const partnerName = slug => slug[0].toUpperCase() + slug.slice(1);
+
+/** The visible period as the meetings read's inclusive range. */
+export const visibleRange = days => ({ from: days[0].day, to: days.at(-1).day });
+
+/**
+ * Both partners' meetings and planned tours for one period, as calendar
+ * entries plus the plain notes that say what may be missing. `off` means the
+ * engine does not serve the read, so the page says nothing about meetings.
+ */
+export async function readMeetings(client, range) {
+  if (!client.getCalendarMeetings) return { status: "off", entries: [], notes: [] };
+  let answer;
+  try {
+    answer = await client.getCalendarMeetings(range);
+  } catch (error) {
+    if (error?.status === 404) return { status: "off", entries: [], notes: [] };
+    return { status: "unavailable", entries: [], notes: ["Meetings could not be loaded. Refresh to try again."] };
+  }
+  try {
+    const notes = [];
+    const meetings = answer.meetings.flatMap(section => {
+      if (!isText(section.partner) || !SECTION_STATES.includes(section.state) || !Array.isArray(section.items))
+        throw new Error("Meetings unreadable");
+      const who = partnerName(section.partner);
+      const failed = section.state === "unavailable";
+      const said = failed ? [section.reason || `${who}'s meetings could not be loaded.`] : section.notes;
+      notes.push(...(Array.isArray(said) ? said : []).filter(isText).map(note => named(who, note)));
+      if (failed) return [];
+      return section.items.map((item, index) => {
+        if (!isText(item?.title) || !isInstant(item.start)) throw new Error("Meeting unreadable");
+        const start = new Date(item.start);
+        return {
+          key: `meeting:${section.partner}:${item.key ?? index}:${item.start}`, type: "meeting",
+          day: businessDay(start), at: start.toISOString(), time: item.all_day ? "All day" : centralTime.format(start),
+          label: item.title.trim().replace(/\s+/g, " "), owner: section.partner,
+          record_name: isText(item.context_label) ? item.context_label : null, open_url: recordUrl(item.open_url), settled: false,
+        };
+      });
+    });
+    const tours = answer.tours;
+    if (!SECTION_STATES.includes(tours?.state) || !Array.isArray(tours.items)) throw new Error("Tours unreadable");
+    if (tours.state === "unavailable") notes.push(tours.reason || "Planned tours could not be loaded.");
+    const planned = tours.state === "unavailable" ? [] : tours.items.map(tour => {
+      if (!tour?.id || !isCalendarDay(tour.planned_on) || !isText(tour.deal_name) || !Number.isInteger(tour.stop_count))
+        throw new Error("Tour unreadable");
+      return {
+        key: `tour:${tour.id}`, type: "tour", day: tour.planned_on,
+        label: `Tour · ${tour.stop_count} ${tour.stop_count === 1 ? "stop" : "stops"}`, owner: tour.owner,
+        record_name: tour.deal_name, open_url: recordUrl(tour.open_url), settled: false,
+      };
+    });
+    return { status: notes.length ? "partial" : "ready", entries: [...meetings, ...planned], notes: [...new Set(notes)] };
+  } catch {
+    return { status: "unavailable", entries: [], notes: ["Meetings could not be loaded. Refresh to try again."] };
+  }
 }

@@ -6,7 +6,7 @@ import { formatCalendarDate } from "./visual-system.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import {
   addDays, approach, calendarHref, calendarPhase, entriesByDay, localToday, monthGrid, motionDirection,
-  parseCalendarState, readCalendar, shortDay, stepAnchor, weekStrip,
+  parseCalendarState, readCalendar, readMeetings, shortDay, stepAnchor, visibleRange, weekStrip,
 } from "./calendar-model.js";
 
 const $ = (id) => document.getElementById(id);
@@ -24,6 +24,8 @@ const view = {
   painted: null,
   focusEntry: null,
   result: { status: "loading" },
+  meetings: { range: null, status: "off", entries: [], notes: [] },
+  meetingSequence: 0,
   byDay: new Map(),
   sequence: 0,
   refreshFailed: false,
@@ -43,16 +45,23 @@ function announce(text) {
 }
 
 const recordName = entry => entry.record_name ?? entry.deal_name;
-const typeLabel = entry => entry.type === "step" ? "Next step" : "Critical date";
-const ownerSuffix = owner => typeof owner === "string" && owner
-  ? ` · ${escapeHtml(owner[0].toUpperCase() + owner.slice(1))}` : "";
+const KINDS = [
+  { type: "step", label: "Next step", one: "next step", many: "next steps" },
+  { type: "date", label: "Critical date", one: "critical date", many: "critical dates" },
+  { type: "meeting", label: "Meeting", one: "meeting", many: "meetings" },
+  { type: "tour", label: "Tour", one: "tour", many: "tours" },
+];
+const typeLabel = entry => KINDS.find(kind => kind.type === entry.type).label;
+const entryText = entry => entry.time ? `${entry.time} ${entry.label}` : entry.label;
+const ownerName = owner => typeof owner === "string" && owner ? owner[0].toUpperCase() + owner.slice(1) : "";
+const ownerSuffix = owner => ownerName(owner) ? ` · ${escapeHtml(ownerName(owner))}` : "";
 
 function chipHtml(entry, { withDeal }) {
   const near = approach(entry, view.today);
-  const text = `${typeLabel(entry)} · ${entry.label} · ${recordName(entry)} · ${near.label}`;
+  const text = [typeLabel(entry), entryText(entry), recordName(entry), near.label].filter(Boolean).join(" · ");
   return `<li><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(entry.day)}" data-band="${near.band}" aria-label="${escapeHtml(text)}">`
     + `<span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span>`
-    + `<span class="cal-chip-label">${escapeHtml(entry.label)}</span>`
+    + `<span class="cal-chip-label">${escapeHtml(entryText(entry))}</span>`
     + (withDeal ? `<span class="cal-chip-deal">${escapeHtml(recordName(entry))}</span>` : "")
     + "</button></li>";
 }
@@ -129,28 +138,30 @@ function paintSelection() {
 }
 
 function recordLink(entry) {
-  const url = entry.type === "step" ? entry.open_url : entry.deal_id && `/deals?deal=${encodeURIComponent(entry.deal_id)}`;
+  const url = entry.type === "date" ? entry.deal_id && `/deals?deal=${encodeURIComponent(entry.deal_id)}` : entry.open_url;
   const name = escapeHtml(recordName(entry));
+  if (!name) return "";
   return url ? `<a href="${escapeHtml(url)}" data-entry="${escapeHtml(entry.key)}">${name}</a>` : name;
 }
 
 function itemCount(rows) {
-  const steps = rows.filter(entry => entry.type === "step").length;
-  const dates = rows.length - steps;
-  return [steps && `${steps} next step${steps === 1 ? "" : "s"}`,
-    dates && `${dates} critical date${dates === 1 ? "" : "s"}`].filter(Boolean).join(" · ") || "0 items";
+  return KINDS.map(kind => {
+    const count = rows.filter(entry => entry.type === kind.type).length;
+    return count && `${count} ${count === 1 ? kind.one : kind.many}`;
+  }).filter(Boolean).join(" · ") || "0 items";
 }
 
 function dayList(rows) {
   return `<ol class="cal-day-entries">${rows.map(entry => {
     const near = approach(entry, view.today);
-    const owner = ownerSuffix(entry.owner);
+    const owner = ownerSuffix(entry.owner) + (entry.time ? ` · <time datetime="${escapeHtml(entry.at)}">${escapeHtml(entry.time)}</time>` : "");
+    const record = recordLink(entry);
     const late = entry.days_late ? `<span class="cal-late">${entry.days_late} ${entry.days_late === 1 ? "day" : "days"} late · Due ${shortDay(entry.due_on, view.today)}</span>` : "";
     return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}">
       <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${owner}</small>
       <h3>${escapeHtml(entry.label)}</h3>
       ${entry.why ? `<p>${escapeHtml(entry.why)}</p>` : ""}
-      <p>${recordLink(entry)}</p>${late}</li>`;
+      ${record ? `<p>${record}</p>` : ""}${late}</li>`;
   }).join("")}</ol>`;
 }
 
@@ -180,7 +191,7 @@ function paintComingUp(day) {
   $("calComing").hidden = dates.length === 0;
   $("calAgenda").innerHTML = dates.map(date => {
     const items = view.byDay.get(date).map(entry => `<span class="cal-agenda-detail">
-      ${escapeHtml(entry.label)}<small>${escapeHtml(recordName(entry))}${ownerSuffix(entry.owner)}</small>
+      ${escapeHtml(entryText(entry))}<small>${escapeHtml([recordName(entry), ownerName(entry.owner)].filter(Boolean).join(" · "))}</small>
     </span>`).join("");
     return `<li><button class="cal-agenda-item" type="button" data-day="${date}">
       <time datetime="${date}">${shortDay(date, view.today)}</time>
@@ -214,13 +225,15 @@ function paintState(phase, periodRows) {
 function paintNotices(phase) {
   const region = $("calNotices");
   if (!region) return;
-  const retry = view.refreshFailed
-    ? `<div class="notice" role="status"><p>Calendar could not refresh. Try again.</p><button type="button" id="calRetry">Retry</button></div>` : "";
-  if (phase !== "partial" && !(phase === "reading" && view.result.failed.length)) { region.innerHTML = retry; return; }
+  const notes = view.meetings.notes;
+  const notices = (view.refreshFailed
+    ? `<div class="notice" role="status"><p>Calendar could not refresh. Try again.</p><button type="button" id="calRetry">Retry</button></div>` : "")
+    + (notes.length ? `<div class="notice notice-partial" role="status">${notes.map(note => `<p class="notice-copy">${escapeHtml(note)}</p>`).join("")}</div>` : "");
+  if (phase !== "partial" && !(phase === "reading" && view.result.failed.length)) { region.innerHTML = notices; return; }
   const failed = view.result.failed;
   const names = failed.slice(0, 6).map((row) => escapeHtml(row.deal_name)).join(", ");
   const rest = failed.length > 6 ? ` and ${failed.length - 6} more` : "";
-  region.innerHTML = retry + `<div class="notice notice-partial" role="status"><p class="notice-title">${failed.length} of ${view.result.dealCount} deals temporarily unavailable</p>`
+  region.innerHTML = notices + `<div class="notice notice-partial" role="status"><p class="notice-title">${failed.length} of ${view.result.dealCount} deals temporarily unavailable</p>`
     + `<p class="notice-copy">Their dates are not on this calendar: ${names}${rest}.</p></div>`;
 }
 
@@ -232,9 +245,13 @@ function render() {
     : active?.dataset.entry ? `[data-entry="${CSS.escape(active.dataset.entry)}"]`
     : active?.dataset.day ? `button[data-day="${CSS.escape(active.dataset.day)}"]` : null;
   const phase = calendarPhase(view.result);
-  view.byDay = ["ready", "partial", "reading"].includes(phase) ? entriesByDay(view.result.entries) : new Map();
-  paintNotices(phase);
   const layout = calendarLayout(view.state);
+  const range = visibleRange(layout.days);
+  if (client && phase !== "unauthorized" && !sameRange(view.meetings.range, range)) void loadMeetings(range);
+  view.byDay = ["ready", "partial", "reading", "empty"].includes(phase)
+    ? entriesByDay([...(view.result.entries || []), ...view.meetings.entries]) : new Map();
+  paintNotices(phase);
+  $("calMeetingsNote").hidden = view.meetings.status === "off";
   const periodRows = layout.days.flatMap(cell => cell.inMonth ? view.byDay.get(cell.day) || [] : []);
   const count = $("calCount");
   const total = ["ready", "partial", "empty"].includes(phase) ? itemCount(periodRows) : "";
@@ -334,6 +351,18 @@ function wire() {
   });
 }
 
+const sameRange = (a, b) => a?.from === b.from && a?.to === b.to;
+
+/** A newly shown period's meetings. */
+async function loadMeetings(range) {
+  const sequence = ++view.meetingSequence;
+  view.meetings = { ...view.meetings, range, entries: [], notes: [] };
+  const read = await readMeetings(client, range);
+  if (sequence !== view.meetingSequence) return;
+  view.meetings = { ...read, range };
+  render();
+}
+
 async function load() {
   const sequence = ++view.sequence;
   const showingResults = ["ready", "partial"].includes(view.result.status);
@@ -342,11 +371,13 @@ async function load() {
     render();
   }
   view.today = localToday();
-  const result = await readCalendar(client, { onProgress: result => {
+  // A refresh reads the shown period's meetings alongside, so the page paints once.
+  const range = showingResults ? view.meetings.range : null;
+  const [result, meetings] = await Promise.all([readCalendar(client, { onProgress: result => {
     if (sequence !== view.sequence || (showingResults && result.status === "reading")) return;
     view.result = result;
     render();
-  } });
+  } }), range && readMeetings(client, range)]);
   if (sequence !== view.sequence) return;
   if (showingResults && (result.status === "unavailable" ||
       (result.status === "ready" && result.failed.length > 0 && result.readCount === 0))) {
@@ -360,6 +391,7 @@ async function load() {
   const selected = pageDocContext?.snapshot().selected;
   if(selected?.kind === "deal" && result.status === "ready") void client.getDeal(selected.id).catch(() => {});
   if (["ready", "partial"].includes(result.status)) view.updatedAt = new Date().toISOString();
+  if (meetings && sameRange(view.meetings.range, range)) view.meetings = { ...meetings, range };
   view.painted = null;
   render();
   announce(STATE_COPY[calendarPhase(result)] || "");
