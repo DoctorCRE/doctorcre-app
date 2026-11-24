@@ -43,9 +43,6 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   await page.clock.setFixedTime(new Date('2026-11-19T18:00:00Z'));
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
   await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
-  await page.route('**/api/v1/intelligence/mail-needs-partner?*', route => route.fulfill({
-    json: { ok: true, schema_version: 'home-mail-priorities.v1', items: [], more: false },
-  }));
   const id = '00000000-0000-0000-0000-000000000001';
   const step = { item_id: `next_action:${id}`, source_type: 'next_action', source_id: id, source_version: '7',
     source_state: 'needs_attention', title: 'Send sample terms', activity_at: '2026-11-03T12:00:00Z', hold_until: null,
