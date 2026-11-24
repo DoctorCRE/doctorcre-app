@@ -362,14 +362,15 @@ test("right-click on a Home card opens a menu of that card's own actions", async
           true,
         );
 
-        // Enter on Mark done completes the card with the same Undo notice as a click.
+        // Enter on Mark done completes the card with the same Undo confirmation as a click.
         const call = homeRow(page, CALL.id);
         await rightClick(page, call);
         await menuFor(page, CALL.title).waitFor();
         await page.keyboard.press("ArrowDown");
         assert.equal(await focusedText(page), "Mark done");
         await page.keyboard.press("Enter");
-        await page.getByText(`Marked done: ${CALL.title}. 1 confirmed. You can undo this change.`).waitFor();
+        const toast = page.locator(".toast").filter({ hasText: `Marked done: ${CALL.title}.` });
+        await toast.getByRole("button", { name: "Undo", exact: true }).waitFor();
         assert.equal(await page.getByRole("menu").count(), 0);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       } finally {

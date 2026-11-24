@@ -199,7 +199,7 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`re
   await page.locator('[data-inbox-row="extra10"]').getByRole('button', { name: 'Mark done', exact: true }).click();
   await page.getByText('Marked done: Synthetic extra10.', { exact: false }).waitFor();
   await page.waitForFunction(() => document.activeElement.closest('[data-inbox-row]')?.dataset.inboxRow === 'extra11');
-  const notice = await page.locator('.inbox-notice').boundingBox();
+  const notice = await page.locator('.toast').boundingBox();
   const undo = await page.getByRole('button', { name: 'Undo', exact: true }).boundingBox();
   const bottom = await page.evaluate(() => Math.min(innerHeight, ...[...document.querySelectorAll('.app-shell-header')].map(node => node.getBoundingClientRect()).filter(box => box.height && box.top > innerHeight / 2).map(box => box.top)));
   assert.ok(notice.y >= 60 && notice.y + notice.height < bottom);

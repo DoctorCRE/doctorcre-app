@@ -561,6 +561,7 @@ export type CardReview =
       thread?: EmailThread;
       proposals?: Suggestion[];
       addresses?: { to: string | null; cc: string | null };
+      correctRecipients?: boolean;
       attachments?: { id: string; name: string }[];
       statusMessage?: string | null;
     });
@@ -793,9 +794,7 @@ export function createInboxClient(
           detail.operations.some((op) =>
             op.verb === "complete-one-action"
               ? op.args.action_id !== item.action_id
-              : op.verb === "resolve-fact-review"
-                ? JSON.stringify([op.args.entity_ref, op.args.fact_key]) !== item.source_id
-                : op.args.proposal_id !== item.source_id,
+              : op.args.proposal_id !== item.source_id,
           )
         )
           throw Error("Review source does not match this card.");
@@ -830,14 +829,6 @@ export function createInboxClient(
             },
             "done",
           );
-        } else if (request.verb === "resolve-fact-review") {
-          if (
-            value.schema_version !== "fact-review.v1" ||
-            !object(value.review_receipt) ||
-            value.review_receipt.entity_ref !== request.args.entity_ref ||
-            value.review_receipt.fact_key !== request.args.fact_key
-          )
-            throw Error("Review receipt unavailable.");
         } else if (
           value.proposal_id !== item.source_id ||
           !Number.isSafeInteger(value.version) ||

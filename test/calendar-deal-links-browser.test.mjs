@@ -125,7 +125,7 @@ test('Calendar opens each owning deal and Back restores the selected period and 
         assert.equal(calls.includes('add-critical-date'), false);
         empty = true;
         await page.locator('#calRefresh').click();
-        await expect(page.locator('#calState')).toContainText('No critical dates or next steps this month.');
+        await expect(page.locator('#calState')).toContainText('Nothing this month.');
         await expect(links).toHaveCount(0);
         empty = false;
         missingDestination = true;

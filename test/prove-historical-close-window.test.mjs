@@ -93,7 +93,7 @@ async function fixture(t, mode='equal') {
     routes.clear();
     if (mode === 'old-route') routes.set('/', { status: 302, headers: { location: '/leads' } });
   }
-  const session = JSON.parse(await readFile(new URL('./fixtures/fact-review-term-key-filter/recordings.json', import.meta.url))).session;
+  const session = { actor: { slug: 'joe', display: 'Synthetic reviewer' }, csrf_token: 'synthetic-only-not-a-credential', reauth_required: false, reauth_url: '/auth/reauth?return_to=/', challenge_ttl_seconds: 60 };
   const server = await startWorkerFixture({assets:snapshot,routes,env:{GIT_SHA:released,APP_ENV:'production',CARR:{fetch:async request=>{
     if (new URL(request.url).pathname === '/auth/session') return Response.json(session);
     if (request.method === 'GET') return new Response(null, { status: 200 });

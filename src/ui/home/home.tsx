@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tan
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
+import { showToast } from "../../../js/toast.js";
 import { bindCardQuickMenu } from "../card-quick-menu";
 import type { DocLinkRequest } from "../doc-link";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
@@ -29,7 +30,16 @@ import {
 import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
 import { ReviewCard, reviewDispositionLabel } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
-import { CardTile, cardKey, completionLabel, dashboardCards, day, HomeGrid, lateDays } from "./sections";
+import {
+  CardTile,
+  cardKey,
+  completionLabel,
+  dashboardCards,
+  day,
+  HomeGrid,
+  lateDays,
+  PlaceholderTile,
+} from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
 
 type SnoozePreview = Readonly<{
@@ -44,7 +54,7 @@ type Undo = { items: readonly InboxItem[] } & (
 );
 const queryKey = ["home-inbox"];
 const EMPTY_ITEMS: readonly InboxItem[] = [];
-const UNDO_MS = 3_000;
+const UNDO_MS = 5_000;
 const cardDate = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", dateStyle: "medium" });
 const callDate = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Chicago",
@@ -64,6 +74,30 @@ function snoozeLabel(item: InboxItem) {
   return item.disposition === "snoozed" && item.snoozed_until
     ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
     : null;
+}
+
+const SAVED: Record<Command["action"] | "drop", string> = {
+  complete: "Marked done",
+  done: "Marked done",
+  reopen: "Reopened",
+  undo_done: "Reopened",
+  snooze: "Snoozed",
+  settle: "Hidden from inbox",
+  unsettle: "Back in your inbox",
+  unsnooze: "Back in your inbox",
+  drop: "Dropped",
+};
+const savedMessage = (action: keyof typeof SAVED, items: readonly InboxItem[]) =>
+  `${SAVED[action]}: ${items.length === 1 ? items[0]?.title : `${items.length} cards`}.`;
+// An Undo stays offered only while the card is still the version this save produced.
+function undoable(entry: Undo, items: readonly InboxItem[]) {
+  if (!("mark" in entry)) return true;
+  const card = items.find((item) => item.item_id === entry.mark.item_id);
+  return card
+    ? card.base_version === entry.mark.base_version &&
+        card.source_state !== "working" &&
+        (card.source_state === "done") === Boolean(entry.mark.completion)
+    : Boolean(entry.mark.completion);
 }
 
 const cardTitle = ":is(h3 a, h3[tabindex])";
@@ -265,6 +299,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     };
   }, [cache, engineHome, home, meetings.refetch, query.refetch]);
   const undoNotice = useRef("");
+  const toastUndo = useRef<(entry: Undo) => void>(() => {});
+  const toast = useRef<HTMLElement | null>(null);
+  function confirmSave(text: string, entry?: Undo) {
+    setNotice("");
+    toast.current = showToast(text, entry ? { onUndo: () => toastUndo.current(entry) } : {});
+  }
   useEffect(() => {
     if (!undo.length) return;
     // eslint-disable-next-line no-restricted-syntax -- One Undo window, restarted by each save and cleared on unmount.
@@ -376,14 +416,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       if (!mounted.current) return;
       setFailures(failed);
       select(new Set(failed.map((result) => result.item_id)));
-      if ((successes.length || changed.length) && !operation.undoing) {
-        setUndo((entries) => [
-          ...entries.filter(
-            (entry) =>
-              !results.some((result) => result.ok && result.item_id === entry.items[0]?.item_id) &&
-              !changed.some((item) => item.item_id === entry.items[0]?.item_id),
-          ),
-          ...results.flatMap<Undo>((result) => {
+      const fresh = operation.undoing
+        ? []
+        : results.flatMap<Undo>((result) => {
             if (!result.ok) return [];
             const { item, undo } = result;
             const previous = operation.before.find((before) => before.item_id === result.item_id);
@@ -408,7 +443,25 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                   },
                 ]
               : [];
-          }),
+          });
+      const settled = successes.length > 0 && !failed.length && !changed.length;
+      const otherUndo = operation.undoing && undo.some((entry) => entry.items !== operation.before);
+      // One card's save is confirmed at the bottom; a multi-card save keeps an Undo per card here.
+      if (settled && fresh.length <= 1 && !otherUndo) {
+        confirmSave(operation.undoing ? "Undone." : savedMessage(operation.request.action, operation.before), fresh[0]);
+        if (!operation.undoing) setUndo([]);
+        setPending(null);
+        focusRow(operation.undoing ? operation.before.map((item) => item.item_id) : neighbours);
+        return;
+      }
+      if ((successes.length || changed.length) && !operation.undoing) {
+        setUndo((entries) => [
+          ...entries.filter(
+            (entry) =>
+              !results.some((result) => result.ok && result.item_id === entry.items[0]?.item_id) &&
+              !changed.some((item) => item.item_id === entry.items[0]?.item_id),
+          ),
+          ...fresh,
         ]);
       }
       const completion =
@@ -524,15 +577,22 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     home &&
     reviewing !== null &&
     !items.some((item) => item.item_id === reviewing.item_id && !["done", "settled"].includes(item.section));
-  const availableUndo = undo.filter((entry) => {
-    if (!("mark" in entry)) return true;
-    const card = items.find((item) => item.item_id === entry.mark.item_id);
-    return card
-      ? card.base_version === entry.mark.base_version &&
-          card.source_state !== "working" &&
-          (card.source_state === "done") === Boolean(entry.mark.completion)
-      : entry.mark.completion;
+  const availableUndo = undo.filter((entry) => undoable(entry, items));
+  function undoChange(previous: Undo) {
+    setUndo((entries) => entries.filter((entry) => entry !== previous));
+    const change = "mark" in previous ? restoreMark(previous.mark) : previous;
+    act(change.action, previous.items, change.until, true, "receipt" in change ? change.receipt : undefined);
+  }
+  // Like the top-notice Undo, the toast's waits while another save is in flight or unresolved.
+  const undoLocked = busy || !!pending;
+  useEffect(() => {
+    const button = toast.current?.querySelector<HTMLButtonElement>(".receipt-undo");
+    if (button) button.disabled = undoLocked;
   });
+  toastUndo.current = (entry) =>
+    undoable(entry, items)
+      ? undoChange(entry)
+      : showNotice("This card changed after the save. Undo is unavailable; nothing was changed.", true);
   const placed = shelves(items, item_id);
   const visibleShelves = (["working", "held", "done", "snoozed", "settled"] as const).filter(
     (shelf) => shelf !== "settled" || !query.data?.engine_marks,
@@ -913,14 +973,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 setReviewing(null);
                 return;
               }
-              if (receipt) {
-                setUndo((entries) => [
-                  ...entries.filter((entry) => entry.items[0]?.item_id !== current.item_id),
-                  { action: "reopen", items: [current], receipt },
-                ]);
-                undoNotice.current = `Marked done: ${current.title}. You can undo this change.`;
-                showNotice(undoNotice.current);
-              }
+              if (receipt)
+                confirmSave(savedMessage("complete", [current]), { action: "reopen", items: [current], receipt });
             }}
           >
             {finishedElsewhere && <p role="status">This card was finished elsewhere.</p>}
@@ -958,7 +1012,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 </a>
               </p>
             )}
-            {!source && !["email_proposal", "fact_review"].includes(item.source_type) && <p>No linked record.</p>}
+            {!source && item.source_type !== "email_proposal" && <p>No linked record.</p>}
             {item.source_type === "email_proposal" && !reviewClient && (
               <p>The email and draft are unavailable for this card.</p>
             )}
@@ -1062,17 +1116,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 type="button"
                 key={previous.items[0]?.item_id}
                 disabled={busy || !!reviewing}
-                onClick={() => {
-                  setUndo((entries) => entries.filter((entry) => entry !== previous));
-                  const change = "mark" in previous ? restoreMark(previous.mark) : previous;
-                  act(
-                    change.action,
-                    previous.items,
-                    change.until,
-                    true,
-                    "receipt" in change ? change.receipt : undefined,
-                  );
-                }}
+                onClick={() => undoChange(previous)}
               >
                 {availableUndo.length === 1 ? "Undo" : `Undo ${previous.items[0]?.title}`}
               </button>
@@ -1080,7 +1124,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         </div>
       )}
       {query.isPending ? (
-        <p className="inbox-empty" role="status">
+        <p className={home ? "sr-only" : "inbox-empty"} role="status">
           Loading your inbox…
         </p>
       ) : query.isError && !query.data ? (
@@ -1148,6 +1192,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       )}
       {home && (
         <HomeGrid snapshot={query.data} calendar={meetings.data}>
+          {query.isPending && (
+            <>
+              <PlaceholderTile />
+              <PlaceholderTile />
+            </>
+          )}
           <CardTile
             title="Reminders"
             showLate
@@ -1166,6 +1216,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             current={reviewing?.item_id || item_id}
             row={row}
           />
+          {engineHome && meetings.isPending && <PlaceholderTile />}
           {meetings.data && (
             <MeetingTile
               data={meetings.data}

@@ -25,7 +25,7 @@ import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient, dealTypeLabel } from './live-client.js';
 import { emailSubject, emailPlaceholderText, loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
 import { dealToursFromEngine, dealsSaveToEngine, deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
-import { ACTOR_LABEL, FACT_TERMS, authorLabel } from './client.js';
+import { ACTOR_LABEL, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
 import { formatCalendarDate } from './visual-system.js';
 import { BUSINESS_TIME_ZONE, businessDay } from './business-date.js';
@@ -45,7 +45,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, starredFirst, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime, stepOriginLabel } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
@@ -93,6 +93,7 @@ const state = {
   boardStatus: 'starting',
   nextDealSaves: false,
   boardFromEngine: false,
+  boardRead: false,
   prospectCount: null,
   unplaced: 0,
 };
@@ -201,6 +202,10 @@ function cardAttentionHtml(deal) {
   return `<button class="deal-board-attention" type="button" aria-label="Needs attention: ${reason}" aria-expanded="false" aria-controls="${reasonId}"><span class="deal-board-badge">Needs attention</span></button>
     <span class="deal-board-reason" id="${reasonId}" hidden>${reason}</span>`;
 }
+function starHtml(deal) {
+  if (!state.nextDealSaves || typeof deal.starred !== 'boolean' || deal.operating_state === 'parked') return '';
+  return `<button class="deal-star" type="button" data-star="${esc(deal.id)}" aria-pressed="${deal.starred}" aria-label="Star ${esc(dealTitle(deal))}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></button>`;
+}
 function cardHtml(deal) {
   const parked = deal.operating_state === 'parked';
   const pending = pendingCommand(state.fieldWrites, cellKey(deal.id, 'phase'));
@@ -210,7 +215,7 @@ function cardHtml(deal) {
   return workCard({ variant: 'tile', className: `kanban-card${parked ? ' parked-card' : ''}`, heading: 'h4',
     attributes: `data-id="${esc(deal.id)}" ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
-    meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}` });
+    meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}${starHtml(deal)}` });
 }
 function legacyRowStepHtml(deal) {
   const nextStep = noteText(deal.next_step);
@@ -228,7 +233,7 @@ function rowHtml(deal) {
   const move = automaticPhaseReceipt(deal, null, { showEngineMoves: state.boardFromEngine, canUndo: false });
   return workCard({ variant: 'row', className: `kanban-card deal-row${parked && !state.boardFromEngine ? ' parked-card' : ''}`, heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0" data-attention="${attention}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
-    meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${dealAttentionHtml(deal)}`,
+    meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${dealAttentionHtml(deal)}${starHtml(deal)}`,
     body: `<span class="deal-stage">${esc(columnLabel(deal.phase))}</span><div class="deal-row-next">${summary}${parking}${renderDealVendors(deal.vendors)}${website}${renderPhaseReceipt(deal, move, autoHtml(deal))}${revive}</div>` });
 }
 function parkingSummaryHtml(deal) {
@@ -399,6 +404,7 @@ function renderBoardMessage(status = state.boardSync?.status()) {
     say('The board is unavailable. Refresh to try again.');
     return;
   }
+  if (!state.boardRead) { say('Updating…'); return; }
   const headline = boardHeadline(groupByColumn(visibleBoardDeals()));
   const count = state.prospectCount;
   say(typeof count === 'number' ? `${headline} · ${count} prospect${count === 1 ? '' : 's'}` : headline);
@@ -408,10 +414,26 @@ function dealListHtml(rows, parked) {
   const fromEngine = state.boardFromEngine;
   const phase = fromEngine ? 'Phase' : 'Stage';
   const visible = !fromEngine && state.parkedOpen ? rows : rows.filter(deal => deal.operating_state !== 'parked');
-  const mainRows = urgencyOrder(visible).map(rowHtml).join('');
+  const mainRows = starredFirst(urgencyOrder(visible)).map(rowHtml).join('');
   const parkedGroup = fromEngine && state.parkedOpen ? `<section class="deal-list-parked" aria-labelledby="parkedListHeading">
     <h3 id="parkedListHeading">Parked · ${parked.length}</h3>${urgencyOrder(parked).map(rowHtml).join('')}</section>` : '';
   return `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>${phase}</span><span>Next step</span><span>Owner</span></div>${mainRows}${parkedGroup}</div>`;
+}
+
+const placeholderLines = '<span class="skeleton-line"></span><span class="skeleton-line short"></span>';
+function boardPlaceholderHtml() {
+  if (state.view === 'list') return `<div class="deal-list board-placeholder" aria-hidden="true">${`<div class="board-placeholder-row">${placeholderLines}</div>`.repeat(6)}</div>`;
+  return [3, 2, 2, 1, 1, 1, 1].map(cards => `<div class="kanban-column board-placeholder" aria-hidden="true"><h3><span class="skeleton-line short"></span></h3>${`<div class="board-placeholder-card">${placeholderLines}</div>`.repeat(cards)}</div>`).join('');
+}
+const dealPlaceholderHtml = `<p class="sr-only" role="status">Updating…</p><div class="deal-placeholder" aria-hidden="true">${`<section class="panel-section"><span class="skeleton-line short"></span><span class="skeleton-line"></span><span class="skeleton-line"></span>${placeholderLines}</section>`.repeat(2)}</div>`;
+// Until the first snapshot lands the board shows its shape; a failed or offline first read leaves it empty.
+function renderBoardPlaceholder() {
+  const board = $('kanban');
+  if (state.boardRead || ['closed','lost'].includes(state.view)) return;
+  const status = state.boardSync.status();
+  const reading = status.online && ![HEALTH.FAILED, HEALTH.RENDER_FAILED].includes(status.board_health);
+  board.setAttribute('aria-busy', String(reading));
+  board.innerHTML = reading ? boardPlaceholderHtml() : '';
 }
 
 function renderBoard() {
@@ -422,6 +444,8 @@ function renderBoard() {
   $('closedDealsView').hidden = !['closed','lost'].includes(state.view);
   $('parkedToggle').hidden = ['closed','lost'].includes(state.view);
   if (['closed','lost'].includes(state.view)) { renderClosedDeals(); return; }
+  if (!state.boardRead) { renderBoardPlaceholder(); return; }
+  board.removeAttribute('aria-busy');
   if (board.dataset.pressed === 'true' || board.dataset.quickMenuOpen === 'true' || board.querySelector('[data-dragging="true"]')) { state.paintDeferred = true; return; }
   state.paintDeferred = false;
   const rows = visibleBoardDeals();
@@ -441,7 +465,7 @@ function renderBoard() {
     for (const child of [...board.children]) if (child !== lane) child.remove();
     const insert = list ? 'beforebegin' : 'afterend';
     (lane ?? board).insertAdjacentHTML(lane ? insert : 'afterbegin', list ? dealListHtml(rows, grouped.parked) : grouped.columns.map((column) => {
-      const cards = urgencyOrder(column.deals);
+      const cards = starredFirst(urgencyOrder(column.deals));
       const collapsed = state.collapsedColumns.has(column.slug);
       const content = collapsed
         ? `<p class="stage-preview">${cards.slice(0,2).map(d => `<span>${esc(dealTitle(d))}</span>`).join('')}${cards.length > 2 ? `<span>${cards.length - 2} more</span>` : ''}</p>`
@@ -503,7 +527,7 @@ function renderStatus(status) {
   if (asOf) {
     asOf.textContent = [HEALTH.FAILED,HEALTH.RENDER_FAILED].includes(status.board_health) || !status.online ? 'Unavailable' : status.last_read_at
       ? `Updated ${new Date(status.last_read_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit',hour12:true})}`
-      : [SYNC_STATES.STARTING, SYNC_STATES.SYNCING].includes(status.state) ? 'Updating…' : 'Unavailable';
+      : [SYNC_STATES.STARTING, SYNC_STATES.SYNCING].includes(status.state) ? '' : 'Unavailable';
   }
 }
 
@@ -547,6 +571,7 @@ function noteCellBase(cell, event) {
 function applyBoardSnapshot(board) {
   const previousPanelRow = state.deals.get(state.panelDeal);
   const previousActor = state.selfActor;
+  state.boardRead = true;
   const saveSwitchChanged = Boolean(state.nextDealSaves) !== (board.next_deal_saves === true);
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
@@ -574,7 +599,7 @@ function applyBoardSnapshot(board) {
     $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
     $('panelTitle').textContent = 'Deal';
     $('workspaceFacts').replaceChildren();
-    $('panelBody').innerHTML = '<p>Updating…</p>';
+    $('panelBody').innerHTML = dealPlaceholderHtml;
   }
   if (state.personalScope && ['joe','dell'].includes(state.selfActor)) state.filter = state.selfActor;
   state.lostDeals = Array.isArray(board.lost_deals) ? board.lost_deals : null;
@@ -644,8 +669,10 @@ function syncProspects(enabled) {
 }
 
 async function loadBoard() {
+  renderBoardPlaceholder();
   const outcome = await state.boardSync.refreshBoard({ reason: 'load-board' });
   if (!outcome.applied && state.boardSync.status().snapshots === 0) {
+    renderBoardPlaceholder();
     say('The board could not be read. Nothing here has been inferred, and no record is shown.');
     return;
   }
@@ -689,6 +716,25 @@ function confirmLocalWrite(dealId, patch) {
   state.boardSync.requestRefresh('after-write');
   if (state.panelDeal === dealId && Number.isSafeInteger(state.panelDetail?.deal?.seen)) void refreshPanel({ changed: true });
   return deal;
+}
+
+async function toggleDealStar(button) {
+  const id = button.dataset.star;
+  const deal = state.deals.get(id);
+  if (!deal) return;
+  const starred = deal.starred !== true;
+  button.disabled = true;
+  try {
+    await state.client.setDealStar(id, starred);
+  } catch {
+    button.disabled = false;
+    showToast(starred ? 'Could not star this deal. Try again.' : 'Could not unstar this deal. Try again.', { error: true });
+    return;
+  }
+  confirmLocalWrite(id, { starred });
+  renderBoard();
+  document.querySelector(`[data-star="${CSS.escape(id)}"]`)?.focus();
+  announce(`${dealTitle(deal)} ${starred ? 'starred' : 'unstarred'}.`);
 }
 
 async function sendPhaseWrite(dealId, value, extra = null) { return sendFieldWrite(dealId, 'phase', value, extra); }
@@ -929,9 +975,10 @@ async function runMove(intent, form) {
   } else {
     confirmLocalWrite(intent.deal, { phase: phaseStep.args.value });
     renderBoard();
-    showToast(`${intent.name} moved to ${intent.to_label}`, {eventId: result.event_id});
+    const back = state.nextDealSaves ? moveBack(intent, result.response?.change_id) : null;
+    // The toast is the move's only announcement; #dragLive keeps the drag steps.
+    showToast(`${intent.name} moved to ${intent.to_label}`, back ? { onUndo: () => void runMoveBack(back) } : { eventId: result.event_id });
   }
-  announce(`${intent.name} moved to ${intent.to_label}.`);
 
   if (!result.superseded) await resumeMoveFollowUps(cell);
   return { ok: true, errors: [] };
@@ -975,6 +1022,25 @@ async function retryFieldWrite(cell) {
   renderBoard();
   const message = fieldWriteMessage(result, subject);
   if (message) showToast(message, {error:result.status !== 'ok'});
+}
+
+// Engine saves have no revert route; a move is undone by moving the deal back from the version it made.
+function moveBack(intent, changeId) {
+  if (!Number.isSafeInteger(changeId) || !intent.from) return null;
+  return moveIntent({ id: intent.deal, name: intent.name, phase: intent.value, seen: changeId }, intent.from);
+}
+
+async function runMoveBack(back) {
+  const result = await sendPhaseWrite(back.deal, back.value, { seen_change_id: back.seen, phase_from: back.from });
+  if (result.status === 'ok' && !result.superseded) {
+    confirmLocalWrite(back.deal, { phase: back.value });
+    renderBoard();
+    showToast(`${back.name} moved back to ${back.to_label}`);
+    return;
+  }
+  state.boardSync.requestRefresh('after-undo');
+  renderBoard();
+  showToast(fieldWriteMessage(result, `${fieldLabel('phase')} on ${back.name}`) || 'Undo was not saved. Reload Deals and try again.', { error: true });
 }
 
 async function runUndo(eventId) {
@@ -1499,7 +1565,7 @@ function workspaceEventsHtml(detail, nextItem, fromEngine, planTours) {
   if (!events.some(event => event.type === timelineType)) timelineType = '';
   return `<h2>Dated events</h2><label for="timelineType">Filter by kind</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${esc(e.text)}</p></li>`).join('')}</ol>${events.length ? '' : fromEngine ? '<p>No dated events yet.</p>' : '<p>No dated events recorded.</p>'}`;
 }
-let factReviewPanel, marketTermsPanel, dealToursPanel, dealDocumentsPanel;
+let marketTermsPanel, dealToursPanel, dealDocumentsPanel;
 let checklistPanel;
 function disposeChecklist() { checklistPanel?.dispose(); checklistPanel = null; }
 function disposeWatchControl() { watchControl?.dispose(); watchControl = null; watchElement = null; watchSubject = null; }
@@ -1827,7 +1893,6 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     ${detail.next_deal_saves ? `<div data-detail-read="attention">${Number.isSafeInteger(d.seen) && !ended
       ? `<button class="btn" type="button" data-deal-attention data-detail-focus="attention">${d.attention === true ? 'Clear needs attention' : 'Mark needs attention'}</button>` : ''}</div>` : ''}
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
-    ${engineSaves ? '' : '<section id="panelTerms" aria-label="Terms"><h2>Terms</h2><button type="button" class="btn" data-open-terms>Show sourced terms</button></section>'}
     <div data-detail-read="checklist"></div>
     ${ownStep ? '' : dealUpdateFormHtml(false, today)}
     <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail) : '<p role="status">Updating email follow-ups…</p>'}</section>
@@ -1840,7 +1905,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode })}</div></section>
-    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>No comparable terms match these filters.</p>' : ''}</section>
+    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
@@ -2020,7 +2085,6 @@ async function readPanel(id) {
           else if (focused?.id) document.getElementById(focused.id)?.focus({preventScroll:true});
         }
       }
-      void factReviewPanel?.refresh();
       void marketTermsPanel?.refresh();
       void dealToursPanel?.refresh();
       void dealDocumentsPanel?.refresh();
@@ -2056,37 +2120,21 @@ async function refreshEvidence(detail, id, seq) {
   root.innerHTML = template.innerHTML;
   root.querySelectorAll('details').forEach(n => { if (expanded.has(n.querySelector('summary')?.textContent)) n.open = true; });
 }
-function mountSourcedTerms(terms, dealId) {
-  let disposed = false, loading = false, mounted;
-  const observer = new IntersectionObserver(entries => {
-    if (entries.some(entry => entry.isIntersecting)) void loadTerms();
-  });
-  async function loadTerms() {
-    if (disposed || loading) return;
-    loading = true;
-    observer.disconnect();
-    terms.textContent = 'Loading terms…';
-    try {
-      const { mountFactReview } = await import('./ui-facts.generated.js');
-      if (disposed) return;
-      terms.replaceChildren();
-      mounted = mountFactReview(terms, { client: state.client, entityRef: dealId, terms: FACT_TERMS });
-    } catch {
-      if (!disposed) terms.textContent = 'Terms unavailable. Reopen this deal to try again.';
-    }
-  }
-  terms.querySelector('[data-open-terms]').addEventListener('click', loadTerms);
-  observer.observe(terms);
-  return {
-    refresh() { return mounted?.refresh(); },
-    dispose() { disposed = true; observer.disconnect(); mounted?.dispose(); },
-  };
+// An imported deal's market is often old city text that matches no terms; prefill only a market on the engine's list.
+async function engineMarket({ market, market_id }, signal) {
+  const recorded = market?.trim();
+  if (!market_id && !recorded) return null;
+  try {
+    const response = await sessionFetch('/api/engine/markets', { headers: { accept: 'application/json' }, signal });
+    const markets = response.ok ? await response.json() : [];
+    const match = Array.isArray(markets) ? markets.find(row => market_id ? row?.market_id === market_id : row?.name === recorded) : null;
+    return typeof match?.name === 'string' ? match.name : null;
+  } catch { return null; }
 }
 
 function paintPanel(detail) {
   $('panelTitle').textContent = dealTitle(detail.deal);
   renderWorkspaceFacts(detail);
-  factReviewPanel?.dispose();
   marketTermsPanel?.dispose();
   disposeChecklist();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
@@ -2101,7 +2149,6 @@ function paintPanel(detail) {
   overview.prepend(watchElement);
   watchSubject = detail.deal.id;
   watchControl ||= mountWatchControl(watchElement, {subject:{subject_type:'deal',subject_id:detail.deal.id}, ...(engineMode ? {engineRequest:sessionFetch} : {})});
-  factReviewPanel = $('panelTerms') ? mountSourcedTerms($('panelTerms'), detail.deal.id) : null;
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   syncUpdateForm();
@@ -2111,7 +2158,8 @@ function paintPanel(detail) {
   }
   updateDetailTimestamp();
   let marketDisposed = false, marketLoading = false;
-  marketTermsPanel = engineMode ? null : {
+  const marketRead = new AbortController();
+  marketTermsPanel = {
     async load() {
       if (marketDisposed || marketLoading) return;
       const root = $('workspace-market-terms');
@@ -2120,18 +2168,27 @@ function paintPanel(detail) {
       marketLoading = true;
       root.textContent = 'Loading comparable terms…';
       try {
-        const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
-          ? await import('./ui-market-cutover.generated.js') : await import('./ui-market.generated.js');
-        if (marketDisposed) return;
         const element = document.createElement('div');
-        const mounted = mountMarketTerms(element, { client: state.client, entityRef: detail.deal.id, submarket: detail.deal.submarket, useType: detail.deal.use_type, dealName: ref => { const match = state.deals.get(ref); return match ? dealTitle(match) : null; } });
+        let mounted;
+        if (engineMode) {
+          // A slow markets list costs the Market pre-fill, never the tab.
+          const prefill = readWithDeadline(() => engineMarket(detail.deal, marketRead.signal), { timeoutMs: 2000 }).catch(() => null);
+          const [{ mountCompareTerms }, market] = await Promise.all([import('./ui-compare-terms.generated.js'), prefill]);
+          if (marketDisposed) return;
+          mounted = mountCompareTerms(element, { request: sessionFetch, market });
+        } else {
+          const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
+            ? await import('./ui-market-cutover.generated.js') : await import('./ui-market.generated.js');
+          if (marketDisposed) return;
+          mounted = mountMarketTerms(element, { client: state.client, entityRef: detail.deal.id, submarket: detail.deal.submarket, useType: detail.deal.use_type, dealName: ref => { const match = state.deals.get(ref); return match ? dealTitle(match) : null; } });
+        }
         marketTermsViews.set(detail.deal.id, { element, mounted });
         root.replaceChildren(element);
       } catch { if (!marketDisposed) root.textContent = 'Could not load comparable terms. Try again.'; }
       finally { marketLoading = false; }
     },
     refresh() { return marketTermsViews.get(detail.deal.id)?.mounted.refresh(); },
-    dispose() { marketDisposed = true; },
+    dispose() { marketDisposed = true; marketRead.abort(); },
   };
   const toursParams = new URLSearchParams(location.search);
   const linkedProperty = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;
@@ -2266,8 +2323,6 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   disposeWatchControl();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
-  factReviewPanel?.dispose();
-  factReviewPanel = null;
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
   closeFiledDocumentText();
@@ -2299,7 +2354,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   }
   state.panelReturnTo = trigger?.closest('.kanban-card')?.dataset.id || dealId;
   $('panelTitle').textContent = state.deals.get(dealId)?.name || 'Deal';
-  $('panelBody').innerHTML = '<p>Updating…</p>';
+  $('panelBody').innerHTML = dealPlaceholderHtml;
   $('workspaceFacts').replaceChildren();
   $('workspaceTabs').innerHTML = workspaceTabs.map(tab => `<button class="workspace-tab" type="button" role="tab" id="tab-${tab.id}" aria-controls="workspace-${tab.id}" aria-selected="${tab.id === workspaceTab}" tabindex="${tab.id === workspaceTab ? 0 : -1}" data-workspace-tab="${tab.id}">${tab.label}</button>`).join('');
   $('tab-client-view').hidden = true;
@@ -2344,8 +2399,6 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   disposeWatchControl();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
-  factReviewPanel?.dispose();
-  factReviewPanel = null;
   marketTermsPanel?.dispose();
   marketTermsPanel = null;
   if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
@@ -2537,15 +2590,17 @@ function wireBoard() {
   addEventListener('pointercancel', release, true);
 
   // Right-click or long-press on a card offers that card's own controls.
+  const starLabel = star => (star.getAttribute('aria-pressed') === 'true' ? 'Unstar' : 'Star');
   const quickControls = [
-    ['Open', '.card-open'], ['Revive', '[data-revive]'], ['Undo', '[data-undo-phase]'], ['Client website', '[data-open-client-website]'],
+    ['Open', '.card-open'], [starLabel, '[data-star]'], ['Revive', '[data-revive]'], ['Undo', '[data-undo-phase]'], ['Client website', '[data-open-client-website]'],
   ];
   bindCardQuickMenu(board, {
     card: '.kanban-card',
     name: card => card.querySelector('.card-open')?.textContent?.trim() || '',
-    actions: card => (card.classList.contains('deal-row') ? quickControls : quickControls.slice(0, 1))
-      .map(([label, selector]) => ({ label, control: card.querySelector(selector) }))
-      .filter(action => action.control && action.control.getAttribute('aria-disabled') !== 'true'),
+    actions: card => (card.classList.contains('deal-row') ? quickControls : quickControls.slice(0, 2))
+      .map(([label, selector]) => [label, card.querySelector(selector)])
+      .filter(([, control]) => control && control.getAttribute('aria-disabled') !== 'true')
+      .map(([label, control]) => ({ label: typeof label === 'function' ? label(control) : label, control })),
   });
   board.addEventListener('quickmenuclose', () => {
     // eslint-disable-next-line no-restricted-syntax -- 1 deferred board paint after the quick menu closes, only when paintDeferred is set; 0 HTTP reads.
@@ -2661,6 +2716,8 @@ function wire() {
     }
     const item = event.target.closest('[data-deal-item]');
     if (item) { itemSheet.open(item.dataset.itemDeal,item.dataset.dealItem,item); return; }
+    const star = event.target.closest('button[data-star]');
+    if (star) { toggleDealStar(star); return; }
     const revive = event.target.closest('button[data-revive]');
     if (revive) { setOperatingState(revive.dataset.revive, {state:'active'}); return; }
     const open = event.target.closest('button[data-open]');
@@ -3101,6 +3158,7 @@ async function boot() {
 
   mountDock();
   wire();
+  renderChips();
   state.client = resolved.mode === 'live' ? createLiveClient() : await (await import("./fixture-client.js")).createFixtureClient(resolved.options);
   mountNotificationBadge(state.client);
   itemSheet = mountDealItemSheet({document,today:() => state.boardFromEngine || isEngineDealDetail(state.panelDetail) ? businessDay() : todayIso(),read:readDealDetail,send:runFollowUp,pending:key => pendingCommand(commandState,key),refresh:() => {state.boardSync.requestRefresh('deal-item');refreshPanel();}});
