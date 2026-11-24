@@ -18,7 +18,8 @@ type Options = {
   client: () => Promise<Saver>;
   dataset: () => Dataset;
   facets: () => Record<string, Facet[] | undefined>;
-  saved: (partyId: string) => void;
+  // Opens the saved record in the list that holds it.
+  saved: (partyId: string, list: Dataset) => void;
   // The party the open record names, or null when none is open.
   recordParty: () => string | null;
   // The page's own phone format, so a number reads the same in the record and the editor.
@@ -46,6 +47,7 @@ const HOW_FOUND = [
 ];
 type ContactField = "name" | "email" | "phone" | "city";
 const CONTACT: ContactField[] = ["name", "email", "phone", "city"];
+const PROFILE = { clients: "client", vendors: "vendor" } as const;
 const ROLE: Record<Dataset, string[]> = {
   clients: ["how_found", "status", "client_type", "vertical"],
   vendors: ["categories", "stage", "offers"],
@@ -182,6 +184,16 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
   let session = "";
   let unconfirmed = false;
   let opening = false;
+  const editButton = () => document.querySelector<HTMLButtonElement>("[data-party-edit]");
+  const editLabel = () => (opening ? "Opening…" : "Edit");
+  // The record panel redraws on its own while Edit opens, so the button on the page now follows opening.
+  function setOpening(next: boolean) {
+    opening = next;
+    const button = editButton();
+    if (!button) return;
+    button.disabled = opening;
+    button.textContent = editLabel();
+  }
   // A record panel that re-rendered while the dialog was open has a new Edit button, so focus goes there.
   dialog.addEventListener("close", () => {
     const back = trigger?.isConnected
@@ -273,9 +285,9 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
     return (await client()).savePartnerRecord(`/api/engine/${path}`, `party-editor:${session}:${step}`, receipt, args);
   }
 
-  function done(partyId: string, message?: string) {
+  function done(partyId: string, message?: string, list = dataset()) {
     dialog.close();
-    saved(partyId);
+    saved(partyId, list);
     if (message) showToast(message);
   }
 
@@ -295,6 +307,8 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
           `<li><button type="button" data-use="${escapeHtml(candidate.id)}">${text.use} ${escapeHtml(candidate.name)}${candidate.city ? ` · ${escapeHtml(candidate.city)}` : ""}</button></li>`,
       )
       .join("")}<li><button type="button" data-use="">${text.separate}</button></li></ul>`;
+    // On a phone the choices fall below the fold, so the first one takes focus and scrolls into view.
+    box.querySelector("button")?.focus();
     box.onclick = (event) => {
       const choice = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-use]") : null;
       if (!choice) return;
@@ -411,20 +425,25 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
     return response?.ok ? response.json().catch(() => null) : null;
   }
 
-  async function openEdit(partyId: string, button: HTMLButtonElement) {
-    const kind = dataset();
-    const idle = button.textContent;
-    opening = true;
-    button.disabled = true;
-    button.textContent = "Opening…";
+  // Another record opens in the list that holds it, this one first.
+  async function openOther(form: HTMLFormElement, partyId: string) {
     const payload = await read(partyId);
-    opening = false;
-    button.disabled = false;
-    button.textContent = idle;
+    const lists: Dataset[] = dataset() === "clients" ? ["clients", "vendors"] : ["vendors", "clients"];
+    const list = lists.find((name) => isRecord(payload) && isRecord(payload[PROFILE[name]]));
+    if (list) return done(partyId, undefined, list);
+    if (dialog.open && form.isConnected) status("That record is not a client or vendor, so it cannot open here.");
+  }
+
+  async function openEdit(partyId: string) {
+    const kind = dataset();
+    setOpening(true);
+    const payload = await read(partyId);
+    setOpening(false);
     // The partner moved to another record while this one was opening.
     if (recordParty() !== partyId) return;
+    const button = editButton();
     const contact = contactOf(payload);
-    const profile = isRecord(payload) ? payload[kind === "clients" ? "client" : "vendor"] : null;
+    const profile = isRecord(payload) ? payload[PROFILE[kind]] : null;
     if (!contact || !isRecord(profile)) {
       show(
         "Edit",
@@ -489,7 +508,7 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
                 separate: "Keep this email",
               },
               (chosen) => {
-                if (chosen) return done(chosen);
+                if (chosen) return void openOther(form, chosen);
                 keepEmail = true;
                 form.requestSubmit();
               },
@@ -509,7 +528,7 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
           const answer = await save(`${kind}/${partyId}`, "role", "party_id", roleChanges);
           if (!answer.ok) {
             // The contact already landed, so the record behind the dialog shows it.
-            if (contactSaved) saved(partyId);
+            if (contactSaved) saved(partyId, kind);
             return conflict(form, answer);
           }
         }
@@ -535,11 +554,11 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
       newButton.textContent = kind === "clients" ? "New client" : "New vendor";
     },
     actionsHtml() {
-      return '<div class="party-record-actions"><button type="button" class="action secondary-action" data-party-edit>Edit</button></div>';
+      return `<div class="party-record-actions"><button type="button" class="action secondary-action" data-party-edit${opening ? " disabled" : ""}>${editLabel()}</button></div>`;
     },
-    edit(button: HTMLButtonElement) {
+    edit() {
       const partyId = recordParty();
-      if (partyId && !opening && !dialog.open) void openEdit(partyId, button);
+      if (partyId && !opening && !dialog.open) void openEdit(partyId);
     },
   };
 }

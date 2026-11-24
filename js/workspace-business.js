@@ -1129,7 +1129,7 @@ function wireControls() {
   dom.panelClose?.addEventListener("click", () => closeRecord());
   dom.panelBody?.addEventListener("click", (event) => {
     const edit = event.target.closest("[data-party-edit]");
-    if (edit) return partyEditor?.edit(edit);
+    if (edit) return partyEditor?.edit();
     if (event.target.closest("[data-retry='record']") && view.recordId) loadRecord(view.recordId);
     if (event.target.closest("[data-retry='activity']") && !view.signedOut && view.recordId === view.record.payload?.record?.id) {
       loadActivity(view.recordId, view.record.payload.record);
@@ -1183,7 +1183,8 @@ function start() {
       document, client: dealroomClient, dataset: () => view.dataset, facets: () => view.facets, phoneLabel,
       // A drawer opened by an old UUID answers that UUID as its id; party_id is the id the party saves take.
       recordParty: () => { const record = view.record.payload?.record; return record?.party_id ?? record?.id ?? null; },
-      saved: (id) => {
+      saved: (id, dataset) => {
+        if (dataset !== view.dataset) return navigate(viewHref(defaultQuery(dataset), id));
         if (view.recordId === id) loadRecord(id);
         else navigate(viewHref(view.query, id));
         loadList("background");
