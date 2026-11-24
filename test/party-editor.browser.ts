@@ -735,18 +735,73 @@ test("Link to a record that is gone says to search again", async (t) => {
   assert.equal(await dialog.getByText("This was not saved. Try again.").count(), 0);
 });
 
+test("A saved link gives focus to the redrawn Link to someone", async (t) => {
+  let answer = () => {};
+  const reread = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  const { page } = await setup(
+    t,
+    `/vendors?record=${vendor}`,
+    (call) => search(call) ?? { status: 201, json: { link_id: "00000000-0000-4000-8000-000000000999" } },
+    { reread },
+  );
+  await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
+  await page.locator("#recordPanel").getByRole("button", { name: "Link to someone" }).click();
+  const dialog = page.getByRole("dialog", { name: "Link Demo Partner 01 to someone" });
+  await dialog.getByLabel("Find a person or company").fill("Avery");
+  await dialog.getByLabel("Avery Example · Demo City").check();
+  await dialog.getByRole("button", { name: "Save link" }).click();
+  await dialog.waitFor({ state: "hidden" });
+  // The record reloads after the dialog has closed, so its redraw comes last.
+  const shown = await page.locator("[data-party-link]").elementHandle();
+  answer();
+  await page.waitForFunction((button) => !button?.isConnected, shown);
+  assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute("data-party-link")), true);
+});
+
+test("Link closed after the record redraws gives focus to the new Link to someone", async (t) => {
+  let settle = () => {};
+  const activity = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  const { page } = await setup(t, `/vendors?record=${vendor}`, (call) => search(call) ?? { status: 500, json: {} }, {
+    activity,
+  });
+  await page.locator("#recordPanel").getByRole("button", { name: "Link to someone" }).click();
+  const dialog = page.getByRole("dialog", { name: "Link Demo Partner 01 to someone" });
+  await dialog.waitFor();
+  settle();
+  await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.hasAttribute("data-party-link"), null, { timeout: 2000 });
+});
+
 test("Link does not open while Edit is opening", async (t) => {
   const fake = engine(vendorParty, "vendor", vendorProfile);
   let release = () => {};
   const read = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const { page } = await setup(t, `/vendors?record=${vendor}`, async (call) => {
-    if (call.method === "GET") await read;
-    return fake.answer(call);
+  let settle = () => {};
+  const activity = new Promise<void>((resolve) => {
+    settle = resolve;
   });
+  const { page } = await setup(
+    t,
+    `/vendors?record=${vendor}`,
+    async (call) => {
+      if (call.method === "GET") await read;
+      return fake.answer(call);
+    },
+    { activity },
+  );
   const panel = page.locator("#recordPanel");
   await panel.getByRole("button", { name: "Edit" }).click();
+  // Settled activity redraws the record panel while Edit is still opening.
+  settle();
+  await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
   await panel.getByRole("button", { name: "Opening…" }).waitFor();
   await panel.getByRole("button", { name: "Link to someone" }).click();
   assert.equal(await page.locator("dialog.party-editor[open]").count(), 0, "Link waits for the Edit that is opening");
