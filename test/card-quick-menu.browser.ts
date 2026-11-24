@@ -250,6 +250,8 @@ test("a long-press on a phone opens the card menu without opening the deal or dr
         await assertInsideViewport(page, menu);
 
         // A tap outside closes the menu; a short tap on the card still opens the deal.
+        // The phone board scrolls with the page and is all cards, so the plain space is above it.
+        await page.evaluate(() => scrollTo(0, 0));
         const outside = await outsidePoint(page);
         await page.touchscreen.tap(outside.x, outside.y);
         assert.equal(await page.getByRole("menu").count(), 0);

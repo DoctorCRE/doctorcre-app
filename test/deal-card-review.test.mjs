@@ -128,7 +128,7 @@ test('deal review prioritizes cards, page tabs and Add deal in both themes and w
   assert.ok(columns[0].cards>0 || width>760,'the first phone stage contains active deals');
   if(width===1440){
    assert.equal(new Set(columns.map(n=>Math.round(n.top))).size,1,'desktop stages share one row');
-   assert.equal(await page.locator('#appTodayToggle').getAttribute('aria-expanded'),'true','look-ahead defaults open on Deals');
+   assert.equal(await page.locator('#appTodayToggle').getAttribute('aria-expanded'),'false','Today starts collapsed on Deals');
    assert.ok((await page.locator('#kanban').boundingBox()).width>790,'board retains desktop width beside look-ahead');
   }
   assert.equal(await page.getByRole('heading',{level:1}).count(),1);
@@ -162,6 +162,7 @@ test('deal review prioritizes cards, page tabs and Add deal in both themes and w
 
 test('all seven phases fit in one row beside Today at 1440px', async t => {
  const {page}=await open(t,1440,{showDetail:false});
+ await page.locator('#appTodayToggle').click();
  await page.locator('#appTodayTitle').waitFor();
  const headings=page.locator('#kanban .kanban-column > h3');
  assert.deepEqual(await headings.getByRole('button').evaluateAll(buttons=>buttons.map(button=>button.getAttribute('aria-label'))),[
@@ -405,8 +406,10 @@ for (const width of [390,1280]) for (const theme of ['light','dark']) test(`100-
  const heading=lane.locator('h3');
  assert.equal(await heading.locator('small').textContent(),'100');
  await lane.scrollIntoViewIfNeeded();
- await page.locator('#kanban').evaluate(board=>{board.scrollTop=4500;});
- assert.ok(await page.locator('#kanban').evaluate(board=>board.scrollTop)>=1000,'the populated board scrolls');
+ // Phones scroll the page; wider screens scroll the stage's own column.
+ const scroller=width===390?page.locator('html'):lane;
+ await scroller.evaluate(node=>{node.scrollTop=4500;});
+ assert.ok(await scroller.evaluate(node=>node.scrollTop)>=1000,'the populated stage scrolls');
  assert.equal(await heading.evaluate(h=>{
   const r=h.getBoundingClientRect(),board=document.querySelector('#kanban').getBoundingClientRect();
   const hit=document.elementFromPoint(r.left+10,r.top+r.height/2);
