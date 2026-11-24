@@ -32,3 +32,17 @@ test("without record links the note is only escaped", () => {
   ];
   for (const value of missing) assert.equal(linkRecordNames("Example Dental <i>", value), "Example Dental &lt;i&gt;");
 });
+
+test("a name shared by two records stays text while other names still link", () => {
+  const shared = [
+    { text: "Example Dental", url: "/relationships?node=lead:l1" },
+    { text: "Example Dental", url: "/relationships?node=party:p1" },
+    { text: "Example Dental", url: "/relationships?node=lead:l1" },
+    { text: "Dr. Pat", url: "/relationships?node=party:p3" },
+    { text: "Dr. Pat", url: "/relationships?node=party:p3" },
+  ];
+  assert.equal(
+    linkRecordNames("Example Dental met Dr. Pat", shared),
+    'Example Dental met <a href="/relationships?node=party:p3">Dr. Pat</a>',
+  );
+});

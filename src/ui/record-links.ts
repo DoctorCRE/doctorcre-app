@@ -19,7 +19,14 @@ function isRecordLink(link: unknown): link is { text: string; url: string } {
 
 /** Escaped note text in which each name from a read's `record_links` opens its record. */
 export function linkRecordNames(text: unknown, links: unknown): string {
-  const urls = new Map((Array.isArray(links) ? links : []).filter(isRecordLink).map((link) => [link.text, link.url]));
+  const urls = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  for (const { text: name, url } of (Array.isArray(links) ? links : []).filter(isRecordLink)) {
+    if (urls.has(name) && urls.get(name) !== url) ambiguous.add(name);
+    urls.set(name, url);
+  }
+  // A name shared by two records cannot tell which one the note means.
+  for (const name of ambiguous) urls.delete(name);
   if (!urls.size) return escapeText(text);
   const names = [...urls.keys()]
     .sort((a, b) => b.length - a.length)
