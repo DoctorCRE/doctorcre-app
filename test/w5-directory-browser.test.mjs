@@ -308,8 +308,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.equal(await linkedEmail.getByText('The updated lease is ready.').isVisible(), true);
     const recent = await activity.innerText();
     assert.doesNotMatch(recent, /demo@example\.test|old_system|· agent|\(no subject\)/);
-    assert.match(recent, /Old system/);
-    assert.match(recent, /Assistant/);
+    assert.match(recent, /Copied from the old system/);
+    assert.match(recent, /Written by the assistant/);
     assert.equal(await activity.getByText('Earlier note').isVisible(), false);
     assert.equal(await activity.getByText('The saved email body.').isVisible(), false);
     await activity.getByText('Email without a subject', { exact: true }).click();
