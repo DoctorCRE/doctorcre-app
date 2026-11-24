@@ -514,19 +514,19 @@ test("Backup answers are marked while Mac answers and waiting questions are not"
     return Response.json({}, { status: 404 });
   });
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
-  await expect(page.getByText("Answered by the backup.")).toBeVisible();
+  await expect(page.getByText("Answered by backup")).toBeVisible();
   source = "mac";
   await page.reload();
   await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
-  await expect(page.getByText("Answered by the backup.")).toHaveCount(0);
+  await expect(page.getByText("Answered by backup")).toHaveCount(0);
   source = "future-source";
   await page.reload();
   await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
-  await expect(page.getByText("Answered by the backup.")).toHaveCount(0);
+  await expect(page.getByText("Answered by backup")).toHaveCount(0);
   source = null;
   await page.reload();
   await expect(page.getByText("Doc answers when your Mac is on.")).toBeVisible();
-  await expect(page.getByText("Answered by the backup.")).toHaveCount(0);
+  await expect(page.getByText("Answered by backup")).toHaveCount(0);
 });
 
 test("A reopened Doc question keeps its place and lets the partner draft a follow-up as it refreshes", async (t) => {
@@ -678,7 +678,7 @@ test("A visible Ask Doc chat can receive its answer after three idle hours", asy
   );
   await page.clock.runFor(182 * 60_000);
   await expect(page.getByText(answered.answer.text)).toBeVisible();
-  const requests = await reads.jsonValue();
+  const requests = (await reads.jsonValue()).filter(({ path }) => path.startsWith("/api/engine/doc/"));
   await reads.dispose();
   assert.deepEqual([...new Set(requests.map(({ path }) => path))], [detailPath]);
   for (const [start, end, expected] of [
@@ -1043,6 +1043,34 @@ test("Recent chats pages on a phone and opens the chosen conversation", async (t
   await expect(page.getByRole("link", { name: older.title })).toBeVisible();
   await page.getByRole("link", { name: older.title }).click();
   await expect(page.getByLabel("Question for Doc")).toBeVisible();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+});
+
+test("Ask Doc opens inside the app shell with full-size targets on a phone", async (t) => {
+  const deal = {
+    ref: { kind: "deal", id: "00000000-0000-4000-8000-000000000004" },
+    label: "Example Clinic Lease",
+    href: "/deals/00000000-0000-4000-8000-000000000004",
+  };
+  const { page, origin } = await docChatFixture(t, (request) =>
+    new URL(request.url).pathname === "/api/engine/doc/conversations"
+      ? Response.json({ conversations: [conversation], next_before: id })
+      : Response.json({
+          conversation,
+          turns: [{ ...answeredTurn, idempotency_key: id, answer: { ...answeredTurn.answer, sources: [deal] } }],
+        }),
+  );
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ask Doc", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: deal.label })).toBeVisible();
+  await page.getByRole("button", { name: "Recent chats", exact: true }).click();
+  const targets = page.locator("#main").locator("a:visible, button:visible");
+  assert.ok((await targets.count()) >= 5);
+  for (const target of await targets.all()) {
+    const box = await target.boundingBox();
+    assert.ok(box && box.height >= 44, `${await target.textContent()} is ${box?.height}px tall`);
+  }
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 });
 

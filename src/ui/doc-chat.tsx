@@ -701,16 +701,9 @@ function DocChat() {
     <>
       <header className="doc-chat__header">
         <h1>Ask Doc</h1>
-        <nav className="doc-chat__actions" aria-label="Chat navigation">
-          <a href="/">Home</a>
-          <a
-            className="btn"
-            href={chatHref(null)}
-            onClick={() => privateDraft.current?.("doc-question", null).write("")}
-          >
-            New chat
-          </a>
-        </nav>
+        <a className="btn" href={chatHref(null)} onClick={() => privateDraft.current?.("doc-question", null).write("")}>
+          New chat
+        </a>
       </header>
       <div className="doc-chat__layout">
         <button
@@ -759,7 +752,7 @@ function DocChat() {
                 <li key={turn.id}>
                   <p className="doc-chat__question">{turn.question}</p>
                   <p className="doc-chat__reply">{turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}</p>
-                  {turn.state === "answered" && turn.answered_by === "backup" && <small>Answered by the backup.</small>}
+                  {turn.state === "answered" && turn.answered_by === "backup" && <small>Answered by backup</small>}
                   {sources.length > 0 && (
                     <ul className="doc-chat__sources" aria-label="Sources">
                       {sources.map(({ ref, label, href }) => {
@@ -849,5 +842,5 @@ function DocChat() {
   );
 }
 
-const root = document.querySelector("#docChat");
+const root = document.querySelector("#main");
 if (root) createRoot(root).render(<DocChat />);
