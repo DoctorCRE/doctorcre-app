@@ -45,7 +45,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, starredFirst, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime, stepOriginLabel } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
@@ -202,6 +202,10 @@ function cardAttentionHtml(deal) {
   return `<button class="deal-board-attention" type="button" aria-label="Needs attention: ${reason}" aria-expanded="false" aria-controls="${reasonId}"><span class="deal-board-badge">Needs attention</span></button>
     <span class="deal-board-reason" id="${reasonId}" hidden>${reason}</span>`;
 }
+function starHtml(deal) {
+  if (!state.nextDealSaves || typeof deal.starred !== 'boolean' || deal.operating_state === 'parked') return '';
+  return `<button class="deal-star" type="button" data-star="${esc(deal.id)}" aria-pressed="${deal.starred}" aria-label="Star ${esc(dealTitle(deal))}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></button>`;
+}
 function cardHtml(deal) {
   const parked = deal.operating_state === 'parked';
   const pending = pendingCommand(state.fieldWrites, cellKey(deal.id, 'phase'));
@@ -211,7 +215,7 @@ function cardHtml(deal) {
   return workCard({ variant: 'tile', className: `kanban-card${parked ? ' parked-card' : ''}`, heading: 'h4',
     attributes: `data-id="${esc(deal.id)}" ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
-    meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}` });
+    meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}${starHtml(deal)}` });
 }
 function legacyRowStepHtml(deal) {
   const nextStep = noteText(deal.next_step);
@@ -229,7 +233,7 @@ function rowHtml(deal) {
   const move = automaticPhaseReceipt(deal, null, { showEngineMoves: state.boardFromEngine, canUndo: false });
   return workCard({ variant: 'row', className: `kanban-card deal-row${parked && !state.boardFromEngine ? ' parked-card' : ''}`, heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0" data-attention="${attention}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
-    meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${dealAttentionHtml(deal)}`,
+    meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${dealAttentionHtml(deal)}${starHtml(deal)}`,
     body: `<span class="deal-stage">${esc(columnLabel(deal.phase))}</span><div class="deal-row-next">${summary}${parking}${renderDealVendors(deal.vendors)}${website}${renderPhaseReceipt(deal, move, autoHtml(deal))}${revive}</div>` });
 }
 function parkingSummaryHtml(deal) {
@@ -410,7 +414,7 @@ function dealListHtml(rows, parked) {
   const fromEngine = state.boardFromEngine;
   const phase = fromEngine ? 'Phase' : 'Stage';
   const visible = !fromEngine && state.parkedOpen ? rows : rows.filter(deal => deal.operating_state !== 'parked');
-  const mainRows = urgencyOrder(visible).map(rowHtml).join('');
+  const mainRows = starredFirst(urgencyOrder(visible)).map(rowHtml).join('');
   const parkedGroup = fromEngine && state.parkedOpen ? `<section class="deal-list-parked" aria-labelledby="parkedListHeading">
     <h3 id="parkedListHeading">Parked · ${parked.length}</h3>${urgencyOrder(parked).map(rowHtml).join('')}</section>` : '';
   return `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>${phase}</span><span>Next step</span><span>Owner</span></div>${mainRows}${parkedGroup}</div>`;
@@ -461,7 +465,7 @@ function renderBoard() {
     for (const child of [...board.children]) if (child !== lane) child.remove();
     const insert = list ? 'beforebegin' : 'afterend';
     (lane ?? board).insertAdjacentHTML(lane ? insert : 'afterbegin', list ? dealListHtml(rows, grouped.parked) : grouped.columns.map((column) => {
-      const cards = urgencyOrder(column.deals);
+      const cards = starredFirst(urgencyOrder(column.deals));
       const collapsed = state.collapsedColumns.has(column.slug);
       const content = collapsed
         ? `<p class="stage-preview">${cards.slice(0,2).map(d => `<span>${esc(dealTitle(d))}</span>`).join('')}${cards.length > 2 ? `<span>${cards.length - 2} more</span>` : ''}</p>`
@@ -523,7 +527,7 @@ function renderStatus(status) {
   if (asOf) {
     asOf.textContent = [HEALTH.FAILED,HEALTH.RENDER_FAILED].includes(status.board_health) || !status.online ? 'Unavailable' : status.last_read_at
       ? `Updated ${new Date(status.last_read_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit',hour12:true})}`
-      : [SYNC_STATES.STARTING, SYNC_STATES.SYNCING].includes(status.state) ? 'Updating…' : 'Unavailable';
+      : [SYNC_STATES.STARTING, SYNC_STATES.SYNCING].includes(status.state) ? '' : 'Unavailable';
   }
 }
 
@@ -712,6 +716,25 @@ function confirmLocalWrite(dealId, patch) {
   state.boardSync.requestRefresh('after-write');
   if (state.panelDeal === dealId && Number.isSafeInteger(state.panelDetail?.deal?.seen)) void refreshPanel({ changed: true });
   return deal;
+}
+
+async function toggleDealStar(button) {
+  const id = button.dataset.star;
+  const deal = state.deals.get(id);
+  if (!deal) return;
+  const starred = deal.starred !== true;
+  button.disabled = true;
+  try {
+    await state.client.setDealStar(id, starred);
+  } catch {
+    button.disabled = false;
+    showToast(starred ? 'Could not star this deal. Try again.' : 'Could not unstar this deal. Try again.', { error: true });
+    return;
+  }
+  confirmLocalWrite(id, { starred });
+  renderBoard();
+  document.querySelector(`[data-star="${CSS.escape(id)}"]`)?.focus();
+  announce(`${dealTitle(deal)} ${starred ? 'starred' : 'unstarred'}.`);
 }
 
 async function sendPhaseWrite(dealId, value, extra = null) { return sendFieldWrite(dealId, 'phase', value, extra); }
@@ -1882,7 +1905,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode })}</div></section>
-    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>No comparable terms match these filters.</p>' : ''}</section>
+    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
@@ -2097,6 +2120,18 @@ async function refreshEvidence(detail, id, seq) {
   root.innerHTML = template.innerHTML;
   root.querySelectorAll('details').forEach(n => { if (expanded.has(n.querySelector('summary')?.textContent)) n.open = true; });
 }
+// An imported deal's market is often old city text that matches no terms; prefill only a market on the engine's list.
+async function engineMarket({ market, market_id }, signal) {
+  const recorded = market?.trim();
+  if (!market_id && !recorded) return null;
+  try {
+    const response = await sessionFetch('/api/engine/markets', { headers: { accept: 'application/json' }, signal });
+    const markets = response.ok ? await response.json() : [];
+    const match = Array.isArray(markets) ? markets.find(row => market_id ? row?.market_id === market_id : row?.name === recorded) : null;
+    return typeof match?.name === 'string' ? match.name : null;
+  } catch { return null; }
+}
+
 function paintPanel(detail) {
   $('panelTitle').textContent = dealTitle(detail.deal);
   renderWorkspaceFacts(detail);
@@ -2123,7 +2158,8 @@ function paintPanel(detail) {
   }
   updateDetailTimestamp();
   let marketDisposed = false, marketLoading = false;
-  marketTermsPanel = engineMode ? null : {
+  const marketRead = new AbortController();
+  marketTermsPanel = {
     async load() {
       if (marketDisposed || marketLoading) return;
       const root = $('workspace-market-terms');
@@ -2132,18 +2168,27 @@ function paintPanel(detail) {
       marketLoading = true;
       root.textContent = 'Loading comparable terms…';
       try {
-        const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
-          ? await import('./ui-market-cutover.generated.js') : await import('./ui-market.generated.js');
-        if (marketDisposed) return;
         const element = document.createElement('div');
-        const mounted = mountMarketTerms(element, { client: state.client, entityRef: detail.deal.id, submarket: detail.deal.submarket, useType: detail.deal.use_type, dealName: ref => { const match = state.deals.get(ref); return match ? dealTitle(match) : null; } });
+        let mounted;
+        if (engineMode) {
+          // A slow markets list costs the Market pre-fill, never the tab.
+          const prefill = readWithDeadline(() => engineMarket(detail.deal, marketRead.signal), { timeoutMs: 2000 }).catch(() => null);
+          const [{ mountCompareTerms }, market] = await Promise.all([import('./ui-compare-terms.generated.js'), prefill]);
+          if (marketDisposed) return;
+          mounted = mountCompareTerms(element, { request: sessionFetch, market });
+        } else {
+          const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
+            ? await import('./ui-market-cutover.generated.js') : await import('./ui-market.generated.js');
+          if (marketDisposed) return;
+          mounted = mountMarketTerms(element, { client: state.client, entityRef: detail.deal.id, submarket: detail.deal.submarket, useType: detail.deal.use_type, dealName: ref => { const match = state.deals.get(ref); return match ? dealTitle(match) : null; } });
+        }
         marketTermsViews.set(detail.deal.id, { element, mounted });
         root.replaceChildren(element);
       } catch { if (!marketDisposed) root.textContent = 'Could not load comparable terms. Try again.'; }
       finally { marketLoading = false; }
     },
     refresh() { return marketTermsViews.get(detail.deal.id)?.mounted.refresh(); },
-    dispose() { marketDisposed = true; },
+    dispose() { marketDisposed = true; marketRead.abort(); },
   };
   const toursParams = new URLSearchParams(location.search);
   const linkedProperty = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;
@@ -2545,15 +2590,17 @@ function wireBoard() {
   addEventListener('pointercancel', release, true);
 
   // Right-click or long-press on a card offers that card's own controls.
+  const starLabel = star => (star.getAttribute('aria-pressed') === 'true' ? 'Unstar' : 'Star');
   const quickControls = [
-    ['Open', '.card-open'], ['Revive', '[data-revive]'], ['Undo', '[data-undo-phase]'], ['Client website', '[data-open-client-website]'],
+    ['Open', '.card-open'], [starLabel, '[data-star]'], ['Revive', '[data-revive]'], ['Undo', '[data-undo-phase]'], ['Client website', '[data-open-client-website]'],
   ];
   bindCardQuickMenu(board, {
     card: '.kanban-card',
     name: card => card.querySelector('.card-open')?.textContent?.trim() || '',
-    actions: card => (card.classList.contains('deal-row') ? quickControls : quickControls.slice(0, 1))
-      .map(([label, selector]) => ({ label, control: card.querySelector(selector) }))
-      .filter(action => action.control && action.control.getAttribute('aria-disabled') !== 'true'),
+    actions: card => (card.classList.contains('deal-row') ? quickControls : quickControls.slice(0, 2))
+      .map(([label, selector]) => [label, card.querySelector(selector)])
+      .filter(([, control]) => control && control.getAttribute('aria-disabled') !== 'true')
+      .map(([label, control]) => ({ label: typeof label === 'function' ? label(control) : label, control })),
   });
   board.addEventListener('quickmenuclose', () => {
     // eslint-disable-next-line no-restricted-syntax -- 1 deferred board paint after the quick menu closes, only when paintDeferred is set; 0 HTTP reads.
@@ -2669,6 +2716,8 @@ function wire() {
     }
     const item = event.target.closest('[data-deal-item]');
     if (item) { itemSheet.open(item.dataset.itemDeal,item.dataset.dealItem,item); return; }
+    const star = event.target.closest('button[data-star]');
+    if (star) { toggleDealStar(star); return; }
     const revive = event.target.closest('button[data-revive]');
     if (revive) { setOperatingState(revive.dataset.revive, {state:'active'}); return; }
     const open = event.target.closest('button[data-open]');
@@ -3109,6 +3158,7 @@ async function boot() {
 
   mountDock();
   wire();
+  renderChips();
   state.client = resolved.mode === 'live' ? createLiveClient() : await (await import("./fixture-client.js")).createFixtureClient(resolved.options);
   mountNotificationBadge(state.client);
   itemSheet = mountDealItemSheet({document,today:() => state.boardFromEngine || isEngineDealDetail(state.panelDetail) ? businessDay() : todayIso(),read:readDealDetail,send:runFollowUp,pending:key => pendingCommand(commandState,key),refresh:() => {state.boardSync.requestRefresh('deal-item');refreshPanel();}});
