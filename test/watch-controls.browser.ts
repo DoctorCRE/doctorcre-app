@@ -51,15 +51,14 @@ test("built Deal Room mounts watch controls for the exact deal", async (t) => {
       parseWatch(payload, { subject_type: "deal", subject_id: originalWatch.subject_id });
       return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
     });
-    const fixture = (await readFile(new URL("../data/fixtures/fact-review.mjs", import.meta.url), "utf8")).replaceAll(
-      "'d14'",
-      JSON.stringify(originalWatch.subject_id),
-    );
+    const fixture = (
+      await readFile(new URL("../data/fixtures/deal-documents.mjs", import.meta.url), "utf8")
+    ).replaceAll("'d14'", JSON.stringify(originalWatch.subject_id));
     const seed = (await readFile(new URL("../data/board-seed.json", import.meta.url), "utf8")).replaceAll(
       '"d14"',
       JSON.stringify(originalWatch.subject_id),
     );
-    await page.route("**/data/fixtures/fact-review.mjs", (route) =>
+    await page.route("**/data/fixtures/deal-documents.mjs", (route) =>
       route.fulfill({ body: fixture, contentType: "text/javascript" }),
     );
     await page.route("**/data/board-seed.json", (route) =>

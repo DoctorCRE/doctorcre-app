@@ -17,7 +17,7 @@ function documentFor(t) {
   return dom.window.document;
 }
 
-test("success toast holds for two seconds, then fades out and removes", (t) => {
+test("success toast holds, then fades out and is gone five seconds after it appears", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const doc = documentFor(t);
   const toast = showToast("Saved");
@@ -25,7 +25,7 @@ test("success toast holds for two seconds, then fades out and removes", (t) => {
   assert.equal(toast.getAttribute("role"), "status");
   assert.equal(toast.dataset.transient, "", "the shared CSS can target lifecycle-managed toasts");
   assert.equal(toast.textContent, "Saved");
-  t.mock.timers.tick(1999);
+  t.mock.timers.tick(4199);
   assert.equal(toast.classList.contains("is-leaving"), false);
   t.mock.timers.tick(1);
   assert.equal(toast.classList.contains("is-leaving"), true);
@@ -36,7 +36,7 @@ test("success toast holds for two seconds, then fades out and removes", (t) => {
   assert.equal(doc.querySelectorAll(".toast").length, 0);
 });
 
-test("Undo toast uses the two-second success hold and stays usable throughout its fade", (t) => {
+test("Undo toast uses the same hold and stays usable throughout its fade", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const doc = documentFor(t);
   const toast = showToast("Moved to Legal", { eventId: "event-7" });
@@ -44,7 +44,7 @@ test("Undo toast uses the two-second success hold and stays usable throughout it
 
   assert.equal(undo.dataset.undo, "event-7");
   assert.equal(undo.disabled, false);
-  t.mock.timers.tick(1999);
+  t.mock.timers.tick(4199);
   assert.equal(undo.disabled, false);
   t.mock.timers.tick(1);
   assert.equal(undo.disabled, false);
@@ -73,13 +73,13 @@ test('quick successes replace each other and old timers never remove the newest 
   t.mock.timers.enable({apis:['setTimeout']});
   const doc = documentFor(t);
   const first = showToast('First update');
-  t.mock.timers.tick(1900);
+  t.mock.timers.tick(4100);
   const latest = showToast('Second update');
   assert.equal(first.isConnected, false);
   t.mock.timers.tick(900);
   assert.equal(doc.querySelectorAll('.toast').length, 1);
   assert.equal(latest.classList.contains('is-leaving'), false);
-  t.mock.timers.tick(1100);
+  t.mock.timers.tick(3300);
   t.mock.timers.tick(800);
   assert.equal(doc.querySelectorAll('.toast').length, 0);
 });
@@ -94,7 +94,7 @@ test('follow-up success keeps the move action and original deadline; a new move 
   assert.equal(showToast('Next step saved', {preserveUndo:true}),move);
   assert.equal(move.querySelector('[data-undo]').dataset.undo,'event-8');
   assert.equal(move.textContent,'Moved to LegalUndo');
-  t.mock.timers.tick(1000);
+  t.mock.timers.tick(3200);
   assert.equal(move.classList.contains('is-leaving'),true);
   assert.equal(move.querySelector('[data-undo]').disabled,false);
   const next = showToast('Moved to Closing', {eventId:'event-9',preserveUndo:true});
@@ -116,11 +116,27 @@ test('Undo result and errors replace move Undo, while expired Undo does not swal
   assert.equal(error.getAttribute('role'),'alert');
   error.querySelector('[data-toast-close]').click();
   showToast('Moved', {eventId:'event-12'});
-  t.mock.timers.tick(2000);
+  t.mock.timers.tick(4200);
   t.mock.timers.tick(800);
   const late = showToast('Evidence saved', {preserveUndo:true});
   assert.equal(late.textContent,'Evidence saved');
-  t.mock.timers.tick(2000);
+  t.mock.timers.tick(4200);
   t.mock.timers.tick(800);
   assert.equal(doc.querySelector('.toast'),null);
+});
+
+test('a caller Undo runs once, takes the toast down, and is announced with the message', t => {
+  t.mock.timers.enable({apis:['setTimeout']});
+  const doc = documentFor(t);
+  const calls = [];
+  const toast = showToast('Snoozed: Synthetic card.', {onUndo: () => calls.push('undo')});
+  assert.equal(toast.getAttribute('role'), 'status');
+  assert.equal(toast.getAttribute('aria-atomic'), 'true');
+  const undo = toast.querySelector('button');
+  assert.equal(undo.textContent, 'Undo');
+  assert.equal(undo.dataset.undo, undefined, 'a caller Undo is not a change-receipt Undo');
+  undo.click();
+  undo.click();
+  assert.deepEqual(calls, ['undo']);
+  assert.equal(doc.querySelector('.toast'), null);
 });
