@@ -1472,6 +1472,39 @@ for (const [dealMarket, dealMarketId, prefill, read, empty] of [
     assert.deepEqual(legacyRequests, []);
   });
 
+test("Compare terms opens without the markets list and closing the deal cancels that read", async (t) => {
+  const { server, context, partnerReads } = await app(t, { dealMarket: "Example North" });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    const read = { started: false, aborted: false };
+    Reflect.set(window, "marketsRead", read);
+    const fetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      if (
+        new URL(String(input instanceof Request ? input.url : input), location.href).pathname !== "/api/engine/markets"
+      )
+        return fetch(input, init);
+      read.started = true;
+      init?.signal?.addEventListener("abort", () => (read.aborted = true));
+      return new Promise<Response>(() => {});
+    };
+  });
+  await page.goto(server.origin + dealPage);
+  const room = page.getByRole("main", { name: "Deal Workspace" });
+  await room.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
+  await room.getByRole("tab", { name: "Compare terms" }).click();
+  const terms = room.getByRole("tabpanel", { name: "Compare terms" });
+  await terms.getByText(anyMarket, { exact: true }).waitFor({ timeout: 4000 });
+  assert.equal(await terms.getByLabel("Market").inputValue(), "");
+  assert.deepEqual(
+    [...partnerReads.keys()].filter((path) => path.startsWith("/api/engine/market-terms")),
+    ["/api/engine/market-terms"],
+  );
+  assert.deepEqual(await page.evaluate(() => Reflect.get(window, "marketsRead")), { started: true, aborted: false });
+  await page.locator("#panelClose").click();
+  await page.waitForFunction(() => Reflect.get(window, "marketsRead").aborted, null, { timeout: 1000 });
+});
+
 for (const [scenario, documentText, message] of [
   ["ordered pages with a blank gap", ["\nFirst page <draft>\nNew paragraph.", "", "Third page."], null],
   ["no text", [], "No text found in this file."],

@@ -40,6 +40,8 @@ const isRow = (row: unknown): row is Row =>
   isText(row.deal_id) &&
   isText(row.deal_name) &&
   isRecord(row.property) &&
+  isText(row.property.id) &&
+  (row.property.name === null || isText(row.property.name)) &&
   isText(row.property.address) &&
   Object.hasOwn(STAGES, String(row.stage)) &&
   Number.isSafeInteger(row.number) &&
@@ -93,7 +95,9 @@ function CompareTerms({ request, market, refreshRef }: Options & { refreshRef: {
     const params = new URLSearchParams(Object.entries(query).filter(([, value]) => value));
     setView({ kind: "loading" });
     try {
-      const response = await request(`/api/engine/market-terms?${params}`, { headers: { accept: "application/json" } });
+      const response = await request(`/api/engine/market-terms${params.size ? `?${params}` : ""}`, {
+        headers: { accept: "application/json" },
+      });
       const rows = response.ok ? parseCompareTerms(await response.json()) : null;
       if (current !== sequence.current) return;
       if (!rows) throw Error("Compare terms unavailable");
@@ -163,7 +167,10 @@ type Filters = { term: string; stage: string; basis: string | null; hideSupersed
 type Setters = { [K in keyof Filters]: (value: Filters[K]) => void };
 
 function emptyMessage({ market, use_type, as_of }: Query) {
-  if (use_type || as_of) return "Nothing matches the market, use type and date entered.";
+  if (use_type || as_of) {
+    const entered = [market && "market", use_type && "use type", as_of && "date"].filter((name) => name !== "");
+    return `Nothing matches the ${entered.length > 1 ? `${entered.slice(0, -1).join(", ")} and ${entered.at(-1)}` : entered[0]} entered.`;
+  }
   return market
     ? "No offer rounds or signed leases are recorded on deals in this market yet."
     : "No offer rounds or signed leases are recorded yet.";
@@ -242,12 +249,12 @@ function Results({ view, filters, set }: { view: Extract<View, { kind: "ready" }
         <label>
           Expense basis
           <select
-            value={basis === null ? "" : `basis:${basis}`}
-            onChange={(event) => set.basis(event.target.value ? event.target.value.slice(6) : null)}
+            value={basis === null ? "" : bases.indexOf(basis)}
+            onChange={(event) => set.basis(event.target.value ? (bases[Number(event.target.value)] ?? null) : null)}
           >
             <option value="">All expense bases</option>
-            {bases.map((key) => (
-              <option key={key} value={`basis:${key}`}>
+            {bases.map((key, index) => (
+              <option key={key} value={index}>
                 {key || "Not recorded"}
               </option>
             ))}
@@ -300,7 +307,7 @@ function Results({ view, filters, set }: { view: Extract<View, { kind: "ready" }
                           <a href={`/api/engine/documents/${encodeURIComponent(document.id)}`}>{document.name}</a>
                         </span>
                       ))
-                    : `Offer round ${row.number}, no document filed`}
+                    : "No document filed"}
                 </td>
               </tr>
             ))}

@@ -2135,7 +2135,9 @@ function paintPanel(detail) {
         const element = document.createElement('div');
         let mounted;
         if (engineMode) {
-          const [{ mountCompareTerms }, market] = await Promise.all([import('./ui-compare-terms.generated.js'), engineMarket(detail.deal, marketRead.signal)]);
+          // A slow markets list costs the Market pre-fill, never the tab.
+          const prefill = readWithDeadline(() => engineMarket(detail.deal, marketRead.signal), { timeoutMs: 2000 }).catch(() => null);
+          const [{ mountCompareTerms }, market] = await Promise.all([import('./ui-compare-terms.generated.js'), prefill]);
           if (marketDisposed) return;
           mounted = mountCompareTerms(element, { request: sessionFetch, market });
         } else {

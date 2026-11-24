@@ -68,7 +68,8 @@ async function mount(page: Page, server: string, theme: "light" | "dark") {
   await page.evaluate(async (body) => {
     const path = "/js/ui-compare-terms.generated.js";
     const { mountCompareTerms } = await import(path);
-    const state = { paths: [""].slice(1), reply: { status: 200, body }, panel: { dispose() {} } };
+    const paths: string[] = [];
+    const state = { paths, reply: { status: 200, body }, panel: { dispose() {} } };
     Reflect.set(window, "compareTest", state);
     state.panel = mountCompareTerms(document.querySelector("main"), {
       market: "Example North",
@@ -119,7 +120,7 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
           `/api/engine/documents/${signed}`,
         );
         const second = page.locator(".market-terms-table tbody tr").nth(1);
-        assert.equal(await second.locator('[data-label="Source"]').textContent(), "Offer round 2, no document filed");
+        assert.equal(await second.locator('[data-label="Source"]').textContent(), "No document filed");
         assert.equal(await second.locator('[data-label="Expense basis"]').textContent(), "Not recorded");
         assert.equal(
           await page.locator(".market-terms-table tbody tr").nth(2).locator('[data-label="Stage"]').textContent(),
@@ -196,13 +197,19 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
         await page.getByText("All markets · All recorded history", { exact: true }).waitFor();
         assert.equal(
           (await page.evaluate(() => Reflect.get(window, "compareTest").paths)).at(-1),
-          "/api/engine/market-terms?",
+          "/api/engine/market-terms",
         );
         await page.screenshot({ path: `${shots}/${width}-${theme}-empty-all.png`, fullPage: true });
 
         await page.getByLabel("Use type").fill("Medical office");
         await page.getByRole("button", { name: "Compare" }).click();
-        await page.getByText("Nothing matches the market, use type and date entered.", { exact: true }).waitFor();
+        await page.getByText("Nothing matches the use type entered.", { exact: true }).waitFor();
+
+        await page.getByLabel("Market").fill("Example North");
+        await page.getByLabel("Use type").fill("");
+        await page.getByLabel("As of date (optional)").fill("2026-05-15");
+        await page.getByRole("button", { name: "Compare" }).click();
+        await page.getByText("Nothing matches the market and date entered.", { exact: true }).waitFor();
       } finally {
         await page.close();
       }
