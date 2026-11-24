@@ -44,7 +44,7 @@ test('email card shows its subject, absolute Chicago date and waiting age', asyn
   await view.refresh();
   assert.match(container.textContent, /Demo follow-up/);
   assert.match(container.textContent, /Dana Demo/);
-  assert.match(container.textContent, /Oct 1, 7:00 AM CDT/);
+  assert.match(container.textContent, /Oct 1, 7:00 AM/);
   assert.match(container.textContent, /days? waiting/);
 });
 
@@ -849,7 +849,7 @@ test('Not now retains notes and reviewed version across refresh and replays an u
   await clickFollowup(container, 'Defer follow-up');
   assert.equal(calls[0].base_version, 3); assert.equal(calls[0].deferred_until, '2099-11-04T15:00:00.000Z');
   await clickFollowup(container, 'Check outcome');
-  assert.deepEqual(calls[0], calls[1]); assert.match(container.textContent, /Returns .*America\/Chicago/);
+  assert.deepEqual(calls[0], calls[1]); assert.match(container.textContent, /Returns [^.]*\d [AP]M\./);
 });
 
 test('handled filing requires a deal, Cancel writes nothing and stale refusals require explicit review', async () => {
@@ -987,7 +987,7 @@ for (const action of ['defer', 'file', 'handled']) test(`remounted live ${action
   assert.equal(calls.length, 2, 'Check outcome must resend the retained request');
   assert.deepEqual(calls[1], calls[0]);
   assert.doesNotMatch(second.container.textContent, /Outcome unknown/);
-  assert.match(second.container.textContent, action === 'defer' ? /Returns .*America\/Chicago/ : action === 'file' ? /Filed to the selected deal/ : /Marked handled/);
+  assert.match(second.container.textContent, action === 'defer' ? /Returns [^.]*\d [AP]M\./ : action === 'file' ? /Filed to the selected deal/ : /Marked handled/);
   second.view.dispose();
 });
 

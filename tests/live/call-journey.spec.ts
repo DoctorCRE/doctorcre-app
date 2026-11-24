@@ -65,7 +65,7 @@ test("a filed call shows its decisions and tasks on Home and updates the deal pa
   // The decisions it applied, each with what was said.
   const outcome = page.locator(".call-outcome");
   await expect(outcome).toHaveCount(1);
-  await expect(outcome.locator("h4")).toHaveText("Applied from the Oct 27 pipeline call · Oct 27, 10:00 AM CDT");
+  await expect(outcome.locator("h4")).toHaveText("Applied from the Oct 27 pipeline call · Oct 27, 10:00 AM");
   const change = (deal: string, text: string) =>
     outcome.locator("li").filter({ hasText: deal }).filter({ hasText: text });
   await expect(change(BAYSIDE, "Phase moved to Negotiation, started Oct 20")).toContainText(
@@ -77,10 +77,10 @@ test("a filed call shows its decisions and tasks on Home and updates the deal pa
 
   // The tasks and draft it raised, each from the call.
   const task = page.locator("#homeCallTasks article").filter({ hasText: "Call the Harbor lender" });
-  await expect(task.locator(".home-call-source")).toContainText("From the pipeline call · Oct 27, 10:00 AM CDT");
+  await expect(task.locator(".home-call-source")).toContainText("From the pipeline call · Oct 27, 10:00 AM");
   await expect(task.getByRole("button", { name: "Add Dell task" })).toBeVisible();
   const draft = page.locator("#homeCallTasks article").filter({ hasText: "Bayside lease update" });
-  await expect(draft.locator(".home-call-source")).toContainText("From the pipeline call · Oct 27, 10:00 AM CDT");
+  await expect(draft.locator(".home-call-source")).toContainText("From the pipeline call · Oct 27, 10:00 AM");
 
   // The deal page carries the updated fields and the call's activity.
   await page.goto(`/deals?deal=${carr.deals[BAYSIDE]}&mode=live`);

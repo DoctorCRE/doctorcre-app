@@ -73,7 +73,7 @@ export async function prove({ origin, fixture = false, timeoutMs = 30000, engine
     await page.locator('#sourcedResearch').waitFor();
     const observation = await page.locator('#sourcedResearch').innerText();
     if (transportFailure) throw transportFailure;
-    assert.match(await page.locator('#sourcedResearch li').first().innerText(), /Observed.*Nov 5, 2026.*7:00.*PM.*CST/);
+    assert.match(await page.locator('#sourcedResearch li').first().innerText(), /Observed.*Nov 5, 2026.*7:00.*PM/);
     assert.match(observation, /Expires on.*Feb 29, 2028/);
     assert.match(observation, /Expiry unrecorded/);
     assert.match(observation, /Observed time unavailable/);

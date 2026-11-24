@@ -17,7 +17,7 @@ export function meetingReviews(calendar) {
 const when = review => {
   const options = { timeZone: BUSINESS_TIME_ZONE, hour: 'numeric', minute: '2-digit' };
   const day = new Date(review.start).toLocaleDateString(undefined, { timeZone: BUSINESS_TIME_ZONE, month: 'short', day: 'numeric' });
-  return `${day}, ${new Date(review.start).toLocaleTimeString(undefined, options)} to ${new Date(review.end).toLocaleTimeString(undefined, { ...options, timeZoneName: 'short' })}`;
+  return `${day}, ${new Date(review.start).toLocaleTimeString(undefined, options)} to ${new Date(review.end).toLocaleTimeString(undefined, options)}`;
 };
 
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);

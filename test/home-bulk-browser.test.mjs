@@ -49,7 +49,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`mi
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`snooze default and subset undo fit ${width} ${theme}`, async t => {
   const { page, fake } = await open(t, { width, theme, mixed: false });
   await page.getByRole('button', { name: 'Snooze selected', exact: true }).click();
-  await page.getByRole('button', { name: 'Not now · Tomorrow 9:00 AM Central', exact: true }).click();
+  await page.getByRole('button', { name: 'Not now · Tomorrow 9:00 AM', exact: true }).click();
   await page.locator('[data-batch-state="results"]').waitFor();
   const write = fake.calls[0];
   assert.equal(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' }).format(new Date(write.args.until)), '9:00 AM');
@@ -88,7 +88,7 @@ test('picker cancel restores keyboard focus and chosen Central time is sent', as
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   assert.equal(await snooze.evaluate(node => node === document.activeElement), true);
   await page.keyboard.press('Enter');
-  await page.getByLabel('Return time · Central', { exact: true }).fill('2099-07-01T14:15');
+  await page.getByLabel('Return time', { exact: true }).fill('2099-07-01T14:15');
   await page.getByRole('button', { name: 'Snooze until chosen time', exact: true }).click();
   await page.locator('[data-batch-state="results"]').waitFor();
   assert.equal(fake.calls[0].args.until, '2099-07-01T19:15:00.000Z');
@@ -161,7 +161,7 @@ for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]])
       for (const item of fake.items.slice(2)) await page.getByRole('checkbox', { name: `Select ${item.title}`, exact: true }).uncheck();
       const activate = async locator => width < 700 ? locator.tap() : locator.click();
       await activate(page.getByRole('button', { name: action === 'settle' ? 'Settle selected' : 'Snooze selected', exact: true }));
-      if (action === 'snooze') await activate(page.getByRole('button', { name: 'Not now · Tomorrow 9:00 AM Central', exact: true }));
+      if (action === 'snooze') await activate(page.getByRole('button', { name: 'Not now · Tomorrow 9:00 AM', exact: true }));
       await page.locator('[data-batch-state="results"]').waitFor();
       assert.deepEqual(fake.items.map(item => item.disposition), [action === 'settle' ? 'settled' : 'snoozed', action === 'settle' ? 'settled' : 'snoozed', 'inbox', 'inbox']);
       const undo = page.getByRole('button', { name: 'Undo whole batch', exact: true });

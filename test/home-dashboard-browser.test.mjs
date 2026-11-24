@@ -679,7 +679,8 @@ test('Home shows upcoming meeting time, title, place and attendee count', async 
   const card = page.getByRole('region', { name: 'Upcoming meetings', exact: true });
   await card.waitFor();
   assert.match(await card.innerText(), /Demo practice meeting/);
-  assert.match(await card.innerText(), /Oct 1.*11:00 AM.*CDT/);
+  assert.match(await card.innerText(), /Oct 1.*11:00 AM/);
+  assert.doesNotMatch(await card.innerText(), /\bC[SD]T\b|Central|America\/Chicago/, 'the meeting card names no zone');
   assert.match(await card.innerText(), /Demo office/);
   assert.match(await card.innerText(), /3 attendees/);
   assert.deepEqual(errors, []);
@@ -847,14 +848,14 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`H0
   const { page, calls, errors } = await open(t, { width, theme, calendar });
   const panel = page.getByRole('region', { name: 'Calendar', exact: true });
   await panel.getByRole('button', { name: 'Synthetic morning meeting', exact: true }).waitFor();
-  assert.match(await panel.innerText(), /America\/Chicago/);
+  assert.doesNotMatch(await panel.innerText(), /America\/Chicago|\bC[SD]T\b/, 'Central times carry no zone label');
   assert.match(await page.locator('#homeMeetings .home-meeting').filter({ hasText: 'Synthetic all-day meeting' }).innerText(), /Oct 3/);
   const thursday = panel.getByRole('region', { name: 'Thursday, October 1, 2026', exact: true });
   assert.deepEqual(await thursday.getByRole('button').filter({ hasText: 'Synthetic' }).evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))), [
     'Synthetic morning meeting', 'Synthetic afternoon meeting',
   ]);
-  assert.match(await thursday.innerText(), /9:15 AM CDT/);
-  assert.match(await thursday.innerText(), /3:00 PM CDT/);
+  assert.match(await thursday.innerText(), /9:15 AM/);
+  assert.match(await thursday.innerText(), /3:00 PM/);
   assert.ok(await thursday.getByRole('button', { name: 'Demo follow-up', exact: true }).count());
   for (const title of ['Synthetic morning meeting', 'Synthetic afternoon meeting', 'Demo follow-up']) {
     const chip = thursday.getByRole('button', { name: title, exact: true }).first();
@@ -862,7 +863,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`H0
     const detail = page.getByRole('dialog', { name: title, exact: true });
     await detail.waitFor();
     if (title === 'Synthetic morning meeting') {
-      assert.match(await detail.innerText(), /9:15 AM CDT/);
+      assert.match(await detail.innerText(), /9:15 AM/);
       assert.match(await detail.innerText(), /1 attendee/);
       assert.match(await detail.innerText(), /Place not provided/);
     } else if (title === 'Demo follow-up') {

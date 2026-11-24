@@ -48,7 +48,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.equal(await panel.locator('li').count(), 4);
     const first = panel.locator('li').first();
     assert.equal(await first.locator('time').first().getAttribute('datetime'), '2026-11-06T01:00:00Z');
-    assert.match(await first.innerText(), /Observed.*Nov 5, 2026.*7:00.*PM.*CST/);
+    assert.match(await first.innerText(), /Observed.*Nov 5, 2026.*7:00.*PM/);
     assert.match(await first.innerText(), /Expires on.*Feb 29, 2028/);
     assert.match(await panel.locator('li').nth(1).innerText(), /Expiry unrecorded/);
     assert.match(await panel.locator('li').nth(1).innerText(), /Nov 5, 2026.*7:00.*PM/);

@@ -14,7 +14,6 @@ const completionFormat = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
   hour: "numeric",
   minute: "2-digit",
-  timeZoneName: "short",
 });
 export const day = (date: Date) => dayFormat.format(date);
 

@@ -62,7 +62,7 @@ const KINDS = [
   { type: "tour", label: "Tour", one: "tour", many: "tours" },
 ];
 const typeLabel = entry => KINDS.find(kind => kind.type === entry.type).label;
-const entryTime = entry => entry.type !== "meeting" ? "" : entry.all_day ? "All day" : meetingTime(entry.at, BUSINESS_TIME_ZONE, { zone: false });
+const entryTime = entry => entry.type !== "meeting" ? "" : entry.all_day ? "All day" : meetingTime(entry.at, BUSINESS_TIME_ZONE);
 const entryText = entry => [entryTime(entry), entry.label].filter(Boolean).join(" ");
 const ownerNames = entry => (entry.owners ?? [entry.owner]).filter(owner => typeof owner === "string" && owner)
   .map(owner => owner[0].toUpperCase() + owner.slice(1)).join(" and ");

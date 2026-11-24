@@ -30,7 +30,7 @@ for (const time of [opening, '2026-03-08T07:30:00.000Z']) test(`delayed click se
   await page.getByRole('button', { name: 'Snooze', exact: true }).click();
   const endpoints = await page.getByRole('dialog', { name: 'Snooze cards' }).locator('time').evaluateAll(nodes => nodes.map(node => node.dateTime));
   assert.deepEqual(endpoints, [1, 24].map(hours => new Date(Date.parse(time) + hours * 3600000).toISOString()));
-  assert.match(await page.getByRole('dialog', { name: 'Snooze cards' }).innerText(), time === opening ? /CST/ : /CDT/);
+  assert.doesNotMatch(await page.getByRole('dialog', { name: 'Snooze cards' }).innerText(), /\b(CST|CDT|Central)\b/);
   await page.clock.setFixedTime(new Date(Date.parse(time) + 30000));
   await page.getByRole('button', { name: /^24 hours/ }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).waitFor();

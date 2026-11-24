@@ -130,7 +130,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     }).join('');
     const content = failed ? `<p class="home-meeting-failure" role="status">Meetings unavailable</p>`
       : count ? `<div class="home-meetings">${rows}</div>` : `<p class="home-empty">${meetings.state === 'empty' ? 'No upcoming meetings' : 'No meetings returned'}</p>`;
-    widget('homeMeetings', header + (!failed && count ? `<p class="home-week-zone">Meeting times · ${E(meetingTimeZone)}</p>` : '') + warnings + content);
+    widget('homeMeetings', header + (!failed && count && meetingTimeZone !== BUSINESS_TIME_ZONE ? `<p class="home-week-zone">Meeting times · ${E(meetingTimeZone)}</p>` : '') + warnings + content);
   };
   const renderCalendar = (agenda, today, signedOut) => {
     if (!workingWeek) return;

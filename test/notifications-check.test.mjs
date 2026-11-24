@@ -338,7 +338,7 @@ test("the page is the shared shell, the activity panel is its own thing, and 44p
   ]);
   assert.equal(rows.length, 2);
   assert.equal(rows[0].actor, "Unattributed", "the newest event is not first");
-  assert.equal(rows[1].clock, "8:20 AM CST");
+  assert.equal(rows[1].clock, "8:20 AM");
   assert.equal(rows[1].subject, "Deal");
 
   // Mobile first: one column, a full-width target, and the 44px floor.
@@ -799,10 +799,10 @@ test('an Updates change a job made names the job plainly', () => {
     'Written by the assistant');
 });
 
-test('update times use the saved zone and default to Central', () => {
+test('update times name only a zone other than Central', () => {
   const row = { id: '1', who: 'Partner', what: 'Updated', record: 'Example Deal',
     changed_at: '2026-01-15T18:30:00Z', open_url: '/deals?deal=example' };
   const { changes } = parseChangesPage({ changes: [row], next_before: null });
-  assert.equal(changeRows(changes)[0].clock, '12:30 PM CST');
+  assert.equal(changeRows(changes)[0].clock, '12:30 PM');
   assert.equal(changeRows(changes, 'America/New_York')[0].clock, '1:30 PM EST');
 });
