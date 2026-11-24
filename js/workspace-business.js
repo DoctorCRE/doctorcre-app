@@ -730,9 +730,13 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    // A redraw keeps focus on the record action that had it, such as Edit after a save.
+    const actions = () => [...dom.panelBody.querySelectorAll(".party-record-actions button")];
+    const action = actions().indexOf(document.activeElement);
+    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${partyEditor?.actionsHtml() ?? ""}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
+    if (action >= 0) focusWithoutScrolling(actions()[action]);
     const note = dom.panelBody.querySelector(".client-note > p");
     if (note) note.nextElementSibling.hidden = !note.nextElementSibling.open && note.scrollHeight <= note.clientHeight;
   }
@@ -1128,6 +1132,8 @@ function wireControls() {
 
   dom.panelClose?.addEventListener("click", () => closeRecord());
   dom.panelBody?.addEventListener("click", (event) => {
+    const edit = event.target.closest("[data-party-edit]");
+    if (edit) return partyEditor?.edit();
     if (event.target.closest("[data-retry='record']") && view.recordId) loadRecord(view.recordId);
     if (event.target.closest("[data-retry='activity']") && !view.signedOut && view.recordId === view.record.payload?.record?.id) {
       loadActivity(view.recordId, view.record.payload.record);
@@ -1178,14 +1184,18 @@ function start() {
   const partySaves = initialBootMode.mode === "live" && document.documentElement.hasAttribute("data-clients-vendors-from-engine");
   if (partySaves) import("./ui-party-editor.generated.js").then(({ mountPartyEditor }) => {
     partyEditor = mountPartyEditor({
-      document, client: dealroomClient, dataset: () => view.dataset, facets: () => view.facets,
-      saved: (id) => {
+      document, client: dealroomClient, dataset: () => view.dataset, facets: () => view.facets, phoneLabel,
+      // A drawer opened by an old UUID answers that UUID as its id; party_id is the id the party saves take.
+      recordParty: () => { const record = view.record.payload?.record; return record?.party_id ?? record?.id ?? null; },
+      saved: (id, dataset) => {
+        if (dataset !== view.dataset) return navigate(viewHref(defaultQuery(dataset), id));
         if (view.recordId === id) loadRecord(id);
         else navigate(viewHref(view.query, id));
         loadList("background");
       },
     });
     partyEditor.setDataset(view.dataset);
+    if (view.recordId) renderRecordPanel();
   });
   wireControls();
   const searchDock = document.querySelector('.search-dock');
