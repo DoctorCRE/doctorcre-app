@@ -41,10 +41,17 @@ test("the timeline shows only when the single match IS this record, by ref", () 
   const state = activityState(vendor, completed("V-CPA-006", [row(), row({ entry_kind: "event", verb: "update-vendor", summary: null })]));
   assert.equal(state.state, "ready");
   assert.equal(state.rows.length, 2);
-  assert.deepEqual(state.rows[0], { when: "2026-09-18T15:30:00.000Z", actor: "joe", what: "Called about the Q3 referral", kind: "activity", owed: null });
+  assert.deepEqual(state.rows[0], { when: "2026-09-18T15:30:00.000Z", actor: "Joe", what: "Called about the Q3 referral", kind: "activity", owed: null });
   assert.equal(state.rows[1].what, "Update vendor", "a row with no summary is named by its verb, in words");
   assert.ok(!JSON.stringify(state).includes("never shown"), "the raw detail object is never carried to the page");
   assert.equal(activityState(vendor, completed("v-cpa-006", [row()])).state, "ready", "refs compare without case");
+});
+
+for (const [dataset, ref] of [["vendors", "V-CPA-006"], ["clients", "C-901"]]) test(`${dataset} activity names a job author plainly`, () => {
+  const timeline = ["agent", "old_system", "call_capture"].map((actor, index) =>
+    row({ actor, occurred_at: `2026-09-1${8 - index}T15:30:00.000Z` }));
+  const state = activityState({ ...vendor, ref }, completed(ref, timeline), dataset);
+  assert.deepEqual(state.rows.map(item => item.actor), ["Written by the assistant", "Copied from the old system", null]);
 });
 
 test("a unique match that is a DIFFERENT record is refused, never shown under this name", () => {

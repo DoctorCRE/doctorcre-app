@@ -1,6 +1,7 @@
 import { compareInstants } from './change-receipts.mjs';
 import { partnerName } from './visual-system.js';
 import { clientNoteText } from './workspace-business-model.js';
+import { knownAuthor } from './client.js';
 
 export const ACTIVITY_LIMIT = 10;
 const QUERY_MAX = 200;
@@ -22,17 +23,12 @@ function words(slug) {
 function timelineRow(row) {
   return {
     when: typeof row?.occurred_at === "string" ? row.occurred_at : null,
-    actor: typeof row?.actor === "string" && row.actor ? row.actor : null,
+    actor: knownAuthor(row?.actor) ?? null,
     what: typeof row?.summary === "string" && row.summary.trim() ? row.summary.trim() : words(row?.verb),
     kind: row?.entry_kind === "event" ? "event" : "activity",
     owed: typeof row?.owed === "string" && row.owed ? row.owed : null,
   };
 }
-
-const ACTIVITY_SOURCES = new Map([
-  ["joe", "Joe"], ["dell", "Dell"], ["agent", "Assistant"],
-  ["old_system", "Old system"], ["mail_capture", "Mail capture"],
-]);
 
 const FILED_KINDS = new Set(["deal", "company", "person"]);
 
@@ -51,7 +47,7 @@ function clientTimelineRow(source) {
   const owner = typeof source?.step_owner === "string" ? partnerName(source.step_owner.trim()) : "";
   return {
     when: row.when,
-    source: ACTIVITY_SOURCES.get(row.actor),
+    actor: row.actor,
     stepOwner: owner ? `${owner}’s step` : null,
     filedOn,
     what: what.replace(/[^\s<>@,;]+@[^\s<>@,;]+/g, "").replace(/\s+/g, " ").trim() || "Recorded activity",

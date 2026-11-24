@@ -751,7 +751,7 @@ function clientActivityList(rows) {
       : "";
     const where = [row.stepOwner, row.filedOn].filter(Boolean).map(part => `· ${escapeHtml(part)}`).join(" ");
     const entry = (link + disclosure || text) + (where ? ` <span class="activity-filed">${where}</span>` : "");
-    return `<li class="activity-row"><span class="activity-dot" aria-hidden="true"></span><div class="activity-what">${entry}</div>${row.when ? `<time class="activity-when">${escapeHtml(formatMoment(row.when))}${row.source ? ` · ${escapeHtml(row.source)}` : ""}</time>` : ""}</li>`;
+    return `<li class="activity-row"><span class="activity-dot" aria-hidden="true"></span><div class="activity-what">${entry}</div>${row.when ? `<time class="activity-when">${escapeHtml(formatMoment(row.when))}${row.actor ? ` · ${escapeHtml(row.actor)}` : ""}</time>` : ""}</li>`;
   }).join("")}</ol>`;
 }
 

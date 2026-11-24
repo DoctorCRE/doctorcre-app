@@ -443,7 +443,7 @@ test("partners see and manage prospects from Deals", async (t) => {
         await birch.waitFor();
         await settles(async () => assert.match((await headline.textContent()) ?? "", / · 2 prospects$/));
         assert.match((await lane.textContent()) ?? "", /Dell · Due Thu, Nov 12 \(6 days late\)/);
-        assert.match((await lane.textContent()) ?? "", /Doc \(assistant\) · Wed, Nov 18(?:,| at) 9:40 AM/);
+        assert.match((await lane.textContent()) ?? "", /Written by the assistant · Wed, Nov 18(?:,| at) 9:40 AM/);
         await chips.getByRole("button", { name: "Joe", exact: true }).click();
         await birch.waitFor({ state: "detached" });
         await open.waitFor();

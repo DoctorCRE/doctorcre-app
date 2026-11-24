@@ -339,6 +339,14 @@ test('countdown DOM follows upcoming to soon to today to overdue on Central days
  }
 });
 
+test('the timeline names a job author plainly', () => {
+ const note = (actor, created_at) => ({ id: actor, kind: 'note', created_at, actor, text: 'Example note' });
+ const entries = view.engineTimelineEntries({ thread: [
+  note('agent', '2026-01-05T18:00:00Z'), note('old_system', '2026-01-04T18:00:00Z'), note('intake', '2026-01-03T18:00:00Z'),
+ ] });
+ assert.deepEqual(entries.map(entry => entry.actor), ['Written by the assistant', 'Copied from the old system', 'Automatically']);
+});
+
 test('old deal history labels authors and facts in the words used on the deal page', () => {
  const cases = [
   ['update-deal', 'outcome', { outcome: 'lost' }, 'Outcome: Lost'],
@@ -352,13 +360,13 @@ test('old deal history labels authors and facts in the words used on the deal pa
   ['dismiss-email-proposal', null, { kind: 'file_to_deal' }, 'Suggestion type: File email to this deal'],
   ['record-finding', 'address', { found: false }, 'Result: Nothing found'],
   ['add-premises', null, { ownership: 2 }, 'Owners listed: 2'],
-  ['set-next-action', null, { set_by: 'mail_capture' }, 'Set by: Automatically'],
+  ['set-next-action', null, { set_by: 'mail_capture' }, 'Set by: Mail filing'],
  ];
  for (const [verb, field, new_value, expected] of cases) {
   const html = view.renderImportedDealHistory([{ verb, field, new_value, imported: true,
     actor: 'mail_capture', recorded_at: '2025-01-06T00:00:00Z' }]);
   const row = new JSDOM(html).window.document.querySelector('li');
-  assert.equal(row.querySelector('b').textContent, 'Automatically');
+  assert.equal(row.querySelector('b').textContent, 'Mail filing');
   assert.ok(row.textContent.includes(expected), expected);
   assert.doesNotMatch(row.textContent, /C-123|C-456|old-notes\.md/);
  }
