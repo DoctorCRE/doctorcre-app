@@ -213,8 +213,8 @@ function cardHtml(deal) {
   const parkingLabel = deal.parking_reason === 'other' ? 'Parked' : PARKING_REASONS.get(deal.parking_reason) || 'Parked';
   const badge = parked ? `<span class="deal-board-badge">${parkingLabel}</span>` : cardAttentionHtml(deal);
   return workCard({ variant: 'tile', className: `kanban-card${parked ? ' parked-card' : ''}`, heading: 'h4',
-    attributes: `data-id="${esc(deal.id)}" ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
-    title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
+    attributes: `data-id="${esc(deal.id)}" data-shortcut-card ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
+    title: `<button class="card-open" type="button" data-open="${esc(deal.id)}" data-shortcut-open>${esc(dealTitle(deal))}</button>`,
     meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}${starHtml(deal)}` });
 }
 function legacyRowStepHtml(deal) {
@@ -231,8 +231,8 @@ function rowHtml(deal) {
   const website = parked && state.nextDealSaves ? renderClientPortalLink(deal.client_portal_url, deal.id) : '';
   const revive = parked ? `<button class="btn btn-quiet" type="button" data-revive="${esc(deal.id)}">Revive</button>` : '';
   const move = automaticPhaseReceipt(deal, null, { showEngineMoves: state.boardFromEngine, canUndo: false });
-  return workCard({ variant: 'row', className: `kanban-card deal-row${parked && !state.boardFromEngine ? ' parked-card' : ''}`, heading: 'h4', attributes: `data-id="${esc(deal.id)}" tabindex="0" data-attention="${attention}"`,
-    title: `<button class="card-open" type="button" data-open="${esc(deal.id)}">${esc(dealTitle(deal))}</button>`,
+  return workCard({ variant: 'row', className: `kanban-card deal-row${parked && !state.boardFromEngine ? ' parked-card' : ''}`, heading: 'h4', attributes: `data-id="${esc(deal.id)}" data-shortcut-card tabindex="0" data-attention="${attention}"`,
+    title: `<button class="card-open" type="button" data-open="${esc(deal.id)}" data-shortcut-open>${esc(dealTitle(deal))}</button>`,
     meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${dealAttentionHtml(deal)}${starHtml(deal)}`,
     body: `<span class="deal-stage">${esc(columnLabel(deal.phase))}</span><div class="deal-row-next">${summary}${parking}${renderDealVendors(deal.vendors)}${website}${renderPhaseReceipt(deal, move, autoHtml(deal))}${revive}</div>` });
 }
@@ -2646,6 +2646,8 @@ function wireBoard() {
     }
     const card = event.target.closest('.kanban-card');
     if (!card) return;
+    // A lifted card keeps focus, even from its own controls: j/k would leave the lift and its target column behind.
+    if ((event.key === 'j' || event.key === 'k') && state.lifted && state.lifted === card.dataset.id) { event.preventDefault(); return; }
     if (event.target.closest('button,input,select,a,.deal-vendor-details')) return;
     if (state.view === 'list' || card.classList.contains('parked-card')) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openWorkspace(card.dataset.id, card); } return; }
     const id = card.dataset.id;
