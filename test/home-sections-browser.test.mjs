@@ -1514,6 +1514,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
   const edit = review.getByRole('button', { name: 'Edit', exact: true });
   await edit.waitFor();
+  const background = locator => locator.evaluate(node => getComputedStyle(node).backgroundColor);
+  const accent = await background(page.getByRole('button', { name: 'Review reply', exact: true }));
+  assert.equal(await background(review.getByRole('button', { name: 'Send reply', exact: true })), accent, 'Send reply is the primary button');
+  for (const name of ['Edit', 'Drop']) assert.notEqual(await background(review.getByRole('button', { name, exact: true }).first()), accent, name);
   assert.equal(await review.getByRole('textbox', { name: 'Message' }).count(), 0);
   assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
   assert.equal(await review.getByText('Current saved reply').count(), 0);
