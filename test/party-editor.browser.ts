@@ -666,7 +666,7 @@ test("Link does not open while Edit is opening", async (t) => {
   await panel.getByRole("button", { name: "Edit" }).click();
   await panel.getByRole("button", { name: "Opening…" }).waitFor();
   await panel.getByRole("button", { name: "Link to someone" }).click();
-  assert.equal(await page.getByRole("dialog").count(), 0, "Link waits for the Edit that is opening");
+  assert.equal(await page.locator("dialog.party-editor[open]").count(), 0, "Link waits for the Edit that is opening");
   release();
   await page.getByRole("dialog", { name: "Edit Demo Partner 01" }).waitFor();
 });
