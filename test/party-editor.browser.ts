@@ -423,6 +423,18 @@ test("Edit opened from the keyboard gives focus back to Edit when it closes", as
   await page.waitForFunction(() => document.activeElement?.hasAttribute("data-party-edit"), null, { timeout: 2000 });
 });
 
+test("A saved edit gives focus to the redrawn Edit", async (t) => {
+  const fake = engine(vendorParty, "vendor", vendorProfile);
+  const { page } = await setup(t, `/vendors?record=${vendor}`, fake.answer);
+  await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
+  await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Demo Partner 01" });
+  await dialog.getByLabel("City").fill("Example Town");
+  await dialog.getByRole("button", { name: "Save changes" }).click();
+  await dialog.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.hasAttribute("data-party-edit"), null, { timeout: 2000 });
+});
+
 test("A saved contact with a refused profile refreshes the record, and focus finds the new Edit", async (t) => {
   const fake = engine(vendorParty, "vendor", vendorProfile);
   const { page } = await setup(t, `/vendors?record=${vendor}`, (call) =>
