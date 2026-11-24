@@ -1,0 +1,4 @@
+check: npm run check
+setup:
+  - npm ci
+verify_skill: .claude/skills/verify-doctorcre-app/SKILL.md
