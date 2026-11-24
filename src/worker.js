@@ -940,7 +940,7 @@ const FROZEN_TOOLS = new Map([
   ['new-client', 'Open Clients and choose New client.'],
   ['add-party', 'Open Clients or Vendors and choose New client or New vendor.'],
   ['link-parties', 'Open Search to find the current record.'],
-  ['update-party-contact', 'Open Search to find the current record.'],
+  ['update-party-contact', 'Open the client or vendor and choose Edit.'],
   ['new-vendor', 'Open Vendors and choose New vendor.'],
   ['update-vendor', 'Open Vendors to see the current records.'],
   ['merge-vendor-rows', 'Open Vendors to see the current records.'],

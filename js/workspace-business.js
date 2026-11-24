@@ -833,7 +833,7 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record, engineMode) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${partyEditor?.actionsHtml() ?? ""}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record, engineMode) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
     const note = dom.panelBody.querySelector(".client-note > p");
@@ -1240,6 +1240,11 @@ function wireControls() {
 
   dom.panelClose?.addEventListener("click", () => closeRecord());
   dom.panelBody?.addEventListener("click", (event) => {
+    const record = view.record.payload?.record;
+    // A drawer opened by an old UUID answers that UUID as its id; party_id is the id the party saves take.
+    const partyId = record?.party_id ?? record?.id;
+    const edit = event.target.closest("[data-party-edit]");
+    if (edit && partyId) return partyEditor?.edit(partyId, edit);
     if (event.target.closest("[data-retry='record']") && view.recordId) loadRecord(view.recordId);
     if (event.target.closest("[data-retry='activity']") && !view.signedOut && view.recordId === view.record.payload?.record?.id) {
       loadActivity(view.recordId, view.record.payload.record);
@@ -1290,7 +1295,7 @@ function start() {
   const partySaves = initialBootMode.mode === "live" && document.documentElement.hasAttribute("data-clients-vendors-from-engine");
   if (partySaves) import("./ui-party-editor.generated.js").then(({ mountPartyEditor }) => {
     partyEditor = mountPartyEditor({
-      document, client: dealroomClient, dataset: () => view.dataset, facets: () => view.facets,
+      document, client: dealroomClient, dataset: () => view.dataset, facets: () => view.facets, phoneLabel,
       saved: (id) => {
         if (view.recordId === id) loadRecord(id);
         else navigate(viewHref(view.query, id));
@@ -1298,6 +1303,7 @@ function start() {
       },
     });
     partyEditor.setDataset(view.dataset);
+    if (view.recordId) renderRecordPanel();
   });
   wireControls();
   const searchDock = document.querySelector('.search-dock');
