@@ -156,10 +156,13 @@ test("Calendar shows both partners' meetings and tours on their Central day with
             const height = await review.getByRole("link").evaluate((node) => node.getBoundingClientRect().height);
             assert.ok(height >= 44, `the deal link is a 44 px target (${height})`);
           }
-          const comingUp = page.getByRole("region", { name: "Coming up" });
-          await expect(
-            comingUp.getByRole("button", { name: "Oct 21 11:30 PM CDT Late dinner Joe", exact: true }),
-          ).toBeVisible();
+          // A wide month shows every day, so only the phone keeps Coming up.
+          if (width === 390) {
+            const comingUp = page.getByRole("region", { name: "Coming up" });
+            await expect(
+              comingUp.getByRole("button", { name: "Oct 21 11:30 PM CDT Late dinner Joe", exact: true }),
+            ).toBeVisible();
+          }
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
           await page.screenshot({ path: join(evidence, `month-${width}-${theme}.png`), fullPage: true });
 

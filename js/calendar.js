@@ -17,7 +17,6 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 }[char]));
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTH_CHIP_LIMIT = 3;
 /** css/calendar.css uses `(width > 640px)`, the exact inverse, for the sheet beside the grid. */
 const PHONE_SHEET = window.matchMedia("(width <= 640px)");
 
@@ -35,6 +34,8 @@ const view = {
   result: { status: "loading" },
   meetings: { range: null, status: "off", entries: [], notes: [] },
   meetingSequence: 0,
+  /** Chip lines a month day holds under its number, measured from the grid; "+N more" sits beside the number. */
+  monthLines: 3,
   byDay: new Map(),
   sequence: 0,
   refreshFailed: false,
@@ -79,7 +80,7 @@ function chipHtml(entry, { withDeal, overflow }) {
 const moreHtml = (day, more, readable) => more > 0
   ? `<button class="cal-more" type="button" data-more="${day}" aria-label="${escapeHtml(`${more} more on ${readable}`)}">+${more} more</button>` : "";
 
-/** A month cell shows a few chips and "+N more"; the rest stay for the phone agenda. A week shows every chip. */
+/** A month cell shows the chips that fit and "+N more"; the rest stay for the phone agenda. A week shows every chip. */
 function dayHtml(cell, index) {
   const state = view.state;
   const rows = cell.inMonth ? view.byDay.get(cell.day) || [] : [];
@@ -89,7 +90,7 @@ function dayHtml(cell, index) {
   const lateChip = lateCount ? `<li><button class="cal-chip" type="button" data-entry="late" data-day="${cell.day}" data-kind="late" data-band="overdue" aria-label="${lateCount} late step${lateCount === 1 ? "" : "s"}">`
     + `<span class="cal-mark" data-kind="late" aria-hidden="true"></span><span class="cal-chip-label">${lateCount} late</span>`
     + "</button></li>" : "";
-  const room = MONTH_CHIP_LIMIT - Number(Boolean(lateCount));
+  const room = view.monthLines - Number(Boolean(lateCount));
   const selected = (state.day || view.today) === cell.day && cell.inMonth;
   const isToday = cell.day === view.today;
   const readable = formatCalendarDate(cell.day);
@@ -99,8 +100,8 @@ function dayHtml(cell, index) {
     + `<button class="cal-day-open" type="button" data-select-day="${cell.day}" tabindex="${selected ? 0 : -1}" aria-label="${escapeHtml(`${readable}${isToday ? " · today" : ""}${count}`)}">`
     + `<span class="cal-day-weekday">${WEEKDAYS[index % 7]}</span><span class="cal-day-num">${Number(cell.day.slice(8))}</span>`
     + "</button>"
-    + (rows.length ? `<ul class="cal-chips">${lateChip}${chips}</ul>` : "")
     + (week ? "" : moreHtml(cell.day, dated.length - room, readable))
+    + (rows.length ? `<ul class="cal-chips">${lateChip}${chips}</ul>` : "")
     + "</div>";
 }
 
@@ -144,6 +145,15 @@ function paintSelection() {
     cell.querySelector(".cal-day-open").tabIndex = cell === (selected || cells[0]) ? 0 : -1;
   });
   paintSheet();
+}
+
+function measureMonthLines() {
+  const cell = $("calGrid").querySelector(".cal-day");
+  if (!cell || view.state.view !== "month" || PHONE_SHEET.matches) return view.monthLines;
+  const style = getComputedStyle(cell);
+  const room = cell.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - cell.querySelector(".cal-day-open").offsetHeight;
+  const line = parseFloat(style.getPropertyValue("--cal-chip")) + parseFloat(style.rowGap);
+  return Math.max(1, Math.floor(room / line));
 }
 
 const sheetMode = () => !view.state.day ? "closed" : PHONE_SHEET.matches ? "modal" : "beside";
@@ -416,6 +426,10 @@ function wire() {
     closeDay();
   });
   PHONE_SHEET.addEventListener("change", paintSheet);
+  new ResizeObserver(() => {
+    const lines = measureMonthLines();
+    if (lines !== view.monthLines) { view.monthLines = lines; render(); }
+  }).observe($("calGrid"));
   $("calNotices")?.addEventListener("click", (event) => {
     if (event.target.closest("#calRetry")) load();
   });

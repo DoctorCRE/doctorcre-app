@@ -13,6 +13,11 @@
  * shapes (.cal-pulse), never a loop: a double ring for today or overdue, a
  * ringed dot for this week, a dot for this month and a hollow ring for later.
  *
+ * On a wide screen the month fills the screen below one header band: the
+ * title, period, counts and controls on one line, the legend under it. Week
+ * rows share the height left, and a day shows as many chips as fit (counted
+ * in js/calendar.js); "+N more" sits beside the day's number.
+ *
  * On a phone the month becomes an agenda: only days with items (plus today
  * and the selected day), one row each, every chip shown.
  *
@@ -20,17 +25,16 @@
  * opacity only). Hover and press are a surface step, never a lift.
  */
 
-.cal-heading { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
-.cal-heading h1 { margin: 0 auto 0 0; }
-.cal-updated { color: var(--fg-muted); font-size: var(--font-size-1); }
+.cal-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-2); }
+.cal-toolbar h1 { margin: 0; font: var(--font-weight-strong) var(--font-size-3)/1.2 var(--font-text); }
+.cal-updated { margin-inline-start: auto; color: var(--fg-muted); font-size: var(--font-size-1); }
 .cal-board { min-width: 0; }
-.cal-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-4); margin-bottom: var(--space-2); }
+.cal-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-4); margin-bottom: var(--space-1); }
 .cal-steps, .cal-view-switch { display: flex; align-items: center; gap: var(--space-2); }
 .cal-steps { margin-left: calc(-1 * var(--space-2)); gap: 0; }
-.cal-period { min-width: 9ch; margin: 0; font: var(--font-weight-strong) var(--font-size-3)/1.2 var(--font-text); text-align: center; }
+.cal-period { min-width: 9ch; margin: 0; font: var(--font-weight-regular) var(--font-size-3)/1.2 var(--font-text); text-align: center; }
 .cal-icon { display: grid; place-items: center; width: var(--touch); height: var(--touch); padding: 0; border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font-size: var(--font-size-3); cursor: pointer; }
-.cal-view-switch { margin-left: auto; }
-.cal-today, .cal-segments button { min-height: var(--touch); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1)/1 var(--font-text); cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
+.cal-today, .cal-segments button { min-height: var(--touch); padding: 0 var(--space-3); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1)/1 var(--font-text); cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
 .cal-today { box-shadow: inset 0 0 0 var(--hairline-width) var(--hairline-strong); color: var(--fg); }
 .cal-segments { display: flex; padding: 2px; border-radius: var(--radius-3); background: var(--surface-1); box-shadow: inset 0 0 0 var(--hairline-width) var(--hairline); }
 .cal-segments button[aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
@@ -39,7 +43,7 @@
 :is(.cal-icon, .cal-today, .cal-segments button):focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: -2px; }
 .cal-count { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 .cal-count:empty { display: none; }
-.cal-meetings-note { margin: 0 0 var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
+.cal-meetings-note { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 .cal-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0; padding: 0; list-style: none; color: var(--fg-muted); font-size: var(--font-size-1); }
 .cal-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .cal-notices:empty { display: none; }
@@ -58,8 +62,7 @@
 .cal-grid[data-enter="zoom-out"] { animation: cal-zoom-out var(--duration-panel) var(--ease-out); }
 
 .cal-day { --cal-chip: 24px; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; padding: var(--space-1) 6px 6px; background: transparent; transition: background-color var(--duration-hover) var(--ease-out); }
-/* Every month row is one height: the day number, three chips and the "+N more" line. */
-.cal-grid[data-view="month"] .cal-day { height: calc(28px + 3 * var(--cal-chip) + 20px + 4 * var(--space-1) + 10px); overflow: hidden; }
+.cal-grid[data-view="month"] .cal-day { min-height: 0; overflow: hidden; }
 .cal-day + .cal-day { border-left: var(--hairline-width) solid var(--hairline); }
 @media (hover: hover) { .cal-day:hover { background: var(--surface-2); } }
 .cal-day:active { background: var(--surface-2); }
@@ -68,7 +71,7 @@
 .cal-day[data-out-month="true"] .cal-day-num { color: var(--fg-quiet); }
 .shell:has(> .cal-day-sheet[open]) .cal-day[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 0 0 0 var(--focus-width) var(--hairline-strong); }
 
-.cal-day-open { display: flex; align-items: center; gap: var(--space-1); align-self: stretch; min-height: 28px; padding: 0 2px; border: 0; border-radius: var(--radius-1); background: none; color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1)/1 var(--font-text); font-variant-numeric: tabular-nums; cursor: pointer; }
+.cal-day-open { display: flex; align-items: center; gap: var(--space-1); align-self: stretch; min-height: 24px; padding: 0 2px; border: 0; border-radius: var(--radius-1); background: none; color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1)/1 var(--font-text); font-variant-numeric: tabular-nums; cursor: pointer; }
 .cal-day-open:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
 .cal-grid[data-view="month"] .cal-day-weekday { display: none; }
 .cal-day-num { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 var(--space-1); border-radius: var(--radius-round); color: var(--fg); }
@@ -97,7 +100,7 @@
 .cal-mark[data-kind="tour"] { box-sizing: border-box; border: 2px solid var(--kind); background: transparent; }
 .cal-soon, .cal-chip[data-band="soon"]::after { flex: none; box-sizing: border-box; width: 7px; height: 7px; border: 1.5px solid var(--status-warn); border-radius: var(--radius-round); }
 .cal-chip[data-band="soon"]::after { content: ""; }
-.cal-more { align-self: start; min-height: 20px; padding: 0 2px; border: 0; background: none; color: var(--fg-muted); font: var(--font-weight-regular) var(--font-size-1)/1 var(--font-text); font-variant-numeric: tabular-nums; cursor: pointer; }
+.cal-more { align-self: center; min-height: 20px; padding: 0 2px; border: 0; background: none; color: var(--fg-muted); font: var(--font-weight-regular) var(--font-size-1)/1 var(--font-text); font-variant-numeric: tabular-nums; cursor: pointer; }
 @media (hover: hover) { .cal-more:hover { color: var(--fg); text-decoration: underline; } }
 .cal-more:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
 
@@ -153,7 +156,21 @@
 @media (pointer: coarse) {
   .cal-day { --cal-chip: var(--touch); }
   .cal-more, .cal-day-open { min-height: var(--touch); }
-  .cal-grid[data-view="month"] .cal-day { height: calc(5 * var(--touch) + 4 * var(--space-1) + 10px); }
+}
+/* The month fills the screen: each box from the page column down to the grid takes the height left, and the six weeks share it. Coming up repeats days the whole month already shows. */
+@media (width > 640px) {
+  .app-layout-center:has(.cal-grid[data-view="month"]) { display: flex; flex-direction: column; height: calc(100dvh - var(--layout-bottom)); }
+  .app-layout-center:has(.cal-grid[data-view="month"]) > .app-layout-main { padding-block-end: var(--space-3); }
+  .app-layout-center:has(.cal-grid[data-view="month"]) > .app-layout-main,
+  .app-layout-main:has(.cal-grid[data-view="month"]) > main,
+  .shell:has(> .cal-board > .cal-grid[data-view="month"]) > .cal-board { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+  .cal-grid[data-view="month"] { flex: 1 1 0; min-height: 360px; grid-template-rows: auto repeat(6, minmax(0, 1fr)); }
+  .cal-grid[data-view="month"] .cal-week { grid-template-rows: minmax(0, 1fr); min-height: 0; }
+  .cal-grid[data-view="month"] .cal-day { display: grid; grid-template: auto minmax(0, 1fr) / minmax(0, 1fr) auto; align-content: start; }
+  .cal-grid[data-view="month"] .cal-chips { grid-column: 1 / -1; align-content: start; }
+  .cal-grid[data-view="month"] .cal-weekday { padding-block: var(--space-1); }
+  .shell:has(> .cal-board > .cal-grid[data-view="month"]) .cal-coming,
+  .shell:has(> .cal-board > .cal-grid[data-view="month"]) > .cal-extras:not(:has(> .cal-undated:not([hidden]))) { display: none; }
 }
 @media (max-width: 640px) {
   .cal-day-sheet[open] { inset: auto 0 0; width: 100%; max-height: 85dvh; border-width: var(--hairline-width) 0 0; border-radius: var(--radius-3) var(--radius-3) 0 0; padding-bottom: env(safe-area-inset-bottom); }

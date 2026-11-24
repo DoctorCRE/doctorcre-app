@@ -1,6 +1,6 @@
 # Calendar
 
-A chosen day opens in a sheet: beside the grid on a wide screen, so every day stays clickable, and a bottom sheet on a phone. The open day is the only thing that opens the sheet. Today turns to the current month and marks today; it never opens a day. Moving to a month or week that no longer shows the open day closes it, and switching between Month and Week keeps it when it is still shown. Escape closes only the innermost thing, so an open menu closes before the day.
+On a wide screen the whole month fits on one screen, its six weeks sharing the height below one header band, and each day shows the items that fit with "+N more" beside its number. Coming up stays for the phone agenda and the Week view, since the wide month already shows every day. A chosen day opens in a sheet: beside the grid on a wide screen, so every day stays clickable, and a bottom sheet on a phone. The open day is the only thing that opens the sheet. Today turns to the current month and marks today; it never opens a day. Moving to a month or week that no longer shows the open day closes it, and switching between Month and Week keeps it when it is still shown. Escape closes only the innermost thing, so an open menu closes before the day.
 
 When a refresh fails, Calendar keeps the last dates, selected day, and Updated time and shows a retry notice; Retry refreshes the dates, while an expired session clears the screen.
 

@@ -30,24 +30,28 @@
   </div>
 
   <main id="main" class="shell">
-    <header class="cal-heading">
-      <h1 id="pageTitle">Calendar</h1>
-      <span class="cal-updated" id="calAsOf"></span>
-      <button class="cal-icon" type="button" id="calRefresh" aria-label="Refresh Calendar" title="Refresh Calendar"><span aria-hidden="true">↻</span></button>
-    </header>
-
     <p class="sr-only" id="calLive" aria-live="polite" role="status">Updating…</p>
 
-    <div class="cal-notices" id="calNotices"></div>
-
     <section class="cal-board" aria-labelledby="calPeriod">
-      <div class="cal-toolbar">
+      <header class="cal-toolbar">
+        <h1 id="pageTitle">Calendar</h1>
         <div class="cal-steps" role="group" aria-label="Move through the calendar">
           <button class="cal-icon" type="button" id="calPrev" aria-label="Previous month"><span aria-hidden="true">‹</span></button>
           <h2 class="cal-period" id="calPeriod" aria-live="polite">Calendar</h2>
           <button class="cal-icon" type="button" id="calNext" aria-label="Next month"><span aria-hidden="true">›</span></button>
         </div>
         <p class="cal-count" id="calCount" aria-live="polite"></p>
+        <span class="cal-updated" id="calAsOf"></span>
+        <button class="cal-icon" type="button" id="calRefresh" aria-label="Refresh Calendar" title="Refresh Calendar"><span aria-hidden="true">↻</span></button>
+        <div class="cal-view-switch" id="calViewSwitch" role="group" aria-label="Calendar view">
+          <button class="cal-today" type="button" id="calToday">Today</button>
+          <div class="cal-segments">
+            <button type="button" data-view="month" aria-pressed="true">Month</button>
+            <button type="button" data-view="week" aria-pressed="false">Week</button>
+          </div>
+        </div>
+      </header>
+      <div class="cal-key">
         <ul class="cal-legend" aria-label="What each marker means">
           <li><span class="cal-mark" data-kind="step" aria-hidden="true"></span>Next step</li>
           <li><span class="cal-mark" data-kind="date" aria-hidden="true"></span>Critical date</li>
@@ -56,15 +60,9 @@
           <li><span class="cal-mark" data-kind="late" aria-hidden="true"></span>Late</li>
           <li><span class="cal-soon" aria-hidden="true"></span>This week</li>
         </ul>
-        <div class="cal-view-switch" id="calViewSwitch" role="group" aria-label="Calendar view">
-          <button class="cal-today" type="button" id="calToday">Today</button>
-          <div class="cal-segments">
-            <button type="button" data-view="month" aria-pressed="true">Month</button>
-            <button type="button" data-view="week" aria-pressed="false">Week</button>
-          </div>
-        </div>
+        <p class="cal-meetings-note" id="calMeetingsNote" hidden>Meetings show for about the next two weeks.</p>
       </div>
-      <p class="cal-meetings-note" id="calMeetingsNote" hidden>Meetings show for about the next two weeks.</p>
+      <div class="cal-notices" id="calNotices"></div>
       <div id="calState"><p>Reading Calendar…</p></div>
       <div class="cal-grid" id="calGrid" role="grid" aria-labelledby="calPeriod" data-view="month"></div>
     </section>

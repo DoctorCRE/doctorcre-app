@@ -231,17 +231,23 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await page.screenshot({ path: join(evidence, `month-${width}-${theme}.png`), fullPage: true });
           await page.locator("#dayPanel").screenshot({ path: join(evidence, `day-${width}-${theme}.png`) });
 
+          // A wide month shows every day, so only the phone keeps Coming up; there a day opens from it.
           const comingUpPanel = page.getByRole("region", { name: "Coming up" });
-          const comingUp = comingUpPanel.getByRole("button", { name: /^Oct 22\b/ });
-          await t.test("Coming up names every item due", async () => {
-            await expect(comingUp).toContainText("Confirm suite availability");
-            await expect(comingUp).toContainText("Dell");
-            const twoItems = comingUpPanel.getByRole("button", { name: /^Oct 26\b/ });
-            await expect(twoItems).toContainText("Confirm suite availability");
-            await expect(twoItems).toContainText("Option notice");
-          });
+          const upcoming = (day: string) =>
+            width === 390
+              ? comingUpPanel.getByRole("button", { name: new RegExp(`^${day}\\b`) })
+              : page.locator(`.cal-day-open[data-select-day="2026-10-${day.slice(4)}"]`);
+          if (width === 390)
+            await t.test("Coming up names every item due", async () => {
+              await expect(upcoming("Oct 22")).toContainText("Confirm suite availability");
+              await expect(upcoming("Oct 22")).toContainText("Dell");
+              const twoItems = upcoming("Oct 26");
+              await expect(twoItems).toContainText("Confirm suite availability");
+              await expect(twoItems).toContainText("Option notice");
+            });
+          else await expect(comingUpPanel).toBeHidden();
           await page.keyboard.press("Escape");
-          await comingUp.click();
+          await upcoming("Oct 22").click();
           await expect(panel).toContainText("Confirm suite availability");
           await expect(panel).toContainText("Next step · Dell");
           await expect(panel.getByRole("link", { name: "Example clinic" })).toHaveAttribute(
@@ -251,7 +257,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await t.test("a short step appears once when the engine omits its body", async () => {
             await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
             await page.keyboard.press("Escape");
-            await comingUpPanel.getByRole("button", { name: /^Oct 24\b/ }).click();
+            await upcoming("Oct 24").click();
             await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
           });
           await page.keyboard.press("Escape");
@@ -297,7 +303,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await todayCell.click();
           for (const minute of [1, 2, 3, 4, 5]) {
             if (minute === 2) await page.keyboard.press("Escape");
-            const focused = minute === 1 ? record : comingUp;
+            const focused = minute === 1 ? record : upcoming("Oct 22");
             await focused.focus();
             const previous = await updated.textContent();
             await page.clock.setSystemTime(new Date(Date.UTC(2026, 9, 20, 15, minute)));
@@ -313,7 +319,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await t.test("a sixth focus keeps the last data until the deferred read", async () => {
             const previous = await updated.textContent();
             await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-            await expect(comingUp).toBeVisible({ timeout: 500 });
+            await expect(upcoming("Oct 22")).toBeVisible({ timeout: 500 });
             await expect(updated).toHaveText(previous ?? "");
             assert.equal(reads.length, 6);
             await page.clock.fastForward(120_000);

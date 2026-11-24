@@ -99,7 +99,7 @@ test("A chosen day opens on screen from every entry point and closing it returns
 
         await t.test("a full last-row day opens with title and Close on screen after scrolling down", async () => {
           await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-          const more = full.getByRole("button", { name: /^10 more on/ });
+          const more = full.getByRole("button", { name: /^\d+ more on/ });
           await more.click();
           await expectSheetOnScreen(page, /Oct 29/);
           const entries = page.locator("#dayPanelBody .cal-day-entry");
