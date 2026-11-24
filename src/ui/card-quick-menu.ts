@@ -16,6 +16,8 @@ type QuickMenuOptions = {
 type OpenMenu = { root: HTMLElement; card: HTMLElement; menu: HTMLElement; focusTarget: () => HTMLElement };
 
 const LONG_PRESS_MS = 500;
+// How long after the finger lifts a long-press still swallows its own click.
+const SETTLE_MS = 600;
 const MOVE_TOLERANCE_PX = 10;
 const EDGE_PX = 8;
 const NATIVE_TARGETS = 'input,textarea,select,[contenteditable]:not([contenteditable="false"]),a[href]';
@@ -64,9 +66,14 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
   const abort = new AbortController();
   const signal = abort.signal;
   let press: { pointer: number; x: number; y: number; card: HTMLElement; timer: number } | null = null;
+  // The finger still on a card. It outlives a pointercancel, because a browser
+  // that starts a touch drag cancels the pointer just before its dragstart.
+  let touchHold: { x: number; y: number; card: HTMLElement } | null = null;
   // Set when a long-press opened the menu: the release's click and any
-  // contextmenu from the same press must not act a second time.
+  // contextmenu from the same press must not act a second time. It clears
+  // shortly after the finger lifts, so a later keyboard click still acts.
   let pressOpened = false;
+  let settleTimer = 0;
 
   const cardFrom = (target: EventTarget | null) => {
     const element = target instanceof Element ? target : null;
@@ -79,6 +86,14 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
   const cancelPress = () => {
     if (press) view?.clearTimeout(press.timer);
     press = null;
+  };
+  const settled = () => {
+    pressOpened = false;
+  };
+  const settlePress = () => {
+    view?.clearTimeout(settleTimer);
+    // eslint-disable-next-line no-restricted-syntax -- One timer per lifted long-press, replaced by the next lift and cleared on unbind; no network reads.
+    settleTimer = view?.setTimeout(settled, SETTLE_MS) ?? 0;
   };
 
   function items(menu: HTMLElement) {
@@ -196,9 +211,11 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
     "pointerdown",
     (event) => {
       cancelPress();
+      touchHold = null;
       if (event.pointerType !== "touch" || !event.isPrimary) return;
       const card = cardFrom(event.target);
       if (!card || nativeTarget(event.target)) return;
+      touchHold = { x: event.clientX, y: event.clientY, card };
       const fire = () => {
         const held = press;
         press = null;
@@ -216,23 +233,33 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
     "pointermove",
     (event) => {
       if (!press || event.pointerId !== press.pointer) return;
-      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) >= MOVE_TOLERANCE_PX) cancelPress();
+      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) >= MOVE_TOLERANCE_PX) {
+        cancelPress();
+        touchHold = null;
+      }
     },
     { signal, passive: true },
   );
   const release = (event: PointerEvent) => {
     if (press && event.pointerId === press.pointer) cancelPress();
+    if (event.type === "pointerup") touchHold = null;
+    if (pressOpened) settlePress();
   };
   doc.addEventListener("pointerup", release, { signal });
   doc.addEventListener("pointercancel", release, { signal });
 
-  // A long-press is never a drag: no lifted card and no move dialog.
+  // A long-press is never a drag: no lifted card and no move dialog. A browser
+  // that starts a touch drag on the long-press gets the menu in its place.
   root.addEventListener(
     "dragstart",
     (event) => {
-      if (!press && !pressOpened) return;
+      const hold = touchHold;
+      if (!press && !pressOpened && !hold) return;
       event.preventDefault();
       event.stopImmediatePropagation();
+      cancelPress();
+      touchHold = null;
+      if (!pressOpened && hold?.card.isConnected && openFor(hold.card, { x: hold.x, y: hold.y })) pressOpened = true;
     },
     { signal, capture: true },
   );
@@ -262,13 +289,24 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
   );
   const dismiss = () => {
     cancelPress();
+    touchHold = null;
     if (current?.root === root) closeMenu();
   };
-  view?.addEventListener("scroll", dismiss, { signal, capture: true, passive: true });
+  // Only a scroll that moves the card away from its menu closes it: the page,
+  // or a container holding the card. A scroll elsewhere (a chip bar) does not.
+  const scrolled = (event: Event) => {
+    const target = event.target;
+    const open = current?.root === root ? current : null;
+    if (open && target instanceof Node && target !== doc && !target.contains(open.card)) return;
+    dismiss();
+  };
+  view?.addEventListener("scroll", scrolled, { signal, capture: true, passive: true });
   view?.addEventListener("resize", dismiss, { signal });
 
   return () => {
     dismiss();
+    view?.clearTimeout(settleTimer);
+    pressOpened = false;
     abort.abort();
   };
 }

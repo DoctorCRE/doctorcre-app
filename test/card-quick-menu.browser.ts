@@ -79,6 +79,8 @@ async function outsidePoint(page: Page) {
 }
 
 async function rightClick(page: Page, card: Locator) {
+  // A repaint can reset the board's scroll; press only a card that is on screen.
+  await card.scrollIntoViewIfNeeded();
   const point = await plainPoint(card);
   await page.mouse.click(point.x, point.y, { button: "right" });
 }
