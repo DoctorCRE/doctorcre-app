@@ -60,7 +60,7 @@ export async function prove({origin,expectedCommit,cdpUrl,timeoutMs=30000}) {
     assert.equal(await section.locator('#anniversaryContent').isVisible(),true);
     const text=await section.innerText();
     if(await section.getByRole('alert').count())throw insufficient('Anniversary panel read unavailable');
-    assert.ok(text.includes('America/Chicago'));
+    assert.doesNotMatch(text,/America\/Chicago|\bC[SD]T\b|\bCentral\b/);
     assert.equal(await section.locator('#anniversaryContent > p').filter({hasText:'As of '}).innerText(),`As of ${snapshot.as_of}. Scanned ${snapshot.coverage.scanned}. Skipped invalid ${snapshot.coverage.skipped_invalid}.`);
     const rows=section.locator('ol > li');
     assert.equal(await rows.count(),snapshot.rows.length);

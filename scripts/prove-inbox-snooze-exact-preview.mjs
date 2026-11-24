@@ -41,8 +41,7 @@ export async function observe(page) {
   const choices = page.getByRole('dialog').locator('time');
   const endpoints = await choices.evaluateAll(nodes => nodes.map(node => ({ until: node.dateTime, label: node.textContent })));
   assert.deepEqual(endpoints.map(row => row.until), [1, 24].map(hours => new Date(Date.parse(opening) + hours * 3600000).toISOString()));
-  assert.match(endpoints[0].label, /Nov 1, 2026/);
-  assert.doesNotMatch(endpoints[0].label, /\b(CST|CDT|Central)\b/);
+  assert.equal(endpoints[0].label, 'Nov 1, 2026, 1:30:00 AM', 'Central clock with no zone label');
   await page.clock.setFixedTime(new Date(Date.parse(opening) + 30000));
   assert.deepEqual(await choices.evaluateAll(nodes => nodes.map(node => node.dateTime)), endpoints.map(row => row.until));
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
