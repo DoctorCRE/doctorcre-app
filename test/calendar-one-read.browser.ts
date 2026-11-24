@@ -185,9 +185,13 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await expect(late.getByText(/1 day late/)).toBeVisible();
             await expect(late.getByText("LOI expiry")).toHaveCount(0);
             assert.equal(await panel.getByRole("heading").first().textContent(), "Late");
-            await page.locator('[data-select-day="2026-10-17"]').click();
-            await expect(late).toHaveCount(0);
-            await expect(panel.getByText(stepTitle)).toHaveCount(0);
+            const dueDay = page.locator('[data-select-day="2026-10-17"]');
+            if (width === 390) await expect(dueDay, "the phone agenda leaves the empty due day out").toBeHidden();
+            else {
+              await dueDay.click();
+              await expect(late).toHaveCount(0);
+              await expect(panel.getByText(stepTitle)).toHaveCount(0);
+            }
             const lateChip = page.getByRole("button", { name: "2 late steps", exact: true });
             await expect(lateChip).toHaveCount(1);
             await expect(lateChip).toBeVisible();
@@ -243,7 +247,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await comingUpPanel.getByRole("button", { name: /^Oct 24\b/ }).click();
             await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
           });
-          await page.getByRole("button", { name: "Jump to today" }).click();
+          await page.getByRole("button", { name: "Today", exact: true }).click();
           await expect(step).toBeVisible();
           const week = page.getByRole("button", { name: "Week", exact: true });
           await expect(week).toHaveCSS("border-top-width", "0px");

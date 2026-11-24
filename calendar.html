@@ -49,21 +49,20 @@
             <button class="cal-icon" type="button" id="calNext" aria-label="Next month"><span aria-hidden="true">›</span></button>
           </div>
           <div class="cal-view-switch" id="calViewSwitch" role="group" aria-label="Calendar view">
-            <button class="cal-icon" type="button" id="calToday" aria-label="Jump to today" title="Jump to today">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6"/><circle cx="10" cy="10" r="2" fill="currentColor" stroke="none"/></svg>
-            </button>
-            <button class="cal-icon" type="button" data-view="month" aria-label="Month" title="Month" aria-pressed="true">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="14" rx="2"/><path d="M2.5 7.5h15M2.5 12.5h15M7.5 7.5v10m5-10v10"/></svg>
-            </button>
-            <button class="cal-icon" type="button" data-view="week" aria-label="Week" title="Week" aria-pressed="false">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="7" width="15" height="6" rx="1.5"/><path d="M7.5 7v6m5-6v6"/></svg>
-            </button>
+            <button class="cal-today" type="button" id="calToday">Today</button>
+            <div class="cal-segments">
+              <button type="button" data-view="month" aria-pressed="true">Month</button>
+              <button type="button" data-view="week" aria-pressed="false">Week</button>
+            </div>
           </div>
         </div>
         <p class="small cal-count" id="calCount" aria-live="polite"></p>
         <div id="calState"><p>Reading Calendar…</p></div>
         <div class="cal-grid" id="calGrid" role="grid" aria-labelledby="calPeriod" data-view="month"></div>
         <ul class="cal-legend" aria-label="What each marker means">
+          <li><span class="cal-swatch" data-kind="step" aria-hidden="true"></span>Next step</li>
+          <li><span class="cal-swatch" data-kind="date" aria-hidden="true"></span>Critical date</li>
+          <li><span class="cal-swatch" data-kind="late" aria-hidden="true"></span>Late</li>
           <li><span class="cal-pulse" data-pulse="urgent" aria-hidden="true"></span>Today or overdue</li>
           <li><span class="cal-pulse" data-pulse="attention" aria-hidden="true"></span>This week</li>
           <li><span class="cal-pulse" data-pulse="calm" aria-hidden="true"></span>This month</li>

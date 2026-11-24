@@ -15,7 +15,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 }[char]));
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTH_CHIP_LIMIT = 2;
+const MONTH_CHIP_LIMIT = 3;
 
 /** One place holds what this page believes. */
 const view = {
@@ -47,10 +47,10 @@ const typeLabel = entry => entry.type === "step" ? "Next step" : "Critical date"
 const ownerSuffix = owner => typeof owner === "string" && owner
   ? ` · ${escapeHtml(owner[0].toUpperCase() + owner.slice(1))}` : "";
 
-function chipHtml(entry, { withDeal }) {
+function chipHtml(entry, { withDeal, overflow }) {
   const near = approach(entry, view.today);
   const text = `${typeLabel(entry)} · ${entry.label} · ${recordName(entry)} · ${near.label}`;
-  return `<li><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(entry.day)}" data-band="${near.band}" aria-label="${escapeHtml(text)}">`
+  return `<li${overflow ? ' data-overflow="true"' : ""}><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(entry.day)}" data-kind="${entry.type}" data-band="${near.band}" aria-label="${escapeHtml(text)}" title="${escapeHtml(entry.label)}">`
     + `<span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span>`
     + `<span class="cal-chip-label">${escapeHtml(entry.label)}</span>`
     + (withDeal ? `<span class="cal-chip-deal">${escapeHtml(recordName(entry))}</span>` : "")
@@ -59,29 +59,29 @@ function chipHtml(entry, { withDeal }) {
 
 const calendarLayout = ({ view, anchor }) => view === "week" ? weekStrip(anchor) : monthGrid(anchor);
 
+/** A month cell shows a few chips and "+N more"; the rest stay for the phone agenda. */
 function dayHtml(cell, index) {
   const state = view.state;
   const rows = cell.inMonth ? view.byDay.get(cell.day) || [] : [];
   const week = state.view === "week";
   const lateCount = rows.filter(entry => entry.days_late > 0).length;
   const dated = rows.filter(entry => !entry.days_late);
-  const lateChip = lateCount ? `<li><button class="cal-chip" type="button" data-entry="late" data-day="${cell.day}" data-band="overdue" aria-label="${lateCount} late step${lateCount === 1 ? "" : "s"}">
+  const lateChip = lateCount ? `<li><button class="cal-chip" type="button" data-entry="late" data-day="${cell.day}" data-kind="late" data-band="overdue" aria-label="${lateCount} late step${lateCount === 1 ? "" : "s"}">
     <span class="cal-chip-label">${lateCount} late</span>
   </button></li>` : "";
-  const shown = week ? dated : dated.slice(0, MONTH_CHIP_LIMIT - Number(Boolean(lateCount)));
-  const more = dated.length - shown.length;
+  const room = week ? dated.length : MONTH_CHIP_LIMIT - Number(Boolean(lateCount));
+  const more = dated.length - room;
   const selected = (state.day || view.today) === cell.day && cell.inMonth;
   const isToday = cell.day === view.today;
   const readable = formatCalendarDate(cell.day);
   const count = rows.length ? ` · ${itemCount(rows)}` : "";
-  const dayNumber = Number(cell.day.slice(8));
-  return `<div class="cal-day" role="gridcell" data-day="${cell.day}" data-today="${isToday}" data-out-month="${!cell.inMonth}" aria-selected="${selected}">`
+  const chips = dated.map((entry, at) => chipHtml(entry, { withDeal: week, overflow: at >= room })).join("");
+  return `<div class="cal-day" role="gridcell" data-day="${cell.day}" data-today="${isToday}" data-out-month="${!cell.inMonth}" data-empty="${!rows.length}" aria-selected="${selected}">`
     + `<button class="cal-day-open" type="button" data-select-day="${cell.day}" tabindex="${selected ? 0 : -1}" aria-label="${escapeHtml(`${readable}${isToday ? " · today" : ""}${count}`)}">`
-    + `<span class="cal-day-num">${week ? `${WEEKDAYS[index % 7]} ${dayNumber}` : dayNumber}</span>`
-    + (rows.length ? `<span class="cal-day-count" aria-hidden="true">${rows.length}</span>` : "")
+    + `<span class="cal-day-weekday">${WEEKDAYS[index % 7]}</span><span class="cal-day-num">${Number(cell.day.slice(8))}</span>`
     + "</button>"
-    + (lateChip || shown.length ? `<ul class="cal-chips">${lateChip}${shown.map((entry) => chipHtml(entry, { withDeal: week })).join("")}</ul>` : "")
-    + (more > 0 ? `<span class="cal-more">+${more} more</span>` : "")
+    + (rows.length ? `<ul class="cal-chips">${lateChip}${chips}</ul>` : "")
+    + (more > 0 ? `<button class="cal-more" type="button" data-more="${cell.day}" aria-label="${escapeHtml(`${more} more on ${readable}`)}">+${more} more</button>` : "")
     + "</div>";
 }
 
@@ -313,6 +313,8 @@ function wire() {
   $("calGrid")?.addEventListener("click", (event) => {
     const chip = event.target.closest(".cal-chip");
     if (chip) { selectDay(chip.dataset.day, { entry: chip.dataset.entry }); return; }
+    const more = event.target.closest(".cal-more");
+    if (more) { selectDay(more.dataset.more); return; }
     const open = event.target.closest(".cal-day-open");
     if (open) selectDay(open.dataset.selectDay);
   });

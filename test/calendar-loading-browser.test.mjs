@@ -25,7 +25,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
   t.after(() => browser.close());
 
   for (const status of [200, 401, 502, 503]) await t.test(String(status), async () => {
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 844 }, reducedMotion: 'reduce' });
     await page.clock.install({ time: new Date('2026-10-20T15:00:00Z') });
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
