@@ -1882,7 +1882,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode })}</div></section>
-    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden>${engineMode ? '<p>No comparable terms match these filters.</p>' : ''}</section>
+    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
@@ -2097,6 +2097,18 @@ async function refreshEvidence(detail, id, seq) {
   root.innerHTML = template.innerHTML;
   root.querySelectorAll('details').forEach(n => { if (expanded.has(n.querySelector('summary')?.textContent)) n.open = true; });
 }
+// An imported deal's market is often old city text that matches no terms; prefill only a market on the engine's list.
+async function engineMarket({ market, market_id }, signal) {
+  const recorded = market?.trim();
+  if (!market_id && !recorded) return null;
+  try {
+    const response = await sessionFetch('/api/engine/markets', { headers: { accept: 'application/json' }, signal });
+    const markets = response.ok ? await response.json() : [];
+    const match = Array.isArray(markets) ? markets.find(row => market_id ? row?.market_id === market_id : row?.name === recorded) : null;
+    return typeof match?.name === 'string' ? match.name : null;
+  } catch { return null; }
+}
+
 function paintPanel(detail) {
   $('panelTitle').textContent = dealTitle(detail.deal);
   renderWorkspaceFacts(detail);
@@ -2123,7 +2135,8 @@ function paintPanel(detail) {
   }
   updateDetailTimestamp();
   let marketDisposed = false, marketLoading = false;
-  marketTermsPanel = engineMode ? null : {
+  const marketRead = new AbortController();
+  marketTermsPanel = {
     async load() {
       if (marketDisposed || marketLoading) return;
       const root = $('workspace-market-terms');
@@ -2132,18 +2145,27 @@ function paintPanel(detail) {
       marketLoading = true;
       root.textContent = 'Loading comparable terms…';
       try {
-        const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
-          ? await import('./ui-market-cutover.generated.js') : await import('./ui-market.generated.js');
-        if (marketDisposed) return;
         const element = document.createElement('div');
-        const mounted = mountMarketTerms(element, { client: state.client, entityRef: detail.deal.id, submarket: detail.deal.submarket, useType: detail.deal.use_type, dealName: ref => { const match = state.deals.get(ref); return match ? dealTitle(match) : null; } });
+        let mounted;
+        if (engineMode) {
+          // A slow markets list costs the Market pre-fill, never the tab.
+          const prefill = readWithDeadline(() => engineMarket(detail.deal, marketRead.signal), { timeoutMs: 2000 }).catch(() => null);
+          const [{ mountCompareTerms }, market] = await Promise.all([import('./ui-compare-terms.generated.js'), prefill]);
+          if (marketDisposed) return;
+          mounted = mountCompareTerms(element, { request: sessionFetch, market });
+        } else {
+          const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
+            ? await import('./ui-market-cutover.generated.js') : await import('./ui-market.generated.js');
+          if (marketDisposed) return;
+          mounted = mountMarketTerms(element, { client: state.client, entityRef: detail.deal.id, submarket: detail.deal.submarket, useType: detail.deal.use_type, dealName: ref => { const match = state.deals.get(ref); return match ? dealTitle(match) : null; } });
+        }
         marketTermsViews.set(detail.deal.id, { element, mounted });
         root.replaceChildren(element);
       } catch { if (!marketDisposed) root.textContent = 'Could not load comparable terms. Try again.'; }
       finally { marketLoading = false; }
     },
     refresh() { return marketTermsViews.get(detail.deal.id)?.mounted.refresh(); },
-    dispose() { marketDisposed = true; },
+    dispose() { marketDisposed = true; marketRead.abort(); },
   };
   const toursParams = new URLSearchParams(location.search);
   const linkedProperty = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;

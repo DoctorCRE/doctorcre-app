@@ -334,8 +334,13 @@ button.client-portal-link:disabled { cursor: wait; }
 .market-terms-table { width:100%; border-collapse:collapse; font-size:.875rem; }
 .market-terms-table th, .market-terms-table td { padding:.6rem; text-align:left; vertical-align:top; border-bottom:1px solid var(--border); overflow-wrap:anywhere; }
 .market-terms-table .superseded { opacity:.65; }
+.compare-terms :is(input:not([type="checkbox"]), select, .btn) { min-height:44px; box-sizing:border-box; }
+.compare-terms select { border:var(--hairline-width) solid var(--hairline-strong); border-radius:var(--radius-2); background:var(--surface-1); color:var(--fg); }
+.compare-terms .compare-terms-check { display:flex; align-items:center; gap:var(--space-2); min-height:44px; }
+.compare-terms .compare-terms-check input { width:24px; height:24px; margin:0; }
+.compare-terms .market-terms-table a { display:inline-flex; align-items:center; min-height:44px; }
 @media (max-width: 700px) {
-  .market-filters label, .market-filters input { width:100%; }
+  .market-filters label, .market-filters input, .compare-terms .market-filters select { width:100%; }
   .market-terms-table, .market-terms-table tbody, .market-terms-table tr, .market-terms-table td { display:block; width:100%; }
   .market-terms-table thead { display:none; }
   .market-terms-table tr { border:1px solid var(--border); margin:1rem 0; }
