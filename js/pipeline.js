@@ -3,6 +3,7 @@ import { createDayStore } from '../tours/day-store.js';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
 import { cardDueLabel } from './ui-card-due.generated.js';
+import { bindCardQuickMenu } from './ui-card-menu.generated.js';
 import {
   autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
   renderDealItems, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt,
@@ -425,7 +426,7 @@ function renderBoard() {
   $('closedDealsView').hidden = !['closed','lost'].includes(state.view);
   $('parkedToggle').hidden = ['closed','lost'].includes(state.view);
   if (['closed','lost'].includes(state.view)) { renderClosedDeals(); return; }
-  if (board.dataset.pressed === 'true' || board.querySelector('[data-dragging="true"]')) { state.paintDeferred = true; return; }
+  if (board.dataset.pressed === 'true' || board.dataset.quickMenuOpen === 'true' || board.querySelector('[data-dragging="true"]')) { state.paintDeferred = true; return; }
   state.paintDeferred = false;
   const rows = visibleBoardDeals();
   setDocFilters({ owner: state.personalScope ? state.selfActor : state.filter, filter: state.scopeFilter });
@@ -2557,6 +2558,22 @@ function wireBoard() {
   };
   addEventListener('pointerup', release, true);
   addEventListener('pointercancel', release, true);
+
+  // Right-click or long-press on a card offers that card's own controls.
+  const quickControls = [
+    ['Open', '.card-open'], ['Revive', '[data-revive]'], ['Undo', '[data-undo-phase]'], ['Client website', '[data-open-client-website]'],
+  ];
+  bindCardQuickMenu(board, {
+    card: '.kanban-card',
+    name: card => card.querySelector('.card-open')?.textContent?.trim() || '',
+    actions: card => (card.classList.contains('deal-row') ? quickControls : quickControls.slice(0, 1))
+      .map(([label, selector]) => ({ label, control: card.querySelector(selector) }))
+      .filter(action => action.control && action.control.getAttribute('aria-disabled') !== 'true'),
+  });
+  board.addEventListener('quickmenuclose', () => {
+    // eslint-disable-next-line no-restricted-syntax -- 1 deferred board paint after the quick menu closes, only when paintDeferred is set; 0 HTTP reads.
+    if (state.paintDeferred) setTimeout(renderBoard);
+  });
 
   board.addEventListener('dragstart', (event) => {
     const card = event.target.closest('.kanban-card');
