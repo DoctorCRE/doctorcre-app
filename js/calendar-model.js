@@ -133,7 +133,13 @@ export function parseCalendarState(search, today) {
 }
 
 /** The days a state shows. */
-export const calendarLayout = ({ view, anchor }) => ({ month: monthGrid, week: weekStrip, day: dayStrip })[view](anchor);
+export function calendarLayout({ view, anchor }) {
+  switch (view) {
+    case "day": return dayStrip(anchor);
+    case "week": return weekStrip(anchor);
+    default: return monthGrid(anchor);
+  }
+}
 
 /** A move that leaves the open day outside the shown period closes it, so the sheet never shows a day the grid does not. */
 export function settleOpenDay(state) {
