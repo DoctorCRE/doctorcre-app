@@ -750,7 +750,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`si
   await page.locator('.deal-updates').scrollIntoViewIfNeeded();
   await page.screenshot({path:join(evidence,`${width}-${theme}-summary.png`),animations:'disabled'});
   await page.locator('.updates-history > summary').click();
-  await page.evaluate(() => scrollTo(0,220));
+  await page.evaluate(() => { document.getElementById('appMainSlot').scrollTo(0,220); scrollTo(0,220); });
   await page.screenshot({ path: join(evidence, `${width}-${theme}-scrolled.png`), animations: 'disabled' });
   const titleHitTest = await page.locator('#panelTitle').evaluate(title => {
     const range = document.createRange(); range.selectNodeContents(title);
@@ -759,7 +759,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`si
       const hit = document.elementFromPoint(x, (rect.top + rect.bottom) / 2);
       return {x, visible: hit === title || title.contains(hit)};
     }));
-    return {scrollTop: scrollY, text: text.toJSON(), hits};
+    return {scrollTop: scrollY + document.getElementById('appMainSlot').scrollTop, text: text.toJSON(), hits};
   });
   await writeFile(join(evidence, `${width}-${theme}-hit-test.json`), JSON.stringify({...titleHitTest, header}, null, 2));
   assert.ok(titleHitTest.scrollTop > 100, 'exercise the sticky header after scrolling');

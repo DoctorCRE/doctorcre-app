@@ -61,6 +61,9 @@ test('with ?ui=react a partner can use the stage workspace without losing the pa
   await page.locator('#appLayout .workspace-shell').waitFor();
   await page.locator('#invoiceSearch').waitFor({ state: 'visible' });
   assert.equal(bundleRequests.length, 1);
+  assert.equal(await page.locator('#appLayout .workspace-group').count(), 2);
+  await page.getByRole('button', { name: 'Workspace sidebar', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('#appSidebar').hidden);
   assert.equal(await page.locator('#appLayout .workspace-group').count(), 3);
   assert.equal(await page.locator('#appLayout .invoice-workspace').count(), 1);
   await page.evaluate(() => {
