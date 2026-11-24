@@ -213,6 +213,8 @@
 .deal-step-editor summary, .deal-update-form summary { cursor:pointer; min-height:var(--touch); line-height:var(--touch); }
 .deal-document-upload label { display:grid; gap:var(--space-1); min-width:0; }
 .deal-document-upload select { max-width:100%; width:100%; }
+.deal-document-upload input[type="file"] { min-height:var(--touch); padding:0; border:0; background:transparent; color:var(--fg-muted); font:inherit; font-size:var(--font-size-1); }
+.deal-document-upload input[type="file"]::file-selector-button { min-height:var(--touch); margin-inline-end:var(--space-3); padding:var(--space-2) var(--space-4); border:var(--hairline-width) solid var(--hairline-strong); border-radius:var(--radius-2); background:var(--surface-1); color:var(--fg); font-size:var(--font-size-1); font-weight:var(--font-weight-strong); cursor:pointer; }
 .deal-next-step-fields { display:grid; align-items:start; gap:var(--space-2); }
 .deal-update-form button { min-height:44px; justify-self:start; }
 .deal-update-form [role="status"]:empty { display:none; }
@@ -279,16 +281,17 @@ button.client-portal-link:disabled { cursor: wait; }
 .deal-workspace { width: 100%; max-width: none; min-width: 0; overflow-wrap: anywhere; }
 .deal-workspace[hidden], .workspace-open #main { display: none; }
 .workspace-open #appTabsSlot .board-toolbar, .workspace-open #appSidebarSlot > section { display: none; }
-.workspace-header { position: sticky; top: var(--tabbar-height); z-index: 70; background: var(--ground); border-bottom: 1px solid var(--hairline); padding-block: var(--space-3) 0; }
-.workspace-heading { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: var(--space-2); }
+/* Outranks deal-timeline.css's `.deal-detail > header`, which would pin it under the tab bar. */
+.deal-detail > .workspace-header { position: sticky; top: var(--tabbar-height); z-index: 70; padding: var(--space-2) var(--space-3) 0; background: var(--ground); border-bottom: 1px solid var(--hairline); }
+.workspace-heading { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: var(--space-3); }
 .workspace-heading > button { justify-self: start; }
-.workspace-heading h1 { grid-column: 1 / -1; margin: 0; font-size: var(--font-size-4); }
+.workspace-heading h1 { margin: 0; font-size: var(--font-size-3); }
 .workspace-facts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: var(--space-3); margin-block: var(--space-3); }
 .workspace-facts dt { color: var(--fg-muted); font-size: var(--font-size-1); }
 .workspace-facts dd { margin: 0; }
 .workspace-facts .workspace-critical-date { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); }
-#workspaceTabs { display: flex; overflow-x: auto; gap: var(--space-2); }
-.workspace-tab { flex: none; min-height: 44px; min-width: 44px; padding: var(--space-3); color: var(--fg-muted); background: transparent; border: 0; border-bottom: 3px solid transparent; font: inherit; white-space: nowrap; cursor: pointer; }
+#workspaceTabs { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.workspace-tab { flex: none; min-height: 44px; min-width: 44px; padding: var(--space-2); color: var(--fg-muted); background: transparent; border: 0; border-bottom: 3px solid transparent; font: inherit; white-space: nowrap; cursor: pointer; }
 .workspace-tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
 .workspace-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .deal-workspace #panelBody { padding-block: var(--space-4); }
@@ -306,9 +309,9 @@ button.client-portal-link:disabled { cursor: wait; }
 .workspace-events li { border-bottom: 1px solid var(--hairline); padding-block: var(--space-4); }
 .workspace-events small { margin-inline-start: var(--space-3); color: var(--fg-muted); }
 @media(max-width:650px) {
-  .workspace-header { position: static; }
+  .deal-detail > .workspace-header { top: 0; }
   .workspace-heading { gap: var(--space-2); }
-  .workspace-heading h1 { width: 100%; font-size: var(--font-size-3); }
+  .workspace-heading h1 { grid-column: 1 / -1; }
   .workspace-facts { grid-template-columns: auto auto minmax(0, 1fr); gap: 0 var(--space-2); margin-block: var(--space-1); font-size: var(--font-size-1); }
   .workspace-facts div { min-width: 0; white-space: nowrap; }
   .workspace-facts .workspace-client { grid-column: 1 / -1; }
@@ -319,7 +322,7 @@ button.client-portal-link:disabled { cursor: wait; }
   .workspace-facts dd { display: inline; }
   .workspace-facts .workspace-client-labeled { display: flex; align-items: baseline; gap: var(--space-1); }
   .workspace-facts .workspace-client-labeled dt { position: static; width: auto; height: auto; clip-path: none; }
-  #workspaceTabs { flex-wrap: wrap; gap: 0; overflow: visible; }
+  #workspaceTabs { gap: 0; }
   .workspace-tab { max-inline-size: 40%; padding: var(--space-1); font-size: var(--font-size-1); white-space: normal; }
   .workspace-events li { padding-block: var(--space-2); }
 }
@@ -365,7 +368,7 @@ button.client-portal-link:disabled { cursor: wait; }
 .tour-editor .tour-fields { max-inline-size: 42rem; }
 html:has(#workspace-tours:not([hidden]) .tour-editor) { scroll-padding-bottom: var(--layout-bottom, 0px); }
 @media (max-width: 760px), (max-height: 600px) {
-  .deal-workspace:has(#workspace-tours:not([hidden]) .tour-editor) .workspace-header { position: static; }
+  .deal-workspace:has(#workspace-tours:not([hidden]) .tour-editor) > .workspace-header { position: static; }
 }
 .tour-editor input[type="date"], .tour-editor input[type="time"] { max-inline-size: 14rem; }
 .tour-editor h3 { margin: 0; font-size: var(--font-size-2); }

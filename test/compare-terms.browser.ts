@@ -189,12 +189,17 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
           .getByText("No offer rounds or signed leases are recorded on deals in this market yet.", { exact: true })
           .waitFor();
         await page.getByText("All recorded history", { exact: true }).waitFor();
+        assert.equal(
+          await page.getByText(/Compared with all markets/).count(),
+          0,
+          "a market's own terms never say all markets",
+        );
         await page.screenshot({ path: `${shots}/${width}-${theme}-empty-market.png`, fullPage: true });
 
         await page.getByLabel("Market").fill("");
         await page.getByRole("button", { name: "Compare" }).click();
         await page.getByText("No offer rounds or signed leases are recorded yet.", { exact: true }).waitFor();
-        await page.getByText("All markets · All recorded history", { exact: true }).waitFor();
+        await page.getByText("Compared with all markets · All recorded history", { exact: true }).waitFor();
         assert.equal(
           (await page.evaluate(() => Reflect.get(window, "compareTest").paths)).at(-1),
           "/api/engine/market-terms",
