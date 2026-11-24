@@ -44,7 +44,7 @@ test('email card shows its subject, absolute Chicago date and waiting age', asyn
   await view.refresh();
   assert.match(container.textContent, /Demo follow-up/);
   assert.match(container.textContent, /Dana Demo/);
-  assert.match(container.textContent, /Oct 1, 7:00 AM CDT/);
+  assert.match(container.textContent, /Oct 1, 7:00 AM Central/);
   assert.match(container.textContent, /days? waiting/);
 });
 

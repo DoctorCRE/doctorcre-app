@@ -920,7 +920,7 @@ for (const width of [390, 1440]) test(`Follow-up destinations retain exact steps
     } else await link.click();
     const dialog = page.getByRole('dialog', { name: isProspect ? 'Example Practice' : 'Example Contact' });
     const step = dialog.locator(':focus');
-    await step.getByText(/Set by Example Partner · Nov 3.*10:00 AM CST · From an? (email|meeting)/).waitFor();
+    await step.getByText(/Set by Example Partner · Nov 3.*10:00 AM Central · From an? (email|meeting)/).waitFor();
     assert.match(await step.innerText(), new RegExp(title));
     assert.match(await step.innerText(), isProspect ? /From an email/ : /From a meeting/);
     if (id === completedStep) assert.match(await step.innerText(), /Done/);

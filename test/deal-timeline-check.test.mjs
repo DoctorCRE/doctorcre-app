@@ -218,11 +218,11 @@ test('rows with equal instants keep the order they arrived in', () => {
 });
 
 test('recorded instants display in Central time with the zone named', () => {
- assert.equal(sourceTime('2026-10-01T12:00:00Z', new Date('2026-10-30T12:00:00Z')),'Oct 1, 7:00 AM CDT');
- assert.equal(sourceTime('2026-12-01T12:00:00Z', new Date('2027-01-01T12:00:00Z')),'Dec 1, 2026, 6:00 AM CST');
+ assert.equal(sourceTime('2026-10-01T12:00:00Z', new Date('2026-10-30T12:00:00Z')),'Oct 1, 7:00 AM Central');
+ assert.equal(sourceTime('2026-12-01T12:00:00Z', new Date('2027-01-01T12:00:00Z')),'Dec 1, 2026, 6:00 AM Central');
  assert.equal(sourceTime(null),'Time unavailable');
  const html = renderDealUpdates({thread:[{id:'n',at:'2026-10-01T12:00:00Z',text:'Synthetic note'}]});
- assert.match(new JSDOM(html).window.document.querySelector('.deal-note time').textContent,/7:00 AM CDT$/);
+ assert.match(new JSDOM(html).window.document.querySelector('.deal-note time').textContent,/7:00 AM Central$/);
 });
 
 test('recorded LOI evidence survives a missing due date without claiming the kind is absent', () => {

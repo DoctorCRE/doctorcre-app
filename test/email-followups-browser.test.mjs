@@ -73,7 +73,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     const defer = card.locator('article').first().getByRole('button', { name: 'Not now', exact: true });
     assert.ok((await defer.boundingBox()).height >= 44, 'actions are full touch targets');
     assert.equal(await card.getByRole('button', { name: 'Wrong deal', exact: true }).count(), 0);
-    assert.match(await card.locator('.email-source').first().innerText(), /Dana Demo · Oct 26, .* CDT · \d+ days waiting/);
+    assert.match(await card.locator('.email-source').first().innerText(), /Dana Demo · Oct 26, .* Central · \d+ days waiting/);
     const first = card.locator('article').first();
     await first.getByRole('button', { name: 'Confirm', exact: true }).click();
     await first.getByRole('button', { name: 'Confirm change', exact: true }).waitFor();

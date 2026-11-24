@@ -11,10 +11,10 @@ test('ages cover minutes, hours, days and missing or future timestamps', () => {
   assert.equal(relativeAge('bad timestamp', now), 'time unavailable');
 });
 
-test('absolute source time uses Chicago and includes its timezone and omits the current year', () => {
+test('absolute source time uses Chicago and says Central and omits the current year', () => {
   const now = new Date('2026-10-01T15:00:00Z');
-  assert.equal(sourceTime('2026-10-01T13:00:00Z', now), 'Oct 1, 8:00 AM CDT');
-  assert.equal(sourceTime('2025-10-01T13:00:00Z', now), 'Oct 1, 2025, 8:00 AM CDT');
+  assert.equal(sourceTime('2026-10-01T13:00:00Z', now), 'Oct 1, 8:00 AM Central');
+  assert.equal(sourceTime('2025-10-01T13:00:00Z', now), 'Oct 1, 2025, 8:00 AM Central');
   assert.equal(sourceTime(null, now), 'Time unavailable');
 });
 
@@ -50,13 +50,13 @@ test('missing source preserves default and caller-specific unavailable labels', 
 test('valid leap days offsets and fractional seconds preserve Chicago and elapsed labels', () => {
   const now = new Date('2024-03-01T12:00:00Z');
   for (const value of ['2024-02-29T12:00:00Z', '2024-02-29T06:00:00-06:00', '2024-02-29T17:30:00+05:30', '2024-02-29T12:00:00.000000Z']) {
-    assert.equal(sourceTime(value, now), 'Feb 29, 6:00 AM CST');
+    assert.equal(sourceTime(value, now), 'Feb 29, 6:00 AM Central');
     assert.equal(relativeAge(value, now), '1d ago');
     assert.equal(waitingDays(value, now), '1 day waiting');
   }
   assert.equal(relativeAge('2024-02-29T12:00:00.123456Z', now), '23h ago');
   assert.equal(waitingDays('2024-02-29T12:00:00.123456Z', now), '0 days waiting');
-  assert.equal(sourceTime('2000-02-29T12:00:00Z', now), 'Feb 29, 2000, 6:00 AM CST');
+  assert.equal(sourceTime('2000-02-29T12:00:00Z', now), 'Feb 29, 2000, 6:00 AM Central');
   assert.equal(relativeAge('2026-03-11T12:00:00Z', clock), 'just now');
   assert.equal(waitingDays('2026-03-11T12:00:00Z', clock), '0 days waiting');
 });
