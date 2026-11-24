@@ -104,6 +104,8 @@ test("the open day stays only while the shown period holds it", () => {
   assert.equal(settleOpenDay({ ...open, view: "week", anchor: "2026-10-29" }).day, "2026-10-29", "its week keeps it");
   assert.equal(settleOpenDay({ ...open, view: "week" }).day, null, "another week closes it");
   assert.equal(parseCalendarState("?view=month&d=2026-10-01&day=2026-11-12", "2026-10-20").day, null, "an address cannot open a hidden day");
+  assert.deepEqual(parseCalendarState("?day=2026-12-15", "2026-10-20"), { view: "month", anchor: "2026-12-15", day: "2026-12-15" },
+    "a link with a day and no anchor opens that day's month");
 });
 
 test("stepping moves a month or a week, and the motion direction follows the step", () => {

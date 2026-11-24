@@ -116,8 +116,9 @@ export function weekStrip(anchor) {
 export function parseCalendarState(search, today) {
   const params = new URLSearchParams(search || "");
   const view = CALENDAR_VIEWS.includes(params.get("view")) ? params.get("view") : "month";
-  const anchor = toDay(params.get("d")) || today;
-  return settleOpenDay({ view, anchor, day: toDay(params.get("day")) });
+  const day = toDay(params.get("day"));
+  const anchor = toDay(params.get("d")) || day || today;
+  return settleOpenDay({ view, anchor, day });
 }
 
 /** The days a state shows. */

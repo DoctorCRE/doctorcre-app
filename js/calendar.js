@@ -18,8 +18,8 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_CHIP_LIMIT = 3;
-/** Matches the bottom-sheet breakpoint in css/calendar.css; wider, the sheet sits beside the grid. */
-const PHONE_SHEET = window.matchMedia("(max-width: 640px)");
+/** css/calendar.css uses `(width > 640px)`, the exact inverse, for the sheet beside the grid. */
+const PHONE_SHEET = window.matchMedia("(width <= 640px)");
 
 /** One place holds what this page believes. */
 const view = {
@@ -155,9 +155,15 @@ function paintSheet() {
   const want = sheetMode();
   const shown = !sheet.open ? "closed" : sheet.matches(":modal") ? "modal" : "beside";
   if (want === shown) return;
+  const focused = document.activeElement;
   if (sheet.open) sheet.close();
   if (want === "modal") sheet.showModal();
-  else if (want === "beside") sheet.show();
+  else if (want === "beside") {
+    // show() moves focus into the sheet; beside the grid, focus stays where it was so the arrows keep moving days.
+    sheet.show();
+    if (focused && focused !== document.body) focused.focus({ preventScroll: true });
+    else document.activeElement?.blur();
+  }
 }
 
 function recordLinks(entry) {
@@ -401,9 +407,10 @@ function wire() {
   // A phone's back gesture asks the modal sheet to close; the open day decides, so the dialog never closes itself.
   sheet.addEventListener("cancel", (event) => { event.preventDefault(); closeDay(); });
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeDay(); });
-  // Escape inside the page closes the open day and goes no further, so a menu outside it keeps its own Escape.
-  $("main").addEventListener("keydown", (event) => {
+  // Escape inside the page, or with nothing focused, closes the open day and goes no further, so a menu outside it keeps its own Escape.
+  document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || event.defaultPrevented || !view.state.day) return;
+    if (event.target !== document.body && !$("main").contains(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
     closeDay();

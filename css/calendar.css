@@ -112,7 +112,7 @@
 /* ------------------------------------------------------------- day sheet */
 .cal-day-sheet[open] { position: fixed; z-index: 85; inset: var(--tabbar-height) 0 0 auto; display: flex; flex-direction: column; width: min(400px, 100vw); max-width: none; height: auto; max-height: none; margin: 0; overflow: hidden; overflow-wrap: anywhere; border-width: 0 0 0 var(--hairline-width); border-radius: 0; }
 /* Beside the grid the sheet is not modal, so it stacks over the tab bar (80) by z-index and the page gives up its width so no day sits under it. */
-@media (min-width: 641px) { .app-layout-main:has(> .shell > .cal-day-sheet[open]) { padding-inline-end: min(400px, 100vw); } }
+@media (width > 640px) { .app-layout-main:has(> .shell > .cal-day-sheet[open]) { padding-inline-end: min(400px, 100vw); } }
 .cal-day-sheet::backdrop { background: color-mix(in srgb, var(--scrim) 40%, transparent); }
 .cal-day-sheet > header { flex: none; align-items: center; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5); }
 .cal-day-sheet h2 { margin: 0; font: var(--font-weight-strong) var(--font-size-2)/1.3 var(--font-text); }

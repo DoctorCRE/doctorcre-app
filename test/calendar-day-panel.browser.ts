@@ -143,7 +143,7 @@ test("A chosen day opens on screen from every entry point and closing it returns
           await expect(page.locator("#dayPanel")).toBeHidden();
           await page.keyboard.press("Enter");
           await expectSheetOnScreen(page, /Oct 27/);
-          await expect(page.locator("#dayPanel :focus")).toHaveCount(1);
+          await expect(next).toBeFocused();
           await page.keyboard.press("Escape");
           await expect(next).toBeFocused();
         });
@@ -265,6 +265,67 @@ test("The open day alone decides the sheet through month moves, Escape, a late c
     await dayButton("2026-10-22").focus();
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
+  });
+
+  await t.test("opening a day beside the grid keeps focus on the day, in this month or another", async () => {
+    await fresh();
+    await dayButton("2026-10-22").click();
+    await expect(page.locator("#dayPanelTitle")).toHaveText(/Oct 22/);
+    await expect(dayButton("2026-10-22")).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(dayButton("2026-10-23")).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#dayPanelTitle")).toHaveText(/Oct 23/);
+    await expect(dayButton("2026-10-23")).toBeFocused();
+    await page.locator('#calGrid .cal-day[data-out-month="true"] .cal-day-open[data-select-day="2026-11-01"]').click();
+    await expect(page.locator("#dayPanelTitle")).toHaveText(/Nov 1\b/);
+    await expect(dayButton("2026-11-01")).toBeFocused();
+  });
+
+  await t.test("Escape closes the beside sheet when nothing has focus", async () => {
+    await fresh();
+    await dayButton("2026-10-22").click();
+    await expect(sheet).toBeVisible();
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    });
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+  });
+
+  await t.test("a width between the phone and wide breakpoints still keeps the sheet off the grid", async () => {
+    // A viewport is whole CSS pixels; a frame zoomed to 2 lays its page out at 640.5 px.
+    const host = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+    try {
+      await openCalendar(host, server, "sheet-fraction", "light", "view=month&d=2026-10-01");
+      await host.route(`${app}/calendar?**`, async (route) => {
+        const url = new URL(route.request().url());
+        const response = await host.request.fetch(`${server.origin}${url.pathname}${url.search}`);
+        const headers = { ...response.headers() };
+        delete headers["x-frame-options"];
+        delete headers["content-security-policy"];
+        await route.fulfill({ response, headers });
+      });
+      await host.evaluate((src) => {
+        const frame = document.createElement("iframe");
+        Object.assign(frame.style, { width: "640.5px", height: "400px", border: "0", zoom: "2" });
+        frame.src = src;
+        document.body.replaceChildren(frame);
+      }, `${app}/calendar?view=month&d=2026-10-01&day=2026-10-22`);
+      const frame = host.frameLocator("iframe");
+      await expect(frame.locator("#calAsOf")).toContainText("Updated");
+      await expect(frame.locator("#dayPanel")).toBeVisible();
+      const fit = await frame.locator("#dayPanel").evaluate((sheet) => ({
+        between: matchMedia("(width > 640px) and (width < 641px)").matches,
+        modal: sheet.matches(":modal"),
+        gridRight: document.querySelector("#calGrid")?.getBoundingClientRect().right ?? Number.POSITIVE_INFINITY,
+        sheetLeft: sheet.getBoundingClientRect().left,
+      }));
+      assert.ok(fit.between, "the frame sits between the two whole-pixel breakpoints");
+      assert.ok(fit.modal || fit.gridRight <= fit.sheetLeft, `a beside sheet clears the grid: ${JSON.stringify(fit)}`);
+    } finally {
+      await host.close();
+    }
   });
 
   await t.test("closing one day and opening the next in the same task leaves the next day open", async () => {
