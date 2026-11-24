@@ -13,7 +13,7 @@ type QuickMenuOptions = {
   /** The card's name for the menu label. Defaults to the card's own label. */
   name?: (card: HTMLElement) => string;
 };
-type OpenMenu = { root: HTMLElement; card: HTMLElement; menu: HTMLElement; focusTarget: () => HTMLElement };
+type OpenMenu = { root: HTMLElement; card: HTMLElement; menu: HTMLElement; focusTarget: () => HTMLElement; anchor: DOMRect };
 
 const LONG_PRESS_MS = 500;
 // How long after the finger lifts a long-press still swallows its own click.
@@ -156,9 +156,9 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
       return target?.isConnected ? target : card;
     };
     doc.body.append(menu);
-    current = { root, card, menu, focusTarget };
-    root.dataset.quickMenuOpen = "true";
     const anchor = card.getBoundingClientRect();
+    current = { root, card, menu, focusTarget, anchor };
+    root.dataset.quickMenuOpen = "true";
     place(menu, at?.x ?? anchor.left + EDGE_PX, at?.y ?? anchor.top + Math.min(anchor.height, 40));
     items(menu)[0]?.focus({ preventScroll: true });
   }
@@ -207,7 +207,9 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
     { signal },
   );
 
-  root.addEventListener(
+  // On the document like the rest of the press tracking: a long-press is not a tap
+  // target, so the board's own tap listeners stay the phone check's whole story.
+  doc.addEventListener(
     "pointerdown",
     (event) => {
       cancelPress();
@@ -292,13 +294,13 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
     touchHold = null;
     if (current?.root === root) closeMenu();
   };
-  // Only a scroll that moves the card away from its menu closes it: the page,
-  // or a container holding the card. A scroll elsewhere (a chip bar) does not.
-  const scrolled = (event: Event) => {
-    const target = event.target;
+  // Only a scroll that moves the card away from its menu closes it. Scroll
+  // anchoring fires scroll events while the card stays put.
+  const scrolled = () => {
     const open = current?.root === root ? current : null;
-    if (open && target instanceof Node && target !== doc && !target.contains(open.card)) return;
-    dismiss();
+    if (!open) return dismiss();
+    const now = open.card.getBoundingClientRect();
+    if (Math.abs(now.top - open.anchor.top) >= 1 || Math.abs(now.left - open.anchor.left) >= 1) dismiss();
   };
   view?.addEventListener("scroll", scrolled, { signal, capture: true, passive: true });
   view?.addEventListener("resize", dismiss, { signal });

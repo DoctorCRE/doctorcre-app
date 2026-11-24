@@ -7,8 +7,8 @@ import { chromium } from "./browser-harness.mjs";
 
 // Synthetic fixture data only: the seed's demo deals, with one parked so a list
 // row carries a second control (Revive) for the menu to offer.
-const TILE = { id: "d01", name: "Demo Dental North", labels: ["Open"] };
-const PARKED = { id: "d02", name: "Demo Pediatrics East", labels: ["Open", "Revive"] };
+const TILE = { id: "d14", name: "Demo Surgical Practice", labels: ["Open"] };
+const PARKED = { id: "d06", name: "Demo Orthodontics South", labels: ["Open", "Revive"] };
 
 async function openDeals(page: Page, origin: string, theme: string, view: "board" | "list") {
   await page.addInitScript(
@@ -247,7 +247,10 @@ test("a long-press on a phone opens the card menu without opening the deal or dr
         const outside = await outsidePoint(page);
         await page.touchscreen.tap(outside.x, outside.y);
         assert.equal(await page.getByRole("menu").count(), 0);
-        await page.touchscreen.tap(point.x, point.y);
+        // Closing repaints the board, so find the card again before tapping it.
+        await card.scrollIntoViewIfNeeded();
+        const again = await plainPoint(card);
+        await page.touchscreen.tap(again.x, again.y);
         await page.waitForURL((url) => url.searchParams.get("deal") === subject.id);
         assert.equal(await page.getByRole("menu").count(), 0);
       } finally {
