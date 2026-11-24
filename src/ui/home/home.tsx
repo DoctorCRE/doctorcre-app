@@ -724,6 +724,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         key={cardKey(item)}
         className={presentation || isDoneStep(item) ? "inbox-row inbox-row-explained" : "inbox-row"}
         data-inbox-row={item.item_id}
+        data-shortcut-card={home ? "" : undefined}
         data-current={item_id === item.item_id || undefined}
         onTouchStart={(event) => {
           const touch = event.touches[0];
@@ -782,6 +783,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           >
             {canOpen ? (
               <Link
+                data-shortcut-open={home ? "" : undefined}
                 aria-current={item_id === item.item_id ? "true" : undefined}
                 aria-expanded={directUrl ? undefined : open}
                 aria-disabled={openingLocked}
