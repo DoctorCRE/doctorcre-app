@@ -1539,6 +1539,30 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(state.draft.body, 'Edited sample draft.');
 });
 
+for (const width of [390, 1440]) test(`Home keeps other cards usable while a review is open at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  const draft = draftCard();
+  const other = step(30, 'Call the practice manager', { card_id: 'other' });
+  state.dashboard = true;
+  state.items = [draft, other];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  const card = title => page.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title }) });
+  const button = (title, name) => card(title).locator(':scope > .inbox-actions').getByRole('button', { name, exact: true });
+  for (const name of ['Snooze', 'Drop']) assert.equal(await button(draft.title, name).isDisabled(), true, `the card under review keeps ${name} locked`);
+  if (process.env.HOME_THREAD_SCREENSHOTS) {
+    await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
+    await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `review-open-${width}.png`), fullPage: true });
+  }
+  for (const name of ['Snooze', 'Drop', 'Mark done']) assert.equal(await button(other.title, name).isDisabled(), false, name);
+  await button(other.title, 'Snooze').click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('status').filter({ hasText: `Snoozed: ${other.title}.` }).waitFor();
+  assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
+});
+
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home shows a stale edit alongside the saved draft at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
   const draft = draftCard();
