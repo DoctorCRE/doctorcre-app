@@ -102,7 +102,8 @@
 .cal-pulse[data-pulse="calm"] { background: var(--status-info); }
 .cal-pulse[data-pulse="still"] { border: 1.5px solid var(--fg-quiet); background: transparent; }
 
-.cal-day-panel { overflow-wrap: anywhere; }
+/* The panel rides beside the month as it scrolls, below the sticky tab bar. */
+.cal-day-panel { position: sticky; top: calc(var(--tabbar-height) + var(--space-4)); max-height: calc(100dvh - var(--tabbar-height) - 2 * var(--space-4)); overflow-y: auto; overflow-wrap: anywhere; scroll-margin-top: calc(var(--tabbar-height) + var(--space-4)); }
 .cal-day-panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-right: calc(-1 * var(--space-2)); }
 .cal-day-panel h2 { margin: 0; font: var(--font-weight-strong) var(--font-size-2)/1.3 var(--font-text); }
 .cal-extras { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--space-4) var(--space-6); margin-top: var(--space-5); }
@@ -140,6 +141,7 @@
 
 @media (max-width: 1023px) {
   .cal-layout, .cal-layout:has(> .cal-day-panel:not([hidden])) { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .cal-day-panel { position: static; max-height: none; overflow-y: visible; }
 }
 @media (pointer: coarse) {
   .cal-day { --cal-chip: var(--touch); }
@@ -152,7 +154,7 @@
   .cal-weekday { display: none; }
   .cal-week { display: block; }
   .cal-week + .cal-week { border-top: 0; }
-  .cal-grid .cal-day, .cal-grid[data-view="month"] .cal-day { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: start; gap: var(--space-2); height: auto; min-height: var(--touch); overflow: visible; padding: var(--space-1) var(--space-2); border-left: 0; border-bottom: var(--hairline-width) solid var(--hairline); }
+  .cal-grid[data-view] .cal-day { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: start; gap: var(--space-2); height: auto; min-height: var(--touch); overflow: visible; padding: var(--space-1) var(--space-2); border-left: 0; border-bottom: var(--hairline-width) solid var(--hairline); }
   .cal-grid[data-view="month"] .cal-day:is([data-out-month="true"], [data-empty="true"]:not([data-today="true"], [aria-selected="true"])) { display: none; }
   .cal-day-open { flex-direction: column; justify-content: center; align-self: start; gap: 2px; }
   .cal-grid[data-view="month"] .cal-day-weekday { display: inline; font-weight: var(--font-weight-regular); }

@@ -25,7 +25,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
   t.after(() => browser.close());
 
   for (const status of [200, 401, 502, 503]) await t.test(String(status), async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 844 }, reducedMotion: 'reduce' });
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
     await page.clock.install({ time: new Date('2026-10-20T15:00:00Z') });
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
@@ -94,7 +94,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await expect(page.getByRole('main').getByRole('button', { name: /^Refresh/ })).toHaveCount(1);
         await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
         await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
-        await page.locator('.cal-day-open[data-select-day="2026-10-21"]').click();
+        await page.locator('.cal-day-open[data-select-day="2026-10-20"]').press('ArrowRight');
         await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
         await expect(page.locator('#dayPanelBody')).not.toContainText('No critical dates');
         await expect(page.locator('#calLive')).toContainText('may be incomplete');
@@ -119,7 +119,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
         await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
         await expect(page.locator('#calAsOf')).toHaveText(retriedAt);
-        await page.locator('.cal-day-open[data-select-day="2026-10-21"]').click();
+        await page.locator('.cal-day-open[data-select-day="2026-10-20"]').press('ArrowRight');
         await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
         failAll = false;
         slowFails = false;

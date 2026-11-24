@@ -278,7 +278,7 @@ function go(next, { push = true } = {}) {
 }
 
 /** Select a day, moving the period so it is on screen. Selection replaces history. */
-function selectDay(day, { entry = null, focus = false } = {}) {
+function selectDay(day, { entry = null, focus = false, reveal = false } = {}) {
   view.focusEntry = entry;
   const currentEntry = view.result?.entries?.find(row => row.key === entry);
   selectDocRecord(currentEntry?.deal_id ? "deal" : null, currentEntry?.deal_id);
@@ -292,9 +292,29 @@ function selectDay(day, { entry = null, focus = false } = {}) {
     button?.focus({ preventScroll: true });
     button?.scrollIntoView({ block: "nearest", behavior: motionReduced() ? "auto" : "smooth" });
   }
+  if (reveal) revealDayPanel();
   const rows = view.byDay.get(day) || [];
   const incomplete = calendarPhase(view.result) === "partial" ? " This day may be incomplete." : "";
   announce(`${formatCalendarDate(day)}: ${itemCount(rows)}.${incomplete}`);
+}
+
+/** A click opens the panel where the partner can read it: beside the month, or below the phone agenda. */
+function revealDayPanel() {
+  const behavior = motionReduced() ? "auto" : "smooth";
+  $("dayPanel").scrollIntoView({ block: "nearest", behavior });
+  $("dayPanelBody").querySelector('[data-focus="true"]')?.scrollIntoView({ block: "nearest", behavior });
+}
+
+/** Closing hands focus back to the day, or to a day still shown when the phone agenda drops it. */
+function closeDayPanel() {
+  const day = view.state.day;
+  view.focusEntry = null;
+  go({ ...view.state, day: null }, { push: false });
+  const days = [...$("calGrid").querySelectorAll(".cal-day[data-out-month='false'] .cal-day-open")];
+  const shown = days.filter(button => button.checkVisibility());
+  const target = shown.find(button => button.dataset.selectDay === day) || shown.find(button => button.tabIndex === 0) || shown[0];
+  days.forEach(button => { button.tabIndex = button === target ? 0 : -1; });
+  target?.focus();
 }
 
 const ARROW_STEP = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
@@ -310,23 +330,18 @@ function wire() {
   $("calNext")?.addEventListener("click", () => go(stepAnchor(view.state, 1)));
   $("calToday")?.addEventListener("click", () => go({ ...view.state, anchor: view.today, day: view.today }));
   $("calRefresh")?.addEventListener("click", () => load());
-  $("dayPanelClose")?.addEventListener("click", () => {
-    const day = view.state.day;
-    view.focusEntry = null;
-    go({ ...view.state, day: null }, { push: false });
-    document.querySelector(`.cal-day-open[data-select-day="${day}"]`)?.focus({ preventScroll: true });
-  });
+  $("dayPanelClose")?.addEventListener("click", closeDayPanel);
   $("calNotices")?.addEventListener("click", (event) => {
     if (event.target.closest("#calRetry")) load();
   });
 
   $("calGrid")?.addEventListener("click", (event) => {
     const chip = event.target.closest(".cal-chip");
-    if (chip) { selectDay(chip.dataset.day, { entry: chip.dataset.entry }); return; }
+    if (chip) { selectDay(chip.dataset.day, { entry: chip.dataset.entry, reveal: true }); return; }
     const more = event.target.closest(".cal-more");
-    if (more) { selectDay(more.dataset.more); return; }
+    if (more) { selectDay(more.dataset.more, { reveal: true }); return; }
     const open = event.target.closest(".cal-day-open");
-    if (open) selectDay(open.dataset.selectDay);
+    if (open) selectDay(open.dataset.selectDay, { reveal: true });
   });
   $("calGrid")?.addEventListener("keydown", (event) => {
     const open = event.target.closest(".cal-day-open");
