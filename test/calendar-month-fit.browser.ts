@@ -92,19 +92,25 @@ test("The whole month fits on one screen, with or without the day sheet beside i
           const full = page.locator(`#calGrid .cal-day[data-day="${fullDay}"]`);
           const more = full.locator(".cal-more");
           await expect(more).toHaveText(/^\+\d+ more$/);
-          const shown = await full.evaluate((cell) => {
-            const box = cell.getBoundingClientRect();
-            const inside = (node: Element) => {
-              const part = node.getBoundingClientRect();
-              return part.top >= box.top && part.bottom <= box.bottom;
-            };
-            const chips = [...cell.querySelectorAll(".cal-chip")].filter((chip) => chip.checkVisibility());
-            return {
-              chips: chips.length,
-              clipped: chips.filter((chip) => !inside(chip)).length,
-              moreInside: [...cell.querySelectorAll(".cal-more")].some(inside),
-            };
-          });
+          const measure = () =>
+            full.evaluate((cell) => {
+              const box = cell.getBoundingClientRect();
+              const inside = (node: Element) => {
+                const part = node.getBoundingClientRect();
+                return part.top >= box.top && part.bottom <= box.bottom;
+              };
+              const chips = [...cell.querySelectorAll(".cal-chip")].filter((chip) => chip.checkVisibility());
+              return {
+                chips: chips.length,
+                clipped: chips.filter((chip) => !inside(chip)).length,
+                moreInside: [...cell.querySelectorAll(".cal-more")].some(inside),
+              };
+            });
+          // The week rows settle after the read lands, so wait until the cell agrees with its own "+N more".
+          await expect
+            .poll(async () => (await measure()).chips + Number((await more.textContent())?.match(/\d+/)?.[0]))
+            .toBe(fullDayItems);
+          const shown = await measure();
           assert.ok(shown.chips >= 1, "a full day shows at least one chip");
           assert.equal(shown.clipped, 0, "no chip is cut off");
           assert.ok(shown.moreInside, "+N more sits inside the day");

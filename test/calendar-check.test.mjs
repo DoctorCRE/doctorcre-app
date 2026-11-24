@@ -22,7 +22,7 @@ import { readFile } from "node:fs/promises";
 import {
   CALENDAR_VIEWS, addDays, addMonths, approach, calendarHref, calendarPhase,
   criticalDateEntries, daysBetween, entriesByDay, localToday, monthGrid, motionDirection,
-  parseCalendarState, readCalendar, settleOpenDay, stepAnchor, toDay, weekStrip,
+  parseCalendarState, readCalendar, settleOpenDay, stepAnchor, timelineBlocks, toDay, UNDATED, weekStrip,
 } from "../js/calendar-model.js";
 import { carrInterface } from "./carr-contract.mjs";
 
@@ -94,7 +94,30 @@ test("the address is the view's memory: view, anchor and selected day round-trip
   assert.deepEqual(parseCalendarState(calendarHref(state).split("?")[1], today), state);
   assert.deepEqual(parseCalendarState("?view=year&d=soon&day=2026-02-30", today), { view: "month", anchor: today, day: null });
   assert.equal(calendarHref({ view: "month", anchor: today, day: null }), "/calendar?view=month&d=2026-09-24");
-  assert.deepEqual(CALENDAR_VIEWS, ["month", "week"]);
+  assert.deepEqual(CALENDAR_VIEWS, ["month", "week", "day"]);
+  const day = parseCalendarState("?view=day&d=2026-10-05&day=undated", today);
+  assert.deepEqual(day, { view: "day", anchor: "2026-10-05", day: UNDATED }, "the undated list survives any move");
+  assert.deepEqual(parseCalendarState(calendarHref(day).split("?")[1], today), day);
+  assert.equal(stepAnchor(day, 1).anchor, "2026-10-06", "a day view steps one day");
+  assert.equal(settleOpenDay({ ...day, day: "2026-10-06" }).day, null, "a day view shows only its own day");
+});
+
+test("a day's timeline places meetings by Central minutes and puts overlaps side by side", () => {
+  const meeting = (key, at, end, all_day = false) => ({ key, at, end, all_day });
+  const blocks = timelineBlocks([
+    meeting("a", "2026-10-20T14:00:00Z", "2026-10-20T14:30:00Z"),
+    meeting("b", "2026-10-20T15:00:00Z", "2026-10-20T16:00:00Z"),
+    meeting("c", "2026-10-20T15:30:00Z", null),
+    meeting("d", "2026-10-21T04:30:00Z", "2026-10-21T06:00:00Z"),
+    meeting("e", "2026-10-20T05:00:00Z", "2026-10-21T05:00:00Z", true),
+    { key: "f", day: "2026-10-20" },
+  ]);
+  assert.deepEqual(blocks.map(({ entry, start, end, column, columns }) => [entry.key, start, end, column, columns]), [
+    ["a", 540, 570, 0, 1],
+    ["b", 600, 660, 0, 2],
+    ["c", 630, 660, 1, 2],
+    ["d", 1410, 1440, 0, 1],
+  ]);
 });
 
 test("the open day stays only while the shown period holds it", () => {
@@ -395,7 +418,7 @@ test("every interactive calendar element answers hover and press with a surface 
 test("no staggered entrance: every cell is painted whole", async () => {
   assert.doesNotMatch(css, /--stagger|animation-delay/);
   const js = await read("js/calendar.js");
-  assert.doesNotMatch(js, /data-stagger-index|\.style\./, "the calendar writes no inline style");
+  assert.doesNotMatch(js, /data-stagger-index|\.style\.(?!setProperty\(["`]--)/, "the calendar writes no inline style beyond the timeline's custom properties");
   const durations = [...css.matchAll(/var\((--(?:motion|duration)-[a-z]+)\)/g)].map((match) => match[1]);
   for (const token of durations) assert.match(token, /^--duration-(press|hover|menu|panel)$/, "only the V2 duration tokens");
 });

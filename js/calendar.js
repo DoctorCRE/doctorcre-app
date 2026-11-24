@@ -7,8 +7,8 @@ import { BUSINESS_TIME_ZONE } from "./business-date.js";
 import { meetingTime } from "./home-week.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import {
-  addDays, approach, calendarHref, calendarLayout, calendarPhase, entriesByDay, localToday, motionDirection,
-  parseCalendarState, readCalendar, readMeetings, settleOpenDay, shortDay, stepAnchor, visibleRange,
+  addDays, approach, calendarHref, calendarLayout, calendarPhase, centralMinutes, entriesByDay, localToday, motionDirection,
+  parseCalendarState, readCalendar, readMeetings, settleOpenDay, shortDay, stepAnchor, timelineBlocks, UNDATED, visibleRange,
 } from "./calendar-model.js";
 
 const $ = (id) => document.getElementById(id);
@@ -67,10 +67,10 @@ const entryText = entry => [entryTime(entry), entry.label].filter(Boolean).join(
 const ownerNames = entry => (entry.owners ?? [entry.owner]).filter(owner => typeof owner === "string" && owner)
   .map(owner => owner[0].toUpperCase() + owner.slice(1)).join(" and ");
 
-function chipHtml(entry, { withDeal, overflow }) {
+function chipHtml(entry, { withDeal, overflow, place }) {
   const near = approach(entry, view.today);
   const text = [typeLabel(entry), entryText(entry), recordName(entry), near.label].filter(Boolean).join(" · ");
-  return `<li${overflow ? ' data-overflow="true"' : ""}><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(entry.day)}" data-kind="${entry.type}" data-band="${near.band}" aria-label="${escapeHtml(text)}" title="${escapeHtml(entryText(entry))}">`
+  return `<li${overflow ? ' data-overflow="true"' : ""}${place ? ` data-place="${place}"` : ""}><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(entry.day)}" data-kind="${entry.type}" data-band="${near.band}" aria-label="${escapeHtml(text)}" title="${escapeHtml(entryText(entry))}">`
     + `<span class="cal-mark" data-kind="${entry.type}" aria-hidden="true"></span>`
     + `<span class="cal-chip-label">${escapeHtml(entryText(entry))}</span>`
     + (withDeal ? `<span class="cal-chip-deal">${escapeHtml(recordName(entry))}</span>` : "")
@@ -80,45 +80,87 @@ function chipHtml(entry, { withDeal, overflow }) {
 const moreHtml = (day, more, readable) => more > 0
   ? `<button class="cal-more" type="button" data-more="${day}" aria-label="${escapeHtml(`${more} more on ${readable}`)}">+${more} more</button>` : "";
 
-/** A month cell shows the chips that fit and "+N more"; the rest stay for the phone agenda. A week shows every chip. */
-function dayHtml(cell, index) {
+const lateChipHtml = (day, count) => count ? `<li><button class="cal-chip" type="button" data-entry="late" data-day="${day}" data-kind="late" data-band="overdue" aria-label="${count} late step${count === 1 ? "" : "s"}">`
+  + `<span class="cal-mark" data-kind="late" aria-hidden="true"></span><span class="cal-chip-label">${count} late</span>`
+  + "</button></li>" : "";
+
+const HOURS = Array.from({ length: 24 }, (_, hour) => `<li data-hour="${hour}"><span>${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}</span></li>`).join("");
+
+/** Day view: untimed items in a band over an hour-by-hour timeline, meetings placed by start and length. */
+function timelineHtml(day, rows) {
+  const timed = timelineBlocks(rows.filter(entry => !entry.days_late));
+  const blocks = timed.map(({ entry, start, end, column, columns }) =>
+    chipHtml(entry, { withDeal: true, place: [start, end, column, columns].join(" ") })).join("");
+  const now = day === view.today ? `<div class="cal-now" aria-hidden="true"></div>` : "";
+  return `<div class="cal-timeline"><ol class="cal-hours" aria-hidden="true">${HOURS}</ol><ul class="cal-blocks">${blocks}</ul>${now}</div>`;
+}
+
+/** A month cell shows the chips that fit and "+N more"; the rest stay for the phone agenda. A week shows every chip; a day puts timed ones on its timeline. */
+function dayHtml(cell) {
   const state = view.state;
   const rows = cell.inMonth ? view.byDay.get(cell.day) || [] : [];
-  const week = state.view === "week";
+  const shape = state.view;
   const lateCount = rows.filter(entry => entry.days_late > 0).length;
-  const dated = rows.filter(entry => !entry.days_late);
-  const lateChip = lateCount ? `<li><button class="cal-chip" type="button" data-entry="late" data-day="${cell.day}" data-kind="late" data-band="overdue" aria-label="${lateCount} late step${lateCount === 1 ? "" : "s"}">`
-    + `<span class="cal-mark" data-kind="late" aria-hidden="true"></span><span class="cal-chip-label">${lateCount} late</span>`
-    + "</button></li>" : "";
+  const dated = rows.filter(entry => !entry.days_late && (shape !== "day" || !entry.at || entry.all_day));
   const room = view.monthLines - Number(Boolean(lateCount));
   const selected = (state.day || view.today) === cell.day && cell.inMonth;
   const isToday = cell.day === view.today;
   const readable = formatCalendarDate(cell.day);
   const count = rows.length ? ` · ${itemCount(rows)}` : "";
-  const chips = dated.map((entry, at) => chipHtml(entry, { withDeal: week, overflow: !week && at >= room })).join("");
+  const chips = dated.map((entry, at) => chipHtml(entry, { withDeal: shape !== "month", overflow: shape === "month" && at >= room })).join("");
+  const band = lateCount + dated.length ? `<ul class="cal-chips">${lateChipHtml(cell.day, lateCount)}${chips}</ul>` : "";
   return `<div class="cal-day" role="gridcell" data-day="${cell.day}" data-today="${isToday}" data-out-month="${!cell.inMonth}" data-empty="${!rows.length}" aria-selected="${selected}">`
     + `<button class="cal-day-open" type="button" data-select-day="${cell.day}" tabindex="${selected ? 0 : -1}" aria-label="${escapeHtml(`${readable}${isToday ? " · today" : ""}${count}`)}">`
-    + `<span class="cal-day-weekday">${WEEKDAYS[index % 7]}</span><span class="cal-day-num">${Number(cell.day.slice(8))}</span>`
+    + `<span class="cal-day-weekday">${WEEKDAYS[new Date(cell.day).getUTCDay()]}</span><span class="cal-day-num">${Number(cell.day.slice(8))}</span>`
     + "</button>"
-    + (week ? "" : moreHtml(cell.day, dated.length - room, readable))
-    + (rows.length ? `<ul class="cal-chips">${lateChip}${chips}</ul>` : "")
+    + (shape === "month" ? moreHtml(cell.day, dated.length - room, readable) : "")
+    + band
+    + (shape === "day" ? timelineHtml(cell.day, rows) : "")
     + "</div>";
+}
+
+const placeNow = () => $("calGrid").querySelector(".cal-now")?.style.setProperty("--at", String(centralMinutes(Date.now())));
+
+/**
+ * Places each meeting and the now-line, then scrolls: a day opens at 7 AM, or
+ * two hours before now when now would be off screen; a repaint of the same day
+ * keeps its scroll. Positions go through CSSOM because the Worker's CSP refuses
+ * a `style` attribute in markup.
+ */
+function placeTimeline(grid, kept) {
+  const timeline = grid.querySelector(".cal-timeline");
+  if (!timeline) return;
+  for (const block of timeline.querySelectorAll("[data-place]")) {
+    const [start, end, column, columns] = block.dataset.place.split(" ");
+    Object.entries({ start, end, col: column, cols: columns }).forEach(([name, value]) => block.style.setProperty(`--${name}`, value));
+  }
+  placeNow();
+  if (kept !== null) { timeline.scrollTop = kept; return; }
+  const perMinute = timeline.querySelector(".cal-hours").offsetHeight / (24 * 60);
+  const now = view.state.anchor === view.today ? centralMinutes(Date.now()) : null;
+  const shown = timeline.clientHeight / perMinute;
+  const minute = now !== null && (now < 7 * 60 || now > 7 * 60 + shown - 60) ? Math.max(0, now - 120) : 7 * 60;
+  // A quarter hour of headroom keeps the first hour's label on screen.
+  timeline.scrollTop = Math.max(0, minute - 15) * perMinute;
 }
 
 function paintGrid(layout) {
   const grid = $("calGrid");
   if (!grid) return;
   const state = view.state;
-  const header = `<div class="cal-week" role="row">${WEEKDAYS.map((name) => `<div class="cal-weekday" role="columnheader">${name}</div>`).join("")}</div>`;
+  const header = state.view === "day" ? "" : `<div class="cal-week" role="row">${WEEKDAYS.map((name) => `<div class="cal-weekday" role="columnheader">${name}</div>`).join("")}</div>`;
   const weeks = [];
   // eslint-disable-next-line no-restricted-syntax -- Calendar rendering advances seven days per iteration and will stop at layout.days.length; 0 reads.
   for (let start = 0; start < layout.days.length; start += 7) {
-    const cells = layout.days.slice(start, start + 7).map((cell, offset) => dayHtml(cell, start + offset)).join("");
+    const cells = layout.days.slice(start, start + 7).map(dayHtml).join("");
     weeks.push(`<div class="cal-week" role="row">${cells}</div>`);
   }
   const direction = motionDirection(view.painted, state);
+  const shownDay = grid.dataset.view === "day" && grid.querySelector(".cal-day")?.dataset.day;
+  const kept = shownDay === state.anchor && state.view === "day" ? grid.querySelector(".cal-timeline").scrollTop : null;
   grid.dataset.view = state.view;
   grid.innerHTML = header + weeks.join("");
+  placeTimeline(grid, kept);
   // Restart the transition on every paint: removing the attribute and reading
   // layout lets the same direction play twice in a row.
   grid.removeAttribute("data-enter");
@@ -130,9 +172,8 @@ function paintGrid(layout) {
 
   const period = $("calPeriod");
   if (period) period.textContent = layout.title;
-  const unit = state.view === "week" ? "week" : "month";
-  $("calPrev")?.setAttribute("aria-label", `Previous ${unit}`);
-  $("calNext")?.setAttribute("aria-label", `Next ${unit}`);
+  $("calPrev")?.setAttribute("aria-label", `Previous ${state.view}`);
+  $("calNext")?.setAttribute("aria-label", `Next ${state.view}`);
   document.querySelectorAll("#calViewSwitch [data-view]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.view === state.view)));
 }
 
@@ -205,10 +246,17 @@ function dayList(rows) {
   }).join("")}</ol>`;
 }
 
+const undatedText = count => `${count} without a date`;
+
 function paintDayPanel(day) {
-  $("dayPanelTitle").textContent = day ? formatCalendarDate(day) : "Choose a day";
+  $("dayPanelTitle").textContent = day === UNDATED ? "Without a date" : day ? formatCalendarDate(day) : "Choose a day";
   const body = $("dayPanelBody");
   const phase = calendarPhase(view.result);
+  if (day === UNDATED) {
+    body.innerHTML = `<ul class="cal-undated" id="calUndatedList">${(view.result.undated || []).map(entry =>
+      `<li><b>${escapeHtml(entry.label)}</b> · ${recordLinks(entry)} · Date unavailable</li>`).join("")}</ul>`;
+    return;
+  }
   const rows = view.byDay.get(day) || [];
   if (phase === "unauthorized" || phase === "unavailable") {
     body.textContent = "Calendar temporarily unavailable.";
@@ -237,10 +285,9 @@ function paintComingUp() {
       <span class="cal-agenda-details">${items}</span>
     </button></li>`;
   }).join("");
-  const missing = view.result.undated || [];
-  $("calUndated").hidden = missing.length === 0;
-  $("calUndatedList").innerHTML = missing.map(entry =>
-    `<li><b>${escapeHtml(entry.label)}</b> · ${recordLinks(entry)} · Date unavailable</li>`).join("");
+  const missing = view.result.undated?.length ?? 0;
+  $("calUndated").hidden = missing === 0;
+  $("calUndated").textContent = undatedText(missing);
 }
 
 const STATE_COPY = {
@@ -280,6 +327,7 @@ const FOCUS_KEYS = { selectDay: "data-select-day", entry: "data-entry", more: "d
 
 /** A selector that finds the same control again after a repaint replaces it. */
 function focusAddress(node) {
+  if (node?.id === "calUndated") return "#calUndated";
   const scope = node?.closest?.("#calGrid, #dayPanelBody, #calAgenda");
   const keys = Object.entries(FOCUS_KEYS).filter(([key]) => node?.dataset?.[key])
     .map(([key, attribute]) => `[${attribute}="${CSS.escape(node.dataset[key])}"]`);
@@ -334,12 +382,13 @@ function go(target, { push = true } = {}) {
   }
   else paintSelection();
   const periodText = $("calPeriod")?.textContent || "";
-  if (moved) announce(`${periodText}. ${next.view === "week" ? "Week" : "Month"} view.`);
+  if (moved) announce(`${periodText}. ${next.view[0].toUpperCase()}${next.view.slice(1)} view.`);
 }
 
 const inPeriod = day => settleOpenDay({ ...view.state, day }).day === day;
 
 function announceDay(day) {
+  if (day === UNDATED) { announce(`${undatedText(view.result.undated?.length ?? 0)}.`); return; }
   const rows = view.byDay.get(day) || [];
   const incomplete = calendarPhase(view.result) === "partial" ? " This day may be incomplete." : "";
   announce(`${formatCalendarDate(day)}: ${itemCount(rows)}.${incomplete}`);
@@ -349,7 +398,7 @@ function announceDay(day) {
 function openDay(day, { entry = null } = {}) {
   view.opener = focusAddress(document.activeElement);
   view.focusEntry = entry;
-  view.cursor = day;
+  if (day !== UNDATED) view.cursor = day;
   const currentEntry = view.result?.entries?.find(row => row.key === entry);
   selectDocRecord(currentEntry?.deal_id ? "deal" : null, currentEntry?.deal_id);
   if (currentEntry?.deal_id) void client.getDeal(currentEntry.deal_id).catch(() => {});
@@ -368,13 +417,12 @@ function moveCursor(day) {
   announceDay(day);
 }
 
-/** Today turns to the current period and puts the grid's tab stop on today without opening it. */
+/** Today opens the Day view of today and puts the tab stop on it without opening its sheet. */
 function showToday() {
   view.opener = null;
   view.focusEntry = null;
   view.cursor = view.today;
-  const shown = inPeriod(view.today);
-  go({ ...view.state, day: null, anchor: shown ? view.state.anchor : view.today }, { push: !shown });
+  go({ view: "day", day: null, anchor: view.today });
   $("calGrid").querySelector(`.cal-day-open[data-select-day="${view.today}"]`)?.focus();
   announceDay(view.today);
 }
@@ -411,6 +459,9 @@ function wire() {
   $("calPrev")?.addEventListener("click", () => go(stepAnchor(view.state, -1)));
   $("calNext")?.addEventListener("click", () => go(stepAnchor(view.state, 1)));
   $("calToday")?.addEventListener("click", showToday);
+  $("calUndated")?.addEventListener("click", () => openDay(UNDATED));
+  // eslint-disable-next-line no-restricted-syntax -- Moves the now-line once a minute; it reads nothing.
+  setInterval(placeNow, 60_000);
   $("calRefresh")?.addEventListener("click", () => load());
   const sheet = $("dayPanel");
   $("dayPanelClose")?.addEventListener("click", closeDay);

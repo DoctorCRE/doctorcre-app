@@ -263,15 +263,16 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await page.keyboard.press("Escape");
           const todayButton = page.getByRole("button", { name: "Today", exact: true });
           const todayCell = page.locator('.cal-day-open[data-select-day="2026-10-20"]');
-          await t.test("Today marks today without opening it, and the day opens from its cell", async () => {
+          await t.test("Today opens the Day view without its sheet; the day opens from its header", async () => {
             await page.getByRole("button", { name: "Next month" }).click();
             await todayButton.click();
-            await expect(page.locator("#calPeriod")).toHaveText("October 2026");
+            await expect(page.locator("#calPeriod")).toHaveText("Tuesday, Oct 20, 2026");
             await expect(todayCell).toBeFocused();
             await expect(page.locator("#dayPanel")).toBeHidden();
             await page.keyboard.press("Enter");
             await expect(step).toBeVisible();
             await page.keyboard.press("Escape");
+            await page.getByRole("button", { name: "Month", exact: true }).click();
           });
           const week = page.getByRole("button", { name: "Week", exact: true });
           await expect(week).toHaveCSS("border-top-width", "0px");
@@ -299,7 +300,6 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           const updated = page.locator("#calAsOf");
           const record = step.getByRole("link");
           const focusRetained: boolean[] = [];
-          await todayButton.click();
           await todayCell.click();
           for (const minute of [1, 2, 3, 4, 5]) {
             if (minute === 2) await page.keyboard.press("Escape");

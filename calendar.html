@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="description" content="Deal deadlines and next steps by month and week">
+  <meta name="description" content="Deal deadlines, next steps and meetings by month, week and day">
   <title>Calendar · DoctorCRE</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/dealroom-192.png">
@@ -41,13 +41,15 @@
           <button class="cal-icon" type="button" id="calNext" aria-label="Next month"><span aria-hidden="true">›</span></button>
         </div>
         <p class="cal-count" id="calCount" aria-live="polite"></p>
+        <button class="cal-undated-chip" type="button" id="calUndated" hidden></button>
         <span class="cal-updated" id="calAsOf"></span>
         <button class="cal-icon" type="button" id="calRefresh" aria-label="Refresh Calendar" title="Refresh Calendar"><span aria-hidden="true">↻</span></button>
         <div class="cal-view-switch" id="calViewSwitch" role="group" aria-label="Calendar view">
           <button class="cal-today" type="button" id="calToday">Today</button>
           <div class="cal-segments">
-            <button type="button" data-view="month" aria-pressed="true">Month</button>
-            <button type="button" data-view="week" aria-pressed="false">Week</button>
+            <button type="button" data-view="day" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M6 9h4v3H6z"/></svg>Day</button>
+            <button type="button" data-view="week" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M5.5 6v8.5M10.5 6v8.5"/></svg>Week</button>
+            <button type="button" data-view="month" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M1.5 10h13M5.5 6v8.5M10.5 6v8.5"/></svg>Month</button>
           </div>
         </div>
       </header>
@@ -79,10 +81,6 @@
       <section class="cal-coming" id="calComing" aria-labelledby="agendaTitle" hidden>
         <h3 id="agendaTitle">Coming up</h3>
         <ol class="cal-agenda" id="calAgenda"></ol>
-      </section>
-      <section class="cal-undated" id="calUndated" hidden>
-        <h3>No readable date</h3>
-        <ul id="calUndatedList"></ul>
       </section>
     </div>
   </main>
