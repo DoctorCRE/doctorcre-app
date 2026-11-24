@@ -59,7 +59,7 @@ export async function mountHomeTodayPanel(
       sessionFetch(path: string, init: RequestInit): Promise<Response>;
     },
     { isCalendarDay(value: unknown): value is string; shortDay(value: string, today: string): string },
-    { meetingTime(value: string, zone: string, includeDate?: boolean): string },
+    { meetingTime(value: string, zone: string, options?: { date?: boolean }): string },
     { escapeText(value: string): string },
     {
       mountHomeMeetingReviews(options: { document: Document; host: HTMLElement; engine: true }): {
@@ -78,7 +78,7 @@ export async function mountHomeTodayPanel(
     sibling("./home-meeting-reviews.js"),
   ]);
   const { escapeText } = receipts;
-  const central = (value: string, includeDate = false) => week.meetingTime(value, "America/Chicago", includeDate);
+  const central = (value: string, date = false) => week.meetingTime(value, "America/Chicago", { date });
   const status = (message: string) => `<p class="app-layout-empty">${escapeText(message)}</p>`;
   function meetingRow(item: Meeting) {
     const deal = localHref(item.open_url);

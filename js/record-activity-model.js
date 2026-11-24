@@ -1,4 +1,5 @@
 import { compareInstants } from './change-receipts.mjs';
+import { partnerName } from './visual-system.js';
 import { clientNoteText } from './workspace-business-model.js';
 
 export const ACTIVITY_LIMIT = 10;
@@ -46,10 +47,12 @@ function clientTimelineRow(source) {
   const dealId = typeof source?.deal_id === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(source.deal_id) ? source.deal_id : null;
   const filed = source?.filed_on;
   const filedOn = FILED_KINDS.has(filed?.kind) && typeof filed.name === "string" && filed.name.trim()
-    ? `on ${filed.kind} ${filed.name.trim()}` : null;
+    ? `on ${filed.kind === "deal" ? "deal " : ""}${filed.name.trim()}` : null;
+  const owner = typeof source?.step_owner === "string" ? partnerName(source.step_owner.trim()) : "";
   return {
     when: row.when,
     source: ACTIVITY_SOURCES.get(row.actor),
+    stepOwner: owner ? `${owner}’s step` : null,
     filedOn,
     what: what.replace(/[^\s<>@,;]+@[^\s<>@,;]+/g, "").replace(/\s+/g, " ").trim() || "Recorded activity",
     dealId,

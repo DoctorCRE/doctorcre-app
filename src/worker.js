@@ -933,15 +933,25 @@ const FROZEN_TOOLS = new Map([
   ['update-lead', PROSPECTS_HINT],
   ['link-lead-client', PROSPECTS_HINT],
   ['new-lead', PROSPECTS_HINT],
-  ['new-client', 'Open Clients and choose New client.'],
-  ['add-party', 'Open Clients or Vendors and choose New client or New vendor.'],
-  ['link-parties', 'Open Search to find the current record.'],
-  ['update-party-contact', 'Open Search to find the current record.'],
-  ['new-vendor', 'Open Vendors and choose New vendor.'],
   ['update-vendor', 'Open Vendors to see the current records.'],
   ['merge-vendor-rows', 'Open Vendors to see the current records.'],
   ['record-commission-receipt', 'Open Invoices to mark an invoice paid.'],
 ]);
+
+// New, Edit and Link are on the record only while Clients and Vendors read the engine: [switch on, switch off].
+const PARTY_TOOLS = new Map([
+  ['new-client', ['Open Clients and choose New client.', 'Open Clients to see the current records.']],
+  ['add-party', ['Open Clients or Vendors and choose New client or New vendor.', 'Open Search to find the current record.']],
+  ['link-parties', ['Open the client or vendor and choose Link to someone.', 'Open Search to find the current record.']],
+  ['update-party-contact', ['Open the client or vendor and choose Edit.', 'Open Search to find the current record.']],
+  ['new-vendor', ['Open Vendors and choose New vendor.', 'Open Vendors to see the current records.']],
+]);
+
+async function frozenHint(env, verb) {
+  const party = PARTY_TOOLS.get(verb);
+  if (party) return party[await routeToEngine(env, CLIENTS_VENDORS) ? 0 : 1];
+  return FROZEN_TOOLS.get(verb) ?? (CUTOVER_SAVES.has(verb) ? DEAL_PAGE_HINT : null);
+}
 
 async function refuseLegacyRequest(request, env, url, call) {
   const { pathname } = url;
@@ -954,7 +964,7 @@ async function refuseLegacyRequest(request, env, url, call) {
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and answer the question in Today.');
     if ((verb === 'review-deal-update' || LEGACY_HOME_MARKS.has(verb)) && homeOnEngine(env))
       return saveRefusal(call, 'home_routing_changed', 'Refresh Home and try again.');
-    const hint = FROZEN_TOOLS.get(verb) ?? (CUTOVER_SAVES.has(verb) ? DEAL_PAGE_HINT : null);
+    const hint = await frozenHint(env, verb);
     return hint && await switchedOn(env, NEXT_DEAL_SAVES) ? saveRefusal(call, 'old_save_closed', hint) : null;
   }
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return null;
@@ -1254,7 +1264,9 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
       return json({ error: 'not_found' }, 404);
     // Party saves and their read land in the new database, so they follow the Clients and Vendors switch.
     const partyDoor = (request.method === 'POST' && /^\/api\/engine\/(?:parties|clients|vendors|party-links)(?:\/[0-9a-fA-F-]{36})?$/.test(pathname))
-      || /^\/api\/engine\/parties\/[0-9a-fA-F-]{36}$/.test(pathname);
+      || /^\/api\/engine\/parties\/[0-9a-fA-F-]{36}$/.test(pathname)
+      // Link's search names no role, so it reads the new database; a Deals client search names its role.
+      || (pathname === '/api/engine/parties/search' && !url.searchParams.has('role'));
     if (partyDoor && !await routeToEngine(env, CLIENTS_VENDORS)) return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
     const prospectSave = prospects && request.method === 'POST';
