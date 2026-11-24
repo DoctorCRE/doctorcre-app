@@ -18,7 +18,9 @@ const deals = [alder, birch, cedar].map((name, n) => ({
   open_actions: [],
 }));
 
-async function openDeals(page: Page, actor: string, stars: Map<string, Set<string>>, fail: { star: boolean }) {
+type Fixture = { star: boolean; boardRead?: Promise<void>; withoutStarred?: boolean };
+
+async function openDeals(page: Page, actor: string, stars: Map<string, Set<string>>, fail: Fixture) {
   const session = { actor: { slug: actor }, csrf_token: `synthetic-${actor}` };
   const mine = stars.get(actor) ?? new Set<string>();
   stars.set(actor, mine);
@@ -41,10 +43,11 @@ async function openDeals(page: Page, actor: string, stars: Map<string, Set<strin
           return Response.json({ deal_id: id, starred: verb === "star" });
         }
         if (path.endsWith("/prospects")) return Response.json({ count: 0, prospects: [] });
+        await fail.boardRead;
         return Response.json({
           schema_version: "local-deals-board.v2",
           actor,
-          deals: deals.map((d) => ({ ...d, starred: mine.has(d.id) })),
+          deals: fail.withoutStarred ? deals : deals.map((d) => ({ ...d, starred: mine.has(d.id) })),
           closed_deals: [],
           lost_deals: [],
           accounts: [],
@@ -176,4 +179,55 @@ test("star saves stay off until Deals saves use the engine", async () => {
     body: JSON.stringify({ idempotency_key: crypto.randomUUID() }),
   });
   assert.equal((await worker.fetch(request, env)).status, 404);
+});
+
+test("a keyboard partner can star and unstar without lifting the card", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const fixture: Fixture = { star: false };
+  const server = await openDeals(page, "joe", new Map(), fixture);
+  t.after(() => server.close());
+
+  await page.locator(".kanban-card", { has: starButton(page, cedar) }).focus();
+  for (let tab = 0; tab < 5; tab++) {
+    if (await starButton(page, cedar).evaluate((b) => b === document.activeElement)) break;
+    await page.keyboard.press("Tab");
+  }
+  assert.ok(await starButton(page, cedar).evaluate((b) => b === document.activeElement), "Tab reaches the star");
+
+  let release = () => {};
+  fixture.boardRead = new Promise((resolve) => {
+    release = resolve;
+  });
+  await page.keyboard.press("Space");
+  await settles(async () => assert.equal(await starButton(page, cedar).getAttribute("aria-pressed"), "true"));
+  await starButton(page, cedar).evaluate((b) => b.setAttribute("data-before-refresh", ""));
+  release();
+  await settles(async () =>
+    assert.equal(await page.locator("[data-before-refresh]").count(), 0, "the refresh repainted"),
+  );
+  await expectOrder(() => boardOrder(page), [cedar, alder, birch]);
+  assert.ok(await starButton(page, cedar).evaluate((b) => b === document.activeElement), "focus stays on the star");
+
+  await page.keyboard.press("Space");
+  await settles(async () => assert.equal(await starButton(page, cedar).getAttribute("aria-pressed"), "false"));
+  assert.doesNotMatch((await page.locator("#dragLive").textContent()) ?? "", /lifted/);
+  assert.equal(await page.locator('[data-lifted="true"]').count(), 0);
+});
+
+test("an older board read without stars shows no stars and the usual order", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors: Error[] = [];
+  page.on("pageerror", (error) => errors.push(error));
+  const server = await openDeals(page, "joe", new Map(), { star: false, withoutStarred: true });
+  t.after(() => server.close());
+  await expectOrder(() => boardOrder(page), [alder, birch, cedar]);
+  assert.equal(await page.locator("[data-star]").count(), 0);
+  await page.locator("#listView").click();
+  await expectOrder(() => order(page, ".deal-list .kanban-card"), [alder, birch, cedar]);
+  assert.equal(await page.locator("[data-star]").count(), 0);
+  assert.deepEqual(errors, []);
 });
