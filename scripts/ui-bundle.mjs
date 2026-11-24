@@ -67,6 +67,7 @@ export const UI_ENTRIES = {
   'ui-deal-reviews': 'home/deal-update-reviews',
   'ui-deal-room-forms': 'deal-room-forms',
   'ui-name-match': 'name-match',
+  'ui-party-editor': 'party-editor',
 };
 export const isUiAsset = path => path === 'public-shell/sw.js' || /^js\/ui-[^/]*\.generated\.js$/.test(path);
 

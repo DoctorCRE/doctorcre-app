@@ -768,6 +768,7 @@ export function ReviewCard<Item extends ReviewItem>({
                 <button
                   type="button"
                   key={op.verb}
+                  className={op.verb === "submit-email-draft" ? "inbox-primary" : undefined}
                   disabled={!editable || Boolean(staleEdit && writesDraftText(op.verb))}
                   onClick={(event) => {
                     if (startDraftEdit && draft) beginDraftEdit(draft);

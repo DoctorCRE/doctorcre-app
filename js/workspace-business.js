@@ -177,6 +177,7 @@ async function syncQuietVendors() {
 let searchTimer = null;
 let dealroomClientPromise = null;
 const initialBootMode = resolveDealroomBoot(window.location);
+let partyEditor = null;
 
 /**
  * The one dealroom client this page builds, for the MCP reads it makes (the
@@ -297,6 +298,7 @@ function optionsHtml(options, emptyLabel, selected) {
  */
 function renderControls({ syncSearch = false } = {}) {
   const { dataset, query, facets } = view;
+  partyEditor?.setDataset(dataset);
   if (dom.search) {
     const next = searchBoxValue({
       current: dom.search.value, query: query.q,
@@ -478,7 +480,7 @@ function rowFacts(dataset, row) {
   if (dataset === "clients") {
     const status = recordedCode(row.recorded_status, row.recorded_status_label);
     facts.push({ label: "Status", value: status.text, known: status.known, unresolved: status.known && !status.resolved });
-    facts.push({ label: "Vertical", value: row.vertical || "Not recorded", known: Boolean(row.vertical) });
+    facts.push({ label: "Practice type", value: row.vertical || "Not recorded", known: Boolean(row.vertical) });
     facts.push({ label: "Deal type", value: row.deal_type || "Not recorded", known: Boolean(row.deal_type) });
     const type = recordedCode(row.recorded_client_type, row.recorded_client_type_label);
     facts.push({ label: "Client type", value: type.text, known: type.known, unresolved: type.known && !type.resolved });
@@ -744,7 +746,7 @@ function clientActivityList(rows) {
     const disclosure = row.email
       ? `<details data-details-key="email-${escapeHtml(row.when)}-${index}"><summary>${link ? "Read email" : text}</summary><p class="entry-detail">${escapeHtml(row.email)}</p></details>`
       : "";
-    const entry = link + disclosure || text;
+    const entry = (link + disclosure || text) + (row.filedOn ? ` <span class="activity-filed">· ${escapeHtml(row.filedOn)}</span>` : "");
     return `<li class="activity-row"><span class="activity-dot" aria-hidden="true"></span><div class="activity-what">${entry}</div>${row.when ? `<time class="activity-when">${escapeHtml(formatMoment(row.when))}${row.source ? ` · ${escapeHtml(row.source)}` : ""}</time>` : ""}</li>`;
   }).join("")}</ol>`;
 }
@@ -1173,6 +1175,19 @@ function start() {
     return;
   }
   if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
+  // Party saves land in the new database, so the controls follow the Clients and Vendors switch.
+  const partySaves = initialBootMode.mode === "live" && document.documentElement.hasAttribute("data-clients-vendors-from-engine");
+  if (partySaves) import("./ui-party-editor.generated.js").then(({ mountPartyEditor }) => {
+    partyEditor = mountPartyEditor({
+      document, client: dealroomClient, dataset: () => view.dataset, facets: () => view.facets,
+      saved: (id) => {
+        if (view.recordId === id) loadRecord(id);
+        else navigate(viewHref(view.query, id));
+        loadList("background");
+      },
+    });
+    partyEditor.setDataset(view.dataset);
+  });
   wireControls();
   const searchDock = document.querySelector('.search-dock');
   const searchDockObserver = new ResizeObserver(() => {

@@ -603,7 +603,7 @@ const CLIENT_SECTIONS = [
     ["recorded_status_note", "What this status means"],
     ["recorded_etl_status", "ETL status"],
     ["recorded_client_type", "Client type", "recorded_client_type_label"],
-    ["vertical", "Vertical"],
+    ["vertical", "Practice type"],
     ["subtype", "Subtype"],
     ["specialty_type_label", "Specialty type"],
     ["deal_type_label", "Deal type"],

@@ -933,11 +933,11 @@ const FROZEN_TOOLS = new Map([
   ['update-lead', PROSPECTS_HINT],
   ['link-lead-client', PROSPECTS_HINT],
   ['new-lead', PROSPECTS_HINT],
-  ['new-client', 'Open Clients to see the current records.'],
-  ['add-party', 'Open Search to find the current record.'],
+  ['new-client', 'Open Clients and choose New client.'],
+  ['add-party', 'Open Clients or Vendors and choose New client or New vendor.'],
   ['link-parties', 'Open Search to find the current record.'],
   ['update-party-contact', 'Open Search to find the current record.'],
-  ['new-vendor', 'Open Vendors to see the current records.'],
+  ['new-vendor', 'Open Vendors and choose New vendor.'],
   ['update-vendor', 'Open Vendors to see the current records.'],
   ['merge-vendor-rows', 'Open Vendors to see the current records.'],
   ['record-commission-receipt', 'Open Invoices to mark an invoice paid.'],
@@ -1252,6 +1252,10 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
       || /^\/api\/engine\/deals\/[^/]+\/(?:star|unstar)$/.test(pathname);
     if (nextDealsOnly && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
+    // Party saves and their read land in the new database, so they follow the Clients and Vendors switch.
+    const partyDoor = (request.method === 'POST' && /^\/api\/engine\/(?:parties|clients|vendors|party-links)(?:\/[0-9a-fA-F-]{36})?$/.test(pathname))
+      || /^\/api\/engine\/parties\/[0-9a-fA-F-]{36}$/.test(pathname);
+    if (partyDoor && !await routeToEngine(env, CLIENTS_VENDORS)) return json({ error: 'not_found' }, 404);
     const prospects = /^\/api\/engine\/prospects(?:\/|$)/.test(pathname);
     const prospectSave = prospects && request.method === 'POST';
     const prospectDestination = prospects && ({
