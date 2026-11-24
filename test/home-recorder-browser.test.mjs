@@ -1,15 +1,13 @@
 import test, { before, after } from 'node:test';
 import { startFixture } from '../scripts/fixture-http.mjs';
 import assert from 'node:assert/strict';
-import { rm, readFile } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { temporaryDirectory } from '../scripts/temp-directory.mjs';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { chromium } from './browser-harness.mjs';
-
-const mailRecordings = JSON.parse(await readFile(new URL('./fixtures/mail-priority-panel/recordings.json', import.meta.url)));
 
 let outDir, server, browser, origin;
 before(async () => {
@@ -45,7 +43,6 @@ for (const deployment of ['fixture', 'deployed-origin']) for (const path of ['/'
         });
         await route.fulfill({ response });
       });
-      await page.route('**/api/v1/intelligence/mail-needs-partner*', route => route.fulfill({ json: mailRecordings.empty }));
       let release;
       const held = new Promise(resolve => { release = resolve; });
       t.after(() => release());

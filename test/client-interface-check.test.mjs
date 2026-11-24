@@ -5,7 +5,7 @@ import { createFixtureClient } from "../js/fixture-client.js";
 import { createLiveClient } from "../js/live-client.js";
 import { confirmedEngagementRefusal, engagementWriterFor } from "../js/prospect-engagement.mjs";
 
-const required = ["listPracticeOrigination", "setProspectEngagementStatus", "getInvoiceTracker", "markInvoicePaid", "getBoard", "getDeal", "getJevDealReading", "getChanges", "patchDealField", "resolveConflict", "addDealNote", "setNextStep", "addCriticalDate", "createDeal", "commandCenter", "notificationFeed", "acknowledgeNotification", "notificationPreferences", "setNotificationPreference", "readDocConversation", "listDocConversations", "createDocConversation", "renameDocConversation", "shareDocConversation"];
+const required = ["listPracticeOrigination", "setProspectEngagementStatus", "getInvoiceTracker", "markInvoicePaid", "getBoard", "getDeal", "getChanges", "patchDealField", "resolveConflict", "addDealNote", "setNextStep", "addCriticalDate", "createDeal", "commandCenter", "notificationFeed", "acknowledgeNotification", "notificationPreferences", "setNotificationPreference", "readDocConversation", "listDocConversations", "createDocConversation", "renameDocConversation", "shareDocConversation"];
 
 test('live board, archived rows and detail preserve explicit vendor cards', async () => {
   const vendors = [{ party_id: 'demo-vendor', role: 'attorney', company: { id: 'demo-company', name: 'Demo Legal' },
@@ -43,21 +43,6 @@ test("the live adapter uses the pinned MCP seam rather than a database", async (
   assert.equal(calls[0].path, "/mcp");
   assert.equal(JSON.parse(calls[0].init.body).params.name, "deal-room-board");
   assert.equal(calls[0].init.credentials, "same-origin");
-});
-
-test("Jev reading sends one deal id to the same-origin CARR API", async () => {
-  const calls = [];
-  const live = createLiveClient({ fetchImpl: async (path, init) => {
-    calls.push({ path, init });
-    return new Response(JSON.stringify({ schema: "carr.jev-deal-reading.v1", judged: false,
-      reason: "insufficient_recorded_evidence" }), { status: 200 });
-  } });
-  const answer = await live.getJevDealReading("00000000-0000-4000-8000-000000000001");
-  assert.equal(answer.reason, "insufficient_recorded_evidence");
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].path, "/api/v1/jev-deal-reading");
-  assert.equal(calls[0].init.credentials, "same-origin");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { deal: "00000000-0000-4000-8000-000000000001" });
 });
 
 for(const method of ['readDocConversation','find'])test(`${method} bounds the response body and aborts on expiry`,async t=>{

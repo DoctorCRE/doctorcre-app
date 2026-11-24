@@ -279,3 +279,21 @@ test("the card quick menu stars and unstars like the star button", async (t) => 
   assert.equal(labels.filter((label) => label === "Star").length, 1);
   await page.keyboard.press("Escape");
 });
+
+test("list row stars sit level with the row text at 1440 px", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const server = await openDeals(page, "joe", new Map(), { star: false });
+  t.after(() => server.close());
+  await page.locator("#listView").click();
+  const row = page.locator(".deal-list .kanban-card", { has: starButton(page, alder) });
+  const centers = await row.evaluate((card) =>
+    [".deal-star svg", ".owner", ".card-open"].map((selector) => {
+      const box = card.querySelector(selector)?.getBoundingClientRect();
+      return box ? box.top + box.height / 2 : Number.NaN;
+    }),
+  );
+  const [star, ...text] = centers;
+  for (const line of text) assert.ok(Math.abs((star ?? 0) - (line ?? 0)) <= 1, `star ${star} vs text ${line}`);
+});

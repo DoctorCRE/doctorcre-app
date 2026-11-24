@@ -135,6 +135,7 @@
 .next-line { white-space: normal; overflow-wrap: anywhere; margin: 0; font-size: var(--font-size-1); color: var(--fg-muted); }
 .auto-move button { justify-self: start; padding: 0 var(--space-2); min-height: var(--touch); }
 .kanban-card.work-card--tile .work-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); grid-column: 1 / -1; min-height: 22px; font-size: 12px; }
+.deal-row .work-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .kanban-card.work-card--tile .card-open { display: flex; align-items: center; width: 100%; padding: 0; text-align: left; overflow-wrap: anywhere; }
 .deal-list-next-step { margin: 0; overflow-wrap: anywhere; }
 .deal-attention-label { display: block; flex-basis: 100%; color: var(--status-warn-ink); }

@@ -11,7 +11,7 @@ import { dealTypeLabel } from './live-client.js';
 import { requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
-import { CLOSED_SLUG, columnByValue, dealInsightLines } from './pipeline-model.js';
+import { CLOSED_SLUG, columnByValue } from './pipeline-model.js';
 import { selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js';
 import { createClient, PHASES, PHICON, ACTOR_LABEL, phaseLabel } from './client.js';
 import { dealsSaveToEngine, deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';

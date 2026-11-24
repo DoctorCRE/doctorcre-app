@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { renderDealAlert, renderDealItemDetail, renderDealSummary, renderDealItems } from '../js/deal-items.js';
+import { renderDealAlert, renderDealItemDetail, renderDealSummary, renderDealItems, stepText } from '../js/deal-items.js';
 import { carrInterface } from "./carr-contract.mjs";
 
 const deal = { id: 'synthetic-deal', short_name: "Dr. Demo's Sample Deal", next_step: 'A legacy paragraph that must not appear.',
@@ -166,4 +166,9 @@ test('national account action identifies the other owner by name', () => {
   const deal = { open_actions: [{ id: 'a', description: 'Review terms', owner: 'dell' }] };
   const doc = new JSDOM(renderDealSummary(deal, { viewer: 'joe', actorName: name => ({ dell: 'Dell' })[name] })).window.document;
   assert.match(doc.body.textContent, /Review terms · Dell/);
+});
+
+test('a step read from the deal\'s client is marked as the client\'s step', () => {
+  assert.equal(stepText({ description: ' Call the practice ', client_step: true }), 'Client step: Call the practice');
+  assert.equal(stepText({ description: ' Send the plans ' }), 'Send the plans');
 });

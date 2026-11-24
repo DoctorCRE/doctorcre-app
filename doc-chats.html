@@ -2,15 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Ask Doc · DoctorCRE</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/dealroom-192.png">
+  <link rel="icon" href="/icons/dealroom.svg" type="image/svg+xml">
   <script src="/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/css/tokens.css">
   <link rel="stylesheet" href="/css/system.css">
+  <link rel="stylesheet" href="/css/app-shell.css">
   <link rel="stylesheet" href="/css/doc-chats.css">
 </head>
 <body>
-  <main id="docChat" class="shell doc-chat-page"></main>
+  <div id="appShell"></div><script type="module" src="/js/app-shell.js"></script>
+  <a class="skip" href="#main">Skip to Ask Doc</a>
+  <main id="main" class="shell doc-chat-page"></main>
   <script type="module" src="/js/ui-doc-chat.generated.js"></script>
 </body>
 </html>
