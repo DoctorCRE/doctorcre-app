@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tan
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "react-router";
+import { bindCardQuickMenu } from "../card-quick-menu";
 import type { DocLinkRequest } from "../doc-link";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
@@ -207,6 +208,24 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const [online, setOnline] = useState(navigator.onLine);
   const root = useRef<HTMLElement>(null);
   const gesture = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!root.current) return;
+    return bindCardQuickMenu(root.current, {
+      card: "[data-inbox-row]",
+      name: (row) => row.querySelector("h3")?.textContent ?? "",
+      actions: (row) => {
+        // Only the row's own buttons: an open review card has actions of its own.
+        const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>(":scope > .inbox-actions > button"))
+          .filter((button) => !button.disabled)
+          .map((button) => ({ label: button.textContent?.trim() ?? "", control: button }));
+        const title = row.querySelector<HTMLElement>("h3 a");
+        return buttons.length || !title ? buttons : [{ label: "Open", control: title }];
+      },
+      focusTarget: (row) =>
+        row.querySelector<HTMLElement>("h3 a") ??
+        row.querySelector<HTMLElement>(":scope > .inbox-actions > button:not(:disabled)"),
+    });
+  }, []);
   useEffect(() => {
     mounted.current = true;
     let lastRefresh = -Infinity;
