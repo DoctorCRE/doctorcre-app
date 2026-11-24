@@ -527,7 +527,7 @@ function renderStatus(status) {
   if (asOf) {
     asOf.textContent = [HEALTH.FAILED,HEALTH.RENDER_FAILED].includes(status.board_health) || !status.online ? 'Unavailable' : status.last_read_at
       ? `Updated ${new Date(status.last_read_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit',hour12:true})}`
-      : [SYNC_STATES.STARTING, SYNC_STATES.SYNCING].includes(status.state) ? 'Updating…' : 'Unavailable';
+      : [SYNC_STATES.STARTING, SYNC_STATES.SYNCING].includes(status.state) ? '' : 'Unavailable';
   }
 }
 
@@ -3158,6 +3158,7 @@ async function boot() {
 
   mountDock();
   wire();
+  renderChips();
   state.client = resolved.mode === 'live' ? createLiveClient() : await (await import("./fixture-client.js")).createFixtureClient(resolved.options);
   mountNotificationBadge(state.client);
   itemSheet = mountDealItemSheet({document,today:() => state.boardFromEngine || isEngineDealDetail(state.panelDetail) ? businessDay() : todayIso(),read:readDealDetail,send:runFollowUp,pending:key => pendingCommand(commandState,key),refresh:() => {state.boardSync.requestRefresh('deal-item');refreshPanel();}});

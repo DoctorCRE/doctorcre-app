@@ -272,3 +272,40 @@ test("A failed first board read leaves the board empty, not grey", async (t) => 
   assert.equal(await page.locator(".board-placeholder").count(), 0);
   assert.equal(await page.locator("#kanban").getAttribute("aria-busy"), "false");
 });
+
+async function heldBoard(t: { after: (fn: () => unknown) => void }, path: string, width: number) {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  t.after(release);
+  const { page, errors } = await open(t, path, { viewport: { width, height: 900 } }, async (route, name) => {
+    if (name === "deal-room-board") await held;
+    await reply(route, name === "deal-room-board" ? board : { ok: true, items: [], deals: [] });
+  });
+  return { page, errors, release };
+}
+
+for (const path of ["/deals?mode=live", "/deals?mode=live&view=list"])
+  test(`${path} says Updating… once while the first read is held`, async (t) => {
+    const { page, errors } = await heldBoard(t, path, 1440);
+    await page.locator(".board-placeholder").first().waitFor();
+    assert.equal(await page.locator('text="Updating…"').filter({ visible: true }).count(), 1);
+    assert.deepEqual(errors, []);
+  });
+
+test("The first board column holds still at 390px when the read lands", async (t) => {
+  const { page, errors, release } = await heldBoard(t, "/deals?mode=live", 390);
+  const top = (selector: string) =>
+    page
+      .locator(selector)
+      .filter({ visible: true })
+      .first()
+      .evaluate((node) => node.getBoundingClientRect().top + scrollY);
+  await page.locator(".board-placeholder").first().waitFor();
+  const before = await top("#kanban > .kanban-column");
+  release();
+  await page.locator('.kanban-card[data-id="demo-deal"]').waitFor();
+  assert.equal(await top("#kanban > .kanban-column:not(.board-placeholder)"), before);
+  assert.deepEqual(errors, []);
+});
