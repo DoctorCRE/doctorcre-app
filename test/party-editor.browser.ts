@@ -24,6 +24,7 @@ async function setup(
     holdList = false,
     record = {},
     facets = {},
+    activity,
   }: {
     width?: number;
     theme?: "dark" | "light";
@@ -34,6 +35,8 @@ async function setup(
     record?: Record<string, unknown>;
     // Filter choices the list read adds.
     facets?: Record<string, unknown>;
+    // The record's activity answers once this settles.
+    activity?: Promise<void>;
   } = {},
 ) {
   const server = await startFixtureServer();
@@ -64,15 +67,16 @@ async function setup(
       return route.fulfill({ status: 404, json: { error: "RECORD_NOT_FOUND" } });
     }
   });
-  await page.route("**/mcp", (route) =>
-    route.fulfill({
+  await page.route("**/mcp", async (route) => {
+    await activity;
+    return route.fulfill({
       json: {
         jsonrpc: "2.0",
         id: route.request().postDataJSON()?.id,
         result: { content: [{ type: "text", text: "{}" }] },
       },
-    }),
-  );
+    });
+  });
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
   );
@@ -153,7 +157,15 @@ for (const theme of themes)
     const radio = await dialog.getByLabel("Company").boundingBox();
     assert.ok(radio && radio.width <= 24 && radio.height <= 24, `the radio box is small, not ${radio?.width}`);
     await dialog.getByRole("button", { name: "Save client" }).click();
-    await dialog.getByRole("button", { name: "Use Example Smile Studio · Demo City" }).waitFor();
+    const use = dialog.getByRole("button", { name: "Use Example Smile Studio · Demo City" });
+    await use.waitFor();
+    assert.equal(
+      await use.evaluate(
+        (choice) => choice === document.activeElement && choice.getBoundingClientRect().bottom <= innerHeight,
+      ),
+      true,
+      "the first choice has focus and is in view",
+    );
     await dialog.getByText("An existing record keeps its own email, phone and city").waitFor();
     await dialog.getByRole("button", { name: "Save as a separate record" }).click();
     await page.waitForURL(`**/clients?record=${added}`);
@@ -315,17 +327,30 @@ test("Edit says it is opening and opens once however often it is pressed", async
   const read = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const { page, sent } = await setup(t, `/vendors?record=${vendor}`, async (call) => {
-    if (call.method === "GET") await read;
-    return fake.answer(call);
+  let settle = () => {};
+  const activity = new Promise<void>((resolve) => {
+    settle = resolve;
   });
+  const { page, sent } = await setup(
+    t,
+    `/vendors?record=${vendor}`,
+    async (call) => {
+      if (call.method === "GET") await read;
+      return fake.answer(call);
+    },
+    { activity },
+  );
   const button = page.locator("#recordPanel").getByRole("button", { name: "Edit" });
   await button.click();
+  // Settled activity redraws the record panel while Edit is still opening.
+  settle();
+  await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
   const opening = page.locator("#recordPanel").getByRole("button", { name: "Opening…" });
   assert.equal(await opening.isDisabled(), true);
   await opening.click({ force: true });
   release();
   await page.getByRole("dialog", { name: "Edit Demo Partner 01" }).waitFor();
+  assert.equal(await button.isEnabled(), true, "the redrawn Edit is ready again");
   await button.click({ force: true }).catch(() => {});
   assert.equal(sent.filter((call) => call.path === `/api/engine/parties/${vendor}`).length, 1);
 });
@@ -351,6 +376,39 @@ test("Edit to an email another record has offers that record, and Keep this emai
   const [refused, kept] = posts(sent);
   assert.deepEqual(withoutKey(kept?.body ?? {}), { ...withoutKey(refused?.body ?? {}), force_new: true });
   assert.equal(fake.state.contact.email, "shared@example.test");
+});
+
+test("Open on another record's email opens it in the list that holds it", async (t) => {
+  const party = "00000000-0000-4000-8000-000000000555";
+  const otherVendor = "00000000-0000-4000-8000-000000000002";
+  const fake = engine({ ...vendorParty, party_id: party, name: "Demo Practice 01" }, "client", {
+    party_id: party,
+    status: "roster",
+    client_type: null,
+    how_found: "inbound",
+    vertical: null,
+  });
+  const { page } = await setup(
+    t,
+    `/clients?record=${firstClient}`,
+    (call) =>
+      call.path === `/api/engine/parties/${otherVendor}`
+        ? { status: 200, json: { ...vendorParty, party_id: otherVendor, client: null, vendor: vendorProfile } }
+        : call.method === "POST" && call.path === `/api/engine/parties/${party}`
+          ? {
+              status: 409,
+              json: { error: "party_exists", candidates: [{ id: otherVendor, name: "Demo Partner 02", city: null }] },
+            }
+          : fake.answer(call),
+    { record: { party_id: party } },
+  );
+  await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Demo Practice 01" });
+  await dialog.getByLabel("Email").fill("shared@example.test");
+  await dialog.getByRole("button", { name: "Save changes" }).click();
+  await dialog.getByRole("button", { name: "Open Demo Partner 02" }).click();
+  await page.waitForURL(`**/vendors?record=${otherVendor}`);
+  await page.locator("#recordPanel").getByRole("heading", { name: "Demo Partner 02" }).waitFor();
 });
 
 test("Edit opened from the keyboard gives focus back to Edit when it closes", async (t) => {
