@@ -10,7 +10,7 @@ import { chromium } from "./browser-harness.mjs";
 const phases = ["pending", "research", "site_selection", "negotiation", "legal", "due_diligence", "closing"];
 const names = [
   "Example Practitioner, DMD",
-  "Example Northfield — Riverbendtown Purchase",
+  "Example Northfield — Riverbend Purchase",
   "Example Imaging Partners – Second Office",
   "Example Dermatology Group",
   "Example Orthodontics – North / 5 Corners",
