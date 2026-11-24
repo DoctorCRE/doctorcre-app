@@ -53,6 +53,9 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-read-status { margin-top: 12px; color: var(--fg-muted); font-size: 12px; }
 .home-kicker { font-size: 10px; letter-spacing: 1.7px; font-weight: 600; color: var(--accent-ink); }
 .has-app-layout main:has(.home-inbox) .inbox-shell { max-width: 1440px; padding: 0 0 100px; }
+.home-placeholder .skeleton-line { margin: 0; }
+.home-placeholder > header .skeleton-line { width: 40%; height: 14px; }
+.home-placeholder-row { display: grid; gap: var(--space-2); padding: var(--space-3) 0; border-top: 1px solid var(--hairline); }
 @media (max-width: 700px) {
   .home-sections { grid-template-columns: minmax(0, 1fr); }
 }

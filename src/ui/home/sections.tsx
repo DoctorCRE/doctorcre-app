@@ -84,6 +84,23 @@ export function HomeTile({
   );
 }
 
+/** A tile's shape while its read is in flight: a title bar and three card rows. */
+export function PlaceholderTile() {
+  return (
+    <div className="home-slice home-placeholder" aria-hidden="true">
+      <header>
+        <span className="skeleton-line short" />
+      </header>
+      {[0, 1, 2].map((row) => (
+        <div className="home-placeholder-row" key={row}>
+          <span className="skeleton-line" />
+          <span className="skeleton-line short" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function retainOrder(previous: readonly InboxItem[], incoming: readonly InboxItem[]) {
   const remaining = new Map(incoming.map((item) => [cardKey(item), item]));
   return [

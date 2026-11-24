@@ -92,6 +92,7 @@ const state = {
   boardStatus: 'starting',
   nextDealSaves: false,
   boardFromEngine: false,
+  boardRead: false,
   prospectCount: null,
   unplaced: 0,
 };
@@ -398,6 +399,7 @@ function renderBoardMessage(status = state.boardSync?.status()) {
     say('The board is unavailable. Refresh to try again.');
     return;
   }
+  if (!state.boardRead) { say('Updating…'); return; }
   const headline = boardHeadline(groupByColumn(visibleBoardDeals()));
   const count = state.prospectCount;
   say(typeof count === 'number' ? `${headline} · ${count} prospect${count === 1 ? '' : 's'}` : headline);
@@ -413,6 +415,22 @@ function dealListHtml(rows, parked) {
   return `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>${phase}</span><span>Next step</span><span>Owner</span></div>${mainRows}${parkedGroup}</div>`;
 }
 
+const placeholderLines = '<span class="skeleton-line"></span><span class="skeleton-line short"></span>';
+function boardPlaceholderHtml() {
+  if (state.view === 'list') return `<div class="deal-list board-placeholder" aria-hidden="true">${`<div class="board-placeholder-row">${placeholderLines}</div>`.repeat(6)}</div>`;
+  return [3, 2, 2, 1, 1, 1, 1].map(cards => `<div class="kanban-column board-placeholder" aria-hidden="true"><h3><span class="skeleton-line short"></span></h3>${`<div class="board-placeholder-card">${placeholderLines}</div>`.repeat(cards)}</div>`).join('');
+}
+const dealPlaceholderHtml = `<p class="sr-only" role="status">Updating…</p><div class="deal-placeholder" aria-hidden="true">${`<section class="panel-section"><span class="skeleton-line short"></span><span class="skeleton-line"></span><span class="skeleton-line"></span>${placeholderLines}</section>`.repeat(2)}</div>`;
+// Until the first snapshot lands the board shows its shape; a failed or offline first read leaves it empty.
+function renderBoardPlaceholder() {
+  const board = $('kanban');
+  if (state.boardRead || ['closed','lost'].includes(state.view)) return;
+  const status = state.boardSync.status();
+  const reading = status.online && ![HEALTH.FAILED, HEALTH.RENDER_FAILED].includes(status.board_health);
+  board.setAttribute('aria-busy', String(reading));
+  board.innerHTML = reading ? boardPlaceholderHtml() : '';
+}
+
 function renderBoard() {
   const board = $('kanban');
   if (!board) return;
@@ -421,6 +439,8 @@ function renderBoard() {
   $('closedDealsView').hidden = !['closed','lost'].includes(state.view);
   $('parkedToggle').hidden = ['closed','lost'].includes(state.view);
   if (['closed','lost'].includes(state.view)) { renderClosedDeals(); return; }
+  if (!state.boardRead) { renderBoardPlaceholder(); return; }
+  board.removeAttribute('aria-busy');
   if (board.dataset.pressed === 'true' || board.querySelector('[data-dragging="true"]')) { state.paintDeferred = true; return; }
   state.paintDeferred = false;
   const rows = visibleBoardDeals();
@@ -546,6 +566,7 @@ function noteCellBase(cell, event) {
 function applyBoardSnapshot(board) {
   const previousPanelRow = state.deals.get(state.panelDeal);
   const previousActor = state.selfActor;
+  state.boardRead = true;
   const saveSwitchChanged = Boolean(state.nextDealSaves) !== (board.next_deal_saves === true);
   state.selfActor = board.actor || state.client.selfActor || state.selfActor;
   state.nextDealSaves = board.next_deal_saves === true;
@@ -573,7 +594,7 @@ function applyBoardSnapshot(board) {
     $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
     $('panelTitle').textContent = 'Deal';
     $('workspaceFacts').replaceChildren();
-    $('panelBody').innerHTML = '<p>Updating…</p>';
+    $('panelBody').innerHTML = dealPlaceholderHtml;
   }
   if (state.personalScope && ['joe','dell'].includes(state.selfActor)) state.filter = state.selfActor;
   state.lostDeals = Array.isArray(board.lost_deals) ? board.lost_deals : null;
@@ -643,8 +664,10 @@ function syncProspects(enabled) {
 }
 
 async function loadBoard() {
+  renderBoardPlaceholder();
   const outcome = await state.boardSync.refreshBoard({ reason: 'load-board' });
   if (!outcome.applied && state.boardSync.status().snapshots === 0) {
+    renderBoardPlaceholder();
     say('The board could not be read. Nothing here has been inferred, and no record is shown.');
     return;
   }
@@ -2298,7 +2321,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   }
   state.panelReturnTo = trigger?.closest('.kanban-card')?.dataset.id || dealId;
   $('panelTitle').textContent = state.deals.get(dealId)?.name || 'Deal';
-  $('panelBody').innerHTML = '<p>Updating…</p>';
+  $('panelBody').innerHTML = dealPlaceholderHtml;
   $('workspaceFacts').replaceChildren();
   $('workspaceTabs').innerHTML = workspaceTabs.map(tab => `<button class="workspace-tab" type="button" role="tab" id="tab-${tab.id}" aria-controls="workspace-${tab.id}" aria-selected="${tab.id === workspaceTab}" tabindex="${tab.id === workspaceTab ? 0 : -1}" data-workspace-tab="${tab.id}">${tab.label}</button>`).join('');
   $('tab-client-view').hidden = true;
