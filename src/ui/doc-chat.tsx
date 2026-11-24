@@ -239,7 +239,15 @@ const proposalCopy = {
 function SavedProposal({ result }: { result: Confirmation }) {
   const href = recordHref(result.href);
   const { saved, open } = proposalCopy[result.kind];
-  return <p>{href ? <a href={href}>{open}</a> : saved}</p>;
+  const opened = result.kind === "reply_draft" && result.existing;
+  const status = opened ? "Opened your saved draft. Doc’s new wording wasn’t used." : !href && saved;
+  return (
+    <p>
+      {status}
+      {status && href && " "}
+      {href && <a href={href}>{open}</a>}
+    </p>
+  );
 }
 
 function readProposalDraft(storage: TextDraft, suggestion: Proposal): ProposalDraft {

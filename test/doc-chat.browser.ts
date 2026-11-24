@@ -976,6 +976,42 @@ for (const scenario of ["note", "next step", "reply", "unavailable"] as const) {
   });
 }
 
+for (const [existing, line] of [
+  [true, "Opened your saved draft. Doc’s new wording wasn’t used."],
+  [false, "Reply draft saved."],
+] as const) {
+  test(`Doc confirms a reply and says whether it opened the saved draft (existing: ${existing})`, async (t) => {
+    const proposal = {
+      kind: "reply_draft",
+      target: { ref: { kind: "email", id }, label: "Example email", href: "/inbox" },
+      subject: "Subject",
+      body: "Reply",
+    };
+    const turn = {
+      ...answeredTurn,
+      idempotency_key: "00000000-0000-4000-8000-000000000003",
+      answer: { ...answeredTurn.answer, proposal },
+    };
+    const result = { kind: "reply_draft", id: savedId, href: "https://example.com/draft", existing };
+    const { page, origin } = await docChatFixture(t, async (request) => {
+      switch (new URL(request.url).pathname) {
+        case "/api/engine/doc/conversations":
+          return Response.json({ conversations: [conversation], next_before: null });
+        case detailPath:
+          return Response.json({ conversation, turns: [turn] });
+        case confirmationPath:
+          return Response.json({ result });
+        default:
+          return Response.json({}, { status: 404 });
+      }
+    });
+    page.setDefaultTimeout(5000);
+    await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+    await page.getByRole("button", { name: "Save draft and open review", exact: true }).click();
+    await expect(page.locator(".doc-chat__turns li").getByText(line, { exact: true })).toBeVisible();
+  });
+}
+
 test("Doc identifies refused reply fields and keeps edits", async (t) => {
   const proposal = {
     kind: "reply_draft",
