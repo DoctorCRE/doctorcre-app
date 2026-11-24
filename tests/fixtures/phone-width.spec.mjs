@@ -73,15 +73,19 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
       await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
     });
 
-    test('page tabs have their own row', async ({ page }) => {
+    test(width === 390 ? 'page tabs have their own row' : 'page tabs share the top bar', async ({ page }) => {
       await page.goto(`${server.url}/deals`);
-      const views = page.getByRole('navigation', { name: 'Page controls' });
       const search = page.getByRole('button', { name: /Search and quick switcher/ });
       await expect(search).toBeVisible();
       await expect(page.locator('#boardChips button').first()).toBeVisible();
+      if (width !== 390) {
+        await expect(page.locator('.app-layout-topbar #appTabsSlot #boardChips')).toBeVisible();
+        return;
+      }
+      const views = page.getByRole('navigation', { name: 'Page controls' });
       const [viewBox, searchBox] = await Promise.all([views.boundingBox(), search.boundingBox()]);
       expect(searchBox.y + searchBox.height, 'Search fits above the page tabs').toBeLessThanOrEqual(viewBox.y);
-      if (width === 390) expect(viewBox.height, 'Deals tabs stay compact').toBeLessThanOrEqual(170);
+      expect(viewBox.height, 'Deals tabs stay compact').toBeLessThanOrEqual(170);
     });
 
     test('only phone navigation reserves space at the bottom', async ({ page }) => {

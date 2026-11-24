@@ -124,7 +124,7 @@ const placeNow = () => $("calGrid").querySelector(".cal-now")?.style.setProperty
 /**
  * Places each meeting and the now-line, then scrolls: a day opens at 7 AM, or
  * two hours before now when now would be off screen; a repaint of the same day
- * keeps its scroll. Positions go through CSSOM because the Worker's CSP refuses
+ * keeps its scroll unless the timeline changed height. Positions go through CSSOM because the Worker's CSP refuses
  * a `style` attribute in markup.
  */
 function placeTimeline(grid, kept) {
@@ -135,7 +135,7 @@ function placeTimeline(grid, kept) {
     Object.entries({ start, end, col: column, cols: columns }).forEach(([name, value]) => block.style.setProperty(`--${name}`, value));
   }
   placeNow();
-  if (kept !== null) { timeline.scrollTop = kept; return; }
+  if (kept?.height === timeline.clientHeight) { timeline.scrollTop = kept.top; return; }
   const perMinute = timeline.querySelector(".cal-hours").offsetHeight / (24 * 60);
   const now = view.state.anchor === view.today ? centralMinutes(Date.now()) : null;
   const shown = timeline.clientHeight / perMinute;
@@ -157,7 +157,8 @@ function paintGrid(layout) {
   }
   const direction = motionDirection(view.painted, state);
   const shownDay = grid.dataset.view === "day" && grid.querySelector(".cal-day")?.dataset.day;
-  const kept = shownDay === state.anchor && state.view === "day" ? grid.querySelector(".cal-timeline").scrollTop : null;
+  const timeline = shownDay === state.anchor && state.view === "day" && grid.querySelector(".cal-timeline");
+  const kept = timeline ? { top: timeline.scrollTop, height: timeline.clientHeight } : null;
   grid.dataset.view = state.view;
   grid.innerHTML = header + weeks.join("");
   placeTimeline(grid, kept);

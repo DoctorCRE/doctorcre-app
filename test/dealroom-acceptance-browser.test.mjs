@@ -750,7 +750,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`si
   await page.locator('.deal-updates').scrollIntoViewIfNeeded();
   await page.screenshot({path:join(evidence,`${width}-${theme}-summary.png`),animations:'disabled'});
   await page.locator('.updates-history > summary').click();
-  await page.evaluate(() => scrollTo(0,220));
+  await page.evaluate(() => { document.getElementById('appMainSlot').scrollTo(0,220); scrollTo(0,220); });
   await page.screenshot({ path: join(evidence, `${width}-${theme}-scrolled.png`), animations: 'disabled' });
   const titleHitTest = await page.locator('#panelTitle').evaluate(title => {
     const range = document.createRange(); range.selectNodeContents(title);
@@ -759,7 +759,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`si
       const hit = document.elementFromPoint(x, (rect.top + rect.bottom) / 2);
       return {x, visible: hit === title || title.contains(hit)};
     }));
-    return {scrollTop: scrollY, text: text.toJSON(), hits};
+    return {scrollTop: scrollY + document.getElementById('appMainSlot').scrollTop, text: text.toJSON(), hits};
   });
   await writeFile(join(evidence, `${width}-${theme}-hit-test.json`), JSON.stringify({...titleHitTest, header}, null, 2));
   assert.ok(titleHitTest.scrollTop > 100, 'exercise the sticky header after scrolling');
@@ -2890,6 +2890,11 @@ for (const width of [1440, 390]) {
     const droppedItem = items.filter({ hasText: droppedRow.name });
     await droppedItem.getByRole('button', { name: 'Reviewed', exact: true }).waitFor();
     assert.equal(await droppedItem.getByLabel('Add note').count(), 0);
+    const reviewPlace = () => page.evaluate(() => scrollY + document.getElementById('appMainSlot').scrollTop);
+    await page.setViewportSize({ width, height: 420 });
+    await droppedItem.evaluate(node => node.scrollIntoView({ block: 'end', behavior: 'instant' }));
+    const place = await reviewPlace();
+    assert.ok(place > 0, 'the review list scrolls at this height');
     await droppedItem.getByRole('link').click();
     const archive = page.getByRole('main', { name: droppedRow.name });
     await archive.getByText('Dropped Mon, Nov 9: Plans changed', { exact: true }).waitFor();
@@ -2903,6 +2908,8 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
     assert.equal(await page.getByRole('checkbox', { name: 'Not reviewed' }).isChecked(), true);
     await page.getByRole('link', { name: droppedRow.name }).and(page.locator(':focus')).waitFor();
+    assert.ok(Math.abs((await reviewPlace()) - place) <= 2, 'Monday review returns to the same scroll place');
+    await page.setViewportSize({ width, height: 900 });
     await page.getByRole('button', { name: 'One at a time' }).click();
     await page.getByRole('link', { name: droppedRow.name }).waitFor();
     await page.getByRole('button', { name: 'As a list' }).click();

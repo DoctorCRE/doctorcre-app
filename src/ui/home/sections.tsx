@@ -1,4 +1,5 @@
 import { Component, type ReactNode, useState } from "react";
+import { pageScroller } from "../../../js/touch-layout.js";
 import type { InboxItem } from "./inbox";
 
 const dayFormat = new Intl.DateTimeFormat("en-CA", {
@@ -165,7 +166,10 @@ export class HomeGrid extends Component<{ children: ReactNode; snapshot: unknown
   private grid: HTMLDivElement | null = null;
 
   getSnapshotBeforeUpdate(previous: Readonly<typeof this.props>): Anchor[] | null {
-    if (!window.scrollY || (this.props.snapshot === previous.snapshot && this.props.calendar === previous.calendar))
+    if (
+      !pageScroller().scrollTop ||
+      (this.props.snapshot === previous.snapshot && this.props.calendar === previous.calendar)
+    )
       return null;
     const active = document.activeElement;
     if (active && this.grid?.contains(active)) return [{ node: active, top: active.getBoundingClientRect().top }];
@@ -177,7 +181,8 @@ export class HomeGrid extends Component<{ children: ReactNode; snapshot: unknown
 
   componentDidUpdate(_previous: Readonly<typeof this.props>, _state: unknown, anchors: Anchor[] | null) {
     const anchor = anchors?.find(({ node }) => node.isConnected);
-    if (anchor) window.scrollBy({ top: anchor.node.getBoundingClientRect().top - anchor.top, behavior: "instant" });
+    if (anchor)
+      pageScroller().scrollBy({ top: anchor.node.getBoundingClientRect().top - anchor.top, behavior: "instant" });
   }
 
   render() {

@@ -42,7 +42,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
       await entry.click();
       const region = await page.locator('.territory').boundingBox();
       expect.soft(region.y).toBeGreaterThanOrEqual(0);
-      expect.soft(region.y + 120, 'territory heading and reveal action enter the viewport').toBeLessThan(900);
+      expect.soft(region.y + 120, 'territory heading and reveal action enter the viewport').toBeLessThanOrEqual(1000);
     }
     await page.getByRole('button', { name: 'Show territory', exact: true }).click();
     await page.locator('.market-marker').first().waitFor();

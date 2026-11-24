@@ -53,6 +53,7 @@ import {
 } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
 import { mountVisibilityPoll } from './visibility-poll.mjs';
+import { pageScroller } from './touch-layout.js';
 
 
 const $ = (id) => document.getElementById(id);
@@ -2328,7 +2329,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   disposePanelCallReview();
   disposePanelEmailFollowups();
   setContextOpenVisible(false);
-  if (!state.panelDeal) boardScroll = history.state?.boardScroll ?? scrollY;
+  if (!state.panelDeal) boardScroll = history.state?.boardScroll ?? pageScroller().scrollTop;
   const scope = new URLSearchParams(location.search);
   const focusStep = scope.get('deal') === dealId && scope.get('focus') === 'next-step';
   state.panelStepId = focusStep ? scope.get('step') : null;
@@ -2345,7 +2346,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
       if (!['owner', 'view', 'mode'].includes(key)) url.searchParams.delete(key);
     }
     url.searchParams.set('deal',dealId);
-    writeWorkspaceHistory({...history.state, boardScroll:scrollY}, location.href);
+    writeWorkspaceHistory({...history.state, boardScroll:pageScroller().scrollTop}, location.href);
     writeWorkspaceHistory({doctorcreDealWorkspace:true},url,true);
   }
   state.panelReturnTo = trigger?.closest('.kanban-card')?.dataset.id || dealId;
@@ -2356,7 +2357,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   $('tab-client-view').hidden = true;
   $('main').hidden = true; panel.hidden = false;
   document.body.classList.add('workspace-open');
-  scrollTo({ top: 0, behavior: 'instant' });
+  pageScroller().scrollTo({ top: 0, behavior: 'instant' });
   $('panelTitle').focus({preventScroll:true});
   await refreshPanel();
   if (state.panelDeal === dealId && history.state?.doctorcreDocumentText)
@@ -2420,7 +2421,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   document.body.classList.remove('workspace-open');
   automaticPhase.setOpenDeal(null);
   state.panelDeal = null; state.panelStepId = null; state.panelDetail = null;
-  scrollTo(0, history.state?.boardScroll ?? boardScroll);
+  pageScroller().scrollTo(0, history.state?.boardScroll ?? boardScroll);
   state.panelReturnTo = null;
   setContextOpenVisible(false);
   if (id) document.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`)?.focus({preventScroll:true});
@@ -2794,7 +2795,7 @@ function wire() {
   $('panelClose')?.addEventListener('click', () => closeWorkspace());
   $('workspaceTabs').addEventListener('click', event => {
     const tab = event.target.closest('[data-workspace-tab]');
-    if (tab) { selectWorkspaceTab(tab.dataset.workspaceTab); scrollTo(0,0); }
+    if (tab) { selectWorkspaceTab(tab.dataset.workspaceTab); pageScroller().scrollTo(0,0); }
   });
   $('workspaceTabs').addEventListener('keydown', event => {
     if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
@@ -2804,7 +2805,7 @@ function wire() {
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? visibleTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + visibleTabs.length) % visibleTabs.length;
     selectWorkspaceTab(visibleTabs[next].id);
     $(`tab-${workspaceTab}`).focus();
-    scrollTo(0,0);
+    pageScroller().scrollTo(0,0);
   });
   $('receiptsOpen')?.addEventListener('click', () => {
     renderReceipts();

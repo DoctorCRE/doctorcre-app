@@ -16,7 +16,7 @@ function createAppLayout(root, title) {
   layout.id = 'appLayout';
   layout.className = 'app-layout';
   layout.innerHTML = `<aside id="appSidebar" class="app-layout-sidebar" aria-label="${escape(title)} workspace"><div class="app-layout-sidebar-head"><h2>${escape(title)}</h2><button type="button" data-layout-close="sidebar" aria-label="Close workspace">‹</button></div></aside>
-    <div class="app-layout-center"><div id="appTopbar" class="app-layout-topbar" role="region" aria-label="App controls"></div><div class="app-layout-tabbar" role="navigation" aria-label="Page controls"><button type="button" id="appSidebarToggle" aria-label="Workspace sidebar" aria-controls="appSidebar" aria-expanded="false" title="Workspace sidebar">☷</button><div id="appTabsSlot" class="app-layout-tabs" role="group" aria-label="${escape(title)} views"></div><button type="button" id="appTodayToggle" aria-label="Today sidebar" aria-controls="appToday" aria-expanded="true" title="Today">◷</button></div><div id="appMainSlot" class="app-layout-main"></div><details class="app-layout-page-tools"><summary>Page tools</summary><div id="appSidebarSlot"></div></details></div>
+    <div class="app-layout-center"><div id="appTopbar" class="app-layout-topbar" role="region" aria-label="App controls"><button type="button" id="appSidebarToggle" aria-label="Workspace sidebar" aria-controls="appSidebar" aria-expanded="false" title="Workspace sidebar">☷</button><span class="app-layout-title">${escape(title)}</span><button type="button" id="appTodayToggle" aria-label="Today sidebar" aria-controls="appToday" aria-expanded="true" title="Today">◷</button></div><div class="app-layout-tabbar" role="navigation" aria-label="Page controls"><div id="appTabsSlot" class="app-layout-tabs" role="group" aria-label="${escape(title)} views"></div></div><div id="appToolsSlot" class="app-layout-tools"></div><div id="appMainSlot" class="app-layout-main"></div></div>
     <aside id="appToday" class="app-layout-today" aria-labelledby="appTodayTitle"><div class="app-layout-sidebar-head"><h2 id="appTodayTitle">Today</h2><time id="appSyncTime" hidden></time><button type="button" data-layout-close="today" aria-label="Close Today">›</button></div><p id="appConnection" role="status" hidden></p>${todayContent}</aside>
     <button class="app-layout-scrim" id="appDrawerScrim" type="button" aria-label="Close sidebar" hidden></button>`;
   return layout;
@@ -30,39 +30,38 @@ export function mountAppLayout(root, host, pathname) {
   const pageKey = pathname === '/deals' ? '/deals' : pathname;
   const calendarPanel = pathname === '/calendar' && root.getElementById('dayPanel');
   const deferToday = ['/updates', '/notifications'].includes(pathname) && updatesFromEngine(root);
-  const boardPage = ['/leads','/deals','/pipeline'].includes(pathname);
-  const vendorDirectory = pathname === '/vendors';
-  const title = pathname === '/' ? 'Home' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.querySelector('main h1, .page-kicker')?.textContent.trim().replace(/Loading$/, '').trim() || root.title.split('·')[0].trim();
+  const title = pathname === '/' ? 'Home' : pathname === '/vendors' ? 'Vendors' : pathname === '/clients' ? 'Clients' : pathname === '/deals' ? 'Local Deals' : root.title.split('·')[0].trim() || root.querySelector('main h1, .page-kicker')?.textContent.trim();
   const engineToday = root.documentElement.hasAttribute('data-home-today-from-engine');
   const layout = createAppLayout(root, title);
   host.after(layout);
   const skip = root.querySelector('.skip');
   if (skip) host.querySelector('header')?.prepend(skip);
   const main = layout.querySelector('#appMainSlot');
-  const pageTools = layout.querySelector('.app-layout-page-tools');
-  main.append(pageTools);
   // Modals and fixed feedback belong to the viewport, outside page regions.
   root.querySelectorAll('.record-backdrop, aside.record-panel, .room-toast').forEach(node => root.body.append(node));
   // Lift declarative page slots before putting the remaining page into main.
   const pageViews = layout.querySelector('#appTabsSlot');
   const slots = {
-    title: layout.querySelector(".app-layout-tabbar"),
+    title: layout.querySelector('.app-layout-title'),
     tabs: pageViews,
     actions: pageViews,
-    sidebar: layout.querySelector('#appSidebarSlot'),
+    sidebar: layout.querySelector('#appToolsSlot'),
     moves: !engineToday && layout.querySelector('#appToday'),
   };
   for (const node of [...root.querySelectorAll('[data-layout-slot]')]) {
     const slot = node.dataset.layoutSlot;
     const target = slots[slot];
     if (!target) continue;
-    if (slot === 'title') target.before(node);
+    if (slot === 'title') { node.classList.add('app-layout-title'); target.replaceWith(node); slots.title = node; }
     else target.append(node);
   }
+  // A page heading lifted into the toolbar row would repeat the top bar title, so it becomes that title.
+  const toolsHeading = layout.querySelector('#appToolsSlot h1');
+  if (toolsHeading && !root.querySelector('[data-layout-slot="title"]')) { toolsHeading.classList.add('app-layout-title'); slots.title.replaceWith(toolsHeading); slots.title = toolsHeading; }
   for (const node of [...root.body.children]) {
     if (node === host || node === layout || ['SCRIPT','DIALOG'].includes(node.tagName) || node.matches('.app-shell-account-menu, .skip, .toast, .receipt-dock, .record-backdrop, aside.record-panel, .room-toast')) continue;
     const focusedSearch = pathname === '/search' && node.contains(root.getElementById('searchQuery')) && node.contains(root.activeElement);
-    if (focusedSearch && main.moveBefore) main.moveBefore(node, pageTools);
+    if (focusedSearch && main.moveBefore) main.moveBefore(node, null);
     else if (focusedSearch) {
       let composing = root.getElementById('searchQuery').dataset.composing === 'true';
       const moveWhenReady = event => {
@@ -70,7 +69,7 @@ export function mountAppLayout(root, host, pathname) {
         node.removeEventListener('focusout', moveWhenReady);
         node.removeEventListener('compositionstart', startComposition);
         node.removeEventListener('compositionend', endComposition);
-        main.insertBefore(node, pageTools);
+        main.append(node);
       };
       const startComposition = () => { composing = true; };
       const endComposition = () => { composing = false; moveWhenReady(); };
@@ -78,18 +77,21 @@ export function mountAppLayout(root, host, pathname) {
       node.addEventListener('compositionend', endComposition);
       node.addEventListener('focusout', moveWhenReady);
     }
-    else main.insertBefore(node, pageTools);
+    else main.append(node);
   }
-  const hasPageTools = Boolean(layout.querySelector('#appSidebarSlot').childElementCount);
-  pageTools.open = !vendorDirectory && hasPageTools;
-  pageTools.hidden = !hasPageTools;
   root.body.classList.add('has-app-layout');
   const pageRefresh = main.querySelector('[data-layout-slot="status"] [data-layout-refresh]');
   const pageMoves = layout.querySelector('[data-layout-slot="moves"]');
   const phone = win.matchMedia(pathname === "/leads" ? "(max-width:1023px)" : TOUCH_LAYOUT);
+  // Desktop tabs share the top bar with the title; the phone gives them their own sticky row.
+  const tabbar = layout.querySelector('.app-layout-tabbar');
+  const placeTabs = () => {
+    if (phone.matches) tabbar.prepend(pageViews); else slots.title.after(pageViews);
+  };
+  placeTabs();
+  phone.addEventListener('change', placeTabs);
   const dealBoard = pathname === '/deals' && root.body.classList.contains('dealroom-page');
-  const itineraryPage = Boolean(root.getElementById('accepted-itinerary'));
-  let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory && !calendarPanel, today = !deferToday && !dealBoard, drawer = null;
+  let sidebar = false, today = !deferToday && !dealBoard, drawer = null;
   let drawerOpener = null;
   const background = new Map();
   try {
@@ -190,7 +192,7 @@ export function mountAppLayout(root, host, pathname) {
     items[next]?.focus();
   });
   if (calendarPanel && engineToday) {
-    tabs.closest('.app-layout-tabbar').remove();
+    tabbar.remove();
     return;
   }
   if (pathname === '/' && new URLSearchParams(win.location.search).get('view') !== 'charts') {

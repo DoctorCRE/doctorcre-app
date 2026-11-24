@@ -31,7 +31,6 @@ test('V01 shared directory has neutral loading identity before its module starts
   await page.route('**/js/workspace-business.js', route => route.abort());
   await page.goto(`${origin}/vendors`);
   assert.equal(await page.title(), 'Records · DoctorCRE');
-  await page.locator('.app-layout-page-tools > summary').click();
   assert.equal(await page.locator('#pageTitle').innerText(), 'Records');
   assert.equal(await page.locator('#resultsTitle').innerText(), 'Records');
   assert.equal(await page.locator('.footer').innerText(), 'DoctorCRE · Records');
@@ -115,12 +114,12 @@ test('W5 filters, traversal and autonomous refresh recover without losing search
   await page.locator('#resetFilters').click();await resetRead;
   await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>=25 && document.querySelector('#resultSummary').textContent.startsWith('62 '));
   assert.equal(await page.locator('#territoryInput').inputValue(),'');assert.equal(await page.locator('#sortSelect').inputValue(),'name');
-  await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>25);const search=await page.locator('.search-dock').boundingBox();assert.ok(search.y>=69&&search.y<102);assert.ok(search.height<110);assert.doesNotMatch(page.url(),/page=/);
+  await page.evaluate(()=>{document.getElementById('appMainSlot').scrollTo(0,1e6);scrollTo(0,1e6);});await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>25);const search=await page.locator('.search-dock').boundingBox(),mainTop=await page.locator('#appMainSlot').evaluate(n=>n.getBoundingClientRect().top);assert.ok(search.y>=mainTop+12&&search.y<mainTop+46);assert.ok(search.height<110);assert.doesNotMatch(page.url(),/page=/);
   // Scrolling loads the next page only once the search's first page is the list on screen.
   const searchRead=page.waitForResponse(response=>{const url=new URL(response.url());return url.pathname==='/api/v1/business/vendors' && url.searchParams.get('q')==='Demo' && (url.searchParams.get('page')||'1')==='1';});
   await page.locator('#searchInput').fill('Demo');await page.clock.fastForward(400);await searchRead;
   await page.waitForFunction(()=>location.search.includes('q=Demo') && document.querySelectorAll('.record-row').length===25 && document.querySelector('#listRegion').getAttribute('aria-busy')==='false');
-  await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>25);
+  await page.evaluate(()=>{document.getElementById('appMainSlot').scrollTo(0,1e6);scrollTo(0,1e6);});await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>25);
   const count=await page.locator('.record-row').count(), held=[], lastPage=String(Math.ceil(count/25));
   // Keep the final page pending so retained rows cannot masquerade as a settled poll.
   await page.route('**/api/v1/business/vendors?**',r=>{
@@ -139,9 +138,9 @@ test('W5 filters, traversal and autonomous refresh recover without losing search
 test('a new search puts the reader at its first result at once',async t=>{
   const {page}=await open(t);await page.goto(origin+'/vendors?mode=live',{waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');
   const scrollY=await page.evaluate(()=>{
-    scrollTo({top:1500,behavior:'instant'});
+    const main=document.getElementById('appMainSlot');main.scrollTo({top:1500,behavior:'instant'});
     document.querySelector('#searchInput').value='Demo';document.querySelector('#searchInput').form.requestSubmit();
-    return scrollY;
+    return scrollY+main.scrollTop;
   });
   assert.equal(scrollY,0);
 });
@@ -172,7 +171,7 @@ test('W5 Back restores cached query rows while its read is pending',async t=>{
 test('W5 failed continuous page is visible and polling retries without scroll',async t=>{
  const {page}=await open(t);let fail=true;
  await page.route('**/api/v1/business/vendors?**',r=>new URL(r.request().url()).searchParams.get('page')==='2'&&fail?r.fulfill({status:503,json:{error:'DEPENDENCY_UNAVAILABLE'}}):r.fallback());
- await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));await page.waitForTimeout(150);
+ await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.evaluate(()=>{document.getElementById('appMainSlot').scrollTo(0,1e6);scrollTo(0,1e6);});await page.waitForTimeout(150);
  assert.match(await page.locator('#noticeRegion').innerText(),/Could not load more/);assert.equal(await page.locator('.record-row').count(),25);
  fail=false;await page.clock.fastForward(31000);await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>=50);
 });
@@ -357,9 +356,9 @@ for (const width of [390, 1440]) for (const tall of [false, true]) test(`vendor 
   await page.route('**/mcp', r => r.fulfill({ json: { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(recording.research) }] } } }));
   await page.goto(origin + '/vendors?mode=live');
   await page.locator('.record-row').first().waitFor();
-  await page.evaluate(() => scrollTo(0, document.body.scrollHeight));
+  await page.evaluate(() => { document.getElementById('appMainSlot').scrollTo(0, 1e6); scrollTo(0, 1e6); });
   await page.waitForFunction(() => document.querySelectorAll('.record-row').length >= 50);
-  await page.evaluate(() => scrollTo(0, document.body.scrollHeight));
+  await page.evaluate(() => { document.getElementById('appMainSlot').scrollTo(0, 1e6); scrollTo(0, 1e6); });
   await page.waitForFunction(() => document.querySelectorAll('.record-row').length === 62);
   if (width === 390) await page.locator('.vendor-meetings > summary').click();
   const research = page.getByRole('region', { name: 'People worth meeting' });
