@@ -14,7 +14,9 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const app = "https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev";
 const datesRead = "/api/engine/calendar/critical-dates";
 const meetingsRead = "/api/engine/calendar/meetings";
-const staleNote = "This calendar was last read from Outlook more than 18 hours ago.";
+// The engine sends its own wording too; Calendar words the stale line from observed_at, like Home.
+const engineStaleNote = "This calendar was last read from Outlook more than 18 hours ago.";
+const staleNotice = "Example Partner Two: Last synced Oct 19, 9:00 AM CDT.";
 
 const dates = {
   schema_version: "calendar-critical-dates.v1",
@@ -42,7 +44,8 @@ const meetings = {
       name: "Example Partner Two",
       state: "partial",
       reason: null,
-      notes: [staleNote],
+      observed_at: "2026-10-19T14:00:00Z",
+      notes: [engineStaleNote],
       items: [{ title: "Site walk", start: "2026-10-20T19:30:00Z", end: "2026-10-20T20:30:00Z" }],
     },
     {
@@ -137,7 +140,7 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           await expect(page.locator("#calCount")).toHaveText("1 critical date · 3 meetings · 1 tour");
           assert.deepEqual(ranges, ["?from=2026-09-27&to=2026-11-07"]);
           await expect(page.locator("#calMeetingsNote")).toHaveText("Meetings show for about the next two weeks.");
-          await expect(page.locator("#calNotices")).toHaveText(`Dell: ${staleNote}`);
+          await expect(page.locator("#calNotices")).toHaveText(staleNotice);
 
           const panel = page.locator("#dayPanelBody");
           await expect(panel.locator(".cal-day-entry h3")).toHaveText(["Lease review", "Site walk", "LOI expiry"]);
@@ -191,7 +194,7 @@ test("Calendar shows both partners' meetings and tours on their Central day with
 
           answer = () => meetings;
           await page.locator("#calRefresh").click();
-          await expect(page.locator("#calNotices")).toHaveText(`Dell: ${staleNote}`);
+          await expect(page.locator("#calNotices")).toHaveText(staleNotice);
 
           answer = () => new Response("{}", { status: 404 });
           await page.getByRole("button", { name: "Next month" }).click();
@@ -286,7 +289,7 @@ test("A meeting both partners attend shows once, standing notes stay quiet, and 
   await page.locator("#calRefresh").click();
   await expect(page.locator("#calCount")).toHaveText("1 critical date · 1 meeting");
   assert.equal(ranges.length, opened + 1, "Refresh reads the meetings again");
-  await expect(page.locator("#calNotices")).toHaveText("Dell: Calendar may be incomplete.");
+  await expect(page.locator("#calNotices")).toHaveText("Example Partner Two: Calendar may be incomplete.");
 
   const panel = page.locator("#dayPanelBody");
   const joint = panel.locator(".cal-day-entry").filter({ hasText: "Joint call" });
@@ -298,4 +301,62 @@ test("A meeting both partners attend shows once, standing notes stay quiet, and 
     "data-band",
     "settled",
   );
+});
+
+test("November meetings show Central standard time, all-day meetings say so, and a failed refresh keeps them", async (t) => {
+  const outDir = await temporaryDirectory("calendar-meetings-november-");
+  t.after(() => rm(outDir, { recursive: true, force: true }));
+  await buildArtifact({ root, outDir, commit: "0".repeat(40) });
+  const server = await (await createQaServer({ buildRoot: join(outDir, "site") })).start();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  t.after(() => page.close());
+  await page.clock.install({ time: new Date("2026-11-09T15:00:00Z") });
+  await page.addInitScript(() => localStorage.setItem("doctorcre:today", "closed"));
+  const november = {
+    ok: true,
+    schema_version: "calendar-meetings.v1",
+    meetings: [
+      {
+        partner: "joe",
+        name: "Example Partner One",
+        state: "ready",
+        reason: null,
+        observed_at: "2026-11-09T14:00:00Z",
+        notes: [],
+        items: [
+          { title: "Budget call", start: "2026-11-10T15:00:00Z", end: "2026-11-10T16:00:00Z" },
+          { title: "Office closed", start: "2026-11-11T06:00:00Z", end: "2026-11-12T06:00:00Z", all_day: true },
+        ],
+      },
+    ],
+    tours: { state: "empty", reason: null, items: [] },
+  };
+  const ranges: string[] = [];
+  let answer: Reply = () => november;
+  await routeApp(page, server.origin, ranges, () => answer());
+  await page.request.post(`${server.origin}/api/test/seed`, {
+    data: { namespace: "calendar-meetings-november", reset: true },
+  });
+
+  await page.goto(`${app}/calendar?view=week&d=2026-11-08&day=2026-11-10`);
+  await expect(page.locator("#calCount")).toHaveText("1 critical date · 2 meetings");
+  const panel = page.locator("#dayPanelBody");
+  await expect(panel).toHaveText("Meeting · Joe · 9:00 AM CST Budget call");
+  await page.locator('[data-select-day="2026-11-11"]').click();
+  await expect(panel).toHaveText("Meeting · Joe · All day Office closed");
+
+  answer = () => new Response("{}", { status: 503 });
+  await page.locator("#calRefresh").click();
+  await expect(page.locator("#calNotices")).toHaveText("Calendar could not refresh. Try again.Retry");
+  await expect(page.locator("#calCount")).toHaveText("1 critical date · 2 meetings");
+  await expect(panel).toHaveText("Meeting · Joe · All day Office closed");
+  await expect(page.getByRole("button", { name: /^Meeting · 9:00 AM CST Budget call/ })).toBeVisible();
+
+  answer = () => november;
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(page.locator("#calNotices")).toBeEmpty();
+  assert.equal(ranges.length, 3, "Refresh and Retry each read the meetings again");
 });

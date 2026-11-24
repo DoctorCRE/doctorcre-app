@@ -1,5 +1,6 @@
 import { createPageBudget } from './read-budget.mjs';
-import { businessDay } from './business-date.js';
+import { BUSINESS_TIME_ZONE, businessDay } from './business-date.js';
+import { meetingTime } from './home-week.js';
 // Calendar days use UTC arithmetic. Today uses America/Chicago.
 
 export const CALENDAR_VIEWS = Object.freeze(["month", "week"]);
@@ -210,7 +211,7 @@ export function entriesByDay(entries) {
     map.get(entry.day).push(entry);
   }
   for (const rows of map.values()) {
-    // Timed meetings come first, in the order they start.
+    // Meetings come first, in the order they start.
     rows.sort((a, b) => Number(a.settled) - Number(b.settled) || Number(!a.at) - Number(!b.at)
       || (a.at ?? "").localeCompare(b.at ?? "")
       || a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
@@ -332,19 +333,21 @@ const isInstant = value => typeof value === "string" && Number.isFinite(Date.par
 const isText = value => typeof value === "string" && value.trim() !== "";
 const recordUrl = value => typeof value === "string" && /^\/(?:deals|relationships)\?/.test(value) ? value : null;
 const SECTION_STATES = ["ready", "empty", "partial", "unavailable"];
-// The Outlook job attaches standing caveats to every snapshot; like Home, only staleness is worth a line.
-const STALE_NOTE = "This calendar was last read from Outlook more than 18 hours ago.";
+// The engine's freshness rule for an Outlook snapshot.
+const STALE_MS = 18 * 3_600_000;
 const named = (who, text) => text.startsWith(who) ? text : `${who}: ${text}`;
-const partnerName = slug => slug[0].toUpperCase() + slug.slice(1);
 const UNLOADED = { status: "unavailable", entries: [], notes: ["Meetings could not be loaded. Refresh to try again."] };
 
 /** The visible period as the meetings read's inclusive range. */
 export const visibleRange = days => ({ from: days[0].day, to: days.at(-1).day });
 
-function sectionNotes(section, who) {
+/** The Outlook job attaches standing caveats to every snapshot; like Home, only a stale sync is worth a line. */
+function sectionNotes(section, who, now) {
   if (section.state === "unavailable") return [section.reason || `${who}'s meetings could not be loaded.`];
+  const synced = isInstant(section.observed_at) ? Date.parse(section.observed_at) : null;
   return [
-    ...(Array.isArray(section.notes) && section.notes.includes(STALE_NOTE) ? [STALE_NOTE] : []),
+    ...(synced !== null && now - synced > STALE_MS
+      ? [`Last synced ${meetingTime(section.observed_at, BUSINESS_TIME_ZONE, true)}.`] : []),
     ...(section.meetings_may_be_missing === true ? ["Calendar may be incomplete."] : []),
   ];
 }
@@ -362,7 +365,7 @@ function dealLinks(item) {
  * engine does not serve the read, so the page says nothing about meetings.
  * A meeting both partners attend is one entry owned by both.
  */
-export async function readMeetings(client, range) {
+export async function readMeetings(client, range, now = Date.now()) {
   if (!client.getCalendarMeetings) return { status: "off", entries: [], notes: [] };
   let answer;
   try {
@@ -374,10 +377,10 @@ export async function readMeetings(client, range) {
     const notes = [];
     const meetings = new Map();
     for (const section of answer.meetings) {
-      if (!isText(section.partner) || !SECTION_STATES.includes(section.state) || !Array.isArray(section.items))
+      if (!isText(section.partner) || !isText(section.name) || !SECTION_STATES.includes(section.state) || !Array.isArray(section.items))
         throw new Error("Meetings unreadable");
-      const who = partnerName(section.partner);
-      notes.push(...sectionNotes(section, who).map(note => named(who, note)));
+      const who = section.name;
+      notes.push(...sectionNotes(section, who, now).map(note => named(who, note)));
       if (section.state === "unavailable") continue;
       for (const item of section.items) {
         if (!isText(item?.title) || !isInstant(item.start)) throw new Error("Meeting unreadable");

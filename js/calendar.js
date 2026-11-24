@@ -157,12 +157,12 @@ function itemCount(rows) {
 function dayList(rows) {
   return `<ol class="cal-day-entries">${rows.map(entry => {
     const near = approach(entry, view.today);
-    const owner = [ownerNames(entry), entryTime(entry) && `<time datetime="${escapeHtml(entry.at)}">${escapeHtml(entryTime(entry))}</time>`]
+    const byline = [ownerNames(entry), entryTime(entry) && `<time datetime="${escapeHtml(entry.at)}">${escapeHtml(entryTime(entry))}</time>`]
       .filter(Boolean).map(part => ` · ${part}`).join("");
     const record = recordLinks(entry);
     const late = entry.days_late ? `<span class="cal-late">${entry.days_late} ${entry.days_late === 1 ? "day" : "days"} late · Due ${shortDay(entry.due_on, view.today)}</span>` : "";
     return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}">
-      <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${owner}</small>
+      <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${byline}</small>
       <h3>${escapeHtml(entry.label)}</h3>
       ${entry.why ? `<p>${escapeHtml(entry.why)}</p>` : ""}
       ${record ? `<p>${record}</p>` : ""}${late}</li>`;
@@ -219,7 +219,7 @@ function paintState(phase, periodRows) {
   const block = $("calState");
   const unit = view.state.view;
   const empty = ["ready", "empty"].includes(phase) && periodRows.length === 0;
-  const message = empty ? `No critical dates or next steps this ${unit}.` : STATE_COPY[phase];
+  const message = empty ? `Nothing this ${unit}.` : STATE_COPY[phase];
   block.hidden = !message;
   const signIn = phase === "unauthorized"
     ? ` <a href="/auth/login?return_to=${encodeURIComponent(location.pathname + location.search)}">Sign in</a>` : "";
@@ -250,8 +250,6 @@ function render() {
     : active?.dataset.day ? `button[data-day="${CSS.escape(active.dataset.day)}"]` : null;
   const phase = calendarPhase(view.result);
   const layout = calendarLayout(view.state);
-  const range = visibleRange(layout.days);
-  if (client && phase !== "unauthorized" && !sameRange(view.meetings.range, range)) void loadMeetings(range);
   view.byDay = ["ready", "partial", "reading", "empty"].includes(phase)
     ? entriesByDay([...(view.result.entries || []), ...view.meetings.entries]) : new Map();
   paintNotices(phase);
@@ -288,7 +286,10 @@ function go(next, { push = true } = {}) {
     else history.replaceState({ calendar: true }, "", href);
   }
   const moved = !before || before.view !== next.view || before.anchor !== next.anchor;
-  if (moved) render();
+  if (moved) {
+    void loadMeetings();
+    render();
+  }
   else paintSelection();
   const periodText = $("calPeriod")?.textContent || "";
   if (moved) announce(`${periodText}. ${next.view === "week" ? "Week" : "Month"} view.`);
@@ -351,6 +352,7 @@ function wire() {
 
   window.addEventListener("popstate", () => {
     view.state = parseCalendarState(location.search, view.today);
+    void loadMeetings();
     render();
   });
 }
@@ -358,7 +360,9 @@ function wire() {
 const sameRange = (a, b) => a?.from === b.from && a?.to === b.to;
 
 /** A newly shown period's meetings. */
-async function loadMeetings(range) {
+async function loadMeetings() {
+  const range = visibleRange(calendarLayout(view.state).days);
+  if (!client || calendarPhase(view.result) === "unauthorized" || sameRange(view.meetings.range, range)) return;
   const sequence = ++view.meetingSequence;
   view.meetings = { ...view.meetings, range, entries: [], notes: [] };
   const read = await readMeetings(client, range);
@@ -373,6 +377,8 @@ async function load() {
   // Every load reads the shown period's meetings alongside the dates, so the page paints once.
   const range = visibleRange(calendarLayout(view.state).days);
   const meetingSequence = ++view.meetingSequence;
+  const shownMeetings = sameRange(view.meetings.range, range) && ["ready", "partial"].includes(view.meetings.status)
+    ? view.meetings : null;
   if (!sameRange(view.meetings.range, range)) view.meetings = { ...view.meetings, range, entries: [], notes: [] };
   if (!showingResults) {
     view.result = { status: "loading" };
@@ -384,7 +390,10 @@ async function load() {
     view.result = result;
     render();
   } }), readMeetings(client, range)]);
-  if (meetingSequence === view.meetingSequence) view.meetings = { ...meetings, range };
+  const current = meetingSequence === view.meetingSequence;
+  // A failed refresh keeps the meetings already on screen, like the dates.
+  const meetingsFailed = current && shownMeetings !== null && meetings.status === "unavailable";
+  if (current && !meetingsFailed) view.meetings = { ...meetings, range };
   if (sequence !== view.sequence) return;
   if (showingResults && (result.status === "unavailable" ||
       (result.status === "ready" && result.failed.length > 0 && result.readCount === 0))) {
@@ -393,15 +402,15 @@ async function load() {
     announce("Calendar could not refresh. Try again.");
     return false;
   }
-  view.refreshFailed = false;
+  view.refreshFailed = meetingsFailed;
   view.result = result;
   const selected = pageDocContext?.snapshot().selected;
   if(selected?.kind === "deal" && result.status === "ready") void client.getDeal(selected.id).catch(() => {});
-  if (["ready", "partial"].includes(result.status)) view.updatedAt = new Date().toISOString();
+  if (["ready", "partial"].includes(result.status) && !meetingsFailed) view.updatedAt = new Date().toISOString();
   view.painted = null;
   render();
-  announce(STATE_COPY[calendarPhase(result)] || "");
-  return result.status === "ready";
+  announce(meetingsFailed ? "Calendar could not refresh. Try again." : STATE_COPY[calendarPhase(result)] || "");
+  return result.status === "ready" && !meetingsFailed;
 }
 
 async function boot() {
