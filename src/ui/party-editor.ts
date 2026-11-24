@@ -1,5 +1,7 @@
 // Add clients and vendors through the engine's party doors.
 
+import { showToast } from "../../js/toast.js";
+
 type Dataset = "clients" | "vendors";
 type Facet = { slug: string; label: string };
 type Candidate = { id: string; name: string; city: string | null };
@@ -24,7 +26,7 @@ const STATUSES = [
   ["paused", "Paused"],
 ];
 // No engine read lists these yet, so this copies the engine's how_found list; Not recorded is only for copied records.
-export const HOW_FOUND = [
+const HOW_FOUND = [
   ["referral", "Referral"],
   ["vendor", "Vendor"],
   ["marketing_post", "Marketing post"],
@@ -38,8 +40,6 @@ export const HOW_FOUND = [
 ];
 const REFUSALS: Record<string, string> = {
   party_exists: "A record like this already exists.",
-  already_client: "This record is already a client.",
-  already_vendor: "This record is already a vendor.",
   invalid_field_value: "Check the highlighted fields.",
   missing_required: "Fill in the highlighted fields.",
 };
@@ -135,7 +135,11 @@ export function mountPartyEditor({ document, client, dataset, facets, saved }: O
     });
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      for (const element of form.querySelectorAll("[aria-invalid]")) element.removeAttribute("aria-invalid");
+      for (const element of form.querySelectorAll("[aria-invalid]")) {
+        element.removeAttribute("aria-invalid");
+        element.removeAttribute("aria-describedby");
+      }
+      for (const message of form.querySelectorAll(".party-problem")) message.remove();
       const button = form.querySelector<HTMLButtonElement>(".party-submit");
       if (button) button.disabled = true;
       status("Saving…");
@@ -152,9 +156,17 @@ export function mountPartyEditor({ document, client, dataset, facets, saved }: O
 
   function refuse(form: HTMLFormElement, result: Refused) {
     const problem = problemOf(result.problem);
+    const note = problem.error === "missing_required" ? "Fill this in." : "Check this value.";
     for (const name of problem.fields) {
-      const control = form.elements.namedItem(name);
-      if (control instanceof Element) control.setAttribute("aria-invalid", "true");
+      const control = form.querySelector(`#party-${CSS.escape(name)}`);
+      if (!control) continue;
+      const message = document.createElement("p");
+      message.className = "party-problem";
+      message.id = `party-${name}-problem`;
+      message.textContent = note;
+      control.after(message);
+      control.setAttribute("aria-invalid", "true");
+      control.setAttribute("aria-describedby", message.id);
     }
     unconfirmed = Boolean(result.pending);
     status(
@@ -168,9 +180,10 @@ export function mountPartyEditor({ document, client, dataset, facets, saved }: O
     return (await client()).savePartnerRecord(`/api/engine/${path}`, `party-editor:${session}:${step}`, receipt, args);
   }
 
-  function done(partyId: string) {
+  function done(partyId: string, message?: string) {
     dialog.close();
     saved(partyId);
+    if (message) showToast(message);
   }
 
   const contactFields = () =>
@@ -216,8 +229,9 @@ export function mountPartyEditor({ document, client, dataset, facets, saved }: O
     let partyId: string | null = null;
     let forceNew = false;
     const form = show(`New ${noun}`, body, `Save ${noun}`, async (form) => {
-      if (!value(form, "name"))
-        return refuse(form, { ok: false, problem: { error: "missing_required", fields: ["name"] } });
+      // How found is checked before the record exists, so a refused client save never leaves a record with no role.
+      const missing = ["name", ...(kind === "clients" ? ["how_found"] : [])].filter((name) => !value(form, name));
+      if (missing.length) return refuse(form, { ok: false, problem: { error: "missing_required", fields: missing } });
       if (!partyId) {
         const contact = Object.fromEntries(
           ["email", "phone", "city"].map((name) => [name, value(form, name)]).filter(([, text]) => text),
@@ -230,7 +244,9 @@ export function mountPartyEditor({ document, client, dataset, facets, saved }: O
         });
         if (!party.ok) {
           const problem = problemOf(party.problem);
-          return problem.error === "party_exists" && !party.pending ? offer(problem.candidates) : refuse(form, party);
+          return problem.error === "party_exists" && !party.pending
+            ? offer(problem.candidates, contact)
+            : refuse(form, party);
         }
         partyId = String(party.data.party_id);
       }
@@ -240,8 +256,11 @@ export function mountPartyEditor({ document, client, dataset, facets, saved }: O
         ),
       );
       const role = await save(kind, "role", "party_id", { party_id: partyId, ...values });
-      if (!role.ok) return refuse(form, role);
-      done(partyId);
+      if (role.ok) return done(partyId);
+      // The chosen record, or the one an unconfirmed save already made, holds the role, so open it.
+      if (!role.pending && problemOf(role.problem).error === `already_${noun}`)
+        return done(partyId, `This record is already a ${noun}, so it is open now.`);
+      refuse(form, role);
     });
     const candidates = form.querySelector<HTMLElement>("[data-candidates]");
     candidates?.addEventListener("click", (event) => {
@@ -253,10 +272,13 @@ export function mountPartyEditor({ document, client, dataset, facets, saved }: O
       form.requestSubmit();
     });
 
-    function offer(found: Candidate[]) {
+    function offer(found: Candidate[], contact: Record<string, string>) {
       status(REFUSALS.party_exists ?? "");
       if (!candidates) return;
-      candidates.innerHTML = `<p>Use an existing record, or keep this one separate.</p><ul class="party-candidates">${found
+      const left = Object.keys(contact).length
+        ? "<p>An existing record keeps its own email, phone and city, not the ones typed here.</p>"
+        : "";
+      candidates.innerHTML = `<p>Use an existing record, or keep this one separate.</p>${left}<ul class="party-candidates">${found
         .map(
           (candidate) =>
             `<li><button type="button" data-use="${escapeHtml(candidate.id)}">Use ${escapeHtml(candidate.name)}${candidate.city ? ` · ${escapeHtml(candidate.city)}` : ""}</button></li>`,

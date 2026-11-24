@@ -293,11 +293,13 @@ body.record-open { overflow: hidden; }
   box-shadow: var(--shadow-overlay);
 }
 dialog.party-editor::backdrop { background: var(--scrim); }
-.party-editor form { display: grid; gap: var(--space-4); }
+.party-editor form { display: grid; gap: var(--space-2); }
 .party-editor header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .party-editor h2 { margin: 0; font: var(--font-weight-strong) var(--font-size-3) / var(--line-height-heading) var(--font-text); }
 .party-editor .party-field { display: grid; }
+/* A label is a touch target too; its blank top is the space between fields, so the form adds none. */
 .party-editor .party-field label { display: flex; align-items: flex-end; min-height: var(--touch); padding-bottom: var(--space-1); box-sizing: border-box; color: var(--fg-muted); font-size: var(--font-size-1); }
+.party-editor .party-problem { margin: var(--space-1) 0 0; color: var(--status-danger-ink); font-size: var(--font-size-1); }
 .party-editor fieldset { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0; padding: var(--space-3); border: 1px solid var(--hairline); border-radius: var(--radius-2); }
 .party-editor legend { padding: 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); }
 .party-editor :is(input:not([type="checkbox"], [type="radio"]), select, textarea) {
@@ -314,7 +316,8 @@ dialog.party-editor::backdrop { background: var(--scrim); }
 }
 .party-editor [aria-invalid="true"] { border-color: var(--status-danger); }
 .party-editor label.party-check { display: flex; align-items: center; gap: var(--space-2); min-height: var(--touch); color: var(--fg); }
-.party-editor .party-check input { width: 20px; height: 20px; margin: 0; }
+/* The label is the touch target, so the phone minimum for controls stays off the box itself. */
+.party-editor .party-check input { flex: none; width: 20px; height: 20px; min-width: 0; min-height: 0; margin: 0; }
 .party-editor button {
   min-width: var(--touch);
   min-height: var(--touch);
