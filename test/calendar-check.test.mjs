@@ -22,7 +22,7 @@ import { readFile } from "node:fs/promises";
 import {
   CALENDAR_VIEWS, addDays, addMonths, approach, calendarHref, calendarPhase,
   criticalDateEntries, daysBetween, entriesByDay, localToday, monthGrid, motionDirection,
-  parseCalendarState, readCalendar, stepAnchor, toDay, weekStrip,
+  parseCalendarState, readCalendar, settleOpenDay, stepAnchor, toDay, weekStrip,
 } from "../js/calendar-model.js";
 import { carrInterface } from "./carr-contract.mjs";
 
@@ -97,6 +97,15 @@ test("the address is the view's memory: view, anchor and selected day round-trip
   assert.deepEqual(CALENDAR_VIEWS, ["month", "week"]);
 });
 
+test("the open day stays only while the shown period holds it", () => {
+  const open = { view: "month", anchor: "2026-10-01", day: "2026-10-29" };
+  assert.deepEqual(settleOpenDay(open), open);
+  assert.equal(settleOpenDay(stepAnchor(open, 1)).day, null, "next month closes it");
+  assert.equal(settleOpenDay({ ...open, view: "week", anchor: "2026-10-29" }).day, "2026-10-29", "its week keeps it");
+  assert.equal(settleOpenDay({ ...open, view: "week" }).day, null, "another week closes it");
+  assert.equal(parseCalendarState("?view=month&d=2026-10-01&day=2026-11-12", "2026-10-20").day, null, "an address cannot open a hidden day");
+});
+
 test("stepping moves a month or a week, and the motion direction follows the step", () => {
   const month = { view: "month", anchor: "2026-09-24", day: null };
   assert.equal(stepAnchor(month, 1).anchor, "2026-10-24");
@@ -126,6 +135,14 @@ test("a date pulses faster as it approaches, and a settled date never pulses", (
   assert.deepEqual(approach({ day: "2026-12-01", settled: false }, today), { band: "later", days: 68, pulse: "still", label: "in 68 days" });
   assert.deepEqual(approach({ day: "2026-09-20", settled: true }, today), { band: "settled", days: -4, pulse: "still", label: "4 days ago" });
   assert.equal(approach({ day: "2026-09-23", settled: false }, today).label, "yesterday");
+});
+
+test("a past meeting or tour is settled; a past step is overdue", () => {
+  const today = "2026-09-24";
+  assert.equal(approach({ day: "2026-09-20", type: "meeting", settled: false }, today).band, "settled");
+  assert.equal(approach({ day: "2026-09-20", type: "tour", settled: false }, today).band, "settled");
+  assert.equal(approach({ day: "2026-09-20", type: "step", settled: false }, today).band, "overdue");
+  assert.equal(approach({ day: today, type: "tour", settled: false }, today).band, "today");
 });
 
 /* ------------------------------------------------------------- the entries */

@@ -216,3 +216,80 @@ test("A chosen day opens on screen from every entry point and closing it returns
       }
     });
 });
+
+test("The open day alone decides the sheet through month moves, Escape, a late close and the phone breakpoint", async (t) => {
+  const outDir = await temporaryDirectory("calendar-day-sheet-");
+  t.after(() => rm(outDir, { recursive: true, force: true }));
+  await buildArtifact({ root, outDir, commit: "0".repeat(40) });
+  const server = await (await createQaServer({ buildRoot: join(outDir, "site") })).start();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  t.after(() => page.close());
+  await openCalendar(page, server, "sheet-state", "light", "view=month&d=2026-10-01");
+  const sheet = page.locator("#dayPanel");
+  const modal = () => sheet.evaluate((node) => node.matches(":modal"));
+  const dayButton = (day: string) => page.locator(`.cal-day-open[data-select-day="${day}"]`);
+  const fresh = async () => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${app}/calendar?view=month&d=2026-10-01`);
+    await expect(page.locator("#calAsOf")).toContainText("Updated");
+  };
+
+  await t.test("a month move closes a day it leaves behind and a view switch keeps one it still shows", async () => {
+    await fresh();
+    await dayButton("2026-10-22").click();
+    await expect(page.locator("#dayPanelTitle")).toHaveText(/Oct 22/);
+    await page.getByRole("button", { name: "Week", exact: true }).click();
+    await expect(page.locator("#dayPanelTitle")).toHaveText(/Oct 22/);
+    await expect(page.locator("#dayPanelBody .cal-day-entry")).toHaveCount(3);
+    await page.getByRole("button", { name: "Month", exact: true }).click();
+    await page.getByRole("button", { name: "Next month" }).click();
+    await expect(sheet).toBeHidden();
+    assert.equal(new URL(page.url()).searchParams.get("day"), null, "the address drops the closed day");
+    await page.getByRole("button", { name: "Previous month" }).click();
+    await expect(sheet).toBeHidden();
+  });
+
+  await t.test("Escape closes an open menu first and the day only on the next press", async () => {
+    await fresh();
+    await dayButton("2026-10-22").click();
+    await expect(sheet).toBeVisible();
+    const avatar = page.locator("#selfAvatar");
+    await avatar.click();
+    await expect(page.locator("#accountMenu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#accountMenu")).toBeHidden();
+    await expect(sheet).toBeVisible();
+    await dayButton("2026-10-22").focus();
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+  });
+
+  await t.test("closing one day and opening the next in the same task leaves the next day open", async () => {
+    await fresh();
+    await dayButton("2026-10-22").click();
+    await expect(sheet).toBeVisible();
+    await page.evaluate(() => {
+      document.querySelector<HTMLButtonElement>("#dayPanelClose")?.click();
+      document.querySelector<HTMLButtonElement>('.cal-day-open[data-select-day="2026-10-23"]')?.click();
+    });
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    await expect(sheet).toBeVisible();
+    await expect(page.locator("#dayPanelTitle")).toHaveText(/Oct 23/);
+  });
+
+  await t.test("the sheet turns modal below 641 px and back beside the grid above it", async () => {
+    await fresh();
+    await dayButton("2026-10-23").click();
+    await expect.poll(modal, { message: "a wide sheet is not modal" }).toBe(false);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(modal, { message: "a phone sheet is modal" }).toBe(true);
+    await expect(page.getByRole("dialog", { name: /Oct 23/ })).toBeVisible();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect.poll(modal, { message: "a wide sheet sits beside the grid" }).toBe(false);
+    await dayButton("2026-10-26").click();
+    await expect(page.locator("#dayPanelTitle")).toHaveText(/Oct 26/);
+  });
+});

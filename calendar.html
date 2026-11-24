@@ -51,6 +51,8 @@
         <ul class="cal-legend" aria-label="What each marker means">
           <li><span class="cal-mark" data-kind="step" aria-hidden="true"></span>Next step</li>
           <li><span class="cal-mark" data-kind="date" aria-hidden="true"></span>Critical date</li>
+          <li><span class="cal-mark" data-kind="meeting" aria-hidden="true"></span>Meeting</li>
+          <li><span class="cal-mark" data-kind="tour" aria-hidden="true"></span>Tour</li>
           <li><span class="cal-mark" data-kind="late" aria-hidden="true"></span>Late</li>
           <li><span class="cal-soon" aria-hidden="true"></span>This week</li>
         </ul>
@@ -62,6 +64,7 @@
           </div>
         </div>
       </div>
+      <p class="cal-meetings-note" id="calMeetingsNote" hidden>Meetings show for about the next two weeks.</p>
       <div id="calState"><p>Reading Calendar…</p></div>
       <div class="cal-grid" id="calGrid" role="grid" aria-labelledby="calPeriod" data-view="month"></div>
     </section>

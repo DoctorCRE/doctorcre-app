@@ -570,13 +570,34 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await fallback.getByText(/^Didn't send/).waitFor();
   await fallback.getByRole('button', { name: 'Open', exact: true }).click();
   await fallback.getByRole('status').filter({ hasText: /^Didn't send/ }).waitFor();
-  await fallback.getByRole('status').filter({ hasText: /Reply from Outlook/ }).waitFor();
-  assert.equal(await fallback.getByText(/Check the recipients|Save draft keeps your edits/).count(), 0);
+  await fallback.getByRole('status').filter({ hasText: /Correct them and send again/ }).waitFor();
   assert.equal(await fallback.getByRole('textbox', { name: 'Reason for declining' }).count(), 0);
+  const to = fallback.getByRole('textbox', { name: 'To', exact: true });
+  assert.equal(await to.inputValue(), 'sender@example.test');
+  await to.fill('not an address');
+  await fallback.getByRole('button', { name: 'Send reply', exact: true }).click();
+  assert.equal(writes.at(-1)[1].version, 3);
+  await to.fill('sender@example.org');
+  const cc = fallback.getByRole('textbox', { name: 'CC', exact: true });
+  await cc.fill('');
+  await fallback.getByRole('button', { name: 'Send reply', exact: true }).click();
+  assert.equal(writes.at(-1)[1].version, 3);
+  await cc.fill('partner@example.org');
+  await fallback.getByRole('button', { name: 'Send reply', exact: true }).click();
+  await fallback.getByText('Sending', { exact: true }).waitFor();
+  assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 4, subject: 'Revised sample reply',
+    body: 'Final edited reply.', to: 'sender@example.org', cc: 'partner@example.org', document_ids: [dealId] });
+  Object.assign(draftRecord, { status: 'failed', failure_reason: 'mailbox_rejected' });
+  Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
+  await page.clock.fastForward(60_000);
+  await fallback.getByText(/^Didn't send/).waitFor();
+  await fallback.getByRole('button', { name: 'Open', exact: true }).click();
+  await fallback.getByRole('status').filter({ hasText: /Reply from Outlook/ }).waitFor();
   assert.equal(await fallback.getByRole('button', { name: 'Send reply', exact: true }).count(), 0);
+  assert.equal(await fallback.getByRole('textbox', { name: /^(To|CC)$/ }).count(), 0);
   await fallback.getByRole('button', { name: 'Close review' }).click();
-  draftRecord.failure_reason = 'aborted_before_dispatch';
-  fallbackCard.fallback_reply_draft.failure_reason = draftRecord.failure_reason;
+  Object.assign(draftRecord, { status: 'failed', failure_reason: 'aborted_before_dispatch' });
+  Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
   await page.clock.fastForward(60_000);
   await fallback.getByText(/Sending stopped before delivery/).waitFor();
   await fallback.getByRole('button', { name: 'Open', exact: true }).click();
@@ -585,7 +606,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const fallbackReview = fallback.getByRole('region', { name: /Details for Remaining email suggestion/ });
   await fallbackReview.waitFor({ state: 'detached' });
   await fallback.getByText('Sending', { exact: true }).waitFor();
-  assert.equal(writes.at(-1)[1].version, 4);
+  assert.equal(writes.at(-1)[1].version, 5);
   details.set(decline, { ...details.get(draft), draft_id: decline, version: 1, status: 'pending' });
   state.items.push({ ...notice, title: 'Another sample draft', item_id: `reply_draft:${decline}`, source_id: decline,
     source_type: 'email_proposal', deal_id: null, kind_label: 'Reply draft', source_version: '1', reply_draft_id: decline, reply_draft_status: 'pending' });

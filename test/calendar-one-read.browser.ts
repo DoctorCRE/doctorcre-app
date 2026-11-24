@@ -284,7 +284,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await expect(page.locator("#calCount")).toHaveText("1 critical date");
           await page.getByRole("button", { name: "Next month" }).click();
           await expect(page.locator("#calCount")).toHaveText("0 items");
-          await expect(page.locator("#calState")).toHaveText("No critical dates or next steps this month.");
+          await expect(page.locator("#calState")).toHaveText("Nothing this month.");
           await expect(page.locator("#calGrid .cal-chip")).toHaveCount(0);
           assert.deepEqual(reads, [calendarRead]);
 
@@ -334,7 +334,9 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await page.locator("#calRefresh").click();
             await page.clock.fastForward(10_001);
             await expect(page.locator("#calNotices").getByText("Calendar could not refresh. Try again.")).toBeVisible();
-            await expect(panel).toContainText("LOI expiry");
+            await expect(
+              page.locator('#calGrid .cal-chip[data-day="2026-10-20"]').filter({ hasText: "LOI expiry" }),
+            ).toHaveCount(1);
             await expect(page.locator('[data-day="2026-10-20"][aria-selected="true"]')).toHaveCount(1);
             await expect(updated).toHaveText(previous ?? "");
             await page.unroute(`**${calendarRead}`);
@@ -358,7 +360,9 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await page.clock.setSystemTime(new Date("2026-10-20T15:10:00Z"));
             await page.getByRole("button", { name: "Retry" }).click();
             await expect(updated).not.toHaveText(previous ?? "");
-            await expect(panel).toContainText("New date");
+            await expect(
+              page.locator('#calGrid .cal-chip[data-day="2026-10-20"]').filter({ hasText: "New date" }),
+            ).toHaveCount(1);
             await page.unroute(`**${calendarRead}`);
             await expect(page.locator("#calNotices").getByText("Calendar could not refresh. Try again.")).toHaveCount(
               0,

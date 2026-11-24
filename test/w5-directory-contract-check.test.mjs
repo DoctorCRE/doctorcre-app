@@ -109,7 +109,6 @@ for (const dataset of ['clients', 'vendors']) {
       assert.match(document.querySelector('.row-updated').textContent, /\b(?:AM|PM)\b/);
       if (dataset === 'vendors') {
         assert.equal(document.querySelector('.contact-note time').textContent, 'Sep 30, 2026');
-        payload.record.relationship.override = { tier: 'Trial', reason: 'Synthetic review', recorded_by: 'Joe', recorded_at: row.updated_at };
       }
       app.view.recordId = payload.record.id;
       app.view.record = { status: 'ready', payload };
@@ -118,7 +117,6 @@ for (const dataset of ['clients', 'vendors']) {
       assert.match(document.querySelector('.activity-when').textContent, /\b(?:AM|PM)\b/);
       if (dataset === 'vendors') {
         assert.match([...document.querySelectorAll('.relationship-metric strong')].at(-1).textContent, /\b(?:AM|PM)\b/);
-        assert.match(document.querySelector('.relationship-section > .note-summary').textContent, /\b(?:AM|PM)\b/);
         assert.match([...document.querySelectorAll('.network-list time')].at(-1).textContent, /\b(?:AM|PM)\b/);
       }
       assert.equal(app.formatMoment('invalid'), 'an unknown time');

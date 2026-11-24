@@ -3,7 +3,8 @@
  * A framed month grid that fills the page, with quiet hairlines, even week
  * rows and one accent marker (today's number). Chips are light: one line on
  * the surface, a hairline edge and a small kind mark (a dot for a next step,
- * a diamond for a critical date, red for late). In a chip nearness is quiet:
+ * a diamond for a critical date, a bar for a meeting, a ring for a tour, red
+ * for late). In a chip nearness is quiet:
  * red text when overdue and a small amber ring for this week. A chosen day
  * opens in a sheet pinned to the viewport (right edge on a wide screen, where
  * the grid narrows beside it and stays usable; a modal bottom sheet on a
@@ -38,6 +39,7 @@
 :is(.cal-icon, .cal-today, .cal-segments button):focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: -2px; }
 .cal-count { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 .cal-count:empty { display: none; }
+.cal-meetings-note { margin: 0 0 var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
 .cal-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0; padding: 0; list-style: none; color: var(--fg-muted); font-size: var(--font-size-1); }
 .cal-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .cal-notices:empty { display: none; }
@@ -76,6 +78,8 @@
 .cal-grid[data-view="month"] .cal-chips > [data-overflow] { display: none; }
 :is(.cal-chip, .cal-mark)[data-kind="step"] { --kind: var(--data-1); }
 :is(.cal-chip, .cal-mark)[data-kind="date"] { --kind: var(--data-2); }
+:is(.cal-chip, .cal-mark)[data-kind="meeting"] { --kind: var(--data-3); }
+:is(.cal-chip, .cal-mark)[data-kind="tour"] { --kind: var(--data-4); }
 :is(.cal-chip, .cal-mark)[data-kind="late"] { --kind: var(--status-danger); }
 .cal-chip { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: var(--cal-chip); padding: 0 6px; border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-1); background: var(--surface-2); color: var(--fg); font: var(--font-weight-regular) var(--font-size-1)/1.25 var(--font-text); text-align: left; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
 @media (hover: hover) { .cal-chip:hover { background: var(--surface-3); } }
@@ -89,6 +93,8 @@
 /* The kind mark's shape carries the kind, so it never rests on hue alone. */
 .cal-mark { flex: none; width: 7px; height: 7px; border-radius: var(--radius-round); background: var(--kind); }
 .cal-mark[data-kind="date"] { border-radius: 1px; transform: rotate(45deg) scale(0.9); }
+.cal-mark[data-kind="meeting"] { width: 9px; height: 5px; border-radius: 1px; }
+.cal-mark[data-kind="tour"] { box-sizing: border-box; border: 2px solid var(--kind); background: transparent; }
 .cal-soon, .cal-chip[data-band="soon"]::after { flex: none; box-sizing: border-box; width: 7px; height: 7px; border: 1.5px solid var(--status-warn); border-radius: var(--radius-round); }
 .cal-chip[data-band="soon"]::after { content: ""; }
 .cal-more { align-self: start; min-height: 20px; padding: 0 2px; border: 0; background: none; color: var(--fg-muted); font: var(--font-weight-regular) var(--font-size-1)/1 var(--font-text); font-variant-numeric: tabular-nums; cursor: pointer; }
