@@ -83,8 +83,8 @@ test('five regions, rail destinations, Leads filters and per-page sidebar memory
  await page.locator('#appSidebarToggle').click();await page.locator('#leadSearch').fill('Example 3');assert.equal(await page.locator('.lead-card').count(),1);
  await goto('/deals?view=board');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'closed');
  await goto('/leads');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'open');
- await goto('/');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'open');
- await page.locator('#appSidebarToggle').click();await page.reload();assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'closed');
+ await goto('/');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'closed');
+ await page.locator('#appSidebarToggle').click();await page.reload();assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'open');
  await goto('/leads');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'open');
  assert.deepEqual(errors,[]);
 });

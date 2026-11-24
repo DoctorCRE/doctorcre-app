@@ -36,6 +36,7 @@ import {
 } from "./workspace-business-model.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge } from "./shell.js";
+import { pageScroller } from "./touch-layout.js";
 import { activityCopy, activityRequest, activityState } from "./record-activity-model.js";
 
 const EXPIRY_TICK_MS = 5_000;
@@ -238,7 +239,7 @@ function currentHref() {
  * to it puts them at the same row rather than at the top of the list.
  */
 function rememberScroll() {
-  window.history.replaceState({ ...(window.history.state || {}), scrollY: Math.round(window.scrollY) }, "", currentHref());
+  window.history.replaceState({ ...(window.history.state || {}), scrollY: Math.round(pageScroller().scrollTop) }, "", currentHref());
 }
 
 /**
@@ -249,7 +250,7 @@ function rememberScroll() {
  */
 function navigate(href, { replace = false } = {}) {
   if (href === currentHref()) return;
-  const scrollY = Math.round(window.scrollY);
+  const scrollY = Math.round(pageScroller().scrollTop);
   const nextScroll = scrollIntent(view.query, href) === "keep" ? scrollY : 0;
   if (replace) window.history.replaceState({ ...(window.history.state || {}), scrollY: nextScroll }, "", href);
   else {
@@ -1020,7 +1021,7 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   }
   // Last, so it corrects any scroll a focus move would otherwise have caused. Instant, because
   // "auto" follows the page's smooth scrolling and a new list would paint near the old bottom.
-  if (typeof restoreScroll === "number") window.scrollTo({ top: restoreScroll, behavior: "instant" });
+  if (typeof restoreScroll === "number") pageScroller().scrollTo({ top: restoreScroll, behavior: "instant" });
 }
 
 function updateQuery(changes, { replace = false } = {}) {
@@ -1048,7 +1049,7 @@ function wireControls() {
   document.querySelector('#territoryInput').addEventListener('change', event => updateQuery({ territory: event.target.value.trim() }));
   const sentinel = document.querySelector('#scrollSentinel');
   if (typeof IntersectionObserver === 'function') new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) loadMore(); }, { rootMargin: '400px' }).observe(sentinel);
-  window.addEventListener('scroll', () => { if (sentinel.getBoundingClientRect().top < window.innerHeight + 400) loadMore(); }, { passive: true });
+  document.addEventListener('scroll', () => { if (sentinel.getBoundingClientRect().top < window.innerHeight + 400) loadMore(); }, { capture: true, passive: true });
   dom.form?.addEventListener("submit", (event) => {
     event.preventDefault();
     if (searchTimer) clearTimeout(searchTimer);

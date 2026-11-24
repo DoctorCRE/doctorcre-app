@@ -11,9 +11,9 @@ test("The shell gives every desktop page the full window without a page scroll o
   const browser = await chromium.launch();
   t.after(() => browser.close());
 
-  for (const [width, height] of [
-    [1280, 800],
-    [1440, 900],
+  for (const { width, height } of [
+    { width: 1280, height: 800 },
+    { width: 1440, height: 900 },
   ])
     await t.test(`${width}x${height}`, async (t) => {
       const page = await browser.newPage({ viewport: { width, height } });
@@ -25,7 +25,8 @@ test("The shell gives every desktop page the full window without a page scroll o
         await page.goto(`${server.origin}${path}`);
         await page.locator("#appLayout").waitFor({ state: "attached" });
         const room = await page.evaluate(() => {
-          const main = document.querySelector("#appMainSlot") as HTMLElement;
+          const main = document.getElementById("appMainSlot");
+          if (!main) throw Error("no main region");
           const box = main.getBoundingClientRect();
           return {
             bottomBand: innerHeight - box.bottom,
