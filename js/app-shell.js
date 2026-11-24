@@ -1,4 +1,5 @@
 import { isTextEntry } from './ui-keyboard-input.generated.js';
+import { mountKeyboardShortcuts } from './ui-keyboard-shortcuts.generated.js';
 import { createMcpRequests } from './mcp-requests.mjs';
 import { privateSession } from './private-session.js';
 import { mountAppLayout } from "./app-layout.js";
@@ -74,7 +75,8 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
       if (!event.repeat) void open();
     }
   }, true);
-  root.defaultView.addEventListener('doctorcre-session-invalidated', () => { retired = true; toggle.disabled = true; void history().then(({ clearRecents }) => clearRecents()).catch(() => {}); }, { once: true });
+  const shortcuts = mountKeyboardShortcuts({ root, openSearch: open });
+  root.defaultView.addEventListener('doctorcre-session-invalidated', () => { retired = true; toggle.disabled = true; shortcuts.dispose(); void history().then(({ clearRecents }) => clearRecents()).catch(() => {}); }, { once: true });
   const home = pathname === '/' && root.getElementById('homeRoot');
   const ready = home && !home.dataset.homeReady
     ? new Promise(resolve => home.addEventListener('doctorcre:home-ready', resolve, { once: true }))

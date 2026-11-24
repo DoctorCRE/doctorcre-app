@@ -185,19 +185,15 @@ test('task review completes one canonical action and retains Undo receipt', asyn
   assert.equal(calls.filter(c => c.name === 'complete-one-action').length, 1);
   assert.equal(calls.find(c => c.name === 'reopen-one-action').args.completion_event_id, eventId);
 });
-for (const decision of ['Approve a sourced value', 'Correct with a source', 'Reject this review']) test(`fact review ${decision} calls its existing owner`, async t => {
-  const { page, panel, calls } = await setup(t, { kind: 'fact_review' });
+for (const dealId of [null, id]) test(`a fact review card ${dealId ? 'with' : 'without'} a deal offers no inline review, whose old save is gone`, async t => {
+  const { page, panel, calls } = await setup(t, { kind: 'fact_review', dealId });
   await page.getByRole('button', { name: 'Open', exact: true }).click();
-  assert.equal(await panel.getByText('No linked record.', { exact: true }).count(), 0);
-  await panel.getByLabel('Decision', { exact: true }).selectOption({ label: decision });
-  await panel.getByLabel('Reason', { exact: true }).fill('Synthetic reviewed source');
-  if (decision === 'Correct with a source') { await panel.getByLabel('Corrected value', { exact: true }).fill('72'); await panel.getByLabel('Cited text', { exact: true }).fill('Synthetic corrected term is 72 months.'); }
-  await panel.getByRole('button', { name: 'Save review', exact: true }).click();
-  await panel.getByText('This card is confirmed. Its current state is shown in your inbox.', { exact: true }).waitFor();
-  const writes = calls.filter(c => c.name === 'resolve-fact-review'); assert.equal(writes.length, 1);
-  assert.equal(writes[0].args.fact_key, 'term_months');
-  if (decision === 'Approve a sourced value') assert.equal(writes[0].args.observation_id, eventId);
-  if (decision === 'Correct with a source') assert.equal(writes[0].args.correction.value, '72');
+  await panel.getByRole('button', { name: 'Close', exact: true }).waitFor();
+  if (dealId) assert.equal(await panel.locator(`a[href="/deals?deal=${id}"]`).count(), 1);
+  assert.equal(await panel.getByText('No linked record.', { exact: true }).count(), dealId ? 0 : 1);
+  assert.equal(await panel.getByText('Review this card', { exact: true }).count(), 0);
+  assert.equal(await panel.getByRole('button', { name: 'Save review', exact: true }).count(), 0);
+  assert.equal(calls.filter(c => ['read-home-review', 'resolve-fact-review'].includes(c.name)).length, 0);
 });
 test('older producer without references keeps a navigable card', async t => {
   const { page, calls } = await setup(t, { reference: false });
