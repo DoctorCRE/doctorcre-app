@@ -2307,7 +2307,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const message = review.getByRole('textbox', { name: 'Message', exact: true });
   await message.fill('Unsaved edit for the floor plan.');
   await message.scrollIntoViewIfNeeded();
-  const before = await message.evaluate(node => ({ y: scrollY, top: node.getBoundingClientRect().top }));
+  const before = await message.evaluate(node => ({ y: scrollY + node.closest('.home-slice').scrollTop, top: node.getBoundingClientRect().top }));
   assert.ok(before.y > 0 && before.top >= 0 && before.top < 760);
   const reads = state.dashboardReads;
   const added = { ...step(32, 'Confirm the site visit'), card_id: 'suite:new' };
