@@ -5,6 +5,8 @@
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 :is(html, .app-layout-main):has(.business-shell) { --search-dock-top: calc(var(--tabbar-height) + var(--space-4)); scroll-padding-top: calc(var(--search-dock-top) + var(--search-dock-height, 0px) + 1px); }
+/* A sticky dock inside the main region sits below its padding; scroll padding does not. */
+.app-layout-main:has(.business-shell) { scroll-padding-top: calc(var(--pad) + var(--search-dock-top) + var(--search-dock-height, 0px) + 1px); }
 .business-shell { max-width: none; width: 100%; padding-top: var(--space-5); padding-inline: clamp(var(--space-4), 3vw, var(--space-7)); }
 .business-hero { position: relative; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
 .business-hero #pageTitle { margin: 0; font-size: var(--font-size-5); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
