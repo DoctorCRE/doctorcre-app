@@ -1,4 +1,4 @@
-// Add and edit clients and vendors through the engine's party doors.
+// Add, edit and link clients and vendors through the engine's party doors.
 
 import { showToast } from "../../js/toast.js";
 
@@ -31,6 +31,10 @@ const STATUSES = [
   ["cold", "Cold"],
   ["engaged", "Engaged"],
   ["paused", "Paused"],
+];
+const LINKS = [
+  ["knows", "Knows"],
+  ["can_introduce", "Can introduce us to"],
 ];
 // No engine read lists these yet, so this copies the engine's how_found list; Not recorded is only for copied records.
 const HOW_FOUND = [
@@ -66,6 +70,8 @@ const LABELS: Record<string, string> = {
   offers: "What they offer",
 };
 const REFUSALS: Record<string, string> = {
+  already_linked: "These two are already linked.",
+  not_found: "That record is no longer there. Search again.",
   invalid_field_value: "Check the highlighted fields.",
   missing_required: "Fill in the highlighted fields.",
 };
@@ -194,13 +200,10 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
     button.disabled = opening;
     button.textContent = editLabel();
   }
-  // A record panel that re-rendered while the dialog was open has a new Edit button, so focus goes there.
+  // A record panel that re-rendered while the dialog was open has new buttons, so focus goes to the one that opened it.
   dialog.addEventListener("close", () => {
-    const back = trigger?.isConnected
-      ? trigger
-      : trigger?.matches("[data-party-edit]")
-        ? document.querySelector("[data-party-edit]")
-        : null;
+    const action = ["[data-party-edit]", "[data-party-link]"].find((selector) => trigger?.matches(selector));
+    const back = trigger?.isConnected ? trigger : action ? document.querySelector(action) : null;
     if (back instanceof HTMLElement) back.focus();
   });
 
@@ -549,16 +552,84 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
     });
   }
 
+  function openLink(partyId: string, name: string) {
+    const body = `${field("Link", "kind", select("kind", LINKS, "knows"))}${field("Find a person or company", "query", input("query", "", 'type="search" autocomplete="off" maxlength="100"'))}<div role="radiogroup" aria-label="Who to link" aria-live="polite" data-results></div>${field("Since", "started_on", input("started_on", "", 'type="date"'))}${field("Note", "note", textarea("note"))}`;
+    let other: string | null = null;
+    let searchTimer = 0;
+    const form = show(`Link ${name.trim() || "this record"} to someone`, body, "Save link", async (form) => {
+      if (!other) {
+        form.querySelector<HTMLElement>('[name="query"]')?.focus();
+        return status("Choose who to link.");
+      }
+      const answer = await save("party-links", "link", "link_id", {
+        kind: value(form, "kind"),
+        party_id: partyId,
+        other_party_id: other,
+        ...(value(form, "started_on") && { started_on: value(form, "started_on") }),
+        ...(value(form, "note") && { note: value(form, "note") }),
+      });
+      if (!answer.ok) return refuse(form, answer);
+      done(partyId);
+    });
+    const results = form.querySelector<HTMLElement>("[data-results]");
+    form.querySelector('[name="query"]')?.addEventListener("input", () => {
+      other = null;
+      // Matches for the old words stay visible until the new ones arrive, but can no longer be picked.
+      for (const choice of results?.querySelectorAll("input") ?? []) {
+        choice.checked = false;
+        choice.disabled = true;
+      }
+      clearTimeout(searchTimer);
+      const query = value(form, "query");
+      // eslint-disable-next-line no-restricted-syntax -- One search after each 250 ms pause in typing.
+      searchTimer = window.setTimeout(async () => {
+        if (!results) return;
+        if (!query) {
+          results.innerHTML = "";
+          return;
+        }
+        const response = await fetch(`/api/engine/parties/search?${new URLSearchParams({ query })}`, {
+          headers: { accept: "application/json" },
+          credentials: "same-origin",
+        }).catch(() => null);
+        const payload: unknown = response?.ok ? await response.json().catch(() => null) : null;
+        if (value(form, "query") !== query) return;
+        const parties = isRecord(payload) && Array.isArray(payload.parties) ? payload.parties.filter(isRecord) : null;
+        // A record cannot link to itself, so it is never offered.
+        const matches = (parties ?? [])
+          .filter((party) => typeof party.id === "string" && party.id !== partyId)
+          .map(
+            (party) =>
+              `<li><label class="party-check"><input type="radio" name="other" value="${escapeHtml(party.id)}">${escapeHtml(party.display_name)}${party.city ? ` · ${escapeHtml(party.city)}` : ""}</label></li>`,
+          )
+          .join("");
+        results.innerHTML =
+          parties === null
+            ? "<p>Search is unavailable. Try again.</p>"
+            : matches
+              ? `<ul class="party-results">${matches}</ul>`
+              : "<p>No matches.</p>";
+      }, 250);
+    });
+    results?.addEventListener("change", (event) => {
+      if (event.target instanceof HTMLInputElement) other = event.target.value;
+    });
+  }
+
   return {
     setDataset(kind: Dataset) {
       newButton.textContent = kind === "clients" ? "New client" : "New vendor";
     },
     actionsHtml() {
-      return `<div class="party-record-actions"><button type="button" class="action secondary-action" data-party-edit${opening ? " disabled" : ""}>${editLabel()}</button></div>`;
+      return `<div class="party-record-actions"><button type="button" class="action secondary-action" data-party-edit${opening ? " disabled" : ""}>${editLabel()}</button><button type="button" class="action secondary-action" data-party-link>Link to someone</button></div>`;
     },
     edit() {
       const partyId = recordParty();
       if (partyId && !opening && !dialog.open) void openEdit(partyId);
+    },
+    link(name: string) {
+      const partyId = recordParty();
+      if (partyId && !opening && !dialog.open) openLink(partyId, name);
     },
   };
 }

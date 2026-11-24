@@ -632,3 +632,179 @@ test("Without the Clients and Vendors switch there is no New client, and the rec
   assert.equal(await panel.getByText("Vertical", { exact: true }).count(), 0);
   assert.equal(await page.locator(".party-new").count(), 0);
 });
+
+test("Link to someone on a record opened by its old id links the party the record names", async (t) => {
+  const party = "00000000-0000-4000-8000-000000000555";
+  const { page, sent } = await setup(
+    t,
+    `/vendors?record=${vendor}`,
+    ({ method, path }) =>
+      method === "GET" && path.startsWith("/api/engine/parties/search")
+        ? {
+            status: 200,
+            json: {
+              ok: true,
+              parties: [{ id: other, display_name: "Avery Example", kind: "person", city: "Demo City" }],
+            },
+          }
+        : { status: 201, json: { link_id: "00000000-0000-4000-8000-000000000999" } },
+    { record: { party_id: party } },
+  );
+  await page.locator("#recordPanel").getByRole("button", { name: "Link to someone" }).click();
+  const dialog = page.getByRole("dialog", { name: "Link Demo Partner 01 to someone" });
+  await dialog.getByLabel("Link", { exact: true }).selectOption("can_introduce");
+  await dialog.getByLabel("Find a person or company").fill("Avery");
+  await dialog.getByLabel("Avery Example · Demo City").check();
+  await dialog.getByLabel("Note").fill("Met at a study club");
+  await dialog.getByRole("button", { name: "Save link" }).click();
+  await dialog.waitFor({ state: "hidden" });
+  const [link] = posts(sent);
+  assert.equal(link?.path, "/api/engine/party-links");
+  assert.deepEqual(withoutKey(link?.body ?? {}), {
+    kind: "can_introduce",
+    party_id: party,
+    other_party_id: other,
+    note: "Met at a study club",
+  });
+});
+
+const self = "00000000-0000-4000-8000-000000000555";
+const search = (call: Sent): Answer | null =>
+  call.method === "GET" && call.path.startsWith("/api/engine/parties/search")
+    ? {
+        status: 200,
+        json: {
+          ok: true,
+          parties: [
+            { id: self, display_name: "Demo Partner 01", kind: "company", city: "Demo City" },
+            {
+              id: other,
+              display_name: new URLSearchParams(call.path.split("?")[1]).get("query")?.startsWith("Bl")
+                ? "Blake Example"
+                : "Avery Example",
+              kind: "person",
+              city: "Demo City",
+            },
+          ],
+        },
+      }
+    : null;
+async function openLink(t: import("node:test").TestContext, save: Answer) {
+  const { page, sent } = await setup(t, `/vendors?record=${vendor}`, (call) => search(call) ?? save, {
+    record: { party_id: self },
+  });
+  await page.locator("#recordPanel").getByRole("button", { name: "Link to someone" }).click();
+  return { page, sent, dialog: page.getByRole("dialog", { name: "Link Demo Partner 01 to someone" }) };
+}
+
+test("Link never offers the record itself and asks who to link when nobody is picked", async (t) => {
+  const { sent, dialog } = await openLink(t, { status: 201, json: {} });
+  await dialog.getByLabel("Find a person or company").fill("Avery");
+  const group = dialog.getByRole("radiogroup", { name: "Who to link" });
+  await group.getByLabel("Avery Example · Demo City").waitFor();
+  assert.equal(await group.getByRole("radio").count(), 1, "the record itself is not a choice");
+  await dialog.getByRole("button", { name: "Save link" }).click();
+  await dialog.getByText("Choose who to link.").waitFor();
+  assert.equal(await dialog.getByText("Fill in the highlighted fields.").count(), 0);
+  assert.deepEqual(posts(sent), []);
+});
+
+test("Typing a new search takes back the pick, so Save never links the old match", async (t) => {
+  const { page, sent, dialog } = await openLink(t, { status: 201, json: {} });
+  await dialog.getByLabel("Find a person or company").fill("Avery");
+  await dialog.getByLabel("Avery Example · Demo City").check();
+  await dialog.getByLabel("Find a person or company").fill("Blake");
+  const old = dialog.getByLabel("Avery Example · Demo City");
+  if (await old.count()) {
+    assert.equal(await old.isChecked(), false);
+    assert.equal(await old.isDisabled(), true);
+  }
+  await dialog.getByRole("button", { name: "Save link" }).click();
+  await dialog.getByText("Choose who to link.").waitFor();
+  await dialog.getByLabel("Blake Example · Demo City").waitFor();
+  assert.deepEqual(posts(sent), []);
+  await page.close();
+});
+
+test("Link to a record that is gone says to search again", async (t) => {
+  const { dialog } = await openLink(t, { status: 404, json: { error: "not_found" } });
+  await dialog.getByLabel("Find a person or company").fill("Avery");
+  await dialog.getByLabel("Avery Example · Demo City").check();
+  await dialog.getByRole("button", { name: "Save link" }).click();
+  await dialog.getByText("That record is no longer there. Search again.").waitFor();
+  assert.equal(await dialog.getByText("This was not saved. Try again.").count(), 0);
+});
+
+test("A saved link gives focus to the redrawn Link to someone", async (t) => {
+  let answer = () => {};
+  const reread = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  const { page } = await setup(
+    t,
+    `/vendors?record=${vendor}`,
+    (call) => search(call) ?? { status: 201, json: { link_id: "00000000-0000-4000-8000-000000000999" } },
+    { reread },
+  );
+  await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
+  await page.locator("#recordPanel").getByRole("button", { name: "Link to someone" }).click();
+  const dialog = page.getByRole("dialog", { name: "Link Demo Partner 01 to someone" });
+  await dialog.getByLabel("Find a person or company").fill("Avery");
+  await dialog.getByLabel("Avery Example · Demo City").check();
+  await dialog.getByRole("button", { name: "Save link" }).click();
+  await dialog.waitFor({ state: "hidden" });
+  // The record reloads after the dialog has closed, so its redraw comes last.
+  const shown = await page.locator("[data-party-link]").elementHandle();
+  answer();
+  await page.waitForFunction((button) => !button?.isConnected, shown);
+  assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute("data-party-link")), true);
+});
+
+test("Link closed after the record redraws gives focus to the new Link to someone", async (t) => {
+  let settle = () => {};
+  const activity = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  const { page } = await setup(t, `/vendors?record=${vendor}`, (call) => search(call) ?? { status: 500, json: {} }, {
+    activity,
+  });
+  await page.locator("#recordPanel").getByRole("button", { name: "Link to someone" }).click();
+  const dialog = page.getByRole("dialog", { name: "Link Demo Partner 01 to someone" });
+  await dialog.waitFor();
+  settle();
+  await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.hasAttribute("data-party-link"), null, { timeout: 2000 });
+});
+
+test("Link does not open while Edit is opening", async (t) => {
+  const fake = engine(vendorParty, "vendor", vendorProfile);
+  let release = () => {};
+  const read = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let settle = () => {};
+  const activity = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  const { page } = await setup(
+    t,
+    `/vendors?record=${vendor}`,
+    async (call) => {
+      if (call.method === "GET") await read;
+      return fake.answer(call);
+    },
+    { activity },
+  );
+  const panel = page.locator("#recordPanel");
+  await panel.getByRole("button", { name: "Edit" }).click();
+  // Settled activity redraws the record panel while Edit is still opening.
+  settle();
+  await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
+  await panel.getByRole("button", { name: "Opening…" }).waitFor();
+  await panel.getByRole("button", { name: "Link to someone" }).click();
+  assert.equal(await page.locator("dialog.party-editor[open]").count(), 0, "Link waits for the Edit that is opening");
+  release();
+  await page.getByRole("dialog", { name: "Edit Demo Partner 01" }).waitFor();
+});

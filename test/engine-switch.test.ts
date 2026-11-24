@@ -2919,6 +2919,7 @@ test("Party saves and their read reach the engine only with Clients and Vendors 
     ["POST", "/api/engine/vendors"],
     ["POST", `/api/engine/vendors/${id}`],
     ["POST", "/api/engine/party-links"],
+    ["GET", "/api/engine/parties/search?query=Avery"],
   ];
   for (const [method, path] of doors) {
     const request = () =>
@@ -2934,4 +2935,52 @@ test("Party saves and their read reach the engine only with Clients and Vendors 
     assert.equal((await worker.fetch(request(), on.env)).status, 200, `${method} ${path}`);
     assert.equal(on.engine[0]?.url, origin + path);
   }
+});
+
+test("A Deals client search still answers while Clients and Vendors read the old system", async () => {
+  const deals = fixture(
+    new Map([
+      ["deals-from-engine", "on"],
+      ["deals-saves-from-engine", "on"],
+    ]),
+  );
+  const path = "/api/engine/parties/search?query=Avery&role=client";
+  const response = await worker.fetch(
+    new Request(origin + path, { headers: { cookie: "session=synthetic", origin } }),
+    deals.env,
+  );
+  assert.equal(response.status, 200);
+  assert.equal(deals.engine[0]?.url, origin + path);
+});
+
+test("A closed party save names New, Edit or Link only while Clients and Vendors read the engine", async () => {
+  const hints = {
+    "new-client": ["Open Clients and choose New client.", "Open Clients to see the current records."],
+    "add-party": [
+      "Open Clients or Vendors and choose New client or New vendor.",
+      "Open Search to find the current record.",
+    ],
+    "link-parties": [
+      "Open the client or vendor and choose Link to someone.",
+      "Open Search to find the current record.",
+    ],
+    "update-party-contact": ["Open the client or vendor and choose Edit.", "Open Search to find the current record."],
+    "new-vendor": ["Open Vendors and choose New vendor.", "Open Vendors to see the current records."],
+  };
+  for (const [verb, [on, off]] of Object.entries(hints))
+    for (const [switches, hint] of [
+      [
+        new Map([
+          ["deals-saves-from-engine", "on"],
+          ["clients-vendors-from-engine", "on"],
+        ]),
+        on,
+      ],
+      [new Map([["deals-saves-from-engine", "on"]]), off],
+    ] as const) {
+      const frozen = fixture(switches);
+      const reply = await (await frozen.send(call(verb, {}))).json();
+      assert.deepEqual(JSON.parse(reply.result.content[0].text), { error: "old_save_closed", hint }, verb);
+      assert.deepEqual(frozen.carr, []);
+    }
 });

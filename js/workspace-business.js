@@ -1134,6 +1134,7 @@ function wireControls() {
   dom.panelBody?.addEventListener("click", (event) => {
     const edit = event.target.closest("[data-party-edit]");
     if (edit) return partyEditor?.edit();
+    if (event.target.closest("[data-party-link]")) return partyEditor?.link(view.record.payload?.record?.name ?? "");
     if (event.target.closest("[data-retry='record']") && view.recordId) loadRecord(view.recordId);
     if (event.target.closest("[data-retry='activity']") && !view.signedOut && view.recordId === view.record.payload?.record?.id) {
       loadActivity(view.recordId, view.record.payload.record);
