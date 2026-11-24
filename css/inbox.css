@@ -59,6 +59,25 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 @media (max-width: 700px) {
   .home-sections { grid-template-columns: minmax(0, 1fr); }
 }
+/* The first tile is the work list: it takes the wide column and the others stack beside it. */
+@media (min-width: 1000px) {
+  .home-sections { grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); grid-template-rows: auto auto 1fr; }
+  .home-sections > * { grid-column: 2; }
+  .home-sections > :first-child { grid-column: 1; grid-row: 1 / -1; }
+  .home-sections:not(:has(> :first-child ~ .home-slice)) { grid-template-rows: none; }
+  .home-sections:not(:has(> :first-child ~ .home-slice)) > * { grid-column: 1 / -1; grid-row: auto; }
+}
+/* On a computer Home fits one screen: the page controls share one band and each tile scrolls its own overflow. */
+@media (min-width: 1000px) and (min-height: 600px) {
+  .app-layout-center:has(.home-inbox):not(:has(#appTabsSlot > [data-layout-slot="tabs"])) > .app-layout-topbar { position: absolute; z-index: 81; inset-block-start: 0; inset-inline-end: 0; min-height: var(--tabbar-height); }
+  .has-app-layout main:has(.home-inbox) .inbox-shell { padding-bottom: 0; }
+  .home-sections { --home-fit: calc(100dvh - var(--tabbar-height) - 2 * var(--space-5)); }
+  .home-sections > .home-slice { max-height: calc((var(--home-fit) - var(--space-4)) / 2); overflow-y: auto; overscroll-behavior: contain; }
+  .home-sections > .home-slice:first-child, .home-sections > .home-slice:nth-child(2):not(:has(~ .home-slice)) { max-height: var(--home-fit); }
+  .home-sections > .home-tile-status { margin: 0; line-height: 20px; }
+  .home-sections:has(> .home-tile-status) > .home-slice:first-child { max-height: calc(var(--home-fit) - 20px - var(--space-4)); }
+  .home-slice > header { position: sticky; top: calc(-1 * var(--space-4)); z-index: 1; margin-top: calc(-1 * var(--space-4)); padding-top: var(--space-4); background: var(--surface-1); }
+}
 .home-inline-review{flex-basis:100%;min-width:0;padding:18px;border-top:1px solid var(--hairline);overflow-wrap:anywhere}.home-inline-review header{display:flex;justify-content:space-between;align-items:center;gap:12px}.home-inline-review h4{margin:0;font-size:16px}.home-inline-review fieldset{border:0;padding:0;min-width:0}.home-inline-review legend{padding:14px 0;font-weight:600}.home-inline-review label{display:grid;gap:6px;margin:12px 0;font-size:13px}.home-inline-review input,.home-inline-review textarea,.home-inline-review select{box-sizing:border-box;width:100%;height:auto;min-height:44px;padding:10px;color:var(--fg);background:var(--surface-1);border:1px solid var(--hairline);border-radius:6px;font:inherit}.home-inline-review textarea{resize:vertical}.home-inline-review .inbox-actions{margin:14px 0;width:auto}.home-inline-review p,.home-inline-review blockquote{font-size:13px;line-height:1.6;white-space:pre-wrap}.home-inline-review blockquote{margin:12px 0;padding-left:14px;border-left:2px solid var(--hairline)}.home-inline-review button{min-height:44px}.home-inline-review :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .home-inline-review .home-suggestion-instruction { field-sizing: content; resize: none; }
 .home-email-thread{margin-block:16px}
