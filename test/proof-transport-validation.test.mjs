@@ -54,7 +54,7 @@ for (const environment of ['staging', undefined]) test(`all proof CLIs refuse ${
   for (const runner of runners) {
     await t.test(runner, async () => {
       const args = [`scripts/${runner}`, '--origin', origin];
-      if (['prove-email-deal-picker-auth-retirement.ts', 'prove-reply-draft-recipient-race.ts', 'prove-call-review-decision-replay-key.ts', 'prove-asset-manifest-publication.mjs', 'prove-fact-review-pending-status-view.mjs', 'prove-reply-action-link.ts', 'prove-exact-action-cards.ts'].includes(runner)) args.push('--commit', '1'.repeat(40));
+      if (['prove-email-deal-picker-auth-retirement.ts', 'prove-reply-draft-recipient-race.ts', 'prove-call-review-decision-replay-key.ts', 'prove-asset-manifest-publication.mjs', 'prove-reply-action-link.ts', 'prove-exact-action-cards.ts'].includes(runner)) args.push('--commit', '1'.repeat(40));
       if (runner === 'prove-introduction-review.ts') args.push('--expected-commit', '1'.repeat(40));
       if (runner === 'prove-reply-action-link.ts') args.push('--ref', 'synthetic', '--proposal-id', 'synthetic', '--foreign-ref', 'synthetic-foreign');
       if (runner === 'prove-exact-action-cards.ts') args.push('--reply-ref','synthetic','--reply-id','synthetic','--foreign-ref','foreign');

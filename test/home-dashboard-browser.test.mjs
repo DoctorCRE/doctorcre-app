@@ -41,7 +41,6 @@ async function open(t, { isolateMeetingReviews = false, meetingReviewsResponse, 
   page.on('pageerror', error => errors.push(error.message));
   const completionRequests = [];
   const handlers = {
-    'list-fact-review': args => client.listFactReview(args),
     'list-deal-documents': args => client.listDealDocuments(args),
     'complete-one-action': async args => { completionRequests.push(args); return actionCompletion.write(args); },
     'deal-room-board': async () => { boardReads++; if (delayBoard) await new Promise(resolve => setTimeout(resolve, 100)); if (failBoard) throw Error('Unavailable'); const board = await client.getBoard(); if (boardMalformed) return { ...board, deals: [{ name: 'Demo missing record identity' }] }; return hangDetails ? { ...board, deals: Array.from({ length: 12 }, (_, i) => ({ ...board.deals[0], id: `demo-${i}`, operating_state: 'active' })) } : board; },
