@@ -396,11 +396,18 @@ export const PHICON = {
 
 export const ACTOR_LABEL = { joe: 'Joe', dell: 'Dell' };
 
+// Said plainly so nobody takes the assistant's or the copy's writing for a partner's own.
+const JOB_LABEL = { agent: 'Written by the assistant', old_system: 'Copied from the old system', mail_capture: 'Mail filing' };
+
+/** The engine job's author label, or undefined for any other author. */
+export const jobLabel = (/** @type {unknown} */ slug) =>
+  typeof slug === 'string' && Object.hasOwn(JOB_LABEL, slug) ? JOB_LABEL[slug] : undefined;
+
 /** Who wrote a note or update, as a partner says it. Only the partners write by hand; joe-local acts as Joe, and every other author is an automation. */
 export function authorLabel(/** @type {string | null | undefined} */ slug) {
   if (!slug) return 'Author not recorded';
   if (Object.hasOwn(ACTOR_LABEL, slug)) return ACTOR_LABEL[slug];
-  return slug === 'joe-local' ? 'Joe' : 'Doc (assistant)';
+  return jobLabel(slug) ?? (slug === 'joe-local' ? 'Joe' : 'Doc (assistant)');
 }
 
 /**
