@@ -2560,15 +2560,17 @@ function wireBoard() {
   addEventListener('pointercancel', release, true);
 
   // Right-click or long-press on a card offers that card's own controls.
+  const starLabel = star => (star.getAttribute('aria-pressed') === 'true' ? 'Unstar' : 'Star');
   const quickControls = [
-    ['Open', '.card-open'], ['Revive', '[data-revive]'], ['Undo', '[data-undo-phase]'], ['Client website', '[data-open-client-website]'],
+    ['Open', '.card-open'], [starLabel, '[data-star]'], ['Revive', '[data-revive]'], ['Undo', '[data-undo-phase]'], ['Client website', '[data-open-client-website]'],
   ];
   bindCardQuickMenu(board, {
     card: '.kanban-card',
     name: card => card.querySelector('.card-open')?.textContent?.trim() || '',
-    actions: card => (card.classList.contains('deal-row') ? quickControls : quickControls.slice(0, 1))
-      .map(([label, selector]) => ({ label, control: card.querySelector(selector) }))
-      .filter(action => action.control && action.control.getAttribute('aria-disabled') !== 'true'),
+    actions: card => (card.classList.contains('deal-row') ? quickControls : quickControls.slice(0, 2))
+      .map(([label, selector]) => [label, card.querySelector(selector)])
+      .filter(([, control]) => control && control.getAttribute('aria-disabled') !== 'true')
+      .map(([label, control]) => ({ label: typeof label === 'function' ? label(control) : label, control })),
   });
   board.addEventListener('quickmenuclose', () => {
     // eslint-disable-next-line no-restricted-syntax -- 1 deferred board paint after the quick menu closes, only when paintDeferred is set; 0 HTTP reads.

@@ -231,3 +231,51 @@ test("an older board read without stars shows no stars and the usual order", asy
   assert.equal(await page.locator("[data-star]").count(), 0);
   assert.deepEqual(errors, []);
 });
+
+test("the card quick menu stars and unstars like the star button", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const stars = new Map<string, Set<string>>();
+  const fixture: Fixture = { star: false };
+  const server = await openDeals(page, "joe", stars, fixture);
+  t.after(() => server.close());
+
+  const menuItems = async (cards: string, name: string) => {
+    await page.locator(cards, { has: starButton(page, name) }).focus();
+    await page.keyboard.press("Shift+F10");
+    const menu = page.getByRole("menu", { name: `Actions for ${name}` });
+    await menu.waitFor();
+    return { menu, labels: await menu.getByRole("menuitem").allInnerTexts() };
+  };
+  const tile = '.kanban-column[data-column="pending"] .kanban-card';
+
+  let { menu, labels } = await menuItems(tile, cedar);
+  assert.deepEqual(labels, ["Open", "Star"]);
+  await menu.getByRole("menuitem", { name: "Star", exact: true }).click();
+  await settles(async () => assert.equal(await starButton(page, cedar).getAttribute("aria-pressed"), "true"));
+  await expectOrder(() => boardOrder(page), [cedar, alder, birch]);
+  assert.deepEqual([...(stars.get("joe") ?? [])], [deals[2]?.id]);
+
+  ({ menu, labels } = await menuItems(tile, cedar));
+  assert.deepEqual(labels, ["Open", "Unstar"]);
+  fixture.star = true;
+  await menu.getByRole("menuitem", { name: "Unstar", exact: true }).click();
+  await page.getByText("Could not unstar this deal. Try again.").waitFor();
+  assert.equal(await starButton(page, cedar).getAttribute("aria-pressed"), "true", "a failed save keeps the star");
+  fixture.star = false;
+
+  await page.locator("#listView").click();
+  await expectOrder(() => order(page, ".deal-list .kanban-card"), [cedar, alder, birch]);
+  ({ menu, labels } = await menuItems(".deal-list .kanban-card", cedar));
+  assert.equal(labels.filter((label) => label === "Unstar").length, 1);
+  assert.equal(labels.filter((label) => label === "Star").length, 0);
+  await menu.getByRole("menuitem", { name: "Unstar", exact: true }).click();
+  await settles(async () => assert.equal(await starButton(page, cedar).getAttribute("aria-pressed"), "false"));
+  await expectOrder(() => order(page, ".deal-list .kanban-card"), [alder, birch, cedar]);
+  assert.deepEqual([...(stars.get("joe") ?? [])], []);
+
+  ({ labels } = await menuItems(".deal-list .kanban-card", alder));
+  assert.equal(labels.filter((label) => label === "Star").length, 1);
+  await page.keyboard.press("Escape");
+});
