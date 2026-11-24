@@ -272,8 +272,10 @@ body.record-open { overflow: hidden; }
 .client-needs button { margin: .5rem .5rem .5rem 0; min-height: 44px; }
 .business-shell [hidden] { display: none; }
 
-/* Add records. Every control is at least one touch target. */
+/* Add, edit and link records. Every control is at least one touch target. */
 .result-heading .party-new { margin-top: 0; }
+.party-record-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-4); }
+.party-record-actions .action { margin-top: 0; }
 .has-app-layout dialog.party-editor {
   width: min(560px, calc(100vw - 24px));
   max-height: 88dvh;
@@ -294,6 +296,7 @@ dialog.party-editor::backdrop { background: var(--scrim); }
 /* A label is a touch target too; its blank top is the space between fields, so the form adds none. */
 .party-editor .party-field label { display: flex; align-items: flex-end; min-height: var(--touch); padding-bottom: var(--space-1); box-sizing: border-box; color: var(--fg-muted); font-size: var(--font-size-1); }
 .party-editor .party-problem { margin: var(--space-1) 0 0; color: var(--status-danger-ink); font-size: var(--font-size-1); }
+.party-editor .party-hint { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 .party-editor fieldset { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0; padding: var(--space-3); border: 1px solid var(--hairline); border-radius: var(--radius-2); }
 .party-editor legend { padding: 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); }
 .party-editor :is(input:not([type="checkbox"], [type="radio"]), select, textarea) {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="description" content="Deal deadlines and next steps by month and week">
+  <meta name="description" content="Deal deadlines, next steps and meetings by month, week and day">
   <title>Calendar · DoctorCRE</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/dealroom-192.png">
@@ -30,60 +30,57 @@
   </div>
 
   <main id="main" class="shell">
-    <header class="cal-heading">
-      <h1 id="pageTitle">Calendar</h1>
-      <span class="cal-updated" id="calAsOf"></span>
-      <button class="cal-icon" type="button" id="calRefresh" aria-label="Refresh Calendar" title="Refresh Calendar"><span aria-hidden="true">↻</span></button>
-    </header>
-
     <p class="sr-only" id="calLive" aria-live="polite" role="status">Updating…</p>
 
-    <div class="cal-notices" id="calNotices"></div>
-
-    <div class="cal-layout">
-      <section class="cal-board" aria-labelledby="calPeriod">
-        <div class="cal-toolbar">
-          <div class="cal-steps" role="group" aria-label="Move through the calendar">
-            <button class="cal-icon" type="button" id="calPrev" aria-label="Previous month"><span aria-hidden="true">‹</span></button>
-            <h2 class="cal-period" id="calPeriod" aria-live="polite">Calendar</h2>
-            <button class="cal-icon" type="button" id="calNext" aria-label="Next month"><span aria-hidden="true">›</span></button>
-          </div>
-          <div class="cal-view-switch" id="calViewSwitch" role="group" aria-label="Calendar view">
-            <button class="cal-icon" type="button" id="calToday" aria-label="Jump to today" title="Jump to today">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6"/><circle cx="10" cy="10" r="2" fill="currentColor" stroke="none"/></svg>
-            </button>
-            <button class="cal-icon" type="button" data-view="month" aria-label="Month" title="Month" aria-pressed="true">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="14" rx="2"/><path d="M2.5 7.5h15M2.5 12.5h15M7.5 7.5v10m5-10v10"/></svg>
-            </button>
-            <button class="cal-icon" type="button" data-view="week" aria-label="Week" title="Week" aria-pressed="false">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="7" width="15" height="6" rx="1.5"/><path d="M7.5 7v6m5-6v6"/></svg>
-            </button>
+    <section class="cal-board" aria-labelledby="calPeriod">
+      <header class="cal-toolbar">
+        <h1 id="pageTitle">Calendar</h1>
+        <div class="cal-steps" role="group" aria-label="Move through the calendar">
+          <button class="cal-icon" type="button" id="calPrev" aria-label="Previous month"><span aria-hidden="true">‹</span></button>
+          <h2 class="cal-period" id="calPeriod" aria-live="polite">Calendar</h2>
+          <button class="cal-icon" type="button" id="calNext" aria-label="Next month"><span aria-hidden="true">›</span></button>
+        </div>
+        <p class="cal-count" id="calCount" aria-live="polite"></p>
+        <button class="cal-undated-chip" type="button" id="calUndated" hidden></button>
+        <span class="cal-updated" id="calAsOf"></span>
+        <button class="cal-icon" type="button" id="calRefresh" aria-label="Refresh Calendar" title="Refresh Calendar"><span aria-hidden="true">↻</span></button>
+        <div class="cal-view-switch" id="calViewSwitch" role="group" aria-label="Calendar view">
+          <button class="cal-today" type="button" id="calToday">Today</button>
+          <div class="cal-segments">
+            <button type="button" data-view="day" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M6 9h4v3H6z"/></svg>Day</button>
+            <button type="button" data-view="week" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M5.5 6v8.5M10.5 6v8.5"/></svg>Week</button>
+            <button type="button" data-view="month" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M1.5 10h13M5.5 6v8.5M10.5 6v8.5"/></svg>Month</button>
           </div>
         </div>
-        <p class="small cal-count" id="calCount" aria-live="polite"></p>
-        <p class="small cal-meetings-note" id="calMeetingsNote" hidden>Meetings show for about the next two weeks.</p>
-        <div id="calState"><p>Reading Calendar…</p></div>
-        <div class="cal-grid" id="calGrid" role="grid" aria-labelledby="calPeriod" data-view="month"></div>
+      </header>
+      <div class="cal-key">
         <ul class="cal-legend" aria-label="What each marker means">
-          <li><span class="cal-pulse" data-pulse="urgent" aria-hidden="true"></span>Today or overdue</li>
-          <li><span class="cal-pulse" data-pulse="attention" aria-hidden="true"></span>This week</li>
-          <li><span class="cal-pulse" data-pulse="calm" aria-hidden="true"></span>This month</li>
-          <li><span class="cal-pulse" data-pulse="still" aria-hidden="true"></span>Later</li>
+          <li><span class="cal-mark" data-kind="step" aria-hidden="true"></span>Next step</li>
+          <li><span class="cal-mark" data-kind="date" aria-hidden="true"></span>Critical date</li>
+          <li><span class="cal-mark" data-kind="meeting" aria-hidden="true"></span>Meeting</li>
+          <li><span class="cal-mark" data-kind="tour" aria-hidden="true"></span>Tour</li>
+          <li><span class="cal-mark" data-kind="late" aria-hidden="true"></span>Late</li>
+          <li><span class="cal-soon" aria-hidden="true"></span>This week</li>
         </ul>
-      </section>
+      </div>
+      <div class="cal-notices" id="calNotices"></div>
+      <div id="calState"><p>Reading Calendar…</p></div>
+      <div class="cal-grid" id="calGrid" role="grid" aria-labelledby="calPeriod" data-view="month"></div>
+    </section>
 
-      <aside class="cal-day-panel" id="dayPanel" aria-labelledby="dayPanelTitle">
+    <dialog class="dialog cal-day-sheet" id="dayPanel" aria-labelledby="dayPanelTitle">
+      <header>
         <h2 id="dayPanelTitle">Choose a day</h2>
-        <div id="dayPanelBody"></div>
-        <section class="cal-coming" id="calComing" aria-labelledby="agendaTitle" hidden>
-          <h3 id="agendaTitle">Coming up</h3>
-          <ol class="cal-agenda" id="calAgenda"></ol>
-        </section>
-        <section class="cal-undated" id="calUndated" hidden>
-          <h3>No readable date</h3>
-          <ul id="calUndatedList"></ul>
-        </section>
-      </aside>
+        <button class="cal-icon" type="button" id="dayPanelClose" aria-label="Close day"><span aria-hidden="true">×</span></button>
+      </header>
+      <div class="cal-day-sheet-body" id="dayPanelBody"></div>
+    </dialog>
+
+    <div class="cal-extras">
+      <section class="cal-coming" id="calComing" aria-labelledby="agendaTitle" hidden>
+        <h3 id="agendaTitle">Coming up</h3>
+        <ol class="cal-agenda" id="calAgenda"></ol>
+      </section>
     </div>
   </main>
 

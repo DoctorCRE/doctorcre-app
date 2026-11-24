@@ -50,7 +50,7 @@ for (const width of [360, 390, 500]) {
       await page.goto(`${server.url}/calendar?view=month&d=2026-10-18`);
       const updated = page.getByRole("main").getByText(/^Updated /);
       const search = page.getByRole("button", { name: /Search and quick switcher/ });
-      const dayPanel = page.getByRole("complementary", { name: /Oct 15/ });
+      const dayPanel = page.getByRole("dialog", { name: /Oct 15/ });
       await expect(updated).toBeVisible();
       await expect(search).toBeVisible();
       await page.getByRole("button", { name: /Oct 15, 2026.*critical date/ }).click();
@@ -64,6 +64,7 @@ for (const width of [360, 390, 500]) {
         button.y < time.y + time.height;
       expect.soft(overlaps, `Calendar header at ${width}px`).toBe(false);
       await expectTouchTargets(dayPanel.locator("a:visible, button:visible"));
+      await dayPanel.getByRole("button", { name: "Close day" }).click();
       await search.click();
       await expect(page.getByRole("dialog", { name: "Quick switcher" })).toBeVisible();
     });
