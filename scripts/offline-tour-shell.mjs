@@ -30,7 +30,7 @@ export async function offlineTourShell(readSource) {
       // chunks must be cached so the shell can mount without a connection.
       if (dynamic && isUiAsset(url.pathname.slice(1))) continue;
       if (!/\.(?:html|css|m?js)$/.test(url.pathname)) continue;
-      assert.ok(['/data/fixtures/fact-review.mjs', '/data/fixtures/practice-origination.mjs'].includes(url.pathname) || /^\/(?:js|css|tours)\/.+\.(?:html|css|m?js)$/.test(url.pathname), `unsupported offline code dependency: ${reference}`);
+      assert.ok(['/data/fixtures/deal-documents.mjs', '/data/fixtures/practice-origination.mjs'].includes(url.pathname) || /^\/(?:js|css|tours)\/.+\.(?:html|css|m?js)$/.test(url.pathname), `unsupported offline code dependency: ${reference}`);
       await visit(url.pathname);
     }
   }
