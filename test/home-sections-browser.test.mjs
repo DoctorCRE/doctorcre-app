@@ -618,7 +618,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     const key = writes.at(-1)[1].idempotency_key;
     if (advanceClock) await page.clock.setFixedTime(new Date(Date.parse(earlierUntil) + 60_000));
     await undo.click();
-    await page.getByText(/1 confirmed\. Undone\./).waitFor();
+    await page.locator('.toast').getByText('Undone.', { exact: true }).waitFor();
     const restored = writes.at(-1)[1];
     assert.deepEqual(restored, { item_id: id, base_version: version, action, idempotency_key: restored.idempotency_key,
       ...(until && { until }) });
@@ -2671,10 +2671,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(await reminders.getByRole('heading', { name: 'Reminders 4' }).count(), 1);
 });
 
-async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop = true, invalidDrop = false } = {}) {
+async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop = true, invalidDrop = false, theme } = {}) {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
   page.setDefaultTimeout(5000);
-  await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
+  await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true } })), theme);
   await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
   const state = { items: items.map(card => ({ ...card })) };
   const writes = [];
@@ -2692,8 +2692,16 @@ async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop 
       if (path === '/api/engine/home/marks') {
         if (invalidDrop || (body.action === 'drop' && !/^(capture_post_call_action|notification):/.test(body.item_id)))
           return Response.json({ error: 'invalid_field_value', fields: ['action'] }, { status: 400 });
-        state.items = state.items.filter(item => item.item_id !== body.item_id);
-        return Response.json({ ok: true, item_id: body.item_id });
+        if (body.action === 'drop') {
+          state.items = state.items.filter(item => item.item_id !== body.item_id);
+          return Response.json({ ok: true, item_id: body.item_id });
+        }
+        const card = state.items.find(item => item.item_id === body.item_id);
+        const snoozed = body.action === 'snooze';
+        Object.assign(card, { base_version: `${card.base_version}+`, disposition: snoozed ? 'snoozed' : 'inbox',
+          section: snoozed ? 'snoozed' : 'inbox', snoozed_until: snoozed ? body.until : null, waiting_reason: snoozed ? 'Snoozed' : null });
+        return Response.json({ ok: true, item_id: body.item_id, base_version: card.base_version,
+          previous: { disposition: snoozed ? null : 'snoozed', snoozed_until: null } });
       }
       const proposal = path.match(/^\/api\/engine\/proposals\/([^/]+)\/decision$/);
       if (proposal) {
@@ -2739,7 +2747,7 @@ async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop 
     await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill(reason);
     await dialog.getByRole('button', { name: 'Drop', exact: true }).click();
   };
-  return { page, rows, writes, dialog, confirm, notice: page.locator('.inbox-notice[role="status"]'), alert: page.locator('.inbox-notice[role="alert"]') };
+  return { page, rows, writes, dialog, confirm, confirmation: page.locator('.toast[role="status"]'), alert: page.locator('.inbox-notice[role="alert"]') };
 }
 
 const dropCard = (number, fields) => ({
@@ -2778,7 +2786,7 @@ for (const [label, card, expectedPath, expectedBody] of [
     (body) => ({ version: 2, reason: 'Already handled.', idempotency_key: body.idempotency_key }),
   ],
 ]) for (const width of [390, 1440]) test(`Home drops a ${label} card through its engine route with a trimmed reason at ${width}px`, async t => {
-  const { page, rows: [row], writes, dialog, confirm, notice } = await homeDropFixture(t, width, { items: [card] });
+  const { page, rows: [row], writes, dialog, confirm, confirmation } = await homeDropFixture(t, width, { items: [card] });
   const buttons = await row.getByRole('button').allTextContents();
   assert.equal(buttons[buttons.indexOf('Snooze') + 1], 'Drop', buttons.join(', '));
   const drop = row.getByRole('button', { name: 'Drop', exact: true });
@@ -2798,7 +2806,8 @@ for (const [label, card, expectedPath, expectedBody] of [
   assert.equal(writes[0].path, expectedPath);
   assert.deepEqual(writes[0].body, expectedBody(writes[0].body));
   assert.ok(writes[0].body.idempotency_key);
-  await notice.getByText('Dropped.', { exact: true }).waitFor();
+  await confirmation.getByText(`Dropped: ${card.title}.`, { exact: true }).waitFor();
+  assert.equal(await confirmation.getByRole('button').count(), 0, 'a drop has no reverse route, so no Undo');
   assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
 });
 
@@ -2814,6 +2823,31 @@ for (const width of [390, 1440]) test(`Home hides Drop on Tour feedback, Fact re
     await row.getByRole('button', { name: 'Snooze', exact: true }).waitFor();
     assert.equal(await row.getByRole('button', { name: 'Drop', exact: true }).count(), 0);
   }
+});
+
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home confirms a snooze at the bottom with Undo at ${width}px in ${theme}`, async t => {
+  const card = dropCard(78, { item_id: `notification:${id(78)}`, source_type: 'notification', kind_label: 'Update', title: 'Sample reminder to snooze' });
+  const { page, rows: [row], writes } = await homeDropFixture(t, width, { items: [card], theme });
+  await row.getByRole('button', { name: 'Snooze', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  const toast = page.getByRole('status').filter({ hasText: 'Snoozed: Sample reminder to snooze.' });
+  await toast.waitFor();
+  assert.equal(await toast.getAttribute('aria-atomic'), 'true');
+  const box = await toast.boundingBox();
+  assert.ok(box.y > 900 / 2 && box.y + box.height <= 900, 'the confirmation sits at the bottom of the screen');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  const colors = await toast.evaluate(node => [getComputedStyle(node).color, getComputedStyle(node).backgroundColor]);
+  assert.notEqual(colors[0], colors[1], 'the message is readable on its own background');
+  await mkdir('test-artifacts/save-confirmation', { recursive: true });
+  await page.screenshot({ path: `test-artifacts/save-confirmation/home-${width}-${theme}.png` });
+  await toast.getByRole('button', { name: 'Undo', exact: true }).click();
+  const undone = page.getByRole('status').filter({ hasText: 'Undone.' });
+  await undone.waitFor();
+  assert.deepEqual(writes.map(write => write.body.action), ['snooze', 'unsnooze']);
+  assert.equal(await undone.getByRole('button').count(), 0, 'an undo is not itself offered for undo');
+  await row.getByRole('button', { name: 'Snooze', exact: true }).waitFor();
+  await page.clock.runFor(5_000);
+  await undone.waitFor({ state: 'detached' });
 });
 
 for (const width of [390, 1440]) test(`Home alerts and keeps a card when the engine refuses Drop with 400 invalid_field_value at ${width}px`, async t => {

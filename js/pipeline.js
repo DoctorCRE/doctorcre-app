@@ -928,7 +928,8 @@ async function runMove(intent, form) {
   } else {
     confirmLocalWrite(intent.deal, { phase: phaseStep.args.value });
     renderBoard();
-    showToast(`${intent.name} moved to ${intent.to_label}`, {eventId: result.event_id});
+    const back = state.nextDealSaves ? moveBack(intent, result.response?.change_id) : null;
+    showToast(`${intent.name} moved to ${intent.to_label}`, back ? { onUndo: () => void runMoveBack(back) } : { eventId: result.event_id });
   }
   announce(`${intent.name} moved to ${intent.to_label}.`);
 
@@ -974,6 +975,25 @@ async function retryFieldWrite(cell) {
   renderBoard();
   const message = fieldWriteMessage(result, subject);
   if (message) showToast(message, {error:result.status !== 'ok'});
+}
+
+// Engine saves have no revert route; a move is undone by moving the deal back from the version it made.
+function moveBack(intent, changeId) {
+  if (!Number.isSafeInteger(changeId) || !intent.from) return null;
+  return moveIntent({ id: intent.deal, name: intent.name, phase: intent.value, seen: changeId }, intent.from);
+}
+
+async function runMoveBack(back) {
+  const result = await sendPhaseWrite(back.deal, back.value, { seen_change_id: back.seen, phase_from: back.from });
+  if (result.status === 'ok' && !result.superseded) {
+    confirmLocalWrite(back.deal, { phase: back.value });
+    renderBoard();
+    showToast(`${back.name} moved back to ${back.to_label}`);
+    return;
+  }
+  state.boardSync.requestRefresh('after-undo');
+  renderBoard();
+  showToast(fieldWriteMessage(result, `${fieldLabel('phase')} on ${back.name}`) || 'Undo was not saved. Reload Deals and try again.', { error: true });
 }
 
 async function runUndo(eventId) {

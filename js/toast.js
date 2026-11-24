@@ -1,10 +1,11 @@
-const SUCCESS_HOLD_MS = 2_000;
+// Visible about five seconds in all: the hold, then the fade.
+const SUCCESS_HOLD_MS = 4_200;
 const FADE_MS = 800;
 
 let active = null;
 
 function timer(callback, delay, state) {
-  // eslint-disable-next-line no-restricted-syntax -- Each toast schedules a max of two callbacks: 2000ms hold then 800ms fade, or one 2800ms undo expiry; replacement calls clearTimeout for all handles.
+  // eslint-disable-next-line no-restricted-syntax -- Each toast schedules a max of two callbacks: 4200ms hold then 800ms fade, or one 5000ms undo expiry; replacement calls clearTimeout for all handles.
   const handle = setTimeout(callback, delay);
   handle?.unref?.();
   state.timers.push(handle);
@@ -33,7 +34,8 @@ function place(state, doc) {
   if (state.node.showPopover && !state.node.matches(':popover-open')) state.node.showPopover();
 }
 
-export function showToast(message, { eventId = null, error = false, preserveUndo = false } = {}) {
+/** `eventId` offers the change-receipt Undo; `onUndo` offers an Undo the caller performs. */
+export function showToast(message, { eventId = null, onUndo = null, error = false, preserveUndo = false } = {}) {
   const doc = globalThis.document;
   if (!doc?.body) return null;
   if (preserveUndo && !eventId && !error && active?.undo && !active.undo.disabled) return active.node;
@@ -53,12 +55,14 @@ export function showToast(message, { eventId = null, error = false, preserveUndo
   node.append(text);
 
   let undo = null;
-  if (eventId !== null && eventId !== undefined && String(eventId)) {
+  const receiptUndo = eventId !== null && eventId !== undefined && String(eventId);
+  if (receiptUndo || onUndo) {
     undo = doc.createElement('button');
     undo.type = 'button';
     undo.className = 'receipt-undo';
-    undo.dataset.undo = String(eventId);
     undo.textContent = 'Undo';
+    if (receiptUndo) undo.dataset.undo = String(eventId);
+    else undo.addEventListener('click', () => { remove(state); onUndo(); }, { once: true });
     node.append(undo);
     state.undo = undo;
   }
