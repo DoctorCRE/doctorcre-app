@@ -730,9 +730,13 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
+    // A redraw keeps focus on the record action that had it, such as Edit after a save.
+    const actions = () => [...dom.panelBody.querySelectorAll(".party-record-actions button")];
+    const action = actions().indexOf(document.activeElement);
     dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${partyEditor?.actionsHtml() ?? ""}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
+    if (action >= 0) focusWithoutScrolling(actions()[action]);
     const note = dom.panelBody.querySelector(".client-note > p");
     if (note) note.nextElementSibling.hidden = !note.nextElementSibling.open && note.scrollHeight <= note.clientHeight;
   }
