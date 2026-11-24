@@ -518,16 +518,18 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await reply.getByRole('button', { name: 'Accept', exact: true }).first().click();
   await reply.getByText('Suggestion accepted.', { exact: true }).waitFor();
   assert.match(writes.at(-1)[0], new RegExp(`/proposals/${nested}/decision$`));
-  await reply.getByRole('region', { name: 'File this email', exact: true }).getByRole('button', { name: 'Dismiss', exact: true }).click();
+  const filingRegion = reply.getByRole('region', { name: 'File this email', exact: true });
+  assert.equal(await filingRegion.getByRole('button', { name: 'Dismiss' }).count(), 0);
+  await filingRegion.getByRole('button', { name: 'Drop', exact: true }).click();
   const filingDialog = page.getByRole('dialog', { name: 'Drop with a reason' });
   await filingDialog.getByRole('heading', { name: 'Drop this filing suggestion?' }).waitFor();
   await page.keyboard.press('Escape');
   await filingDialog.waitFor({ state: 'detached' });
-  const dismissFiling = reply.getByRole('region', { name: 'File this email', exact: true }).getByRole('button', { name: 'Dismiss', exact: true });
-  assert.equal(await dismissFiling.evaluate(node => node === document.activeElement), true);
-  await dismissFiling.click();
+  const dropFiling = filingRegion.getByRole('button', { name: 'Drop', exact: true });
+  assert.equal(await dropFiling.evaluate(node => node === document.activeElement), true);
+  await dropFiling.click();
   await confirmDrop('Already filed.');
-  await reply.getByText('Suggestion dismissed.', { exact: true }).waitFor();
+  await reply.getByText('Suggestion dropped.', { exact: true }).waitFor();
   assert.match(writes.at(-1)[0], new RegExp(`/proposals/${dismissNested}/decision$`));
   assert.equal(writes.at(-1)[1].decision, 'dismiss');
   assert.equal(writes.at(-1)[1].reason, 'Already filed.');
@@ -763,9 +765,10 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
       (await window.axe.run(root, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] } })).violations);
     assert.deepEqual(violations, []);
   }
-  for (const item of [task, followUp, reminder, requirement, completion, meeting, call, feedback]) {
+  for (const item of [task, followUp, reminder, requirement, completion, meeting, call]) {
     assert.deepEqual(await card(item).getByRole('button').allTextContents(), [item.primary_action, 'Snooze', 'Drop']);
   }
+  assert.deepEqual(await card(feedback).getByRole('button').allTextContents(), [feedback.primary_action, 'Snooze']);
   await card(task).getByText('1 day late', { exact: false }).waitFor();
   assert.equal(await card(ownDone).count(), 0);
   assert.equal(await card(otherDone).count(), 0);
@@ -1254,7 +1257,7 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
     }
     assert.equal(await filing.getByRole('button', { name: 'Accept', exact: true }).count(), 0);
     if (dismiss) {
-      await filing.getByRole('button', { name: 'Dismiss' }).click();
+      await filing.getByRole('button', { name: 'Drop', exact: true }).click();
       let dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
       await dialog.waitFor();
       assert.equal(await dialog.getByRole('button', { name: 'Drop', exact: true }).isDisabled(), true);
@@ -1262,7 +1265,7 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
       assert.equal(await dialog.getByRole('button', { name: 'Drop', exact: true }).isDisabled(), true);
       await dialog.getByRole('button', { name: 'Cancel' }).click();
       assert.deepEqual(state.filingWrites, []);
-      await filing.getByRole('button', { name: 'Dismiss' }).click();
+      await filing.getByRole('button', { name: 'Drop', exact: true }).click();
       dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
       await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill('  Not relevant  ');
       await dialog.getByRole('button', { name: 'Drop', exact: true }).click();
@@ -2666,6 +2669,166 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await meetings.getByText(current.title, { exact: true }).waitFor();
   assert.equal(await meetings.getByText(laterDay.title, { exact: true }).count(), 0);
   assert.equal(await reminders.getByRole('heading', { name: 'Reminders 4' }).count(), 1);
+});
+
+async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop = true, invalidDrop = false } = {}) {
+  const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
+  page.setDefaultTimeout(5000);
+  await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
+  await page.route('**/auth/session', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  const state = { items: items.map(card => ({ ...card })) };
+  const writes = [];
+  const env = {
+    APP_ENV: 'production',
+    ENGINE: { fetch: async request => {
+      const path = new URL(request.url).pathname;
+      if (path === '/api/engine/home/inbox') return Response.json({
+        ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true,
+        ...(proposalDrop && { home_proposal_drop: true }), ...(markDrop && { home_mark_drop: true }), items: state.items,
+      });
+      assert.equal(request.method, 'POST');
+      const body = await request.json();
+      writes.push({ path, body });
+      if (path === '/api/engine/home/marks') {
+        if (invalidDrop || (body.action === 'drop' && !/^(capture_post_call_action|notification):/.test(body.item_id)))
+          return Response.json({ error: 'invalid_field_value', fields: ['action'] }, { status: 400 });
+        state.items = state.items.filter(item => item.item_id !== body.item_id);
+        return Response.json({ ok: true, item_id: body.item_id });
+      }
+      const proposal = path.match(/^\/api\/engine\/proposals\/([^/]+)\/decision$/);
+      if (proposal) {
+        const [, proposalId] = proposal;
+        state.items = state.items.filter(item =>
+          item.item_id !== `suggestion:${proposalId}` && !item.suggestions?.some(entry => entry.id === proposalId));
+        return Response.json({ proposal_id: proposalId, status: 'dismissed', decided_at: NOW.toISOString(), created: {} });
+      }
+      const draft = path.match(/^\/api\/engine\/reply-drafts\/([^/]+)\/dismissal$/);
+      if (draft) {
+        const [, draftId] = draft;
+        const card = state.items.find(item => item.reply_draft_id === draftId);
+        if (!card || card.reply_draft_status !== 'pending')
+          return Response.json({ error: 'draft_changed', version: Number(card?.source_version ?? 1) }, { status: 409 });
+        state.items = state.items.filter(item => item.reply_draft_id !== draftId);
+        return Response.json({ draft_id: draftId, version: body.version + 1, status: 'dismissed' });
+      }
+      assert.fail(`Unexpected engine write: ${path}`);
+    } },
+    CARR: { fetch: async request => {
+      if (request.method === 'GET') return Response.json({ error: 'not_found' }, { status: 404 });
+      const { id: rpc } = await request.json();
+      const payload = { ok: true, items: [], deals: [] };
+      return Response.json({ jsonrpc: '2.0', id: rpc, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } });
+    } },
+  };
+  await page.route('**/mcp', async route => {
+    const request = route.request();
+    const response = await worker.fetch(new Request(request.url(), { method: request.method(), headers: request.headers(), body: request.postData() }), env);
+    await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
+  });
+  await page.route('**/api/engine/home/inbox?view=dashboard', route => route.fulfill({ status: 404 }));
+  await page.route(url => url.pathname === '/' && url.searchParams.get('mode') === 'live', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: (await response.text()).replace('<html ', '<html data-home-today-from-engine ') });
+  });
+  await page.clock.install({ time: NOW });
+  await open('/?mode=live');
+  const rows = items.map(card => page.locator(`[data-inbox-row="${card.item_id}"]`));
+  for (const row of rows) await row.waitFor();
+  const dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
+  const confirm = async (reason) => {
+    await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill(reason);
+    await dialog.getByRole('button', { name: 'Drop', exact: true }).click();
+  };
+  return { page, rows, writes, dialog, confirm, notice: page.locator('.inbox-notice[role="status"]'), alert: page.locator('.inbox-notice[role="alert"]') };
+}
+
+const dropCard = (number, fields) => ({
+  source_id: id(number), source_version: '2', source_state: 'needs_attention',
+  base_version: `2:${number}:inbox`, activity_at: '2026-11-02T12:00:00.000Z', completed_at: null, due_on: null,
+  hold_until: null, snoozed_until: null, disposition: 'inbox', section: 'inbox', unseen: false,
+  context_label: 'Example Dental', open_url: null, deal_id: null, action_id: null, action_version: null,
+  merged_source_ids: [id(number)], waiting_version: 0, waiting_on: null, source_activity: null, ...fields,
+});
+
+for (const [label, card, expectedPath, expectedBody] of [
+  [
+    'follow-up',
+    dropCard(70, { item_id: `capture_post_call_action:${id(70)}`, source_type: 'capture_post_call_action',
+      kind_label: 'Call follow-up', title: 'Call back the sample landlord', action_id: id(70), action_version: 2 }),
+    '/api/engine/home/marks',
+    (body) => ({ item_id: `capture_post_call_action:${id(70)}`, base_version: '2:70:inbox', action: 'drop', reason: 'Already handled.', idempotency_key: body.idempotency_key }),
+  ],
+  [
+    'notification',
+    dropCard(71, { item_id: `notification:${id(71)}`, source_type: 'notification', kind_label: 'Update', title: 'Checklist reminder for Example Dental' }),
+    '/api/engine/home/marks',
+    (body) => ({ item_id: `notification:${id(71)}`, base_version: '2:71:inbox', action: 'drop', reason: 'Already handled.', idempotency_key: body.idempotency_key }),
+  ],
+  [
+    'suggestion',
+    dropCard(72, { item_id: `suggestion:${id(72)}`, source_type: 'email_proposal', kind_label: 'Suggestion', title: 'Review the sample email' }),
+    `/api/engine/proposals/${id(72)}/decision`,
+    (body) => ({ decision: 'dismiss', reason: 'Already handled.', idempotency_key: body.idempotency_key }),
+  ],
+  [
+    'reply draft',
+    dropCard(73, { item_id: `reply_draft:${id(73)}`, source_type: 'email_proposal', kind_label: 'Reply draft',
+      title: 'Reply to the sample landlord', reply_draft_id: id(73), reply_draft_status: 'pending' }),
+    `/api/engine/reply-drafts/${id(73)}/dismissal`,
+    (body) => ({ version: 2, reason: 'Already handled.', idempotency_key: body.idempotency_key }),
+  ],
+]) for (const width of [390, 1440]) test(`Home drops a ${label} card through its engine route with a trimmed reason at ${width}px`, async t => {
+  const { page, rows: [row], writes, dialog, confirm, notice } = await homeDropFixture(t, width, { items: [card] });
+  const buttons = await row.getByRole('button').allTextContents();
+  assert.equal(buttons[buttons.indexOf('Snooze') + 1], 'Drop', buttons.join(', '));
+  const drop = row.getByRole('button', { name: 'Drop', exact: true });
+  await drop.click();
+  const submit = dialog.getByRole('button', { name: 'Drop', exact: true });
+  assert.equal(await submit.isDisabled(), true);
+  await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill('   ');
+  assert.equal(await submit.isDisabled(), true);
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'detached' });
+  assert.equal(writes.length, 0);
+  assert.equal(await drop.evaluate(node => node === document.activeElement), true);
+  await drop.click();
+  await confirm('  Already handled.  ');
+  await row.waitFor({ state: 'detached' });
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, expectedPath);
+  assert.deepEqual(writes[0].body, expectedBody(writes[0].body));
+  assert.ok(writes[0].body.idempotency_key);
+  await notice.getByText('Dropped.', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
+});
+
+for (const width of [390, 1440]) test(`Home hides Drop on Tour feedback, Fact review, and failed reply drafts at ${width}px`, async t => {
+  const items = [
+    dropCard(74, { item_id: `notification:${id(74)}`, source_type: 'notification', kind: 'tour_feedback', kind_label: 'Tour feedback', title: 'Tour feedback on Cedar Suite' }),
+    dropCard(75, { item_id: `notification:${id(75)}`, source_type: 'notification', kind_label: 'Fact review', title: 'Lease fact on Cedar Suite' }),
+    dropCard(76, { item_id: `reply_draft:${id(76)}`, source_type: 'email_proposal', kind_label: 'Reply draft',
+      title: 'Failed reply to the sample landlord', source_state: 'failed', reply_draft_id: id(76), reply_draft_status: 'failed' }),
+  ];
+  const { rows } = await homeDropFixture(t, width, { items });
+  for (const row of rows) {
+    await row.getByRole('button', { name: 'Snooze', exact: true }).waitFor();
+    assert.equal(await row.getByRole('button', { name: 'Drop', exact: true }).count(), 0);
+  }
+});
+
+for (const width of [390, 1440]) test(`Home alerts and keeps a card when the engine refuses Drop with 400 invalid_field_value at ${width}px`, async t => {
+  const card = dropCard(77, { item_id: `notification:${id(77)}`, source_type: 'notification', kind_label: 'Update', title: 'Reminder the server refuses to drop' });
+  const { page, rows: [row], writes, confirm, alert } = await homeDropFixture(t, width, { items: [card], invalidDrop: true });
+  await row.getByRole('button', { name: 'Drop', exact: true }).click();
+  await confirm('Already handled.');
+  await alert.getByText("This card can't be dropped. Nothing was saved.", { exact: true }).waitFor();
+  await page.clock.fastForward(5000);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, '/api/engine/home/marks');
+  assert.equal(await row.isVisible(), true);
+  assert.equal(await page.getByRole('button', { name: 'Retry same request' }).count(), 0);
+  const title = row.locator(':is(h3 a, h3[tabindex])');
+  await page.waitForFunction(node => node === document.activeElement, await title.elementHandle());
 });
 
 });

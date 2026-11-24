@@ -173,7 +173,8 @@ test("Ask Doc advises on the filing's originating email without deciding the rev
   assert.deepEqual(writes, []);
   await openReview();
   await expect(filing.getByRole("button", { name: "Choose deal" })).toBeVisible();
-  await expect(filing.getByRole("button", { name: "Dismiss" })).toBeVisible();
+  await expect(filing.getByRole("button", { name: "Drop", exact: true })).toBeVisible();
+  await expect(filing.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
 });
 
 test("Reopening Ask Doc from a filing review keeps the unsent question", async (t) => {

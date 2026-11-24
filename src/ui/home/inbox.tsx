@@ -1,5 +1,5 @@
 import { type BatchRequest, type BatchResult, parseBatch } from "./batch.ts";
-import { cardKey, type MarkUndo, markArgs, markTarget } from "./engine-marks.ts";
+import { cardKey, type MarkUndo, markArgs, markDropTarget, markTarget } from "./engine-marks.ts";
 import {
   type DealFilingReason,
   draftReference,
@@ -139,20 +139,26 @@ type DropTarget =
   | { kind: "mark" };
 
 export function dropTarget(item: InboxItem): DropTarget | null {
-  if (!item.engine_marks || item.section !== "inbox" || !["needs_attention", "failed"].includes(item.source_state))
+  if (
+    !item.engine_marks ||
+    item.section !== "inbox" ||
+    !["needs_attention", "failed"].includes(item.source_state) ||
+    item.source_type === "fact_review" ||
+    item.kind_label === "Fact review" ||
+    item.source_type === "tour_feedback" ||
+    item.kind_label === "Tour feedback"
+  )
     return null;
   const draft = draftReference(item);
   if (draft?.status === "pending" && /^\d+$/.test(draft.version) && Number.isSafeInteger(Number(draft.version)))
     return { kind: "draft", id: draft.id, version: Number(draft.version) };
   const ids = proposalIds(item);
-  if (ids.length && item.home_proposal_drop) return { kind: "suggestions", ids };
+  const suggestionId = item.item_id.startsWith("suggestion:") ? item.item_id.slice("suggestion:".length) : null;
+  const dropIds = ids.length ? ids : suggestionId && uuid(suggestionId) ? [suggestionId] : [];
+  if (dropIds.length && item.home_proposal_drop) return { kind: "suggestions", ids: dropIds };
   if (item.source_type === "next_action") return { kind: "step", id: item.action_id, version: item.action_version };
-  if (ids.length) return null;
-  return item.home_mark_drop &&
-    ["Call follow-up", "Update", "Tour feedback"].includes(item.kind_label) &&
-    markTarget(item.item_id)
-    ? { kind: "mark" }
-    : null;
+  if (dropIds.length) return null;
+  return item.home_mark_drop && markDropTarget(item.item_id) ? { kind: "mark" } : null;
 }
 type DropCommand = { action: "drop"; args: CommandArgs; target: DropTarget; reason: string };
 export type Command = DispositionCommand | TaskCommand | DropCommand;
