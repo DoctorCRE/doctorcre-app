@@ -29,6 +29,7 @@ export const UI_ENTRIES = {
   'ui-portal': 'portal/shell-home-sources',
   'ui-answers': 'answer-blocks',
   'ui-keyboard-input': 'keyboard-input',
+  'ui-keyboard-shortcuts': 'keyboard-shortcuts',
   'ui-card-due': 'card-due',
   'ui-quick-switcher': 'quick-switcher',
   'ui-switcher-history': 'switcher-history',

@@ -1,4 +1,3 @@
-import { isTextEntry } from './ui-keyboard-input.generated.js';
 import { mountDealRoomForm } from './ui-deal-room-forms.generated.js';
 import { nameMatchDetails } from './ui-name-match.generated.js';
 import { mountDealRoomBoard } from './ui-board.generated.js';
@@ -1874,7 +1873,6 @@ function wireEvents() {
     $('#offlineBanner').hidden = false;
     state.boardSync.setOnline(false);
   });
-  document.addEventListener('keydown', (event) => { if (isTextEntry(event)) return; if (event.key==='/' && !event.target.matches('input,textarea,select')) { event.preventDefault(); $('#search').focus(); } });
 }
 
 async function boot() {
