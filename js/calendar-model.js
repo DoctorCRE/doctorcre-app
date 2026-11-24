@@ -152,8 +152,8 @@ export function approach(entry, today) {
   const days = daysBetween(today, entry.day);
   const label = days === 0 ? "today" : days === 1 ? "tomorrow" : days === -1 ? "yesterday"
     : days > 0 ? `in ${days} days` : `${-days} days ago`;
-  // A meeting on a past day happened or did not; either way it is not overdue.
-  if (entry.settled || (days < 0 && entry.type === "meeting")) return { band: "settled", days, pulse: "still", label };
+  // A meeting or tour on a past day happened or did not; either way it is not overdue.
+  if (entry.settled || (days < 0 && (entry.type === "meeting" || entry.type === "tour"))) return { band: "settled", days, pulse: "still", label };
   if (days < 0) return { band: "overdue", days, pulse: "urgent", label };
   if (days === 0) return { band: "today", days, pulse: "urgent", label };
   if (days <= 7) return { band: "soon", days, pulse: "attention", label };
