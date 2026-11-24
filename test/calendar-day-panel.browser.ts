@@ -147,6 +147,21 @@ test("A chosen day opens on screen from every entry point and closing it returns
           await page.keyboard.press("Escape");
           await expect(next).toBeFocused();
         });
+
+        await t.test("with a day open, the grid clears the sheet and another day opens in one click", async () => {
+          await page.locator('.cal-day-open[data-select-day="2026-10-02"]').click();
+          await expectSheetOnScreen(page, /Oct 2\b/);
+          const [grid, sheet] = await Promise.all(
+            ["#calGrid", "#dayPanel"].map((selector) =>
+              page.locator(selector).evaluate((node) => node.getBoundingClientRect().toJSON()),
+            ),
+          );
+          assert.ok(grid.right <= sheet.left, `Saturday ends at ${grid.right}, left of the sheet at ${sheet.left}`);
+          await page.locator('.cal-day-open[data-select-day="2026-10-03"]').click();
+          await expectSheetOnScreen(page, /Oct 3\b/);
+          await page.keyboard.press("Escape");
+          await expect(page.locator("#dayPanel")).toBeHidden();
+        });
       } finally {
         await page.close();
       }

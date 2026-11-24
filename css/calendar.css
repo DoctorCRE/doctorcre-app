@@ -5,8 +5,9 @@
  * the surface, a hairline edge and a small kind mark (a dot for a next step,
  * a diamond for a critical date, red for late). In a chip nearness is quiet:
  * red text when overdue and a small amber ring for this week. A chosen day
- * opens in a sheet pinned to the viewport (right edge on a wide screen,
- * bottom on a phone), so its title and Close are on screen wherever the page
+ * opens in a sheet pinned to the viewport (right edge on a wide screen, where
+ * the grid narrows beside it and stays usable; a modal bottom sheet on a
+ * phone), so its title and Close are on screen wherever the page
  * is scrolled and only its list scrolls. The sheet keeps the still nearness
  * shapes (.cal-pulse), never a loop: a double ring for today or overdue, a
  * ringed dot for this week, a dot for this month and a hollow ring for later.
@@ -73,9 +74,9 @@
 
 .cal-chips { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .cal-grid[data-view="month"] .cal-chips > [data-overflow] { display: none; }
-[data-kind="step"] { --kind: var(--data-1); }
-[data-kind="date"] { --kind: var(--data-2); }
-[data-kind="late"] { --kind: var(--status-danger); }
+:is(.cal-chip, .cal-mark)[data-kind="step"] { --kind: var(--data-1); }
+:is(.cal-chip, .cal-mark)[data-kind="date"] { --kind: var(--data-2); }
+:is(.cal-chip, .cal-mark)[data-kind="late"] { --kind: var(--status-danger); }
 .cal-chip { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: var(--cal-chip); padding: 0 6px; border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-1); background: var(--surface-2); color: var(--fg); font: var(--font-weight-regular) var(--font-size-1)/1.25 var(--font-text); text-align: left; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
 @media (hover: hover) { .cal-chip:hover { background: var(--surface-3); } }
 .cal-chip:active { background: var(--surface-3); }
@@ -103,7 +104,9 @@
 .cal-pulse[data-pulse="still"] { border: 1.5px solid var(--fg-quiet); background: transparent; }
 
 /* ------------------------------------------------------------- day sheet */
-.cal-day-sheet[open] { position: fixed; inset: var(--tabbar-height) 0 0 auto; display: flex; flex-direction: column; width: min(400px, 100vw); max-width: none; height: auto; max-height: none; margin: 0; overflow: hidden; overflow-wrap: anywhere; border-width: 0 0 0 var(--hairline-width); border-radius: 0; }
+.cal-day-sheet[open] { position: fixed; z-index: 85; inset: var(--tabbar-height) 0 0 auto; display: flex; flex-direction: column; width: min(400px, 100vw); max-width: none; height: auto; max-height: none; margin: 0; overflow: hidden; overflow-wrap: anywhere; border-width: 0 0 0 var(--hairline-width); border-radius: 0; }
+/* Beside the grid the sheet is not modal, so it stacks over the tab bar (80) by z-index and the page gives up its width so no day sits under it. */
+@media (min-width: 641px) { .app-layout-main:has(> .shell > .cal-day-sheet[open]) { padding-inline-end: min(400px, 100vw); } }
 .cal-day-sheet::backdrop { background: color-mix(in srgb, var(--scrim) 40%, transparent); }
 .cal-day-sheet > header { flex: none; align-items: center; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5); }
 .cal-day-sheet h2 { margin: 0; font: var(--font-weight-strong) var(--font-size-2)/1.3 var(--font-text); }

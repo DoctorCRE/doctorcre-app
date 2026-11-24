@@ -16,6 +16,8 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_CHIP_LIMIT = 3;
+/** Matches the bottom-sheet breakpoint in css/calendar.css; wider, the sheet sits beside the grid. */
+const PHONE_SHEET = window.matchMedia("(max-width: 640px)");
 
 /** One place holds what this page believes. */
 const view = {
@@ -133,7 +135,8 @@ function paintSelection() {
   paintDayPanel(selected?.dataset.day);
   const sheet = $("dayPanel");
   if (view.state.day && !sheet.open) {
-    sheet.showModal();
+    if (PHONE_SHEET.matches) sheet.showModal();
+    else sheet.show();
     sheet.querySelector('[data-focus="true"] a[data-entry]')?.focus();
   } else if (!view.state.day && sheet.open) sheet.close();
 }
@@ -318,6 +321,17 @@ function moveCursor(day) {
   announceDay(day);
 }
 
+/** Today turns to the current period and puts the grid's tab stop on today without opening it. */
+function showToday() {
+  view.opener = null;
+  view.focusEntry = null;
+  view.cursor = view.today;
+  const shown = inPeriod(view.today);
+  go({ ...view.state, day: null, anchor: shown ? view.state.anchor : view.today }, { push: !shown });
+  $("calGrid").querySelector(`.cal-day-open[data-select-day="${view.today}"]`)?.focus();
+  announceDay(view.today);
+}
+
 /** Closing hands focus back to the control that opened the day, else to a day still shown. */
 function closeDay() {
   const day = view.state.day;
@@ -349,13 +363,18 @@ function wire() {
   });
   $("calPrev")?.addEventListener("click", () => go(stepAnchor(view.state, -1)));
   $("calNext")?.addEventListener("click", () => go(stepAnchor(view.state, 1)));
-  $("calToday")?.addEventListener("click", () => openDay(view.today));
+  $("calToday")?.addEventListener("click", showToday);
   $("calRefresh")?.addEventListener("click", () => load());
   // Close the day before the dialog's own close event, which lands a task later.
   const sheet = $("dayPanel");
   $("dayPanelClose")?.addEventListener("click", closeDay);
   sheet.addEventListener("cancel", closeDay);
+  sheet.addEventListener("close", closeDay);
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeDay(); });
+  // A sheet shown beside the grid is not modal, so Escape never reaches its cancel event.
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && sheet.open && !document.querySelector("dialog:modal")) closeDay();
+  });
   $("calNotices")?.addEventListener("click", (event) => {
     if (event.target.closest("#calRetry")) load();
   });

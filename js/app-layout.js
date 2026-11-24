@@ -166,8 +166,7 @@ export function mountAppLayout(root, host, pathname) {
   phone.addEventListener('change', () => { drawer = null; paint(); });
   paint();
   root.addEventListener('doctorcre:open-today', () => {
-    if (calendarPanel) calendarPanel.scrollIntoView({ block: 'start' });
-    else if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
+    if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
     else openRegion('today');
   });
   // Page tab controllers retain selection and lazy reads. Give groups without

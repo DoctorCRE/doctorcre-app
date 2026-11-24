@@ -68,11 +68,18 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         id: 'done', kind: 'rent_start', due_on: '2026-10-20', status: 'done', note: 'Synthetic finished date',
       }] : [])] });
     });
+    /** Opens the day as a partner would, reads it, and closes it again. */
+    const expectDay = async (text, day = '2026-10-20') => {
+      await page.locator(`.cal-day-open[data-select-day="${day}"]`).click();
+      await expect(page.getByRole('dialog', { name: new RegExp(`Oct ${Number(day.slice(8))}`) })).toContainText(text);
+      await page.getByRole('button', { name: 'Close day' }).click();
+    };
     try {
       await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `calendar-${status}`, reset: true } });
       await page.goto('https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev/calendar?d=2026-10-01');
       if (status === 503) {
-        await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
+        await page.locator('.cal-day-open[data-select-day="2026-10-20"]').click();
+        await expect(page.getByRole('dialog', { name: /Oct 20/ })).toContainText('may be incomplete');
         await expect(page.locator('#dayPanelBody')).not.toContainText('No critical dates');
         return;
       }
@@ -110,7 +117,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await page.locator('#calRefresh').click();
         await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
         await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
-        await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
+        await expectDay('Synthetic fast date');
         await expect(page.locator('#calAsOf')).toHaveText(updated);
         calendarStatus = 404;
         await page.getByRole('button', { name: 'Retry', exact: true }).click();
@@ -122,14 +129,14 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await page.locator('#calRefresh').click();
         await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
         await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
-        await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
+        await expectDay('Synthetic fast date');
         await expect(page.locator('#calAsOf')).toHaveText(retriedAt);
         await page.locator('.cal-day-open[data-select-day="2026-10-20"]').press('ArrowRight');
-        await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
+        await expect(page.locator('#calLive')).toContainText('may be incomplete');
         failAll = false;
         slowFails = false;
         await page.getByRole('button', { name: 'Retry', exact: true }).click();
-        await expect(page.locator('#dayPanelBody')).toContainText('No critical dates or next steps on this day.');
+        await expectDay('No critical dates or next steps on this day.', '2026-10-21');
       } else {
         await page.waitForURL('**/public-shell/session-ended.html');
         await expect(page.getByRole('heading',{name:'Session ended'})).toBeVisible();

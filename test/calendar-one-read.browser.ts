@@ -255,9 +255,18 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
           });
           await page.keyboard.press("Escape");
-          await page.getByRole("button", { name: "Today", exact: true }).click();
-          await expect(step).toBeVisible();
-          await page.keyboard.press("Escape");
+          const todayButton = page.getByRole("button", { name: "Today", exact: true });
+          const todayCell = page.locator('.cal-day-open[data-select-day="2026-10-20"]');
+          await t.test("Today marks today without opening it, and the day opens from its cell", async () => {
+            await page.getByRole("button", { name: "Next month" }).click();
+            await todayButton.click();
+            await expect(page.locator("#calPeriod")).toHaveText("October 2026");
+            await expect(todayCell).toBeFocused();
+            await expect(page.locator("#dayPanel")).toBeHidden();
+            await page.keyboard.press("Enter");
+            await expect(step).toBeVisible();
+            await page.keyboard.press("Escape");
+          });
           const week = page.getByRole("button", { name: "Week", exact: true });
           await expect(week).toHaveCSS("border-top-width", "0px");
           const background = await week.evaluate((node) => getComputedStyle(node).backgroundColor);
@@ -284,7 +293,8 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           const updated = page.locator("#calAsOf");
           const record = step.getByRole("link");
           const focusRetained: boolean[] = [];
-          await page.getByRole("button", { name: "Today", exact: true }).click();
+          await todayButton.click();
+          await todayCell.click();
           for (const minute of [1, 2, 3, 4, 5]) {
             if (minute === 2) await page.keyboard.press("Escape");
             const focused = minute === 1 ? record : comingUp;
@@ -310,7 +320,8 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await expect(updated).not.toHaveText(previous ?? "");
             assert.equal(reads.length, 7);
           });
-          await page.getByRole("button", { name: "Today", exact: true }).click();
+          await todayButton.click();
+          await todayCell.click();
           await panel.locator(".cal-day-entry").filter({ hasText: "LOI expiry" }).getByRole("link").click();
           await page.waitForURL((url) => url.pathname === "/deals" && url.searchParams.get("deal") === "qa-deal-1");
           await expect(page.locator("#recordPanel .deal-opening-snapshot")).toBeVisible();
