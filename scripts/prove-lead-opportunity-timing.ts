@@ -139,7 +139,6 @@ export async function prove({
         day: "numeric",
         hour: "numeric",
         minute: "2-digit",
-        timeZoneName: "short",
       });
     const day = (v: string) =>
       new Date(`${v}T12:00:00Z`).toLocaleDateString("en-US", {
