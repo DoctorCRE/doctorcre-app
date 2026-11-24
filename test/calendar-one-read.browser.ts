@@ -262,7 +262,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await expect(page.locator("#calCount")).toHaveText("1 critical date");
           await page.getByRole("button", { name: "Next month" }).click();
           await expect(page.locator("#calCount")).toHaveText("0 items");
-          await expect(page.locator("#calState")).toHaveText("No critical dates or next steps this month.");
+          await expect(page.locator("#calState")).toHaveText("Nothing this month.");
           await expect(page.locator("#calGrid .cal-chip")).toHaveCount(0);
           assert.deepEqual(reads, [calendarRead]);
 

@@ -38,21 +38,13 @@ test('R12 malformed optional rows do not throw or remove valid independent agend
 });
 
 const bundle = await (await import('esbuild')).build({ entryPoints: ['src/ui/home/review.ts'], bundle: true, write: false, platform: 'node', format: 'esm' });
-const { parseReview } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
-const { factCases } = await import('../scripts/prove-home-fact-review-source-page-range.mjs');
-for (const c of factCases()) test(`fact source admission ${c.name}`, () => {
-  const { response } = c;
-  if (c.valid) {
-    const review = parseReview(response, response.reference);
-    assert.deepEqual(review.observations[0].source, response.detail.observations[0].source);
-    assert.deepEqual(review.operations, response.operations);
-  } else assert.throws(() => parseReview(response, response.reference), /not supported safely/);
-});
-test('fact review preserves reference and operation binding', () => {
-  const { response } = factCases()[0];
-  for (const change of [{ item_id: 'another' }, { source_version: 'v2' }, { kind: 'action' }, { operations: ['delete-record'] }]) {
-    assert.throws(() => parseReview({ ...response, reference: { ...response.reference, ...change } }, response.reference), /not supported safely/);
-  }
+const { parseReference, parseReview } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+test('Home offers no inline fact review, whose old save is gone', () => {
+  const reference = { kind: 'fact_review', item_id: 'demo-fact', source_version: 'v1', operations: ['resolve-fact-review'] };
+  assert.equal(parseReference(reference), null);
+  const response = { ok: true, schema_version: 'home-review.v1', reference, detail: { canonical_fact: null, observations: [] },
+    operations: [{ verb: 'resolve-fact-review', decisions: ['reject'], args: { entity_ref: '00000000-0000-4000-8000-000000000001', fact_key: 'term_months', base_version: 0, review_version: 'v1' } }] };
+  assert.throws(() => parseReview(response, reference), /not supported safely/);
 });
 
 const engineBundle = await (await import('esbuild')).build({

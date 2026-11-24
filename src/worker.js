@@ -1247,13 +1247,14 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
     if (website?.[1] && (shareOrigin?.protocol !== 'https:' || shareOrigin.href !== `${shareOrigin.origin}/`))
       return json({ error: 'client_website_origin_unconfigured' }, 503);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
-    const dealRead = pathname === '/api/engine/calendar/critical-dates' || pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
+    const dealRead = ['/api/engine/calendar/critical-dates', '/api/engine/calendar/meetings'].includes(pathname) || pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
     if ((weeklyReview && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
         || ((dealRead || pathname.startsWith('/api/engine/documents/')) && !await routeToEngine(env, DEALS)))
       return json({ error: 'not_found' }, 404);
-    const dealClientLookup = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
-      || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname);
-    if (dealClientLookup && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
+    const nextDealsOnly = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
+      || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname)
+      || /^\/api\/engine\/deals\/[^/]+\/(?:star|unstar)$/.test(pathname);
+    if (nextDealsOnly && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     // Party saves and their read land in the new database, so they follow the Clients and Vendors switch.
     const partyDoor = (request.method === 'POST' && /^\/api\/engine\/(?:parties|clients|vendors|party-links)(?:\/[0-9a-fA-F-]{36})?$/.test(pathname))

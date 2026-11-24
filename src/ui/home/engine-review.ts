@@ -14,17 +14,17 @@ const kinds = new Map([
   ["new_lead", "New lead"],
   ["email_lead", "Possible lead"],
 ]);
-const mayApproveFailedDraft = (failure: string | null) => failure === "aborted_before_dispatch";
+// Rule 99: only these failures never pressed Send, so the owner may approve them again.
+const resendable = new Map([
+  ["aborted_before_dispatch", "Didn't send. Sending stopped before delivery."],
+  ["submission_recipients_invalid", "Didn't send. The recipients were refused. Correct them and send again."],
+]);
 function draftStatus(status: unknown, failure: string | null) {
   if (status === "approved") return "Sending";
   if (status === "sent") return "Sent";
   if (status !== "failed") return null;
   if (failure?.startsWith("unconfirmed_after_")) return "Checking the Sent folder";
-  if (failure === "submission_recipients_invalid")
-    return "Didn't send. The saved recipients couldn't be used. Reply from Outlook.";
-  return mayApproveFailedDraft(failure)
-    ? "Didn't send. Sending stopped before delivery."
-    : "Didn't send. Reply from Outlook.";
+  return resendable.get(failure ?? "") ?? "Didn't send. Reply from Outlook.";
 }
 export function draftCardStatus(item: InboxItem) {
   if (!item.engine_marks || item.source_state === "done") return null;
@@ -335,6 +335,7 @@ function parseDraft(
   const args = { proposal_id: id, base_version: version };
   const recipients = typeof to === "string" && to && typeof cc === "string" && cc ? { to: [to], cc: [cc] } : null;
   const failure = string(value.failure_reason);
+  const correctRecipients = status === "failed" && failure === "submission_recipients_invalid";
   const operations: Extract<CardReview, { kind: "reply_draft" }>["operations"] =
     status === "pending"
       ? [
@@ -342,7 +343,7 @@ function parseDraft(
           { verb: "dismiss-email-proposal", args },
         ]
       : [];
-  if (recipients && (status === "pending" || (status === "failed" && mayApproveFailedDraft(failure))))
+  if (recipients && (status === "pending" || (status === "failed" && resendable.has(failure ?? ""))))
     operations.push({
       verb: "submit-email-draft",
       args: { ...args, subject, body, ...recipients },
@@ -364,6 +365,7 @@ function parseDraft(
     thread: emailThread(value),
     attachments,
     addresses: { to: string(to), cc: string(cc) },
+    correctRecipients,
     statusMessage,
   };
 }

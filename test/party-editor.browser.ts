@@ -23,6 +23,7 @@ async function setup(
     engineSwitch = true,
     holdList = false,
     record = {},
+    facets = {},
   }: {
     width?: number;
     theme?: "dark" | "light";
@@ -31,6 +32,8 @@ async function setup(
     holdList?: boolean;
     // Fields the record read adds, as a newer engine would.
     record?: Record<string, unknown>;
+    // Filter choices the list read adds.
+    facets?: Record<string, unknown>;
   } = {},
 ) {
   const server = await startFixtureServer();
@@ -52,7 +55,11 @@ async function setup(
     if (holdList && isList) return listHeld.then(() => route.abort());
     try {
       const json = directoryFixture(url.href);
-      return route.fulfill({ json: isList ? json : { ...json, record: Object.assign({}, json.record, record) } });
+      return route.fulfill({
+        json: isList
+          ? { ...json, facets: Object.assign({}, json.facets, facets) }
+          : { ...json, record: Object.assign({}, json.record, record) },
+      });
     } catch {
       return route.fulfill({ status: 404, json: { error: "RECORD_NOT_FOUND" } });
     }
@@ -143,8 +150,11 @@ for (const theme of themes)
     await dialog.getByLabel("How found").selectOption("referral");
     await dialog.getByLabel("Practice type").fill("Dental");
     await assertTargets(page, `New client ${theme}`);
+    const radio = await dialog.getByLabel("Company").boundingBox();
+    assert.ok(radio && radio.width <= 24 && radio.height <= 24, `the radio box is small, not ${radio?.width}`);
     await dialog.getByRole("button", { name: "Save client" }).click();
     await dialog.getByRole("button", { name: "Use Example Smile Studio · Demo City" }).waitFor();
+    await dialog.getByText("An existing record keeps its own email, phone and city").waitFor();
     await dialog.getByRole("button", { name: "Save as a separate record" }).click();
     await page.waitForURL(`**/clients?record=${added}`);
     assert.equal(await dialog.count(), 0);
@@ -287,6 +297,7 @@ test("Edit on a client opened by its old id edits the party the record names", a
   await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Demo Practice 01" });
   assert.equal(await dialog.getByLabel("Client type").inputValue(), "group_practice");
+  assert.equal(await dialog.getByLabel("How found").locator("option", { hasText: "Not recorded" }).count(), 1);
   await assertTargets(page, "Edit client");
   await dialog.getByLabel("Practice type").fill("Orthodontics");
   await dialog.getByRole("button", { name: "Save changes" }).click();
@@ -317,6 +328,169 @@ test("Edit says it is opening and opens once however often it is pressed", async
   await page.getByRole("dialog", { name: "Edit Demo Partner 01" }).waitFor();
   await button.click({ force: true }).catch(() => {});
   assert.equal(sent.filter((call) => call.path === `/api/engine/parties/${vendor}`).length, 1);
+});
+
+test("Edit to an email another record has offers that record, and Keep this email saves it anyway", async (t) => {
+  const fake = engine(vendorParty, "vendor", vendorProfile);
+  const { page, sent } = await setup(t, `/vendors?record=${vendor}`, (call) =>
+    call.method === "POST" && call.path === `/api/engine/parties/${vendor}` && !call.body?.force_new
+      ? {
+          status: 409,
+          json: { error: "party_exists", candidates: [{ id: other, name: "Demo Partner 02", city: null }] },
+        }
+      : fake.answer(call),
+  );
+  await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Demo Partner 01" });
+  await dialog.getByLabel("Email").fill("shared@example.test");
+  await dialog.getByRole("button", { name: "Save changes" }).click();
+  await dialog.getByText("Another record has this email.").waitFor();
+  await dialog.getByRole("button", { name: "Open Demo Partner 02" }).waitFor();
+  await dialog.getByRole("button", { name: "Keep this email" }).click();
+  await dialog.waitFor({ state: "hidden" });
+  const [refused, kept] = posts(sent);
+  assert.deepEqual(withoutKey(kept?.body ?? {}), { ...withoutKey(refused?.body ?? {}), force_new: true });
+  assert.equal(fake.state.contact.email, "shared@example.test");
+});
+
+test("Edit opened from the keyboard gives focus back to Edit when it closes", async (t) => {
+  const fake = engine(vendorParty, "vendor", vendorProfile);
+  const { page } = await setup(t, `/vendors?record=${vendor}`, fake.answer);
+  // Settled activity re-renders the panel, which would take keyboard focus off Edit before Enter lands.
+  await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
+  await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).press("Enter");
+  await page.getByRole("dialog", { name: "Edit Demo Partner 01" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog", { name: "Edit Demo Partner 01" }).waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.hasAttribute("data-party-edit"), null, { timeout: 2000 });
+});
+
+test("A saved contact with a refused profile refreshes the record, and focus finds the new Edit", async (t) => {
+  const fake = engine(vendorParty, "vendor", vendorProfile);
+  const { page } = await setup(t, `/vendors?record=${vendor}`, (call) =>
+    call.path === `/api/engine/vendors/${vendor}`
+      ? { status: 422, json: { error: "invalid_field_value", fields: ["offers"] } }
+      : fake.answer(call),
+  );
+  await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Demo Partner 01" });
+  await dialog.getByLabel("City").fill("Example Town");
+  await dialog.getByLabel("What they offer").fill("Construction loans");
+  const reread = page.waitForRequest(
+    (request) => request.method() === "GET" && new URL(request.url()).pathname.endsWith(`/business/vendors/${vendor}`),
+  );
+  await dialog.getByRole("button", { name: "Save changes" }).click();
+  await dialog.getByText("Check the highlighted fields.").waitFor();
+  await reread;
+  assert.equal(fake.state.contact.city, "Example Town");
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await dialog.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.hasAttribute("data-party-edit"), null, { timeout: 2000 });
+});
+
+test("Edit names each choice from its own list and offers Not recorded only to a record that has it", async (t) => {
+  const party = "00000000-0000-4000-8000-000000000555";
+  const fake = engine({ ...vendorParty, party_id: party, name: "Demo Practice 01" }, "client", {
+    party_id: party,
+    status: "roster",
+    client_type: null,
+    how_found: "inbound",
+    vertical: null,
+  });
+  const { page } = await setup(t, `/clients?record=${firstClient}`, fake.answer, {
+    record: { party_id: party },
+    facets: { types: [{ slug: "referral", label: "Referral practice" }] },
+  });
+  await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Demo Practice 01" });
+  await dialog.getByText("Changing the practice type clears the subtype.").waitFor();
+  assert.equal(await dialog.getByLabel("How found").locator("option", { hasText: "Not recorded" }).count(), 0);
+  await dialog.getByLabel("How found").selectOption("event");
+  await dialog.getByLabel("Client type").selectOption("referral");
+  Object.assign(fake.state.profile, { how_found: "not_recorded", client_type: "referral" });
+  await dialog.getByRole("button", { name: "Save changes" }).click();
+  await dialog
+    .getByText("Now: How found Not recorded; Client type Referral practice. Save again", { exact: false })
+    .waitFor();
+});
+
+test("Edit does not open for a record the partner has already left", async (t) => {
+  const fake = engine(vendorParty, "vendor", vendorProfile);
+  let release = () => {};
+  const read = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { page } = await setup(t, `/vendors?record=${vendor}`, async (call) => {
+    if (call.method === "GET") await read;
+    return fake.answer(call);
+  });
+  await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
+  await page.locator("#recordPanel").getByRole("button", { name: "Opening…" }).waitFor();
+  await page.locator("#recordClose").click();
+  await page.waitForURL((url) => !url.searchParams.has("record"));
+  release();
+  await page.waitForResponse((response) => response.url().endsWith(`/api/engine/parties/${vendor}`));
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  assert.equal(await page.getByRole("dialog").count(), 0);
+});
+
+test("Using an existing record that is already a vendor opens it", async (t) => {
+  const { page, sent } = await setup(t, "/vendors", ({ path }) =>
+    path === "/api/engine/parties"
+      ? {
+          status: 409,
+          json: { error: "party_exists", candidates: [{ id: other, name: "Example Lending", city: null }] },
+        }
+      : { status: 409, json: { error: "already_vendor", party_id: other } },
+  );
+  await page.getByRole("button", { name: "New vendor" }).click();
+  const dialog = page.getByRole("dialog", { name: "New vendor" });
+  await dialog.getByLabel("Name").fill("Example Lending");
+  await dialog.getByRole("button", { name: "Save vendor" }).click();
+  assert.equal(await dialog.getByText("An existing record keeps its own").count(), 0);
+  await dialog.getByRole("button", { name: "Use Example Lending" }).click();
+  await page.waitForURL(`**/vendors?record=${other}`);
+  await page.getByText("This record is already a vendor, so it is open now.").waitFor();
+  assert.equal(await dialog.count(), 0);
+  assert.equal(posts(sent).length, 2);
+});
+
+test("A client saved while unconfirmed opens instead of refusing after an edit", async (t) => {
+  let unanswered: unknown;
+  const { page } = await setup(t, "/clients", ({ path, body }) => {
+    if (path === "/api/engine/parties") return { status: 201, json: { party_id: added, name: "Example Dental" } };
+    unanswered ??= body?.idempotency_key;
+    return body?.idempotency_key === unanswered
+      ? { status: 503, json: { error: "database_unavailable" } }
+      : { status: 409, json: { error: "already_client", party_id: added } };
+  });
+  await page.getByRole("button", { name: "New client" }).click();
+  const dialog = page.getByRole("dialog", { name: "New client" });
+  await dialog.getByLabel("Name").fill("Example Dental");
+  await dialog.getByLabel("How found").selectOption("inbound");
+  await dialog.getByRole("button", { name: "Save client" }).click();
+  await dialog.getByText("Not confirmed yet.").waitFor();
+  await dialog.getByLabel("Practice type").fill("Dental");
+  await dialog.getByRole("button", { name: "Save client" }).click();
+  await page.waitForURL(`**/clients?record=${added}`);
+  await page.getByText("This record is already a client, so it is open now.").waitFor();
+});
+
+test("New client asks for How found before saving anything, and says what is wrong", async (t) => {
+  const { page, sent } = await setup(t, "/clients", () => ({ status: 201, json: { party_id: added } }));
+  await page.getByRole("button", { name: "New client" }).click();
+  const dialog = page.getByRole("dialog", { name: "New client" });
+  await dialog.getByLabel("Name").fill("Example Dental");
+  await dialog.getByRole("button", { name: "Save client" }).click();
+  await dialog.getByText("Fill in the highlighted fields.").waitFor();
+  const howFound = dialog.getByLabel("How found");
+  assert.equal(await howFound.getAttribute("aria-invalid"), "true");
+  assert.equal(await dialog.getByRole("combobox", { name: "How found", description: "Fill this in." }).count(), 1);
+  assert.equal(await dialog.getByLabel("Name").getAttribute("aria-invalid"), null);
+  assert.equal(posts(sent).length, 0);
+  await howFound.selectOption("event");
+  await dialog.getByRole("button", { name: "Save client" }).click();
+  await page.waitForURL(`**/clients?record=${added}`);
 });
 
 test("New vendor fits a 560 px form at 1440, offers no relationship level, and explains a refused save plainly", async (t) => {
