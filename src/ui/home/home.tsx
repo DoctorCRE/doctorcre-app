@@ -761,7 +761,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             Math.abs(touch.clientY - start.y) > 45 ||
             Math.abs(touch.clientX - start.x) < 90 ||
             busy ||
-            reviewing
+            open
           )
             return;
           if (touch.clientX > start.x && wakeable) act(markAction, [item]);
@@ -869,7 +869,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 type="button"
                 className="inbox-primary"
                 aria-expanded={directUrl || namedAction === "Mark done" ? undefined : open}
-                disabled={openingLocked || (namedAction === "Mark done" && (!completable || !!reviewing))}
+                disabled={openingLocked || (namedAction === "Mark done" && (!completable || open))}
                 onClick={(event) => {
                   if (namedAction === "Mark done") act("complete", [item]);
                   else openDetails(event.currentTarget);
@@ -903,7 +903,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             {reopenable && (
               <button
                 type="button"
-                disabled={busy || !!pending || !!reviewing}
+                disabled={busy || !!pending || open}
                 onClick={() => act("reopen", [item], undefined, true)}
               >
                 Undo
@@ -913,7 +913,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               <button
                 type="button"
                 className="inbox-primary"
-                disabled={busy || !!reviewing}
+                disabled={busy || open}
                 onClick={() => act(tourDone ? "done" : "complete", [item])}
               >
                 {tourDone ? "Done" : "Mark done"}
@@ -927,14 +927,14 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               </p>
             )}
             {wakeable && (
-              <button type="button" disabled={busy || !!reviewing} onClick={() => act(markAction, [item])}>
+              <button type="button" disabled={busy || open} onClick={() => act(markAction, [item])}>
                 {primary}
               </button>
             )}
             {snoozable && (
               <button
                 type="button"
-                disabled={busy || !!reviewing}
+                disabled={busy || open}
                 onClick={(event) => {
                   snoozeOpener.current = event.currentTarget;
                   openSnooze([item]);
@@ -946,7 +946,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             {droppable && (
               <button
                 type="button"
-                disabled={busy || !!pending || !!reviewing || !online}
+                disabled={busy || !!pending || open || !online}
                 onClick={(event) => setDropping({ item, opener: event.currentTarget })}
               >
                 Drop
