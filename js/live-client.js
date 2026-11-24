@@ -276,7 +276,6 @@ export function createLiveClient(opts = {}) {
       if (!response.ok) throw Object.assign(new Error('Relationships unavailable'), {status:response.status});
       return response.json();
     },
-    async updateVendorTrust(args) { return write("update-vendor", args); },
 
     // Each deal carries `field_base` — the latest committed event id and time for
     // every editable cell, read in the same statement as the values it belongs
@@ -323,6 +322,14 @@ export function createLiveClient(opts = {}) {
       if (data?.schema_version !== 'calendar-critical-dates.v1' || !Array.isArray(data.critical_dates) ||
           (data.next_steps !== undefined && !Array.isArray(data.next_steps)))
         throw new Error('Calendar dates could not be read.');
+      return data;
+    },
+
+    async getCalendarMeetings({ from, to }) {
+      const response = await fetchReadImpl(`/api/engine/calendar/meetings?${new URLSearchParams({ from, to })}`);
+      if (!response.ok) throw Object.assign(new Error('Meetings could not be read.'), { status: response.status });
+      const data = await response.json();
+      if (data?.schema_version !== 'calendar-meetings.v1' || !Array.isArray(data.meetings)) throw new Error('Meetings could not be read.');
       return data;
     },
 
@@ -745,6 +752,13 @@ export function createLiveClient(opts = {}) {
     // `base_version` is a compare-and-swap the caller must have READ: this
     // layer never supplies, defaults or increments it.
     async notificationPreferences() { return rpc('read-notification-preferences', {}); },
+
+    async setDealStar(dealId, starred) {
+      const binding = await commandSession();
+      const answer = await engineSave(`/api/engine/deals/${encodeURIComponent(dealId)}/${starred ? 'star' : 'unstar'}`,
+        { idempotency_key: uuidv4() }, binding.slice(binding.indexOf(':') + 1));
+      if (answer?.deal_id !== dealId || answer.starred !== starred) throw new Error('Star receipt unavailable');
+    },
 
     // The Updates page's engine routes, used once deal saves go to the engine (#1175).
     async updates() { return parseUpdates(await engineRead('/api/engine/updates')); },

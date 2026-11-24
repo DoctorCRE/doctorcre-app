@@ -26,6 +26,7 @@
 @media (hover: hover) { .cal-icon:hover { background: var(--surface-3); color: var(--fg); } }
 .cal-icon:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: -2px; }
 .cal-count { min-height: 1.2em; margin: 0 0 var(--space-2); }
+.cal-meetings-note { margin: calc(-1 * var(--space-1)) 0 var(--space-2); color: var(--fg-muted); }
 .cal-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: var(--space-3) 0 0; padding: 0; list-style: none; color: var(--fg-muted); font-size: var(--font-size-1); }
 .cal-legend li { display: inline-flex; align-items: center; gap: var(--space-2); }
 .cal-notices:empty { display: none; }

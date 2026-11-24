@@ -124,7 +124,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         failAll = false;
         slowFails = false;
         await page.getByRole('button', { name: 'Retry', exact: true }).click();
-        await expect(page.locator('#dayPanelBody')).toContainText('No critical dates or next steps on this day.');
+        await expect(page.locator('#dayPanelBody')).toContainText('Nothing on this day.');
       } else {
         await page.waitForURL('**/public-shell/session-ended.html');
         await expect(page.getByRole('heading',{name:'Session ended'})).toBeVisible();
