@@ -212,6 +212,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     if (!root.current) return;
     return bindCardQuickMenu(root.current, {
       card: "[data-inbox-row]",
+      // An open review is for reading and copying.
+      exclude: ".home-inline-review",
       name: (row) => row.querySelector("h3")?.textContent ?? "",
       actions: (row) => {
         // Only the row's own buttons: an open review card has actions of its own.

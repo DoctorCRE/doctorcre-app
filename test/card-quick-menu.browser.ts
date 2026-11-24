@@ -462,6 +462,74 @@ test("a long-press on a Home card opens its menu without opening, completing or 
   }
 });
 
+test("a long-press never turns into a swipe, a slow one included, and lets later keys act", async (t) => {
+  const server = await startWorkerFixture({
+    assets: await appAssetSnapshot(),
+    env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
+  });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    reducedMotion: "reduce",
+  });
+  t.after(() => context.close());
+  const page = await context.newPage();
+  await openHome(page, server.origin, "light");
+
+  // Drifting down cancels the pointer on a pan-y row; the finger then rests past
+  // the settle time and slides left before it lifts.
+  const call = homeRow(page, CALL.id);
+  await call.scrollIntoViewIfNeeded();
+  const detail = await call.locator(".inbox-detail").boundingBox();
+  assert.ok(detail);
+  const line = Math.round(detail.y + detail.height / 2);
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 340, y: line }] });
+  await menuFor(page, CALL.title).waitFor();
+  for (let drift = 5; drift <= 30; drift += 5)
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 340, y: line + drift }] });
+  await page.waitForTimeout(900);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 230, y: line + 25 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await page.waitForTimeout(300);
+  assert.equal(await page.getByRole("dialog", { name: "Snooze cards" }).count(), 0, "the slow slide does not snooze");
+
+  // A browser that starts a touch drag cancels the pointer and then fires
+  // dragstart; the menu opens there, and the finger lifts after.
+  const row = homeRow(page, REVIEW.id);
+  await row.scrollIntoViewIfNeeded();
+  await row.locator(".inbox-detail").evaluate((target) => {
+    const pointer = { bubbles: true, pointerId: 41, pointerType: "touch", isPrimary: true };
+    target.dispatchEvent(new PointerEvent("pointerdown", pointer));
+    target.dispatchEvent(new PointerEvent("pointercancel", pointer));
+    target.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true }));
+    target.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true }));
+  });
+  await menuFor(page, REVIEW.title).waitFor();
+  await page.waitForTimeout(800);
+  await page.keyboard.press("Escape");
+  assert.equal(await focusedIsTitleOf(page, REVIEW.id), true);
+  await page.keyboard.press("Enter");
+  await row.locator('h3 a[aria-expanded="true"]').waitFor({ timeout: 2000 });
+
+  // The open review is the partner's to read and copy: no card menu inside it.
+  const review = row.locator(".home-inline-review p").first();
+  await review.click({ button: "right" });
+  assert.equal(await page.getByRole("menu").count(), 0, "right-click in the review opens no card menu");
+  const box = await review.boundingBox();
+  assert.ok(box);
+  const inside = { x: Math.round(box.x + 10), y: Math.round(box.y + box.height / 2) };
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [inside] });
+  await page.waitForTimeout(800);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await page.waitForTimeout(200);
+  assert.equal(await page.getByRole("menu").count(), 0, "a long-press in the review opens no card menu");
+});
+
 // Drop shows only on engine cards, and the fixture inbox is not an engine inbox,
 // so this card comes from a synthetic engine snapshot served in place of the server.
 const DROPPABLE = { id: "00000000-0000-0000-0000-000000000001", title: "Send the sample terms" };
