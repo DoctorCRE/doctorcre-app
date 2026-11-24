@@ -147,6 +147,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const [handledMeetings, setHandledMeetings] = useState<ReadonlySet<string>>(() => new Set());
   const finishMeeting = useCallback((key: string, message: string) => {
     setHandledMeetings((handled) => new Set([...handled, key]));
+    setNoticeAlert(false);
     setNotice(message);
   }, []);
   useEffect(() => {
@@ -194,6 +195,11 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const [batchBusy, setBatchBusy] = useState(false);
   const busy = singleBusy || batchBusy;
   const [notice, setNotice] = useState("");
+  const [noticeAlert, setNoticeAlert] = useState(false);
+  const showNotice = useCallback((text: string, alert = false) => {
+    setNoticeAlert(alert);
+    setNotice(text);
+  }, []);
   const [failures, setFailures] = useState<ItemResult[]>([]);
   const [undo, setUndo] = useState<Undo[]>([]);
   const [dropping, setDropping] = useState<{ item: InboxItem; opener: HTMLButtonElement } | null>(null);
@@ -318,7 +324,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     if (inFlight.current) return;
     setPending(operation);
     if (!navigator.onLine) {
-      setNotice("Offline. No change was sent. Reconnect and retry the same request.");
+      showNotice("Offline. No change was sent. Reconnect and retry the same request.", true);
       return;
     }
     const visible = Array.from(root.current?.querySelectorAll<HTMLElement>("[data-inbox-row]") || [])
@@ -332,7 +338,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     ];
     inFlight.current = true;
     setBusy(true);
-    setNotice("Waiting for server confirmation…");
+    showNotice("Waiting for server confirmation…");
     try {
       await cache.cancelQueries({ queryKey });
       if (!mounted.current) return;
@@ -390,7 +396,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         operation.request.action === "drop" && successes.length
           ? "Dropped."
           : `${completion} ${successes.length + changed.length} confirmed. ${changed.length ? `${changed.length} changed again after confirmation. Showing the latest state. Undo is unavailable for those cards. ` : ""}${failed.length ? `${failed.length} failed or uncertain. Kept for review.` : successes.length ? (operation.undoing ? "Undone." : "You can undo this change.") : ""}`;
-      setNotice(outcome);
+      showNotice(outcome, failed.length > 0);
       if (outcome.endsWith("You can undo this change.")) undoNotice.current = outcome;
       if (!failed.length) setPending(null);
       focusRow(operation.undoing ? operation.before.map((item) => item.item_id) : neighbours);
@@ -418,32 +424,38 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           "step_ended",
           "step_open",
           "open_step_exists",
+          "invalid_field_value",
+          "already_decided",
+          "draft_changed",
+          "not_found",
         ].includes(code)
       ) {
         setPending(null);
         if (code === "home_routing_changed") {
-          setNotice("Home changed. Refreshing your inbox.");
+          showNotice("Home changed. Refreshing your inbox.", true);
         } else if (code === "open_step_exists") {
-          setNotice(openStepRefusal);
-        } else if ("engine_marks" in operation.request && operation.request.engine_marks) {
-          setNotice(
+          showNotice(openStepRefusal, true);
+        } else if (code === "invalid_field_value" && operation.request.action === "drop") {
+          showNotice("This card can't be dropped. Nothing was saved.", true);
+        } else if (
+          ("engine_marks" in operation.request && operation.request.engine_marks) ||
+          operation.request.action === "drop"
+        ) {
+          showNotice(
             code === "invalid_snooze_time"
               ? "That snooze time has passed. Choose a new time."
               : "This card changed. Refreshing your inbox. Your change was not saved.",
+            true,
           );
         } else {
-          setNotice(`This task changed. ${inboxRefusal(code)} Nothing was overwritten.`);
+          showNotice(`This task changed. ${inboxRefusal(code)} Nothing was overwritten.`, true);
         }
         void query.refetch();
-        focusRow(neighbours);
-      } else if (operation.request.action === "drop" && code === "not_allowed") {
-        setPending(null);
-        setNotice("This card can't be dropped. Nothing was saved.");
-        void query.refetch();
-        focusRow([operation.before[0]?.item_id ?? ""]);
+        focusRow(code === "invalid_field_value" ? [operation.before[0]?.item_id ?? ""] : neighbours);
       } else
-        setNotice(
+        showNotice(
           `Result uncertain. ${typeof code === "string" ? inboxRefusal(code) : message(error)} Retry the same request.`,
+          true,
         );
     } finally {
       setBusy(false);
@@ -458,7 +470,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     receipt?: TaskReceipt,
   ) {
     if (pending) {
-      setNotice("Resolve or dismiss the previous request before starting another.");
+      showNotice("Resolve or dismiss the previous request before starting another.");
       return;
     }
     const first = items[0];
@@ -473,7 +485,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         ...(undoing ? { undoing: true as const } : {}),
       });
     } catch (error) {
-      setNotice(message(error));
+      showNotice(message(error), true);
     }
   }
   const items = query.data?.items ?? EMPTY_ITEMS;
@@ -886,7 +898,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                   { action: "reopen", items: [current], receipt },
                 ]);
                 undoNotice.current = `Marked done: ${current.title}. You can undo this change.`;
-                setNotice(undoNotice.current);
+                showNotice(undoNotice.current);
               }
             }}
           >
@@ -993,7 +1005,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         </p>
       )}
       {notice && (
-        <div className="inbox-notice" role="status">
+        <div className="inbox-notice" role={noticeAlert ? "alert" : "status"}>
           <p>{notice}</p>
           {failures.map(
             (result) =>
@@ -1015,7 +1027,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 onClick={() => {
                   setPending(null);
                   setFailures([]);
-                  setNotice("Request dismissed. Refresh to check canonical state before another action.");
+                  showNotice("Request dismissed. Refresh to check canonical state before another action.");
                   void query.refetch();
                 }}
               >

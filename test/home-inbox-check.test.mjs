@@ -259,26 +259,32 @@ test('engine card Drop selects the reason-bearing door and confirms no Undo rece
   }
 });
 
-test('engine inbox cards that need attention or failed drop through a mark, except Fact review', async () => {
+test('engine inbox cards drop through the route the engine accepts, with no Drop on Tour feedback or Fact review', async () => {
   const { dropTarget } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
   const id = '00000000-0000-0000-0000-000000000001';
   const engine = (item_id, source_type, kind_label, fields = {}) => item(item_id, {
     source_type, kind_label, engine_marks: true, section: 'inbox', source_state: 'needs_attention',
     home_mark_drop: true, home_proposal_drop: true, action_id: null, action_version: null, ...fields,
   });
-  const reply = engine(`reply_draft:${id}`, 'email_proposal', 'Reply draft', { reply_draft_id: id, reply_draft_status: 'approved' });
-  const suggestion = engine(`suggestion:${id}`, 'email_proposal', 'Suggestion');
-  for (const card of [
-    engine(`capture_post_call_action:${id}`, 'capture_post_call_action', 'Call follow-up'),
-    engine(`notification:${id}`, 'notification', 'Update'),
-    engine(`tour_feedback:${id}`, 'tour_feedback', 'Tour feedback'),
-    reply,
-    suggestion,
-  ]) assert.deepEqual(dropTarget(card), { kind: 'mark' }, card.item_id);
-  assert.deepEqual(dropTarget({ ...reply, source_state: 'failed' }), { kind: 'mark' });
-  assert.equal(dropTarget({ ...reply, home_mark_drop: undefined }), null);
-  assert.equal(dropTarget({ ...suggestion, home_mark_drop: undefined }), null);
-  assert.equal(dropTarget({ ...suggestion, suggestions: [{ id }], home_proposal_drop: undefined }), null);
+  const pendingReply = engine(`reply_draft:${id}`, 'email_proposal', 'Reply draft', {
+    source_version: '2', reply_draft_id: id, reply_draft_status: 'pending',
+  });
+  const failedReply = engine(`reply_draft:${id}`, 'email_proposal', 'Reply draft', {
+    source_state: 'failed', reply_draft_id: id, reply_draft_status: 'failed',
+  });
+  const bareSuggestion = engine(`suggestion:${id}`, 'email_proposal', 'Suggestion');
+  assert.deepEqual(dropTarget(engine(`capture_post_call_action:${id}`, 'capture_post_call_action', 'Call follow-up')), { kind: 'mark' });
+  assert.deepEqual(dropTarget(engine(`notification:${id}`, 'notification', 'Update')), { kind: 'mark' });
+  assert.deepEqual(dropTarget(pendingReply), { kind: 'draft', id, version: 2 });
+  assert.deepEqual(dropTarget(bareSuggestion), { kind: 'suggestions', ids: [id] });
+  assert.equal(dropTarget(failedReply), null);
+  assert.equal(dropTarget({ ...pendingReply, reply_draft_status: 'approved' }), null);
+  assert.equal(dropTarget({ ...bareSuggestion, home_proposal_drop: undefined }), null);
+  assert.equal(dropTarget({ ...bareSuggestion, suggestions: [{ id }], home_proposal_drop: undefined }), null);
+  assert.equal(dropTarget(engine(`notification:${id}`, 'notification', 'Tour feedback')), null);
+  assert.equal(dropTarget(engine(`tour_feedback:${id}`, 'tour_feedback', 'Tour feedback')), null);
+  assert.equal(dropTarget(engine(`notification:${id}`, 'notification', 'Fact review')), null);
+  assert.equal(dropTarget(engine(`notification:${id}`, 'fact_review', 'Update')), null);
 });
 
 test('engine suggestion refusals say drop, never dismiss', async () => {
