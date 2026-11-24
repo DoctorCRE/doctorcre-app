@@ -405,8 +405,10 @@ for (const width of [390,1280]) for (const theme of ['light','dark']) test(`100-
  const heading=lane.locator('h3');
  assert.equal(await heading.locator('small').textContent(),'100');
  await lane.scrollIntoViewIfNeeded();
- await page.locator('#kanban').evaluate(board=>{board.scrollTop=4500;});
- assert.ok(await page.locator('#kanban').evaluate(board=>board.scrollTop)>=1000,'the populated board scrolls');
+ // Phones scroll the page; wider screens scroll the stage's own column.
+ const scroller=width===390?page.locator('html'):lane;
+ await scroller.evaluate(node=>{node.scrollTop=4500;});
+ assert.ok(await scroller.evaluate(node=>node.scrollTop)>=1000,'the populated stage scrolls');
  assert.equal(await heading.evaluate(h=>{
   const r=h.getBoundingClientRect(),board=document.querySelector('#kanban').getBoundingClientRect();
   const hit=document.elementFromPoint(r.left+10,r.top+r.height/2);
