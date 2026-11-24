@@ -25,6 +25,7 @@ async function setup(
     record = {},
     facets = {},
     activity,
+    reread,
   }: {
     width?: number;
     theme?: "dark" | "light";
@@ -37,6 +38,8 @@ async function setup(
     facets?: Record<string, unknown>;
     // The record's activity answers once this settles.
     activity?: Promise<void>;
+    // A second read of the record answers once this settles.
+    reread?: Promise<void>;
   } = {},
 ) {
   const server = await startFixtureServer();
@@ -52,10 +55,12 @@ async function setup(
   await page.route("https://**", (route) => route.abort());
   // A record added in the test is outside the synthetic directory, so its drawer reads as not found.
   const listHeld = new Promise<void>((release) => t.after(() => release()));
+  let recordReads = 0;
   await page.route("**/api/v1/business/**", async (route) => {
     const url = new URL(route.request().url());
     const isList = url.pathname.split("/").length === 5;
     if (holdList && isList) return listHeld.then(() => route.abort());
+    if (!isList && ++recordReads > 1) await reread;
     try {
       const json = directoryFixture(url.href);
       return route.fulfill({
@@ -425,13 +430,22 @@ test("Edit opened from the keyboard gives focus back to Edit when it closes", as
 
 test("A saved edit gives focus to the redrawn Edit", async (t) => {
   const fake = engine(vendorParty, "vendor", vendorProfile);
-  const { page } = await setup(t, `/vendors?record=${vendor}`, fake.answer);
+  let answer = () => {};
+  const reread = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  const { page } = await setup(t, `/vendors?record=${vendor}`, fake.answer, { reread });
   await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
   await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Demo Partner 01" });
   await dialog.getByLabel("City").fill("Example Town");
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await dialog.waitFor({ state: "hidden" });
+  // The record reloads after the dialog has closed, so its redraw comes last.
+  const redrawn = page.waitForResponse((response) => response.url().includes(`/business/vendors/${vendor}`));
+  answer();
+  await redrawn;
+  await page.evaluate(() => new Promise(requestAnimationFrame));
   await page.waitForFunction(() => document.activeElement?.hasAttribute("data-party-edit"), null, { timeout: 2000 });
 });
 
