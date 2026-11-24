@@ -185,10 +185,12 @@ test('task review completes one canonical action and retains Undo receipt', asyn
   assert.equal(calls.filter(c => c.name === 'complete-one-action').length, 1);
   assert.equal(calls.find(c => c.name === 'reopen-one-action').args.completion_event_id, eventId);
 });
-test('a fact review card offers no inline review, whose old save is gone', async t => {
-  const { page, panel, calls } = await setup(t, { kind: 'fact_review' });
+for (const dealId of [null, id]) test(`a fact review card ${dealId ? 'with' : 'without'} a deal offers no inline review, whose old save is gone`, async t => {
+  const { page, panel, calls } = await setup(t, { kind: 'fact_review', dealId });
   await page.getByRole('button', { name: 'Open', exact: true }).click();
   await panel.getByRole('button', { name: 'Close', exact: true }).waitFor();
+  if (dealId) assert.equal(await panel.locator(`a[href="/deals?deal=${id}"]`).count(), 1);
+  assert.equal(await panel.getByText('No linked record.', { exact: true }).count(), dealId ? 0 : 1);
   assert.equal(await panel.getByText('Review this card', { exact: true }).count(), 0);
   assert.equal(await panel.getByRole('button', { name: 'Save review', exact: true }).count(), 0);
   assert.equal(calls.filter(c => ['read-home-review', 'resolve-fact-review'].includes(c.name)).length, 0);
