@@ -57,7 +57,7 @@ async function setup(
       const json = directoryFixture(url.href);
       return route.fulfill({
         json: isList
-          ? { ...json, facets: { ...json.facets, ...facets } }
+          ? { ...json, facets: Object.assign({}, json.facets, facets) }
           : { ...json, record: Object.assign({}, json.record, record) },
       });
     } catch {
@@ -375,7 +375,9 @@ test("A saved contact with a refused profile refreshes the record, and focus fin
   const dialog = page.getByRole("dialog", { name: "Edit Demo Partner 01" });
   await dialog.getByLabel("City").fill("Example Town");
   await dialog.getByLabel("What they offer").fill("Construction loans");
-  const reread = page.waitForRequest((request) => new URL(request.url()).pathname.includes(`/vendors/${vendor}`));
+  const reread = page.waitForRequest(
+    (request) => request.method() === "GET" && new URL(request.url()).pathname.endsWith(`/business/vendors/${vendor}`),
+  );
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await dialog.getByText("Check the highlighted fields.").waitFor();
   await reread;

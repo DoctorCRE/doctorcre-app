@@ -133,6 +133,37 @@ function contactOf(value: unknown): ({ name: string } & Record<ContactField, str
   return { name: value.name, email: textOrNull(value.email), phone, city: textOrNull(value.city) };
 }
 
+// One open Edit: seen is each field as the engine holds it, shown is how the form shows it, and a change is a
+// touched field whose value differs from shown. A save sends seen as from, so the engine can spot a conflict.
+function editSession(phoneLabel: (phone: string) => string) {
+  const seen: Record<string, Value> = {};
+  const shown: Record<string, Value> = {};
+  const touched = new Set<string>();
+  return {
+    shown,
+    hold(name: string, raw: unknown) {
+      seen[name] = name === "categories" ? valueFrom(raw) : typeof raw === "string" ? raw : null;
+      const held = valueFrom(raw);
+      shown[name] =
+        name === "phone" && typeof held === "string"
+          ? phoneLabel(held)
+          : name === "how_found" && held === "not_recorded"
+            ? null
+            : held;
+    },
+    touch(name: string) {
+      touched.add(name);
+    },
+    changes(names: string[], current: (name: string) => Value) {
+      return Object.fromEntries(
+        names
+          .filter((name) => touched.has(name) && !same(current(name), shown[name] ?? null))
+          .map((name) => [name, { from: seen[name] ?? null, to: current(name) }]),
+      );
+    },
+  };
+}
+
 export function mountPartyEditor({ document, client, dataset, facets, saved, recordParty, phoneLabel }: Options) {
   const dialog = document.createElement("dialog");
   dialog.className = "party-editor";
@@ -404,29 +435,11 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
       );
       return;
     }
-    const fields = [...CONTACT, ...ROLE[kind]];
-    // seen is each field as the engine holds it; shown is how the form shows it. A save sends seen as from.
-    const seen: Record<string, Value> = {};
-    const shown: Record<string, Value> = {};
-    const hold = (name: string, raw: unknown) => {
-      seen[name] = name === "categories" ? valueFrom(raw) : typeof raw === "string" ? raw : null;
-      const held = valueFrom(raw);
-      shown[name] =
-        name === "phone" && typeof held === "string"
-          ? phoneLabel(held)
-          : name === "how_found" && held === "not_recorded"
-            ? null
-            : held;
-    };
-    for (const name of CONTACT) hold(name, contact[name]);
-    for (const name of ROLE[kind]) hold(name, profile[name]);
-    const touched = new Set<string>();
-    const changes = (form: HTMLFormElement, names: string[]) =>
-      Object.fromEntries(
-        names
-          .filter((name) => touched.has(name) && !same(formValue(form, name), shown[name] ?? null))
-          .map((name) => [name, { from: seen[name] ?? null, to: formValue(form, name) }]),
-      );
+    const edit = editSession(phoneLabel);
+    const { shown } = edit;
+    for (const name of CONTACT) edit.hold(name, contact[name]);
+    for (const name of ROLE[kind]) edit.hold(name, profile[name]);
+    const changes = (form: HTMLFormElement, names: string[]) => edit.changes(names, (name) => formValue(form, name));
     const lists = choiceLists();
     const choice = (name: string, held: string) => {
       const list = lists[name];
@@ -441,7 +454,7 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
       if (problem.error !== "version_conflict" || !problem.current) return refuse(form, result);
       const current = problem.current;
       for (const name of problem.fields)
-        hold(name, name === "phone" && isRecord(current.phone) ? current.phone.shown : current[name]);
+        edit.hold(name, name === "phone" && isRecord(current.phone) ? current.phone.shown : current[name]);
       refuse(form, result);
       status(
         `Someone changed this since you opened it. Now: ${problem.fields.map((name) => label(name, shown[name] ?? null)).join("; ")}. Save again to replace it with what you entered.`,
@@ -484,9 +497,9 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
           }
           contactSaved = true;
           // The saved contact shows as the engine wrote it, so a retry of the profile alone does not resend it.
-          const saved = contactOf(answer.data);
-          for (const name of saved ? CONTACT : []) {
-            hold(name, saved?.[name]);
+          const written = contactOf(answer.data);
+          for (const name of written ? CONTACT : []) {
+            edit.hold(name, written?.[name]);
             const control = form.elements.namedItem(name);
             if (control instanceof HTMLInputElement) control.value = String(shown[name] ?? "");
           }
@@ -511,7 +524,7 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
         target instanceof HTMLSelectElement ||
         target instanceof HTMLTextAreaElement
       ) {
-        if (fields.includes(target.name)) touched.add(target.name);
+        edit.touch(target.name);
         if (target.name === "email") keepEmail = false;
       }
     });
