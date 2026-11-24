@@ -89,7 +89,7 @@ export function mountAppLayout(root, host, pathname) {
   const phone = win.matchMedia(pathname === "/leads" ? "(max-width:1023px)" : TOUCH_LAYOUT);
   const dealBoard = pathname === '/deals' && root.body.classList.contains('dealroom-page');
   const itineraryPage = Boolean(root.getElementById('accepted-itinerary'));
-  let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory, today = !deferToday, drawer = null;
+  let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory && !calendarPanel, today = !deferToday, drawer = null;
   let drawerOpener = null;
   const background = new Map();
   try {
@@ -166,8 +166,7 @@ export function mountAppLayout(root, host, pathname) {
   phone.addEventListener('change', () => { drawer = null; paint(); });
   paint();
   root.addEventListener('doctorcre:open-today', () => {
-    if (calendarPanel) calendarPanel.scrollIntoView({ block: 'start' });
-    else if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
+    if (engineToday && pageMoves) pageMoves.scrollIntoView({ block: 'start' });
     else openRegion('today');
   });
   // Page tab controllers retain selection and lazy reads. Give groups without
