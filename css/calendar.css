@@ -4,10 +4,12 @@
  * rows and one accent marker (today's number). Chips are light: one line on
  * the surface, a hairline edge and a small kind mark (a dot for a next step,
  * a diamond for a critical date, red for late). In a chip nearness is quiet:
- * red text when overdue and a small amber ring for this week. The day panel
- * opens only for a chosen day and keeps the still nearness shapes
- * (.cal-pulse), never a loop: a double ring for today or overdue, a ringed
- * dot for this week, a dot for this month and a hollow ring for later.
+ * red text when overdue and a small amber ring for this week. A chosen day
+ * opens in a sheet pinned to the viewport (right edge on a wide screen,
+ * bottom on a phone), so its title and Close are on screen wherever the page
+ * is scrolled and only its list scrolls. The sheet keeps the still nearness
+ * shapes (.cal-pulse), never a loop: a double ring for today or overdue, a
+ * ringed dot for this week, a dot for this month and a hollow ring for later.
  *
  * On a phone the month becomes an agenda: only days with items (plus today
  * and the selected day), one row each, every chip shown.
@@ -19,9 +21,7 @@
 .cal-heading { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
 .cal-heading h1 { margin: 0 auto 0 0; }
 .cal-updated { color: var(--fg-muted); font-size: var(--font-size-1); }
-.cal-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); align-items: start; }
-.cal-layout:has(> .cal-day-panel:not([hidden])) { grid-template-columns: minmax(0, 1fr) 280px; }
-.cal-board, .cal-day-panel { min-width: 0; }
+.cal-board { min-width: 0; }
 .cal-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-4); margin-bottom: var(--space-2); }
 .cal-steps, .cal-view-switch { display: flex; align-items: center; gap: var(--space-2); }
 .cal-steps { margin-left: calc(-1 * var(--space-2)); gap: 0; }
@@ -63,7 +63,7 @@
 .cal-grid[data-view="week"] .cal-day { min-height: 240px; }
 .cal-day[data-out-month="true"] { background: var(--ground); }
 .cal-day[data-out-month="true"] .cal-day-num { color: var(--fg-quiet); }
-.cal-layout:has(> .cal-day-panel:not([hidden])) .cal-day[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 0 0 0 var(--focus-width) var(--hairline-strong); }
+.shell:has(> .cal-day-sheet[open]) .cal-day[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 0 0 0 var(--focus-width) var(--hairline-strong); }
 
 .cal-day-open { display: flex; align-items: center; gap: var(--space-1); align-self: stretch; min-height: 28px; padding: 0 2px; border: 0; border-radius: var(--radius-1); background: none; color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1)/1 var(--font-text); font-variant-numeric: tabular-nums; cursor: pointer; }
 .cal-day-open:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
@@ -102,10 +102,12 @@
 .cal-pulse[data-pulse="calm"] { background: var(--status-info); }
 .cal-pulse[data-pulse="still"] { border: 1.5px solid var(--fg-quiet); background: transparent; }
 
-/* The panel rides beside the month as it scrolls, below the sticky tab bar. */
-.cal-day-panel { position: sticky; top: calc(var(--tabbar-height) + var(--space-4)); max-height: calc(100dvh - var(--tabbar-height) - 2 * var(--space-4)); overflow-y: auto; overflow-wrap: anywhere; scroll-margin-top: calc(var(--tabbar-height) + var(--space-4)); }
-.cal-day-panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-right: calc(-1 * var(--space-2)); }
-.cal-day-panel h2 { margin: 0; font: var(--font-weight-strong) var(--font-size-2)/1.3 var(--font-text); }
+/* ------------------------------------------------------------- day sheet */
+.cal-day-sheet[open] { position: fixed; inset: var(--tabbar-height) 0 0 auto; display: flex; flex-direction: column; width: min(400px, 100vw); max-width: none; height: auto; max-height: none; margin: 0; overflow: hidden; overflow-wrap: anywhere; border-width: 0 0 0 var(--hairline-width); border-radius: 0; }
+.cal-day-sheet::backdrop { background: color-mix(in srgb, var(--scrim) 40%, transparent); }
+.cal-day-sheet > header { flex: none; align-items: center; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5); }
+.cal-day-sheet h2 { margin: 0; font: var(--font-weight-strong) var(--font-size-2)/1.3 var(--font-text); }
+.cal-day-sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 var(--space-5) var(--space-5); }
 .cal-extras { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--space-4) var(--space-6); margin-top: var(--space-5); }
 .cal-extras:not(:has(> :not([hidden]))) { display: none; }
 #dayPanelBody, #calState { color: var(--fg-muted); font-size: var(--font-size-1); }
@@ -139,17 +141,14 @@
 @keyframes cal-zoom-in { from { opacity: 0.4; transform: scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes cal-zoom-out { from { opacity: 0.4; transform: scale(1.02); } to { opacity: 1; transform: none; } }
 
-@media (max-width: 1023px) {
-  .cal-layout, .cal-layout:has(> .cal-day-panel:not([hidden])) { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
-  .cal-day-panel { position: static; max-height: none; overflow-y: visible; }
-}
 @media (pointer: coarse) {
   .cal-day { --cal-chip: var(--touch); }
   .cal-more, .cal-day-open { min-height: var(--touch); }
   .cal-grid[data-view="month"] .cal-day { height: calc(5 * var(--touch) + 4 * var(--space-1) + 10px); }
 }
 @media (max-width: 640px) {
-  .cal-day-panel a { display: inline-flex; align-items: center; min-height: var(--touch); }
+  .cal-day-sheet[open] { inset: auto 0 0; width: 100%; max-height: 85dvh; border-width: var(--hairline-width) 0 0; border-radius: var(--radius-3) var(--radius-3) 0 0; padding-bottom: env(safe-area-inset-bottom); }
+  .cal-day-sheet a { display: inline-flex; align-items: center; min-height: var(--touch); }
   .cal-grid { border: 0; border-radius: 0; background: transparent; }
   .cal-weekday { display: none; }
   .cal-week { display: block; }

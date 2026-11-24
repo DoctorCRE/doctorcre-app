@@ -100,8 +100,10 @@ test('Calendar opens each owning deal and Back restores the selected period and 
         await mkdir(evidence, { recursive: true });
         await page.screenshot({ path: join(evidence, `calendar-${width}-${theme}.png`), fullPage: true });
         const period = await page.locator('#calPeriod').textContent();
-        const calendarUrl = page.url();
         for (const id of ['qa-deal-1', 'qa-deal-2', 'qa-deal-4', undatedId]) {
+          // The undated list sits on the page behind the open day.
+          if (id === undatedId) await page.getByRole('button', { name: 'Close day' }).click();
+          const calendarUrl = page.url();
           const href = `/deals?deal=${encodeURIComponent(id)}`;
           const link = page.locator(`a[href="${href}"]`);
           const label = await link.textContent();
@@ -119,7 +121,7 @@ test('Calendar opens each owning deal and Back restores the selected period and 
           await expect(page).toHaveURL(calendarUrl);
           await expect(page.locator('#calAsOf')).toContainText('Updated');
           await expect(page.locator('#calPeriod')).toHaveText(period);
-          await expect(page.locator('.cal-day[aria-selected="true"]')).toHaveAttribute('data-day', '2026-10-20');
+          if (id !== undatedId) await expect(page.locator('#dayPanelTitle')).toContainText('Oct 20');
           await expect(page.locator('#calUndatedList')).toContainText('Date unavailable');
         }
         assert.equal(calls.includes('add-critical-date'), false);

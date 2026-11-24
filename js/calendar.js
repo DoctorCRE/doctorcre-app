@@ -23,6 +23,10 @@ const view = {
   state: null,
   painted: null,
   focusEntry: null,
+  /** The day holding the grid's tab stop while no day is open. */
+  cursor: null,
+  /** Where focus goes back to when the open day closes. */
+  opener: null,
   result: { status: "loading" },
   byDay: new Map(),
   sequence: 0,
@@ -119,17 +123,19 @@ function paintGrid(layout) {
 }
 
 function paintSelection() {
+  const chosen = view.state.day || view.cursor || view.today;
   const cells = [...$("calGrid").querySelectorAll(".cal-day[data-out-month='false']")];
-  const selected = cells.find(cell => cell.dataset.day === (view.state.day || view.today));
+  const selected = cells.find(cell => cell.dataset.day === chosen);
   cells.forEach(cell => {
     cell.setAttribute("aria-selected", String(cell === selected));
     cell.querySelector(".cal-day-open").tabIndex = cell === (selected || cells[0]) ? 0 : -1;
   });
-  const day = selected?.dataset.day;
-  // The day panel opens only for a chosen day, so the month keeps the full width.
-  $("dayPanel").hidden = !view.state.day;
-  paintDayPanel(day);
-  paintComingUp(day);
+  paintDayPanel(selected?.dataset.day);
+  const sheet = $("dayPanel");
+  if (view.state.day && !sheet.open) {
+    sheet.showModal();
+    sheet.querySelector('[data-focus="true"] a[data-entry]')?.focus();
+  } else if (!view.state.day && sheet.open) sheet.close();
 }
 
 function recordLink(entry) {
@@ -178,9 +184,8 @@ function paintDayPanel(day) {
   }
 }
 
-function paintComingUp(day) {
-  const after = day && day > view.today ? day : view.today;
-  const dates = [...view.byDay.keys()].filter(date => date > after).sort().slice(0, 5);
+function paintComingUp() {
+  const dates = [...view.byDay.keys()].filter(date => date > view.today).sort().slice(0, 5);
   $("calComing").hidden = dates.length === 0;
   $("calAgenda").innerHTML = dates.map(date => {
     const items = view.byDay.get(date).map(entry => `<span class="cal-agenda-detail">
@@ -228,13 +233,18 @@ function paintNotices(phase) {
     + `<p class="notice-copy">Their dates are not on this calendar: ${names}${rest}.</p></div>`;
 }
 
+const FOCUS_KEYS = { selectDay: "data-select-day", entry: "data-entry", more: "data-more", day: "data-day" };
+
+/** A selector that finds the same control again after a repaint replaces it. */
+function focusAddress(node) {
+  const scope = node?.closest?.("#calGrid, #dayPanelBody, #calAgenda");
+  const keys = Object.entries(FOCUS_KEYS).filter(([key]) => node?.dataset?.[key])
+    .map(([key, attribute]) => `[${attribute}="${CSS.escape(node.dataset[key])}"]`);
+  return scope && keys.length ? `#${scope.id} ${node.localName}${keys.join("")}` : null;
+}
+
 function render() {
-  const active = document.activeElement;
-  const focusScope = active?.closest("#calGrid, #dayPanelBody, #calAgenda");
-  const focusSelector = active?.dataset.selectDay
-    ? `[data-select-day="${CSS.escape(active.dataset.selectDay)}"]`
-    : active?.dataset.entry ? `[data-entry="${CSS.escape(active.dataset.entry)}"]`
-    : active?.dataset.day ? `button[data-day="${CSS.escape(active.dataset.day)}"]` : null;
+  const focused = focusAddress(document.activeElement);
   const phase = calendarPhase(view.result);
   view.byDay = ["ready", "partial", "reading"].includes(phase) ? entriesByDay(view.result.entries) : new Map();
   paintNotices(phase);
@@ -252,8 +262,9 @@ function render() {
   } else {
     paintGrid(layout);
   }
+  paintComingUp();
   paintSelection();
-  if (focusScope && focusSelector) focusScope.querySelector(focusSelector)?.focus({ preventScroll: true });
+  if (focused) document.querySelector(focused)?.focus({ preventScroll: true });
 
   const asOf = $("calAsOf");
   if (["ready", "partial"].includes(view.result.status)) asOf.textContent = updatedLabel(view.updatedAt);
@@ -277,43 +288,53 @@ function go(next, { push = true } = {}) {
   if (moved) announce(`${periodText}. ${next.view === "week" ? "Week" : "Month"} view.`);
 }
 
-/** Select a day, moving the period so it is on screen. Selection replaces history. */
-function selectDay(day, { entry = null, focus = false, reveal = false } = {}) {
-  view.focusEntry = entry;
-  const currentEntry = view.result?.entries?.find(row => row.key === entry);
-  selectDocRecord(currentEntry?.deal_id ? "deal" : null, currentEntry?.deal_id);
-  if (currentEntry?.deal_id) void client.getDeal(currentEntry.deal_id).catch(() => {});
-  const state = view.state;
-  const inView = calendarLayout(state).days.some(cell => cell.inMonth && cell.day === day);
-  const next = { ...state, day, anchor: inView ? state.anchor : day };
-  go(next, { push: !inView });
-  if (focus) {
-    const button = document.querySelector(`.cal-day-open[data-select-day="${day}"]`);
-    button?.focus({ preventScroll: true });
-    button?.scrollIntoView({ block: "nearest", behavior: motionReduced() ? "auto" : "smooth" });
-  }
-  if (reveal) revealDayPanel();
+const inPeriod = day => calendarLayout(view.state).days.some(cell => cell.inMonth && cell.day === day);
+
+function announceDay(day) {
   const rows = view.byDay.get(day) || [];
   const incomplete = calendarPhase(view.result) === "partial" ? " This day may be incomplete." : "";
   announce(`${formatCalendarDate(day)}: ${itemCount(rows)}.${incomplete}`);
 }
 
-/** A click opens the panel where the partner can read it: beside the month, or below the phone agenda. */
-function revealDayPanel() {
-  const behavior = motionReduced() ? "auto" : "smooth";
-  $("dayPanel").scrollIntoView({ block: "nearest", behavior });
-  $("dayPanelBody").querySelector('[data-focus="true"]')?.scrollIntoView({ block: "nearest", behavior });
+/** Every control that opens a day comes here. Opening replaces history unless the period moves. */
+function openDay(day, { entry = null } = {}) {
+  view.opener = focusAddress(document.activeElement);
+  view.focusEntry = entry;
+  view.cursor = day;
+  const currentEntry = view.result?.entries?.find(row => row.key === entry);
+  selectDocRecord(currentEntry?.deal_id ? "deal" : null, currentEntry?.deal_id);
+  if (currentEntry?.deal_id) void client.getDeal(currentEntry.deal_id).catch(() => {});
+  const shown = inPeriod(day);
+  go({ ...view.state, day, anchor: shown ? view.state.anchor : day }, { push: !shown });
+  announceDay(day);
 }
 
-/** Closing hands focus back to the day, or to a day still shown when the phone agenda drops it. */
-function closeDayPanel() {
+/** Arrow keys move the grid's tab stop, turning the period when they leave it. */
+function moveCursor(day) {
+  view.cursor = day;
+  if (inPeriod(day)) paintSelection();
+  else go({ ...view.state, anchor: day });
+  $("calGrid").querySelector(`.cal-day-open[data-select-day="${day}"]`)?.focus();
+  announceDay(day);
+}
+
+/** Closing hands focus back to the control that opened the day, else to a day still shown. */
+function closeDay() {
   const day = view.state.day;
+  if (!day) return;
+  const opener = view.opener;
+  view.opener = null;
   view.focusEntry = null;
+  view.cursor = null;
   go({ ...view.state, day: null }, { push: false });
-  const days = [...$("calGrid").querySelectorAll(".cal-day[data-out-month='false'] .cal-day-open")];
-  const shown = days.filter(button => button.checkVisibility());
-  const target = shown.find(button => button.dataset.selectDay === day) || shown.find(button => button.tabIndex === 0) || shown[0];
-  days.forEach(button => { button.tabIndex = button === target ? 0 : -1; });
+  const days = [...$("calGrid").querySelectorAll(".cal-day[data-out-month='false'] .cal-day-open")].filter(button => button.checkVisibility());
+  const fromOpener = opener && document.querySelector(opener);
+  const target = (fromOpener?.checkVisibility() && fromOpener)
+    || days.find(button => button.dataset.selectDay === day) || days.find(button => button.dataset.selectDay === view.today) || days[0];
+  if (target?.matches(".cal-day-open")) {
+    view.cursor = target.dataset.selectDay;
+    paintSelection();
+  }
   target?.focus();
 }
 
@@ -328,31 +349,35 @@ function wire() {
   });
   $("calPrev")?.addEventListener("click", () => go(stepAnchor(view.state, -1)));
   $("calNext")?.addEventListener("click", () => go(stepAnchor(view.state, 1)));
-  $("calToday")?.addEventListener("click", () => go({ ...view.state, anchor: view.today, day: view.today }));
+  $("calToday")?.addEventListener("click", () => openDay(view.today));
   $("calRefresh")?.addEventListener("click", () => load());
-  $("dayPanelClose")?.addEventListener("click", closeDayPanel);
+  // Close the day before the dialog's own close event, which lands a task later.
+  const sheet = $("dayPanel");
+  $("dayPanelClose")?.addEventListener("click", closeDay);
+  sheet.addEventListener("cancel", closeDay);
+  sheet.addEventListener("click", (event) => { if (event.target === sheet) closeDay(); });
   $("calNotices")?.addEventListener("click", (event) => {
     if (event.target.closest("#calRetry")) load();
   });
 
   $("calGrid")?.addEventListener("click", (event) => {
     const chip = event.target.closest(".cal-chip");
-    if (chip) { selectDay(chip.dataset.day, { entry: chip.dataset.entry, reveal: true }); return; }
+    if (chip) { openDay(chip.dataset.day, { entry: chip.dataset.entry }); return; }
     const more = event.target.closest(".cal-more");
-    if (more) { selectDay(more.dataset.more, { reveal: true }); return; }
+    if (more) { openDay(more.dataset.more); return; }
     const open = event.target.closest(".cal-day-open");
-    if (open) selectDay(open.dataset.selectDay, { reveal: true });
+    if (open) openDay(open.dataset.selectDay);
   });
   $("calGrid")?.addEventListener("keydown", (event) => {
     const open = event.target.closest(".cal-day-open");
     const step = ARROW_STEP[event.key];
     if (!open || !step) return;
     event.preventDefault();
-    selectDay(addDays(open.dataset.selectDay, step), { focus: true });
+    moveCursor(addDays(open.dataset.selectDay, step));
   });
   $("calAgenda")?.addEventListener("click", (event) => {
     const item = event.target.closest(".cal-agenda-item");
-    if (item) selectDay(item.dataset.day, { focus: true });
+    if (item) openDay(item.dataset.day);
   });
 
   window.addEventListener("popstate", () => {

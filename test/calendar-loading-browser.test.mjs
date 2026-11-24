@@ -88,17 +88,22 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         await expect(page.locator('#calCount')).toHaveText('2 critical dates');
         await expect(page.locator('#calGrid')).toHaveAttribute('aria-busy', 'false');
         await expect(page.locator('#calAsOf')).toContainText('Updated');
-        await expect(page.locator('.cal-day-open[data-select-day="2026-10-20"]')).toBeFocused();
+        await expect(page.getByRole('button', { name: 'Close day' })).toBeFocused();
       } else if (status === 502) {
         await expect(page.getByRole('status').filter({ hasText: '1 of 2 deals temporarily unavailable' })).toBeVisible();
         await expect(page.getByRole('main').getByRole('button', { name: /^Refresh/ })).toHaveCount(1);
         await expect(page.locator('#dayPanelBody')).toContainText('Synthetic fast date');
         await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
+        await page.keyboard.press('Escape');
         await page.locator('.cal-day-open[data-select-day="2026-10-20"]').press('ArrowRight');
+        await expect(page.locator('#calLive')).toContainText('may be incomplete');
+        await page.keyboard.press('Enter');
+        await expect(page.locator('#dayPanelTitle')).toContainText('Oct 21');
         await expect(page.locator('#dayPanelBody')).toContainText('may be incomplete');
         await expect(page.locator('#dayPanelBody')).not.toContainText('No critical dates');
-        await expect(page.locator('#calLive')).toContainText('may be incomplete');
+        await page.keyboard.press('Escape');
         await page.locator('.cal-day-open[data-select-day="2026-10-20"]').click();
+        await page.keyboard.press('Escape');
         const updated = await page.locator('#calAsOf').textContent();
         await page.clock.setSystemTime(new Date('2026-10-20T15:01:00Z'));
         calendarStatus = 503;

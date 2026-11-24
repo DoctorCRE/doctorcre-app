@@ -197,7 +197,7 @@ test("Calendar month grid marks today, marks chips by kind, folds overflow and t
               await expect(page.locator("#dayPanelBody .cal-day-entry")).toHaveCount(6);
               await page.getByRole("button", { name: "Close day" }).click();
               await expect(page.locator("#dayPanel")).toBeHidden();
-              await expect(busy.locator(".cal-day-open")).toBeFocused();
+              await expect(more).toBeFocused();
             });
           } else {
             await t.test("the phone agenda lists only days with items and today, every chip shown", async () => {
