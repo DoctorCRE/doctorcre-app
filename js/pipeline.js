@@ -52,6 +52,7 @@ import {
   dealTimeline, engineTimelineEntries, renderImportedDealHistory, criticalDateLabel, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
 } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
+import { linkRecordNames } from './ui-record-links.generated.js';
 import { mountVisibilityPoll } from './visibility-poll.mjs';
 
 
@@ -1542,7 +1543,7 @@ function selectWorkspaceTab(id) {
   }
 }
 function workspaceNotesHtml(detail) {
-  return `<section aria-label="Deal notes"><h3>Deal notes</h3>${(detail.thread || []).map(note => `<article class="workspace-note"><b>${esc(authorLabel(note.actor))}</b> <time datetime="${esc(note.at || note.created_at || note.recorded_at || '')}">${esc(sourceTime(note.at || note.created_at || note.recorded_at, undefined, 'Date not recorded'))}</time><p class="note-original">${esc(noteText(note.text))}</p></article>`).join('') || '<p>No notes recorded.</p>'}</section>`;
+  return `<section aria-label="Deal notes"><h3>Deal notes</h3>${(detail.thread || []).map(note => `<article class="workspace-note"><b>${esc(authorLabel(note.actor))}</b> <time datetime="${esc(note.at || note.created_at || note.recorded_at || '')}">${esc(sourceTime(note.at || note.created_at || note.recorded_at, undefined, 'Date not recorded'))}</time><p class="note-original">${linkRecordNames(noteText(note.text), detail.record_links)}</p></article>`).join('') || '<p>No notes recorded.</p>'}</section>`;
 }
 function legacyTimelineEntries(detail, nextItem) {
   const view = dealTimeline(detail);
@@ -1559,7 +1560,7 @@ function legacyTimelineEntries(detail, nextItem) {
 function workspaceEventsHtml(detail, nextItem, fromEngine, planTours) {
   const events = fromEngine ? engineTimelineEntries(detail, { planTours }) : legacyTimelineEntries(detail, nextItem).filter(event => event.text.trim());
   if (!events.some(event => event.type === timelineType)) timelineType = '';
-  return `<h2>Dated events</h2><label for="timelineType">Filter by kind</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${esc(e.text)}</p></li>`).join('')}</ol>${events.length ? '' : fromEngine ? '<p>No dated events yet.</p>' : '<p>No dated events recorded.</p>'}`;
+  return `<h2>Dated events</h2><label for="timelineType">Filter by kind</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${linkRecordNames(e.text, detail.record_links)}</p></li>`).join('')}</ol>${events.length ? '' : fromEngine ? '<p>No dated events yet.</p>' : '<p>No dated events recorded.</p>'}`;
 }
 let marketTermsPanel, dealToursPanel, dealDocumentsPanel;
 let checklistPanel;

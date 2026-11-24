@@ -31,6 +31,7 @@ export const UI_ENTRIES = {
   'ui-keyboard-input': 'keyboard-input',
   'ui-keyboard-shortcuts': 'keyboard-shortcuts',
   'ui-card-due': 'card-due',
+  'ui-record-links': 'record-links',
   'ui-card-menu': 'card-quick-menu',
   'ui-quick-switcher': 'quick-switcher',
   'ui-switcher-history': 'switcher-history',

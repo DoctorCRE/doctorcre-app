@@ -7,6 +7,7 @@ import { mountLeadGuidance } from './ui-lead.generated.js';
 import { createPageBudget } from './read-budget.mjs';
 import { mountContactReasons } from './contact-reasons.mjs';
 import { workCard } from './work-card.js';
+import { linkRecordNames } from './ui-record-links.generated.js';
 import { businessDay, BUSINESS_TIME_ZONE } from './business-date.js';
 import { shortDay, toDay } from './calendar-model.js';
 import { engagementWriterFor, engagementStorage } from './prospect-engagement.mjs';
@@ -456,7 +457,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
         ${detail.possible_clients.map(match => `<button class="client-hint" data-link="${esc(detail.id)}" data-client-id="${esc(match.client_id)}">Link to client ${esc(match.name)}</button>`).join("")}
       </div>
       <div class="detail-overview"><section class="detail-panel"><h3>Contact</h3><dl>${fields.filter(([, value]) => value).map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join("")}</dl></section>
-      ${plan || leaseDate ? `<section class="detail-panel"><h3>Plans</h3>${plan ? `<p>${esc(plan)}</p>` : ""}${planDetails.length ? `<details class="plan-details" data-entry-key="plans"><summary>More about these plans</summary><div class="original-entry">${esc(planDetails.join("\n\n"))}</div></details>` : ""}${leaseDate ? `<dl class="plan-window"><dt>Estimated lease date</dt><dd><time datetime="${esc(leaseDate)}">${esc(shortDate(leaseDate, true))}</time></dd></dl>` : ""}</section>` : ""}
+      ${plan || leaseDate ? `<section class="detail-panel"><h3>Plans</h3>${plan ? `<p>${linkRecordNames(plan, detail.record_links)}</p>` : ""}${planDetails.length ? `<details class="plan-details" data-entry-key="plans"><summary>More about these plans</summary><div class="original-entry">${linkRecordNames(planDetails.join("\n\n"), detail.record_links)}</div></details>` : ""}${leaseDate ? `<dl class="plan-window"><dt>Estimated lease date</dt><dd><time datetime="${esc(leaseDate)}">${esc(shortDate(leaseDate, true))}</time></dd></dl>` : ""}</section>` : ""}
       </div>
       ${source ? `<section class="detail-panel"><h3>Source email</h3><time>${stamp(source.occurred_at)}</time>${sourceExcerpt ? `<p>${esc(sourceExcerpt)}</p>` : ""}${source.detail?.trim() ? `<details data-entry-key="source-email"><summary>Details</summary><div class="original-entry">${esc(source.detail)}</div></details>` : ""}</section>` : ""}
       ${timingMarkup(detail.opportunity_timing, true, !!leaseDate)}

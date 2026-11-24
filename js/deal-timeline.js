@@ -8,6 +8,7 @@ import { compareInstants, escapeText, fieldLabel, readableValue } from './change
 import { sourceTime } from './email-source-line.js';
 import { concise, isEngineDealDetail, PARKING_REASONS } from './local-deals-model.js';
 import { ACTOR_LABEL, authorLabel, dealTypeLabel } from './client.js';
+import { linkRecordNames } from './ui-record-links.generated.js';
 
 const DAY = 86400000;
 const esc = escapeText;
@@ -343,7 +344,7 @@ export function renderDealUpdates(detail, now = Date.now(), { engineSignIn = fal
   const attribution = id => activityIds.has(id)
     ? `<button type="button" class="btn" data-attribution-id="${esc(id)}" aria-expanded="false">Show deal attribution</button>`
     : '';
-  return `<section class="deal-updates" data-detail-read="updates" aria-label="Deal updates"><h3>Updates</h3>${entries.length ? `<details class="updates-history"><summary data-detail-focus="update-history"><span>${entries.length} update${entries.length === 1 ? '' : 's'} · ${esc(latestDay)} · ${esc(overview)}</span></summary>${(detail.activities || []).length >= 50 ? '<p class="updates-scope">Includes the latest 50 activities; older activities may be omitted.</p>' : ''}${entries.map(e => `<article class="deal-note" data-id="${esc(e.id)}" data-kind="${esc(e.kind)}"><div class="timeline-entry-top"><b>${esc(authorLabel(e.actor))}</b><time datetime="${esc(e.when || '')}">${esc(sourceTime(e.when, undefined, 'Date not recorded'))}</time></div><small>${esc(e.kind)}</small><p>${esc(e.summary)}</p>${attribution(e.id)}${e.original && e.original !== e.summary ? `<details><summary data-detail-focus="entry-original:${esc(e.id)}">Read full update</summary><p class="note-original">${esc(e.original)}</p></details>` : ''}</article>`).join('')}</details>` : '<p>No updates recorded.</p>'}</section>`;
+  return `<section class="deal-updates" data-detail-read="updates" aria-label="Deal updates"><h3>Updates</h3>${entries.length ? `<details class="updates-history"><summary data-detail-focus="update-history"><span>${entries.length} update${entries.length === 1 ? '' : 's'} · ${esc(latestDay)} · ${esc(overview)}</span></summary>${(detail.activities || []).length >= 50 ? '<p class="updates-scope">Includes the latest 50 activities; older activities may be omitted.</p>' : ''}${entries.map(e => `<article class="deal-note" data-id="${esc(e.id)}" data-kind="${esc(e.kind)}"><div class="timeline-entry-top"><b>${esc(authorLabel(e.actor))}</b><time datetime="${esc(e.when || '')}">${esc(sourceTime(e.when, undefined, 'Date not recorded'))}</time></div><small>${esc(e.kind)}</small><p>${linkRecordNames(e.summary, detail.record_links)}</p>${attribution(e.id)}${e.original && e.original !== e.summary ? `<details><summary data-detail-focus="entry-original:${esc(e.id)}">Read full update</summary><p class="note-original">${linkRecordNames(e.original, detail.record_links)}</p></details>` : ''}</article>`).join('')}</details>` : '<p>No updates recorded.</p>'}</section>`;
 }
 export function updateCountdowns(root, now = Date.now()) {
   for (const node of root.querySelectorAll('[data-countdown]')) {
