@@ -422,6 +422,13 @@ test("a lifted card keeps its lift and focus when j or k is pressed", async (t) 
     assert.equal(await page.locator('#kanban [data-drop="true"]').getAttribute("data-column"), target);
     assert.equal(await page.locator("#dragLive").textContent(), announced);
   }
+  const openControl = card.locator("[data-shortcut-open]");
+  await openControl.focus();
+  await page.keyboard.press("j");
+  assert.equal(await isFocused(openControl), true, "j leaves focus on the lifted card's own open control");
+  assert.equal(await card.getAttribute("data-lifted"), "true");
+  assert.equal(await page.locator('#kanban [data-drop="true"]').getAttribute("data-column"), target);
+  await card.focus();
   await page.keyboard.press("Escape");
   assert.equal(await page.locator('#kanban [data-lifted="true"]').count(), 0);
 });

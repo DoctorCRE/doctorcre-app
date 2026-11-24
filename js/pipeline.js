@@ -2611,6 +2611,8 @@ function wireBoard() {
     }
     const card = event.target.closest('.kanban-card');
     if (!card) return;
+    // A lifted card keeps focus, even from its own controls: j/k would leave the lift and its target column behind.
+    if ((event.key === 'j' || event.key === 'k') && state.lifted && state.lifted === card.dataset.id) { event.preventDefault(); return; }
     if (event.target.closest('button,input,select,a,.deal-vendor-details')) return;
     if (state.view === 'list' || card.classList.contains('parked-card')) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openWorkspace(card.dataset.id, card); } return; }
     const id = card.dataset.id;
@@ -2628,8 +2630,6 @@ function wireBoard() {
       return;
     }
     if (state.lifted !== id) return;
-    // A lifted card keeps focus: j/k would leave the lift and its target column behind.
-    if (event.key === 'j' || event.key === 'k') { event.preventDefault(); return; }
     if (event.key === 'Escape') {
       event.preventDefault();
       state.lifted = null;
