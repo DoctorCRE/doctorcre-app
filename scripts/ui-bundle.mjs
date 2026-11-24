@@ -30,6 +30,7 @@ export const UI_ENTRIES = {
   'ui-answers': 'answer-blocks',
   'ui-keyboard-input': 'keyboard-input',
   'ui-card-due': 'card-due',
+  'ui-card-menu': 'card-quick-menu',
   'ui-quick-switcher': 'quick-switcher',
   'ui-switcher-history': 'switcher-history',
   'ui-email-actions': 'email-followup-actions',
