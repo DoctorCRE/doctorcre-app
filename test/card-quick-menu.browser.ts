@@ -441,8 +441,125 @@ test("a long-press on a Home card opens its menu without opening, completing or 
       await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
       await page.getByRole("dialog", { name: "Snooze cards" }).waitFor();
       assert.equal(await page.getByRole("menu").count(), 0);
+
+      // Once a long-press opens the menu, the same finger sliding 100 px left and lifting is no swipe.
+      // The press lands on the detail line, clear of the links that touch adjustment snaps to.
+      await page.keyboard.press("Escape");
+      await page.getByRole("dialog", { name: "Snooze cards" }).waitFor({ state: "detached" });
+      const detail = await call.locator(".inbox-detail").boundingBox();
+      assert.ok(detail);
+      const line = Math.round(detail.y + detail.height / 2);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 340, y: line }] });
+      await menuFor(page, CALL.title).waitFor();
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 240, y: line }] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await page.waitForTimeout(300);
+      assert.equal(await page.getByRole("dialog", { name: "Snooze cards" }).count(), 0, "the slide does not snooze");
+      assert.equal(await page.getByRole("menu").count(), 1, "the menu stays open");
     } finally {
       await context.close();
+    }
+  }
+});
+
+// Drop shows only on engine cards, and the fixture inbox is not an engine inbox,
+// so this card comes from a synthetic engine snapshot served in place of the server.
+const DROPPABLE = { id: "00000000-0000-0000-0000-000000000001", title: "Send the sample terms" };
+
+async function openEngineHome(page: Page, origin: string) {
+  const card = {
+    item_id: `next_action:${DROPPABLE.id}`,
+    source_type: "next_action",
+    source_id: DROPPABLE.id,
+    source_version: "7",
+    source_state: "needs_attention",
+    title: DROPPABLE.title,
+    activity_at: "2026-11-03T12:00:00Z",
+    hold_until: null,
+    due_on: null,
+    unseen: false,
+    disposition: "inbox",
+    snoozed_until: null,
+    section: "inbox",
+    base_version: "7:0:inbox",
+    context_label: "Example Dental",
+    open_url: null,
+    kind_label: "Task",
+    merged_source_ids: [DROPPABLE.id],
+    action_id: DROPPABLE.id,
+    action_version: 7,
+    deal_id: null,
+    completed_at: null,
+    waiting_version: 0,
+    waiting_on: null,
+  };
+  await page.addInitScript(() =>
+    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ walkthroughSeen: { joe: true } })),
+  );
+  await page.route("**/auth/session", (route) =>
+    route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
+  );
+  await page.route("**/mcp", (route) => {
+    const { name } = route.request().postDataJSON().params;
+    const payload =
+      name === "read-home-inbox-v5"
+        ? {
+            ok: true,
+            schema_version: "home-inbox.v5",
+            engine_marks: true,
+            working_collapsed: true,
+            truncated: false,
+            limit: 1000,
+            items: [card],
+          }
+        : { items: [] };
+    return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
+  });
+  await page.goto(`${origin}/?mode=live`);
+  const row = homeRow(page, card.item_id);
+  await row.getByRole("button", { name: "Drop", exact: true }).waitFor();
+  return row;
+}
+
+test("the Home menu's Drop opens the same drop dialog as the card's Drop button", async (t) => {
+  const server = await startWorkerFixture({
+    assets: await appAssetSnapshot(),
+    env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
+  });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+
+  for (const width of [1440, 390]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: "reduce" });
+    try {
+      const row = await openEngineHome(page, server.origin);
+      const drop = row.getByRole("button", { name: "Drop", exact: true });
+      const dialog = page.getByRole("dialog", { name: "Drop with a reason" });
+      const dropIsFocused = () => drop.evaluate((button) => button === document.activeElement);
+
+      await drop.click();
+      const direct = await dialog.textContent();
+      await page.keyboard.press("Escape");
+      await dialog.waitFor({ state: "detached" });
+      assert.equal(await dropIsFocused(), true);
+
+      await rightClick(page, row);
+      const menu = menuFor(page, DROPPABLE.title);
+      await menu.waitFor();
+      const labels = await rowLabels(row);
+      assert.ok(labels.includes("Drop"), `the card offers Drop: ${labels}`);
+      assert.deepEqual(await menu.getByRole("menuitem").allInnerTexts(), labels);
+      await menu.getByRole("menuitem", { name: "Drop", exact: true }).click();
+      await dialog.waitFor();
+      assert.equal(await page.getByRole("menu").count(), 0);
+      assert.equal(await dialog.textContent(), direct);
+      assert.equal(await dialog.getByRole("button", { name: "Drop", exact: true }).isDisabled(), true);
+      await page.keyboard.press("Escape");
+      await dialog.waitFor({ state: "detached" });
+      assert.equal(await dropIsFocused(), true, "closing the dialog returns focus to the card's Drop button");
+    } finally {
+      await page.close();
     }
   }
 });

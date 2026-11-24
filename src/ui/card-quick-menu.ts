@@ -272,6 +272,15 @@ export function bindCardQuickMenu(root: HTMLElement, options: QuickMenuOptions):
     { signal, capture: true },
   );
 
+  // The finger that opened the menu lifts as a touch too; a card's swipe must not read it.
+  doc.addEventListener(
+    "touchend",
+    (event) => {
+      if (pressOpened) event.stopImmediatePropagation();
+    },
+    { signal, capture: true },
+  );
+
   // The click that ends a long-press opened the menu; it must not also open the deal.
   doc.addEventListener(
     "click",
