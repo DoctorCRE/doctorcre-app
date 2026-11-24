@@ -18,7 +18,7 @@ test('Documents shows a canonical email PDF and follows the panel statechart', a
   await buildArtifact({root:fileURLToPath(new URL('../',import.meta.url)),outDir:artifact,commit:'1'.repeat(40)});
   const server = await startFixtureServer({env:{DOCTORCRE_FIXTURE_ROOT:`${artifact}/site`}}); t.after(() => server.stop());
   const browser = await chromium.launch(); t.after(() => browser.close());
-  const fixture = (await readFile(new URL('../data/fixtures/fact-review.mjs',import.meta.url),'utf8')).replaceAll("'d14'", JSON.stringify(deal))
+  const fixture = (await readFile(new URL('../data/fixtures/deal-documents.mjs',import.meta.url),'utf8')).replaceAll("'d14'", JSON.stringify(deal))
     .replace(/async listDealDocuments\([^\n]+/, `async listDealDocuments(args) { const response = await fetch('/fixture-documents', {method:'POST',body:JSON.stringify(args)}); if (!response.ok) throw Object.assign(new Error('private diagnostic'),{status:response.status}); return response.json(); },`);
   const seed = JSON.parse((await readFile(new URL('../data/board-seed.json',import.meta.url),'utf8')).replaceAll('"d14"',JSON.stringify(deal)).replaceAll('"d15"',JSON.stringify(other)));
   seed.deals.push({...seed.deals.find(row => row.id === deal),id:other,name:'Demo other deal'});
@@ -29,7 +29,7 @@ test('Documents shows a canonical email PDF and follows the panel statechart', a
       const errors = []; page.on('pageerror', error => errors.push(error.message));
       await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences',JSON.stringify({theme})),theme);
       await page.route('**/data/board-seed.json',route => route.fulfill({json:seed}));
-      await page.route('**/data/fixtures/fact-review.mjs',route => route.fulfill({body:fixture,contentType:'text/javascript'}));
+      await page.route('**/data/fixtures/deal-documents.mjs',route => route.fulfill({body:fixture,contentType:'text/javascript'}));
       let mode = 'ready', held, requested;
       const requests = [];
       await page.route('**/fixture-documents',async route => {
@@ -48,6 +48,10 @@ test('Documents shows a canonical email PDF and follows the panel statechart', a
         return route.fulfill({json:result([row],true,args.cursor ? 'page-3' : 'page-2')});
       });
       await page.goto(`${server.url}/deals?deal=${deal}`);
+      const overview = page.getByRole('tabpanel',{name:'Overview',exact:true});
+      await overview.getByRole('region',{name:'Deal snapshot',exact:true}).waitFor({timeout:3000});
+      assert.equal(await overview.getByRole('region',{name:'Terms',exact:true}).count(),0);
+      assert.equal(await page.getByRole('button',{name:'Show sourced terms'}).count(),0);
       await page.getByRole('tab',{name:'Documents',exact:true}).click({timeout:3000});
       const panel = page.getByRole('region',{name:'Deal documents',exact:true});
       await panel.getByText(document.display_name,{exact:true}).waitFor();
