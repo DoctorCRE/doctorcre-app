@@ -149,7 +149,8 @@ for (const width of [390, 1440])
       await page.keyboard.press("?");
       assert.equal(await page.locator("dialog.keyboard-shortcuts").count(), 1);
       await page.keyboard.press("Escape");
-      await dialog.waitFor({ state: "detached" });
+      // The dialog leaves the accessibility tree before its close handler removes it.
+      await page.locator("dialog.keyboard-shortcuts").waitFor({ state: "detached" });
       assert.equal(await page.locator("dialog.keyboard-shortcuts").count(), 0);
       assert.equal(
         await page.locator(".quick-switcher-toggle").evaluate((node) => node === document.activeElement),
