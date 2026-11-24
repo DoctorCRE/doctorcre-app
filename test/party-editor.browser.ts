@@ -442,11 +442,10 @@ test("A saved edit gives focus to the redrawn Edit", async (t) => {
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await dialog.waitFor({ state: "hidden" });
   // The record reloads after the dialog has closed, so its redraw comes last.
-  const redrawn = page.waitForResponse((response) => response.url().includes(`/business/vendors/${vendor}`));
+  const shown = await page.locator("[data-party-edit]").elementHandle();
   answer();
-  await redrawn;
-  await page.evaluate(() => new Promise(requestAnimationFrame));
-  await page.waitForFunction(() => document.activeElement?.hasAttribute("data-party-edit"), null, { timeout: 2000 });
+  await page.waitForFunction((button) => !button?.isConnected, shown);
+  assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute("data-party-edit")), true);
 });
 
 test("A saved contact with a refused profile refreshes the record, and focus finds the new Edit", async (t) => {
