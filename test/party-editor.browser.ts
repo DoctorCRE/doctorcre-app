@@ -6,16 +6,20 @@ import { chromium } from "./browser-harness.mjs";
 import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
 import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 
-const vendor = "00000000-0000-4000-8000-000000000001";
 const added = "00000000-0000-4000-8000-000000000777";
 const other = "00000000-0000-4000-8000-000000000888";
+const firstClient = "00000000-0000-4000-8000-000000000001";
 type Sent = { method: string; path: string; body: Record<string, unknown> | null };
 
 async function setup(
   t: import("node:test").TestContext,
   path: string,
   answer: (sent: Sent) => { status: number; json: unknown },
-  { width = 1440, theme = "dark" }: { width?: number; theme?: "dark" | "light" } = {},
+  {
+    width = 1440,
+    theme = "dark",
+    engineSwitch = true,
+  }: { width?: number; theme?: "dark" | "light"; engineSwitch?: boolean } = {},
 ) {
   const server = await startFixtureServer();
   t.after(() => server.stop());
@@ -59,6 +63,17 @@ async function setup(
     const { status, json } = answer(call);
     return route.fulfill({ status, json });
   });
+  await page.route(
+    (url) => url.pathname === "/clients" || url.pathname === "/vendors",
+    async (route) => {
+      const response = await route.fetch();
+      const html = await response.text();
+      return route.fulfill({
+        response,
+        body: engineSwitch ? html.replace("<html ", "<html data-clients-vendors-from-engine ") : html,
+      });
+    },
+  );
   // A local host opts into the live client explicitly.
   await page.goto(`${server.url}${path}${path.includes("?") ? "&" : "?"}mode=live`);
   return { page, sent };
@@ -155,89 +170,59 @@ test("New client can use the existing record a partner picks", async (t) => {
   );
 });
 
-test("Edit sends only what changed, with what the partner saw, and explains a conflict", async (t) => {
-  let conflict = true;
-  const record = {
-    party_id: vendor,
-    kind: "company",
-    name: "Demo Partner 01",
-    city: "Demo City",
-    email: "hello@example.test",
-    phone: { number: "+12025550101", extension: null, shown: "+12025550101" },
-    company: null,
-    client: null,
-    vendor: {
-      party_id: vendor,
-      stage: null,
-      relationship_level: 1,
-      owner: "joe",
-      offers: null,
-      seeking: null,
-      is_target: false,
-      disposition: null,
-      disposition_reason: null,
-      categories: [],
-    },
-  };
-  const { page, sent } = await setup(t, `/vendors?record=${vendor}`, ({ method, path }) => {
-    if (method === "GET") return { status: 200, json: record };
-    if (path === `/api/engine/vendors/${vendor}` && conflict) {
-      conflict = false;
-      return { status: 409, json: { error: "version_conflict", fields: ["relationship_level"] } };
-    }
-    if (path === `/api/engine/parties/${vendor}`)
-      return {
-        status: 200,
-        json: { ...record, phone: { number: "+12025550199", extension: null, shown: "+12025550199" } },
-      };
-    return { status: 200, json: { party_id: vendor } };
-  });
-  const panel = page.locator("#recordPanel");
-  await panel.getByRole("button", { name: "Edit" }).click();
-  const dialog = page.getByRole("dialog", { name: "Edit Demo Partner 01" });
-  await dialog.getByLabel("Phone").fill("202-555-0199");
+test("New vendor fits a 560 px form at 1440, offers no relationship level, and explains a refused save plainly", async (t) => {
+  const { page, sent } = await setup(t, "/vendors", ({ path }) =>
+    path === "/api/engine/parties"
+      ? { status: 201, json: { party_id: added, name: "Example Lending" } }
+      : { status: 422, json: { error: "database_refused_the_statement", rule: "party_role_avoid_not_target" } },
+  );
+  await page.getByRole("button", { name: "New vendor" }).click();
+  const dialog = page.getByRole("dialog", { name: "New vendor" });
+  const box = await dialog.boundingBox();
+  assert.ok(box && box.width <= 560 && box.width >= 540, `form is about 560 px wide, not ${box?.width}`);
+  assert.equal(await dialog.getByLabel("Relationship level").count(), 0);
+  await dialog.getByLabel("Name").fill("Example Lending");
   await dialog.getByLabel("Banking").check();
-  await dialog.getByLabel("Relationship level").selectOption("2");
-  await dialog.getByRole("button", { name: "Save changes" }).click();
-  await dialog.getByText("Someone changed this record since you opened it.").waitFor();
-  await dialog.getByRole("button", { name: "Save changes" }).click();
-  await dialog.waitFor({ state: "hidden" });
-  const [contact, refused, role] = posts(sent);
-  assert.equal(contact?.path, `/api/engine/parties/${vendor}`);
-  assert.deepEqual(withoutKey(contact?.body ?? {}), { phone: { from: "+12025550101", to: "202-555-0199" } });
-  assert.deepEqual(withoutKey(refused?.body ?? {}), {
-    categories: { from: [], to: ["banker"] },
-    relationship_level: { from: 1, to: 2 },
-  });
-  assert.deepEqual(withoutKey(role?.body ?? {}), withoutKey(refused?.body ?? {}));
+  await dialog.getByRole("button", { name: "Save vendor" }).click();
+  await dialog.getByText("This was not saved. Try again.").waitFor();
+  const [, role] = posts(sent);
+  assert.deepEqual(withoutKey(role?.body ?? {}), { party_id: added, categories: ["banker"] });
 });
 
-test("Link to someone finds the other record and saves the link", async (t) => {
-  const { page, sent } = await setup(t, `/vendors?record=${vendor}`, ({ method, path }) =>
-    method === "GET" && path.startsWith("/api/engine/parties/search")
-      ? {
-          status: 200,
-          json: {
-            ok: true,
-            parties: [{ id: other, display_name: "Avery Example", kind: "person", city: "Demo City" }],
-          },
-        }
-      : { status: 201, json: { link_id: "00000000-0000-4000-8000-000000000999" } },
-  );
-  await page.locator("#recordPanel").getByRole("button", { name: "Link to someone" }).click();
-  const dialog = page.getByRole("dialog", { name: "Link Demo Partner 01 to someone" });
-  await dialog.getByLabel("Link", { exact: true }).selectOption("can_introduce");
-  await dialog.getByLabel("Find a person or company").fill("Avery");
-  await dialog.getByLabel("Avery Example · Demo City").check();
-  await dialog.getByLabel("Note").fill("Met at a study club");
-  await dialog.getByRole("button", { name: "Save link" }).click();
-  await dialog.waitFor({ state: "hidden" });
-  const [link] = posts(sent);
-  assert.equal(link?.path, "/api/engine/party-links");
-  assert.deepEqual(withoutKey(link?.body ?? {}), {
-    kind: "can_introduce",
-    party_id: vendor,
-    other_party_id: other,
-    note: "Met at a study club",
+test("An edit after an unanswered save clears Not confirmed yet and saves the new values", async (t) => {
+  let answered = false;
+  const { page, sent } = await setup(t, "/clients", ({ path }) => {
+    if (path === "/api/engine/parties" && !answered) {
+      answered = true;
+      return { status: 503, json: { error: "database_unavailable" } };
+    }
+    return path === "/api/engine/parties"
+      ? { status: 201, json: { party_id: added, name: "Example Dental Group" } }
+      : { status: 201, json: { party_id: added } };
   });
+  await page.getByRole("button", { name: "New client" }).click();
+  const dialog = page.getByRole("dialog", { name: "New client" });
+  await dialog.getByLabel("Name").fill("Example Dental");
+  await dialog.getByLabel("How found").selectOption("inbound");
+  await dialog.getByRole("button", { name: "Save client" }).click();
+  const status = dialog.locator("[data-status]");
+  await dialog.getByText("Not confirmed yet.").waitFor();
+  await dialog.getByLabel("Name").fill("Example Dental Group");
+  assert.equal(await status.textContent(), "");
+  await dialog.getByRole("button", { name: "Save client" }).click();
+  await page.waitForURL(`**/clients?record=${added}`);
+  const [unanswered, party] = posts(sent);
+  assert.equal(party?.body?.name, "Example Dental Group");
+  assert.notEqual(party?.body?.idempotency_key, unanswered?.body?.idempotency_key);
+});
+
+test("Without the Clients and Vendors switch there is no New client, and the record says Practice type", async (t) => {
+  const { page } = await setup(t, `/clients?record=${firstClient}`, () => ({ status: 404, json: {} }), {
+    engineSwitch: false,
+  });
+  const panel = page.locator("#recordPanel");
+  await panel.getByText("Practice type").first().waitFor();
+  await page.waitForLoadState("networkidle");
+  assert.equal(await panel.getByText("Vertical", { exact: true }).count(), 0);
+  assert.equal(await page.locator(".party-new").count(), 0);
 });
