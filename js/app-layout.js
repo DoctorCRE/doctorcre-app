@@ -91,7 +91,7 @@ export function mountAppLayout(root, host, pathname) {
   placeTabs();
   phone.addEventListener('change', placeTabs);
   const dealBoard = pathname === '/deals' && root.body.classList.contains('dealroom-page');
-  let sidebar = false, today = !deferToday, drawer = null;
+  let sidebar = false, today = !deferToday && !dealBoard, drawer = null;
   let drawerOpener = null;
   const background = new Map();
   try {

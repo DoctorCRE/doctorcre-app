@@ -101,6 +101,7 @@ async function open(
   await page.addInitScript((theme) => {
     localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
     localStorage.setItem("doctorcre:sidebar:/invoices", "open");
+    localStorage.setItem("doctorcre:today:/deals", "open");
   }, theme);
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
