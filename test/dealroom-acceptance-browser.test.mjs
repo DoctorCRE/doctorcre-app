@@ -2667,7 +2667,7 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   assert.equal(earlier.length, 5);
   assert.match(earlier[0], /Deal kind: Lease.*Deal reason: Renewal/s);
   assert.match(earlier[1], /Joe.*Jan 5, 2025.*6:00 PM.*Prepared a document.*Example lease <draft>.*Fields filled.*0.*Fields still needed.*2/s);
-  assert.match(earlier[2], /Automatically.*Jan 5, 2025.*6:00 PM.*Checked the address.*Result: Nothing found.*Feb 3, 2025/s);
+  assert.match(earlier[2], /Written by the assistant.*Jan 5, 2025.*6:00 PM.*Checked the address.*Result: Nothing found.*Feb 3, 2025/s);
   assert.match(earlier[3], /Dell.*Jan 4, 2025.*6:00 PM.*Changed the next step date.*Next step date cleared.*Jan 6, 2025/s);
   assert.doesNotMatch(earlier.join(' '), /2025-01-|next_date|set-next-action|record-finding|expires_on|\[object Object\]/);
   assert.equal(await oldHistory.locator('a, button, input, select, textarea, [contenteditable]').count(), 0);
@@ -2683,11 +2683,11 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
     times.map(time => time.dateTime)), ['2025-01-03T10:00:00.000004Z', '2025-01-03T10:00:00.000002Z'],
     'Both notes remain visible when the event supplies no activity ID');
   assert.equal(contents.length, 9 + stepChanges.length + (dates.length - 1) + dealChanges.length);
-  assert.match(contents[0], /Automatically.*Nov 17.*7:00 PM.*Legal/);
+  assert.match(contents[0], /Written by the assistant.*Nov 17.*7:00 PM.*Legal/);
   assert.match(contents[1], /Dell.*Nov 17.*2:00 PM.*Tour plans confirmed/);
   assert.match(contents[2], /Dell.*Nov 17.*1:00 PM.*Due diligence.*Due Nov 19/);
   assert.match(contents[3], /Joe.*Check the floor plan$/);
-  assert.match(contents[5], /Automatically.*Nov 16.*Example plan\.pdf/);
+  assert.match(contents[5], /Mail filing.*Nov 16.*Example plan\.pdf/);
   const descriptions = await rows.locator('p').allTextContents();
   for (const [description, , state] of stepChanges) {
     assert.ok(descriptions.includes(`${description} · ${state} · Due Nov 19, 2026`), `Next step should say ${state}`);

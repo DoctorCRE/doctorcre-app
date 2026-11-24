@@ -181,7 +181,7 @@ function Results({ view, filters, set }: { view: Extract<View, { kind: "ready" }
   const heading = (
     <p>
       <strong>
-        {market ? "" : "All markets · "}
+        {market ? "" : "Compared with all markets · "}
         {as_of ? `Terms as of ${inWords(as_of)}` : "All recorded history"}
       </strong>
     </p>

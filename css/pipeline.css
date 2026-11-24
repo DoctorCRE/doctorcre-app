@@ -67,9 +67,18 @@
 .shell { width: 100%; max-width: none; padding-inline: clamp(var(--space-3), 1.5vw, var(--space-6)); }
 .board-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-4); }
 .pipeline-layout { display: block; }
-.kanban { --phase-columns: repeat(7, minmax(min-content, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: var(--phase-columns); gap: var(--space-2); align-items: start; }
-.kanban:has(.kanban-column) { max-height: 65dvh; }
+.kanban { --phase-columns: minmax(max-content, 1fr) repeat(6, minmax(7.5rem, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: var(--phase-columns); gap: var(--space-2); align-items: start; }
+/* The first phase is as wide as "Prospective Client" and its count; its cards never widen it. */
+.kanban-column[data-column="pending"] > :not(h3) { contain: inline-size; }
+#pageTitle { font-size: var(--font-size-3); }
+#boardLive { margin-block: var(--space-2); }
+/* Desktop: the board fills the screen below the heading and each column scrolls inside itself (owner, 2026-11-24). */
 @media (min-width: 761px) {
+  body:not(.workspace-open) .app-layout-center:has(#kanban:not([hidden])) { display: flex; flex-direction: column; height: 100dvh; }
+  body:not(.workspace-open) :is(#appMainSlot:has(#kanban:not([hidden])), #appMainSlot > .shell:has(#kanban:not([hidden])), .pipeline-layout:has(> #kanban:not([hidden]))) { display: flex; flex: 1; flex-direction: column; align-items: stretch; min-height: 0; }
+  .kanban { flex: 1; min-width: 0; min-height: 20rem; grid-template-rows: minmax(min(100%, 16rem), 1fr); overflow-y: auto; }
+  .kanban-column { max-height: 100%; overflow-y: auto; scrollbar-width: thin; }
+  .dealroom-heading { margin-bottom: 0; }
   .kanban:has(#prospectsLane):not(:has(.deal-list)) { grid-template-columns: minmax(96px, 1fr) var(--phase-columns); }
 }
 .kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); }
@@ -95,7 +104,7 @@
 .prospect-management { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .prospect-dialog form label { display: grid; gap: var(--space-2); }
 .prospect-dialog li p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.kanban-column { --phase: var(--fg-quiet); display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; padding: 0 var(--space-1) var(--space-1); border: 0; border-radius: var(--radius-3); background: color-mix(in srgb, var(--surface-1) 60%, var(--ground)); overflow-wrap: anywhere; }
+.kanban-column { --phase: var(--fg-quiet); display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; padding: 0 var(--space-1) var(--space-1); border: 0; border-radius: var(--radius-3); background: color-mix(in srgb, var(--surface-1) 60%, var(--ground)); overflow-wrap: break-word; }
 .kanban-column[data-column="research"] { --phase: var(--status-info); }
 .kanban-column[data-column="site_selection"] { --phase: var(--accent); }
 .kanban-column[data-column="negotiation"] { --phase: var(--status-warn); }
@@ -109,8 +118,8 @@
 .kanban-column[data-column="pending"] > h3 button::before { border-style: dashed; }
 .kanban-column[data-column="closing"] > h3 button::before { background: var(--phase); }
 /* The phase ring needs room the name and count don't have on narrower screens. */
-@media (min-width: 1400px) { .kanban { --phase-ring: block; } }
-.kanban-column > h3 button > span { min-width: 0; }
+@media (min-width: 1680px) { .kanban { --phase-ring: block; } }
+.kanban-column > h3 button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kanban-column > h3 small { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .kanban-card.work-card--tile .work-card-title { font-size: 14px; font-weight: 500; line-height: 1.35; }
 .kanban-card.work-card--tile { gap: 0; padding: 0 var(--space-2) var(--space-3); border-radius: var(--radius-2); background: var(--surface-2); box-shadow: 0 1px 2px rgb(0 0 0 / 6%); }
@@ -213,6 +222,8 @@
 .deal-step-editor summary, .deal-update-form summary { cursor:pointer; min-height:var(--touch); line-height:var(--touch); }
 .deal-document-upload label { display:grid; gap:var(--space-1); min-width:0; }
 .deal-document-upload select { max-width:100%; width:100%; }
+.deal-document-upload input[type="file"] { min-height:var(--touch); padding:0; border:0; background:transparent; color:var(--fg-muted); font:inherit; font-size:var(--font-size-1); }
+.deal-document-upload input[type="file"]::file-selector-button { min-height:var(--touch); margin-inline-end:var(--space-3); padding:var(--space-2) var(--space-4); border:var(--hairline-width) solid var(--hairline-strong); border-radius:var(--radius-2); background:var(--surface-1); color:var(--fg); font-size:var(--font-size-1); font-weight:var(--font-weight-strong); cursor:pointer; }
 .deal-next-step-fields { display:grid; align-items:start; gap:var(--space-2); }
 .deal-update-form button { min-height:44px; justify-self:start; }
 .deal-update-form [role="status"]:empty { display:none; }
@@ -244,8 +255,14 @@
 .app-section-tabs a { display:flex; align-items:center; min-height:var(--touch); padding:var(--space-2) 0; color:var(--fg-muted); text-decoration:none; border-bottom:2px solid transparent; font-weight:var(--font-weight-strong); }
 .app-section-tabs a[aria-current=page] { color:var(--fg); border-bottom-color:var(--fg); }
 @media(max-width:760px) {
- .kanban { grid-template-columns: minmax(0, 1fr); }
+ .kanban { grid-template-columns: minmax(0, 1fr); overflow: visible; }
+ /* The wrapped Deals toolbar is three rows on a phone; it scrolls away so phase names can stay at the top. */
+ .dealroom-page .app-layout-tabbar:has(.board-toolbar) { position: static; }
+ .prospect-add input { flex-basis: 5rem; }
  .dealroom-page .kanban-column[data-hide-empty="true"] { display:none; }
+ /* Phone: prospects follow the deal phases (owner, 2026-11-24). */
+ .kanban:not(:has(.deal-list)) > #prospectsLane { order: 1; }
+ .kanban > :is(.stages-hidden, .parked-lane) { order: 2; }
  .stages-hidden { display:flex; grid-column:1/-1; align-items:center; flex-wrap:wrap; gap:var(--space-2); margin:0; color:var(--fg-muted); font-size:var(--font-size-1); }
  .stages-hidden button { min-height:var(--touch); padding:0 var(--space-3); border:0; background:transparent; color:var(--fg); font:inherit; text-decoration:underline; text-underline-offset:4px; cursor:pointer; }
  .dealroom-heading { gap:var(--space-2); }
@@ -279,16 +296,17 @@ button.client-portal-link:disabled { cursor: wait; }
 .deal-workspace { width: 100%; max-width: none; min-width: 0; overflow-wrap: anywhere; }
 .deal-workspace[hidden], .workspace-open #main { display: none; }
 .workspace-open #appTabsSlot .board-toolbar, .workspace-open #appSidebarSlot > section { display: none; }
-.workspace-header { position: sticky; top: var(--tabbar-height); z-index: 70; background: var(--ground); border-bottom: 1px solid var(--hairline); padding-block: var(--space-3) 0; }
-.workspace-heading { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: var(--space-2); }
+/* Outranks deal-timeline.css's `.deal-detail > header`, which would pin it under the tab bar. */
+.deal-detail > .workspace-header { position: sticky; top: var(--tabbar-height); z-index: 70; padding: var(--space-2) var(--space-3) 0; background: var(--ground); border-bottom: 1px solid var(--hairline); }
+.workspace-heading { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: var(--space-3); }
 .workspace-heading > button { justify-self: start; }
-.workspace-heading h1 { grid-column: 1 / -1; margin: 0; font-size: var(--font-size-4); }
+.workspace-heading h1 { margin: 0; font-size: var(--font-size-3); }
 .workspace-facts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: var(--space-3); margin-block: var(--space-3); }
 .workspace-facts dt { color: var(--fg-muted); font-size: var(--font-size-1); }
 .workspace-facts dd { margin: 0; }
 .workspace-facts .workspace-critical-date { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); }
-#workspaceTabs { display: flex; overflow-x: auto; gap: var(--space-2); }
-.workspace-tab { flex: none; min-height: 44px; min-width: 44px; padding: var(--space-3); color: var(--fg-muted); background: transparent; border: 0; border-bottom: 3px solid transparent; font: inherit; white-space: nowrap; cursor: pointer; }
+#workspaceTabs { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.workspace-tab { flex: none; min-height: 44px; min-width: 44px; padding: var(--space-2); color: var(--fg-muted); background: transparent; border: 0; border-bottom: 3px solid transparent; font: inherit; white-space: nowrap; cursor: pointer; }
 .workspace-tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
 .workspace-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .deal-workspace #panelBody { padding-block: var(--space-4); }
@@ -306,9 +324,9 @@ button.client-portal-link:disabled { cursor: wait; }
 .workspace-events li { border-bottom: 1px solid var(--hairline); padding-block: var(--space-4); }
 .workspace-events small { margin-inline-start: var(--space-3); color: var(--fg-muted); }
 @media(max-width:650px) {
-  .workspace-header { position: static; }
+  .deal-detail > .workspace-header { top: 0; }
   .workspace-heading { gap: var(--space-2); }
-  .workspace-heading h1 { width: 100%; font-size: var(--font-size-3); }
+  .workspace-heading h1 { grid-column: 1 / -1; }
   .workspace-facts { grid-template-columns: auto auto minmax(0, 1fr); gap: 0 var(--space-2); margin-block: var(--space-1); font-size: var(--font-size-1); }
   .workspace-facts div { min-width: 0; white-space: nowrap; }
   .workspace-facts .workspace-client { grid-column: 1 / -1; }
@@ -319,7 +337,7 @@ button.client-portal-link:disabled { cursor: wait; }
   .workspace-facts dd { display: inline; }
   .workspace-facts .workspace-client-labeled { display: flex; align-items: baseline; gap: var(--space-1); }
   .workspace-facts .workspace-client-labeled dt { position: static; width: auto; height: auto; clip-path: none; }
-  #workspaceTabs { flex-wrap: wrap; gap: 0; overflow: visible; }
+  #workspaceTabs { gap: 0; }
   .workspace-tab { max-inline-size: 40%; padding: var(--space-1); font-size: var(--font-size-1); white-space: normal; }
   .workspace-events li { padding-block: var(--space-2); }
 }
@@ -365,7 +383,7 @@ button.client-portal-link:disabled { cursor: wait; }
 .tour-editor .tour-fields { max-inline-size: 42rem; }
 html:has(#workspace-tours:not([hidden]) .tour-editor) { scroll-padding-bottom: var(--layout-bottom, 0px); }
 @media (max-width: 760px), (max-height: 600px) {
-  .deal-workspace:has(#workspace-tours:not([hidden]) .tour-editor) .workspace-header { position: static; }
+  .deal-workspace:has(#workspace-tours:not([hidden]) .tour-editor) > .workspace-header { position: static; }
 }
 .tour-editor input[type="date"], .tour-editor input[type="time"] { max-inline-size: 14rem; }
 .tour-editor h3 { margin: 0; font-size: var(--font-size-2); }
