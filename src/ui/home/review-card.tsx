@@ -93,6 +93,10 @@ function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; hre
   );
 }
 
+function recipientFields(form: HTMLFormElement) {
+  const fields = new FormData(form);
+  return { to: [String(fields.get("to"))], cc: [String(fields.get("cc"))] };
+}
 const writesDraftText = (verb: Operation["verb"]) => verb === "edit-email-draft" || verb === "submit-email-draft";
 
 type Props<Item extends ReviewItem> = {
@@ -377,8 +381,10 @@ export function ReviewCard<Item extends ReviewItem>({
         subject: draft.subject,
         body: draft.body,
         ...(op.verb === "submit-email-draft" &&
-          review.kind === "reply_draft" &&
-          review.attachments && { document_ids: review.attachments.map((row) => row.id) }),
+          review.kind === "reply_draft" && {
+            ...(review.attachments && { document_ids: review.attachments.map((row) => row.id) }),
+            ...(review.correctRecipients && recipientFields(form.current)),
+          }),
       };
     if (op.verb === "dismiss-email-proposal") {
       const explanation = dropReason ?? reason.trim();
@@ -632,7 +638,18 @@ export function ReviewCard<Item extends ReviewItem>({
             {proposalLed && !engineReply && suggestionFields}
             {review.kind === "reply_draft" && draft && (
               <>
-                {review.addresses ? (
+                {review.correctRecipients && review.recipients ? (
+                  <>
+                    <label>
+                      To
+                      <input name="to" type="email" defaultValue={review.recipients.to[0]} maxLength={320} required />
+                    </label>
+                    <label>
+                      CC
+                      <input name="cc" type="email" defaultValue={review.recipients.cc[0]} maxLength={320} required />
+                    </label>
+                  </>
+                ) : review.addresses ? (
                   <>
                     <p>To: {review.addresses.to || "Unavailable"}</p>
                     <p>CC: {review.addresses.cc || "Unavailable"}</p>
