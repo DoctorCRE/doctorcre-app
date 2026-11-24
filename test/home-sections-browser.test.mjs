@@ -1118,6 +1118,12 @@ async function dashboard(t, width, theme, timezone) {
         : item);
       result = { next_step_id: args.id, status: 'done', change_id: 2 };
     }
+    if (name === 'reopen-engine-home-step') {
+      state.items = state.items.map(item => item.action_id === args.id
+        ? { ...item, section: 'inbox', source_state: 'needs_attention', completed_at: null, action_version: 2 }
+        : item);
+      result = { next_step_id: args.id, status: 'open', change_id: 3 };
+    }
     return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify(result) }] } } });
   });
   return { page, open, state };
@@ -1543,8 +1549,9 @@ for (const width of [390, 1440]) test(`Home keeps other cards usable while a rev
   const { page, open, state } = await dashboard(t, width, 'light');
   const draft = draftCard();
   const other = step(30, 'Call the practice manager', { card_id: 'other' });
+  const swiped = step(31, 'Ask the surveyor for pricing', { card_id: 'swiped' });
   state.dashboard = true;
-  state.items = [draft, other];
+  state.items = [draft, other, swiped];
   await open('/?mode=live');
   await page.getByRole('link', { name: draft.title }).click();
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
@@ -1560,6 +1567,33 @@ for (const width of [390, 1440]) test(`Home keeps other cards usable while a rev
   await button(other.title, 'Snooze').click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   await page.getByRole('status').filter({ hasText: `Snoozed: ${other.title}.` }).waitFor();
+  await card(swiped.title).evaluate(node => {
+    const touch = x => new Touch({ identifier: 1, target: node, clientX: x, clientY: 100 });
+    node.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [touch(300)] }));
+    node.dispatchEvent(new TouchEvent('touchend', { bubbles: true, changedTouches: [touch(180)] }));
+  });
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('status').filter({ hasText: `Snoozed: ${swiped.title}.` }).waitFor();
+  assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
+});
+
+test('Inbox keeps Undo on another finished card usable while a review is open', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  const finished = step(32, 'Send the sample brochure', {
+    section: 'done', source_state: 'done', completed_at: now.toISOString(), undo_completion: true,
+  });
+  state.items = [draft, finished];
+  await open('/inbox?mode=live');
+  await page.getByRole('button', { name: 'Review reply', exact: true }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  await page.locator('summary').filter({ hasText: 'Done' }).click();
+  const undo = page.locator(`[data-inbox-row="${finished.item_id}"]`).getByRole('button', { name: 'Undo', exact: true });
+  assert.equal(await undo.isDisabled(), false, 'Undo stays usable on another card');
+  await undo.click();
+  await page.locator('.toast').getByText('Undone.', { exact: true }).waitFor();
+  await page.locator(`section[aria-label="Inbox"] [data-inbox-row="${finished.item_id}"]`).waitFor();
   assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
 });
 

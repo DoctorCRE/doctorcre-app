@@ -761,7 +761,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             Math.abs(touch.clientY - start.y) > 45 ||
             Math.abs(touch.clientX - start.x) < 90 ||
             busy ||
-            reviewing
+            open
           )
             return;
           if (touch.clientX > start.x && wakeable) act(markAction, [item]);
@@ -903,7 +903,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             {reopenable && (
               <button
                 type="button"
-                disabled={busy || !!pending || !!reviewing}
+                disabled={busy || !!pending || open}
                 onClick={() => act("reopen", [item], undefined, true)}
               >
                 Undo
