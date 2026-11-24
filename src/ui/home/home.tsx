@@ -780,7 +780,6 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           <h3
             className={presentation || open || item_id === item.item_id ? "inbox-title-expanded" : undefined}
             tabIndex={canOpen ? undefined : -1}
-            data-shortcut-open={home && !canOpen ? "" : undefined}
           >
             {canOpen ? (
               <Link
