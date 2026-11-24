@@ -82,3 +82,23 @@ test("Former Page tools controls sit in the toolbar row", async (t) => {
     assert.ok(await page.locator(`#appToolsSlot ${control}`).isVisible(), `${path} keeps ${control}`);
   }
 });
+
+test("Vendors says Nothing loaded once when its read fails", async (t) => {
+  const server = await (await createQaServer()).start();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await page.request.post(`${server.origin}/api/test/seed`, {
+    data: { namespace: "shell-vendors-down", viewer: "joe", reset: true },
+  });
+  await page.route(`${server.origin}/api/v1/business/vendors**`, (route) =>
+    route.fulfill({
+      status: 503,
+      json: { ok: false, error: "temporarily_unavailable", code: "temporarily_unavailable" },
+    }),
+  );
+  await page.goto(`${server.origin}/vendors`);
+  await page.getByText("This did not load", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Nothing loaded", { exact: true }).count(), 1);
+});

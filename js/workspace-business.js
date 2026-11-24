@@ -585,7 +585,8 @@ function renderList() {
     const signedOut = phase === "unauthorized";
     setHealth(signedOut ? "unauthorized" : "unavailable");
     if (dom.summary) dom.summary.textContent = signedOut ? "Signed out" : "Nothing loaded";
-    if (dom.observedAt) dom.observedAt.textContent = signedOut ? "Session ended" : "Nothing loaded";
+    // The result summary already says "Nothing loaded"; the toolbar stamp stays blank instead of repeating it.
+    if (dom.observedAt) dom.observedAt.textContent = signedOut ? "Session ended" : "";
     if (dom.source) dom.source.textContent = signedOut ? "Signed out" : "Nothing loaded";
     if (dom.pager) dom.pager.hidden = true;
     renderNotices([]);

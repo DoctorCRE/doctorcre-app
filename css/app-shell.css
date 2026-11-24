@@ -126,7 +126,7 @@ body .shell, body .workspace-shell, body .system-shell { max-width: none; width:
 .as-of, .observed, .source, .event-source { font-size: var(--font-size-1); }
 
 /* Page controls fill slots without changing owners. */
-:root { --layout-rail: 64px; --layout-bottom: 0px; }
+:root { --layout-rail: 64px; --layout-bottom: 0px; --topbar-height: 48px; }
 html, .app-layout-main { scroll-padding-bottom: 150px; }
 body.has-app-layout { margin: 0; padding: 0 0 var(--layout-bottom) var(--layout-rail) !important; overflow-x: clip; background: var(--ground); color: var(--fg); font-family: var(--font-text); }
 #appShell { position: fixed !important; inset: 8px auto calc(var(--layout-bottom) + 8px) 6px; width: calc(var(--layout-rail) - 12px); min-height: 0; background: transparent; z-index: 1100; }
@@ -173,7 +173,7 @@ body.has-app-layout { margin: 0; padding: 0 0 var(--layout-bottom) var(--layout-
 .app-layout-sidebar-head button:active, :is(#appSidebarToggle, #appTodayToggle):active { transform: scale(var(--press-scale)); }
 .app-layout-center { min-width: 0; max-width: 100%; position: relative; }
 /* One 48px bar: workspace toggle and page title on the left, app controls and Today on the right. */
-.app-layout-topbar { display: flex; align-items: center; gap: var(--space-1); height: 48px; box-sizing: border-box; padding-inline: var(--space-2); background: var(--ground); border-bottom: var(--hairline-width) solid var(--hairline); }
+.app-layout-topbar { display: flex; align-items: center; gap: var(--space-1); height: var(--topbar-height); box-sizing: border-box; padding-inline: var(--space-2); background: var(--ground); border-bottom: var(--hairline-width) solid var(--hairline); }
 .app-layout-topbar .app-layout-title { flex: 0 1 auto; min-width: 0; margin: 0 var(--space-2); overflow: hidden; color: var(--fg); font: var(--font-weight-strong) var(--font-size-2)/1.2 var(--font-text); letter-spacing: 0; white-space: nowrap; text-overflow: ellipsis; }
 .app-layout-topbar :focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .app-layout-tabbar { position: sticky; top: 0; z-index: 80; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); background: var(--ground); border-bottom: var(--hairline-width) solid var(--hairline); }

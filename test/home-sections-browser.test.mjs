@@ -1816,7 +1816,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
     assert.ok(first.width > 1.8 * second.width, 'Reminders takes the wide column');
     assert.equal(third.x, second.x);
     assert.ok(third.y >= second.y + second.height, 'the other tiles stack beside Reminders');
-    assert.equal(await page.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight), true, 'the page itself does not scroll');
+    const bar = await page.locator('.app-layout-topbar').boundingBox();
+    assert.ok(second.y >= bar.y + bar.height, 'the top bar never covers the In motion and waiting title');
+    assert.equal(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   }
   await reminders.getByRole('heading', { name: 'Late', exact: true }).waitFor();
   await reminders.getByText(/3 days late/).waitFor();
@@ -1874,11 +1876,12 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['
     await mkdir(process.env.HOME_GRID_SCREENSHOTS, { recursive: true });
     await page.screenshot({ path: join(process.env.HOME_GRID_SCREENSHOTS, `home-alone-${width}x${height}-${theme}.png`) });
   }
-  const [tile, grid, band] = await Promise.all([reminders, page.locator('.home-sections'), page.locator('.app-layout-tabbar')]
+  const [tile, grid, band] = await Promise.all([reminders, page.locator('.home-sections'), page.locator('.app-layout-topbar')]
     .map(node => node.boundingBox()));
   assert.equal(tile.width, grid.width, 'a lone Reminders tile fills the row');
   assert.ok(band.y + band.height <= 60, 'the page controls take one compact band');
-  assert.deepEqual(await page.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight), true, 'the page itself does not scroll');
+  assert.ok(tile.y >= band.y + band.height, 'the top bar never covers the tile title');
+  assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   assert.deepEqual(await reminders.evaluate(node => node.scrollHeight > node.clientHeight), true, 'the long list scrolls inside its tile');
   await reminders.getByRole('heading', { name: /^Reminders/ }).waitFor();
 });
@@ -2349,8 +2352,11 @@ for (const save of ['single', 'bulk', 'review']) test(`Home keeps grouped cards 
   await unchanged.waitFor();
 });
 
-for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home polls in place at ${width}px in ${theme}`, async t => {
+for (const width of [390, 900, 1440]) for (const theme of ['light', 'dark']) test(`Home polls in place at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
+  // Safari has no scroll anchoring, so Home keeps the page's place itself.
+  if (width < 1000) await page.addInitScript(() => addEventListener('DOMContentLoaded', () =>
+    document.head.append(Object.assign(document.createElement('style'), { textContent: '* { overflow-anchor: none !important; }' }))));
   const draft = draftCard();
   const tasks = Array.from({ length: 10 }, (_, index) => ({
     ...step(21 + index, `Call about sample suite ${index + 1}`), card_id: `suite:${index}`,
