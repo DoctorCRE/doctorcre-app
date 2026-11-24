@@ -241,9 +241,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
         await expect(page.locator('#panelEvidence')).toContainText('Demo newer email');
         expect(evidenceRequests).toEqual([]);
         await expect(page.locator('.workspace-note p')).toHaveText(['Demo recorded deal note', 'Demo earlier note']);
-        await expect(page.locator('.workspace-note time')).toHaveText(['Oct 2, 7:00 AM CDT', 'Oct 1, 7:00 AM CDT']);
-        await expect(page.locator('[data-evidence-group=threads] time')).toHaveText(['Oct 2, 10:30 AM CDT', 'Sep 30, 7:00 AM CDT']);
-        await expect(page.locator('[data-evidence-group=meetings] time')).toHaveText(['Oct 3, 7:00 AM CDT', 'Oct 1, 7:00 AM CDT']);
+        await expect(page.locator('.workspace-note time')).toHaveText(['Oct 2, 7:00 AM Central', 'Oct 1, 7:00 AM Central']);
+        await expect(page.locator('[data-evidence-group=threads] time')).toHaveText(['Oct 2, 10:30 AM Central', 'Sep 30, 7:00 AM Central']);
+        await expect(page.locator('[data-evidence-group=meetings] time')).toHaveText(['Oct 3, 7:00 AM Central', 'Oct 1, 7:00 AM Central']);
         await expect(page.locator('[data-evidence-group=meetings] summary span')).toHaveText(['Demo discovery meeting', 'Demo earlier meeting']);
       }
       await page.evaluate(() => scrollTo(0, 0));
