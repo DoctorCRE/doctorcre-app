@@ -101,6 +101,29 @@ const phaseLines = (page: Page) =>
       ]),
     );
 
+const todayState = (page: Page) => page.locator(".app-layout").getAttribute("data-today");
+const sidewaysFit = (page: Page) =>
+  page.evaluate(() => ({
+    board:
+      (document.getElementById("kanban")?.scrollWidth ?? 0) <= (document.getElementById("kanban")?.clientWidth ?? 0),
+    page: document.documentElement.scrollWidth <= innerWidth,
+  }));
+
+test("an open Today panel stays open and the board scrolls sideways inside itself", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  t.after(() => context.close());
+  await context.addInitScript(() => localStorage.setItem("doctorcre:today:/deals", "open"));
+  const page = await context.newPage();
+  const server = await openBoard(page);
+  t.after(() => server.close());
+  assert.equal(await todayState(page), "open", "the partner's own choice is remembered");
+  assert.equal((await sidewaysFit(page)).page, true, "the page itself never scrolls sideways");
+  await page.locator("#appTodayToggle").click();
+  assert.equal(await page.evaluate(() => localStorage.getItem("doctorcre:today:/deals")), "closed");
+});
+
 test("the Deals board keeps deals in reach on a phone and fits one screen on laptops", async (t) => {
   const browser = await chromium.launch();
   t.after(() => browser.close());
@@ -130,6 +153,15 @@ test("the Deals board keeps deals in reach on a phone and fits one screen on lap
           "each phase name and count sit on one line",
         );
         if (width > 760) {
+          assert.equal(await todayState(page), "closed", "Today starts collapsed on the Deals board");
+          assert.deepEqual(await sidewaysFit(page), { board: true, page: true }, "nothing scrolls sideways");
+          assert.equal(
+            await page
+              .locator('.kanban-column[data-column="pending"] > h3 button > span')
+              .evaluate((name) => name.scrollWidth <= name.clientWidth),
+            true,
+            "Prospective Client shows in full",
+          );
           assert.equal(
             await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight),
             true,
@@ -146,6 +178,13 @@ test("the Deals board keeps deals in reach on a phone and fits one screen on lap
           return;
         }
 
+        const lanes = await page
+          .locator(".kanban > .kanban-column")
+          .evaluateAll((lanes) =>
+            lanes.map((lane) => [lane.id || lane.dataset.column, lane.getBoundingClientRect().top]),
+          );
+        const sorted = [...lanes].sort((a, b) => Number(a[1]) - Number(b[1])).map(([name]) => name);
+        assert.equal(sorted.at(-1), "prospectsLane", "the Prospects lane comes after the deal phases");
         const board = await page
           .locator("#kanban")
           .evaluate((board) => ({ scrolls: board.scrollHeight > board.clientHeight + 1 }));

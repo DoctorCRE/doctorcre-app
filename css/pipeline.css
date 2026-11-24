@@ -67,7 +67,9 @@
 .shell { width: 100%; max-width: none; padding-inline: clamp(var(--space-3), 1.5vw, var(--space-6)); }
 .board-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-4); }
 .pipeline-layout { display: block; }
-.kanban { --phase-columns: repeat(7, minmax(7.5rem, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: var(--phase-columns); gap: var(--space-2); align-items: start; }
+.kanban { --phase-columns: minmax(max-content, 1fr) repeat(6, minmax(7.5rem, 1fr)); grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: var(--phase-columns); gap: var(--space-2); align-items: start; }
+/* The first phase is as wide as "Prospective Client" and its count; its cards never widen it. */
+.kanban-column[data-column="pending"] > :not(h3) { contain: inline-size; }
 #pageTitle { font-size: var(--font-size-3); }
 #boardLive { margin-block: var(--space-2); }
 /* Desktop: the board fills the screen below the heading and each column scrolls inside itself (owner, 2026-11-24). */
@@ -255,6 +257,9 @@
  .dealroom-page .app-layout-tabbar:has(.board-toolbar) { position: static; }
  .prospect-add input { flex-basis: 5rem; }
  .dealroom-page .kanban-column[data-hide-empty="true"] { display:none; }
+ /* Phone: prospects follow the deal phases (owner, 2026-11-24). */
+ .kanban:not(:has(.deal-list)) > #prospectsLane { order: 1; }
+ .kanban > :is(.stages-hidden, .parked-lane) { order: 2; }
  .stages-hidden { display:flex; grid-column:1/-1; align-items:center; flex-wrap:wrap; gap:var(--space-2); margin:0; color:var(--fg-muted); font-size:var(--font-size-1); }
  .stages-hidden button { min-height:var(--touch); padding:0 var(--space-3); border:0; background:transparent; color:var(--fg); font:inherit; text-decoration:underline; text-underline-offset:4px; cursor:pointer; }
  .dealroom-heading { gap:var(--space-2); }

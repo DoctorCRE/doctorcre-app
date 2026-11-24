@@ -89,7 +89,7 @@ export function mountAppLayout(root, host, pathname) {
   const phone = win.matchMedia(pathname === "/leads" ? "(max-width:1023px)" : TOUCH_LAYOUT);
   const dealBoard = pathname === '/deals' && root.body.classList.contains('dealroom-page');
   const itineraryPage = Boolean(root.getElementById('accepted-itinerary'));
-  let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory, today = !deferToday, drawer = null;
+  let sidebar = !engineToday && !boardPage && !itineraryPage && !vendorDirectory, today = !deferToday && !dealBoard, drawer = null;
   let drawerOpener = null;
   const background = new Map();
   try {

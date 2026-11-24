@@ -128,7 +128,7 @@ test('deal review prioritizes cards, page tabs and Add deal in both themes and w
   assert.ok(columns[0].cards>0 || width>760,'the first phone stage contains active deals');
   if(width===1440){
    assert.equal(new Set(columns.map(n=>Math.round(n.top))).size,1,'desktop stages share one row');
-   assert.equal(await page.locator('#appTodayToggle').getAttribute('aria-expanded'),'true','look-ahead defaults open on Deals');
+   assert.equal(await page.locator('#appTodayToggle').getAttribute('aria-expanded'),'false','Today starts collapsed on Deals');
    assert.ok((await page.locator('#kanban').boundingBox()).width>790,'board retains desktop width beside look-ahead');
   }
   assert.equal(await page.getByRole('heading',{level:1}).count(),1);
@@ -162,6 +162,7 @@ test('deal review prioritizes cards, page tabs and Add deal in both themes and w
 
 test('all seven phases fit in one row beside Today at 1440px', async t => {
  const {page}=await open(t,1440,{showDetail:false});
+ await page.locator('#appTodayToggle').click();
  await page.locator('#appTodayTitle').waitFor();
  const headings=page.locator('#kanban .kanban-column > h3');
  assert.deepEqual(await headings.getByRole('button').evaluateAll(buttons=>buttons.map(button=>button.getAttribute('aria-label'))),[

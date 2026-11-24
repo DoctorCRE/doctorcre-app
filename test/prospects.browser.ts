@@ -353,6 +353,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       if (width === 1440) {
         await page.setViewportSize({ width: 1280, height: 900 });
         const kanban = page.locator("#kanban");
+        await page.locator("#appTodayToggle").click();
         assert.equal(await page.locator("#appToday").isVisible(), true);
         const columnsKeepWidth = () =>
           kanban
