@@ -1247,7 +1247,7 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
     if (website?.[1] && (shareOrigin?.protocol !== 'https:' || shareOrigin.href !== `${shareOrigin.origin}/`))
       return json({ error: 'client_website_origin_unconfigured' }, 503);
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
-    const dealRead = pathname === '/api/engine/calendar/critical-dates' || pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
+    const dealRead = ['/api/engine/calendar/critical-dates', '/api/engine/calendar/meetings'].includes(pathname) || pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
     if ((weeklyReview && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
         || ((dealRead || pathname.startsWith('/api/engine/documents/')) && !await routeToEngine(env, DEALS)))
       return json({ error: 'not_found' }, 404);

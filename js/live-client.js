@@ -325,6 +325,14 @@ export function createLiveClient(opts = {}) {
       return data;
     },
 
+    async getCalendarMeetings({ from, to }) {
+      const response = await fetchReadImpl(`/api/engine/calendar/meetings?${new URLSearchParams({ from, to })}`);
+      if (!response.ok) throw Object.assign(new Error('Meetings could not be read.'), { status: response.status });
+      const data = await response.json();
+      if (data?.schema_version !== 'calendar-meetings.v1' || !Array.isArray(data.meetings)) throw new Error('Meetings could not be read.');
+      return data;
+    },
+
     async getBoard(options = {}) {
       const board = await rpc('deal-room-board', {
         workspace: options.workspace || 'all',
