@@ -5,7 +5,6 @@ import { createPageBudget } from './read-budget.mjs';
 import { compareInstants } from './change-receipts.mjs';
 import { pageDocContext, selectDocRecord, setDocFilters } from './doc-context.js';
 import { fetchRead, mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
-import { privateSession } from "./private-session.js";
 // Clients and Vendors: the browser half of the Journey 1 business read.
 //
 // THE URL IS THE VIEW'S MEMORY. Search text, every filter, the sort, the page
@@ -103,7 +102,6 @@ const view = Object.assign(createBusinessState(), { freshnessKey: null, returnFo
 view.activity = { id: null, sequence: 0, result: null };
 view.sessionGeneration = 0;
 view.panelState = null;
-view.trustOperation = null;
 let vendorMeetings = null;
 let vendorMeetingsHost = null;
 let quietVendors = null;
@@ -414,7 +412,6 @@ function vendorContactDate(contactedAt) {
 }
 
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
-const trustRatings = { Proven: 'Strong track record', Established: 'Ongoing working relationship', Trial: 'New working relationship' };
 function vendorContactsHtml(record) {
   const statuses = { not_researched: 'Not researched', needs_review: 'Needs review', office_verified: 'Office verified' };
   const contacts = (record.people || []).map(({ company, contact, office, research }) => `
@@ -437,8 +434,7 @@ function vendorContactsHtml(record) {
   </section>`;
 }
 
-function relationshipHtml(record, engineMode) {
-  const canEditRating = initialBootMode.mode === 'live' && !engineMode;
+function relationshipHtml(record) {
   const stats = record.relationship || {};
   const intro = stats.introductions || [];
   const list = kind => {
@@ -452,24 +448,21 @@ function relationshipHtml(record, engineMode) {
     ['Last contacted', stats.last_contacted_at && formatMoment(stats.last_contacted_at)],
   ].filter(([, value]) => value != null);
   const contactNote = shortNote(vendorNote(stats.last_contact_note));
-  return `<section class="record-section relationship-section" aria-label="Partnership">${stats.override ? `<p class="note-summary">${escapeHtml(stats.override.recorded_by)} · ${escapeHtml(formatMoment(stats.override.recorded_at))} · ${escapeHtml(vendorNote(stats.override.reason))}</p>` : ''}
+  return `<section class="record-section relationship-section" aria-label="Partnership">
     ${metrics.length ? `<div class="relationship-metrics">${metrics.map(([label, value]) => `<div class="relationship-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`).join('')}</div>` : ''}
-    ${contactNote ? `<p class="note-summary">${escapeHtml(contactNote)}</p>` : ''}
-    ${canEditRating ? `<details class="trust-editor" data-details-key="trust"><summary>Trust rating</summary><form class="trust-form" id="trustForm"><label>Rating<select name="tier"><option value="">Use automatic rating</option>${Object.entries(trustRatings).map(([tier, label]) => `<option value="${tier}"${tier === stats.override?.tier ? ' selected' : ''}>${label}</option>`).join('')}</select></label><label>Reason<input name="reason" maxlength="500" value="${escapeHtml(stats.override?.reason || '')}"></label><button class="action primary-action" type="submit"${view.pendingTrust ? ' disabled' : ''}>Save rating</button><p class="trust-status" role="status" id="trustStatus">${view.trustStatus?.id === record.id ? escapeHtml(view.trustStatus.text) : ''}</p></form></details>` : ''}</section>${record.offers || record.loan_programs?.length ? `<section class="record-section"><h3>Services & products</h3>${record.offers ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(record.offers)))}</p>` : ""}${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(record.offers))}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section>` : ''}${intro.length ? `<section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>` : ''}${stats.recent_entries?.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...stats.recent_entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li>${vendorNote(entry.summary) ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(entry.summary)))}</p>` : ''}${entry.when ? `<time>${escapeHtml(formatMoment(entry.when))}</time>` : ''}${vendorNote(entry.detail) ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(entry.detail))}</p></details>` : ''}</li>`).join('')}</ol></section>` : ''}`;
+    ${contactNote ? `<p class="note-summary">${escapeHtml(contactNote)}</p>` : ''}</section>${record.offers || record.loan_programs?.length ? `<section class="record-section"><h3>Services & products</h3>${record.offers ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(record.offers)))}</p>` : ""}${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(record.offers))}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section>` : ''}${intro.length ? `<section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>` : ''}${stats.recent_entries?.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...stats.recent_entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li>${vendorNote(entry.summary) ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(entry.summary)))}</p>` : ''}${entry.when ? `<time>${escapeHtml(formatMoment(entry.when))}</time>` : ''}${vendorNote(entry.detail) ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(entry.detail))}</p></details>` : ''}</li>`).join('')}</ol></section>` : ''}`;
 }
 function capturePanelState() {
   const id = dom.panelBody.dataset.recordId;
   if (!id) return;
   const previous = view.panelState?.id === id ? view.panelState : { id, open: [] };
-  const form = dom.panelBody.querySelector('#trustForm');
-  // Error/loading markup cannot overwrite the last draft or disclosure state.
-  if (!form && !dom.panelBody.querySelector('details')) return;
+  // Error/loading markup cannot overwrite the last disclosure state.
+  if (!dom.panelBody.querySelector('details')) return;
   const active = dom.panelBody.contains(document.activeElement) ? document.activeElement : null;
   view.panelState = {
     ...previous,
     open: [...dom.panelBody.querySelectorAll('details[open][data-details-key]')].map(el => el.dataset.detailsKey),
-    ...(form ? { tier: form.elements.tier.value, reason: form.elements.reason.value } : {}),
-    focus: active?.name ? { name: active.name } : active?.matches('summary') ? { disclosure: active.parentElement.dataset.detailsKey } : null,
+    focus: active?.matches('summary') ? { disclosure: active.parentElement.dataset.detailsKey } : null,
     scroll: dom.panel.scrollTop,
   };
 }
@@ -477,105 +470,10 @@ function restorePanelState() {
   const state = view.panelState;
   if (!state || state.id !== view.recordId) return;
   dom.panelBody.querySelectorAll('details[data-details-key]').forEach(el => { el.open = state.open.includes(el.dataset.detailsKey); });
-  for (const name of ['tier','reason']) {
-    const input = dom.panelBody.querySelector(`[name="${name}"]`);
-    if (state[name] !== undefined && input) input.value = state[name];
-  }
-  const focus = state.focus?.name
-    ? dom.panelBody.querySelector(`[name="${state.focus.name}"]`)
-    : [...dom.panelBody.querySelectorAll('details[data-details-key]')].find(el => el.dataset.detailsKey === state.focus?.disclosure)?.querySelector('summary');
+  const focus = [...dom.panelBody.querySelectorAll('details[data-details-key]')].find(el => el.dataset.detailsKey === state.focus?.disclosure)?.querySelector('summary');
   focusWithoutScrolling(focus);
   dom.panel.scrollTop = state.scroll;
 }
-async function saveTrust(event) {
-  if (event.target.id !== 'trustForm') return;
-  event.preventDefault();
-  const form = event.target, record = view.record.payload?.record;
-  if (!record || view.pendingTrust || initialBootMode.mode !== 'live') return;
-  const tier = form.elements.tier.value, reason = form.elements.reason.value.trim();
-  if (tier && !reason) { form.elements.reason.setCustomValidity('Enter a reason'); form.elements.reason.reportValidity(); return; }
-  form.elements.reason.setCustomValidity('');
-  const operation = { vendor: record.ref, base_version: record.record_version, fields: { trust_override: tier ? { tier, reason } : null }, idempotency_key: crypto.randomUUID() };
-  const generation = view.sessionGeneration;
-  view.trustOperation = operation;
-  const active = () => view.trustOperation === operation
-    && view.sessionGeneration === generation && !view.signedOut;
-  view.pendingTrust = { operation, awaitingReadback: false };
-  view.trustStatus = { id: record.id, text: 'Saving…' };
-  form.querySelector('button').disabled = true;
-  document.querySelector('#trustStatus').textContent = 'Saving…';
-  let attempted = false;
-  try {
-    const response = await fetchRead(recordRequestUrl('vendors', record.id, { people: true }), { headers: { accept: 'application/json' }, cache: 'no-store' });
-    if (response.status === 401) return expireNow();
-    if (!response.ok) throw Object.assign(new Error('Current vendor unavailable'), { status: response.status });
-    const payload = await response.json();
-    if (!active()) return;
-    if (!validRecordPayload(payload, 'vendors', record.id, { people: true })) throw new Error('Current vendor unavailable');
-    if (payload.viewer !== view.record.payload?.viewer) return expireNow();
-    if (payload.record.record_version !== operation.base_version) {
-      view.pendingTrust = null;
-      view.record.payload = payload;
-      view.trustStatus = { id: record.id, text: 'Vendor changed. Review the current saved rating and your kept draft before saving again.' };
-      renderRecordPanel();
-      // Rendering shows the current record; the proposed rating stays a draft.
-      const currentForm = document.querySelector('#trustForm');
-      if (currentForm) { currentForm.elements.tier.value = tier; currentForm.elements.reason.value = reason; }
-      return;
-    }
-    const client = await dealroomClient();
-    if (!active()) return;
-    if (typeof client.updateVendorTrust !== 'function') {
-      view.pendingTrust = null;
-      view.trustStatus = { id: record.id, text: 'Rating unavailable' };
-      renderRecordPanel();
-      return;
-    }
-    let deadline;
-    attempted = true;
-    // eslint-disable-next-line no-restricted-syntax -- One 15-second trust-write deadline per save; the timer is cleared in finally.
-    try { const receipt = await Promise.race([client.updateVendorTrust(operation), new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error('Unconfirmed')), 15000); })]); if (receipt?.ok !== true || !Array.isArray(receipt.updated) || !receipt.updated.includes('trust_override')) throw new Error('Unconfirmed'); }
-    finally { clearTimeout(deadline); }
-    if (!active()) return;
-    view.pendingTrust = null;
-    view.trustStatus = { id: record.id, text: 'Rating saved' };
-    renderRecordPanel();
-    if (view.recordId === record.id) await loadRecord(record.id);
-    if (active()) await loadList('background');
-  } catch (error) {
-    if (!active()) return;
-    if (error.status === 401) return expireNow();
-    if (!attempted) {
-      view.pendingTrust = null;
-      view.trustStatus = { id: record.id, text: 'Rating not sent. The current vendor could not be verified.' };
-      renderRecordPanel();
-      const currentForm = document.querySelector('#trustForm');
-      if (currentForm) { currentForm.elements.tier.value = tier; currentForm.elements.reason.value = reason; }
-      return;
-    }
-    if (error.payload?.error === 'old_save_closed') {
-      view.pendingTrust = null;
-      view.trustStatus = { id: record.id, text: error.payload.hint || 'Rating was not saved.' };
-      renderRecordPanel();
-      return;
-    }
-    const refused = ['offline','AUTHORIZATION_REFUSED','trust_override_invalid','version_conflict','key_reuse','not_a_vendor','no_updatable_fields'].includes(error.payload?.error);
-    if (refused || error.status === 403) { view.pendingTrust = null; renderRecordPanel(); }
-    else if (view.pendingTrust?.operation === operation) view.pendingTrust.awaitingReadback = true;
-    // Reconcile the read before allowing any new write. Never replay a write
-    // whose response was lost; it may have committed.
-    if (view.recordId !== record.id) return;
-    await loadRecord(record.id);
-    if (!active() || view.recordId !== record.id) return;
-    const saved = view.record.payload?.record.relationship?.override;
-    const changed = view.record.payload?.record.record_version > operation.base_version;
-    const matches = changed && (tier ? saved?.tier === tier && saved?.reason === reason && saved?.recorded_by === view.record.payload?.viewer : saved === null);
-    if (matches) view.pendingTrust = null;
-    view.trustStatus = { id: record.id, text: matches ? 'Rating confirmed' : 'Rating not confirmed' };
-    renderRecordPanel();
-  }
-}
-
 function rowFacts(dataset, row) {
   const facts = [];
   if (dataset === "clients") {
@@ -812,7 +710,6 @@ function renderRecordPanel() {
   const owner = ownerPresentation(payload.record);
   const kind = partyKindText(payload.record.party_kind);
   const vendor = dataset === "vendors";
-  const engineMode = privateSession()?.engineSignIn;
   if (dom.panelTitle) dom.panelTitle.textContent = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
   const ref = recordedValue(payload.record.ref);
   const referenceDetails = !vendor && ref.known
@@ -833,7 +730,7 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record, engineMode) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
     const note = dom.panelBody.querySelector(".client-note > p");
@@ -912,10 +809,8 @@ function expireNow() {
   view.sessionGeneration++;
   view.panelState = null;
   delete dom.panelBody.dataset.recordId;
-  view.trustOperation = null;
   view.loadingMore = null; view.failedPage = null;
   view.loadedRows = []; view.loadedPageCount = 0;
-  view.pendingTrust = null; view.trustStatus = null;
   view.activity = { id: null, sequence: view.activity.sequence + 1, result: null };
   Object.assign(view, expireSession(view));
   renderControls();
@@ -1016,7 +911,6 @@ function settleList({ status, payload = null, code = null }, sequence) {
 
 async function loadRecord(id, { focusOnOpen = false } = {}) {
   if (view.signedOut || view.recordId !== id) return;
-  const pending = view.pendingTrust?.awaitingReadback ? view.pendingTrust.operation : null;
   const sequence = ++view.record.sequence;
   selectDocRecord(view.dataset, id);
   const docTicket = pageDocContext?.begin('businessRecord', [{ dataset:view.dataset, id }]);
@@ -1048,10 +942,6 @@ async function loadRecord(id, { focusOnOpen = false } = {}) {
     if (!acceptsResponse(view.record.sequence, sequence) || view.recordId !== id) return;
     const payload = await response.json().catch(() => null);
     if (!validRecordPayload(payload, view.dataset, id, { people: view.dataset === 'vendors' })) return settle("error", "FRESHNESS_UNKNOWN");
-    if (pending && view.pendingTrust?.operation === pending && view.trustOperation === pending && pending.vendor === payload.record.ref) {
-      const expected = pending.fields.trust_override, saved = payload.record.relationship?.override;
-      if (payload.record.record_version > pending.base_version && (expected ? saved?.tier === expected.tier && saved?.reason === expected.reason && saved?.recorded_by === payload.viewer : saved === null)) { view.pendingTrust = null; view.trustStatus = { id: payload.record.id, text: 'Rating confirmed' }; }
-    }
     settle("ready", null, payload);
     if (acceptsResponse(view.record.sequence, sequence) && view.recordId === id) loadActivity(id, payload.record);
   } catch {
@@ -1158,8 +1048,6 @@ function wireControls() {
   document.querySelector('#refreshList').addEventListener('click', () => loadList('background'));
   document.querySelector('#recordBackdrop').addEventListener('click', closeRecord);
   document.querySelector('#territoryInput').addEventListener('change', event => updateQuery({ territory: event.target.value.trim() }));
-  dom.panelBody?.addEventListener('submit', saveTrust);
-  dom.panelBody?.addEventListener('input', event => { if (event.target.name === 'reason') event.target.setCustomValidity(''); });
   const sentinel = document.querySelector('#scrollSentinel');
   if (typeof IntersectionObserver === 'function') new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) loadMore(); }, { rootMargin: '400px' }).observe(sentinel);
   window.addEventListener('scroll', () => { if (sentinel.getBoundingClientRect().top < window.innerHeight + 400) loadMore(); }, { passive: true });

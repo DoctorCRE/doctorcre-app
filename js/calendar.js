@@ -3,10 +3,12 @@ import { createLiveClient } from "./live-client.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge, mountPrefs } from "./shell.js";
 import { formatCalendarDate } from "./visual-system.js";
+import { BUSINESS_TIME_ZONE } from "./business-date.js";
+import { meetingTime } from "./home-week.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import {
   addDays, approach, calendarHref, calendarPhase, entriesByDay, localToday, monthGrid, motionDirection,
-  parseCalendarState, readCalendar, shortDay, stepAnchor, weekStrip,
+  parseCalendarState, readCalendar, readMeetings, shortDay, stepAnchor, visibleRange, weekStrip,
 } from "./calendar-model.js";
 
 const $ = (id) => document.getElementById(id);
@@ -24,6 +26,8 @@ const view = {
   painted: null,
   focusEntry: null,
   result: { status: "loading" },
+  meetings: { range: null, status: "off", entries: [], notes: [] },
+  meetingSequence: 0,
   byDay: new Map(),
   sequence: 0,
   refreshFailed: false,
@@ -43,16 +47,24 @@ function announce(text) {
 }
 
 const recordName = entry => entry.record_name ?? entry.deal_name;
-const typeLabel = entry => entry.type === "step" ? "Next step" : "Critical date";
-const ownerSuffix = owner => typeof owner === "string" && owner
-  ? ` · ${escapeHtml(owner[0].toUpperCase() + owner.slice(1))}` : "";
+const KINDS = [
+  { type: "step", label: "Next step", one: "next step", many: "next steps" },
+  { type: "date", label: "Critical date", one: "critical date", many: "critical dates" },
+  { type: "meeting", label: "Meeting", one: "meeting", many: "meetings" },
+  { type: "tour", label: "Tour", one: "tour", many: "tours" },
+];
+const typeLabel = entry => KINDS.find(kind => kind.type === entry.type).label;
+const entryTime = entry => entry.type !== "meeting" ? "" : entry.all_day ? "All day" : meetingTime(entry.at, BUSINESS_TIME_ZONE);
+const entryText = entry => [entryTime(entry), entry.label].filter(Boolean).join(" ");
+const ownerNames = entry => (entry.owners ?? [entry.owner]).filter(owner => typeof owner === "string" && owner)
+  .map(owner => owner[0].toUpperCase() + owner.slice(1)).join(" and ");
 
 function chipHtml(entry, { withDeal }) {
   const near = approach(entry, view.today);
-  const text = `${typeLabel(entry)} · ${entry.label} · ${recordName(entry)} · ${near.label}`;
+  const text = [typeLabel(entry), entryText(entry), recordName(entry), near.label].filter(Boolean).join(" · ");
   return `<li><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(entry.day)}" data-band="${near.band}" aria-label="${escapeHtml(text)}">`
     + `<span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span>`
-    + `<span class="cal-chip-label">${escapeHtml(entry.label)}</span>`
+    + `<span class="cal-chip-label">${escapeHtml(entryText(entry))}</span>`
     + (withDeal ? `<span class="cal-chip-deal">${escapeHtml(recordName(entry))}</span>` : "")
     + "</button></li>";
 }
@@ -128,29 +140,32 @@ function paintSelection() {
   paintComingUp(day);
 }
 
-function recordLink(entry) {
-  const url = entry.type === "step" ? entry.open_url : entry.deal_id && `/deals?deal=${encodeURIComponent(entry.deal_id)}`;
-  const name = escapeHtml(recordName(entry));
-  return url ? `<a href="${escapeHtml(url)}" data-entry="${escapeHtml(entry.key)}">${name}</a>` : name;
+function recordLinks(entry) {
+  const links = entry.links ?? [{ name: recordName(entry),
+    url: entry.type === "date" ? entry.deal_id && `/deals?deal=${encodeURIComponent(entry.deal_id)}` : entry.open_url }];
+  return links.filter(link => link.name).map(({ name, url }) => url
+    ? `<a href="${escapeHtml(url)}" data-entry="${escapeHtml(entry.key)}">${escapeHtml(name)}</a>` : escapeHtml(name)).join(", ");
 }
 
 function itemCount(rows) {
-  const steps = rows.filter(entry => entry.type === "step").length;
-  const dates = rows.length - steps;
-  return [steps && `${steps} next step${steps === 1 ? "" : "s"}`,
-    dates && `${dates} critical date${dates === 1 ? "" : "s"}`].filter(Boolean).join(" · ") || "0 items";
+  return KINDS.map(kind => {
+    const count = rows.filter(entry => entry.type === kind.type).length;
+    return count && `${count} ${count === 1 ? kind.one : kind.many}`;
+  }).filter(Boolean).join(" · ") || "0 items";
 }
 
 function dayList(rows) {
   return `<ol class="cal-day-entries">${rows.map(entry => {
     const near = approach(entry, view.today);
-    const owner = ownerSuffix(entry.owner);
+    const byline = [ownerNames(entry), entryTime(entry) && `<time datetime="${escapeHtml(entry.at)}">${escapeHtml(entryTime(entry))}</time>`]
+      .filter(Boolean).map(part => ` · ${part}`).join("");
+    const record = recordLinks(entry);
     const late = entry.days_late ? `<span class="cal-late">${entry.days_late} ${entry.days_late === 1 ? "day" : "days"} late · Due ${shortDay(entry.due_on, view.today)}</span>` : "";
     return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}">
-      <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${owner}</small>
+      <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${byline}</small>
       <h3>${escapeHtml(entry.label)}</h3>
       ${entry.why ? `<p>${escapeHtml(entry.why)}</p>` : ""}
-      <p>${recordLink(entry)}</p>${late}</li>`;
+      ${record ? `<p>${record}</p>` : ""}${late}</li>`;
   }).join("")}</ol>`;
 }
 
@@ -170,7 +185,7 @@ function paintDayPanel(day) {
   } else {
     body.textContent = phase === "loading" || phase === "reading" ? "Reading Calendar…"
       : !day ? "Select a day to see its items."
-      : phase === "partial" ? "This day may be incomplete. Refresh to try again." : "No critical dates or next steps on this day.";
+      : phase === "partial" ? "This day may be incomplete. Refresh to try again." : "Nothing on this day.";
   }
 }
 
@@ -180,7 +195,7 @@ function paintComingUp(day) {
   $("calComing").hidden = dates.length === 0;
   $("calAgenda").innerHTML = dates.map(date => {
     const items = view.byDay.get(date).map(entry => `<span class="cal-agenda-detail">
-      ${escapeHtml(entry.label)}<small>${escapeHtml(recordName(entry))}${ownerSuffix(entry.owner)}</small>
+      ${escapeHtml(entryText(entry))}<small>${escapeHtml([recordName(entry), ownerNames(entry)].filter(Boolean).join(" · "))}</small>
     </span>`).join("");
     return `<li><button class="cal-agenda-item" type="button" data-day="${date}">
       <time datetime="${date}">${shortDay(date, view.today)}</time>
@@ -190,7 +205,7 @@ function paintComingUp(day) {
   const missing = view.result.undated || [];
   $("calUndated").hidden = missing.length === 0;
   $("calUndatedList").innerHTML = missing.map(entry =>
-    `<li><b>${escapeHtml(entry.label)}</b> · ${recordLink(entry)} · Date unavailable</li>`).join("");
+    `<li><b>${escapeHtml(entry.label)}</b> · ${recordLinks(entry)} · Date unavailable</li>`).join("");
 }
 
 const STATE_COPY = {
@@ -204,7 +219,7 @@ function paintState(phase, periodRows) {
   const block = $("calState");
   const unit = view.state.view;
   const empty = ["ready", "empty"].includes(phase) && periodRows.length === 0;
-  const message = empty ? `No critical dates or next steps this ${unit}.` : STATE_COPY[phase];
+  const message = empty ? `Nothing this ${unit}.` : STATE_COPY[phase];
   block.hidden = !message;
   const signIn = phase === "unauthorized"
     ? ` <a href="/auth/login?return_to=${encodeURIComponent(location.pathname + location.search)}">Sign in</a>` : "";
@@ -214,13 +229,15 @@ function paintState(phase, periodRows) {
 function paintNotices(phase) {
   const region = $("calNotices");
   if (!region) return;
-  const retry = view.refreshFailed
-    ? `<div class="notice" role="status"><p>Calendar could not refresh. Try again.</p><button type="button" id="calRetry">Retry</button></div>` : "";
-  if (phase !== "partial" && !(phase === "reading" && view.result.failed.length)) { region.innerHTML = retry; return; }
+  const notes = view.meetings.notes;
+  const notices = (view.refreshFailed
+    ? `<div class="notice" role="status"><p>Calendar could not refresh. Try again.</p><button type="button" id="calRetry">Retry</button></div>` : "")
+    + (notes.length ? `<div class="notice notice-partial" role="status">${notes.map(note => `<p class="notice-copy">${escapeHtml(note)}</p>`).join("")}</div>` : "");
+  if (phase !== "partial" && !(phase === "reading" && view.result.failed.length)) { region.innerHTML = notices; return; }
   const failed = view.result.failed;
   const names = failed.slice(0, 6).map((row) => escapeHtml(row.deal_name)).join(", ");
   const rest = failed.length > 6 ? ` and ${failed.length - 6} more` : "";
-  region.innerHTML = retry + `<div class="notice notice-partial" role="status"><p class="notice-title">${failed.length} of ${view.result.dealCount} deals temporarily unavailable</p>`
+  region.innerHTML = notices + `<div class="notice notice-partial" role="status"><p class="notice-title">${failed.length} of ${view.result.dealCount} deals temporarily unavailable</p>`
     + `<p class="notice-copy">Their dates are not on this calendar: ${names}${rest}.</p></div>`;
 }
 
@@ -232,9 +249,11 @@ function render() {
     : active?.dataset.entry ? `[data-entry="${CSS.escape(active.dataset.entry)}"]`
     : active?.dataset.day ? `button[data-day="${CSS.escape(active.dataset.day)}"]` : null;
   const phase = calendarPhase(view.result);
-  view.byDay = ["ready", "partial", "reading"].includes(phase) ? entriesByDay(view.result.entries) : new Map();
-  paintNotices(phase);
   const layout = calendarLayout(view.state);
+  view.byDay = ["ready", "partial", "reading", "empty"].includes(phase)
+    ? entriesByDay([...(view.result.entries || []), ...view.meetings.entries]) : new Map();
+  paintNotices(phase);
+  $("calMeetingsNote").hidden = view.meetings.status === "off";
   const periodRows = layout.days.flatMap(cell => cell.inMonth ? view.byDay.get(cell.day) || [] : []);
   const count = $("calCount");
   const total = ["ready", "partial", "empty"].includes(phase) ? itemCount(periodRows) : "";
@@ -267,7 +286,10 @@ function go(next, { push = true } = {}) {
     else history.replaceState({ calendar: true }, "", href);
   }
   const moved = !before || before.view !== next.view || before.anchor !== next.anchor;
-  if (moved) render();
+  if (moved) {
+    void loadMeetings();
+    render();
+  }
   else paintSelection();
   const periodText = $("calPeriod")?.textContent || "";
   if (moved) announce(`${periodText}. ${next.view === "week" ? "Week" : "Month"} view.`);
@@ -330,23 +352,48 @@ function wire() {
 
   window.addEventListener("popstate", () => {
     view.state = parseCalendarState(location.search, view.today);
+    void loadMeetings();
     render();
   });
+}
+
+const sameRange = (a, b) => a?.from === b.from && a?.to === b.to;
+
+/** A newly shown period's meetings. */
+async function loadMeetings() {
+  const range = visibleRange(calendarLayout(view.state).days);
+  if (!client || calendarPhase(view.result) === "unauthorized" || sameRange(view.meetings.range, range)) return;
+  const sequence = ++view.meetingSequence;
+  view.meetings = { ...view.meetings, range, entries: [], notes: [] };
+  const read = await readMeetings(client, range);
+  if (sequence !== view.meetingSequence) return;
+  view.meetings = { ...read, range };
+  render();
 }
 
 async function load() {
   const sequence = ++view.sequence;
   const showingResults = ["ready", "partial"].includes(view.result.status);
+  // Every load reads the shown period's meetings alongside the dates, so the page paints once.
+  const range = visibleRange(calendarLayout(view.state).days);
+  const meetingSequence = ++view.meetingSequence;
+  const shownMeetings = sameRange(view.meetings.range, range) && ["ready", "partial"].includes(view.meetings.status)
+    ? view.meetings : null;
+  if (!sameRange(view.meetings.range, range)) view.meetings = { ...view.meetings, range, entries: [], notes: [] };
   if (!showingResults) {
     view.result = { status: "loading" };
     render();
   }
   view.today = localToday();
-  const result = await readCalendar(client, { onProgress: result => {
+  const [result, meetings] = await Promise.all([readCalendar(client, { onProgress: result => {
     if (sequence !== view.sequence || (showingResults && result.status === "reading")) return;
     view.result = result;
     render();
-  } });
+  } }), readMeetings(client, range)]);
+  const current = meetingSequence === view.meetingSequence;
+  // A failed refresh keeps the meetings already on screen, like the dates.
+  const meetingsFailed = current && shownMeetings !== null && meetings.status === "unavailable";
+  if (current && !meetingsFailed) view.meetings = { ...meetings, range };
   if (sequence !== view.sequence) return;
   if (showingResults && (result.status === "unavailable" ||
       (result.status === "ready" && result.failed.length > 0 && result.readCount === 0))) {
@@ -355,15 +402,15 @@ async function load() {
     announce("Calendar could not refresh. Try again.");
     return false;
   }
-  view.refreshFailed = false;
+  view.refreshFailed = meetingsFailed;
   view.result = result;
   const selected = pageDocContext?.snapshot().selected;
   if(selected?.kind === "deal" && result.status === "ready") void client.getDeal(selected.id).catch(() => {});
-  if (["ready", "partial"].includes(result.status)) view.updatedAt = new Date().toISOString();
+  if (["ready", "partial"].includes(result.status) && !meetingsFailed) view.updatedAt = new Date().toISOString();
   view.painted = null;
   render();
-  announce(STATE_COPY[calendarPhase(result)] || "");
-  return result.status === "ready";
+  announce(meetingsFailed ? "Calendar could not refresh. Try again." : STATE_COPY[calendarPhase(result)] || "");
+  return result.status === "ready" && !meetingsFailed;
 }
 
 async function boot() {
