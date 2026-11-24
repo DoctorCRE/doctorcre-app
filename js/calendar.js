@@ -369,7 +369,8 @@ function wire() {
   const sheet = $("dayPanel");
   $("dayPanelClose")?.addEventListener("click", closeDay);
   sheet.addEventListener("cancel", closeDay);
-  sheet.addEventListener("close", closeDay);
+  // A close event can land after the sheet has reopened on the next day; only a closed sheet closes the day.
+  sheet.addEventListener("close", () => { if (!sheet.open) closeDay(); });
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeDay(); });
   // A sheet shown beside the grid is not modal, so Escape never reaches its cancel event.
   document.addEventListener("keydown", (event) => {
