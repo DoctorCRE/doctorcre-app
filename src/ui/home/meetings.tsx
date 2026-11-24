@@ -134,12 +134,30 @@ const lastMeetingDay = (item: Event) => day(new Date(Math.max(Date.parse(item.st
 const onMeetingDay = (item: Event, today: string) =>
   day(new Date(item.start)) <= today && lastMeetingDay(item) >= today;
 
-export function earlierMeetingReviews(data: MeetingRead | undefined, today: string, handled: ReadonlySet<string>) {
-  return (data?.reviews ?? []).filter((review) => !handled.has(review.key) && lastMeetingDay(review) < today);
-}
-
 type Review = MeetingRead["reviews"][number];
 type MeetingRow = { id: string; item: Event; outcome: { pending: Review | null } | null };
+
+/** Where Home shows a pending review: on today's tile row, in Reminders, or nowhere. */
+function meetingPlacement(
+  review: Review,
+  data: MeetingRead,
+  today: string,
+  handled: ReadonlySet<string>,
+): { where: "tile"; item: Event } | { where: "reminders" } | null {
+  // A same-key meeting on today wins over the review's own recorded time.
+  const sameDay = data.items.filter((entry) => entry.key === review.key && onMeetingDay(entry, today)).at(-1);
+  if (sameDay) return { where: "tile", item: sameDay };
+  if (onMeetingDay(review, today)) return { where: "tile", item: review };
+  if (lastMeetingDay(review) < today && !handled.has(review.key)) return { where: "reminders" };
+  return null;
+}
+
+export function earlierMeetingReviews(data: MeetingRead | undefined, today: string, handled: ReadonlySet<string>) {
+  if (!data) return [];
+  return data.reviews.filter((review) => meetingPlacement(review, data, today, handled)?.where === "reminders");
+}
+
+const noneHandled: ReadonlySet<string> = new Set();
 
 function meetingRows(data: MeetingRead, today: string, revision: number, previous: MeetingRow[]) {
   const rows = new Map<string, MeetingRow>();
@@ -150,10 +168,12 @@ function meetingRows(data: MeetingRead, today: string, revision: number, previou
   }
 
   for (const review of data.reviews) {
-    if (!onMeetingDay(review, today)) continue;
-    const id = review.key;
-    const item = rows.get(id)?.item ?? review;
-    rows.set(id, { id, item, outcome: { pending: review } });
+    const placement = meetingPlacement(review, data, today, noneHandled);
+    if (placement?.where !== "tile") continue;
+    const { item } = placement;
+    // The outcome logs the time the row shows.
+    const pending = item === review ? review : { ...review, start: item.start, end: item.end };
+    rows.set(review.key, { id: review.key, item, outcome: { pending } });
   }
 
   const retained: MeetingRow[] = [];
@@ -194,6 +214,21 @@ export function MeetingTile({
     const stillOpen = sameActor ? events.filter(({ id }) => open.has(id)).map(({ id }) => id) : [];
     if (stillOpen.length !== open.size) setOpen(new Set(stillOpen));
   }
+
+  const [, setClock] = useState(0);
+  const now = Date.now();
+  const nextStart = Math.min(
+    ...events.flatMap(({ item, outcome }) => {
+      const start = Date.parse(item.start);
+      return outcome?.pending && !handled.has(outcome.pending.key) && start > now ? [start] : [];
+    }),
+  );
+  useEffect(() => {
+    if (!Number.isFinite(nextStart)) return;
+    // eslint-disable-next-line no-restricted-syntax -- One timer for the earliest unstarted meeting, cleared on unmount and when the rows change.
+    const timer = window.setTimeout(() => setClock((tick) => tick + 1), Math.max(0, nextStart - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [nextStart]);
 
   const lastSync =
     (stale || data.partial || data.readDay !== today) && data.lastSync
@@ -250,7 +285,7 @@ export function MeetingTile({
                   </a>
                 ) : null;
               })}
-            {review && !handled.has(review.key) && (
+            {review && !handled.has(review.key) && now >= Date.parse(item.start) && (
               <MeetingReview embedded data={data} review={review} finish={finish} />
             )}
           </details>
