@@ -561,6 +561,7 @@ export type CardReview =
       thread?: EmailThread;
       proposals?: Suggestion[];
       addresses?: { to: string | null; cc: string | null };
+      correctRecipients?: boolean;
       attachments?: { id: string; name: string }[];
       statusMessage?: string | null;
     });
