@@ -463,7 +463,8 @@ export function validRecordPayload(payload, dataset, id = null, { people = false
   if (payload.partial && payload.partial.count > 1) return false;
   const record = payload.record;
   const withPeople = dataset === 'vendors' && people;
-  if (!extendedKeys(record, [...RECORD_KEYS[dataset], ...(withPeople ? ['people'] : [])], dataset === "vendors" ? ["relationship", "loan_programs"] : ["deal_type", "last_deal_at", "active_deals"]) || typeof record.id !== "string" || !UUID.test(record.id)) return false;
+  if (!extendedKeys(record, [...RECORD_KEYS[dataset], ...(withPeople ? ['people'] : [])], ["party_id", ...(dataset === "vendors" ? ["relationship", "loan_programs"] : ["deal_type", "last_deal_at", "active_deals"])]) || typeof record.id !== "string" || !UUID.test(record.id)) return false;
+  if (record.party_id !== undefined && (typeof record.party_id !== "string" || !UUID.test(record.party_id))) return false;
   if (!activeDealsValid(record.active_deals)) return false;
   if (withPeople && !peopleValid(record.people)) return false;
   if (typeof record.name !== "string" || !record.name) return false;

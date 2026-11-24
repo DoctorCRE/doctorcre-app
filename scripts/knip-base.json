@@ -145,6 +145,7 @@
     "js/invoice-tracker-model.d.ts",
     "js/leads-client.d.ts",
     "js/leads-model.d.ts",
+    "js/workspace-business-model.d.ts",
     "js/visual-system.d.ts",
     "js/routes.d.ts",
     "js/toast.d.ts",
