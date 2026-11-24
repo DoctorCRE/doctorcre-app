@@ -947,14 +947,14 @@ for (const fragment of ['homeCallTasks', 'homeEmailFollowups', 'homeOverdueRevie
   await page.locator(`#${fragment}`).waitFor({ state: 'attached' });
 });
 
-test('Calendar rail leaves page tools in the center at narrow desktop sizes', async t => {
+test('Calendar rail stays empty with no Page tools at narrow desktop sizes', async t => {
   const run = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: {} });
   const { page } = run;
   for (const width of [1024, 1280, 1440]) {
     await page.setViewportSize({ width, height: 700 });
     await run.open(`/calendar`);
     assert.equal(await page.locator('#appSidebar .app-layout-working, #appSidebar [data-layout-slot=sidebar], #appSidebar .calendar-panel-followup').count(), 0);
-    assert.equal(await page.locator('#appMainSlot .app-layout-page-tools').count(), 1);
+    assert.equal(await page.locator('.app-layout-page-tools').count(), 0);
     assert.ok(await page.locator('#appSidebar').evaluate(node => node.scrollHeight <= node.clientHeight));
   }
 });
@@ -2275,7 +2275,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const message = review.getByRole('textbox', { name: 'Message', exact: true });
   await message.fill('Unsaved edit for the floor plan.');
   await message.scrollIntoViewIfNeeded();
-  const before = await message.evaluate(node => ({ y: scrollY, top: node.getBoundingClientRect().top }));
+  const before = await message.evaluate(node => ({ y: scrollY + document.getElementById('appMainSlot').scrollTop, top: node.getBoundingClientRect().top }));
   assert.ok(before.y > 0 && before.top >= 0 && before.top < 760);
   const reads = state.dashboardReads;
   const added = { ...step(32, 'Confirm the site visit'), card_id: 'suite:new' };
@@ -2287,7 +2287,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(await draftTitle.evaluate((node, original) => node === original, originalCard), true);
   assert.equal(await message.inputValue(), 'Unsaved edit for the floor plan.');
   assert.equal(await message.evaluate(node => node === document.activeElement), true);
-  const after = await message.evaluate(node => ({ y: scrollY, top: node.getBoundingClientRect().top }));
+  const after = await message.evaluate(node => ({ y: scrollY + document.getElementById('appMainSlot').scrollTop, top: node.getBoundingClientRect().top }));
   assert.ok(Math.abs(after.top - before.top) <= 2, JSON.stringify({ before, after }));
   assert.deepEqual(await reminders.locator('article > .inbox-copy h3 a').allTextContents(),
     [...tasks.slice(1, 5), draft, ...tasks.slice(5), added].map(item => item.title));

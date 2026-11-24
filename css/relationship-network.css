@@ -185,8 +185,6 @@ dialog.introduction-review { width: min(620px, calc(100vw - 24px)); }
 .relationship-metrics strong { font-size: var(--font-size-5); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
 .relationship-metrics span { font-size: var(--font-size-1); color: var(--fg-muted); }
 
-#appSidebarSlot > .relationship-filters[data-layout-slot="sidebar"] { display: grid; gap: var(--space-3); }
-
 /* Color Assist: edge kinds differ by dash, not just hue. */
 [data-color-assist="on"] .relationship-edge[data-kind="referred"],
 [data-color-assist="on"] .relationship-edge[data-kind="referral"] { stroke-dasharray: 1 5; stroke-linecap: round; }

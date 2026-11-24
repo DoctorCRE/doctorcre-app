@@ -184,7 +184,7 @@
   --health-failed: color-mix(in srgb, var(--status-danger) 30%, transparent);
   --health-unknown: color-mix(in srgb, var(--fg-quiet) 26%, transparent);
 
-  /* Density (data-density on <html>): comfortable by default, compact on request. */
+  /* Density: compact on desktop from 1024px, comfortable below, compact on request (data-density on <html>). */
   --density: 1;
   --gap: calc(var(--space-4) * var(--density));
   --pad: calc(var(--space-4) * var(--density));
@@ -192,3 +192,4 @@
 }
 
 :root[data-density="compact"] { --density: 0.75; }
+@media (min-width: 1024px) { :root { --density: 0.75; } }
