@@ -197,6 +197,7 @@ async function app(
     tourFeedback = false,
     tourPlans = false,
     callReview,
+    dealMarket,
   }: {
     width?: number;
     port?: number;
@@ -215,6 +216,7 @@ async function app(
     readAttribution?: (request: Request) => Response | Promise<Response>;
     documentText?: string[] | "missing";
     documents?: (typeof filedDocument)[];
+    dealMarket?: string;
   } = {},
 ) {
   let unavailable = false;
@@ -605,8 +607,12 @@ async function app(
           return Response.json({
             ...dealDetail,
             email_follow_ups: [],
+            ...(dealMarket !== undefined && { market: dealMarket }),
             ...tourDeal?.(),
           });
+        if (path === "/api/engine/markets")
+          return Response.json([{ market_id: "00000000-0000-4000-8000-0000000000d1", name: "Example North" }]);
+        if (path === "/api/engine/market-terms") return Response.json({ schema_version: "compare-terms.v1", rows: [] });
         if (/^\/api\/engine\/(clients|vendors)(?:\/|$)/.test(path)) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
           url.pathname = path.replace("/api/engine", "/api/v1/business");
@@ -1412,39 +1418,49 @@ test("Doc link settings are available only with engine sign-in", async (t) => {
   }
 });
 
-test("Compare terms is empty on engine sign-in and legacy deal features make no requests", async (t) => {
-  const { server, context } = await app(t);
-  const page = await context.newPage();
-  const legacyRequests: string[] = [];
-  page.on("request", (request) => {
-    const { pathname } = new URL(request.url());
-    if (
-      /\/api\/(?:tours\/|engine\/(?:deals\/[^/]+\/tours|properties\/search))/.test(pathname) ||
-      pathname === "/api/v1/market-terms/read" ||
-      (pathname === "/mcp" && /read-subject-watch-v2|read-activity-deal-attribution/.test(request.postData() ?? ""))
-    )
-      legacyRequests.push(pathname);
+for (const [dealMarket, prefill, read] of [
+  ["Example North", "Example North", "/api/engine/market-terms?market=Example+North"],
+  ["Example City", "", "/api/engine/market-terms"],
+  ["Market unspecified", "", "/api/engine/market-terms"],
+] as const)
+  test(`Compare terms reads the engine for a deal in ${dealMarket} and legacy deal features make no requests`, async (t) => {
+    const { server, context, partnerReads } = await app(t, { dealMarket });
+    const page = await context.newPage();
+    const legacyRequests: string[] = [];
+    page.on("request", (request) => {
+      const { pathname } = new URL(request.url());
+      if (
+        /\/api\/(?:tours\/|engine\/(?:deals\/[^/]+\/tours|properties\/search))/.test(pathname) ||
+        pathname === "/api/v1/market-terms/read" ||
+        (pathname === "/mcp" && /read-subject-watch-v2|read-activity-deal-attribution/.test(request.postData() ?? ""))
+      )
+        legacyRequests.push(pathname);
+    });
+    await page.goto(server.origin + dealPage);
+    const room = page.getByRole("main", { name: "Deal Workspace" });
+    await room.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
+    await room.locator("summary").filter({ hasText: "Deal watch settings" }).waitFor({ timeout: 4000 });
+    await room.getByRole("tab", { name: "Compare terms" }).click();
+    const terms = room.getByRole("tabpanel", { name: "Compare terms" });
+    await terms
+      .getByText("No offer rounds or signed leases are recorded on deals in this market yet.", { exact: true })
+      .waitFor({ timeout: 4000 });
+    assert.equal(await terms.getByLabel("Market").inputValue(), prefill);
+    assert.deepEqual(
+      [...partnerReads.keys()].filter((path) => path.startsWith("/api/engine/market-terms")),
+      [read],
+    );
+    await room.getByRole("tab", { name: "Tours", exact: true }).click();
+    await room
+      .getByRole("tabpanel", { name: "Tours" })
+      .getByText("Not available yet", { exact: true })
+      .waitFor({ timeout: 4000 });
+    assert.equal(
+      server.requests.some(({ path }) => path === attributionPath || path === noteAttributionPath),
+      false,
+    );
+    assert.deepEqual(legacyRequests, []);
   });
-  await page.goto(server.origin + dealPage);
-  const room = page.getByRole("main", { name: "Deal Workspace" });
-  await room.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
-  await room.locator("summary").filter({ hasText: "Deal watch settings" }).waitFor({ timeout: 4000 });
-  await room.getByRole("tab", { name: "Compare terms" }).click();
-  await room
-    .getByRole("tabpanel", { name: "Compare terms" })
-    .getByText("No comparable terms match these filters.", { exact: true })
-    .waitFor({ timeout: 4000 });
-  await room.getByRole("tab", { name: "Tours", exact: true }).click();
-  await room
-    .getByRole("tabpanel", { name: "Tours" })
-    .getByText("Not available yet", { exact: true })
-    .waitFor({ timeout: 4000 });
-  assert.equal(
-    server.requests.some(({ path }) => path === attributionPath || path === noteAttributionPath),
-    false,
-  );
-  assert.deepEqual(legacyRequests, []);
-});
 
 for (const [scenario, documentText, message] of [
   ["ordered pages with a blank gap", ["\nFirst page <draft>\nNew paragraph.", "", "Third page."], null],

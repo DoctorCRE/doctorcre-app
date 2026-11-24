@@ -164,29 +164,52 @@ type Filters = { term: string; stage: string; basis: string | null; hideSupersed
 type Setters = { [K in keyof Filters]: (value: Filters[K]) => void };
 
 function Results({ view, filters, set }: { view: Extract<View, { kind: "ready" }>; filters: Filters; set: Setters }) {
+  const heading = (
+    <p>
+      <strong>{view.asOf ? `Terms as of ${inWords(view.asOf)}` : "All recorded history"}</strong>
+    </p>
+  );
+  if (!view.rows.length)
+    return (
+      <>
+        {heading}
+        <p>No offer rounds or signed leases are recorded on deals in this market yet.</p>
+      </>
+    );
   const terms = Object.entries(TERMS).filter(([key]) => view.rows.some((row) => row.term === key));
   const stages = Object.entries(STAGES).filter(([key]) => view.rows.some((row) => row.stage === key));
   const bases = [...new Set(view.rows.map(basisKey))].sort((a, b) => (a && b ? a.localeCompare(b) : a ? -1 : 1));
-  const rows = view.rows.filter(
-    (row) =>
-      (!filters.hideSuperseded || !row.superseded) &&
-      (!filters.term || row.term === filters.term) &&
-      (!filters.stage || row.stage === filters.stage) &&
-      (filters.basis === null || basisKey(row) === filters.basis),
+  // A saved choice missing from these rows filters as "All", which is what its dropdown shows.
+  const term = terms.some(([key]) => key === filters.term) ? filters.term : "";
+  const stage = stages.some(([key]) => key === filters.stage) ? filters.stage : "";
+  const basis = filters.basis !== null && bases.includes(filters.basis) ? filters.basis : null;
+  const dropped = [
+    term !== filters.term && "term",
+    stage !== filters.stage && "recorded stage",
+    basis !== filters.basis && "expense basis",
+  ].filter((name) => name !== false);
+  const rows = view.rows.flatMap((row, key) =>
+    (!filters.hideSuperseded || !row.superseded) &&
+    (!term || row.term === term) &&
+    (!stage || row.stage === stage) &&
+    (basis === null || basisKey(row) === basis)
+      ? [{ row, key }]
+      : [],
   );
-  const deals = new Set(rows.map((row) => row.deal_id)).size;
+  const deals = new Set(rows.map(({ row }) => row.deal_id)).size;
   return (
     <>
-      <p>
-        <strong>{view.asOf ? `Terms as of ${inWords(view.asOf)}` : "All recorded history"}</strong>
-      </p>
+      {heading}
+      {dropped.map((name) => (
+        <p key={name}>
+          The selected {name} is not in these results. Showing all{" "}
+          {name === "expense basis" ? "expense bases" : `${name}s`}.
+        </p>
+      ))}
       <div className="market-filters">
         <label>
           Term
-          <select
-            value={terms.some(([key]) => key === filters.term) ? filters.term : ""}
-            onChange={(event) => set.term(event.target.value)}
-          >
+          <select value={term} onChange={(event) => set.term(event.target.value)}>
             <option value="">All terms</option>
             {terms.map(([key, { label }]) => (
               <option key={key} value={key}>
@@ -197,10 +220,7 @@ function Results({ view, filters, set }: { view: Extract<View, { kind: "ready" }
         </label>
         <label>
           Recorded stage
-          <select
-            value={stages.some(([key]) => key === filters.stage) ? filters.stage : ""}
-            onChange={(event) => set.stage(event.target.value)}
-          >
+          <select value={stage} onChange={(event) => set.stage(event.target.value)}>
             <option value="">All recorded stages</option>
             {stages.map(([key, label]) => (
               <option key={key} value={key}>
@@ -212,7 +232,7 @@ function Results({ view, filters, set }: { view: Extract<View, { kind: "ready" }
         <label>
           Expense basis
           <select
-            value={filters.basis !== null && bases.includes(filters.basis) ? `basis:${filters.basis}` : ""}
+            value={basis === null ? "" : `basis:${basis}`}
             onChange={(event) => set.basis(event.target.value ? event.target.value.slice(6) : null)}
           >
             <option value="">All expense bases</option>
@@ -249,11 +269,8 @@ function Results({ view, filters, set }: { view: Extract<View, { kind: "ready" }
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr
-                key={`${row.deal_id} ${row.property.id} ${row.stage} ${row.number} ${row.term}`}
-                className={row.superseded ? "superseded" : undefined}
-              >
+            {rows.map(({ row, key }) => (
+              <tr key={key} className={row.superseded ? "superseded" : undefined}>
                 <td data-label="Date">{row.recorded_on ? inWords(row.recorded_on) : "Date not recorded"}</td>
                 <td data-label="Deal">
                   <a href={`/deals?deal=${encodeURIComponent(row.deal_id)}`}>{row.deal_name}</a>

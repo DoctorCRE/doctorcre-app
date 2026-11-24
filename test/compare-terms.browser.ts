@@ -175,10 +175,57 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
           };
         });
         await page.getByRole("button", { name: "Retry" }).click();
-        await page.getByText("No comparable terms match these filters.", { exact: true }).waitFor();
-        assert.equal(await count(page), "0 matching terms across 0 deals.");
+        await page
+          .getByText("No offer rounds or signed leases are recorded on deals in this market yet.", { exact: true })
+          .waitFor();
+        assert.equal(await page.getByRole("combobox").count(), 0, "no filters without terms");
+        assert.equal(await page.getByRole("checkbox").count(), 0, "no superseded toggle without terms");
+        assert.equal(await page.getByText(/matching terms? across/).count(), 0, "no count without terms");
+        await page.screenshot({ path: `${shots}/${width}-${theme}-empty.png`, fullPage: true });
       } finally {
         await page.close();
       }
     }
+});
+
+test("Compare terms shows all terms when a saved choice is missing and says why a table is empty", async (t) => {
+  const artifact = temporaryDirectory("doctorcre-compare-terms-", t);
+  await buildArtifact({ root, outDir: artifact, commit: "1".repeat(40) });
+  const server = await ownedServer({ env: { DOCTORCRE_FIXTURE_ROOT: `${artifact}/site` } });
+  t.after(() => server.stop());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await mount(page, server.url, "light");
+  const term = page.getByRole("combobox", { name: "Term", exact: true });
+  const stage = page.getByRole("combobox", { name: "Recorded stage" });
+  const basis = page.getByRole("combobox", { name: "Expense basis" });
+
+  await term.selectOption({ label: "TI" });
+  await stage.selectOption({ label: "Offer round" });
+  await basis.selectOption({ label: "Not recorded" });
+  assert.equal(await count(page), "1 matching term across 1 deal.");
+  await stage.selectOption({ label: "Signed lease" });
+  await page.getByText("No comparable terms match these filters.", { exact: true }).waitFor();
+  assert.equal(await count(page), "0 matching terms across 0 deals.");
+  await stage.selectOption({ label: "Offer round" });
+
+  const lease = recorded.rows[0];
+  await page.evaluate(
+    (rows) => {
+      Reflect.get(window, "compareTest").reply = { status: 200, body: { schema_version: "compare-terms.v1", rows } };
+    },
+    [lease, { ...lease, documents: [] }],
+  );
+  await page.getByRole("button", { name: "Compare" }).click();
+  for (const notice of [
+    "The selected term is not in these results. Showing all terms.",
+    "The selected recorded stage is not in these results. Showing all recorded stages.",
+    "The selected expense basis is not in these results. Showing all expense bases.",
+  ])
+    await page.getByText(notice, { exact: true }).waitFor();
+  assert.deepEqual([await term.inputValue(), await stage.inputValue(), await basis.inputValue()], ["", "", ""]);
+  assert.equal(await count(page), "2 matching terms across 1 deal.");
+  assert.equal(await page.locator(".market-terms-table tbody tr").count(), 2, "two leases on one deal both show");
+  await page.close();
 });

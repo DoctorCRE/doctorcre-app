@@ -2082,6 +2082,17 @@ function mountSourcedTerms(terms, dealId) {
   };
 }
 
+// An imported deal's market is often old city text that matches no terms; prefill only a name on the engine's market list.
+async function engineMarket(name) {
+  const recorded = name?.trim();
+  if (!recorded) return null;
+  try {
+    const response = await sessionFetch('/api/engine/markets', { headers: { accept: 'application/json' } });
+    const markets = response.ok ? await response.json() : [];
+    return Array.isArray(markets) && markets.some(market => market?.name === recorded) ? recorded : null;
+  } catch { return null; }
+}
+
 function paintPanel(detail) {
   $('panelTitle').textContent = dealTitle(detail.deal);
   renderWorkspaceFacts(detail);
@@ -2122,10 +2133,8 @@ function paintPanel(detail) {
         const element = document.createElement('div');
         let mounted;
         if (engineMode) {
-          const { mountCompareTerms } = await import('./ui-compare-terms.generated.js');
+          const [{ mountCompareTerms }, market] = await Promise.all([import('./ui-compare-terms.generated.js'), engineMarket(detail.deal.market)]);
           if (marketDisposed) return;
-          // A recorded market's terms come first; "Market unspecified" from an import is no market.
-          const market = nationalMarketLabel(detail.deal.market) === detail.deal.market ? detail.deal.market : null;
           mounted = mountCompareTerms(element, { request: sessionFetch, market });
         } else {
           const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
