@@ -269,15 +269,18 @@ test('engine inbox cards drop through the route the engine accepts, with no Drop
   const pendingReply = engine(`reply_draft:${id}`, 'email_proposal', 'Reply draft', {
     source_version: '2', reply_draft_id: id, reply_draft_status: 'pending',
   });
-  const failedReply = engine(`reply_draft:${id}`, 'email_proposal', 'Reply draft', {
-    source_state: 'failed', reply_draft_id: id, reply_draft_status: 'failed',
+  const failedReply = (failure_reason) => engine(`reply_draft:${id}`, 'email_proposal', 'Reply draft', {
+    source_state: 'failed', source_version: '3', reply_draft_id: id, reply_draft_status: 'failed', failure_reason,
   });
   const bareSuggestion = engine(`suggestion:${id}`, 'email_proposal', 'Suggestion');
   assert.deepEqual(dropTarget(engine(`capture_post_call_action:${id}`, 'capture_post_call_action', 'Call follow-up')), { kind: 'mark' });
   assert.deepEqual(dropTarget(engine(`notification:${id}`, 'notification', 'Update')), { kind: 'mark' });
   assert.deepEqual(dropTarget(pendingReply), { kind: 'draft', id, version: 2 });
   assert.deepEqual(dropTarget(bareSuggestion), { kind: 'suggestions', ids: [id] });
-  assert.equal(dropTarget(failedReply), null);
+  assert.deepEqual(dropTarget(failedReply('invalid_submission')), { kind: 'mark' });
+  for (const reason of ['aborted_before_dispatch', 'submission_recipients_invalid', 'unconfirmed_after_30'])
+    assert.equal(dropTarget(failedReply(reason)), null, reason);
+  assert.equal(dropTarget({ ...failedReply('invalid_submission'), home_mark_drop: undefined }), null);
   assert.equal(dropTarget({ ...pendingReply, reply_draft_status: 'approved' }), null);
   assert.equal(dropTarget({ ...bareSuggestion, home_proposal_drop: undefined }), null);
   assert.equal(dropTarget({ ...bareSuggestion, suggestions: [{ id }], home_proposal_drop: undefined }), null);

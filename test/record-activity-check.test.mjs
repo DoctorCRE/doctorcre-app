@@ -118,3 +118,17 @@ test("matching client and lead names resolve the requested client timeline", () 
   assert.equal(result.state, "ready");
   assert.equal(result.rows[0].what, "Client update");
 });
+
+test("a client entry filed to a deal, company or person names where it was filed", () => {
+  const client = { name: "Example Practice", ref: "C-901" };
+  const result = activityState(client, completed("C-901", [
+    row({ summary: "Toured the suite", filed_on: { kind: "deal", name: " Example Suite Lease " } }),
+    row({ summary: "Called the practice", filed_on: null }),
+    row({ summary: "Unknown filing", filed_on: { kind: "property", name: "Example" } }),
+  ]), "clients");
+  assert.deepEqual(result.rows.map(({ what, filedOn }) => ({ what, filedOn })), [
+    { what: "Toured the suite", filedOn: "on deal Example Suite Lease" },
+    { what: "Called the practice", filedOn: null },
+    { what: "Unknown filing", filedOn: null },
+  ]);
+});

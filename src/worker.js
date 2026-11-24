@@ -344,7 +344,6 @@ const ENGINE_READS = new Map([
   ['list-practice-origination', { key: LEADS, path: '/api/engine/reasons-to-reach-out', args: { limit: Number.isFinite, before_id: isString } }],
   [HOME_TODAY, { key: HOME, path: HOME_TODAY, engineOnly: true }],
   ['read-home-inbox-v5', { key: HOME, path: '/api/engine/home/inbox', args: {}, engineOnly: true }],
-  ['/api/v1/intelligence/mail-needs-partner', { key: HOME, path: '/api/engine/home/mail-priorities', forwardQuery: false, engineOnly: true }],
   ['read-engine-home-proposal', homeDetail('proposals', { deal_id: value => isUuid(value) })],
   ['read-engine-home-draft', homeDetail('reply-drafts')],
   ['read-engine-home-card', { key: HOME, path: '/api/engine/home/cards', segment: 'item_id', engineOnly: true,
@@ -463,10 +462,7 @@ async function engineResponse(request, env, call) {
           if (key !== read.segment) url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
         }
       }
-    } else {
-      url.pathname = read.path + record;
-      if (read.forwardQuery === false) url.search = '';
-    }
+    } else url.pathname = read.path + record;
     const response = await Promise.race([
       (async () => {
         const response = await engineFetch(new Request(url, { headers, signal: controller.signal, redirect: 'manual' }), env);
