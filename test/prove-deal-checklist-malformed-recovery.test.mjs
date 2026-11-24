@@ -72,7 +72,7 @@ function setup(overrides={}){
  return {options:{origin:'http://localhost',expectedCommit:expected,timeoutMs:1000,engine,readRelease:async()=>({source_commit:expected}),observe:async()=>({assertions:['synthetic natural observation']}),...overrides},alive:()=>alive,closed:()=>closed};
 }
 test('real release ancestry accepts equal and descendant and refuses older unrelated unknown',async t=>{
- const {requireContainingRelease}=await import('../scripts/prove-fact-review-pending-status-view.mjs');
+ const {requireContainingRelease}=await import('../scripts/containing-release.ts');
  const {temporaryDirectory}=await import('../scripts/temp-directory.mjs');
  const {writeFile}=await import('node:fs/promises');
  const {execFile}=await import('node:child_process');

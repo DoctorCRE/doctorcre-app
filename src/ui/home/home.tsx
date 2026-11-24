@@ -982,7 +982,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 </a>
               </p>
             )}
-            {!source && !["email_proposal", "fact_review"].includes(item.source_type) && <p>No linked record.</p>}
+            {!source && item.source_type !== "email_proposal" && <p>No linked record.</p>}
             {item.source_type === "email_proposal" && !reviewClient && (
               <p>The email and draft are unavailable for this card.</p>
             )}
