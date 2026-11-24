@@ -158,7 +158,7 @@ export function dropTarget(item: InboxItem): DropTarget | null {
   if (dropIds.length && item.home_proposal_drop) return { kind: "suggestions", ids: dropIds };
   if (item.source_type === "next_action") return { kind: "step", id: item.action_id, version: item.action_version };
   if (dropIds.length) return null;
-  return item.home_mark_drop && markDropTarget(item.item_id) ? { kind: "mark" } : null;
+  return item.home_mark_drop && markDropTarget(item) ? { kind: "mark" } : null;
 }
 type DropCommand = { action: "drop"; args: CommandArgs; target: DropTarget; reason: string };
 export type Command = DispositionCommand | TaskCommand | DropCommand;

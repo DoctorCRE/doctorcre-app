@@ -15,6 +15,10 @@ const kinds = new Map([
   ["email_lead", "Possible lead"],
 ]);
 const mayApproveFailedDraft = (failure: string | null) => failure === "aborted_before_dispatch";
+// Rule 99: these failures may still be approved again or found sent, so they stay on Home.
+const mayStillSend = (failure: string) =>
+  ["aborted_before_dispatch", "submission_recipients_invalid"].includes(failure) ||
+  failure.startsWith("unconfirmed_after_");
 function draftStatus(status: unknown, failure: string | null) {
   if (status === "approved") return "Sending";
   if (status === "sent") return "Sent";
@@ -77,6 +81,10 @@ export function draftReference(item: ReviewItem) {
       failureReason: string(fallback.failure_reason),
     };
   return null;
+}
+export function failedForGood(item: ReviewItem) {
+  const draft = draftReference(item);
+  return draft?.status === "failed" && !!draft.failureReason && !mayStillSend(draft.failureReason);
 }
 export const hasEngineReview = (item: InboxItem) =>
   Boolean(item.engine_marks && (draftReference(item) || proposalIds(item).length));
