@@ -19,6 +19,8 @@ type Options = {
   dataset: () => Dataset;
   facets: () => Record<string, Facet[] | undefined>;
   saved: (partyId: string) => void;
+  // The party the open record names, or null when none is open.
+  recordParty: () => string | null;
   // The page's own phone format, so a number reads the same in the record and the editor.
   phoneLabel: (phone: string) => string;
 };
@@ -62,7 +64,6 @@ const LABELS: Record<string, string> = {
   offers: "What they offer",
 };
 const REFUSALS: Record<string, string> = {
-  party_exists: "A record like this already exists.",
   invalid_field_value: "Check the highlighted fields.",
   missing_required: "Fill in the highlighted fields.",
 };
@@ -132,7 +133,7 @@ function contactOf(value: unknown): ({ name: string } & Record<ContactField, str
   return { name: value.name, email: textOrNull(value.email), phone, city: textOrNull(value.city) };
 }
 
-export function mountPartyEditor({ document, client, dataset, facets, saved, phoneLabel }: Options) {
+export function mountPartyEditor({ document, client, dataset, facets, saved, recordParty, phoneLabel }: Options) {
   const dialog = document.createElement("dialog");
   dialog.className = "party-editor";
   dialog.setAttribute("aria-labelledby", "partyEditorTitle");
@@ -150,8 +151,14 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
   let session = "";
   let unconfirmed = false;
   let opening = false;
+  // A record panel that re-rendered while the dialog was open has a new Edit button, so focus goes there.
   dialog.addEventListener("close", () => {
-    if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
+    const back = trigger?.isConnected
+      ? trigger
+      : trigger?.matches("[data-party-edit]")
+        ? document.querySelector("[data-party-edit]")
+        : null;
+    if (back instanceof HTMLElement) back.focus();
   });
 
   const status = (message: string) => {
@@ -167,8 +174,14 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
       : "";
   };
 
-  function show(title: string, body: string, submit: string, onSubmit: (form: HTMLFormElement) => Promise<void>) {
-    trigger = document.activeElement;
+  function show(
+    title: string,
+    body: string,
+    submit: string,
+    onSubmit: (form: HTMLFormElement) => Promise<void>,
+    from = document.activeElement,
+  ) {
+    trigger = from;
     session = crypto.randomUUID();
     unconfirmed = false;
     dialog.innerHTML = `<form novalidate><header><h2 id="partyEditorTitle" tabindex="-1">${escapeHtml(title)}</h2><button type="button" class="party-close" data-close aria-label="Close">×</button></header>${body}<div data-candidates></div><p class="party-status" role="status" data-status></p><div class="party-actions"><button type="submit" class="party-submit">${escapeHtml(submit)}</button></div></form>`;
@@ -235,14 +248,44 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
     if (message) showToast(message);
   }
 
+  // Likely matches the engine found; choose gets the picked record, or null to keep this one separate.
+  function offer(
+    form: HTMLFormElement,
+    found: Candidate[],
+    text: { status: string; intro: string; use: string; separate: string },
+    choose: (partyId: string | null) => void,
+  ) {
+    status(text.status);
+    const box = form.querySelector<HTMLElement>("[data-candidates]");
+    if (!box) return;
+    box.innerHTML = `${text.intro}<ul class="party-candidates">${found
+      .map(
+        (candidate) =>
+          `<li><button type="button" data-use="${escapeHtml(candidate.id)}">${text.use} ${escapeHtml(candidate.name)}${candidate.city ? ` · ${escapeHtml(candidate.city)}` : ""}</button></li>`,
+      )
+      .join("")}<li><button type="button" data-use="">${text.separate}</button></li></ul>`;
+    box.onclick = (event) => {
+      const choice = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-use]") : null;
+      if (!choice) return;
+      box.innerHTML = "";
+      choose(choice.dataset.use || null);
+    };
+  }
+
   const contactFields = (shown: Record<string, Value> = {}) =>
     `${field("Name", "name", input("name", shown.name, 'required maxlength="200" autocomplete="off"'))}${field("Email", "email", input("email", shown.email, 'type="email" autocomplete="off"'))}${field("Phone", "phone", input("phone", shown.phone, 'type="tel" autocomplete="off"'))}${field("City", "city", input("city", shown.city, 'autocomplete="off"'))}`;
 
-  // An edited record keeps a how found copied as Not recorded until a partner picks one.
+  // An edited record keeps a how found copied as Not recorded until a partner picks one; a partner never picks Not recorded.
   function clientFields(shown: Record<string, Value> = {}, editing = false) {
     const types = [["", "Not set"], ...withHeld(facetPairs(facets().types), shown.client_type)];
-    const howFound = [["", editing ? "Not recorded" : "Choose how they were found"], ...HOW_FOUND];
-    return `${field("How found", "how_found", select("how_found", howFound, shown.how_found, editing ? "" : "required"))}${field("Status", "status", select("status", STATUSES, shown.status ?? "roster"))}${field("Client type", "client_type", select("client_type", types, shown.client_type))}${field("Practice type", "vertical", input("vertical", shown.vertical, 'autocomplete="off"'))}`;
+    const blank = !editing
+      ? [["", "Choose how they were found"]]
+      : shown.how_found === null
+        ? [["", "Not recorded"]]
+        : [];
+    const howFound = [...blank, ...HOW_FOUND];
+    const subtype = editing ? '<p class="party-hint">Changing the practice type clears the subtype.</p>' : "";
+    return `${field("How found", "how_found", select("how_found", howFound, shown.how_found, editing ? "" : "required"))}${field("Status", "status", select("status", STATUSES, shown.status ?? "roster"))}${field("Client type", "client_type", select("client_type", types, shown.client_type))}${field("Practice type", "vertical", input("vertical", shown.vertical, 'autocomplete="off"'))}${subtype}`;
   }
 
   function vendorFields(shown: Record<string, Value> = {}) {
@@ -262,21 +305,13 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
       ? valueFrom([...form.querySelectorAll<HTMLInputElement>('[name="categories"]:checked')].map((box) => box.value))
       : valueFrom(value(form, name));
 
-  const roleValues = (form: HTMLFormElement, kind: Dataset): Record<string, unknown> =>
-    kind === "clients"
-      ? {
-          how_found: value(form, "how_found") || null,
-          status: value(form, "status"),
-          client_type: value(form, "client_type") || null,
-          vertical: value(form, "vertical") || null,
-        }
-      : {
-          categories: [...form.querySelectorAll<HTMLInputElement>('[name="categories"]:checked')].map(
-            (box) => box.value,
-          ),
-          stage: value(form, "stage") || null,
-          offers: value(form, "offers") || null,
-        };
+  const choiceLists = (): Record<string, string[][]> => ({
+    status: STATUSES,
+    how_found: HOW_FOUND,
+    client_type: facetPairs(facets().types),
+    stage: facetPairs(facets().stages),
+    categories: facetPairs(facets().categories),
+  });
 
   function openNew() {
     const kind = dataset();
@@ -284,7 +319,7 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
     const body = `<fieldset class="party-kind"><legend>Person or company</legend><label class="party-check"><input type="radio" name="kind" value="company" checked>Company</label><label class="party-check"><input type="radio" name="kind" value="person">Person</label></fieldset>${contactFields()}${kind === "clients" ? clientFields() : vendorFields()}`;
     let partyId: string | null = null;
     let forceNew = false;
-    const form = show(`New ${noun}`, body, `Save ${noun}`, async (form) => {
+    show(`New ${noun}`, body, `Save ${noun}`, async (form) => {
       // How found is checked before the record exists, so a refused client save never leaves a record with no role.
       const missing = ["name", ...(kind === "clients" ? ["how_found"] : [])].filter((name) => !value(form, name));
       if (missing.length) return refuse(form, { ok: false, problem: { error: "missing_required", fields: missing } });
@@ -300,16 +335,32 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
         });
         if (!party.ok) {
           const problem = problemOf(party.problem);
-          return problem.error === "party_exists" && !party.pending
-            ? offer(problem.candidates, contact)
-            : refuse(form, party);
+          if (problem.error !== "party_exists" || party.pending) return refuse(form, party);
+          const left = Object.keys(contact).length
+            ? "<p>An existing record keeps its own email, phone and city, not the ones typed here.</p>"
+            : "";
+          return offer(
+            form,
+            problem.candidates,
+            {
+              status: "A record like this already exists.",
+              intro: `<p>Use an existing record, or keep this one separate.</p>${left}`,
+              use: "Use",
+              separate: "Save as a separate record",
+            },
+            (chosen) => {
+              if (chosen) partyId = chosen;
+              else forceNew = true;
+              form.requestSubmit();
+            },
+          );
         }
         partyId = String(party.data.party_id);
       }
       const values = Object.fromEntries(
-        Object.entries(roleValues(form, kind)).filter(
-          ([, item]) => item !== null && !(Array.isArray(item) && !item.length),
-        ),
+        ROLE[kind]
+          .map((name) => [name, formValue(form, name)] as const)
+          .filter(([, item]) => item !== null && !(Array.isArray(item) && !item.length)),
       );
       const role = await save(kind, "role", "party_id", { party_id: partyId, ...values });
       if (role.ok) return done(partyId);
@@ -318,39 +369,15 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
         return done(partyId, `This record is already a ${noun}, so it is open now.`);
       refuse(form, role);
     });
-    const candidates = form.querySelector<HTMLElement>("[data-candidates]");
-    candidates?.addEventListener("click", (event) => {
-      const choice = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-use]") : null;
-      if (!choice) return;
-      if (choice.dataset.use === "new") forceNew = true;
-      else partyId = choice.dataset.use ?? null;
-      candidates.innerHTML = "";
-      form.requestSubmit();
-    });
-
-    function offer(found: Candidate[], contact: Record<string, string>) {
-      status(REFUSALS.party_exists ?? "");
-      if (!candidates) return;
-      const left = Object.keys(contact).length
-        ? "<p>An existing record keeps its own email, phone and city, not the ones typed here.</p>"
-        : "";
-      candidates.innerHTML = `<p>Use an existing record, or keep this one separate.</p>${left}<ul class="party-candidates">${found
-        .map(
-          (candidate) =>
-            `<li><button type="button" data-use="${escapeHtml(candidate.id)}">Use ${escapeHtml(candidate.name)}${candidate.city ? ` · ${escapeHtml(candidate.city)}` : ""}</button></li>`,
-        )
-        .join("")}<li><button type="button" data-use="new">Save as a separate record</button></li></ul>`;
-    }
   }
 
-  async function read(partyId: string) {
+  async function read(partyId: string): Promise<unknown> {
     const response = await fetch(`/api/engine/parties/${encodeURIComponent(partyId)}`, {
       headers: { accept: "application/json" },
       cache: "no-store",
       credentials: "same-origin",
     }).catch(() => null);
-    const payload: unknown = response?.ok ? await response.json().catch(() => null) : null;
-    return payload;
+    return response?.ok ? response.json().catch(() => null) : null;
   }
 
   async function openEdit(partyId: string, button: HTMLButtonElement) {
@@ -363,11 +390,17 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
     opening = false;
     button.disabled = false;
     button.textContent = idle;
+    // The partner moved to another record while this one was opening.
+    if (recordParty() !== partyId) return;
     const contact = contactOf(payload);
     const profile = isRecord(payload) ? payload[kind === "clients" ? "client" : "vendor"] : null;
     if (!contact || !isRecord(profile)) {
-      show("Edit", "<p>This record could not be opened for editing. Refresh and try again.</p>", "Close", async () =>
-        dialog.close(),
+      show(
+        "Edit",
+        "<p>This record could not be opened for editing. Refresh and try again.</p>",
+        "Close",
+        async () => dialog.close(),
+        button,
       );
       return;
     }
@@ -394,13 +427,14 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
           .filter((name) => touched.has(name) && !same(formValue(form, name), shown[name] ?? null))
           .map((name) => [name, { from: seen[name] ?? null, to: formValue(form, name) }]),
       );
-    const choices = [...STATUSES, ...HOW_FOUND, ...Object.values(facets()).flatMap(facetPairs)];
-    const choice = (name: string, held: string) =>
-      ["status", "how_found", "client_type", "stage", "categories"].includes(name)
-        ? (choices.find(([slug]) => slug === held)?.[1] ?? humanized(held))
-        : held;
+    const lists = choiceLists();
+    const choice = (name: string, held: string) => {
+      const list = lists[name];
+      return list ? (list.find(([slug]) => slug === held)?.[1] ?? humanized(held)) : held;
+    };
+    const blank = (name: string) => (name === "how_found" ? "Not recorded" : "blank");
     const label = (name: string, held: Value) =>
-      `${LABELS[name] ?? name} ${held === null ? "blank" : Array.isArray(held) ? held.map((slug) => choice(name, slug)).join(", ") || "none" : choice(name, held)}`;
+      `${LABELS[name] ?? name} ${held === null ? blank(name) : Array.isArray(held) ? held.map((slug) => choice(name, slug)).join(", ") || "none" : choice(name, held)}`;
     // A conflict answers what the record holds now, so the next save replaces it on purpose.
     function conflict(form: HTMLFormElement, result: Refused) {
       const problem = problemOf(result.problem);
@@ -414,36 +448,72 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
       );
     }
     const body = `${contactFields(shown)}${kind === "clients" ? clientFields(shown, true) : vendorFields(shown)}`;
-    const form = show(`Edit ${contact.name.trim() || "record"}`, body, "Save changes", async (form) => {
-      const contactChanges = changes(form, CONTACT);
-      if (contactChanges.name && !formValue(form, "name"))
-        return refuse(form, { ok: false, problem: { error: "missing_required", fields: ["name"] } });
-      if (Object.keys(contactChanges).length) {
-        const answer = await save(`parties/${partyId}`, "contact", "party_id", contactChanges);
-        if (!answer.ok) return conflict(form, answer);
-        // The saved contact shows as the engine wrote it, so a retry of the profile alone does not resend it.
-        const saved = contactOf(answer.data);
-        for (const name of saved ? CONTACT : []) {
-          hold(name, saved?.[name]);
-          const control = form.elements.namedItem(name);
-          if (control instanceof HTMLInputElement) control.value = String(shown[name] ?? "");
+    let keepEmail = false;
+    let contactSaved = false;
+    const editForm = show(
+      `Edit ${contact.name.trim() || "record"}`,
+      body,
+      "Save changes",
+      async (form) => {
+        const contactChanges = changes(form, CONTACT);
+        if (contactChanges.name && !formValue(form, "name"))
+          return refuse(form, { ok: false, problem: { error: "missing_required", fields: ["name"] } });
+        if (Object.keys(contactChanges).length) {
+          const answer = await save(`parties/${partyId}`, "contact", "party_id", {
+            ...contactChanges,
+            ...(keepEmail && { force_new: true }),
+          });
+          if (!answer.ok) {
+            const problem = problemOf(answer.problem);
+            if (problem.error !== "party_exists" || answer.pending) return conflict(form, answer);
+            return offer(
+              form,
+              problem.candidates,
+              {
+                status: "Another record has this email.",
+                intro: "<p>Open that record, or keep this email here too.</p>",
+                use: "Open",
+                separate: "Keep this email",
+              },
+              (chosen) => {
+                if (chosen) return done(chosen);
+                keepEmail = true;
+                form.requestSubmit();
+              },
+            );
+          }
+          contactSaved = true;
+          // The saved contact shows as the engine wrote it, so a retry of the profile alone does not resend it.
+          const saved = contactOf(answer.data);
+          for (const name of saved ? CONTACT : []) {
+            hold(name, saved?.[name]);
+            const control = form.elements.namedItem(name);
+            if (control instanceof HTMLInputElement) control.value = String(shown[name] ?? "");
+          }
         }
-      }
-      const roleChanges = changes(form, ROLE[kind]);
-      if (Object.keys(roleChanges).length) {
-        const answer = await save(`${kind}/${partyId}`, "role", "party_id", roleChanges);
-        if (!answer.ok) return conflict(form, answer);
-      }
-      done(partyId);
-    });
-    form.addEventListener("input", (event) => {
+        const roleChanges = changes(form, ROLE[kind]);
+        if (Object.keys(roleChanges).length) {
+          const answer = await save(`${kind}/${partyId}`, "role", "party_id", roleChanges);
+          if (!answer.ok) {
+            // The contact already landed, so the record behind the dialog shows it.
+            if (contactSaved) saved(partyId);
+            return conflict(form, answer);
+          }
+        }
+        done(partyId);
+      },
+      button,
+    );
+    editForm.addEventListener("input", (event) => {
       const target = event.target;
       if (
         target instanceof HTMLInputElement ||
         target instanceof HTMLSelectElement ||
         target instanceof HTMLTextAreaElement
-      )
+      ) {
         if (fields.includes(target.name)) touched.add(target.name);
+        if (target.name === "email") keepEmail = false;
+      }
     });
   }
 
@@ -454,8 +524,9 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, pho
     actionsHtml() {
       return '<div class="party-record-actions"><button type="button" class="action secondary-action" data-party-edit>Edit</button></div>';
     },
-    edit(partyId: string, button: HTMLButtonElement) {
-      if (!opening && !dialog.open) void openEdit(partyId, button);
+    edit(button: HTMLButtonElement) {
+      const partyId = recordParty();
+      if (partyId && !opening && !dialog.open) void openEdit(partyId, button);
     },
   };
 }

@@ -302,6 +302,7 @@ dialog.party-editor::backdrop { background: var(--scrim); }
 /* A label is a touch target too; its blank top is the space between fields, so the form adds none. */
 .party-editor .party-field label { display: flex; align-items: flex-end; min-height: var(--touch); padding-bottom: var(--space-1); box-sizing: border-box; color: var(--fg-muted); font-size: var(--font-size-1); }
 .party-editor .party-problem { margin: var(--space-1) 0 0; color: var(--status-danger-ink); font-size: var(--font-size-1); }
+.party-editor .party-hint { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 .party-editor fieldset { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0; padding: var(--space-3); border: 1px solid var(--hairline); border-radius: var(--radius-2); }
 .party-editor legend { padding: 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); }
 .party-editor :is(input:not([type="checkbox"], [type="radio"]), select, textarea) {
