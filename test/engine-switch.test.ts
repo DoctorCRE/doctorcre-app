@@ -2127,16 +2127,13 @@ test("Home forwards the selected deal when previewing a filing", async () => {
   assert.deepEqual(f.carr, []);
 });
 
-test("Mail priorities use the engine's unfiltered read", async () => {
-  const result = { ok: true, schema_version: "home-mail-priorities.v1", items: [], more: false };
-  const f = fixture(new Map(), async () => Response.json(result));
+test("the retired Mail priorities read no longer reaches the engine", async () => {
+  const f = fixture(new Map(), async () => Response.json({ ok: true, items: [] }));
   const request = new Request(`${origin}/api/v1/intelligence/mail-needs-partner?limit=25`, {
     headers: { cookie: "session=synthetic" },
   });
-  assert.deepEqual(await (await worker.fetch(request, f.env)).json(), result);
-  assert.equal(f.engine[0]?.url, `${origin}/api/engine/home/mail-priorities`);
-  assert.equal(f.engine[0]?.headers.get("cookie"), "session=synthetic");
-  assert.deepEqual(f.carr, []);
+  await worker.fetch(request, f.env);
+  assert.deepEqual(f.engine, []);
 });
 
 test("client website setup and opening use their Deals switches without changing the legacy save", async () => {
@@ -2805,7 +2802,6 @@ test("legacy HTTP writes in the pinned contracts have a cutover disposition", as
     "/api/v1/fact-review/comparison/validate",
     "/api/v1/fact-review/documents",
     "/api/v1/fact-review/list",
-    "/api/v1/jev-deal-reading",
     "/api/v1/market-terms/read",
     "/api/v1/work-inventory",
     "/pipeline/changes",
@@ -2910,4 +2906,81 @@ test("live client prospect and Monday review HTTP saves route to the engine", as
     assert.equal(f.engine.at(-1)?.url, `${origin}/api/engine/${target}`);
   }
   assert.deepEqual(f.carr, []);
+});
+
+test("Party saves and their read reach the engine only with Clients and Vendors on the engine", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const doors: [string, string][] = [
+    ["POST", "/api/engine/parties"],
+    ["POST", `/api/engine/parties/${id}`],
+    ["GET", `/api/engine/parties/${id}`],
+    ["POST", "/api/engine/clients"],
+    ["POST", `/api/engine/clients/${id}`],
+    ["POST", "/api/engine/vendors"],
+    ["POST", `/api/engine/vendors/${id}`],
+    ["POST", "/api/engine/party-links"],
+    ["GET", "/api/engine/parties/search?query=Avery"],
+  ];
+  for (const [method, path] of doors) {
+    const request = () =>
+      new Request(origin + path, {
+        method,
+        headers: { cookie: "session=synthetic", origin },
+        ...(method === "POST" && { body: "{}" }),
+      });
+    const off = fixture(new Map());
+    assert.equal((await worker.fetch(request(), off.env)).status, 404, `${method} ${path}`);
+    assert.deepEqual(off.engine, []);
+    const on = fixture(new Map([["clients-vendors-from-engine", "on"]]));
+    assert.equal((await worker.fetch(request(), on.env)).status, 200, `${method} ${path}`);
+    assert.equal(on.engine[0]?.url, origin + path);
+  }
+});
+
+test("A Deals client search still answers while Clients and Vendors read the old system", async () => {
+  const deals = fixture(
+    new Map([
+      ["deals-from-engine", "on"],
+      ["deals-saves-from-engine", "on"],
+    ]),
+  );
+  const path = "/api/engine/parties/search?query=Avery&role=client";
+  const response = await worker.fetch(
+    new Request(origin + path, { headers: { cookie: "session=synthetic", origin } }),
+    deals.env,
+  );
+  assert.equal(response.status, 200);
+  assert.equal(deals.engine[0]?.url, origin + path);
+});
+
+test("A closed party save names New, Edit or Link only while Clients and Vendors read the engine", async () => {
+  const hints = {
+    "new-client": ["Open Clients and choose New client.", "Open Clients to see the current records."],
+    "add-party": [
+      "Open Clients or Vendors and choose New client or New vendor.",
+      "Open Search to find the current record.",
+    ],
+    "link-parties": [
+      "Open the client or vendor and choose Link to someone.",
+      "Open Search to find the current record.",
+    ],
+    "update-party-contact": ["Open the client or vendor and choose Edit.", "Open Search to find the current record."],
+    "new-vendor": ["Open Vendors and choose New vendor.", "Open Vendors to see the current records."],
+  };
+  for (const [verb, [on, off]] of Object.entries(hints))
+    for (const [switches, hint] of [
+      [
+        new Map([
+          ["deals-saves-from-engine", "on"],
+          ["clients-vendors-from-engine", "on"],
+        ]),
+        on,
+      ],
+      [new Map([["deals-saves-from-engine", "on"]]), off],
+    ] as const) {
+      const frozen = fixture(switches);
+      const reply = await (await frozen.send(call(verb, {}))).json();
+      assert.deepEqual(JSON.parse(reply.result.content[0].text), { error: "old_save_closed", hint }, verb);
+      assert.deepEqual(frozen.carr, []);
+    }
 });

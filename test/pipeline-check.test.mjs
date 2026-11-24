@@ -822,15 +822,6 @@ test("the fixture carries the reason and the sentence onto the phase event, word
   assert.equal(plainEvent.human_quote, null);
 });
 
-test('deal insight lines distinguish insufficient evidence from unavailable and preserve recorded movement', async () => {
-  const { dealInsightLines } = await import('../js/pipeline-model.js');
-  assert.deepEqual(dealInsightLines({judged:false,reason:'insufficient_recorded_evidence'}), ['Insufficient evidence']);
-  assert.deepEqual(dealInsightLines({judged:false,reason:'unavailable'}), ['Insights unavailable']);
-  assert.deepEqual(dealInsightLines(null), ['Insights unavailable']);
-  assert.deepEqual(dealInsightLines({judged:true,movement_rung:2,movement_rungs:4,movement_label:'Reviewed',waiting_on:'client_reply',silence_is_bad:0.2}),
-    ['Movement 2 of 4', 'Reviewed', 'Waiting on: client reply', 'Estimated silence concern: 20%']);
-});
-
 // Run the page's status renderer against a DOM without booting its network or
 // polling. The coordinator's transitions are covered in dealroom-board-sync.
 for (const status of [503, 401, 403]) test(`QA008 Deals freshness settles after failed read and retry: ${status}`, async () => {

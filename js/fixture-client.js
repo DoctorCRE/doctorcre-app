@@ -1,7 +1,7 @@
 import { compareInstants } from './change-receipts.mjs';
 import { businessDay } from './business-date.js';
 import { isClosedDeal } from './deal-review-model.js';
-import { addDays, localToday } from './calendar-model.js';
+import { addDays, centralMinutes, localToday } from './calendar-model.js';
 import { relationshipNetworkFixture } from './relationship-network-fixture.js';
 import { createInvoiceFixture } from './invoice-tracker-fixture.js';
 /**
@@ -1256,6 +1256,22 @@ export async function createFixtureClient(opts = {}) {
       };
     },
 
+    /** Sample meetings on today, in Central time, two of them overlapping. */
+    async getCalendarMeetings({ from, to }) {
+      const today = (opts.today || localToday)();
+      const at = minutes => {
+        const guess = Date.parse(`${today}T00:00:00Z`) + (minutes + 360) * 60_000;
+        return new Date(guess + (minutes - centralMinutes(guess)) * 60_000).toISOString();
+      };
+      const meeting = (title, start, end) => ({ title, start: at(start), end: at(end), open_url: null });
+      const items = today < from || today > to ? [] : [
+        meeting('Demo standup', 540, 570), meeting('Demo lease review', 630, 720),
+        meeting('Demo lender call', 660, 690), meeting('Demo site walk', 840, 930),
+      ];
+      return { ok: true, schema_version: 'calendar-meetings.v1', from, to, tours: { state: 'empty', reason: null, items: [] },
+        meetings: [{ partner: selfActor, name: actorLabel(selfActor), state: items.length ? 'ready' : 'empty', reason: null, notes: [], items }] };
+    },
+
     async getPostCallFollowups() { return { schema_version: 'post-call-followups.v1', candidates: [], send: false }; },
 
     async listPracticeOrigination(args = {}) { const {practiceOriginationFixture} = await import('../data/fixtures/practice-origination.mjs'); return practiceOriginationFixture(args); },
@@ -1313,10 +1329,6 @@ export async function createFixtureClient(opts = {}) {
       const record = businessRecords.get(id);
       if (!record) throw new Error(`fixture business record not found: ${dataset}/${id}`);
       return { viewer: selfActor, dataset, record: { ...record } };
-    },
-
-    async getJevDealReading() {
-      return { schema: 'carr.jev-deal-reading.v1', judged: false, reason: 'jev_unavailable' };
     },
 
     async getChanges(cursor, { since } = {}) {

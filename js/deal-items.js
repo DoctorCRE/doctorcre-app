@@ -71,6 +71,12 @@ export function dealDueDate(value, today) {
   return { day, date: formatCalendarDate(day), late: daysLate ? `${daysLate} day${daysLate === 1 ? '' : 's'} late` : '' };
 }
 
+/** A step read from the deal's client says so. */
+export function stepText(step) {
+  const text = step.description.trim();
+  return step.client_step === true ? `Client step: ${text}` : text;
+}
+
 export function dealNextStep(deal, actions = deal.open_actions || [], items = deal.items || []) {
   const open = actions.filter(action => (action.status === undefined || action.status === 'open') && action.title == null)
     .sort((a, b) => (a.due_on || '9999').localeCompare(b.due_on || '9999') || a.id.localeCompare(b.id));

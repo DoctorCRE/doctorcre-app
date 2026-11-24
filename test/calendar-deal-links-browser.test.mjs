@@ -83,25 +83,32 @@ test('Calendar opens each owning deal and Back restores the selected period and 
         await page.goto(`https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev${calendarPath}`);
         await expect(page.locator('#calAsOf')).toContainText('Updated');
         await expect(page.locator('#dayPanelBody .cal-day-entry')).toHaveCount(3);
-        const links = page.locator('#dayPanelBody a, #calUndatedList a');
-        await expect(links).toHaveCount(4);
+        const links = page.locator('#dayPanelBody a');
+        await expect(links).toHaveCount(3);
         assert.deepEqual(await links.evaluateAll(nodes => nodes.map(node => node.getAttribute('href'))), [
-          '/deals?deal=qa-deal-1', '/deals?deal=qa-deal-2', '/deals?deal=qa-deal-4', '/deals?deal=qa%2Fdeal%3F3%26x%3D%22yes%22',
+          '/deals?deal=qa-deal-1', '/deals?deal=qa-deal-2', '/deals?deal=qa-deal-4',
         ]);
-        for (const row of await page.locator('#dayPanelBody .cal-day-entry, #calUndatedList li').all()) {
+        await expect(page.locator('#calUndated')).toHaveText('1 without a date');
+        for (const row of await page.locator('#dayPanelBody .cal-day-entry').all()) {
           const name = await row.locator('a').textContent();
           assert.equal((await row.textContent()).split(name).length - 1, 1, 'deal name appears once per row');
         }
         for (const link of await links.all()) await expect(link).toHaveAccessibleName(/^Demo/);
         assert.equal(calls.filter(name => name === 'get-deal-room').length, 4);
+        const undatedLink = page.locator('#calUndatedList a');
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         const evidence = join(root, '.github/pr-evidence/WR636.S1.J11');
         await mkdir(evidence, { recursive: true });
         await page.screenshot({ path: join(evidence, `calendar-${width}-${theme}.png`), fullPage: true });
         const period = await page.locator('#calPeriod').textContent();
-        const calendarUrl = page.url();
         for (const id of ['qa-deal-1', 'qa-deal-2', 'qa-deal-4', undatedId]) {
+          // The undated list opens in the sheet from its count chip.
+          if (id === undatedId) {
+            await page.getByRole('button', { name: 'Close day' }).click();
+            await page.locator('#calUndated').click();
+          }
+          const calendarUrl = page.url();
           const href = `/deals?deal=${encodeURIComponent(id)}`;
           const link = page.locator(`a[href="${href}"]`);
           const label = await link.textContent();
@@ -119,10 +126,11 @@ test('Calendar opens each owning deal and Back restores the selected period and 
           await expect(page).toHaveURL(calendarUrl);
           await expect(page.locator('#calAsOf')).toContainText('Updated');
           await expect(page.locator('#calPeriod')).toHaveText(period);
-          await expect(page.locator('.cal-day[aria-selected="true"]')).toHaveAttribute('data-day', '2026-10-20');
-          await expect(page.locator('#calUndatedList')).toContainText('Date unavailable');
+          await expect(page.locator('#dayPanelTitle')).toContainText(id === undatedId ? 'Without a date' : 'Oct 20');
+          if (id === undatedId) await expect(undatedLink).toHaveAccessibleName(/^Demo/);
         }
         assert.equal(calls.includes('add-critical-date'), false);
+        await page.getByRole('button', { name: 'Close day' }).click();
         empty = true;
         await page.locator('#calRefresh').click();
         await expect(page.locator('#calState')).toContainText('Nothing this month.');
@@ -130,9 +138,11 @@ test('Calendar opens each owning deal and Back restores the selected period and 
         empty = false;
         missingDestination = true;
         await page.locator('#calRefresh').click();
+        await expect(page.locator('#calUndated')).toHaveText('1 without a date');
+        await page.locator('#calUndated').click();
         await expect(page.locator('#calUndatedList li')).toHaveCount(1);
         await expect(page.locator('#calUndatedList')).toContainText('Date unavailable');
-        await expect(links).toHaveCount(0);
+        await expect(page.locator('#calUndatedList a')).toHaveCount(0);
         assert.deepEqual(errors, []);
       } finally {
         await page.close();

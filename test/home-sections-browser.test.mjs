@@ -1118,6 +1118,12 @@ async function dashboard(t, width, theme, timezone) {
         : item);
       result = { next_step_id: args.id, status: 'done', change_id: 2 };
     }
+    if (name === 'reopen-engine-home-step') {
+      state.items = state.items.map(item => item.action_id === args.id
+        ? { ...item, section: 'inbox', source_state: 'needs_attention', completed_at: null, action_version: 2 }
+        : item);
+      result = { next_step_id: args.id, status: 'open', change_id: 3 };
+    }
     return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify(result) }] } } });
   });
   return { page, open, state };
@@ -1153,8 +1159,8 @@ for (const grouped of [true, false]) test(`Home uses reported lateness on the ${
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
   const filing = reminders.getByRole('link', { name: 'Review where to file the email' });
   await filing.waitFor();
-  assert.ok(await filing.evaluate(node => node.getBoundingClientRect().bottom <
-    node.closest('.home-slice').querySelector('.home-late').getBoundingClientRect().top));
+  assert.ok(await filing.evaluate(node => node.getBoundingClientRect().top >
+    node.closest('.home-slice').querySelector('section[aria-label="Late"]').getBoundingClientRect().bottom), 'Late leads the tile');
   const late = reminders.getByRole('region', { name: 'Late', exact: true });
   assert.deepEqual(await late.locator('article h3').allTextContents(), [
     'Send the signed lease', 'Check in with the surveyor', 'Review the completed site visit',
@@ -1514,6 +1520,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
   const edit = review.getByRole('button', { name: 'Edit', exact: true });
   await edit.waitFor();
+  const background = locator => locator.evaluate(node => getComputedStyle(node).backgroundColor);
+  const accent = await background(page.getByRole('button', { name: 'Review reply', exact: true }));
+  assert.equal(await background(review.getByRole('button', { name: 'Send reply', exact: true })), accent, 'Send reply is the primary button');
+  for (const name of ['Edit', 'Drop']) assert.notEqual(await background(review.getByRole('button', { name, exact: true }).first()), accent, name);
   assert.equal(await review.getByRole('textbox', { name: 'Message' }).count(), 0);
   assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
   assert.equal(await review.getByText('Current saved reply').count(), 0);
@@ -1537,6 +1547,58 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(state.draftWrites[0].version, 1);
   assert.equal(state.draft.subject, 'Updated sample subject');
   assert.equal(state.draft.body, 'Edited sample draft.');
+});
+
+for (const width of [390, 1440]) test(`Home keeps other cards usable while a review is open at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  const draft = draftCard();
+  const other = step(30, 'Call the practice manager', { card_id: 'other' });
+  const swiped = step(31, 'Ask the surveyor for pricing', { card_id: 'swiped' });
+  state.dashboard = true;
+  state.items = [draft, other, swiped];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  const card = title => page.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title }) });
+  const button = (title, name) => card(title).locator(':scope > .inbox-actions').getByRole('button', { name, exact: true });
+  for (const name of ['Snooze', 'Drop']) assert.equal(await button(draft.title, name).isDisabled(), true, `the card under review keeps ${name} locked`);
+  if (process.env.HOME_THREAD_SCREENSHOTS) {
+    await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
+    await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `review-open-${width}.png`), fullPage: true });
+  }
+  for (const name of ['Snooze', 'Drop', 'Mark done']) assert.equal(await button(other.title, name).isDisabled(), false, name);
+  await button(other.title, 'Snooze').click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('status').filter({ hasText: `Snoozed: ${other.title}.` }).waitFor();
+  await card(swiped.title).evaluate(node => {
+    const touch = x => new Touch({ identifier: 1, target: node, clientX: x, clientY: 100 });
+    node.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [touch(300)] }));
+    node.dispatchEvent(new TouchEvent('touchend', { bubbles: true, changedTouches: [touch(180)] }));
+  });
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('status').filter({ hasText: `Snoozed: ${swiped.title}.` }).waitFor();
+  assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
+});
+
+test('Inbox keeps Undo on another finished card usable while a review is open', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  const finished = step(32, 'Send the sample brochure', {
+    section: 'done', source_state: 'done', completed_at: now.toISOString(), undo_completion: true,
+  });
+  state.items = [draft, finished];
+  await open('/inbox?mode=live');
+  await page.getByRole('button', { name: 'Review reply', exact: true }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  await page.locator('summary').filter({ hasText: 'Done' }).click();
+  const undo = page.locator(`[data-inbox-row="${finished.item_id}"]`).getByRole('button', { name: 'Undo', exact: true });
+  assert.equal(await undo.isDisabled(), false, 'Undo stays usable on another card');
+  await undo.click();
+  await page.locator('.toast').getByText('Undone.', { exact: true }).waitFor();
+  await page.locator(`section[aria-label="Inbox"] [data-inbox-row="${finished.item_id}"]`).waitFor();
+  assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
 });
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home shows a stale edit alongside the saved draft at ${width}px in ${theme}`, async t => {
@@ -1751,8 +1813,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   } else {
     assert.equal(first.y, second.y);
     assert.ok(second.x >= first.x + first.width);
-    assert.equal(third.y, second.y);
-    assert.ok(third.x >= second.x + second.width);
+    assert.ok(first.width > 1.8 * second.width, 'Reminders takes the wide column');
+    assert.equal(third.x, second.x);
+    assert.ok(third.y >= second.y + second.height, 'the other tiles stack beside Reminders');
+    assert.equal(await page.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight), true, 'the page itself does not scroll');
   }
   await reminders.getByRole('heading', { name: 'Late', exact: true }).waitFor();
   await reminders.getByText(/3 days late/).waitFor();
@@ -1787,6 +1851,36 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await reminders.waitFor({ state: 'detached' });
   await waiting.waitFor({ state: 'detached' });
   await meetings.waitFor({ state: 'detached' });
+});
+
+for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['light', 'dark']) test(`Home fits one screen with Reminders alone at ${width}x${height} in ${theme}`, async t => {
+  const { page, open, state } = await dashboard(t, width, theme);
+  await page.setViewportSize({ width, height });
+  state.items = [
+    ...state.items.filter(item => item.section === 'inbox'),
+    ...Array.from({ length: 8 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
+  ];
+  await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
+    ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe',
+    meetings: { state: 'partial', items: [], observed_at: '2026-11-03T14:00:00Z' },
+  } }));
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const status = page.getByText(/^Last synced/);
+  await status.waitFor();
+  await reminders.getByRole('button', { name: /^See all/ }).click();
+  if (process.env.HOME_GRID_SCREENSHOTS) {
+    await mkdir(process.env.HOME_GRID_SCREENSHOTS, { recursive: true });
+    await page.screenshot({ path: join(process.env.HOME_GRID_SCREENSHOTS, `home-alone-${width}x${height}-${theme}.png`) });
+  }
+  const [tile, grid, band] = await Promise.all([reminders, page.locator('.home-sections'), page.locator('.app-layout-tabbar')]
+    .map(node => node.boundingBox()));
+  assert.equal(tile.width, grid.width, 'a lone Reminders tile fills the row');
+  assert.ok(band.y + band.height <= 60, 'the page controls take one compact band');
+  assert.deepEqual(await page.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight), true, 'the page itself does not scroll');
+  assert.deepEqual(await reminders.evaluate(node => node.scrollHeight > node.clientHeight), true, 'the long list scrolls inside its tile');
+  await reminders.getByRole('heading', { name: /^Reminders/ }).waitFor();
 });
 
 const draftCard = () => ({
@@ -2275,7 +2369,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const message = review.getByRole('textbox', { name: 'Message', exact: true });
   await message.fill('Unsaved edit for the floor plan.');
   await message.scrollIntoViewIfNeeded();
-  const before = await message.evaluate(node => ({ y: scrollY, top: node.getBoundingClientRect().top }));
+  const before = await message.evaluate(node => ({ y: scrollY + node.closest('.home-slice').scrollTop, top: node.getBoundingClientRect().top }));
   assert.ok(before.y > 0 && before.top >= 0 && before.top < 760);
   const reads = state.dashboardReads;
   const added = { ...step(32, 'Confirm the site visit'), card_id: 'suite:new' };
