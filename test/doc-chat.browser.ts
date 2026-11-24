@@ -889,7 +889,7 @@ for (const scenario of ["note", "next step", "reply", "unavailable"] as const) {
             saves++;
             result =
               scenario === "reply"
-                ? { kind: "reply_draft", id: savedId, href: draftHref, existing: true }
+                ? { kind: "reply_draft", id: savedId, href: draftHref, existing: false }
                 : { kind: "note", id: savedId, href: deal.href };
           }
           return Response.json({ result });
@@ -976,10 +976,7 @@ for (const scenario of ["note", "next step", "reply", "unavailable"] as const) {
   });
 }
 
-for (const [existing, line] of [
-  [true, "Opened your saved draft. Doc’s new wording wasn’t used."],
-  [false, "Reply draft saved."],
-] as const) {
+for (const existing of [true, false]) {
   test(`Doc confirms a reply and says whether it opened the saved draft (existing: ${existing})`, async (t) => {
     const proposal = {
       kind: "reply_draft",
@@ -992,7 +989,7 @@ for (const [existing, line] of [
       idempotency_key: "00000000-0000-4000-8000-000000000003",
       answer: { ...answeredTurn.answer, proposal },
     };
-    const result = { kind: "reply_draft", id: savedId, href: "https://example.com/draft", existing };
+    const result = { kind: "reply_draft", id: savedId, href: draftHref, existing };
     const { page, origin } = await docChatFixture(t, async (request) => {
       switch (new URL(request.url).pathname) {
         case "/api/engine/doc/conversations":
@@ -1006,9 +1003,18 @@ for (const [existing, line] of [
       }
     });
     page.setDefaultTimeout(5000);
-    await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+    const chatUrl = `${origin}/doc-chats?mode=live&chat=${id}`;
+    await page.route(`${origin}${draftHref}`, (route) => route.fulfill({ body: "Example reply review" }));
+    await page.goto(chatUrl);
     await page.getByRole("button", { name: "Save draft and open review", exact: true }).click();
-    await expect(page.locator(".doc-chat__turns li").getByText(line, { exact: true })).toBeVisible();
+    if (!existing) {
+      await expect(page).toHaveURL(`${origin}${draftHref}`);
+      return;
+    }
+    const saved = page.locator(".doc-chat__turns li").filter({ hasText: "Opened your saved draft." });
+    await expect(saved.getByText("Opened your saved draft. Doc’s new wording wasn’t used.")).toBeVisible();
+    await expect(saved.getByRole("link", { name: "Open reply review" })).toHaveAttribute("href", draftHref);
+    await expect(page).toHaveURL(chatUrl);
   });
 }
 
