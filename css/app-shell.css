@@ -270,6 +270,16 @@ html[data-deals-from-engine] :is([data-layout-slot="moves"], #receiptsOpen, #rec
 :root[data-color-assist="on"] .receipt { border-left: 3px solid var(--status-warn); }
 :root[data-color-assist="on"] .receipt.superseded { border-left: 3px dotted var(--fg-muted); }
 :root[data-color-assist="on"] .receipts-jump { border: 2px dashed var(--fg-muted); }
+/* Save confirmation: shows about five seconds, then is fully gone (js/toast.js). */
+.toast { position: fixed; left: auto; right: 88px; bottom: var(--space-4); z-index: 50; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border: var(--hairline-width) solid var(--hairline-strong); border-left: 3px solid var(--status-ok); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); box-shadow: var(--shadow-overlay); animation: toast-life var(--motion-toast) var(--ease-out) forwards; }
+.toast[popover] { top: auto; margin: 0; max-width: calc(100vw - 24px); }
+.toast[data-transient] { animation: none; opacity: 1; transition: opacity 800ms var(--ease-out); }
+.toast[data-transient].is-leaving { opacity: 0; pointer-events: none; }
+.toast[data-transient].is-leaving:has(.receipt-undo) { pointer-events: auto; }
+.toast[role="alert"] { border-left-color: var(--status-danger); }
+.toast button { min-width: var(--touch); min-height: var(--touch); }
+@keyframes toast-life { 0% { opacity: 0; transform: translateY(6px); } 8%, 62% { opacity: 1; transform: none; } 100% { opacity: 0; visibility: hidden; transform: none; } }
+@media (max-width: 767px) { .toast { left: var(--space-3); right: 80px; bottom: 96px; justify-content: space-between; } }
 /* Toasts sit above the status band and beside, never over, the open Today column. */
 body.has-app-layout { --toast-right: calc(260px + var(--space-4)); }
 body.has-app-layout:has(.app-layout[data-today=closed]) { --toast-right: var(--space-4); }
