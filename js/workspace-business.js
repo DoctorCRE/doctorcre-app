@@ -743,7 +743,7 @@ function clientActivityList(rows) {
     const disclosure = row.email
       ? `<details data-details-key="email-${escapeHtml(row.when)}-${index}"><summary>${link ? "Read email" : text}</summary><p class="entry-detail">${escapeHtml(row.email)}</p></details>`
       : "";
-    const entry = link + disclosure || text;
+    const entry = (link + disclosure || text) + (row.filedOn ? ` <span class="activity-filed">· ${escapeHtml(row.filedOn)}</span>` : "");
     return `<li class="activity-row"><span class="activity-dot" aria-hidden="true"></span><div class="activity-what">${entry}</div>${row.when ? `<time class="activity-when">${escapeHtml(formatMoment(row.when))}${row.source ? ` · ${escapeHtml(row.source)}` : ""}</time>` : ""}</li>`;
   }).join("")}</ol>`;
 }

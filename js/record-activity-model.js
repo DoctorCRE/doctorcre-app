@@ -33,6 +33,8 @@ const ACTIVITY_SOURCES = new Map([
   ["old_system", "Old system"], ["mail_capture", "Mail capture"],
 ]);
 
+const FILED_KINDS = new Set(["deal", "company", "person"]);
+
 function clientTimelineRow(source) {
   const row = timelineRow(source);
   const isEmail = /^email(?:_in|_out)?$/.test(source?.verb);
@@ -42,9 +44,13 @@ function clientTimelineRow(source) {
     : `Email · ${subject}`;
   const what = clientNoteText(isEmail ? emailLabel : row.what);
   const dealId = typeof source?.deal_id === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(source.deal_id) ? source.deal_id : null;
+  const filed = source?.filed_on;
+  const filedOn = FILED_KINDS.has(filed?.kind) && typeof filed.name === "string" && filed.name.trim()
+    ? `on ${filed.kind} ${filed.name.trim()}` : null;
   return {
     when: row.when,
     source: ACTIVITY_SOURCES.get(row.actor),
+    filedOn,
     what: what.replace(/[^\s<>@,;]+@[^\s<>@,;]+/g, "").replace(/\s+/g, " ").trim() || "Recorded activity",
     dealId,
     email: isEmail && typeof source?.detail === "string" ? source.detail : null,
