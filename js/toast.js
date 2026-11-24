@@ -81,7 +81,8 @@ export function showToast(message, { eventId = null, onUndo = null, error = fals
   if (node.showPopover) node.setAttribute('popover', 'manual');
   place(state, doc);
   state.observer = new doc.defaultView.MutationObserver(() => place(state, doc));
-  state.observer.observe(doc.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
+  // childList: a dialog removed while still open would otherwise take the toast with it.
+  state.observer.observe(doc.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
   if (!error) {
     timer(() => {
       if (active !== state) return;

@@ -2690,6 +2690,7 @@ async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop 
       const body = await request.json();
       writes.push({ path, body });
       if (path === '/api/engine/home/marks') {
+        if (state.unanswered) return new Response('', { status: 503 });
         if (invalidDrop || (body.action === 'drop' && !/^(capture_post_call_action|notification):/.test(body.item_id)))
           return Response.json({ error: 'invalid_field_value', fields: ['action'] }, { status: 400 });
         if (body.action === 'drop') {
@@ -2747,7 +2748,7 @@ async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop 
     await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill(reason);
     await dialog.getByRole('button', { name: 'Drop', exact: true }).click();
   };
-  return { page, rows, writes, dialog, confirm, confirmation: page.locator('.toast[role="status"]'), alert: page.locator('.inbox-notice[role="alert"]') };
+  return { page, state, rows, writes, dialog, confirm, confirmation: page.locator('.toast[role="status"]'), alert: page.locator('.inbox-notice[role="alert"]') };
 }
 
 const dropCard = (number, fields) => ({
@@ -2848,6 +2849,27 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await row.getByRole('button', { name: 'Snooze', exact: true }).waitFor();
   await page.clock.runFor(5_000);
   await undone.waitFor({ state: 'detached' });
+});
+
+test('Home keeps the bottom Undo unusable while a later save is unresolved', async t => {
+  const cards = [80, 81].map(n => dropCard(n, { item_id: `notification:${id(n)}`, source_type: 'notification', kind_label: 'Update', title: `Sample reminder ${n}` }));
+  const { page, state, rows: [first, second], writes } = await homeDropFixture(t, 1440, { items: cards });
+  const snooze = async row => {
+    await row.getByRole('button', { name: 'Snooze', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  };
+  await snooze(first);
+  const undo = page.locator('.toast').getByRole('button', { name: 'Undo', exact: true });
+  await undo.waitFor();
+  state.unanswered = true;
+  await snooze(second);
+  await page.getByText(/Result uncertain/).waitFor();
+  assert.equal(await undo.isDisabled(), true, 'Undo waits while the later save is unresolved');
+  state.unanswered = false;
+  await page.getByRole('button', { name: 'Retry same request', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: 'Snoozed: Sample reminder 81.' }).waitFor();
+  assert.deepEqual(writes.map(write => [write.body.action, write.body.item_id]),
+    [['snooze', cards[0].item_id], ['snooze', cards[1].item_id], ['snooze', cards[1].item_id]]);
 });
 
 for (const width of [390, 1440]) test(`Home alerts and keeps a card when the engine refuses Drop with 400 invalid_field_value at ${width}px`, async t => {

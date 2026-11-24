@@ -270,9 +270,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }, [cache, engineHome, home, meetings.refetch, query.refetch]);
   const undoNotice = useRef("");
   const toastUndo = useRef<(entry: Undo) => void>(() => {});
+  const toast = useRef<HTMLElement | null>(null);
   function confirmSave(text: string, entry?: Undo) {
     setNotice("");
-    showToast(text, entry ? { onUndo: () => toastUndo.current(entry) } : {});
+    toast.current = showToast(text, entry ? { onUndo: () => toastUndo.current(entry) } : {});
   }
   useEffect(() => {
     if (!undo.length) return;
@@ -552,6 +553,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const change = "mark" in previous ? restoreMark(previous.mark) : previous;
     act(change.action, previous.items, change.until, true, "receipt" in change ? change.receipt : undefined);
   }
+  // Like the top-notice Undo, the toast's waits while another save is in flight or unresolved.
+  const undoLocked = busy || !!pending;
+  useEffect(() => {
+    const button = toast.current?.querySelector<HTMLButtonElement>(".receipt-undo");
+    if (button) button.disabled = undoLocked;
+  });
   toastUndo.current = (entry) =>
     undoable(entry, items)
       ? undoChange(entry)

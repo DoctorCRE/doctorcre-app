@@ -929,9 +929,9 @@ async function runMove(intent, form) {
     confirmLocalWrite(intent.deal, { phase: phaseStep.args.value });
     renderBoard();
     const back = state.nextDealSaves ? moveBack(intent, result.response?.change_id) : null;
+    // The toast is the move's only announcement; #dragLive keeps the drag steps.
     showToast(`${intent.name} moved to ${intent.to_label}`, back ? { onUndo: () => void runMoveBack(back) } : { eventId: result.event_id });
   }
-  announce(`${intent.name} moved to ${intent.to_label}.`);
 
   if (!result.superseded) await resumeMoveFollowUps(cell);
   return { ok: true, errors: [] };

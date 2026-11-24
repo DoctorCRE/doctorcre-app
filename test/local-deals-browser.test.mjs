@@ -291,7 +291,9 @@ for (const width of [1440, 390]) test(`keyboard move into a collapsed stage rest
   assert.equal(await destination.locator('.kanban-card').count(), 0);
   assert.ok((await destination.locator('.stage-preview').textContent()).includes(name));
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-collapse-stage')), 'legal');
-  assert.equal(await page.locator('#dragLive').textContent(), `${name} moved to Legal.`);
+  const announced = await page.evaluate(text => [...document.querySelectorAll('[aria-live], [role="status"], [role="alert"]')]
+    .filter(region => region.textContent.includes(text)).map(region => region.classList.contains('toast') ? 'toast' : region.id), `${name} moved to Legal`);
+  assert.deepEqual(announced, ['toast'], 'one move is announced in exactly one live region');
   assert.deepEqual(errors, []);
 });
 
