@@ -2082,14 +2082,15 @@ function mountSourcedTerms(terms, dealId) {
   };
 }
 
-// An imported deal's market is often old city text that matches no terms; prefill only a name on the engine's market list.
-async function engineMarket(name) {
-  const recorded = name?.trim();
-  if (!recorded) return null;
+// An imported deal's market is often old city text that matches no terms; prefill only a market on the engine's list.
+async function engineMarket({ market, market_id }, signal) {
+  const recorded = market?.trim();
+  if (!market_id && !recorded) return null;
   try {
-    const response = await sessionFetch('/api/engine/markets', { headers: { accept: 'application/json' } });
+    const response = await sessionFetch('/api/engine/markets', { headers: { accept: 'application/json' }, signal });
     const markets = response.ok ? await response.json() : [];
-    return Array.isArray(markets) && markets.some(market => market?.name === recorded) ? recorded : null;
+    const match = Array.isArray(markets) ? markets.find(row => market_id ? row?.market_id === market_id : row?.name === recorded) : null;
+    return typeof match?.name === 'string' ? match.name : null;
   } catch { return null; }
 }
 
@@ -2121,6 +2122,7 @@ function paintPanel(detail) {
   }
   updateDetailTimestamp();
   let marketDisposed = false, marketLoading = false;
+  const marketRead = new AbortController();
   marketTermsPanel = {
     async load() {
       if (marketDisposed || marketLoading) return;
@@ -2133,7 +2135,7 @@ function paintPanel(detail) {
         const element = document.createElement('div');
         let mounted;
         if (engineMode) {
-          const [{ mountCompareTerms }, market] = await Promise.all([import('./ui-compare-terms.generated.js'), engineMarket(detail.deal.market)]);
+          const [{ mountCompareTerms }, market] = await Promise.all([import('./ui-compare-terms.generated.js'), engineMarket(detail.deal, marketRead.signal)]);
           if (marketDisposed) return;
           mounted = mountCompareTerms(element, { request: sessionFetch, market });
         } else {
@@ -2148,7 +2150,7 @@ function paintPanel(detail) {
       finally { marketLoading = false; }
     },
     refresh() { return marketTermsViews.get(detail.deal.id)?.mounted.refresh(); },
-    dispose() { marketDisposed = true; },
+    dispose() { marketDisposed = true; marketRead.abort(); },
   };
   const toursParams = new URLSearchParams(location.search);
   const linkedProperty = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;

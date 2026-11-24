@@ -198,6 +198,7 @@ async function app(
     tourPlans = false,
     callReview,
     dealMarket,
+    dealMarketId,
   }: {
     width?: number;
     port?: number;
@@ -217,6 +218,7 @@ async function app(
     documentText?: string[] | "missing";
     documents?: (typeof filedDocument)[];
     dealMarket?: string;
+    dealMarketId?: string;
   } = {},
 ) {
   let unavailable = false;
@@ -608,6 +610,7 @@ async function app(
             ...dealDetail,
             email_follow_ups: [],
             ...(dealMarket !== undefined && { market: dealMarket }),
+            ...(dealMarketId !== undefined && { market_id: dealMarketId }),
             ...tourDeal?.(),
           });
         if (path === "/api/engine/markets")
@@ -1418,13 +1421,22 @@ test("Doc link settings are available only with engine sign-in", async (t) => {
   }
 });
 
-for (const [dealMarket, prefill, read] of [
-  ["Example North", "Example North", "/api/engine/market-terms?market=Example+North"],
-  ["Example City", "", "/api/engine/market-terms"],
-  ["Market unspecified", "", "/api/engine/market-terms"],
+const inMarket = "No offer rounds or signed leases are recorded on deals in this market yet.";
+const anyMarket = "No offer rounds or signed leases are recorded yet.";
+for (const [dealMarket, dealMarketId, prefill, read, empty] of [
+  ["Example North", undefined, "Example North", "/api/engine/market-terms?market=Example+North", inMarket],
+  ["Example City", undefined, "", "/api/engine/market-terms", anyMarket],
+  [
+    "Example City",
+    "00000000-0000-4000-8000-0000000000d1",
+    "Example North",
+    "/api/engine/market-terms?market=Example+North",
+    inMarket,
+  ],
+  ["Market unspecified", undefined, "", "/api/engine/market-terms", anyMarket],
 ] as const)
-  test(`Compare terms reads the engine for a deal in ${dealMarket} and legacy deal features make no requests`, async (t) => {
-    const { server, context, partnerReads } = await app(t, { dealMarket });
+  test(`Compare terms reads the engine for a deal in ${dealMarket}${dealMarketId ? " on a market record" : ""} and legacy deal features make no requests`, async (t) => {
+    const { server, context, partnerReads } = await app(t, { dealMarket, ...(dealMarketId && { dealMarketId }) });
     const page = await context.newPage();
     const legacyRequests: string[] = [];
     page.on("request", (request) => {
@@ -1442,9 +1454,7 @@ for (const [dealMarket, prefill, read] of [
     await room.locator("summary").filter({ hasText: "Deal watch settings" }).waitFor({ timeout: 4000 });
     await room.getByRole("tab", { name: "Compare terms" }).click();
     const terms = room.getByRole("tabpanel", { name: "Compare terms" });
-    await terms
-      .getByText("No offer rounds or signed leases are recorded on deals in this market yet.", { exact: true })
-      .waitFor({ timeout: 4000 });
+    await terms.getByText(empty, { exact: true }).waitFor({ timeout: 4000 });
     assert.equal(await terms.getByLabel("Market").inputValue(), prefill);
     assert.deepEqual(
       [...partnerReads.keys()].filter((path) => path.startsWith("/api/engine/market-terms")),

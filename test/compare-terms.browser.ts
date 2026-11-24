@@ -175,13 +175,34 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
           };
         });
         await page.getByRole("button", { name: "Retry" }).click();
-        await page
-          .getByText("No offer rounds or signed leases are recorded on deals in this market yet.", { exact: true })
-          .waitFor();
+        await page.getByText("Nothing matches the market, use type and date entered.", { exact: true }).waitFor();
         assert.equal(await page.getByRole("combobox").count(), 0, "no filters without terms");
         assert.equal(await page.getByRole("checkbox").count(), 0, "no superseded toggle without terms");
         assert.equal(await page.getByText(/matching terms? across/).count(), 0, "no count without terms");
-        await page.screenshot({ path: `${shots}/${width}-${theme}-empty.png`, fullPage: true });
+        await page.screenshot({ path: `${shots}/${width}-${theme}-empty-filtered.png`, fullPage: true });
+
+        await page.getByLabel("Use type").fill("");
+        await page.getByLabel("As of date (optional)").fill("");
+        await page.getByRole("button", { name: "Compare" }).click();
+        await page
+          .getByText("No offer rounds or signed leases are recorded on deals in this market yet.", { exact: true })
+          .waitFor();
+        await page.getByText("All recorded history", { exact: true }).waitFor();
+        await page.screenshot({ path: `${shots}/${width}-${theme}-empty-market.png`, fullPage: true });
+
+        await page.getByLabel("Market").fill("");
+        await page.getByRole("button", { name: "Compare" }).click();
+        await page.getByText("No offer rounds or signed leases are recorded yet.", { exact: true }).waitFor();
+        await page.getByText("All markets · All recorded history", { exact: true }).waitFor();
+        assert.equal(
+          (await page.evaluate(() => Reflect.get(window, "compareTest").paths)).at(-1),
+          "/api/engine/market-terms?",
+        );
+        await page.screenshot({ path: `${shots}/${width}-${theme}-empty-all.png`, fullPage: true });
+
+        await page.getByLabel("Use type").fill("Medical office");
+        await page.getByRole("button", { name: "Compare" }).click();
+        await page.getByText("Nothing matches the market, use type and date entered.", { exact: true }).waitFor();
       } finally {
         await page.close();
       }

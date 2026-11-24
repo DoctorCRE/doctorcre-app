@@ -29,7 +29,8 @@ type Row = {
 };
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
 type Options = { request: Request; market?: string | null };
-type View = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; rows: Row[]; asOf: string };
+type Query = { market: string; use_type: string; as_of: string };
+type View = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; rows: Row[]; query: Query };
 
 const isText = (value: unknown): value is string => typeof value === "string";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -87,18 +88,16 @@ function CompareTerms({ request, market, refreshRef }: Options & { refreshRef: {
   async function load() {
     const current = ++sequence.current;
     const fields = form.current ? new FormData(form.current) : new FormData();
-    const params = new URLSearchParams();
-    for (const name of ["market", "use_type", "as_of"]) {
-      const value = String(fields.get(name) ?? "").trim();
-      if (value) params.set(name, value);
-    }
+    const field = (name: keyof Query) => String(fields.get(name) ?? "").trim();
+    const query: Query = { market: field("market"), use_type: field("use_type"), as_of: field("as_of") };
+    const params = new URLSearchParams(Object.entries(query).filter(([, value]) => value));
     setView({ kind: "loading" });
     try {
       const response = await request(`/api/engine/market-terms?${params}`, { headers: { accept: "application/json" } });
       const rows = response.ok ? parseCompareTerms(await response.json()) : null;
       if (current !== sequence.current) return;
       if (!rows) throw Error("Compare terms unavailable");
-      setView({ kind: "ready", rows, asOf: params.get("as_of") ?? "" });
+      setView({ kind: "ready", rows, query });
     } catch {
       if (current === sequence.current) setView({ kind: "error", message: "Comparable terms are unavailable." });
     }
@@ -163,17 +162,28 @@ function CompareTerms({ request, market, refreshRef }: Options & { refreshRef: {
 type Filters = { term: string; stage: string; basis: string | null; hideSuperseded: boolean };
 type Setters = { [K in keyof Filters]: (value: Filters[K]) => void };
 
+function emptyMessage({ market, use_type, as_of }: Query) {
+  if (use_type || as_of) return "Nothing matches the market, use type and date entered.";
+  return market
+    ? "No offer rounds or signed leases are recorded on deals in this market yet."
+    : "No offer rounds or signed leases are recorded yet.";
+}
+
 function Results({ view, filters, set }: { view: Extract<View, { kind: "ready" }>; filters: Filters; set: Setters }) {
+  const { market, as_of } = view.query;
   const heading = (
     <p>
-      <strong>{view.asOf ? `Terms as of ${inWords(view.asOf)}` : "All recorded history"}</strong>
+      <strong>
+        {market ? "" : "All markets · "}
+        {as_of ? `Terms as of ${inWords(as_of)}` : "All recorded history"}
+      </strong>
     </p>
   );
   if (!view.rows.length)
     return (
       <>
         {heading}
-        <p>No offer rounds or signed leases are recorded on deals in this market yet.</p>
+        <p>{emptyMessage(view.query)}</p>
       </>
     );
   const terms = Object.entries(TERMS).filter(([key]) => view.rows.some((row) => row.term === key));
