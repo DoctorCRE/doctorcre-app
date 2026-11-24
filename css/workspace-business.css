@@ -159,7 +159,6 @@ body.record-open { overflow: hidden; }
 .entry-detail { color: var(--fg-muted); font-size: var(--font-size-1); line-height: var(--line-height-body); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Vendor relationship summary. */
-.relationship-tier { margin: 0 0 var(--space-2); font-weight: var(--font-weight-strong); }
 .relationship-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .relationship-metric { display: grid; align-content: start; gap: var(--space-1); padding: var(--space-4); }
 .relationship-metric + .relationship-metric { border-left: var(--hairline-width) solid var(--hairline); }

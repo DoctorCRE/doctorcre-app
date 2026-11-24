@@ -78,7 +78,7 @@ for(const width of [1440,390])test(`W5 rendered directories and wide dialog at $
   await page.keyboard.press('Escape');assert.equal(await page.locator('#recordPanel').isVisible(),false);assert.equal(await page.locator('#appShell').evaluate(el=>el.inert),false);
   await page.goto(origin+'/clients', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/clients-${width}.png`});assert.deepEqual(h.errors,[]);
 });
-for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`vendor track record comes from deal history alone at ${width}px in ${theme}`, async t => {
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`vendor drawer shows deal-history metrics with no rating at ${width}px in ${theme}`, async t => {
   const h = await open(t, width), { page } = h;
   await page.addInitScript(theme => localStorage.setItem('dealroom-theme', theme), theme);
   h.overrides.set('00000000-0000-4000-8000-000000000001', { tier: 'Trial', reason: 'Synthetic hand-set reason', recorded_by: 'joe', recorded_at: '2026-09-01T12:00:00Z' });
@@ -86,8 +86,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`ve
   await page.locator('.record-row').first().click();
   const record = page.locator('.relationship-section');
   await record.waitFor();
-  assert.equal(await record.locator('.relationship-tier').textContent(), 'Strong track record');
-  assert.doesNotMatch(await page.locator('#recordBody').innerText(), /New working relationship|Synthetic hand-set reason|Trust rating|Save rating/);
+  assert.doesNotMatch(await page.locator('#recordBody').innerText(), /track record|working relationship|Trial|Proven|Established|Unrated|Synthetic hand-set reason|Trust rating|Save rating/);
   assert.equal(await page.locator('#recordBody form, #recordBody select, #recordBody input').count(), 0);
   assert.equal(await record.locator('.relationship-metric').count(), 4);
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);

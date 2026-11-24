@@ -410,7 +410,6 @@ function vendorContactDate(contactedAt) {
 }
 
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
-const trackRecords = { Proven: 'Strong track record', Established: 'Ongoing working relationship', Trial: 'New working relationship' };
 function vendorContactsHtml(record) {
   const statuses = { not_researched: 'Not researched', needs_review: 'Needs review', office_verified: 'Office verified' };
   const contacts = (record.people || []).map(({ company, contact, office, research }) => `
@@ -447,7 +446,7 @@ function relationshipHtml(record) {
     ['Last contacted', stats.last_contacted_at && formatMoment(stats.last_contacted_at)],
   ].filter(([, value]) => value != null);
   const contactNote = shortNote(vendorNote(stats.last_contact_note));
-  return `<section class="record-section relationship-section" aria-label="Partnership">${trackRecords[stats.computed_tier] ? `<p class="relationship-tier">${trackRecords[stats.computed_tier]}</p>` : ''}
+  return `<section class="record-section relationship-section" aria-label="Partnership">
     ${metrics.length ? `<div class="relationship-metrics">${metrics.map(([label, value]) => `<div class="relationship-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`).join('')}</div>` : ''}
     ${contactNote ? `<p class="note-summary">${escapeHtml(contactNote)}</p>` : ''}</section>${record.offers || record.loan_programs?.length ? `<section class="record-section"><h3>Services & products</h3>${record.offers ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(record.offers)))}</p>` : ""}${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(record.offers))}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section>` : ''}${intro.length ? `<section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>` : ''}${stats.recent_entries?.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...stats.recent_entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li>${vendorNote(entry.summary) ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(entry.summary)))}</p>` : ''}${entry.when ? `<time>${escapeHtml(formatMoment(entry.when))}</time>` : ''}${vendorNote(entry.detail) ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(entry.detail))}</p></details>` : ''}</li>`).join('')}</ol></section>` : ''}`;
 }
@@ -1047,7 +1046,6 @@ function wireControls() {
   document.querySelector('#refreshList').addEventListener('click', () => loadList('background'));
   document.querySelector('#recordBackdrop').addEventListener('click', closeRecord);
   document.querySelector('#territoryInput').addEventListener('change', event => updateQuery({ territory: event.target.value.trim() }));
-  dom.panelBody?.addEventListener('input', event => { if (event.target.name === 'reason') event.target.setCustomValidity(''); });
   const sentinel = document.querySelector('#scrollSentinel');
   if (typeof IntersectionObserver === 'function') new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) loadMore(); }, { rootMargin: '400px' }).observe(sentinel);
   window.addEventListener('scroll', () => { if (sentinel.getBoundingClientRect().top < window.innerHeight + 400) loadMore(); }, { passive: true });

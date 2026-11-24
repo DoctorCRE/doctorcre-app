@@ -2349,7 +2349,7 @@ for (const width of [390, 1440]) {
   });
 }
 
-test("the Vendor drawer shows the track record from deal history with no rating editor in either sign-in", async (t) => {
+test("the Vendor drawer shows deal-history metrics with no rating in either sign-in", async (t) => {
   for (const signIn of ["engine", "carr"] as const) {
     const { server, context, carrChecks } = await app(t, { signIn });
     await context.addCookies([
@@ -2366,8 +2366,11 @@ test("the Vendor drawer shows the track record from deal history with no rating 
     await page.locator(".record-row").filter({ hasText: "Demo Partner 01" }).click({ timeout: 5000 });
     const drawer = page.getByRole("dialog");
     await drawer.getByText("Deals worked", { exact: true }).waitFor({ timeout: 5000 });
-    assert.equal(await drawer.getByText("Strong track record", { exact: true }).count(), 1);
-    assert.equal(await drawer.getByText("Trust rating", { exact: true }).count(), 0);
+    assert.doesNotMatch(
+      (await drawer.textContent()) ?? "",
+      /track record|working relationship|Trial|Proven|Established|Unrated|Trust rating/,
+    );
+    assert.equal(await drawer.locator("form, select, input").count(), 0);
     if (signIn === "engine") assert.equal(carrChecks(), 0);
   }
 });
