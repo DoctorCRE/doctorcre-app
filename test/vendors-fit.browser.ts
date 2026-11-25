@@ -204,7 +204,10 @@ test("Reset stays on the toolbar row at 1200x750 when sorted by least recent dea
     page.locator("#searchInput").boundingBox(),
     page.locator("#resetFilters").boundingBox(),
   ]);
-  assert.ok(search && reset && Math.abs(reset.y - search.y) < 4, `Reset shares the search row: ${search?.y} vs ${reset?.y}`);
+  assert.ok(
+    search && reset && Math.abs(reset.y - search.y) < 4,
+    `Reset shares the search row: ${search?.y} vs ${reset?.y}`,
+  );
   assert.deepEqual(await cutFilters(page), [], "every filter shows its whole choice");
   const cutPlaceholders = await page.evaluate(() =>
     ["#searchInput", "#territoryInput"].filter((selector) => {
