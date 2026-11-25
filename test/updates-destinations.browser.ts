@@ -451,6 +451,19 @@ test("Settings opens from the account menu and saves without showing a time zone
   assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /America\/Denver/);
 });
 
+for (const width of [1280, 1440, 390])
+  test(`Settings shows unset quiet hours as empty boxes at ${width}`, async (t) => {
+    const { page } = await open(t, width, "dark");
+    await page.goto(settingsPath);
+    await page.locator("#prefForm").waitFor();
+    await mkdir("out/test-artifacts/settings", { recursive: true });
+    await page.screenshot({ path: `out/test-artifacts/settings/settings-quiet-unset-${width}.png` });
+    for (const box of [page.getByLabel("Quiet hours start"), page.getByLabel("Quiet hours end")]) {
+      assert.equal(await box.inputValue(), "");
+      assert.equal(await box.getAttribute("placeholder"), "Not set", "an empty box does not show a time");
+    }
+  });
+
 test("checking a settings save outcome keeps newer preferences on screen", async (t) => {
   const saved = { ...preferences, quiet_from: "22:00", quiet_until: "07:00", base_version: 5 };
   const newer = { ...preferences, quiet_from: "21:00", quiet_until: "06:00", base_version: 6 };
