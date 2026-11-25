@@ -356,6 +356,13 @@ export function createContactReasonsView(host: HTMLElement) {
   return {
     render(state: State) {
       flushSync(() => root.render(<ContactReasons {...state} />));
+      // Pages that summarize the panel count the reasons it shows, which only the parser knows.
+      const shown =
+        state.payload && !state.retired
+          ? { count: state.payload.cards.length, more: Boolean(state.payload.next_cursor) }
+          : null;
+      const Shown = host.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+      host.dispatchEvent(new Shown("contact-reasons-shown", { detail: shown }));
     },
     dispose() {
       flushSync(() => root.unmount());

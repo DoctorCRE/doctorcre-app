@@ -18,11 +18,14 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     let reject = false;
     let restoring = false;
     await routeLeads(page, { getBoard: async () => {
-      if (restoring) await page.evaluate(async () => {
-        await window.researchClose;
-        if (!window.researchApp.state.identityReady) throw new Error('Expected verified identity before board response');
-        document.querySelector('#leadDetail').dispatchEvent(new Event('close'));
-      });
+      // The board read starts beside the identity check, so the late close waits for verified identity.
+      if (restoring) {
+        await page.waitForFunction(() => window.researchApp.state.identityReady);
+        await page.evaluate(async () => {
+          await window.researchClose;
+          document.querySelector('#leadDetail').dispatchEvent(new Event('close'));
+        });
+      }
       return recording;
     }, getDetail: (row, args) => {
       if (reject) return { ...recording.detail, research: { ...recording.detail.research, evidence: [{ ...recording.detail.research.evidence[0], observed_at: 'not-a-date' }] } };

@@ -12,18 +12,22 @@
 <body class="leads-body"><div id="appShell"></div><script type="module" src="/js/app-shell.js"></script>
 <a class="skip" href="#leadBoard">Skip to lead board</a>
 <main class="leads-workspace">
-<header class="page-heading"><h1>Leads <span id="leadCount">Loading leads…</span></h1><a class="territory-entry" href="#leadTerritory">Territory <span aria-hidden="true">↓</span></a><div data-layout-slot="status" class="freshness"><time id="boardUpdated">Updating…</time><button data-layout-refresh id="refreshBoard" aria-label="Refresh leads" title="Refresh leads">↻</button></div></header>
+<h1 data-layout-slot="title">Leads <span id="leadCount">Loading leads…</span> <time id="boardUpdated">Updating…</time></h1>
+<div class="leads-toolbar">
 <section class="controls glass" aria-label="Lead filters">
 <label class="search"><span class="sr-only">Search leads</span><input id="leadSearch" type="search" placeholder="Search leads" autocomplete="off"></label>
-<label>Owner<select id="ownerFilter"><option value="">All owners</option></select></label>
-<label>Market<select id="marketFilter"><option value="">All markets</option></select></label>
-<label>Specialty<select id="specialtyFilter"><option value="">All specialties</option></select></label>
+<label><span>Owner</span><select id="ownerFilter"><option value="">All owners</option></select></label>
+<label><span>Market</span><select id="marketFilter"><option value="">All markets</option></select></label>
+<label><span>Specialty</span><select id="specialtyFilter"><option value="">All specialties</option></select></label>
 <button id="quietFilter" type="button" aria-pressed="false" aria-describedby="quietStatus" disabled>Quiet leads</button>
-<label class="reachability-view" hidden>Contact evidence<select id="reachabilityFilter"><option value="">All leads</option><option value="reachable">Reachable</option><option value="research">Research</option></select></label>
+<label class="reachability-view" hidden><span>Contact evidence</span><select id="reachabilityFilter"><option value="">All evidence</option><option value="reachable">Reachable</option><option value="research">Research</option></select></label>
 <output id="filterSummary" class="sr-only" aria-live="polite"></output><p id="quietStatus" role="status" hidden></p>
 </section>
-<p id="leadBoardError" role="alert" hidden></p><label class="stage-nav">Stage<select id="stageFilter" aria-label="Board stage"></select></label><div id="leadBoard" aria-busy="true"><span class="sr-only" role="status">Loading leads…</span></div>
-<section id="contactReasons" class="contact-reasons" aria-label="Reasons to reach out"></section>
+<label class="stage-nav"><span>Stage</span><select id="stageFilter" aria-label="Board stage"></select></label>
+<div class="board-status"><a class="territory-entry" href="#leadTerritory">Territory <span aria-hidden="true">↓</span></a><div data-layout-slot="status" class="freshness"><button data-layout-refresh id="refreshBoard" aria-label="Refresh leads" title="Refresh leads">↻</button></div></div>
+</div>
+<p id="leadBoardError" role="alert" hidden></p><div id="leadBoard" aria-busy="true"><span class="sr-only" role="status">Loading leads…</span></div>
+<details id="reasonsStrip" class="reasons-strip"><summary>Reasons to reach out<span id="reasonsCount"></span></summary><section id="contactReasons" class="contact-reasons" aria-label="Reasons to reach out"></section></details>
 <section id="leadTerritory" class="territory" aria-labelledby="territoryTitle"><div class="section-heading"><h2 id="territoryTitle">Territory</h2><time id="searchUpdated" title="Last new-lead search">New-lead search —</time><button id="clearMarket" hidden>All markets</button></div><button id="showTerritory" type="button" aria-controls="territoryMap" aria-expanded="false">Show territory</button><div id="territoryMapFrame"><div id="territoryMap" aria-label="Lead count by market" role="region" hidden></div></div><div id="marketCounts" aria-label="Markets"></div><small class="map-credit">Market areas only · U.S. Census · 2025</small></section>
 </main>
 <dialog id="leadDetail" class="detail-dialog" aria-labelledby="detailTitle"><div class="dialog-heading"><h2 id="detailTitle"></h2><button id="closeDetail" aria-label="Close lead details">×</button></div><p id="leadDetailRecovery" role="status" hidden>Confirmation pending <button id="checkDetailPending" type="button">Check outcome</button></p><p id="detailFollowUp" hidden></p><div id="detailBody"></div></dialog>

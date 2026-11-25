@@ -93,15 +93,19 @@ async function generatedShell(readSource) {
   return Buffer.from(`self.TOUR_DAY_SHELL = ${JSON.stringify(shell)};\n`);
 }
 
+// A page whose first read waits on deep module graphs lists every module up front, so the browser fetches them in one wave.
+// Module scripts run in document order, so Leads' read also waits on the shell's graph.
+const PRELOADED_ENTRIES = { "workspace.html": ["js/ui-inbox.generated.js"], "leads.html": ["js/app-shell.js", "js/leads-workspace-app.js"] };
+
 async function assembleArtifact(commit, paths, sourceContracts, readSource) {
   if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error("source commit must be a full Git SHA");
   const payload = [];
   const files = new Map();
   for (const path of paths) {
     let content = await readSource(path);
-    if (path === "workspace.html") {
+    if (Object.hasOwn(PRELOADED_ENTRIES, path)) {
       await init;
-      const dependencies = new Set(['js/ui-inbox.generated.js']);
+      const dependencies = new Set(PRELOADED_ENTRIES[path]);
       const visit = async module => {
         const [imports] = parse((await readSource(module)).toString());
         for (const entry of imports.filter(entry => entry.d === -1 && entry.n?.startsWith('.'))) {
@@ -111,7 +115,7 @@ async function assembleArtifact(commit, paths, sourceContracts, readSource) {
           await visit(dependency);
         }
       };
-      await visit('js/ui-inbox.generated.js');
+      for (const entry of PRELOADED_ENTRIES[path]) await visit(entry);
       const preload = [...dependencies].map(module => `<link rel="modulepreload" href="/${module}">`).join('\n');
       content = Buffer.from(content.toString().replace('</head>', `${preload}\n</head>`));
     }
