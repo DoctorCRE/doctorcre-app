@@ -74,7 +74,7 @@ function chipHtml(entry, { withDeal, overflow, place }) {
   return `<li${overflow ? ' data-overflow="true"' : ""}${place ? ` data-place="${place}"` : ""}><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(entry.day)}" data-kind="${entry.type}" data-band="${near.band}" aria-label="${escapeHtml(text)}" title="${escapeHtml(entryText(entry))}">`
     + `<span class="cal-mark" data-kind="${entry.type}" aria-hidden="true"></span>`
     + `<span class="cal-chip-label">${escapeHtml(entryText(entry))}</span>`
-    + (withDeal ? `<span class="cal-chip-deal">${escapeHtml(recordName(entry))}</span>` : "")
+    + (withDeal && recordName(entry) ? `<span class="cal-chip-deal">${escapeHtml(recordName(entry))}</span>` : "")
     + "</button></li>";
 }
 
@@ -126,10 +126,11 @@ function dayHtml(cell) {
 const placeNow = () => $("calGrid").querySelector(".cal-now")?.style.setProperty("--at", String(centralMinutes(Date.now())));
 
 /**
- * Places each meeting and the now-line, then scrolls: a day opens at 7 AM, or
- * two hours before now when now would be off screen; a repaint of the same day
- * keeps its scroll unless the timeline changed height. Positions go through CSSOM because the Worker's CSP refuses
- * a `style` attribute in markup.
+ * Places each meeting and the now-line, ends each meeting's name on its last
+ * whole line, then scrolls: a day opens at 7 AM, or two hours before now when
+ * now would be off screen; a repaint of the same day keeps its scroll unless the
+ * timeline changed height. Positions go through CSSOM because the Worker's CSP
+ * refuses a `style` attribute in markup.
  */
 function placeTimeline(grid, kept) {
   const timeline = grid.querySelector(".cal-timeline");
@@ -138,6 +139,12 @@ function placeTimeline(grid, kept) {
     const [start, end, column, columns] = block.dataset.place.split(" ");
     Object.entries({ start, end, col: column, cols: columns }).forEach(([name, value]) => block.style.setProperty(`--${name}`, value));
   }
+  const fits = [...timeline.querySelectorAll(".cal-blocks .cal-chip-label")].map(label => {
+    const chip = getComputedStyle(label.parentElement);
+    const room = label.parentElement.clientHeight - Number.parseFloat(chip.paddingTop) - Number.parseFloat(chip.paddingBottom);
+    return [label, Math.max(1, Math.floor(room / Number.parseFloat(getComputedStyle(label).lineHeight)))];
+  });
+  fits.forEach(([label, lines]) => label.style.setProperty("--lines", String(lines)));
   placeNow();
   if (kept?.height === timeline.clientHeight) { timeline.scrollTop = kept.top; return; }
   const perMinute = timeline.querySelector(".cal-hours").offsetHeight / (24 * 60);

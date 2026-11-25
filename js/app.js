@@ -369,6 +369,7 @@ function renderChrome() {
   const isAccountHome = !state.accountId && !state.query;
   $('#accountBack').hidden = !state.accountId;
   $('#workspaceTitle').textContent = state.query ? 'Search results' : selected?.account_name || 'National Accounts';
+  $('#workspaceTitle').classList.toggle('repeats-page', isAccountHome);
   const addLabel = selected ? 'Add market deal' : 'Add national account';
   $('#stickyAddButton').textContent = `+ ${addLabel}`;
   $('#stickyAddButton').setAttribute('aria-label', addLabel);

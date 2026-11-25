@@ -24,7 +24,7 @@ async function open(t, { path = '/inbox', width = 1280, theme = 'light', saved =
     localStorage.setItem('doctorcre-session-binding-v1', binding);
     localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
     localStorage.setItem(`doctorcre:sidebar:${path}`, saved);
-    localStorage.setItem('doctorcre:today', saved);
+    localStorage.setItem(`doctorcre:today:${location.pathname}`, saved);
   }, { theme, path, saved, binding });
   let signedOut = false;
   await page.route('**/auth/session', route => route.fulfill(signedOut ? { status: 401, json: { error: 'signed_out' } } : { json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));

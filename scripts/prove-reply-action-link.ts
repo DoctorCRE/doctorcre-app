@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import type { LaunchOptions, Locator, Page, Route } from "playwright";
@@ -30,6 +31,17 @@ type ProofOptions = {
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const insufficient = (message: string) => Object.assign(Error(message), { exitCode: 78 });
+// Closing a tab over CDP can hang in real Chrome (Chromium bug 536385539).
+const PAGE_CLOSE_MS = 5_000;
+
+async function closesWithin(page: Pick<Page, "close">) {
+  const settled = new AbortController();
+  try {
+    return await Promise.race([page.close().then(() => true), delay(PAGE_CLOSE_MS, false, { signal: settled.signal })]);
+  } finally {
+    settled.abort();
+  }
+}
 export function signedInReplyEngine(endpoint: string, engine: Connector = chromium) {
   const url = new URL(endpoint);
   assert.ok(
@@ -71,11 +83,9 @@ export function signedInReplyEngine(endpoint: string, engine: Connector = chromi
         async close() {
           closing = true;
           try {
-            for (const pending of acquisitions)
-              await pending.then(
-                (page) => page.close(),
-                () => {},
-              );
+            const closed = await Promise.all(acquisitions.map((pending) => pending.then(closesWithin, () => true)));
+            if (closed.includes(false))
+              throw insufficient(`A proof tab did not close within ${PAGE_CLOSE_MS} ms; close it in Chrome`);
           } finally {
             await connection.close();
           }

@@ -124,9 +124,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`pa
     const box = await control.boundingBox();
     if (box) assert.ok(box.x >= 0 && box.x + box.width <= width + 1, 'editor controls stay inside viewport');
   }
-  await mkdir('.github/pr-evidence/WR635.S1.J12', { recursive: true });
+  await mkdir('out/test-artifacts/WR635.S1.J12', { recursive: true });
   await card.evaluate(node => window.scrollTo({ top: window.scrollY + node.getBoundingClientRect().top - 100, behavior: 'instant' }));
-  await page.screenshot({ path: `.github/pr-evidence/WR635.S1.J12/saved-${width}-${theme}.png`, animations: 'disabled' });
+  await page.screenshot({ path: `out/test-artifacts/WR635.S1.J12/saved-${width}-${theme}.png`, animations: 'disabled' });
   await card.getByRole('button', { name: 'Cancel', exact: true }).click();
   await card.getByRole('button', { name: 'Review reply', exact: true }).click();
   assert.equal(await card.getByRole('textbox', { name: 'Message', exact: true }).inputValue(), args.body);

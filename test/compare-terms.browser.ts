@@ -95,7 +95,7 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
   const shots = "out/test-artifacts/compare-terms";
   await mkdir(shots, { recursive: true });
 
-  for (const width of [1440, 390])
+  for (const width of [1280, 1440, 390])
     for (const theme of ["light", "dark"] as const) {
       const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme: theme });
       try {
@@ -104,6 +104,7 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
           "/api/engine/market-terms?market=Example+North",
         ]);
         assert.equal(await page.getByLabel("Market").inputValue(), "Example North");
+        await page.getByText("Compared with Example North · All recorded history", { exact: true }).waitFor();
         assert.equal(await count(page), "5 matching terms across 2 deals.");
         const first = page.locator(".market-terms-table tbody tr").first();
         assert.deepEqual(await first.locator("td").allTextContents(), [
@@ -158,7 +159,7 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
         await page.getByLabel("Use type").fill("Medical office");
         await page.getByLabel("As of date (optional)").fill("2026-05-15");
         await page.getByRole("button", { name: "Compare" }).click();
-        await page.getByText("Terms as of Fri, May 15, 2026", { exact: true }).waitFor();
+        await page.getByText("Compared with Example North · Terms as of Fri, May 15, 2026", { exact: true }).waitFor();
         assert.equal(
           (await page.evaluate(() => Reflect.get(window, "compareTest").paths)).at(-1),
           "/api/engine/market-terms?market=Example+North&use_type=Medical+office&as_of=2026-05-15",
@@ -188,12 +189,7 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
         await page
           .getByText("No offer rounds or signed leases are recorded on deals in this market yet.", { exact: true })
           .waitFor();
-        await page.getByText("All recorded history", { exact: true }).waitFor();
-        assert.equal(
-          await page.getByText(/Compared with all markets/).count(),
-          0,
-          "a market's own terms never say all markets",
-        );
+        await page.getByText("Compared with Example North · All recorded history", { exact: true }).waitFor();
         await page.screenshot({ path: `${shots}/${width}-${theme}-empty-market.png`, fullPage: true });
 
         await page.getByLabel("Market").fill("");
