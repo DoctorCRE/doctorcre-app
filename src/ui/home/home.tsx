@@ -247,26 +247,29 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     let unbind: (() => void) | undefined;
     let gone = false;
     // The menu opens on a long press or right-click, never on first paint, so it loads after.
-    void import("../card-quick-menu").then(({ bindCardQuickMenu }) => {
-      if (gone) return;
-      unbind = bindCardQuickMenu(host, {
-        card: "[data-inbox-row]",
-        // An open review is for reading and copying.
-        exclude: ".home-inline-review",
-        name: (row) => row.querySelector("h3")?.textContent ?? "",
-        actions: (row) => {
-          // Only the row's own buttons: an open review card has actions of its own.
-          const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>(":scope > .inbox-actions > button"))
-            .filter((button) => !button.disabled)
-            .map((button) => ({ label: button.textContent?.trim() ?? "", control: button }));
-          const title = row.querySelector<HTMLElement>("h3 a");
-          return buttons.length || !title ? buttons : [{ label: "Open", control: title }];
-        },
-        focusTarget: (row) =>
-          row.querySelector<HTMLElement>("h3 a") ??
-          row.querySelector<HTMLElement>(":scope > .inbox-actions > button:not(:disabled)"),
-      });
-    });
+    void import("../card-quick-menu")
+      .then(({ bindCardQuickMenu }) => {
+        if (gone) return;
+        unbind = bindCardQuickMenu(host, {
+          card: "[data-inbox-row]",
+          // An open review is for reading and copying.
+          exclude: ".home-inline-review",
+          name: (row) => row.querySelector("h3")?.textContent ?? "",
+          actions: (row) => {
+            // Only the row's own buttons: an open review card has actions of its own.
+            const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>(":scope > .inbox-actions > button"))
+              .filter((button) => !button.disabled)
+              .map((button) => ({ label: button.textContent?.trim() ?? "", control: button }));
+            const title = row.querySelector<HTMLElement>("h3 a");
+            return buttons.length || !title ? buttons : [{ label: "Open", control: title }];
+          },
+          focusTarget: (row) =>
+            row.querySelector<HTMLElement>("h3 a") ??
+            row.querySelector<HTMLElement>(":scope > .inbox-actions > button:not(:disabled)"),
+        });
+      })
+      // Without the menu every card still has its own buttons.
+      .catch(() => {});
     return () => {
       gone = true;
       unbind?.();
