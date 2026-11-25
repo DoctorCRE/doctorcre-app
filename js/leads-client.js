@@ -58,7 +58,7 @@ export function createLeadBoardClient(options = {}) {
     return rpc(name, { ...args, base_version: lead.base_version }, true);
   }
 
-  return observeDocClient({
+  const client = observeDocClient({
     getActor: () => readWithDeadline(async signal => {
       const response = await fetchPartnerIdentity({ signal,
         credentials: "same-origin", cache: "no-store", headers: { accept: "application/json" } }, fetchImpl);
@@ -71,7 +71,6 @@ export function createLeadBoardClient(options = {}) {
     getLeadBoard: (options = {}) => rpc("lead-board", {}, false, options),
     getIdealClientProfile: (filters = {}, options = {}) => rpc('ideal-client-profile', filters, false, options),
     listPracticeOrigination: ({signal, ...args} = {}) => rpc('list-practice-origination', args, false, {signal}),
-    getWorkspace: async () => validateLeadWorkspace(await rpc("lead-board", { workspace: "leads" })),
     getLeadDetail: async (lead, { correspondence_cursor, stage_history_cursor } = {}) => {
       const payload = validateLeadWorkspace(await rpc("lead-board", { workspace: "leads", lead_id: lead.id, ...(correspondence_cursor ? { correspondence_cursor } : {}), ...(stage_history_cursor ? { stage_history_cursor } : {}) }));
       if (payload.detail !== null) validateLeadDetail(payload.detail, lead.id);
@@ -97,6 +96,9 @@ export function createLeadBoardClient(options = {}) {
         expected_actor: actor, client_id: clientId, confirmed: true, idempotency_key: key });
     },
   }, options.docContext === false ? null : undefined);
+  // Added after observation: the Leads page publishes this read itself, once the identity check agrees.
+  client.getWorkspace = async () => validateLeadWorkspace(await rpc("lead-board", { workspace: "leads" }));
+  return client;
 }
 
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);

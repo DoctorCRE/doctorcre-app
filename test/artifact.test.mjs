@@ -37,6 +37,8 @@ test("the static artifact rebuild is byte-for-byte reproducible", async (t) => {
   assert.match(home, /<link rel="modulepreload" href="\/js\/ui-shared-/);
   for (const [, module] of home.matchAll(/<link rel="modulepreload" href="\/([^" ]+)"/g)) assert.ok(a.manifest.files.some(file => file.path === module));
   assert.equal(home.replace(/<link rel="modulepreload"[^>]+>\n/g, ''), await readFile(join(ROOT, "workspace.html"), 'utf8'));
+  const leads = await readFile(join(first, "site", "leads.html"), 'utf8');
+  for (const deep of ["js/visibility-poll.mjs", "js/leads-client.js", "js/app-layout.js"]) assert.match(leads, new RegExp(`<link rel="modulepreload" href="/${deep}">`), `Leads fetches ${deep} in the first wave`);
 });
 
 test("the deployment directory is rebuilt without stale files", async (t) => {
@@ -73,7 +75,7 @@ test("every contracted page is present in the deployment and archive", async (t)
     assert.ok(verified.manifest.files.some(file => file.path === path), `missing deployed route: ${path}`);
     const source = await readFile(join(ROOT, path));
     const deployed = await readFile(join(outDir, "site", path), 'utf8');
-    assert.equal(path === 'workspace.html' ? deployed.replace(/<link rel="modulepreload"[^>]+>\n/g, '') : deployed, source.toString());
+    assert.equal(['workspace.html', 'leads.html'].includes(path) ? deployed.replace(/<link rel="modulepreload"[^>]+>\n/g, '') : deployed, source.toString());
   }
 });
 

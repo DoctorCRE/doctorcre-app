@@ -42,6 +42,23 @@ test('the phone Relationships performance scenario opens the visible connection 
     `Relationships loaded ${bytes} JS bytes, budget ${budget.screens.relationships.jsBytes.limit}`);
 });
 
+test('the phone Deals performance scenario opens the tapped deal', async t => {
+  const outDir = await temporaryDirectory('doctorcre-perf-deals-');
+  t.after(() => rm(outDir, { recursive: true, force: true }));
+  await buildArtifact({ root: fileURLToPath(new URL('../', import.meta.url)), outDir });
+  const server = await startFixtureServer({ env: { DOCTORCRE_FIXTURE_ROOT: join(outDir, 'site') } });
+  t.after(() => server.stop());
+  const browser = await chromium.launch({ args: [...CHROMIUM_SAFETY_ARGS] });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: profile.viewport, isMobile: true, hasTouch: true });
+  const screen = screens.find(screen => screen.id === 'deals');
+  await page.goto(server.url + screen.route, { waitUntil: 'networkidle' });
+  await page.locator(screen.ready).first().waitFor({ state: 'visible', timeout: 10000 });
+  await page.locator(screen.tap).first().tap();
+  await page.waitForFunction(screen.complete, null, { timeout: 10000 });
+  assert.equal(await page.locator('#panelTitle').textContent(), 'Demo Specialty Clinic');
+});
+
 test('phone task guard exercises useful outcomes against the built fixture', async t => {
   const scenarios = await import('../scripts/performance-scenarios.mjs');
   const expected = ['task-agenda', 'task-leads', 'task-deal-link', 'task-deal-draft', 'task-tour-library', 'task-tour-offline'];

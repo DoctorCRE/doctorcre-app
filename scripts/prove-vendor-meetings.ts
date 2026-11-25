@@ -108,6 +108,7 @@ export async function prove({
     );
     read.catch(() => {});
     await activePage.goto(`${origin}/vendors`, { timeout: remaining() });
+    await activePage.getByRole("button", { name: "People worth meeting", exact: true }).click({ timeout: remaining() });
     const section = activePage.getByRole("region", { name: "People worth meeting" });
     await section.waitFor({ timeout: remaining() });
     const response = await read;
@@ -136,8 +137,6 @@ export async function prove({
           await activePage.getByRole("button", { name: "Dark mode", exact: true }).click({ timeout: remaining() });
         assert.equal(await activePage.locator("html").getAttribute("data-theme"), theme);
         await activePage.setViewportSize({ width, height: 900 });
-        if ((await activePage.locator(".vendor-meetings").getAttribute("open")) === null)
-          await activePage.locator(".vendor-meetings > summary").click({ timeout: remaining() });
         await section.locator('#vendor-meetings-results[aria-busy="false"]').waitFor({ timeout: remaining() });
         assert.equal(await section.getByRole("heading", { name: "Research", exact: true }).count(), 1);
         const rows = section.locator("[data-meeting-person]");

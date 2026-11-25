@@ -55,11 +55,9 @@ test("Unavailable calendar keeps Research rows and retries in place", async (t) 
     });
   });
   await page.goto(`${server.url}/vendors`);
+  await page.getByRole("button", { name: "People worth meeting", exact: true }).click();
   const section = page.getByRole("region", { name: "People worth meeting" });
   await section.getByText("Ada Synthetic", { exact: true }).waitFor({ timeout: 5000 });
-  const list = await page.locator("#recordList").boundingBox();
-  const meetingsBox = await section.boundingBox();
-  assert.ok(list && meetingsBox && meetingsBox.y > list.y + list.height);
   assert.equal(await section.getByText("A verified office is needed", { exact: true }).count(), 1);
   assert.equal(await section.getByRole("alert").textContent({ timeout: 1000 }), "Calendar unavailable.");
   await section.getByRole("button", { name: "Retry calendar" }).click();
@@ -116,7 +114,7 @@ async function setup(t: import("node:test").TestContext, width = 1440, path = "/
   });
   await page.goto(`${server.url}${path}`);
   const section = page.getByRole("region", { name: "People worth meeting" });
-  if (width < 768) await page.locator(".vendor-meetings > summary").click();
+  await page.getByRole("button", { name: "People worth meeting", exact: true }).click();
   await section.getByText("Ada Synthetic", { exact: true }).waitFor();
   return {
     page,
@@ -302,17 +300,16 @@ test("possible meetings show Central times and a short partial-calendar warning"
     assert.equal(await section.getByText(note, { exact: true }).count(), 0);
 });
 
-test("phone disclosure restores directory and retains the Research search across close and reopen", async (t) => {
+test("the List tab restores the directory and People worth meeting keeps its search", async (t) => {
   const { page, section } = await setup(t, 390);
   const search = section.getByRole("searchbox");
   await search.fill("Ada");
   await section.getByText("A verified office is needed", { exact: true }).waitFor();
-  const summary = page.locator(".vendor-meetings > summary");
-  await summary.click();
+  await page.getByRole("button", { name: "List", exact: true }).click();
   assert.equal(await section.isVisible(), false);
   await page.locator(".record-row").first().waitFor();
   assert.equal(await page.locator(".record-row").first().isVisible(), true);
-  await summary.focus();
+  await page.getByRole("button", { name: "People worth meeting", exact: true }).focus();
   await page.keyboard.press("Enter");
   await section.getByText("A verified office is needed", { exact: true }).waitFor();
   assert.equal(await search.inputValue(), "Ada");

@@ -15,7 +15,7 @@ export async function applyPhoneProfile(context, page) {
 
 export const screens = [
   { id: 'home', route: '/', ready: '.home-slice [data-inbox-row] h3 a:visible', tap: '.home-slice [data-inbox-row] h3 a:visible', complete: () => Boolean(document.querySelector('.home-inline-review')) },
-  { id: 'deals', route: '/deals', ready: '.kanban-card[data-id="d23"]', tap: '.kanban-card[data-id="d23"]', complete: () => document.querySelector('#detailUpdateForm')?.getClientRects().length > 0 },
+  { id: 'deals', route: '/deals', ready: '.kanban-card[data-id="d23"] .card-open', tap: '.kanban-card[data-id="d23"] .card-open', complete: () => document.querySelector('#detailUpdateForm')?.getClientRects().length > 0 },
   { id: 'vendors', route: '/vendors', ready: '.record-row', tap: '.record-row', complete: () => document.querySelector('#recordPanel')?.getClientRects().length > 0 },
   { id: 'tours', route: '/tours', ready: '#tour-filter', tap: '#planner-refresh', complete: () => document.querySelector('#planner-updated')?.textContent !== 'Updating…' },
   { id: 'relationships', route: '/relationships', ready: '#networkNodes [data-node="party:demo-lender"]', tap: '#networkNodes [data-node="party:demo-lender"]', complete: () => document.querySelector('.relationship-dialog')?.getClientRects().length > 0 },
