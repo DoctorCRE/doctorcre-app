@@ -1519,6 +1519,12 @@ function renderWorkspaceFacts(detail) {
     ${fromEngine ? renderNextCriticalDate(d.next_critical_date) : ''}
   </dl>`;
 }
+// Scrolls only the strip sideways; scrollIntoView would also move a phone page whose header scrolled away.
+function revealTab(tab) {
+  const strip = tab.parentElement.getBoundingClientRect();
+  const { left, right } = tab.getBoundingClientRect();
+  tab.parentElement.scrollLeft += Math.min(0, left - strip.left) + Math.max(0, right - strip.right);
+}
 function selectWorkspaceTab(id) {
   workspaceTab = id;
   requestedClientView = false;
@@ -1528,6 +1534,7 @@ function selectWorkspaceTab(id) {
     $(`tab-${tab.id}`).tabIndex = selected ? 0 : -1;
     if ($(`workspace-${tab.id}`)) $(`workspace-${tab.id}`).hidden = !selected;
   }
+  revealTab($(`tab-${id}`));
   if (id === 'market-terms') void marketTermsPanel?.load();
   if (id === 'documents') void dealDocumentsPanel?.load();
   if (id === 'tours') void dealToursPanel?.load();
