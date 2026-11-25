@@ -21,6 +21,7 @@ const step = (id: string, due_on: string, what: string, days_late = 0, open_url 
   what,
   why: null,
   owner: "dell",
+  record_kind: "vendor",
   record_label: "Synthetic vendor",
   due_on,
   display_on: due_on < today ? today : due_on,
@@ -43,6 +44,7 @@ const calendar = {
   next_steps: [
     {
       ...step("late-estoppel", "2026-10-06", "Send the synthetic estoppel", 14, dealUrl),
+      record_kind: "deal",
       record_label: "Synthetic lease",
     },
     step("late-landlord", "2026-10-15", "Call the synthetic landlord", 5),
@@ -52,7 +54,7 @@ const calendar = {
   ],
 };
 
-test("Calendar puts each dated item on its own day, keeps late steps in one chip on today and limits Coming up to two weeks", async (t) => {
+test("Calendar puts each dated item on its own day, lists late steps on today and limits Coming up to two weeks", async (t) => {
   const outDir = await temporaryDirectory("calendar-dated-days-");
   t.after(() => rm(outDir, { recursive: true, force: true }));
   await buildArtifact({ root, outDir, commit: "0".repeat(40) });
@@ -103,11 +105,13 @@ test("Calendar puts each dated item on its own day, keeps late steps in one chip
           await expect(page.locator("#calCount")).toHaveText("3 next steps · 1 critical date");
         });
 
-        await t.test("today holds one compact late chip and no late step of its own", async () => {
+        await t.test("today lists its late steps by name, never as a bare count", async () => {
           const chips = cell(today).locator(".cal-chip");
-          await expect(chips).toHaveCount(1);
-          await expect(chips).toHaveText("2 late");
-          await expect(chips).toHaveAccessibleName("2 late steps");
+          await expect(chips).toHaveText(["Send the synthetic estoppel", "Call the synthetic landlord"]);
+          await expect(chips.first()).toHaveAttribute("data-band", "overdue");
+          await expect(chips.first()).toHaveAccessibleName(
+            "Next step · Send the synthetic estoppel · Deal Synthetic lease · Dell · 14 days ago",
+          );
         });
 
         await t.test("the whole month fits one screen", async () => {
@@ -120,10 +124,20 @@ test("Calendar puts each dated item on its own day, keeps late steps in one chip
         });
         await page.screenshot({ path: join(evidence, `month-${width}.png`) });
 
-        await t.test("the late chip lists the late steps, each opening its record", async () => {
-          await cell(today).getByRole("button", { name: "2 late steps" }).click();
+        await t.test("a late chip on today opens today's Late group, each entry in the one template", async () => {
+          await cell(today)
+            .getByRole("button", { name: /^Next step · Call the synthetic landlord/ })
+            .click();
+          await expect(page.locator("#dayPanelTitle")).toHaveText(/Oct 20/);
           const late = page.locator("#dayPanelBody").getByRole("region", { name: "Late" });
-          await expect(late.locator(".cal-day-entry")).toHaveCount(2);
+          const entries = late.locator(".cal-day-entry");
+          await expect(entries).toHaveCount(2);
+          await expect(entries.nth(1)).toHaveAttribute("data-focus", "true");
+          await expect(entries.first().locator("small")).toHaveText("Next step · Dell");
+          await expect(entries.first().locator("h3")).toHaveText("Send the synthetic estoppel");
+          await expect(entries.first().locator(".cal-entry-for")).toHaveText("Deal Synthetic lease");
+          await expect(entries.first().locator(".cal-entry-when")).toHaveText("14 days late · Due Oct 6");
+          await expect(entries.nth(1).locator(".cal-entry-for")).toHaveText("Vendor Synthetic vendor");
           await expect(late.getByRole("link", { name: "Synthetic lease" })).toHaveAttribute("href", dealUrl);
           await expect(late.getByRole("link", { name: "Synthetic vendor" })).toHaveAttribute("href", vendorUrl);
           await page.screenshot({ path: join(evidence, `late-${width}.png`) });
@@ -137,14 +151,25 @@ test("Calendar puts each dated item on its own day, keeps late steps in one chip
           await page.goto(`${app}/calendar?view=week&d=${today}`);
           const comingUp = page.getByRole("region", { name: "Coming up" });
           await expect(comingUp.locator(".cal-agenda-item time")).toHaveText(["Oct 23", "Oct 27"]);
+          await expect(comingUp.locator(".cal-agenda-detail small")).toHaveText([
+            "Vendor Synthetic vendor · Dell",
+            "Deal Synthetic lease · Joe",
+          ]);
           await expect(comingUp).not.toContainText("Check in with Sam");
           await page.screenshot({ path: join(evidence, `week-${width}.png`) });
         });
 
-        await t.test("Day view of today still shows the late chip in its band", async () => {
+        await t.test("Day view of today lists the late steps in its band with their record and owner", async () => {
           await page.getByRole("button", { name: "Today", exact: true }).click();
           await expect(page.locator("#calPeriod")).toHaveText("Tuesday, Oct 20, 2026");
-          await expect(grid.locator(".cal-chips .cal-chip")).toHaveText(["2 late"]);
+          await expect(grid.locator(".cal-chips .cal-chip-label")).toHaveText([
+            "Send the synthetic estoppel",
+            "Call the synthetic landlord",
+          ]);
+          await expect(grid.locator(".cal-chips .cal-chip-deal")).toHaveText([
+            "Deal Synthetic lease · Dell",
+            "Vendor Synthetic vendor · Dell",
+          ]);
         });
       } finally {
         await page.close();

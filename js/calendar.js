@@ -3,11 +3,10 @@ import { createLiveClient } from "./live-client.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge, mountPrefs } from "./shell.js";
 import { formatCalendarDate } from "./visual-system.js";
-import { BUSINESS_TIME_ZONE, meetingTime } from "./business-date.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import {
-  addDays, approach, calendarHref, calendarLayout, calendarPhase, centralMinutes, entriesByDay, localToday, motionDirection,
-  parseCalendarState, readCalendar, readMeetings, settleOpenDay, shortDay, stepAnchor, timelineBlocks, UNDATED, visibleRange,
+  addDays, approach, calendarHref, calendarLayout, calendarPhase, centralMinutes, entriesByDay, entryWhen, localToday, motionDirection,
+  ownerNames, parseCalendarState, readCalendar, readMeetings, recordsFor, settleOpenDay, shortDay, stepAnchor, timelineBlocks, UNDATED, visibleRange,
 } from "./calendar-model.js";
 
 const $ = (id) => document.getElementById(id);
@@ -55,7 +54,6 @@ function announce(text) {
   if (live && live.textContent !== text) live.textContent = text;
 }
 
-const recordName = entry => entry.record_name ?? entry.deal_name;
 const KINDS = [
   { type: "step", label: "Next step", one: "next step", many: "next steps" },
   { type: "date", label: "Critical date", one: "critical date", many: "critical dates" },
@@ -63,27 +61,36 @@ const KINDS = [
   { type: "tour", label: "Tour", one: "tour", many: "tours" },
 ];
 const typeLabel = entry => KINDS.find(kind => kind.type === entry.type).label;
-const entryTime = entry => entry.type !== "meeting" ? "" : entry.all_day ? "All day" : meetingTime(entry.at, BUSINESS_TIME_ZONE);
+const entryTime = entry => entry.type === "meeting" ? entryWhen(entry, view.today) : "";
 const entryText = entry => [entryTime(entry), entry.label].filter(Boolean).join(" ");
-const ownerNames = entry => (entry.owners ?? [entry.owner]).filter(owner => typeof owner === "string" && owner)
-  .map(owner => owner[0].toUpperCase() + owner.slice(1)).join(" and ");
 
-function chipHtml(entry, { withDeal, overflow, place }) {
+/** "Deal Example lease", the template's for-line as plain text. */
+function forText(entry) {
+  const { word, records } = recordsFor(entry);
+  return [word, records.map(record => record.name).join(", ")].filter(Boolean).join(" ");
+}
+
+function forHtml(entry) {
+  const { word, records } = recordsFor(entry);
+  const links = records.map(({ name, url }) => url
+    ? `<a href="${escapeHtml(url)}" data-entry="${escapeHtml(entry.key)}">${escapeHtml(name)}</a>` : escapeHtml(name)).join(", ");
+  return links && [word, links].filter(Boolean).join(" ");
+}
+
+/** `day` is the cell the chip sits in, so a late step listed under today opens today. */
+function chipHtml(entry, { withDeal, overflow, place, day = entry.day }) {
   const near = approach(entry, view.today);
-  const text = [typeLabel(entry), entryText(entry), recordName(entry), near.label].filter(Boolean).join(" · ");
-  return `<li${overflow ? ' data-overflow="true"' : ""}${place ? ` data-place="${place}"` : ""}><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(entry.day)}" data-kind="${entry.type}" data-band="${near.band}" aria-label="${escapeHtml(text)}" title="${escapeHtml(entryText(entry))}">`
+  const byline = [forText(entry), ownerNames(entry)].filter(Boolean).join(" · ");
+  const text = [typeLabel(entry), entryText(entry), byline, near.label].filter(Boolean).join(" · ");
+  return `<li${overflow ? ' data-overflow="true"' : ""}${place ? ` data-place="${place}"` : ""}><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(day)}" data-kind="${entry.type}" data-band="${near.band}" aria-label="${escapeHtml(text)}" title="${escapeHtml(entryText(entry))}">`
     + `<span class="cal-mark" data-kind="${entry.type}" aria-hidden="true"></span>`
     + `<span class="cal-chip-label">${escapeHtml(entryText(entry))}</span>`
-    + (withDeal && recordName(entry) ? `<span class="cal-chip-deal">${escapeHtml(recordName(entry))}</span>` : "")
+    + (withDeal && byline ? `<span class="cal-chip-deal">${escapeHtml(byline)}</span>` : "")
     + "</button></li>";
 }
 
 const moreHtml = (day, more, readable) => more > 0
   ? `<button class="cal-more" type="button" data-more="${day}" aria-label="${escapeHtml(`${more} more on ${readable}`)}">+${more} more</button>` : "";
-
-const lateChipHtml = (day, count) => count ? `<li><button class="cal-chip" type="button" data-entry="late" data-day="${day}" data-kind="late" data-band="overdue" aria-label="${count} late step${count === 1 ? "" : "s"}">`
-  + `<span class="cal-mark" data-kind="late" aria-hidden="true"></span><span class="cal-chip-label">${count} late</span>`
-  + "</button></li>" : "";
 
 /** A day's late group, which only today has, and its own items. */
 const dayRows = day => ({ late: day === view.today ? view.late : [], rows: view.byDay.get(day) || [] });
@@ -104,20 +111,18 @@ function dayHtml(cell) {
   const state = view.state;
   const { late, rows } = cell.inMonth ? dayRows(cell.day) : { late: [], rows: [] };
   const shape = state.view;
-  const lateCount = late.length;
-  const dated = rows.filter(entry => shape !== "day" || !entry.at || entry.all_day);
-  const room = view.monthLines - Number(Boolean(lateCount));
+  const dated = [...late, ...rows.filter(entry => shape !== "day" || !entry.at || entry.all_day)];
   const selected = (state.day || view.today) === cell.day && cell.inMonth;
   const isToday = cell.day === view.today;
   const readable = formatCalendarDate(cell.day);
-  const count = lateCount + rows.length ? ` · ${itemCount([...late, ...rows])}` : "";
-  const chips = dated.map((entry, at) => chipHtml(entry, { withDeal: shape !== "month", overflow: shape === "month" && at >= room })).join("");
-  const band = lateCount + dated.length ? `<ul class="cal-chips">${lateChipHtml(cell.day, lateCount)}${chips}</ul>` : "";
+  const count = late.length + rows.length ? ` · ${itemCount([...late, ...rows])}` : "";
+  const chips = dated.map((entry, at) => chipHtml(entry, { withDeal: shape !== "month", overflow: shape === "month" && at >= view.monthLines, day: cell.day })).join("");
+  const band = dated.length ? `<ul class="cal-chips">${chips}</ul>` : "";
   return `<div class="cal-day" role="gridcell" data-day="${cell.day}" data-today="${isToday}" data-out-month="${!cell.inMonth}" data-empty="${!rows.length}" aria-selected="${selected}">`
     + `<button class="cal-day-open" type="button" data-select-day="${cell.day}" tabindex="${selected ? 0 : -1}" aria-label="${escapeHtml(`${readable}${isToday ? " · today" : ""}${count}`)}">`
     + `<span class="cal-day-weekday">${WEEKDAYS[new Date(cell.day).getUTCDay()]}</span><span class="cal-day-num">${Number(cell.day.slice(8))}</span>`
     + "</button>"
-    + (shape === "month" ? moreHtml(cell.day, dated.length - room, readable) : "")
+    + (shape === "month" ? moreHtml(cell.day, dated.length - view.monthLines, readable) : "")
     + band
     + (shape === "day" ? timelineHtml(cell.day, rows) : "")
     + "</div>";
@@ -234,13 +239,6 @@ function paintSheet() {
   }
 }
 
-function recordLinks(entry) {
-  const links = entry.links ?? [{ name: recordName(entry),
-    url: entry.type === "date" ? entry.deal_id && `/deals?deal=${encodeURIComponent(entry.deal_id)}` : entry.open_url }];
-  return links.filter(link => link.name).map(({ name, url }) => url
-    ? `<a href="${escapeHtml(url)}" data-entry="${escapeHtml(entry.key)}">${escapeHtml(name)}</a>` : escapeHtml(name)).join(", ");
-}
-
 function itemCount(rows) {
   return KINDS.map(kind => {
     const count = rows.filter(entry => entry.type === kind.type).length;
@@ -248,18 +246,20 @@ function itemCount(rows) {
   }).filter(Boolean).join(" · ") || "0 items";
 }
 
+/** The one entry template: what it is and whose, what to do, what it is for, and when. */
 function dayList(rows) {
   return `<ol class="cal-day-entries">${rows.map(entry => {
     const near = approach(entry, view.today);
-    const byline = [ownerNames(entry), entryTime(entry) && `<time datetime="${escapeHtml(entry.at)}">${escapeHtml(entryTime(entry))}</time>`]
-      .filter(Boolean).map(part => ` · ${part}`).join("");
-    const record = recordLinks(entry);
-    const late = entry.days_late ? `<span class="cal-late">${entry.days_late} ${entry.days_late === 1 ? "day" : "days"} late · Due ${shortDay(entry.day, view.today)}</span>` : "";
-    return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}">
-      <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${byline}</small>
+    const owner = ownerNames(entry);
+    const record = forHtml(entry);
+    const when = entryWhen(entry, view.today);
+    const whenHtml = entry.type === "meeting" ? `<time datetime="${escapeHtml(entry.at)}">${escapeHtml(when)}</time>` : escapeHtml(when);
+    return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}" data-band="${near.band}">
+      <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${[typeLabel(entry), owner].filter(Boolean).join(" · ")}</small>
       <h3>${escapeHtml(entry.label)}</h3>
       ${entry.why ? `<p>${escapeHtml(entry.why)}</p>` : ""}
-      ${record ? `<p>${record}</p>` : ""}${late}</li>`;
+      ${record ? `<p class="cal-entry-for">${record}</p>` : ""}
+      ${when ? `<p class="cal-entry-when">${whenHtml}</p>` : ""}</li>`;
   }).join("")}</ol>`;
 }
 
@@ -271,7 +271,7 @@ function paintDayPanel(day) {
   const phase = calendarPhase(view.result);
   if (day === UNDATED) {
     body.innerHTML = `<ul class="cal-undated" id="calUndatedList">${(view.result.undated || []).map(entry =>
-      `<li><b>${escapeHtml(entry.label)}</b> · ${recordLinks(entry)} · Date unavailable</li>`).join("")}</ul>`;
+      `<li><b>${escapeHtml(entry.label)}</b> · ${forHtml(entry)} · Date unavailable</li>`).join("")}</ul>`;
     return;
   }
   const { late, rows } = dayRows(day);
@@ -296,7 +296,7 @@ function paintComingUp() {
   $("calComing").hidden = dates.length === 0;
   $("calAgenda").innerHTML = dates.map(date => {
     const items = view.byDay.get(date).map(entry => `<span class="cal-agenda-detail">
-      ${escapeHtml(entryText(entry))}<small>${escapeHtml([recordName(entry), ownerNames(entry)].filter(Boolean).join(" · "))}</small>
+      ${escapeHtml(entryText(entry))}<small>${escapeHtml([forText(entry), ownerNames(entry)].filter(Boolean).join(" · "))}</small>
     </span>`).join("");
     return `<li><button class="cal-agenda-item" type="button" data-day="${date}">
       <time datetime="${date}">${shortDay(date, view.today)}</time>
