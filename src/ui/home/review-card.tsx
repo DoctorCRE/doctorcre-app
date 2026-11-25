@@ -50,17 +50,31 @@ const threadDate = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
 });
-function FoldedText({ name, text }: { name: "earlier text" | "signature"; text: string }) {
+function EarlierText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const id = useId();
   return (
     <>
       <button type="button" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(!expanded)}>
-        {expanded ? `Hide ${name}` : `Show ${name}`}
+        {expanded ? "Hide earlier text" : "Show earlier text"}
       </button>
       <p id={id} className="home-email-earlier-text" hidden={!expanded}>
         {expanded && sourceExcerptText(text)}
       </p>
+    </>
+  );
+}
+
+function DueDate({ name, suggested }: { name: string; suggested: string }) {
+  const [due, setDue] = useState(suggested);
+  const today = centralToday(new Date());
+  return (
+    <>
+      <label>
+        Due date{" "}
+        <input type="date" name={name} defaultValue={suggested} onChange={(event) => setDue(event.target.value)} />
+      </label>
+      {due && due < today && <p>Already late. {cardDueLabel(due, today).text}.</p>}
     </>
   );
 }
@@ -428,7 +442,6 @@ export function ReviewCard<Item extends ReviewItem>({
           decision,
           ...(reason && { reason }),
           ...destination,
-          ...(proposal.replaces.length && { replaces: proposal.replaces }),
           idempotency_key: crypto.randomUUID(),
           ...(edits && { edits: { what, due_on: fields.get(`${proposal.id}-date`) || null } }),
         },
@@ -443,7 +456,6 @@ export function ReviewCard<Item extends ReviewItem>({
     if (readOnly || proposal.filingChoices) return [];
     return !item.engine_marks || proposal.completion || item.home_proposal_drop ? ["accept", "dismiss"] : ["accept"];
   }
-  const today = centralToday(new Date());
   const suggestionFields = (
     <>
       {review?.kind === "reply_draft" && proposals.length > 0 && <h4>Suggestions</h4>}
@@ -495,12 +507,7 @@ export function ReviewCard<Item extends ReviewItem>({
                     }}
                   />
                 </label>
-                <label>
-                  Due date <input type="date" name={`${proposal.id}-date`} defaultValue={proposal.dueOn ?? ""} />
-                </label>
-                {proposal.dueOn && proposal.dueOn < today && (
-                  <p>Already late. {cardDueLabel(proposal.dueOn, today).text}.</p>
-                )}
+                <DueDate name={`${proposal.id}-date`} suggested={proposal.dueOn ?? ""} />
               </>
             ) : (
               proposal.what && <p>{proposal.what}</p>
@@ -591,15 +598,14 @@ export function ReviewCard<Item extends ReviewItem>({
           <section className="home-email-thread" aria-label="Email thread">
             <h4>Email thread</h4>
             {thread.subject && <p>{sourceExcerptText(thread.subject)}</p>}
-            {thread.messages.map(({ id, sender, occurredAt, body, signature, folded }) => (
+            {thread.messages.map(({ id, sender, occurredAt, body, folded }) => (
               <article key={id}>
                 <h5>
                   From {sender || "unknown sender"} ·{" "}
                   <time dateTime={occurredAt}>{threadDate.format(new Date(occurredAt))}</time>
                 </h5>
                 <p>{sourceExcerptText(body)}</p>
-                {signature !== null && <FoldedText name="signature" text={signature} />}
-                {folded !== null && <FoldedText name="earlier text" text={folded} />}
+                {folded !== null && <EarlierText text={folded} />}
               </article>
             ))}
           </section>

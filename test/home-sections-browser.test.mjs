@@ -1537,20 +1537,23 @@ async function reviewShot(page, name) {
   await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `${name}.png`), fullPage: true });
 }
 
-test('Home folds the contact lines under a sign-off behind Show signature', async t => {
+test('Home puts a trailing signature under Show earlier text with the quoted history', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
   const signature = 'Example Realty Group\nP: (555) 010-0100 | F: 555.010.0101\npat@example.test';
   state.dashboard = true;
   state.items = [mailCard];
-  state.thread = [{ ...mailThread[1], body: `The east suite also works.\n\nThanks,\nPat Example\n${signature}` }];
+  state.thread = [{ ...mailThread[1], body: `The east suite also works.\n\nThanks,\nPat Example\n${signature}`,
+    folded: 'On Nov 2, Maya Example wrote:\nCan you send the plan?' }];
   await open('/?mode=live');
   await page.getByRole('link', { name: mailCard.title }).click();
   const message = page.getByRole('region', { name: 'Email thread' }).getByRole('article');
-  await message.getByText('The east suite also works.', { exact: false }).waitFor();
+  await message.getByText('Pat Example', { exact: false }).waitFor();
   assert.equal(await message.getByText(/555\) 010-0100/).isVisible(), false);
+  assert.deepEqual(await message.getByRole('button').allTextContents(), ['Show earlier text']);
   await reviewShot(page, 'signature-folded');
-  await message.getByRole('button', { name: 'Show signature', exact: true }).click();
+  await message.getByRole('button', { name: 'Show earlier text', exact: true }).click();
   assert.equal(await message.getByText(/555\) 010-0100/).isVisible(), true);
+  assert.equal(await message.getByText(/Maya Example wrote/).isVisible(), true);
 });
 
 test('Home shows who and why for a possible new deal from an email', async t => {
@@ -1559,7 +1562,7 @@ test('Home shows who and why for a possible new deal from an email', async t => 
   state.items = [mailCard];
   state.proposals = { [id(41)]: {
     kind: 'possible_new_deal', target_name: null, reason: null,
-    evidence: 'From: pat@example.test\nPat is opening a second clinic in the spring.\nMore quoted text.',
+    evidence: 'From: pat@example.test\nOn Nov 2, 2026, Maya Example wrote:\n> Hi Joe,\n> Pat is opening a second clinic in the spring.',
     source_activity: { ...mailSource, sender_name: 'Pat Example' },
   } };
   await open('/?mode=live');
@@ -1570,28 +1573,33 @@ test('Home shows who and why for a possible new deal from an email', async t => 
   await reviewShot(page, 'possible-new-deal');
 });
 
-test('Home shows one next step per person and settles the older one with it', async t => {
+test('Home shows every next step and settles only the one the partner decides', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = { ...draftCard(), suggestions: [{ id: id(42) }, { id: id(43) }] };
   state.dashboard = true;
   state.items = [draft];
   state.filingWrites = [];
   state.proposals = {
-    [id(42)]: { what: 'Ask the broker contacts, then reply with names', due_on: '2026-11-01' },
-    [id(43)]: { what: 'Reply about the practice sale', due_on: '2026-10-20' },
+    [id(42)]: { what: 'Send the LOI', due_on: '2026-11-01' },
+    [id(43)]: { what: 'Book the tour', due_on: '2026-10-20' },
   };
   await open('/?mode=live');
   await page.getByRole('link', { name: draft.title }).click();
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
   await review.getByRole('button', { name: 'Edit', exact: true }).waitFor();
-  assert.equal(await review.getByRole('heading', { name: 'Next step · Example Dental' }).count(), 1);
-  assert.equal(await review.getByRole('textbox', { name: 'Next step' }).inputValue(), state.proposals[id(42)].what);
-  await review.getByText('Already late. Due Nov 1.', { exact: true }).waitFor();
-  await reviewShot(page, 'one-next-step-and-doc-status');
-  await review.getByRole('button', { name: 'Accept', exact: true }).click();
+  const steps = review.getByRole('region', { name: 'Next step' });
+  assert.equal(await steps.count(), 2);
+  await steps.nth(0).getByText('Already late. Due Nov 1.', { exact: true }).waitFor();
+  await steps.nth(1).getByText('Already late. Due Oct 20.', { exact: true }).waitFor();
+  await steps.nth(1).getByLabel('Due date').fill('2026-12-15');
+  assert.equal(await steps.nth(1).getByText(/Already late/).count(), 0);
+  await steps.nth(0).getByLabel('Due date').fill('2026-11-02');
+  await steps.nth(0).getByText('Already late. Due Nov 2.', { exact: true }).waitFor();
+  await reviewShot(page, 'next-steps-and-doc-status');
+  await steps.nth(0).getByRole('button', { name: 'Accept', exact: true }).click();
   await review.getByText('Suggestion accepted.', { exact: true }).waitFor();
-  assert.deepEqual(state.filingWrites.map(({ id, decision, reason }) => [id, decision, reason]), [
-    [id(42), 'accept', undefined], [id(43), 'dismiss', 'Replaced by a newer suggestion.'],
+  assert.deepEqual(state.filingWrites.map(({ id, decision, edits }) => [id, decision, edits?.due_on]), [
+    [id(42), 'accept', '2026-11-02'],
   ]);
 });
 

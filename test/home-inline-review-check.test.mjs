@@ -93,7 +93,7 @@ test('a suggestion review with the Home switch off dismisses without a Drop dial
       drafts: createDraftEdits(),
       client: {
         load: async () => ({ kind: 'suggestions', operations: [], proposals: [{
-          id: bound.proposal_id, label: 'Next step', evidence: 'Synthetic note', canAccept: true, replaces: [],
+          id: bound.proposal_id, label: 'Next step', evidence: 'Synthetic note', canAccept: true,
         }] }),
         run: async (_item, request) => { requests.push(request); return { item: null }; },
       },
