@@ -102,7 +102,8 @@ for (const width of [1440, 390])
     await section.locator("p").selectText();
     answerActivity();
     await page.locator("#recordActivity .activity-note:not([data-state=loading])").waitFor();
-    assert.match(await page.evaluate(() => String(getSelection())), /Called Demo Dental/, "Recent activity arriving keeps the note");
+    const selected = await page.evaluate(() => String(getSelection()));
+    assert.match(selected, /Called Demo Dental/, "Recent activity arriving keeps the note");
     await section.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${evidence}client-note-${width}.png`, animations: "disabled" });
     assert.deepEqual(errors, []);
