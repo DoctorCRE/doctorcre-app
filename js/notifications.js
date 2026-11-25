@@ -9,7 +9,7 @@ import { mountNotificationBadge, mountPrefs, renderNotificationBadge } from "./s
 import { BUSINESS_TIME_ZONE, meetingTime } from "./business-date.js";
 import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
-  acknowledgeArgs, acknowledgeOperationKey, activityRows, changeRows, classifyPreferenceFailure,
+  acknowledgeArgs, acknowledgeOperationKey, activityRows, changeRows, classifyPreferenceFailure, foldChanges,
   classifyPreferenceReadFailure, classifyReadFailure, enginePreferenceArgs, feedState, updateFailure,
   notificationCards, preferenceState, preferenceSummary, preferenceView,
   quietNowBanner, setPreferenceArgs, unreadLine, validFeedPayload,
@@ -106,14 +106,14 @@ function recordDetailsHtml(details, path = null) {
 const openRows = new Set();
 
 /** A compact row: its title opens it, and everything in `more` stays folded until then. */
-function rowHtml({ key, chip = "", title, detail, detailHref = "", meta, actions = "", more = "", attrs = "" }) {
+function rowHtml({ key, chip = "", lead = "", title, detail, meta = "", actions = "", more = "", attrs = "" }) {
   const open = openRows.has(key);
   const panel = `more-${key.replace(/[^\w-]/g, "_")}`;
   return `<li class="update-row" data-row="${escapeHtml(key)}"${open ? " data-open" : ""} ${attrs}>
     ${chip}
-    <h3 class="row-title"><button type="button" class="row-toggle" aria-expanded="${open}" aria-controls="${escapeHtml(panel)}">${escapeHtml(title)}</button></h3>
+    <h3 class="row-title">${lead}<button type="button" class="row-toggle" aria-expanded="${open}" aria-controls="${escapeHtml(panel)}">${escapeHtml(title)}</button></h3>
     <span class="row-meta">${meta}</span>
-    ${detailHref ? `<a class="note-subject" href="${escapeHtml(detailHref)}">${escapeHtml(detail)}</a>` : `<p class="note-subject">${escapeHtml(detail)}</p>`}
+    <p class="note-subject">${escapeHtml(detail)}</p>
     <div class="row-act">${actions}</div>
     <div class="row-more" id="${escapeHtml(panel)}"${open ? "" : " hidden"}>${more}</div>
   </li>`;
@@ -159,6 +159,20 @@ function toggleRow(row) {
   row.querySelector(".row-more").hidden = !open;
 }
 
+/**
+ * Repaints a list and keeps keyboard focus on the row it was in, or on the row
+ * that took its place when that row left the list.
+ */
+function paintList(list, html) {
+  const row = document.activeElement?.closest(".update-row[data-row]");
+  const index = row && list.contains(row) ? [...list.children].indexOf(row) : -1;
+  list.innerHTML = html;
+  if (index < 0) return;
+  const rows = [...list.querySelectorAll(":scope > .update-row[data-row]")];
+  const target = rows.find((next) => next.dataset.row === row.dataset.row) ?? rows[Math.min(index, rows.length - 1)];
+  target?.querySelector(".row-toggle").focus();
+}
+
 /** A click anywhere on a row that is not one of its own controls opens or closes it. */
 function onRowClick(event) {
   const target = event.target instanceof Element ? event.target : null;
@@ -168,13 +182,14 @@ function onRowClick(event) {
   return true;
 }
 
+const currentFeedState = () => feedState(view.feed, source === sources.old ? { after: view.after, limit: LIMIT } : undefined);
+
 function renderFeed() {
   const read = view.feed;
   $("feedAsOf").textContent = asOf(read);
-  const state = feedState(read, source === sources.old ? { after: view.after, limit: LIMIT } : undefined);
+  const state = currentFeedState();
   const block = $("feedState");
   block.setAttribute("data-state", state.state);
-  $("feedStateTitle").textContent = state.sentence || "";
   const failed = ["refused", "unavailable", "unknown"].includes(state.state);
   $("retryRead").textContent = failed ? "Retry" : "Refresh";
   const hint = $("feedStateHint");
@@ -189,12 +204,13 @@ function renderFeed() {
   const unread = unreadLine(payload);
   $("unreadLine").textContent = unread;
   announceFeed(state.sentence || unread);
-  $("feedList").innerHTML = notificationCards(payload, undefined, savedZone()).map(cardHtml).join("");
+  paintList($("feedList"), notificationCards(payload, undefined, savedZone()).map(cardHtml).join(""));
   const banner = $("quietNowBanner");
   const sentence = quietNowBanner(payload, view.preference.payload);
   banner.textContent = sentence || "";
   banner.setAttribute("data-quiet", sentence ? "now" : "off");
   banner.hidden = !sentence;
+  renderEmpty();
 }
 
 /**
@@ -233,13 +249,47 @@ function renderPreference() {
   $("quietEnd").value = preferenceTimeLabel(model.end);
 }
 
+const recordName = (row, className = "") => row.link?.href
+  ? `<a class="${className}" href="${escapeHtml(row.link.href)}">${escapeHtml(row.subject)}</a>`
+  : `<span class="${className}">${escapeHtml(row.subject)}</span>`;
+
+/** One change led by its record and action, or a run of the same change folded into one row that lists its records. */
+function changeHtml(group) {
+  const [row] = group;
+  const many = group.length > 1;
+  return rowHtml({
+    key: `activity:${group.at(-1).id}`,
+    attrs: 'data-priority="ordinary"',
+    lead: many ? "" : `${recordName(row, "row-lead")}<span class="row-sep"> · </span>`,
+    title: many ? `${group.length} records · ${row.verb}` : row.verb,
+    detail: row.clock ? `${row.actor} · ${row.clock}` : row.actor,
+    more: many
+      ? `<ul class="fold-list">${group.map((one) =>
+        `<li>${recordName(one)}<span class="row-clock">${escapeHtml(one.clock)}</span>${recordDetailsHtml(one.details)}</li>`).join("")}</ul>`
+      : recordDetailsHtml(row.details),
+  });
+}
+
+const activityRowsOf = (payload) => payload?.changes ? changeRows(payload.changes, savedZone()) : activityRows(payload?.events, savedZone());
+
+const NOTHING_YET = "No updates yet";
+
+/** Each empty list says so in one line, and when both are empty the page says it once. */
+function renderEmpty() {
+  const feed = currentFeedState();
+  const activity = view.activity;
+  const both = feed.state === "empty" && activity.state === "read" && !activity.refreshFailed && !activityRowsOf(activity.payload).length;
+  $("feedStateTitle").textContent = both ? NOTHING_YET : feed.sentence || "";
+  if (both) announceFeed(NOTHING_YET);
+  // The old change feed retires when Deals reads move to the engine before its saves do.
+  $("activityBlock").hidden = both || activity.state === "retired" || activity.state === "pending";
+}
+
 function renderActivity() {
   const read = view.activity;
-  // The old change feed retires when Deals reads move to the engine before its saves do.
-  $("activityBlock").hidden = read.state === "retired" || read.state === "pending";
   $("activityAsOf").textContent = asOf(read);
   const payload = read.state === "read" ? read.payload : null;
-  const rows = payload?.changes ? changeRows(payload.changes, savedZone()) : activityRows(payload?.events, savedZone());
+  const rows = activityRowsOf(payload);
   $("activityState").hidden = read.state === "pending" || (Boolean(payload) && !read.refreshFailed);
   $("retryActivity").hidden = source === sources.old;
   const more = $("activityMore");
@@ -247,15 +297,9 @@ function renderActivity() {
   more.disabled = read.loadingMore === true;
   more.textContent = read.moreFailed === "invalid_fields" ? "Reload activity" : read.moreFailed ? "Retry" : "Show more";
   $("activityMoreState").textContent = read.moreFailed ? "Couldn't load more" : "";
-  $("activityList").innerHTML = rows.map((row, n) => rowHtml({
-    key: `activity:${row.id ?? n}`,
-    attrs: 'data-priority="ordinary"',
-    title: `${row.actor} · ${row.verb}`,
-    detail: row.subject,
-    detailHref: row.link?.href,
-    meta: `<span class="row-clock">${escapeHtml(row.clock)}</span>`,
-    more: recordDetailsHtml(row.details),
-  })).join("") || (payload ? `<li class="update-row" data-priority="ordinary"><h3 class="row-title">No recent activity</h3></li>` : "");
+  paintList($("activityList"), foldChanges(rows).map(changeHtml).join("")
+    || (payload ? `<li class="update-row empty-row"><h3 class="row-title">No recent activity</h3></li>` : ""));
+  renderEmpty();
 }
 
 function render() {

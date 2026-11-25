@@ -89,8 +89,8 @@ for (const viewport of viewports) test(`V1 audit 15/21/25b: Updates uses human l
   // Activity names people and actions; identifiers and operation codes live in Details.
   const activity = page.locator('#activityList > li');
   await settles(async () => assert.equal(await activity.count(), 2));
-  assert.equal(await activity.nth(0).locator('h3').textContent(), 'Recorded actor · Phase');
-  assert.equal(await activity.nth(1).locator('h3').textContent(), 'Joe · Set next step');
+  assert.equal(await activity.nth(0).locator('h3').textContent(), 'Deal · Phase');
+  assert.equal(await activity.nth(1).locator('h3').textContent(), 'Deal · Set next step');
   for (let i = 0; i < 2; i++) assert.doesNotMatch(await visibleText(activity.nth(i)), /f00dfeed|synthetic-record|patch-deal-field|set-next-step/);
   await activity.nth(0).locator('.row-toggle').click();
   await activity.nth(0).locator('summary').click();

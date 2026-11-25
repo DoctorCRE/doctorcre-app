@@ -70,16 +70,9 @@ export function validFeedPayload(payload) {
 
 /* ---------------------------------------------------------------- the header */
 
-/**
- * The unread line, printed from the payload's own number. Zero is a sentence,
- * never a hidden element: "nothing unread" is an answer and an empty space is
- * not.
- */
+/** The title's unread count, printed from the payload's own number; zero says nothing, because the list says it. */
 export function unreadLine(payload) {
-  if (!validFeedPayload(payload)) return "";
-  const count = payload.unread_count;
-  if (count === 0) return "Nothing unread";
-  return `${count} unread`;
+  return validFeedPayload(payload) && payload.unread_count > 0 ? `${payload.unread_count} unread` : "";
 }
 
 /* ----------------------------------------------------------------- the cards */
@@ -248,7 +241,7 @@ export function classifyReadFailure(error) {
 /** The eight states UX20 demands, each with the sentence the page renders. */
 export const FEED_STATES = Object.freeze({
   loading: "Loading notifications…",
-  empty: "No updates",
+  empty: "No notifications",
   no_match: "No matching notifications",
   stale: "Updating…",
   unavailable: "Couldn't load updates",
@@ -305,6 +298,7 @@ export function activityRows(events, zone = BUSINESS_TIME_ZONE) {
     .slice(-12)
     .reverse()
     .map((row) => ({
+      id: isText(row.id) ? row.id : `${row.subject_id}@${row.recorded_at}`,
       actor: activityActor(row.actor),
       verb: changeAction(row),
       subject: recordLabel(row.subject_type),
@@ -327,6 +321,17 @@ export function parseChangesPage(page) {
 
 export function changeRows(changes, zone = BUSINESS_TIME_ZONE) {
   return changes.map((row) => ({ ...row, clock: formatClock(row.at, zone) }));
+}
+
+/** Changes in a row by one actor with one action fold into one group, so a run of the same thing reads once. */
+export function foldChanges(rows) {
+  const groups = [];
+  for (const row of rows) {
+    const last = groups.at(-1);
+    if (last?.[0].actor === row.actor && last[0].verb === row.verb) last.push(row);
+    else groups.push([row]);
+  }
+  return groups;
 }
 
 /* -------------------------------------------------------------- the one write */

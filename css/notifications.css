@@ -55,6 +55,21 @@
 .row-more { grid-area: more; display: grid; gap: var(--space-1); padding-top: var(--space-1); cursor: auto; }
 .row-more > * { margin: 0; }
 .update-row[data-open] .row-toggle, .update-row[data-open] .note-subject { white-space: normal; overflow-wrap: anywhere; }
+/* A change reads "record · action"; the action wraps to a second line instead of being cut. */
+#activityList .row-title { display: flex; align-items: baseline; }
+.row-lead { flex: 0 1 auto; max-width: 50%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.row-sep { flex: none; white-space: pre; }
+#activityList .row-toggle { flex: 1 1 0; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; }
+#activityList [data-open] .row-toggle { -webkit-line-clamp: none; }
+.fold-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; font-size: var(--font-size-1); }
+.fold-list > li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--space-2); }
+.fold-list .row-clock { color: var(--fg-quiet); font-variant-numeric: tabular-nums; }
+
+/* An empty list is one quiet line, never a card. */
+.update-list:has(> .empty-row) { border: 0; background: none; }
+.empty-row { padding: 0; }
+#feedState[data-state="empty"] { padding: 0; border: 0; background: none; }
+:is(#feedState[data-state="empty"], .empty-row) h3 { color: var(--fg-muted); font: var(--font-weight-regular) var(--font-size-2)/1.4 var(--font-text); }
 .note-delivery { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 
 .severity-chip { display: inline-flex; align-items: center; padding: 0 var(--space-2); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-round); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); line-height: 1.5; white-space: nowrap; }
@@ -73,7 +88,8 @@
 @media (max-width: 760px) {
   .update-row { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "title title meta" "chip detail detail" "act act act" "more more more"; }
   .row-act:empty { display: none; }
-  .panel-head .btn, .row-act .btn, .note-link a, a.note-subject { display: inline-flex; align-items: center; min-height: var(--touch); }
+  .panel-head .btn, .row-act .btn, .note-link a, .fold-list a { display: inline-flex; align-items: center; min-height: var(--touch); }
+  .row-lead { line-height: var(--touch); }
 }
 
 /* ------------------------------------------------------------------ states
