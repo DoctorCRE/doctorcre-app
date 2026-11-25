@@ -106,7 +106,6 @@
     "tests/walks/31-unit-email-file-defer-u1.spec.ts",
     "tests/walks/33-unit-inbox-card-actions.spec.ts",
     "tests/walks/34-unit-inbox-card-context.spec.ts",
-    "tests/walks/35-unit-inbox-safe-refresh.spec.ts",
     "tests/walks/36-unit-calendar-open-deal.spec.ts",
     "tests/walks/37-WR572-S11.spec.ts",
     "tests/walks/38-unit-call-review-labels.spec.ts",

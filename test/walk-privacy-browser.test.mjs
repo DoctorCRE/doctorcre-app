@@ -121,7 +121,7 @@ async function fixture(context, ordinary = false, missing = false, number = 12) 
     if (request.method() === 'POST' && request.postDataJSON()?.params?.name === 'read-home-inbox-v5') return route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(snapshot) }] } } });
     if (request.method() !== 'GET') return route.fallback();
     if (new URL(request.url()).pathname === '/deals') return route.fulfill({ contentType: 'text/html', body: '<button id="listView">List</button><span id="boardStatusLabel">Ready</span><span id="boardAsOf">Updated</span><a class="deal-link" data-open-deal="' + item.deal_id + '">' + (ordinary ? 'Ordinary deal' : 'TEST WALK ' + number + ' deal') + '</a>' });
-    return route.fulfill({ contentType: 'text/html', body: '<h1>Welcome home.</h1><div class="inbox-health">Updating</div><main></main><script>fetch("/mcp", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({method:"tools/call",params:{name:"read-home-inbox-v5"}})}).then(r=>r.json()).then(()=>{document.querySelector("main").innerHTML=' + JSON.stringify(missing ? '' : '<article data-inbox-row="' + item.item_id + '"><h3><a>' + item.title + '</a></h3><button>Mark done</button></article>') + ';document.querySelector(".inbox-health").textContent="Up to date"})</script>' });
+    return route.fulfill({ contentType: 'text/html', body: '<h1>Home</h1><div id="homeRoot"></div><script>fetch("/mcp", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({method:"tools/call",params:{name:"read-home-inbox-v5"}})}).then(r=>r.json()).then(()=>{const root=document.getElementById("homeRoot");root.innerHTML=' + JSON.stringify(missing ? '' : '<article data-inbox-row="' + item.item_id + '"><h3><a>' + item.title + '</a></h3><button>Mark done</button></article>') + ';root.dataset.homeReady="true"})</script>' });
   });
   return snapshot.items[0] || item;
 }
@@ -222,7 +222,7 @@ test.beforeEach(async ({ page }) => {
 test('every mutating walk skips without a TEST fixture and sends zero writes', async t => {
   const methods = [];
   const empty = { ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true, auto_settle_enabled: true, items: [] };
-  const server = await startWorkerFixture({routes:new Map([['/',{contentType:'text/html',body:'<h1>Welcome home.</h1><div class="inbox-health">Updating</div><script>fetch("/mcp", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({method:"tools/call",params:{name:"read-home-inbox-v5",arguments:{}}})}).then(r=>r.json()).then(()=>document.querySelector(".inbox-health").textContent="Up to date")</script>'}]]),env:{CARR:{fetch:async request => {
+  const server = await startWorkerFixture({routes:new Map([['/',{contentType:'text/html',body:'<h1>Home</h1><div id="homeRoot"></div><script>fetch("/mcp", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({method:"tools/call",params:{name:"read-home-inbox-v5",arguments:{}}})}).then(r=>r.json()).then(()=>{document.getElementById("homeRoot").dataset.homeReady="true"})</script>'}]]),env:{CARR:{fetch:async request => {
     const body = await request.text();
     methods.push({method:request.method,path:new URL(request.url).pathname,name:body ? JSON.parse(body)?.params?.name : null});
     return Response.json({result:{content:[{type:'text',text:JSON.stringify(empty)}]}});

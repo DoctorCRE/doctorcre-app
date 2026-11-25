@@ -4,7 +4,7 @@ import { card, needs, visible } from "./ui.ts";
 
 test("07 WR617.S8", async ({ page }) => {
   const row = await card(page, 7);
-  await row.getByRole("button", { name: "Open", exact: true }).click();
+  await row.getByRole("button", { name: "Review", exact: true }).click();
   const review = row.locator(".home-inline-review");
   await visible(review.getByRole("button", { name: "Save draft", exact: true }));
   const message = review.getByRole("textbox", { name: "Message", exact: true });
@@ -17,7 +17,7 @@ test("07 WR617.S8", async ({ page }) => {
     .toBe(true);
   await page.reload();
   const restored = await card(page, 7);
-  await restored.getByRole("button", { name: "Open", exact: true }).click();
+  await restored.getByRole("button", { name: "Review", exact: true }).click();
   const saved = restored.getByRole("textbox", { name: "Message", exact: true });
   await visible(saved);
   expect((await saved.inputValue()) === updated).toBe(true);

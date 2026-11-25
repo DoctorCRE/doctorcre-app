@@ -27,9 +27,9 @@
   },
   {
     "number": 3,
-    "title": "Home inbox: done, snoozed, settled, auto-settle and working section",
+    "title": "Home reminders: done, snoozed and auto-settle",
     "work_request": "WR617.S1",
-    "steps": "On Home, use designated test cards to verify Done, Snoozed, Settled and Working sections. Reload each disposition and verify stored readback; check an already auto-settled card is no longer in attention.",
+    "steps": "On Home, use a designated test reminder to snooze it and verify it moves to In motion and waiting with Wake and Undo restores it; mark it done with its circle and verify it leaves Home and Undo restores it. Check an already auto-settled card is no longer in attention.",
     "prs": [
       "https://github.com/DoctorCRE/carr-system/pull/2801",
       "https://github.com/DoctorCRE/carr-system/pull/2933",
@@ -39,7 +39,7 @@
     ],
     "spec": "03-WR617-S1.spec.ts",
     "coverage": "partial-then-skip",
-    "skip_reason": "Full disposition and auto-settlement evidence is not exposed by Home alone."
+    "skip_reason": "Full disposition and auto-settlement evidence is not exposed by Home alone. Hide from inbox and the Done today and Hidden from inbox sections no longer exist on Home."
   },
   {
     "number": 4,
@@ -160,9 +160,9 @@
   },
   {
     "number": 14,
-    "title": "Show work actually completed today",
+    "title": "Finished work leaves Home",
     "work_request": "WR617.S14",
-    "steps": "Complete a designated test task on Home. Verify Done today shows its recorded America/Chicago completion time after reload; verify a yesterday completion with newer activity remains outside Done today.",
+    "steps": "Complete a designated test task on Home. Verify it is gone from Home after reload, that Home has no Done today or Earlier and undated completions section, and that Undo restores it.",
     "prs": [
       "https://github.com/DoctorCRE/carr-system/pull/2959",
       "https://github.com/jbookout/doctorcre-app/pull/660"
@@ -312,7 +312,7 @@
     "number": 33,
     "title": "inbox card actions",
     "work_request": "unit:inbox-card-actions",
-    "steps": "Open Home at phone and desktop widths. On a designated test inbox card, perform the available disposition, confirm only that card changes, and verify the recorded receipt and Undo.",
+    "steps": "Open Home at phone and desktop widths. Snooze a designated test reminder, confirm it shows Wake in In motion and waiting while a second test card is unchanged, and verify Undo restores it.",
     "prs": [
       "https://github.com/jbookout/doctorcre-app/pull/636"
     ],
@@ -328,17 +328,6 @@
       "https://github.com/jbookout/doctorcre-app/pull/634"
     ],
     "spec": "34-unit-inbox-card-context.spec.ts",
-    "coverage": "implemented"
-  },
-  {
-    "number": 35,
-    "title": "inbox safe refresh",
-    "work_request": "unit:inbox-safe-refresh",
-    "steps": "Open Home with a designated test card expanded. Refresh its data and verify focus and card identity survive; invalidate the session and verify stale action controls retire.",
-    "prs": [
-      "https://github.com/jbookout/doctorcre-app/pull/638"
-    ],
-    "spec": "35-unit-inbox-safe-refresh.spec.ts",
     "coverage": "implemented"
   },
   {
