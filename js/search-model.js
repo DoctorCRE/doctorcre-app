@@ -371,7 +371,8 @@ export function displaySearchGroups(payload, kinds = []) {
       return shown.length ? [{ ...group, rows: shown, count: shown.length }] : [];
     });
   }
-  const listedDeals = new Set(payload.deals.map(deal => deal.id));
+  const dealsShown = !kinds.length || kinds.includes("deals");
+  const listedDeals = new Set(dealsShown ? payload.deals.map(deal => deal.id) : []);
   const parties = payload.parties.map(row => {
     const scopes = row.roles.map(role => roleGroups[role]);
     if (!scopes.length) scopes.push(row.kind === "company" ? "organizations" : "people");

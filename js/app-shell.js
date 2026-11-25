@@ -41,8 +41,10 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
   toggle.className = 'app-shell-search quick-switcher-toggle';
   toggle.setAttribute('aria-label', 'Search and quick switcher');
   toggle.setAttribute('aria-haspopup', 'dialog');
-  toggle.setAttribute('aria-keyshortcuts', 'Meta+K Control+K');
-  toggle.title = 'Search (⌘K or Ctrl+K)';
+  // On a Mac, Ctrl+K is the text fields' delete-to-end-of-line.
+  const mac = /Mac|iPhone|iPad/.test(root.defaultView.navigator.platform);
+  toggle.setAttribute('aria-keyshortcuts', mac ? 'Meta+K' : 'Control+K');
+  toggle.title = mac ? 'Search (⌘K)' : 'Search (Ctrl+K)';
   toggle.innerHTML = search.innerHTML;
   if (search.hasAttribute("aria-current")) toggle.setAttribute("aria-current", "page");
   search.replaceWith(toggle);
@@ -70,7 +72,7 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
   toggle.addEventListener('click', open);
   root.defaultView.addEventListener('keydown', event => {
     if (isTextEntry(event)) return;
-    if ((event.metaKey || event.ctrlKey) && event.code === 'KeyK' && !event.altKey && !event.shiftKey) {
+    if ((mac ? event.metaKey : event.ctrlKey) && event.code === 'KeyK' && !event.altKey && !event.shiftKey) {
       event.preventDefault(); event.stopImmediatePropagation();
       if (!event.repeat) void open();
     }

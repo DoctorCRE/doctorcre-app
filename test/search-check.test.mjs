@@ -416,14 +416,22 @@ test('QA-007 every scope can be disabled, persisted, and enabled independently',
   assert.equal(searchAddress({query:'', kinds:[]}), '/search');
 });
 
+const listedDeal = { id: 'demo-deal-1', name: 'Demo Dental Relocation' };
+const otherDeal = { id: 'demo-deal-2', name: 'Demo Dental Expansion' };
+const dentalSearch = {
+  schema_version: 'search.v1',
+  parties: [{ id: 'demo-party', kind: 'company', name: 'Demo Dental', city: null, lead_id: null, roles: ['client'], deals: [listedDeal, otherDeal] }],
+  deals: [{ ...listedDeal, phase: 'site_selection', owner: 'joe' }],
+};
+const shownNames = groups => groups.flatMap(group => group.rows.flatMap(row => [row.name, ...(row.deals || []).map(deal => deal.name)]));
+
 test('a deal listed under Deals is not listed again under its client', () => {
-  const listed = { id: 'demo-deal-1', name: 'Demo Dental Relocation' };
-  const other = { id: 'demo-deal-2', name: 'Demo Dental Expansion' };
-  const groups = displaySearchGroups({
-    schema_version: 'search.v1',
-    parties: [{ id: 'demo-party', kind: 'company', name: 'Demo Dental', city: null, lead_id: null, roles: ['client'], deals: [listed, other] }],
-    deals: [{ ...listed, phase: 'site_selection', owner: 'joe' }],
-  });
-  const names = groups.flatMap(group => group.rows.flatMap(row => [row.name, ...(row.deals || []).map(deal => deal.name)]));
-  assert.deepEqual(names, ['Demo Dental', other.name, listed.name]);
+  assert.deepEqual(shownNames(displaySearchGroups(dentalSearch)), ['Demo Dental', otherDeal.name, listedDeal.name]);
+});
+
+test('a client keeps its linked deal when Scope hides Deals', () => {
+  for (const kinds of [['deals_via_link'], ['clients']]) {
+    const client = displaySearchGroups(dentalSearch, kinds).find(group => group.id === 'clients').rows[0];
+    assert.deepEqual(client.deals.map(deal => deal.name), [listedDeal.name, otherDeal.name]);
+  }
 });

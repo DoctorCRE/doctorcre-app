@@ -62,16 +62,29 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
   });
 }
 
-for (const modifier of ['Meta', 'Control']) test(`${modifier}-K opens search from any page`, async () => {
+for (const { platform, key, other, title, shortcut } of [
+  { platform: 'MacIntel', key: 'Meta', other: 'Control', title: 'Search (⌘K)', shortcut: 'Meta+K' },
+  { platform: 'Win32', key: 'Control', other: 'Meta', title: 'Search (Ctrl+K)', shortcut: 'Control+K' },
+]) test(`${key}-K opens search on ${platform} and ${other}-K is left to the page`, async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage();
   try {
+    await page.addInitScript(platform => Object.defineProperty(Navigator.prototype, 'platform', { get: () => platform }), platform);
     await page.goto(server.url);
     const opener = page.getByRole('button', { name: 'Quick switcher' });
     await opener.waitFor();
-    assert.equal(await opener.getAttribute('title'), 'Search (⌘K or Ctrl+K)');
-    assert.equal(await opener.getAttribute('aria-keyshortcuts'), 'Meta+K Control+K');
-    await page.keyboard.press(`${modifier}+k`);
+    assert.equal(await opener.getAttribute('title'), title);
+    assert.equal(await opener.getAttribute('aria-keyshortcuts'), shortcut);
+    await page.evaluate(() => {
+      const field = document.createElement('input');
+      field.setAttribute('aria-label', 'Note field');
+      field.addEventListener('keydown', event => { field.dataset.reached = String(!event.defaultPrevented); });
+      document.body.append(field);
+    });
+    const field = page.getByRole('textbox', { name: 'Note field' });
+    await field.press(`${other}+k`);
+    assert.equal(await field.getAttribute('data-reached'), 'true');
+    await page.keyboard.press(`${key}+k`);
     const input = page.getByRole('combobox', { name: 'Jump to' });
     await input.waitFor({ timeout: 2000 });
     await input.press('Escape');
@@ -96,13 +109,13 @@ test('switcher keyboard, recents, navigation and phone control', async () => {
     assert.ok(await input.getAttribute('aria-activedescendant'));
     await input.press('Escape');
     assert.equal(await opener.evaluate(el => el === document.activeElement), true);
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await input.fill('calendar');
     await input.press('Enter');
     await page.waitForURL('**/calendar');
     await page.goto(`${server.url}/calendar?day=2026-11-03`);
     await page.getByRole('button', { name: 'Quick switcher' }).waitFor();
-    await page.keyboard.press('Meta+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await page.getByRole('heading', { name: 'Recent', exact: true }).waitFor();
     await page.getByRole('option', { name: 'Calendar Page' }).click();
     await page.waitForURL('**/calendar');
@@ -118,7 +131,7 @@ test('switcher keyboard, recents, navigation and phone control', async () => {
     });
     await page.keyboard.press('Control+Alt+k');
     assert.equal(await input.count(), 0);
-    await page.keyboard.press('Meta+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await input.waitFor();
     await input.press('Escape');
     assert.equal(await page.getByRole('textbox', { name: 'Parent field' }).evaluate(el => el === document.activeElement), true);
@@ -212,13 +225,13 @@ test('deal and contact choices navigate to the exact fixture records', async () 
     await deal.click();
     await page.waitForURL('**/deals?deal=*');
     await page.locator('#panelTitle').filter({ hasText: title }).waitFor();
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await page.getByRole('heading', { name: 'Recent', exact: true }).waitFor();
     await page.getByRole('combobox', { name: 'Jump to' }).fill('Demo Coastal Dental');
     await page.getByRole('option', { name: 'Demo Coastal Dental Contact', exact: true }).click();
     await page.waitForURL('**/clients?record=demo-client');
     await page.getByRole('button', { name: 'Quick switcher' }).waitFor();
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await page.getByRole('combobox', { name: 'Jump to' }).waitFor();
     await page.getByRole('combobox', { name: 'Jump to' }).press('Escape');
   } finally { await browser.close(); }

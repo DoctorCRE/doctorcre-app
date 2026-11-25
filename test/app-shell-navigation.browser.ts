@@ -95,7 +95,7 @@ test("Shared shell navigation and controls work on real fixture pages at desktop
         }
         const search = page.getByRole("button", { name: /Search.*Quick switcher/i });
         await search.focus();
-        await page.keyboard.press("Control+K");
+        await page.keyboard.press("ControlOrMeta+K");
         const switcher = page.getByRole("dialog", { name: "Quick switcher" });
         await switcher.getByRole("combobox", { name: "Jump to" }).fill("Calendar");
         assert.ok(await switcher.getByRole("option", { name: /Calendar/ }).isVisible());

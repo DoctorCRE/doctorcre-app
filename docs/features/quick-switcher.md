@@ -3,8 +3,9 @@
 Card: WR617.S11.J3
 
 Ask Doc opens the chat page from the shared top bar when the partner signs in through the engine.
-The global switcher opens with Cmd+K, or Ctrl+K on Windows, from any page,
-including from a text field. Its button advertises the same shortcut. Cmd/Ctrl+Alt+K
+The global switcher opens with Cmd+K on a Mac and Ctrl+K elsewhere, from any page,
+including from a text field. On a Mac, Ctrl+K stays the text fields' delete to end
+of line. Its button advertises the shortcut for its platform. Cmd/Ctrl+Alt+K
 was dropped because partners expect plain Cmd/Ctrl+K, and the old Control Room
 that used it is retired.
 The handler uses physical KeyK.
