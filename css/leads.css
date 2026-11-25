@@ -64,9 +64,10 @@
 .map-place-members [data-map-lead] { display: block; width: 100%; min-height: var(--touch); padding: var(--space-2); text-align: left; white-space: normal; overflow-wrap: anywhere; border-radius: var(--radius-1); background: transparent; }
 .map-place-members [data-map-lead]:hover, .map-place-members [data-map-lead][aria-pressed="true"] { background: var(--surface-3); }
 #marketCounts { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }
-#marketCounts button { min-width: var(--touch); min-height: var(--touch); padding: var(--space-1) var(--space-3); border-radius: var(--radius-round); background: transparent; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+#marketCounts button { display: inline-flex; align-items: center; max-width: 100%; min-width: var(--touch); min-height: var(--touch); padding: var(--space-1) var(--space-3); border-radius: var(--radius-round); background: transparent; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 #marketCounts button[aria-pressed="true"] { border-color: var(--fg); background: var(--surface-3); color: var(--fg); }
-#marketCounts b { margin-left: var(--space-1); color: var(--fg); font-weight: var(--font-weight-strong); }
+#marketCounts span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#marketCounts b { flex: none; margin-left: var(--space-1); color: var(--fg); font-weight: var(--font-weight-strong); }
 .map-credit { display: block; margin-top: var(--space-2); color: var(--fg-quiet); font-size: var(--font-size-1); text-align: right; }
 
 /* --- filters ---------------------------------------------------------------- */
@@ -277,8 +278,9 @@ dialog::backdrop { background: var(--scrim); }
 .filtered-empty { display: grid; justify-items: start; gap: var(--space-3); padding: var(--space-4); color: var(--fg-muted); }
 
 .lead-skeleton { display: grid; gap: var(--space-3); min-height: 94px; padding: var(--space-3); border: 0; border-radius: 0; background: transparent; }
-.skeleton-line { display: block; width: 65%; height: 12px; border-radius: var(--radius-1); background: var(--surface-3); }
-.skeleton-line + .skeleton-line { width: 42%; }
+/* Scoped so the shared Today skeleton keeps the app-wide look on this page. */
+:where(#leadBoard) .skeleton-line { display: block; width: 65%; height: 12px; border-radius: var(--radius-1); background: var(--surface-3); animation: none; }
+:where(#leadBoard) .skeleton-line + .skeleton-line { width: 42%; }
 .stage-head .skeleton-line { width: 90px; margin: 0; }
 #territoryMap[aria-busy="true"]::after { content: ""; position: absolute; inset: var(--space-3); border-radius: var(--radius-2); background: var(--surface-3); }
 
@@ -286,6 +288,8 @@ dialog::backdrop { background: var(--scrim); }
   #marketCounts button { min-width: var(--touch); min-height: var(--touch); }
   .drag-handle { display: flex; align-items: center; justify-content: center; min-width: var(--touch); min-height: var(--touch); scroll-margin-block: calc(var(--leads-header-offset, 0px) + var(--touch) + 2 * var(--space-2) + var(--space-3)) calc(var(--layout-bottom, 56px) + var(--space-3)); }
   .lead-card h3 { min-height: var(--touch); padding-right: calc(var(--touch) + var(--space-2)); }
+  .detail-panel dl { align-items: baseline; }
+  .detail-panel dd > a { display: inline-flex; align-items: center; min-height: var(--touch); }
 }
 
 .lead-card .work-card-title { padding-right: calc(var(--touch) + var(--space-2)); }

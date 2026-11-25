@@ -237,10 +237,6 @@ small, .small { font-size: var(--font-size-1); color: var(--fg-muted); }
 .state-block[data-state="stale"] { border-left-color: var(--status-warn); border-left-style: dotted; }
 .state-block[data-state="draft"] { border-style: dashed; border-left-color: var(--status-info); }
 .state-block[data-state="permission_changed"] { border-left-color: var(--status-hold); border-left-style: double; }
-/* The skeleton is a static tone shaped like the line it stands in for; it
-   fades gently only while motion is on. */
-.skeleton-line { width: 70%; height: 10px; border-radius: var(--radius-round); background: var(--surface-3); animation: skeleton-fade 1.6s var(--ease-out) infinite alternate; }
-.skeleton-line.short { width: 42%; }
 .as-of { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 .as-of[data-stale="true"] { color: var(--status-warn-ink); }
 .compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
@@ -375,7 +371,7 @@ small, .small { font-size: var(--font-size-1); color: var(--fg-muted); }
 
 /* ------------------------------------------------------------- motion floor */
 /* ------------------------------------------------------------- motion floor
-   The spin and skeleton keyframes live in css/app-shell.css, which every page loads. */
+   The spin and skeleton keyframes and the skeleton line live in css/app-shell.css, which every page loads. */
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation: none !important; transition: none !important; }

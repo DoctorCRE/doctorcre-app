@@ -1556,6 +1556,21 @@ test('Home puts a trailing signature under Show earlier text with the quoted his
   assert.equal(await message.getByText(/Maya Example wrote/).isVisible(), true);
 });
 
+test('Home folds the contact details at the end of a one-line email with no sign-off', async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.thread = [{ ...mailThread[1], folded: null,
+    body: 'The east suite also works. Pat Example Example Realty Group P: (555) 010-0100 F: 555.010.0101 pat@example.test' }];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const message = page.getByRole('region', { name: 'Email thread' }).getByRole('article');
+  await message.getByText('The east suite also works. Pat Example', { exact: true }).waitFor();
+  assert.equal(await message.getByText(/555\) 010-0100/).isVisible(), false);
+  await message.getByRole('button', { name: 'Show earlier text', exact: true }).click();
+  assert.equal(await message.getByText(/555\) 010-0100/).isVisible(), true);
+});
+
 test('Home shows who and why for a possible new deal from an email', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
   state.dashboard = true;

@@ -90,6 +90,7 @@
   .row-act:empty { display: none; }
   .panel-head .btn, .row-act .btn, .note-link a, .fold-list a { display: inline-flex; align-items: center; min-height: var(--touch); }
   .row-lead { line-height: var(--touch); }
+  #feedList .row-toggle { white-space: normal; overflow-wrap: anywhere; }
 }
 
 /* ------------------------------------------------------------------ states

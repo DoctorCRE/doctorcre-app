@@ -40,8 +40,6 @@ for (const mode of ["pass", "near-miss", "legacy", "unreachable"] as const)
       mode === "unreachable" ? "http://127.0.0.1:1" : endpoint,
       "--tour-url",
       `${server.origin}/${mode === "legacy" ? "tours/route-editor.html" : `deals?deal=${fixtureDeal}`}`,
-      "--timeout-ms",
-      "10000",
     ];
     if (mode === "pass") {
       const result = JSON.parse((await exec(process.execPath, args)).stdout);
