@@ -148,8 +148,8 @@ async function open(
         schema_version: "home-today.v1",
         viewer: "joe",
         partners: [
-          { slug: "joe", name: "Joe" },
-          { slug: "dell", name: "Dell" },
+          { slug: "joe", name: "Joe Example" },
+          { slug: "dell", name: "Dell Samplewright" },
         ],
         today: "2026-11-19",
         meetings: {
@@ -322,8 +322,8 @@ for (const width of [390, 1440])
       );
       assert.equal(await meetings.getByText(/Last synced/).count(), 0);
       const owners = today.getByRole("group", { name: "Reminders for" });
-      const both = owners.getByRole("button", { name: "Both partners" });
-      const dell = owners.getByRole("button", { name: "Dell" });
+      const both = owners.getByRole("button", { name: "Both", exact: true });
+      const dell = owners.getByRole("button", { name: "Dell", exact: true });
       assert.equal(await both.getAttribute("aria-pressed"), "true");
       await dell.click();
       assert.equal(await dell.getAttribute("aria-pressed"), "true");

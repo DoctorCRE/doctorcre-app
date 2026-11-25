@@ -45,6 +45,7 @@ type Partner = { slug: string; name: string };
 function partner(value: unknown): value is Partner {
   return object(value) && text(value.slug) && text(value.name);
 }
+const firstName = ({ name }: Partner) => name.trim().replace(/\s.*/s, "");
 
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 
@@ -126,7 +127,6 @@ export async function mountHomeTodayPanel(
     host: reviewHost,
     engine: true,
   });
-  owners.classList.add("chip-bar");
   owners.setAttribute("role", "group");
   owners.setAttribute("aria-label", "Reminders for");
   let scope = "all";
@@ -153,7 +153,7 @@ export async function mountHomeTodayPanel(
   };
   // A null message means the reminders are still loading.
   const renderReminders = (message: string | null) => {
-    const name = new Map(data?.partners.map((p) => [p.slug, p.name]));
+    const name = new Map(data?.partners.map((p) => [p.slug, firstName(p)]));
     const rows = (items: Reminder[], today: string) =>
       items
         .filter((item) => scope === "all" || item.owner === scope)
@@ -291,11 +291,11 @@ export async function mountHomeTodayPanel(
       data = dated;
       const partners = data?.partners ?? [];
       if (!partners.some((p) => p.slug === scope)) scope = "all";
-      const options = [{ slug: "all", name: "Both partners" }, ...partners];
+      const options = [{ slug: "all", label: "Both" }, ...partners.map((p) => ({ slug: p.slug, label: firstName(p) }))];
       paint(
         owners,
         options
-          .map((p) => `<button class="chip" type="button" value="${escapeText(p.slug)}">${escapeText(p.name)}</button>`)
+          .map((o) => `<button type="button" value="${escapeText(o.slug)}">${escapeText(o.label)}</button>`)
           .join(""),
       );
       paintOwnerSelection();
