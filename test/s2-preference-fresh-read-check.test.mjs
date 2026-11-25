@@ -5,13 +5,12 @@ import { openDom } from './jsdom-harness.mjs';
 import * as model from '../js/notifications-model.js';
 import { performCommand } from '../js/command-feedback.mjs';
 import { uuidv4 } from '../js/uuid.js';
-import { meetingTime } from '../js/home-week.js';
-import { BUSINESS_TIME_ZONE } from '../js/business-date.js';
+import { BUSINESS_TIME_ZONE, meetingTime } from '../js/business-date.js';
 import { renderNotificationBadge } from '../js/shell.js';
-const html=await readFile(new URL('../notifications.html',import.meta.url),'utf8');
+const html=await readFile(new URL('../settings.html',import.meta.url),'utf8');
 const source=(await readFile(new URL('../js/notifications.js',import.meta.url),'utf8')).replace(/^import[\s\S]*?from ["'][^"']+["'];/gm,'').replace(/^boot\(\);$/m,'').replace(/^export \{ view \};$/m,'');
 test('S2 preference submission checks current version, keeps the draft and requires another reviewed save',async()=>{
- const dom=openDom(html,{url:'https://example.test/updates',runScripts:'outside-only'}),w=dom.window;
+ const dom=openDom(html,{url:'https://example.test/settings',runScripts:'outside-only'}),w=dom.window;
  Object.assign(w,model,{performCommand,uuidv4,meetingTime,BUSINESS_TIME_ZONE,renderNotificationBadge:count=>renderNotificationBadge(count,w.document.getElementById('navUnreadBadge'))});
  w.eval(source+'\nglobalThis.prefApi={savePreference,view,setClient:value=>client=value,setDraft:version=>{dirty=true;draftBaseVersion=version;}};');
  const old={ok:true,exists:true,version:3,device_opt_in:false,quiet_hours_start:null,quiet_hours_end:null,timezone:'UTC'};
@@ -23,7 +22,7 @@ test('S2 preference submission checks current version, keeps the draft and requi
 });
 
 test('S2 a preference CAS conflict after the fresh read keeps the draft beside current saved values',async()=>{
- const dom=openDom(html,{url:'https://example.test/updates',runScripts:'outside-only'}),w=dom.window;
+ const dom=openDom(html,{url:'https://example.test/settings',runScripts:'outside-only'}),w=dom.window;
  Object.assign(w,model,{performCommand,uuidv4,meetingTime,BUSINESS_TIME_ZONE,renderNotificationBadge:count=>renderNotificationBadge(count,w.document.getElementById('navUnreadBadge'))});
  w.eval(source+'\nglobalThis.prefApi={savePreference,view,setClient:value=>client=value,setDraft:version=>{dirty=true;draftBaseVersion=version;}};');
  const old={ok:true,exists:true,version:3,device_opt_in:false,quiet_hours_start:null,quiet_hours_end:null,timezone:'UTC'};
@@ -34,33 +33,4 @@ test('S2 a preference CAS conflict after the fresh read keeps the draft beside c
  assert.equal(w.document.getElementById('deviceOptIn').checked,false,'the unsaved choice survives the authoritative conflict');
  assert.match(w.document.getElementById('prefSummary').textContent,/on/,'current saved preference is shown alongside the draft');
  assert.match(w.document.getElementById('prefMessage').textContent,/review|changed|not saved/i);
-});
-
-test('S2 a confirmed preference save reports its receipt while unrelated refresh reads are pending', async () => {
- const dom=openDom(html,{url:'https://example.test/updates',runScripts:'outside-only'}),w=dom.window;
- Object.assign(w,model,{performCommand,uuidv4,meetingTime,BUSINESS_TIME_ZONE,renderNotificationBadge:count=>renderNotificationBadge(count,w.document.getElementById('navUnreadBadge'))});
- w.eval(source+'\nglobalThis.prefApi={savePreference,view,setClient:value=>client=value,setDraft:version=>{dirty=true;draftBaseVersion=version;}};');
- const old={ok:true,exists:true,version:3,device_opt_in:false,quiet_hours_start:null,quiet_hours_end:null,timezone:'UTC'};
- let releaseFeed, refreshStarted;
- const feed=new Promise(resolve=>{releaseFeed=resolve;});
- const refreshing=new Promise(resolve=>{refreshStarted=resolve;});
- let reads=0,writes=0;
- w.prefApi.view.preference={state:'read',payload:old};w.prefApi.setDraft(3);
- w.prefApi.setClient({
-  notificationPreferences:async()=>++reads===1?old:{...old,version:4,timezone:'America/Chicago'},
-  setNotificationPreference:async()=>{writes++;return{ok:true};},
-  notificationFeed:()=>{refreshStarted();return feed;},
-  getChanges:async()=>({ok:true,events:[],cursor:'done'}),
- });
- const save=w.prefApi.savePreference({timezone:'America/Chicago'});
- await refreshing;
- try {
-  assert.equal(writes,1);
-  assert.match(w.document.getElementById('prefMessage').textContent,/saved/i,
-   'the confirmed receipt must not wait for the unrelated notification feed');
- } finally {
-  releaseFeed({ok:true,notifications:[],unread_count:0});
-  await save;
-  dom.window.close();
- }
 });

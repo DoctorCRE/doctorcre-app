@@ -53,7 +53,7 @@ export async function mountHomeTodayPanel(
   readDeals: (signal: AbortSignal) => Promise<unknown[]>,
   { hideEndedDealReminders = false } = {},
 ) {
-  const [transport, dates, week, receipts, reviews]: [
+  const [transport, dates, clock, receipts, reviews]: [
     {
       readWithDeadline<T>(read: (signal: AbortSignal) => Promise<T>, options: { signal: AbortSignal }): Promise<T>;
       sessionFetch(path: string, init: RequestInit): Promise<Response>;
@@ -73,12 +73,12 @@ export async function mountHomeTodayPanel(
       sessionFetch: session.sessionFetch,
     })),
     sibling("./calendar-model.js"),
-    sibling("./home-week.js"),
+    sibling("./business-date.js"),
     sibling("./change-receipts.mjs"),
     sibling("./home-meeting-reviews.js"),
   ]);
   const { escapeText } = receipts;
-  const central = (value: string, date = false) => week.meetingTime(value, "America/Chicago", { date });
+  const central = (value: string, date = false) => clock.meetingTime(value, "America/Chicago", { date });
   const status = (message: string) => `<p class="app-layout-empty">${escapeText(message)}</p>`;
   function meetingRow(item: Meeting) {
     const deal = localHref(item.open_url);

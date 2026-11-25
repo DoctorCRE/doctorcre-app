@@ -69,8 +69,9 @@ for (const width of [360, 390, 500]) {
       await expect(page.getByRole("dialog", { name: "Quick switcher" })).toBeVisible();
     });
 
-    test("Updates links and controls have 44px targets on phones", async ({ page }) => {
+    test("Updates and Settings links and controls have 44px targets on phones", async ({ page }) => {
       await enableSwitch(page, "**/updates?*", "data-deals-saves-from-engine");
+      await enableSwitch(page, "**/settings?*", "data-deals-saves-from-engine");
       await page.route("**/api/engine/updates", (route) =>
         route.fulfill({
           json: {
@@ -101,6 +102,8 @@ for (const width of [360, 390, 500]) {
       for (const name of ["Open deal", "Open checklist item"]) {
         await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
       }
+      await expectTouchTargets(page.locator("main :is(a, button, summary, input, select):visible"));
+      await page.goto(`${server.url}/settings?mode=live`);
       const optIn = page.getByRole("checkbox", { name: /Send a device push/ });
       await expect(optIn).toBeEnabled();
       await expectTouchTargets(page.locator("main :is(a, button, summary, input:not(#deviceOptIn), select):visible"));

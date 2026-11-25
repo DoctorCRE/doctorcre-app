@@ -97,7 +97,7 @@ for (const actor of ['joe','dell']) test(`signed-in ${actor} gets workspace, acc
   await page.reload(); await page.waitForFunction(() => document.documentElement.dataset.colorAssist === 'on');
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
   await page.locator('#selfAvatar').click(); assert.equal(await page.locator('#accountMenu').isVisible(), true);
-  assert.equal(await page.getByText('Notification preferences', {exact:true}).getAttribute('href'), '/updates#prefForm');
+  assert.equal(await page.locator('#accountMenu').getByText('Settings', {exact:true}).getAttribute('href'), '/settings');
   await page.keyboard.press('Escape');
   await page.getByLabel('Dark mode', {exact:true}).click(); assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   await page.locator('#selfAvatar').click(); await page.getByText('Profile', {exact:true}).click();

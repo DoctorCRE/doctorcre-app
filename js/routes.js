@@ -18,6 +18,7 @@ export const routeEntries = [
   ["/relationships","relationships.html","/business"],
   ["/review-workflows","review-workflows.html","/"],
   ["/search","search.html","/business"],
+  ["/settings","settings.html","/notifications"],
   ["/status","status.html","/status"],
   ["/tours","tours/index.html","/tours"],
   ["/updates","notifications.html","/notifications"],
@@ -25,7 +26,7 @@ export const routeEntries = [
 ];
 export const routeContract = {
   schema: "doctorcre-app-routes.v1",
-  version: "1.26.0",
+  version: "1.27.0",
   routes: Object.fromEntries(routeEntries.map(([path, asset]) => [path, asset])),
   redirects: {
   "/workspace": "/",
@@ -66,6 +67,7 @@ export const switcherUtilityPages = [
   { label: "Inbox", href: "/inbox" },
   { label: "Review workflows", href: "/review-workflows" },
   { label: "Search", href: "/search" },
+  { label: "Settings", href: "/settings" },
   toursDestination,
   { label: "Client portal", href: "/client-portal" },
 ];

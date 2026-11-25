@@ -82,7 +82,6 @@
 
 @media (min-width: 560px) {
   .pref-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .pref-grid .field:last-child { grid-column: 1 / -1; }
 }
 
 @media (max-width: 640px) {

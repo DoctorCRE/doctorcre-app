@@ -16,6 +16,17 @@ const messages: Record<PushState["kind"], string> = {
   "local-cleanup": "Server registration is revoked. Browser cleanup needs another attempt.",
   retired: "Session ended. Sign in again to manage this installation.",
 };
+function notice(element: Element, text: string) {
+  const card = document.createElement("section");
+  card.className = "card glass";
+  card.setAttribute("aria-label", "Phone notifications");
+  const title = document.createElement("h2");
+  title.textContent = "Phone notifications";
+  const line = document.createElement("p");
+  line.textContent = text;
+  card.append(title, line);
+  element.replaceChildren(card);
+}
 export function mountPhonePush(element: Element, options: Parameters<typeof createPhonePush>[0]) {
   const root = createRoot(element);
   const model = createPhonePush({
@@ -68,7 +79,7 @@ async function start(element: Element) {
   const retire = () => {
     lifetime.abort();
     if (view) view.retire();
-    else element.textContent = "Session ended. Sign in again to manage this installation.";
+    else notice(element, "Session ended. Sign in again to manage this installation.");
   };
   addEventListener("doctorcre-offline-session-revoked", retire);
   addEventListener("storage", (event) => {
@@ -139,7 +150,7 @@ async function start(element: Element) {
     } catch (error) {
       if (lifetime.signal.aborted) return;
       if (error instanceof Error && error.message === "push_not_configured") {
-        element.textContent = "Phone notifications are unavailable until the public notification key is configured.";
+        notice(element, "Phone notifications are unavailable until the public notification key is configured.");
         return;
       }
       if (!(error instanceof Error) || error.message !== "push_config_invalid") throw error;
@@ -152,8 +163,7 @@ async function start(element: Element) {
       typeof config.public_key !== "string" ||
       !/^B[A-Za-z0-9_-]{86}$/.test(config.public_key)
     ) {
-      element.textContent =
-        "Phone notifications are unavailable because the public notification configuration is invalid.";
+      notice(element, "Phone notifications are unavailable because the public notification configuration is invalid.");
       return;
     }
     if (lifetime.signal.aborted) return;
@@ -171,7 +181,7 @@ async function start(element: Element) {
       "Notification" in globalThis &&
       (!/iPad|iPhone|iPod/.test(navigator.userAgent) || matchMedia("(display-mode: standalone)").matches);
     if (supported()) {
-      element.textContent = "Preparing phone notifications…";
+      notice(element, "Preparing phone notifications…");
       try {
         await Promise.race([
           navigator.serviceWorker.register("/sw.js", { scope: "/" }).then(() => navigator.serviceWorker.ready),
@@ -184,8 +194,7 @@ async function start(element: Element) {
           }),
         ]);
       } catch {
-        if (!lifetime.signal.aborted)
-          element.textContent = "Phone notification setup failed. Reopen Updates to try again.";
+        if (!lifetime.signal.aborted) notice(element, "Phone notification setup failed. Reopen Settings to try again.");
         return;
       }
       if (lifetime.signal.aborted) return;
@@ -267,7 +276,7 @@ async function start(element: Element) {
     });
     addEventListener("pagehide", stopForeground, { once: true });
   } catch {
-    if (!lifetime.signal.aborted) element.textContent = "Sign in and reconnect to manage phone notifications.";
+    if (!lifetime.signal.aborted) notice(element, "Sign in and reconnect to manage phone notifications.");
   }
 }
 const element = typeof document === "undefined" ? null : document.querySelector("#phonePush");

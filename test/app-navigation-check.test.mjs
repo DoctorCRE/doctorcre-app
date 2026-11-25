@@ -31,7 +31,7 @@ test("the shared navigation has one stable set of destinations, including every 
     assert.deepEqual(labels, expected, `${route}: same order and items`);
     assert.doesNotMatch(html, />Agent (?:Room|Queue)<\/a>/);
     const current = navigationItems.some(item => item.href === activeDestination(route))
-      || ["/search", "/doc-chats"].includes(route);
+      || ["/search", "/doc-chats", "/settings"].includes(route);
     assert.equal((html.match(/aria-current="page"/g) || []).length, Number(current), `${route}: current when present in navigation`);
   }
 });

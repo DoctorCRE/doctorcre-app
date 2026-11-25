@@ -21,6 +21,7 @@ test('linked draft opens directly, reads safely and approves at phone and deskto
   await page.goto(`${server.origin}/a/${ref}?mode=live`);
   await page.getByRole('heading',{name:payload.card.subject}).waitFor();
   assert.equal(calls.filter(call=>call.name==='approve-lead-draft').length,0);
+  assert.doesNotMatch(await page.locator('.action-link-schedule').textContent(),/America\/Chicago/,'a Central time carries no zone label');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.screenshot({path:`out/test-artifacts/action-links/${width}-${theme}-review.png`,fullPage:true});
   await page.getByRole('button',{name:'Approve draft',exact:true}).click();
@@ -36,6 +37,20 @@ test('linked draft opens directly, reads safely and approves at phone and deskto
   await page.unrouteAll({behavior:'ignoreErrors'});
   await page.close();
  }}finally{await browser.close();await server.close();}
+});
+
+test('a draft planned outside Central names its short zone',async()=>{
+ const server=await fixtureServer(),browser=await chromium.launch({headless:true,args:['--use-mock-keychain','--password-store=basic']});
+ let page;
+ try {
+  page=await browser.newPage();
+  const denver={...payload,card:{...payload.card,time_zone:'America/Denver'}};
+  await page.route('**/auth/session',route=>route.fulfill({json:{actor:{slug:'joe'},csrf_token:'synthetic-csrf'}}));
+  await page.route('**/mcp',route=>{const rpc=route.request().postDataJSON();return route.fulfill({json:{jsonrpc:'2.0',id:rpc.id,result:{content:[{type:'text',text:JSON.stringify(rpc.params.name==='resolve-action-link'?denver:{})}]}}});});
+  await page.goto(`${server.origin}/a/${ref}?mode=live`);
+  await page.getByRole('heading',{name:payload.card.subject}).waitFor();
+  assert.equal(await page.locator('.action-link-schedule').textContent(),'Planned for Nov 4, 8:00 AM MST');
+ }finally{await page?.unrouteAll({behavior:'ignoreErrors'});await browser.close();await server.close();}
 });
 
 test('session refusal removes the private draft before approval can be submitted',async()=>{
