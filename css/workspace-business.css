@@ -1,7 +1,7 @@
 /* Clients and Vendors (V2 S3a). Loaded after workspace.css and before
    app-shell.css; every value is a token from css/tokens.css. The list is a
    dense record-row ledger, the open record is one overlay panel, and colour
-   never carries meaning alone: Color Assist adds a pattern to every tone. */
+   never carries meaning alone: a shape or a word always says it too. */
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 :is(html, .app-layout-main):has(.business-shell) { --search-dock-top: calc(var(--tabbar-height) + var(--space-4)); scroll-padding-top: calc(var(--search-dock-top) + var(--search-dock-height, 0px) + 1px); }
@@ -89,17 +89,19 @@
 .contact-note { min-height: 0; color: var(--fg-muted); font-size: var(--font-size-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .contact-note:empty { display: none; }
 
-/* Tones: a shape before the label carries the meaning; colour repeats it. */
-.tone { display: inline-flex; align-items: center; gap: var(--space-1); padding: 0 var(--space-2); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-round); color: var(--fg-muted); font-size: var(--font-size-1); line-height: 22px; white-space: nowrap; }
-.tone::before { content: ""; width: 8px; height: 8px; border-radius: var(--radius-round); background: currentColor; }
-.tone-active { border-color: var(--status-ok); color: var(--status-ok-ink); }
-.tone-warm { border-color: var(--status-warn); color: var(--status-warn-ink); }
-.tone-warm::before { border-radius: 0; transform: rotate(45deg) scale(.85); }
-.tone-plain { color: var(--fg-muted); }
-.tone-plain::before { display: none; }
-.tone-plain.unknown { color: var(--fg-quiet); }
-[data-color-assist="on"] .tone-active { border-style: solid; border-width: 2px; }
-[data-color-assist="on"] .tone-warm { border-style: dashed; }
+/* A vendor's relationship: the shape and the word carry it, and the name's color repeats it. */
+[data-relationship="core"], [data-relationship="established"] { --rel: var(--status-ok-ink); }
+[data-relationship="building"] { --rel: var(--status-warn-ink); }
+[data-relationship="prospective"] { --rel: var(--status-info-ink); }
+[data-relationship="parked"] { --rel: var(--fg-quiet); }
+[data-relationship="not_rated"] { --rel: var(--fg-muted); }
+[data-relationship="avoid"] { --rel: var(--status-danger-ink); }
+/* The panel's id outranks app-shell.css's plain heading color. */
+.row-name[data-relationship], #recordPanel #recordTitle[data-relationship] { color: var(--rel); }
+.row-name[data-relationship], .rel-word { display: inline-flex; align-items: center; gap: var(--space-2); }
+.rel-shape { flex: none; width: 12px; height: 12px; color: var(--rel); }
+.rel-word { color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
+.want-tag { flex: none; padding: 0 6px; border-radius: 5px; background: var(--surface-3); color: var(--fg-muted); font-size: var(--font-size-1); line-height: 18px; white-space: nowrap; }
 
 
 /* Loading, empty and the end of the list. */
@@ -127,7 +129,6 @@ body.record-open { overflow: hidden; }
 .record-panel-head .eyebrow { margin: 0; }
 .record-panel-head .record-tone { flex: none; flex-wrap: nowrap; white-space: nowrap; }
 .record-panel-head .record-tone:has(#recordMeta:not(:empty)) .eyebrow::after { content: "·"; margin-inline-start: var(--space-2); }
-.record-panel-head .tone { padding: 0; border: 0; line-height: inherit; }
 #recordMeta { display: contents; }
 .record-panel-actions { display: flex; flex: none; gap: var(--space-2); }
 .record-panel-actions[popover] { position: static; inset: auto; width: auto; height: auto; margin: 0; padding: 0; overflow: visible; border: 0; background: none; color: inherit; }
@@ -421,7 +422,7 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
   /* A row reached by keyboard scrolls clear of the header row as well as the toolbar. */
   .record-row { align-items: center; min-height: 0; padding-block: var(--space-2); scroll-margin-top: calc(var(--space-6) + var(--hairline-width)); }
   .row-head { flex-wrap: nowrap; }
-  .row-head .tone { flex: none; }
+  .row-head .rel-word { flex: none; }
   .record-row :is(.row-fact:not(.history), .row-foot, .contact-note) .fact-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   :is(.record-row, .list-head) .row-foot { display: contents; text-align: left; }
   :is(.record-row, .list-head) .row-owner { grid-area: owner; }
