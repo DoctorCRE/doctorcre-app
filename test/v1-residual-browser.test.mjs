@@ -53,7 +53,7 @@ const visibleText = locator => locator.evaluate(node => {
 for (const viewport of viewports) test(`V1 audit 15/21/25b: Updates uses human labels, Details, contextual help and AM/PM at ${viewport.width}px`, async t => {
   const { page, errors } = await open(t, { viewport, hooks: updatesHooks });
   await page.goto(origin + '/updates', { waitUntil: 'domcontentloaded' });
-  const cards = page.locator('#feedList > li');
+  const cards = page.locator('#feedList > .update-row');
   await settles(async () => assert.equal(await cards.count(), 3));
 
   // Finding 15: a human record label and action; the kind, reference and route sit in collapsed Details.
@@ -87,7 +87,7 @@ for (const viewport of viewports) test(`V1 audit 15/21/25b: Updates uses human l
   }
 
   // Activity names people and actions; identifiers and operation codes live in Details.
-  const activity = page.locator('#activityList > li');
+  const activity = page.locator('#activityList > .update-row');
   await settles(async () => assert.equal(await activity.count(), 2));
   assert.equal(await activity.nth(0).locator('h3').textContent(), 'Deal · Phase');
   assert.equal(await activity.nth(1).locator('h3').textContent(), 'Deal · Set next step');
