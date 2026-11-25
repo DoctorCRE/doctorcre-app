@@ -38,7 +38,7 @@ const SIGNED_OUT_CODE = "AUTHENTICATION_REQUIRED";
 const VIEWERS = new Set(["joe", "dell"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
-const FILTER_KEYS = { clients: ["status", "type", "pipeline"], vendors: ["category", "stage", "disposition"] };
+const FILTER_KEYS = { clients: ["status", "type", "pipeline"], vendors: ["category", "stage", "disposition", "quiet"] };
 const SOURCE_FOR = { clients: "client", vendors: "vendor" };
 
 export const LIST_ROW_KEYS = {
@@ -77,7 +77,7 @@ export function defaultQuery(dataset) {
   const base = { dataset, scope: DEFAULT_SCOPE, owner: "all", territory: "", q: "", sort: DEFAULT_SORT, page: 1 };
   return dataset === "clients"
     ? { ...base, status: "", type: "", pipeline: "any" }
-    : { ...base, category: "", stage: "", disposition: "" };
+    : { ...base, category: "", stage: "", disposition: "", quiet: "" };
 }
 
 function readSlug(params, key) {
@@ -114,6 +114,7 @@ export function parseViewState(pathname, search) {
     query.category = readSlug(params, "category");
     query.stage = readSlug(params, "stage");
     query.disposition = readSlug(params, "disposition");
+    query.quiet = params.get("quiet") === "true" ? "true" : "";
   }
   query.owner = ["joe", "dell"].includes(params.get("owner")) ? params.get("owner") : "all";
   query.territory = dataset === "vendors" ? (params.get("territory") || "").slice(0,80) : "";
@@ -183,6 +184,7 @@ export function filterChips(query, facets = {}) {
     if (query.category) chips.push({ key: "category", label: "Category", value: labelFor(facets.categories, query.category), reset: "" });
     if (query.stage) chips.push({ key: "stage", label: "Stage", value: labelFor(facets.stages, query.stage), reset: "" });
     if (query.disposition) chips.push({ key: "disposition", label: "Disposition", value: labelFor(facets.dispositions, query.disposition), reset: "" });
+    if (query.quiet) chips.push({ key: "quiet", label: "Showing", value: "Quiet vendors", reset: "" });
   }
   if (query.sort !== DEFAULT_SORT) chips.push({ key: "sort", label: "Sorted by", value: SORT_LABEL[query.sort], reset: DEFAULT_SORT });
   return chips;
@@ -401,6 +403,7 @@ export function echoesQuery(payload, query) {
   return FILTER_KEYS[query.dataset].every((key) => {
     const wanted = query[key];
     if (key === "pipeline") return echo.pipeline === wanted;
+    if (key === "quiet") return (echo.quiet === true) === (wanted === "true");
     return (echo[key] ?? null) === (wanted || null);
   });
 }
