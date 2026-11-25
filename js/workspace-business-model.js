@@ -563,13 +563,9 @@ export function listPhase({ status, payload, query, dataset, signedOut = false, 
 
 export function emptyCopy(dataset, phase) {
   const plural = DATASET_LABEL[dataset].toLowerCase();
-  if (phase === "empty-no-matches") {
-    return { title: `No ${plural} match these filters`, copy: "Nothing matched. Clear a filter to widen the search." };
-  }
-  if (phase === "out-of-range") {
-    return { title: "Nothing on this page", copy: "This page is past the end of the list. The number below is the real count." };
-  }
-  return { title: `No ${plural} yet`, copy: `There are no ${plural} to show.` };
+  if (phase === "empty-no-matches") return `No ${plural} match these filters`;
+  if (phase === "out-of-range") return "Nothing on this page";
+  return `No ${plural} yet`;
 }
 
 const REFUSAL_COPY = {

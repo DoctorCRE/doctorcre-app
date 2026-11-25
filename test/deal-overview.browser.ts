@@ -88,7 +88,16 @@ async function openDeal(
     critical_dates: dates,
     vendors: [],
     email_follow_ups: [],
-    correspondence: [],
+    correspondence: [
+      {
+        kind: "email",
+        activity_id: "00000000-0000-4000-8000-00000000e001",
+        subject: "Example suite floor plan",
+        sender_name: "Example Broker",
+        happened_at: "2026-11-24T15:00:00Z",
+      },
+    ],
+    documents: [{ id: "00000000-0000-4000-8000-00000000f001", name: "Example lease.pdf", version: 1 }],
   });
   const env = {
     GIT_SHA: "0".repeat(40),
@@ -264,4 +273,47 @@ for (const [width, height] of laptops)
         assert.ok(plannedRow.y < (await box(past)).y, "past tours sit under the planned ones");
       }
     }
+  });
+
+for (const [width, height] of laptops)
+  test(`the deal page's header, headings and rows stay compact at ${width}`, async (t) => {
+    const { page } = await openDeal(t, width, height);
+    const header = await box(page.locator(".workspace-header"));
+    const tabs = await box(page.locator("#workspaceTabs"));
+    assert.ok(tabs.y - header.y <= 96, "the tabs sit under one heading row and one line of facts");
+    const factTops = await page
+      .locator(".workspace-facts dd")
+      .evaluateAll((all) => all.map((fact) => Math.round(fact.getBoundingClientRect().top)));
+    assert.equal(new Set(factTops).size, 1, "the header's facts share one line");
+
+    const list = await box(page.locator(".deal-open-steps ul"));
+    const done = await box(page.locator(".deal-open-steps").getByRole("button", { name: "Done" }).first());
+    assert.ok(Math.abs(done.x + done.width - (list.x + list.width)) <= 1, "Done sits at the row's end");
+
+    const body = await page.locator("body").evaluate((body) => getComputedStyle(body).fontSize);
+    const refresh = page.getByRole("button", { name: "Refresh deal" });
+    for (const [tab, heading] of [
+      ["Timeline", "Dated events"],
+      ["Correspondence & notes", "Correspondence & notes"],
+      ["Documents", "Documents"],
+    ] as const) {
+      await page.getByRole("tab", { name: tab }).click();
+      const title = page.getByRole("tabpanel").getByRole("heading", { name: heading, exact: true });
+      assert.equal(await title.evaluate((title) => getComputedStyle(title).fontSize), body, `${heading} is body size`);
+      const [a, b] = [await box(title), await box(refresh)];
+      assert.ok(Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) <= 1, `Refresh shares ${heading}'s row`);
+    }
+    await page.screenshot({ path: `${shots}/documents-${width}.png` });
+    const file = await box(page.getByRole("link", { name: "Example lease.pdf, Version 1" }));
+    const open = await box(page.getByRole("button", { name: "Open text for Example lease.pdf, Version 1" }));
+    assert.ok(open.y < file.y + file.height && open.x > file.x + file.width, "Open text sits on the file's row");
+
+    await page.getByRole("tab", { name: "Correspondence & notes" }).click();
+    const email = page.locator(".evidence-item").filter({ hasText: "Example suite floor plan" });
+    const [sender, when] = [await box(email.locator(".evidence-source")), await box(email.locator("time"))];
+    assert.equal(Math.round(sender.y), Math.round(when.y), "the sender and time share the row's second line");
+
+    await page.getByRole("tab", { name: "Timeline" }).click();
+    const event = await box(page.locator(".workspace-events li").first());
+    assert.ok(event.height <= 64, `a two-line timeline row is at most 64px, not ${event.height}`);
   });
