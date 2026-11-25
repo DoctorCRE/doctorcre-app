@@ -595,6 +595,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       await dialog.getByRole("button", { name: "Confirm drop" }).click();
       await open.waitFor({ state: "detached" });
 
+      await lane.getByRole("button", { name: "Add prospect", exact: true }).click();
       const name = lane.getByRole("textbox", { name: "Prospect name" });
       const noteInput = lane.getByRole("textbox", { name: "Optional first note" });
       if (width === 1440) {
@@ -637,7 +638,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       await noteInput.fill("First conversation");
       const person = lane.getByRole("button", { name: "Person", exact: true });
       const company = lane.getByRole("button", { name: "Company", exact: true });
-      const add = lane.getByRole("button", { name: "Add prospect", exact: true });
+      const add = lane.getByRole("button", { name: "Save prospect", exact: true });
       assert.equal((await name.boundingBox())?.y === (await add.boundingBox())?.y, width === 1440);
       await person.click();
       assert.equal(await person.getAttribute("aria-pressed"), "true");

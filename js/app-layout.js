@@ -88,10 +88,9 @@ export function mountAppLayout(root, host, pathname) {
   };
   placeTabs();
   phone.addEventListener('change', placeTabs);
-  // Pages whose main view needs the width start with Today collapsed and remember their own choice.
-  const ownToday = pathname === '/vendors' || (pathname === '/deals' && root.body.classList.contains('dealroom-page'));
-  const todayKey = ownToday ? `doctorcre:today:${pathname}` : 'doctorcre:today';
-  let sidebar = false, today = !ownToday, drawer = null;
+  // Today starts collapsed so each main view keeps the full width, and every page remembers its own choice.
+  const todayKey = `doctorcre:today:${pathname}`;
+  let sidebar = false, today = false, drawer = null;
   let drawerOpener = null;
   const background = new Map();
   try {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test, { after, before, type TestContext } from "node:test";
@@ -39,6 +40,10 @@ const pages = [
   "/tours/route-editor.html",
 ];
 
+// A browser already bound to this session keeps its saved panel choices instead of clearing them on first sign-in.
+const binding = createHash("sha256")
+  .update(JSON.stringify(["joe", "synthetic"]))
+  .digest("hex");
 const withHomeSwitch = (html: string) => html.replace("<html ", "<html data-home-today-from-engine ");
 
 async function open(
@@ -98,12 +103,15 @@ async function open(
   }
   const legacy: string[] = [];
   const readToday: string[] = [];
-  await page.addInitScript((theme) => {
-    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
-    localStorage.setItem("doctorcre:sidebar:/invoices", "open");
-    localStorage.setItem("doctorcre:today:/deals", "open");
-    localStorage.setItem("doctorcre:today:/vendors", "open");
-  }, theme);
+  await page.addInitScript(
+    ({ theme, binding }) => {
+      localStorage.setItem("doctorcre-session-binding-v1", binding);
+      localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
+      localStorage.setItem("doctorcre:sidebar:/invoices", "open");
+      localStorage.setItem(`doctorcre:today:${location.pathname}`, "open");
+    },
+    { theme, binding },
+  );
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
   );

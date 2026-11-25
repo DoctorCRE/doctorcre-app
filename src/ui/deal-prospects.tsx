@@ -451,6 +451,7 @@ function ProspectLane({
   const query = new URLSearchParams(location.search);
   const initial = query.get("prospect");
   const [opened, open] = useState(initial && uuid.test(initial) ? initial : null);
+  const [adding, setAdding] = useState(false);
   const returnToReview = initial === opened ? backToReview : null;
   const { value: rows, unavailable } = useProspectRead(client.prospectRequest, prospectsPath, revision, parseLane);
   const visible = rows?.filter(
@@ -462,7 +463,20 @@ function ProspectLane({
   return (
     <>
       <h3 id="prospects-title">Prospects {visible && <small>{visible.length}</small>}</h3>
-      {filters.canSave && <AddProspect client={client} sources={howFound} refresh={refresh} addDeal={addDeal} />}
+      {filters.canSave && (
+        <button
+          type="button"
+          className="column-add"
+          aria-label="Add prospect"
+          aria-expanded={adding}
+          onClick={() => setAdding(!adding)}
+        >
+          + Add prospect
+        </button>
+      )}
+      {filters.canSave && adding && (
+        <AddProspect client={client} sources={howFound} refresh={refresh} addDeal={addDeal} />
+      )}
       {unavailable ? (
         <p role="alert">
           Could not load prospects.{" "}

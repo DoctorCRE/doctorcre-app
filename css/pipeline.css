@@ -254,9 +254,11 @@
 .deal-updates .deal-note p { line-height:var(--line-height-body); }
 
 .dealroom-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--space-3); margin-bottom:var(--space-4); }
-.app-section-tabs { display:flex; align-items:center; gap:var(--space-4); border-bottom:var(--hairline-width) solid var(--hairline); }
-.app-section-tabs a { display:flex; align-items:center; min-height:var(--touch); padding:var(--space-2) 0; color:var(--fg-muted); text-decoration:none; border-bottom:2px solid transparent; font-weight:var(--font-weight-strong); }
-.app-section-tabs a[aria-current=page] { color:var(--fg); border-bottom-color:var(--fg); }
+/* The current Deals page is the top bar title; the other page sits beside it as a quieter link. */
+.app-layout-topbar nav.app-section-tabs { display:flex; align-items:center; gap:var(--space-3); overflow-x:auto; scrollbar-width:none; }
+.app-section-tabs a { display:flex; flex:none; align-items:center; min-height:var(--touch); color:var(--fg-muted); text-decoration:none; font-size:var(--font-size-1); white-space:nowrap; }
+.app-section-tabs a[aria-current=page] { color:var(--fg); font-size:var(--font-size-2); }
+@media (max-width: 480px) { .app-section-tabs .wide-only { display:none; } }
 @media(max-width:760px) {
  .kanban { grid-template-columns: minmax(0, 1fr); overflow: visible; }
  /* The wrapped Deals toolbar is three rows on a phone; it scrolls away so phase names can stay at the top. */
@@ -270,7 +272,6 @@
  .stages-hidden button { min-height:var(--touch); padding:0 var(--space-3); border:0; background:transparent; color:var(--fg); font:inherit; text-decoration:underline; text-underline-offset:4px; cursor:pointer; }
  .dealroom-heading { gap:var(--space-2); }
  .dealroom-heading .hero-meta { order: 1; flex-basis: 100%; }
- .app-section-tabs { gap:var(--space-3); }
 }
 
 

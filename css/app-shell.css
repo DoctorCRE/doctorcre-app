@@ -212,6 +212,8 @@ html[data-deals-from-engine] :is([data-layout-slot="moves"], #receiptsOpen, #rec
 #appMeetingReviews select { flex: 1; min-width: 0; }
 #appMeetingReviews button:disabled { opacity: .5; }
 #appRemindersTitle + #appTodayOwners { margin-bottom: var(--space-2); }
+#appTodayOwners { flex-wrap: nowrap; gap: var(--space-1); }
+#appTodayOwners .chip { flex: 1 1 auto; justify-content: center; padding-inline: var(--space-2); white-space: nowrap; }
 .app-layout-item strong { font-weight: var(--font-weight-strong); overflow-wrap: anywhere; }
 #appTodayRetry { min-width: var(--touch); min-height: var(--touch); }
 #appTodayOwners[hidden], .app-layout-item[hidden], .app-layout-empty[hidden] { display: none; }

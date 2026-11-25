@@ -44,6 +44,7 @@ async function openInvoices(width: number, height: number, { partial = false } =
   const browser = await chromium.launch({ args: [...CHROMIUM_SAFETY_ARGS] });
   const page = await browser.newPage({ viewport: { width, height }, timezoneId: "UTC", reducedMotion: "reduce" });
   await page.clock.install({ time: new Date(`${today}T17:00:00Z`) });
+  await page.addInitScript(() => localStorage.setItem("doctorcre:today:/invoices", "open"));
   const tracker = longTracker(partial);
   const answers: Record<string, unknown> = {
     "read-invoice-tracker": tracker,

@@ -308,6 +308,8 @@ export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
   const [matches, setMatches] = useState<Match[]>([]);
   const [message, setMessage] = useState("");
   const form = useRef<HTMLFormElement>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
+  useEffect(() => nameInput.current?.focus(), []);
   const save = useProspectSave(client, prospectsPath, "add", "party_id", () => {
     form.current?.reset();
     setName("");
@@ -358,6 +360,7 @@ export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
   return (
     <form ref={form} className="prospect-add field" onSubmit={submit} onFocus={() => setMessage("")}>
       <input
+        ref={nameInput}
         aria-label="Prospect name"
         placeholder="Name"
         maxLength={100}
@@ -408,7 +411,7 @@ export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
         </select>
       )}
       <button className="btn" type="submit" disabled={save.blocked}>
-        Add prospect
+        Save prospect
       </button>
       {!picked && matches.length > 0 && (
         <ul aria-label="Matching people and companies">

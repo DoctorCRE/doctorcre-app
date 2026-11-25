@@ -45,6 +45,7 @@ function fullBoard() {
 async function openBoard(width: number, height: number, getBoard: typeof workspace = fullBoard) {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width, height }, reducedMotion: "reduce" });
+  await page.addInitScript(() => localStorage.setItem("doctorcre:today:/leads", "open"));
   await routeLeads(page, { getBoard });
   await page.goto("http://localhost/leads");
   await page.locator("#leadBoard .lead-card").first().waitFor();
