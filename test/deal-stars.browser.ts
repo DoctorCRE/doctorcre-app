@@ -5,6 +5,7 @@ import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import worker from "../src/worker.js";
 import { chromium, settles } from "./browser-harness.mjs";
+import { controlFloor } from "./control-floor.ts";
 
 const alder = "Example Alder";
 const birch = "Example Birch";
@@ -118,7 +119,7 @@ test("each partner stars deals that then lead their column and list", async (t) 
 
       const cedarStar = starButton(page, cedar);
       const box = await boxOf(cedarStar);
-      const target = width < 761 ? 44 : 32;
+      const target = controlFloor(width);
       assert.ok(box.width >= target && box.height >= target, `the star is a ${target} px target`);
       const card = await boxOf(page.locator(".kanban-card", { has: cedarStar }));
       assert.ok(box.x + box.width <= card.x + card.width + 1, "the star stays inside its card");

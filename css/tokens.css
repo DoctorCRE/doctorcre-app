@@ -194,5 +194,5 @@
 :root[data-density="compact"] { --density: 0.75; }
 @media (min-width: 1024px) { :root { --density: 0.75; } }
 
-/* A computer: a fine pointer wider than a phone (design rules 1 and 4). */
-@media (min-width: 761px) and (pointer: fine) { :root { --font-size-2: 0.875rem; --touch: 32px; } }
+/* A computer: a fine pointer on a laptop-wide screen (design rules 1 and 4). */
+@media (min-width: 1024px) and (pointer: fine) { :root { --font-size-2: 0.875rem; --touch: 32px; } }

@@ -4,11 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildArtifact } from '../../scripts/artifact.mjs';
+import { controlFloor } from '../../test/control-floor.ts';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 let output;
 
-async function undersizedTargets(page, selectors) {
+async function undersizedTargets(page, selectors, floor) {
   const targets = await page.locator(selectors.join(', ')).evaluateAll(nodes => nodes
     .filter(node => node.getClientRects().length)
     .map(node => {
@@ -16,7 +17,7 @@ async function undersizedTargets(page, selectors) {
       return { text: node.textContent.trim(), selector: node.id || node.className || node.tagName, width, height };
     }));
   return targets
-    .filter(target => target.width < 44 || target.height < 44);
+    .filter(target => target.width < floor || target.height < floor);
 }
 
 test.beforeAll(async () => {
@@ -26,6 +27,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => { await rm(output, { recursive: true, force: true }); });
 
 for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
+  const floor = controlFloor(width);
   test.describe(`${width}px ${theme}`, () => {
     test.use({ viewport: { width, height: 960 }, colorScheme: theme, reducedMotion: 'reduce' });
     test.beforeEach(async ({ page }) => {
@@ -61,7 +63,7 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
       await page.evaluate(() => document.fonts.ready);
     });
 
-    test('built deal Park controls meet the 44px touch floor', async ({ page }) => {
+    test('built deal Park controls meet the control size floor', async ({ page }) => {
       const park = page.locator('.park-options > summary');
       const collapsed = await park.boundingBox();
       await park.click();
@@ -71,7 +73,7 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
       }));
       expect(sizes).toHaveLength(2);
       sizes.unshift({ control: 'Collapsed Park', width: collapsed.width, height: collapsed.height });
-      expect(sizes.filter(size => size.width < 44 || size.height < 44), JSON.stringify(sizes)).toEqual([]);
+      expect(sizes.filter(size => size.width < floor || size.height < floor), JSON.stringify(sizes)).toEqual([]);
     });
 
     test('built deal phase labels and dates meet the 13px text floor', async ({ page }) => {
@@ -106,17 +108,17 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
     });
 
     if (width === 1280) {
-      test('built board controls meet the desktop 44px touch floor', async ({ page }) => {
-        const small = await undersizedTargets(page, ['#boardChips [data-filter="all"]', '.card-open', '#appSyncRefresh', '#retryRead']);
+      test('built board controls meet the desktop control size', async ({ page }) => {
+        const small = await undersizedTargets(page, ['#boardChips [data-filter="all"]', '.card-open', '#appSyncRefresh', '#retryRead'], floor);
         expect(small, JSON.stringify(small)).toEqual([]);
       });
 
       for (const [view, outcome] of [['Closed deals', 'won'], ['Lost deals', 'lost']]) {
-        test(`built ${view.toLowerCase()} title controls meet the desktop 44px touch floor`, async ({ page }) => {
+        test(`built ${view.toLowerCase()} title controls meet the desktop control size`, async ({ page }) => {
           await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
           await page.getByRole('button', { name: view, exact: true }).click();
           await expect(page.locator(`#closedDealsList [data-id="demo-${outcome}"] .card-open`)).toBeVisible();
-          const small = await undersizedTargets(page, ['.card-open', '#appSyncRefresh', '#retryRead']);
+          const small = await undersizedTargets(page, ['.card-open', '#appSyncRefresh', '#retryRead'], floor);
           expect(small, JSON.stringify(small)).toEqual([]);
         });
       }

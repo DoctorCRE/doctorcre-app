@@ -7,6 +7,7 @@ import { buildArtifact } from "../scripts/artifact.mjs";
 import { inspectPhoneAccessibility } from "../scripts/phone-accessibility.ts";
 import { temporaryDirectory } from "../scripts/temp-directory.mjs";
 import { chromium, componentDocument } from "./browser-harness.mjs";
+import { controlFloor } from "./control-floor.ts";
 import { ownedServer } from "./fixture-probe.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -137,8 +138,9 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
 
         const inspected = await inspectPhoneAccessibility(page);
         assert.equal(inspected.overflow, false, `${width} ${theme}: no sideways scroll`);
-        // A computer sizes controls to the 32px token; the 44px floor is for touch.
-        if (width < 761) assert.deepEqual(inspected.small, [], `${width} ${theme}: every target is at least 44 by 44`);
+        // The phone check holds every target to 44px, which applies only below laptop width.
+        if (controlFloor(width) === 44)
+          assert.deepEqual(inspected.small, [], `${width} ${theme}: every target is at least 44 by 44`);
         assert.deepEqual(inspected.covered, [], `${width} ${theme}: no target is covered`);
         assert.deepEqual(inspected.violations, [], `${width} ${theme}: no accessibility violations`);
         await page.screenshot({ path: `${shots}/${width}-${theme}.png`, fullPage: true });

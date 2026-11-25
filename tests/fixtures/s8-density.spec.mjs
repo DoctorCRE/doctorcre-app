@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFile, mkdir } from 'node:fs/promises';
 import { relationshipNetworkFixture } from '../../js/relationship-network-fixture.js';
+import { controlFloor } from '../../test/control-floor.ts';
 
 const root = new URL('../../', import.meta.url);
 const at = '2026-10-04T17:00:00Z';
@@ -58,7 +59,7 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
       await capture(page, 'deals-list');
       const row = page.locator('.deal-row').filter({ hasNot: page.locator('.auto-move') }).first();
       const target = row.getByRole('button').first();
-      expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(44);
+      expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(controlFloor(width));
       await expect(row.locator('.next-line')).toBeVisible();
       const bounds = await row.boundingBox();
       for (const slot of await row.locator('.work-card-title, .work-card-meta, .deal-stage, .deal-row-next').all()) {

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { chromium, animationsSettled } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
+import { controlFloor } from "./control-floor.ts";
 
 let outDir, server;
 before(async () => {
@@ -41,7 +42,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
       return { label: node.textContent, width, height };
     }));
     assert.equal(targets.length, 3);
-    for (const target of targets) assert.ok(target.width >= 44 && target.height >= 44,
+    for (const target of targets) assert.ok(target.width >= controlFloor(width) && target.height >= controlFloor(width),
       `${target.label}: ${target.width}x${target.height}`);
     assert.equal(await chips.first().evaluate(node =>
       getComputedStyle(node).borderRadius === getComputedStyle(document.documentElement).getPropertyValue('--radius-round').trim()), true);

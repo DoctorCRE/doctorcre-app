@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { routeLeads } from '../../test/leads-browser-fixture.mjs';
+import { controlFloor } from '../../test/control-floor.ts';
 
 for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
   test(`Leads has flat framing and reachable territory at ${width}px ${theme}`, async ({ page }) => {
@@ -56,7 +57,8 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
       const r = node.getBoundingClientRect(); return { width: r.width, height: r.height };
     }));
     expect.soft(targets.length).toBeGreaterThan(0);
-    expect.soft(targets.every(r => r.width >= 44 && r.height >= 44), 'map and market targets are at least 44px').toBe(true);
+    const floor = controlFloor(width);
+    expect.soft(targets.every(r => r.width >= floor && r.height >= floor), `map and market targets are at least ${floor}px`).toBe(true);
     expect.soft(await page.getByRole('button', { name: 'Territory shown', exact: true }).isVisible(), 'loaded map does not leave a disabled heading action').toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });

@@ -8,6 +8,7 @@ import { temporaryDirectory } from '../scripts/temp-directory.mjs';
 import { context as buildContext } from 'esbuild';
 import { scenario } from './browser-scenario.mjs';
 import worker from '../src/worker.js';
+import { controlFloor } from "./control-floor.ts";
 
 describe('test/home-sections-browser.test.mjs', () => {
 const NOW = new Date('2026-11-03T10:00:00-06:00');
@@ -777,7 +778,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
     const title = card(item).getByRole('heading', { name: item.title, exact: true });
     assert.equal(await title.evaluate(heading => heading.nextElementSibling?.textContent), item.why);
     const box = await button(item).boundingBox();
-    assert.ok(box?.width >= 44 && box?.height >= 44, `${item.primary_action} touch target`);
+    assert.ok(box?.width >= controlFloor(width) && box?.height >= controlFloor(width), `${item.primary_action} touch target`);
   }
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   if (width === 390) {

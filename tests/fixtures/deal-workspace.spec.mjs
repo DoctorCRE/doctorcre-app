@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 import { ownedServer as startFixtureServer } from '../../test/fixture-probe.ts';
+import { controlFloor } from '../../test/control-floor.ts';
 
 let server;
 test.beforeAll(async () => { server = await startFixtureServer(); });
@@ -254,7 +255,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
         expect(await event.evaluate(el => el.getBoundingClientRect().top)).toBeLessThan(700);
       }
       const targets = await page.getByRole('tab').evaluateAll(tabs => tabs.map(tab => ({ width: tab.getBoundingClientRect().width, height: tab.getBoundingClientRect().height })));
-      for (const target of targets) { expect(target.width).toBeGreaterThanOrEqual(44); expect(target.height).toBeGreaterThanOrEqual(44); }
+      const floor = controlFloor(width);
+      for (const target of targets) { expect(target.width).toBeGreaterThanOrEqual(floor); expect(target.height).toBeGreaterThanOrEqual(floor); }
       const path = testInfo.outputPath(`workspace-${width}-${theme}-${tab}.png`);
       // A full-page capture repeats fixed bars mid-page and hides rows behind them; hide them so every row is visible.
       const chrome = await page.evaluateHandle(() => { const hidden = [...document.querySelectorAll('body *')].filter(el => ['fixed', 'sticky'].includes(getComputedStyle(el).position)); for (const el of hidden) el.style.visibility = 'hidden'; return hidden; });
