@@ -371,6 +371,7 @@ export function displaySearchGroups(payload, kinds = []) {
       return shown.length ? [{ ...group, rows: shown, count: shown.length }] : [];
     });
   }
+  const listedDeals = new Set(payload.deals.map(deal => deal.id));
   const parties = payload.parties.map(row => {
     const scopes = row.roles.map(role => roleGroups[role]);
     if (!scopes.length) scopes.push(row.kind === "company" ? "organizations" : "people");
@@ -380,7 +381,8 @@ export function displaySearchGroups(payload, kinds = []) {
       group: roleGroups[row.roles.find(role => role !== "lead") || row.roles[0]] || scopes[0],
       meta: [...(row.roles.length ? row.roles.map(role => roleLabels[role]) : [row.kind === "person" ? "Person" : "Company"]), row.city].filter(Boolean),
       link: partyLink(row),
-      deals: row.deals.map(deal => ({ name: deal.name, link: recordLink("deals", "deal", deal.id) })),
+      deals: row.deals.filter(deal => !listedDeals.has(deal.id))
+        .map(deal => ({ name: deal.name, link: recordLink("deals", "deal", deal.id) })),
     };
   });
   const deals = payload.deals.map(row => ({

@@ -19,6 +19,7 @@ import {
   groupSearchResults, parseSearchAddress, readSavedViews, refusalDetail, renameView,
   retiredSummary, saveView, scopeChips, searchAddress, searchPhase, truncationNotes,
   validSearchPayload, visibleCount, writeSavedViews, toggleSearchScope, SEARCH_GROUP_IDS,
+  displaySearchGroups,
 } from "../js/search-model.js";
 import { carrInterface } from "./carr-contract.mjs";
 
@@ -413,4 +414,16 @@ test('QA-007 every scope can be disabled, persisted, and enabled independently',
   assert.deepEqual([...saveView([], {name:'No scopes', query:'Demo', kinds})[0].kinds], ['none']);
   assert.deepEqual(toggleSearchScope(kinds, 'leads'), ['leads']);
   assert.equal(searchAddress({query:'', kinds:[]}), '/search');
+});
+
+test('a deal listed under Deals is not listed again under its client', () => {
+  const listed = { id: 'demo-deal-1', name: 'Demo Dental Relocation' };
+  const other = { id: 'demo-deal-2', name: 'Demo Dental Expansion' };
+  const groups = displaySearchGroups({
+    schema_version: 'search.v1',
+    parties: [{ id: 'demo-party', kind: 'company', name: 'Demo Dental', city: null, lead_id: null, roles: ['client'], deals: [listed, other] }],
+    deals: [{ ...listed, phase: 'site_selection', owner: 'joe' }],
+  });
+  const names = groups.flatMap(group => group.rows.flatMap(row => [row.name, ...(row.deals || []).map(deal => deal.name)]));
+  assert.deepEqual(names, ['Demo Dental', other.name, listed.name]);
 });

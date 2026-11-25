@@ -133,7 +133,7 @@ test("canonical tasks deduplicate, isolate source failures and fence retired rea
       read: async () => ({ board: null, network: null, inbox: { ...inbox, truncated: true } }),
     });
   }, inbox);
-  await page.getByText("Home task snapshot is limited", { exact: false }).waitFor();
+  await page.getByText("Some Home tasks are not shown.", { exact: false }).waitFor();
   await page.getByRole("combobox").fill("Offboard");
   await page.getByRole("option").waitFor();
   await page.getByRole("combobox").press("Enter");

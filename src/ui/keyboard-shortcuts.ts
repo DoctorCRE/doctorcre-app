@@ -2,7 +2,7 @@ import { navigationItems } from "../../js/routes.js";
 import { blocksShortcut } from "./keyboard-input";
 
 // One owner for the app shell's single-key shortcuts: 'g' sequences, '/',
-// '?' and the j/k card traversal. The ⌘/Ctrl+Alt+K switcher key stays in the
+// '?' and the j/k card traversal. The ⌘/Ctrl+K search key stays in the
 // app shell's capture listener; it is listed here only so the help dialog
 // shows every shortcut.
 const SEQUENCE_MS = 1000;
@@ -20,7 +20,7 @@ const shortcuts: Shortcut[] = [
   ...destinations.map(({ key, label }) => ({ keys: ["g", key], sequence: true, description: `Go to ${label}` })),
   { keys: ["/"], description: "Search this page, or open the quick switcher" },
   { keys: ["?"], description: "Show keyboard shortcuts" },
-  { keys: ["⌘/Ctrl", "Alt", "K"], description: "Open the quick switcher" },
+  { keys: ["⌘/Ctrl", "K"], description: "Open search" },
   { keys: ["j"], description: "Next card (Home, Deals)" },
   { keys: ["k"], description: "Previous card (Home, Deals)" },
   // Enter is the focused open control's own activation: listed, not handled.

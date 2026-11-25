@@ -434,3 +434,31 @@ test('Fallback waits for composition to end after focus leaves', async t => {
   await input.dispatchEvent('compositionend', { data: '日本' });
   await page.locator('#appMainSlot #searchQuery').waitFor({ state: 'attached' });
 });
+
+test('The search control opens a lead in its Leads drawer', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const [lead] = leads;
+  await page.route('**/mcp', route => {
+    const { id, params } = route.request().postDataJSON();
+    const payload = params.name === 'lead-board'
+      ? { ...workspace(), ...(params.arguments.lead_id === lead.id && { detail: detail(lead) }) }
+      : params.name === 'quiet-follow-ups' ? emptyQuietFollowUps() : {};
+    return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
+  });
+  await page.route('**/{auth/session,api/system-work/session}', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  await page.goto(`${server.origin}/search?mode=live`);
+  await page.getByRole('button', { name: 'Quick switcher' }).waitFor();
+  await page.evaluate(async node => {
+    const { openQuickSwitcher } = await import('/js/ui-quick-switcher.generated.js');
+    openQuickSwitcher({ opener: document.querySelector('.quick-switcher-toggle'), pages: [],
+      read: async () => ({ board: { deals: [] }, network: { nodes: [node] } }) });
+  }, { id: `party:${lead.party_id}`, record_id: lead.id, name: lead.doctor_name, kind: 'lead' });
+  await page.getByRole('combobox', { name: 'Jump to' }).fill(lead.doctor_name);
+  await page.getByRole('option', { name: `${lead.doctor_name} Contact`, exact: true }).click();
+  await page.waitForURL(`${server.origin}/leads?lead=${lead.id}`);
+  await page.locator('#leadDetail #detailTitle').and(page.getByRole('heading', { name: lead.doctor_name, exact: true })).waitFor();
+});

@@ -40,14 +40,14 @@ export async function observeKindFilter(page, payload) {
   }, payload);
   const input = page.getByRole('combobox', { name: 'Jump to', exact: true });
   const selector = page.getByRole('group', { name: 'Destination kind' });
-  await page.getByRole('status').filter({ hasText: '1 destinations' }).waitFor();
+  await page.getByRole('status').filter({ hasText: '1 result' }).waitFor();
   for (const kind of ['Deal', 'Contact', 'Task', 'Page']) {
     await selector.getByRole('button', { name: `${kind}s`, exact: true }).click();
     await page.getByRole('option').first().waitFor();
     assert.deepEqual(await page.getByRole('option').locator('small').allTextContents(), [kind]);
     await input.fill('  FIXTURE  ');
     assert.equal(await page.getByRole('option').count(), 1);
-    await selector.getByRole('button', { name: 'All destinations', exact: true }).click();
+    await selector.getByRole('button', { name: 'All', exact: true }).click();
     assert.equal(await input.inputValue(), '  FIXTURE  ');
     assert.equal(await page.getByRole('option').count(), 4);
     await input.fill('');
@@ -58,7 +58,7 @@ export async function observeKindFilter(page, payload) {
   assert.equal(await input.getAttribute('aria-activedescendant'), null);
   assert.equal(await page.evaluate(() => window.kindProofReads), 1);
   await input.fill('Fixture');
-  await selector.getByRole('button', { name: 'All destinations', exact: true }).click();
+  await selector.getByRole('button', { name: 'All', exact: true }).click();
   return { kinds: ['Deal', 'Contact', 'Task', 'Page'], business_reads: 1, matching_destinations: 4 };
 }
 
