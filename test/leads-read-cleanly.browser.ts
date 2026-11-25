@@ -63,6 +63,12 @@ for (const width of [1280, 1440]) {
 
   test(`A truncated territory chip names its market in the native tip at ${width}`, async (t) => {
     const page = await openLeads(t, width);
+    // Page layout decides how wide the strip is, so narrow it here to make the long chip truncate.
+    // The strip's resize is reported before the next frame's animation callbacks.
+    await page.locator("#marketCounts").evaluate((strip) => {
+      strip.style.maxWidth = "20rem";
+      return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    });
     const chips = page.locator("#marketCounts [data-market]");
     const long = chips.filter({ hasText: "Northwest Synthetic County" });
     const fits = chips.filter({ hasText: "Mobile, AL" });

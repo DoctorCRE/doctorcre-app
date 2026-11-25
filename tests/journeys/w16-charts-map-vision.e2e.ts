@@ -28,7 +28,7 @@ test("W16 the By phase chart draws its bars in proportion to the board", async (
   await expect(browser.locator("#chartPhase tbody tr").first()).toBeVisible();
   // Below 480px the stylesheet hides the bars and the table alone carries the counts.
   test.skip(await browser.evaluate(() => innerWidth < 480), "the phone view draws no bars");
-  // The first-visit walkthrough opens over the chart.
+  // The first-visit walkthrough opens over the right side of the chart, where the longest bars end.
   await browser.locator('button[aria-label="Skip walkthrough"]').tap();
   await browser.evaluate(() => {
     document.querySelector("#chartPhase")?.scrollIntoView({ block: "center" });

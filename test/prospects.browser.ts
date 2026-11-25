@@ -49,7 +49,7 @@ test("partners see and manage prospects from Deals", async (t) => {
   const CARR = { fetch: async () => Response.json(session) };
   const server = await startWorkerFixture({ assets: await appAssetSnapshot(), env: { CARR } });
   t.after(() => server.close());
-  await mkdir(".scratch/name-matches", { recursive: true });
+  await mkdir("out/test-artifacts/name-matches", { recursive: true });
   const browser = await chromium.launch();
   t.after(() => browser.close());
 
@@ -595,6 +595,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       await dialog.getByRole("button", { name: "Confirm drop" }).click();
       await open.waitFor({ state: "detached" });
 
+      await lane.getByRole("button", { name: "Add prospect", exact: true }).click();
       const name = lane.getByRole("textbox", { name: "Prospect name" });
       const noteInput = lane.getByRole("textbox", { name: "Optional first note" });
       if (width === 1440) {
@@ -637,7 +638,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       await noteInput.fill("First conversation");
       const person = lane.getByRole("button", { name: "Person", exact: true });
       const company = lane.getByRole("button", { name: "Company", exact: true });
-      const add = lane.getByRole("button", { name: "Add prospect", exact: true });
+      const add = lane.getByRole("button", { name: "Save prospect", exact: true });
       assert.equal((await name.boundingBox())?.y === (await add.boundingBox())?.y, width === 1440);
       await person.click();
       assert.equal(await person.getAttribute("aria-pressed"), "true");
@@ -701,7 +702,7 @@ test("partners see and manage prospects from Deals", async (t) => {
         await clientField.fill("Client Ex");
         const company = form.getByRole("button", { name: "Client Example · Company · Austin · 3 deals", exact: true });
         await company.waitFor();
-        await form.screenshot({ path: `.scratch/name-matches/prospect-${width}.png` });
+        await form.screenshot({ path: `out/test-artifacts/name-matches/prospect-${width}.png` });
         await company.click();
         const lease = form.getByLabel("Lease to renew");
         await lease
@@ -740,7 +741,7 @@ test("partners see and manage prospects from Deals", async (t) => {
           true,
           "each client match fits inside the dialog",
         );
-        await form.screenshot({ path: `.scratch/name-matches/prospect-${width}.png` });
+        await form.screenshot({ path: `out/test-artifacts/name-matches/prospect-${width}.png` });
         await form
           .getByRole("button", { name: "Client Example · Person · No city recorded · 1 deal", exact: true })
           .click();
@@ -908,6 +909,80 @@ test("an open prospect shows a partner's new note without disturbing the draft o
       await page.locator("dialog.prospect-dialog").waitFor({ state: "detached" });
       await page.clock.fastForward(15_000);
       assert.equal(await detailFetchCount(), 4, "closing the dialog stops prospect detail fetches");
+    } finally {
+      await page.close();
+    }
+  }
+});
+
+test("an automatic check-in on a prospect says who to check in with", async (t) => {
+  const session = { actor: { slug: "joe" }, csrf_token: "synthetic-csrf" };
+  const CARR = { fetch: async () => Response.json(session) };
+  const server = await startWorkerFixture({ assets: await appAssetSnapshot(), env: { CARR } });
+  t.after(() => server.close());
+  await mkdir("out/test-artifacts/prospect-check-in", { recursive: true });
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const stored = "Relationship touch — Example Person. 45-day client cadence.";
+  const checkIn = "Check in with Example Person (client)";
+  const step = (id: string, owner: string, what: string, display_title?: string) => ({
+    next_step_id: `00000000-0000-4000-8000-00000000002${id}`,
+    owner,
+    what,
+    ...(display_title && { display_title }),
+    due_on: "2026-11-20",
+    change_id: 3,
+  });
+  const prospect = {
+    party_id: party,
+    name: "Example Elm Practice",
+    how_found: "referral",
+    owner: "joe",
+    needs_attention: false,
+    follow_ups: [step("1", "joe", stored, checkIn), step("2", "dell", "Call about the lease")],
+    latest_note: null,
+    change_id: 12,
+  };
+  const completed = step(
+    "3",
+    "joe",
+    "Relationship touch — Example Other. 90-day lead cadence.",
+    "Check in with Example Other (lead)",
+  );
+  const env = {
+    GIT_SHA: "0".repeat(40),
+    APP_ENV: "fixture",
+    CARR,
+    ENGINE_ROUTING: { get: async () => "on" },
+    ENGINE: {
+      fetch: async (request: Request) => {
+        const route = new URL(request.url).pathname;
+        if (route === `/api/engine/prospects/${party}`)
+          return Response.json({ ...prospect, notes: [], completed_follow_up: completed });
+        if (route === "/api/engine/prospects") return Response.json({ prospects: [prospect], count: 1 });
+        return Response.json({ schema_version: "local-deals-board.v2", actor: "joe", deals: [] });
+      },
+    },
+  };
+
+  for (const width of [1280, 390]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    try {
+      await pausedClock(page, new Date("2026-11-18T17:00:00Z").getTime());
+      await routeWorker(page, env);
+      await page.goto(`${server.origin}/deals?mode=live`);
+      const card = page.locator("#prospectsLane").getByRole("article");
+      await card.getByText(checkIn, { exact: true }).waitFor();
+      await card.getByText("Joe · Due Fri, Nov 20", { exact: true }).waitFor();
+      await page.screenshot({ path: `out/test-artifacts/prospect-check-in/lane-${width}.png` });
+      await card.getByRole("button", { name: prospect.name }).click();
+      const dialog = page.getByRole("dialog", { name: prospect.name });
+      await dialog.getByText(`Joe · ${checkIn} · Due Fri, Nov 20`).waitFor();
+      await dialog.getByText("Joe · Check in with Example Other (lead) · Done").waitFor();
+      await dialog.getByText("Dell · Call about the lease · Due Fri, Nov 20").waitFor();
+      assert.doesNotMatch((await page.locator("body").textContent()) ?? "", /Relationship touch|cadence/);
+      assert.equal(await dialog.getByLabel("Your follow-up").inputValue(), "");
+      await page.screenshot({ path: `out/test-artifacts/prospect-check-in/detail-${width}.png` });
     } finally {
       await page.close();
     }

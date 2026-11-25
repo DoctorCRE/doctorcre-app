@@ -20,8 +20,8 @@ for (const width of [1280,390]) for (const theme of ['light','dark']) test(`load
   const reasons = page.locator('#contactReasons');
   await settles(async () => assert.match(await reasons.innerText(),/No new reasons to reach out\./));
   assert.equal(await reasons.getByRole('searchbox').count(),0);
-  await mkdir('.github/pr-evidence/WR39.S1.J5',{recursive:true});
-  await reasons.screenshot({path:`.github/pr-evidence/WR39.S1.J5/empty-${width}-${theme}.png`});
+  await mkdir('out/test-artifacts/WR39.S1.J5',{recursive:true});
+  await reasons.screenshot({path:`out/test-artifacts/WR39.S1.J5/empty-${width}-${theme}.png`});
   payload = {...practiceOriginationFixture(),next_cursor:'1'};
   reads.length = 0;
   await page.reload();
@@ -68,8 +68,8 @@ for (const width of [1280,390]) for (const theme of ['light','dark']) test(`load
   assert.doesNotMatch(await reasons.innerText(),/Registry and publication dates do not confirm/);
   assert.doesNotMatch(await reasons.getByRole('list',{name:'Source coverage'}).innerText(),/Florida formations · Not yet covered/);
   assert.equal(await reasons.getByRole('button',{name:'More reasons',exact:true}).isEnabled(),true);
-  await mkdir('.github/pr-evidence/WR39.S1.J5',{recursive:true});
-  await reasons.screenshot({path:`.github/pr-evidence/WR39.S1.J5/zero-${width}-${theme}.png`});
+  await mkdir('out/test-artifacts/WR39.S1.J5',{recursive:true});
+  await reasons.screenshot({path:`out/test-artifacts/WR39.S1.J5/zero-${width}-${theme}.png`});
   assert.equal(reads.length,1);
   assert.deepEqual(writes,[]);
   await reasons.getByRole('button',{name:'Clear',exact:true}).click();
@@ -111,8 +111,8 @@ for (const width of [1280,390]) for (const theme of ['light','dark']) test(`load
   assert.equal(reads.length,3);
   assert.equal(await search.inputValue(),'Long Practice');
   assert.equal(await search.evaluate(node => node === document.activeElement),true);
-  await mkdir('.github/pr-evidence/WR39.S1.J5',{recursive:true});
-  await reasons.screenshot({path:`.github/pr-evidence/WR39.S1.J5/reasons-${width}-${theme}.png`});
+  await mkdir('out/test-artifacts/WR39.S1.J5',{recursive:true});
+  await reasons.screenshot({path:`out/test-artifacts/WR39.S1.J5/reasons-${width}-${theme}.png`});
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   payload = {...payload,cards:[]};
   await page.clock.fastForward(60_001);
