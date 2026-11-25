@@ -238,7 +238,8 @@ for(const width of [844,1440]) test(`PR129 #10 short rail destinations remain po
 test('PR129 #11 light theme pairs record headings and filter text with light surfaces',async t=>{
  const {page,goto}=await open(t);await goto('/leads');await page.evaluate(()=>document.documentElement.dataset.theme='light');await page.locator('#appSidebarToggle').click();
  const luminance=rgb=>{const c=rgb.match(/[\d.]+/g).slice(0,3).map(n=>{const x=Number(n)/255;return x<=.04045?x/12.92:((x+.055)/1.055)**2.4});return .2126*c[0]+.7152*c[1]+.0722*c[2];};
- const colors=await page.locator('.controls').evaluate(n=>({background:getComputedStyle(n).backgroundColor,text:getComputedStyle(n).color}));
+ // The filters sit on the page surface without a box of their own, so pair the text with the nearest painted background.
+ const colors=await page.locator('.controls').evaluate(n=>{const painted=e=>!/^rgba\(.*,\s*0\)$|^transparent$/.test(getComputedStyle(e).backgroundColor);let e=n;while(e.parentElement&&!painted(e))e=e.parentElement;return {background:getComputedStyle(e).backgroundColor,text:getComputedStyle(n).color};});
  assert.ok((Math.max(luminance(colors.background),luminance(colors.text))+.05)/(Math.min(luminance(colors.background),luminance(colors.text))+.05)>=4.5,JSON.stringify(colors));
  const labelColor=await page.locator('.controls label').first().evaluate(n=>getComputedStyle(n).color);assert.ok((luminance(colors.background)+.05)/(luminance(labelColor)+.05)>=4.5,labelColor);
  await goto('/deals?view=board');await page.evaluate(()=>document.documentElement.dataset.theme='light');await page.locator('.kanban-card[data-id="d14"] .card-open').click();await page.locator('#detailPhase').waitFor();
