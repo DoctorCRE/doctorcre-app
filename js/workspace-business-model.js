@@ -690,7 +690,7 @@ const HOW_FOUND = new Map([
 ]);
 
 const CONTACT_STATES = new Map([
-  ["active", "Active"], ["nurture", "Nurture"], ["paused", "Paused"], ["do_not_contact", "Do not contact"], ["retired", "Retired"],
+  ["active", "Active"], ["nurture", "Nurture"], ["paused", "Paused"], ["do_not_contact", "Do not contact"],
 ]);
 
 function clientField(key, value) {

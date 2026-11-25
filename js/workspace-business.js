@@ -432,7 +432,8 @@ function vendorContactsHtml(record) {
       ${company ? `<p class="note-summary">${escapeHtml(withoutRecordCodes(company.name))}</p>` : ''}
       <dl>
         ${vendorField('Email', contact.email)}
-        ${vendorField('Phone', [contact.phone, contact.cell].filter(Boolean).map(phoneLabel).join(' · '))}
+        ${vendorField('Phone', contact.phone && phoneLabel(contact.phone))}
+        ${vendorField('Mobile', contact.cell && phoneLabel(contact.cell))}
         ${vendorField('Office', office && `${office.street_address}, ${office.city}, ${office.state}`)}
         <div class="record-field"><dt>Office research</dt><dd>${escapeHtml(statuses[research.status])}</dd></div>
       </dl>
@@ -730,8 +731,8 @@ function renderRecordPanel() {
     : "";
   const hiddenFields = ['ETL status', 'What this status means', 'Version', 'What this level means', 'Vendor reference', 'Client reference', 'What they offer', 'Last touch'];
   if (vendor) hiddenFields.push('Relationship level', 'Workable');
-  // A person vendor is listed under Contacts & offices with their own phone and email.
-  if (vendor && payload.record.people?.some(({ contact }) => contact.id === payload.record.id)) hiddenFields.push('Phone', 'Mobile', 'Email');
+  // A person vendor's only listed contact is themself, shown under Contacts & offices with their own phone and email.
+  if (vendor && payload.record.party_kind === 'person' && payload.record.people?.length) hiddenFields.push('Phone', 'Mobile', 'Email');
   const sections = recordSections(dataset, payload.record)
     .filter(section => !["About this record", "Status on the record", "What they offer and need", "Introduction notes", "Record", "Recorded state"].includes(section.title))
     .map(section => {
