@@ -207,7 +207,7 @@ test("Calendar month grid marks today, marks chips by kind, folds overflow and t
                 .locator(".cal-day")
                 .filter({ visible: true })
                 .evaluateAll((cells) => cells.map((cell) => cell.getAttribute("data-day")));
-              assert.deepEqual(shown, [busyDay, "2026-10-20", "2026-10-22", "2026-10-27"]);
+              assert.deepEqual(shown, [busyDay, "2026-10-17", "2026-10-20", "2026-10-22", "2026-10-27"]);
               await expect(page.locator("#dayPanel")).toBeHidden();
               await expect(chips.filter({ visible: true })).toHaveCount(6);
               await expect(busy.locator(".cal-more")).toBeHidden();
