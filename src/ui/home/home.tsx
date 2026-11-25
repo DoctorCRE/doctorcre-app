@@ -14,7 +14,9 @@ import { draftCardStatus, draftReference, hasEngineReview, openStepRefusal } fro
 import {
   type Action,
   type Command,
+  type Cover,
   command,
+  coverCommand,
   dropCommand,
   dropTarget,
   type InboxClient,
@@ -76,7 +78,7 @@ function snoozeLabel(item: InboxItem) {
     : null;
 }
 
-const SAVED: Record<Command["action"] | "drop", string> = {
+const SAVED: Record<Exclude<Command["action"], "cover">, string> = {
   complete: "Marked done",
   done: "Marked done",
   reopen: "Reopened",
@@ -87,8 +89,15 @@ const SAVED: Record<Command["action"] | "drop", string> = {
   unsnooze: "Back in your inbox",
   drop: "Dropped",
 };
+// A card covering one meeting's follow-ups for several people names them, up to three.
+function coveredNames(covers: readonly Cover[]) {
+  const names = [...new Set(covers.flatMap((entry) => (entry.record_name ? [entry.record_name] : [])))];
+  if (names.length < 2) return null;
+  const last = names.length > 3 ? `${names.length - 2} more` : names.at(-1);
+  return `${names.slice(0, names.length > 3 ? 2 : -1).join(", ")} and ${last}`;
+}
 const savedMessage = (action: keyof typeof SAVED, items: readonly InboxItem[]) =>
-  `${SAVED[action]}: ${new Set(items.map((item) => item.title)).size === 1 ? items[0]?.title : `${items.length} cards`}.`;
+  `${SAVED[action]}: ${items.length === 1 ? items[0]?.title : `${items.length} cards`}.`;
 // An Undo stays offered only while the card is still the version this save produced.
 function undoable(entry: Undo, items: readonly InboxItem[]) {
   if (!("mark" in entry)) return true;
@@ -237,11 +246,19 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }, []);
   const [failures, setFailures] = useState<ItemResult[]>([]);
   const [undo, setUndo] = useState<Undo[]>([]);
-  const [dropping, setDropping] = useState<{
-    item: InboxItem;
-    repeats: readonly InboxItem[];
-    opener: HTMLButtonElement;
-  } | null>(null);
+  const [dropping, setDropping] = useState<{ item: InboxItem; opener: HTMLButtonElement } | null>(null);
+  function saveCovers(item: InboxItem, change: Parameters<typeof coverCommand>[1]) {
+    if (pending) return showNotice("Resolve or dismiss the previous request before starting another.");
+    try {
+      if (item.covers) void run({ request: coverCommand(item.covers, change), before: [item] });
+    } catch (error) {
+      showNotice(message(error), true);
+    }
+  }
+  function finish(item: InboxItem, action: "done" | "complete") {
+    if (item.covers) saveCovers(item, { change: "complete" });
+    else act(action, [item]);
+  }
   const [snooze, setSnooze] = useState<SnoozePreview | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
   const root = useRef<HTMLElement>(null);
@@ -422,6 +439,29 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       if (!mounted.current) return;
       const results = await client.run(operation.request);
       if (!mounted.current) return;
+      if (operation.request.action === "cover") {
+        const { change } = operation.request;
+        const saved = results.filter((result) => result.ok).length;
+        const snapshot = results.find((result) => result.snapshot)?.snapshot;
+        if (snapshot) await updateAfterSave(snapshot);
+        else void query.refetch();
+        if (!mounted.current) return;
+        setFailures([]);
+        setUndo([]);
+        if (saved === results.length) {
+          // No Undo: it could restore only some of the covered steps.
+          confirmSave(savedMessage(change, operation.before));
+          setPending(null);
+        } else
+          showNotice(
+            saved
+              ? `Saved ${saved} of ${results.length}. ${results.length - saved} ${results.length - saved === 1 ? "wasn't" : "weren't"} saved.`
+              : `None of the ${results.length} reminders were saved.`,
+            true,
+          );
+        focusRow(neighbours);
+        return;
+      }
       const successes = results.filter((result) => result.ok);
       if (successes.length && operation.request.action === "drop" && operation.request.target.kind === "draft")
         drafts.engine.write(operation.request.target.id, null);
@@ -433,11 +473,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       if (!mounted.current) return;
       setFailures(failed);
       select(new Set(failed.map((result) => result.item_id)));
-      // A card that covers repeats saves them together, without an Undo that could restore only some.
-      const [lead, ...rest] = operation.before;
-      const keepsNoUndo =
-        operation.undoing || (lead && rest.length > 0 && tiles.repeats.get(cardKey(lead))?.length === rest.length);
-      const fresh = keepsNoUndo
+      const fresh = operation.undoing
         ? []
         : results.flatMap<Undo>((result) => {
             if (!result.ok) return [];
@@ -574,7 +610,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       void run({
         request:
           action === "complete" || action === "reopen"
-            ? taskCommand(action, first, receipt, items.slice(1))
+            ? taskCommand(action, first, receipt)
             : command(action, items, until),
         before: items,
         ...(undoing ? { undoing: true as const } : {}),
@@ -642,8 +678,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }, [home, openCard, openingLocked, placed.current, route.key]);
   function row(item: InboxItem) {
     if (home && reviewing && cardKey(reviewing) === cardKey(item)) item = reviewing;
-    const repeats = (home && tiles.repeats.get(cardKey(item))) || [];
-    const group = [item, ...repeats];
+    const covered = item.covers && coveredNames(item.covers);
     const primary =
       item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
     const markAction = item.engine_marks ? "unsnooze" : item.disposition === "inbox" ? "settle" : "unsettle";
@@ -790,7 +825,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           if (touch.clientX > start.x && wakeable) act(markAction, [item]);
           else if (touch.clientX < start.x && snoozable) {
             snoozeOpener.current = event.currentTarget.querySelector("h3 a");
-            openSnooze(group);
+            openSnooze([item]);
           }
         }}
       >
@@ -799,14 +834,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             type="checkbox"
             aria-label={`Select ${item.title}`}
             checked={selected.has(item.item_id)}
-            disabled={busy || !!reviewing || !snoozable || item.source_state === "working"}
+            disabled={busy || !!reviewing || !snoozable || item.source_state === "working" || !!item.covers}
             onChange={(event) =>
               select((previous) => {
                 const next = new Set(previous);
-                for (const { item_id } of group) {
-                  if (event.target.checked) next.add(item_id);
-                  else next.delete(item_id);
-                }
+                if (event.target.checked) next.add(item.item_id);
+                else next.delete(item.item_id);
                 return next;
               })
             }
@@ -852,8 +885,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               <strong>{cue}</strong>
             </p>
           )}
+          {covered && <p className="inbox-detail">{covered}</p>}
           {presentation && <p className="inbox-why">{presentation.why}</p>}
-          {(item.context_label || due || repeats.length > 0) && (
+          {(item.context_label || due || item.covers) && (
             <p className="inbox-context">
               {item.context_label}
               {due && (
@@ -863,7 +897,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                   {dueCaption}
                 </>
               )}
-              {repeats.length > 0 && ` · Covers ${group.length} reminders`}
+              {item.covers && ` · Covers ${item.covers.length} reminders`}
             </p>
           )}
           {callAt && !presentation && (
@@ -897,7 +931,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 aria-expanded={directUrl || namedAction === "Mark done" ? undefined : open}
                 disabled={openingLocked || (namedAction === "Mark done" && (!completable || open))}
                 onClick={(event) => {
-                  if (namedAction === "Mark done") act("complete", group);
+                  if (namedAction === "Mark done") finish(item, "complete");
                   else openDetails(event.currentTarget);
                 }}
               >
@@ -940,7 +974,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 type="button"
                 className="inbox-primary"
                 disabled={busy || open}
-                onClick={() => act(tourDone ? "done" : "complete", group)}
+                onClick={() => finish(item, tourDone ? "done" : "complete")}
               >
                 {tourDone ? "Done" : "Mark done"}
               </button>
@@ -963,7 +997,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 disabled={busy || open}
                 onClick={(event) => {
                   snoozeOpener.current = event.currentTarget;
-                  openSnooze(group);
+                  openSnooze([item]);
                 }}
               >
                 Snooze
@@ -973,7 +1007,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               <button
                 type="button"
                 disabled={busy || !!pending || open || !online}
-                onClick={(event) => setDropping({ item, repeats, opener: event.currentTarget })}
+                onClick={(event) => setDropping({ item, opener: event.currentTarget })}
               >
                 Drop
               </button>
@@ -1122,7 +1156,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           {pending && (
             <>
               <button type="button" disabled={busy || !online} onClick={() => void run(pending)}>
-                Retry same request
+                {pending.request.action === "cover" ? "Retry the rest" : "Retry same request"}
               </button>
               <button
                 type="button"
@@ -1228,8 +1262,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           )}
           <CardTile
             title="Reminders"
-            showLate
             preview={reminderPreviewCount}
+            showLate
             items={tiles.reminders}
             pinned={pinnedTile === "reminders" ? reviewing : null}
             current={reviewing?.item_id || item_id}
@@ -1336,9 +1370,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             setDropping(null);
           }}
           confirm={(reason) => {
-            const { item, repeats } = dropping;
+            const item = dropping.item;
             setDropping(null);
-            void run({ request: dropCommand(item, reason, repeats), before: [item, ...repeats] });
+            if (item.covers) saveCovers(item, { change: "drop", reason });
+            else void run({ request: dropCommand(item, reason), before: [item] });
           }}
         />
       )}
@@ -1373,7 +1408,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 }
                 const rows = snooze.items;
                 setSnooze(null);
-                act("snooze", rows, choice.until);
+                const [only] = rows;
+                if (rows.length === 1 && only?.covers) saveCovers(only, { change: "snooze", until: choice.until });
+                else act("snooze", rows, choice.until);
               }}
             >
               {choice.hours === 1 ? "1 hour" : "24 hours"} · <time dateTime={choice.until}>{choice.label}</time>

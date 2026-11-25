@@ -693,14 +693,7 @@ async function app(
       },
     ]);
   }
-  await context.addInitScript((theme) => {
-    localStorage.setItem("dealroom-theme", theme);
-    // The first-visit walkthrough would cover the top-right card actions these flows press.
-    localStorage.setItem(
-      "doctorcre.visual-preferences",
-      JSON.stringify({ theme, walkthroughSeen: { joe: true, dell: true } }),
-    );
-  }, theme);
+  await context.addInitScript((theme) => localStorage.setItem("dealroom-theme", theme), theme);
   return {
     server,
     context,

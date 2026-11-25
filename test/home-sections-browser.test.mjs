@@ -1931,29 +1931,30 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
   for (const tile of [reminders, waiting]) assert.equal(await tile.evaluate(node => node.scrollHeight > node.clientHeight), true, 'each long list scrolls inside its tile');
 });
 
-for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home reminders are short, action-first and shown once at ${width}x${height}`, async t => {
+for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a grouped reminder once and saves each step it covers at ${width}x${height}`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
   await page.setViewportSize({ width, height });
   state.dashboard = true;
   const card = (number, title, fields) => step(number, title, { card_id: `step:${id(number)}`, ...fields });
-  const meeting = 'Follow up on the Oct 27 meeting: Site visit with A. Example | Example Co';
-  const repeats = [80, 81, 82, 83].map((number, index) => card(number, meeting, { due_on: '2026-10-30', days_late: 4 - index }));
-  const person = card(84, 'Maya Example', { context_label: 'Maya Example', deal_id: null,
-    open_url: `/relationships?node=party:${id(98)}&step=${id(84)}` });
-  const deal = card(85, 'Example Dental');
-  state.items = [...repeats, person, deal,
-    ...Array.from({ length: 9 }, (_, index) => card(90 + index, `Send the sample lease summary ${index + 1}`))];
+  const cover = (number, record_name) => ({ item_id: `next_action:${id(number)}`, base_version: '1:0:inbox',
+    action_id: id(number), action_version: 1, ...(record_name && { record_name }) });
+  const meeting = 'Follow up on the Oct 27 meeting: Site visit';
+  const names = ['Maya Example', 'Sam Example', 'Lee Example', 'Ari Example'];
+  state.items = [
+    card(80, meeting, { due_on: '2026-10-30', days_late: 4, covers: names.map((name, index) => cover(80 + index, name)) }),
+    card(84, 'Follow up with Pat Example', { covers: [cover(84), cover(85)] }),
+    ...Array.from({ length: 9 }, (_, index) => card(90 + index, `Send the sample lease summary ${index + 1}`)),
+  ];
   await page.clock.install({ time: now });
   await open('/?mode=live');
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
-  await reminders.getByRole('heading', { name: 'Reminders 12', exact: true }).waitFor();
-  const titles = await reminders.locator('[data-inbox-row] h3').allTextContents();
-  assert.ok(titles.includes('Follow up with Maya Example'), 'a person-titled step names the action');
-  assert.ok(titles.includes('Follow up on Example Dental'), 'a record-titled step names the action');
-  assert.equal(titles.some(title => ['Maya Example', 'Example Dental'].includes(title)), false, 'no title is only a name');
-  const group = reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('heading', { name: meeting, exact: true }) });
-  assert.equal(await group.count(), 1, 'the repeated meeting follow-up shows once');
-  await group.getByText(/Covers 4 reminders/).waitFor();
+  await reminders.getByRole('heading', { name: 'Reminders 11', exact: true }).waitFor();
+  const row = title => reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+  await row(meeting).getByText('Maya Example, Sam Example and 2 more', { exact: true }).waitFor();
+  await row(meeting).getByText(/Covers 4 reminders/).waitFor();
+  await row('Follow up with Pat Example').getByText(/Covers 2 reminders/).waitFor();
+  assert.equal(await row('Follow up with Pat Example').locator('.inbox-detail').count(), 0, 'covered steps without names list none');
+  assert.equal(await reminders.getByText(/Covers \d+ reminders/).count(), 2, 'a card without covers is one reminder');
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')]
     .every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   const tile = await reminders.boundingBox();
@@ -1962,15 +1963,51 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home reminders a
     return box.height > 0 && box.bottom <= Math.min(bottom, innerHeight);
   }).length, tile.y + tile.height);
   assert.ok(shown >= 8, `${shown} cards fit on the first screen`);
-  const ended = [];
-  page.on('request', request => {
-    const body = request.postDataJSON?.();
-    if (body?.params?.name === 'end-engine-home-step') ended.push(body.params.arguments.id);
+
+  const writes = [];
+  let refused = id(82);
+  await page.route('**/mcp', route => {
+    const request = route.request().postDataJSON();
+    const { name, arguments: args } = request.params;
+    if (name !== 'end-engine-home-step') return route.fallback();
+    writes.push(args);
+    if (args.id !== refused) return route.fallback();
+    const text = JSON.stringify({ error: 'version_conflict', http_status: 409 });
+    return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text }] } } });
   });
-  await group.getByRole('button', { name: 'Mark done', exact: true }).click();
-  await group.waitFor({ state: 'detached' });
-  assert.deepEqual(ended, repeats.map(item => item.action_id), 'Mark done finishes every reminder the card covers');
-  await reminders.getByRole('heading', { name: 'Reminders 11', exact: true }).waitFor();
+  await row(meeting).getByRole('button', { name: 'Mark done', exact: true }).click();
+  const notice = page.locator('.inbox-notice');
+  await notice.getByText("Saved 3 of 4. 1 wasn't saved.", { exact: true }).waitFor();
+  assert.deepEqual(writes.map(args => [args.id, args.base_version]), names.map((_, index) => [id(80 + index), 1]));
+  assert.equal(new Set(writes.map(args => args.idempotency_key)).size, 4, 'each covered step has its own retry key');
+  refused = null;
+  await notice.getByRole('button', { name: 'Retry the rest', exact: true }).click();
+  await page.locator('.toast').getByText(`Marked done: ${meeting}.`, { exact: true }).waitFor();
+  assert.deepEqual(writes.slice(4).map(args => args.idempotency_key), writes.slice(0, 4).map(args => args.idempotency_key),
+    'Retry resends each step under the key it was first sent with');
+});
+
+for (const [width, height] of [[1280, 800], [1440, 779]]) test(`the first-visit walkthrough sits beside the rail, clear of Home's card buttons at ${width}x${height}`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme: 'light' })));
+  await page.setViewportSize({ width, height });
+  state.dashboard = true;
+  state.items = Array.from({ length: 8 }, (_, index) => step(90 + index, `Send the sample lease summary ${index + 1}`, { card_id: `step:${id(90 + index)}` }));
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  await page.getByRole('dialog', { name: 'How DoctorCRE works', exact: true }).waitFor();
+  await page.locator('[data-inbox-row] button').first().waitFor();
+  const { covered, beside } = await page.evaluate(() => {
+    const box = document.querySelector('[data-walkthrough]').getBoundingClientRect();
+    const target = document.querySelector('.app-walkthrough-target').getBoundingClientRect();
+    const covered = [...document.querySelectorAll('[data-inbox-row] button')].filter(node => {
+      const edge = node.getBoundingClientRect();
+      return edge.width > 0 && edge.left < box.right && edge.right > box.left && edge.top < box.bottom && edge.bottom > box.top;
+    }).map(node => node.textContent);
+    return { covered, beside: box.left > target.right && box.top === target.top };
+  });
+  assert.deepEqual(covered, [], 'no card button sits under the walkthrough');
+  assert.equal(beside, true, 'the walkthrough sits beside its target');
 });
 
 const draftCard = () => ({

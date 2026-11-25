@@ -91,14 +91,25 @@ export type InboxItem = BaseItem &
         action_id: string;
         action_version: number;
         deal_id: string | null;
+        /** Present only when the engine shows several identical open steps as this one card. */
+        covers?: readonly [Cover, Cover, ...Cover[]];
       }>
     | Readonly<{
         source_type: "capture_session" | "email_proposal" | "notification" | "fact_review" | "tour_feedback";
         action_id: null;
         action_version: number | null;
         deal_id: string | null;
+        covers?: never;
       }>
   );
+/** One step a grouped card covers, with the identity its own write needs. */
+export type Cover = Readonly<{
+  item_id: string;
+  base_version: string;
+  action_id: string;
+  action_version: number;
+  record_name: string | null;
+}>;
 export type Snapshot = Readonly<{
   ok: true;
   truncated: boolean;
@@ -127,14 +138,13 @@ type DispositionCommand = { engine_marks?: true } & (
 
 export type TaskReceipt = LegacyReceipt | { engine: true; action_id: string; version: number; status: "done" };
 
-type StepEnd = Readonly<{ item_id: string; id: string; version: number }>;
 type TaskCommand = Readonly<{
   action: "complete" | "reopen";
   engine_marks?: true;
-  args: CommandArgs & { action_id: string; base_version: number; completion_event_id?: string; repeats?: StepEnd[] };
+  args: CommandArgs & { action_id: string; base_version: number; completion_event_id?: string };
 }>;
 type DropTarget =
-  | { kind: "steps"; steps: StepEnd[] }
+  | { kind: "step"; id: string; version: number }
   | { kind: "draft"; id: string; version: number }
   | { kind: "suggestions"; ids: string[] }
   | { kind: "mark" };
@@ -157,36 +167,38 @@ export function dropTarget(item: InboxItem): DropTarget | null {
   const suggestionId = item.item_id.startsWith("suggestion:") ? item.item_id.slice("suggestion:".length) : null;
   const dropIds = ids.length ? ids : suggestionId && uuid(suggestionId) ? [suggestionId] : [];
   if (dropIds.length && item.home_proposal_drop) return { kind: "suggestions", ids: dropIds };
-  if (item.source_type === "next_action")
-    return { kind: "steps", steps: [{ item_id: item.item_id, id: item.action_id, version: item.action_version }] };
+  if (item.source_type === "next_action") return { kind: "step", id: item.action_id, version: item.action_version };
   if (dropIds.length) return null;
   return item.home_mark_drop && markDropTarget(item) ? { kind: "mark" } : null;
 }
 type DropCommand = { action: "drop"; args: CommandArgs; target: DropTarget; reason: string };
-export type Command = DispositionCommand | TaskCommand | DropCommand;
+type CoverChange = { change: "complete" } | { change: "snooze"; until: string } | { change: "drop"; reason: string };
+type CoverCommand = Readonly<{ action: "cover"; args: CommandArgs; covers: readonly Cover[] } & CoverChange>;
+export type Command = DispositionCommand | TaskCommand | DropCommand | CoverCommand;
 
-const stepEnds = (items: readonly InboxItem[]) =>
-  items.flatMap((item) =>
-    item.action_id ? [{ item_id: item.item_id, id: item.action_id, version: item.action_version }] : [],
-  );
-/** Repeats are other copies of the card's step; they end with it. */
-export function dropCommand(item: InboxItem, reason: string, repeats: readonly InboxItem[] = []): DropCommand {
+/** Mark done, Snooze and Drop on a grouped card write each covered step on its own. */
+export function coverCommand(covers: readonly Cover[], change: CoverChange): CoverCommand {
+  if (change.change === "snooze" && !(timestamp(change.until) && Date.parse(change.until) > Date.now()))
+    throw Error("Choose a future snooze time.");
+  if (change.change === "drop" && (!change.reason.trim() || change.reason.trim().length > 500))
+    throw Error("Enter a reason to drop this card.");
+  const trimmed = change.change === "drop" ? { ...change, reason: change.reason.trim() } : change;
+  const items = covers.map(({ item_id, base_version }) => ({ item_id, base_version }));
+  return { action: "cover", args: { idempotency_key: crypto.randomUUID(), items }, covers, ...trimmed };
+}
+
+export function dropCommand(item: InboxItem, reason: string): DropCommand {
   const target = dropTarget(item);
   reason = reason.trim();
   if (!target || !reason || reason.length > 500) throw Error("Enter a reason to drop this card.");
   return {
     action: "drop",
     args: { idempotency_key: crypto.randomUUID(), items: [{ item_id: item.item_id, base_version: item.base_version }] },
-    target: target.kind === "steps" ? { kind: "steps", steps: [...target.steps, ...stepEnds(repeats)] } : target,
+    target,
     reason,
   };
 }
-export function taskCommand(
-  action: "complete" | "reopen",
-  item: InboxItem,
-  receipt?: TaskReceipt,
-  repeats: readonly InboxItem[] = [],
-): TaskCommand {
+export function taskCommand(action: "complete" | "reopen", item: InboxItem, receipt?: TaskReceipt): TaskCommand {
   if (
     !item.action_id ||
     item.action_version === null ||
@@ -216,7 +228,6 @@ export function taskCommand(
       ...(action === "reopen" && receipt && "completion_event_id" in receipt
         ? { completion_event_id: receipt.completion_event_id }
         : {}),
-      ...(item.engine_marks && repeats.length > 0 && { repeats: stepEnds(repeats) }),
     },
   };
 }
@@ -225,6 +236,8 @@ export type ItemResult = { snapshot?: Snapshot } & (
   | { item_id: string; ok: true; item: InboxItem | null; receipt?: TaskReceipt; undo?: MarkUndo }
   | { item_id: string; ok: false; error: string; current_version?: string; current_item?: InboxItem }
 );
+const refusalCode = (error: Record<string, unknown>) =>
+  object(error.payload) && typeof error.payload.error === "string" ? error.payload.error : null;
 export function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -282,6 +295,29 @@ const day = (value: unknown) =>
   /^\d{4}-\d{2}-\d{2}$/.test(value) &&
   Number.isFinite(Date.parse(value)) &&
   new Date(value).toISOString().slice(0, 10) === value;
+const cover = (value: unknown): value is Cover =>
+  object(value) &&
+  text(value.item_id) &&
+  text(value.base_version) &&
+  uuid(value.action_id) &&
+  Number.isSafeInteger(value.action_version) &&
+  Number(value.action_version) >= 0 &&
+  (value.record_name === undefined || value.record_name === null || text(value.record_name));
+// Until the engine groups steps, a card without covers is just its own step.
+function parseCovers(value: unknown, itemId: string): readonly [Cover, Cover, ...Cover[]] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > 100 ||
+    !value.every(cover) ||
+    !value.some((entry) => entry.item_id === itemId) ||
+    new Set(value.map((entry) => entry.item_id)).size !== value.length
+  )
+    throw Error("Inbox returned unreadable reminders. Refresh to try again.");
+  const covers = value.map((entry) => ({ ...entry, record_name: entry.record_name ?? null }));
+  const [first, second, ...rest] = covers;
+  return first && second ? [first, second, ...rest] : undefined;
+}
 export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = false): InboxItem {
   const legacy = parseBaseItem(value, engineMarks);
   if (
@@ -358,8 +394,17 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   )
     throw Error("Inbox returned unreadable completion time. Refresh to try again.");
   const reference = v3 ? parseReference(value.review_reference) : null;
-  const { explicit_unsettle, auto_settled, undo_completion, why, primary_action, checklist_item_ref, ...fields } =
-    value;
+  const {
+    explicit_unsettle,
+    auto_settled,
+    undo_completion,
+    why,
+    primary_action,
+    checklist_item_ref,
+    covers: _covers,
+    ...fields
+  } = value;
+  const covers = task && engineMarks ? parseCovers(value.covers, legacy.item_id) : undefined;
   const actionLabel =
     Array.isArray(value.filing_choices) &&
     value.filing_choices.length > 0 &&
@@ -371,8 +416,9 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   // Version-specific checks above validate the item before normalized optional fields are added.
   return {
     ...fields,
-    title: task && !presentation ? legacy.title.replace(/\*\*([^*]+)\*\*/g, "$1") : stepTitle(legacy.title, value),
+    title: task && !presentation ? legacy.title.replace(/\*\*([^*]+)\*\*/g, "$1") : legacy.title,
     ...(presentation && { presentation }),
+    ...(covers && { covers }),
     ...(engineMarks && text(checklist_item_ref) && { checklistItemRef: checklist_item_ref }),
     ...(engineMarks ? { engine_marks: true } : { explicit_unsettle, auto_settled: v3 ? auto_settled : false }),
     ...(engineMarks &&
@@ -390,13 +436,6 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
         }),
     completed_at: v4 ? value.completed_at : null,
   } as InboxItem;
-}
-// The engine titles a step by its record's name when the wording is too long; Home titles name the action.
-function stepTitle(title: string, { source_type, context_label, open_url }: Record<string, unknown>) {
-  const record = typeof context_label === "string" && context_label.trim();
-  if (!["next_action", "capture_post_call_action"].includes(String(source_type)) || title.trim() !== record)
-    return title;
-  return `Follow up ${String(open_url).startsWith("/relationships") ? "with" : "on"} ${record}`;
 }
 const inboxVersions = [
   { version: "v5", schema: "home-inbox.v5", settlement: true, completion: true, waiting: true },
@@ -670,21 +709,14 @@ export function createInboxClient(
         throw Error("Drop could not be confirmed. Retry the same request.");
     }
     switch (target.kind) {
-      case "steps":
-        // eslint-disable-next-line no-restricted-syntax -- Writes once per copy of the card's step and stops at the first refusal.
-        for (const [index, step] of target.steps.entries())
-          await confirm(
-            "end-engine-home-step",
-            {
-              id: step.id,
-              base_version: step.version,
-              resolution: "cancelled",
-              idempotency_key: cardKey(idempotency_key, index),
-            },
-            "next_step_id",
-            step.id,
-            "cancelled",
-          );
+      case "step":
+        await confirm(
+          "end-engine-home-step",
+          { id: target.id, base_version: target.version, resolution: "cancelled" },
+          "next_step_id",
+          target.id,
+          "cancelled",
+        );
         break;
       case "draft":
         await confirm(
@@ -728,6 +760,35 @@ export function createInboxClient(
         snapshot,
       },
     ];
+  }
+  async function endStep({ action_id, action_version }: Cover, resolution: string, fields: object) {
+    const value = await rpc("end-engine-home-step", { id: action_id, base_version: action_version, resolution, ...fields });
+    if (object(value) && typeof value.error === "string") throw Object.assign(Error(value.error), { payload: value });
+    if (!object(value) || value.next_step_id !== action_id || value.status !== resolution)
+      throw Error("Change could not be confirmed. Retry the same request.");
+  }
+  // Each covered step saves under its own retry key, so one refusal never hides the others' saves.
+  async function saveCovers(request: CoverCommand): Promise<ItemResult[]> {
+    const saves = await Promise.allSettled(
+      request.covers.map((entry, index) => {
+        if (request.change === "snooze")
+          return saveMark(markArgs(entry, { action: "snooze", until: request.until }, request.args.idempotency_key, index));
+        const idempotency_key = cardKey(request.args.idempotency_key, index);
+        return request.change === "complete"
+          ? endStep(entry, "done", { idempotency_key })
+          : endStep(entry, "cancelled", { idempotency_key, reason: request.reason });
+      }),
+    );
+    const snapshot = await read().catch(() => undefined);
+    return saves.map((save, index): ItemResult => {
+      const item_id = request.covers[index]?.item_id ?? "";
+      const code = save.status === "rejected" && object(save.reason) ? refusalCode(save.reason) : null;
+      // A step someone already ended is off Home either way.
+      const ended = code === "step_ended" && request.change !== "snooze";
+      return save.status === "fulfilled" || ended
+        ? { item_id, ok: true, item: null, ...(snapshot && { snapshot }) }
+        : { item_id, ok: false, error: code ?? "uncertain", ...(snapshot && { snapshot }) };
+    });
   }
   async function read(signal?: AbortSignal): Promise<Snapshot> {
     // eslint-disable-next-line no-restricted-syntax -- At most four version reads; only unknown_tool advances to the next version.
@@ -924,53 +985,46 @@ export function createInboxClient(
     },
     async run(request) {
       if (navigator.onLine === false) throw Error("Offline. No change was sent. Reconnect and retry manually.");
+      if (request.action === "cover") return saveCovers(request);
       if (request.action === "drop") return saveDrop(request);
       if (request.action === "complete" || request.action === "reopen") {
         const { items, ...args } = request.args;
         if (request.engine_marks) {
-          const { action_id, base_version, idempotency_key, repeats = [] } = args;
+          const { action_id: id, base_version, idempotency_key } = args;
           const done = request.action === "complete";
-          const steps = [{ item_id: items[0]?.item_id ?? "", id: action_id, version: base_version }, ...repeats];
-          const changes: unknown[] = [];
-          // eslint-disable-next-line no-restricted-syntax -- Writes once per copy of the card's step and stops at the first refusal.
-          for (const [index, { id, version }] of steps.entries()) {
-            const value = await rpc(done ? "end-engine-home-step" : "reopen-engine-home-step", {
-              id,
-              base_version: version,
-              idempotency_key: cardKey(idempotency_key, index),
-              ...(done && { resolution: "done" }),
-            });
-            if (object(value) && typeof value.error === "string")
-              throw Object.assign(Error(value.error), { payload: value });
-            if (
-              !object(value) ||
-              value.next_step_id !== id ||
-              value.status !== (done ? "done" : "open") ||
-              (done &&
-                (typeof value.change_id !== "number" ||
-                  !Number.isSafeInteger(value.change_id) ||
-                  value.change_id <= version))
-            )
-              throw Error("Task change could not be confirmed. Retry the same request.");
-            changes.push(value.change_id);
-          }
-          const snapshot = await read();
-          return steps.map(({ item_id, id }, index): ItemResult => {
-            const change = changes[index];
-            const item = snapshot.items.find((row) => row.item_id === item_id);
-            if (
-              !item ||
-              (done
-                ? item.source_state !== "done" || item.action_version !== change
-                : item.source_state !== "needs_attention")
-            )
-              return { item_id, ok: false, error: "intervening_change", ...(item && { current_item: item }), snapshot };
-            const receipt =
-              done && typeof change === "number"
-                ? { engine: true as const, action_id: id, version: change, status: "done" as const }
-                : undefined;
-            return { item_id, ok: true, item, ...(receipt && { receipt }), snapshot };
+          const value = await rpc(done ? "end-engine-home-step" : "reopen-engine-home-step", {
+            id,
+            base_version,
+            idempotency_key,
+            ...(done && { resolution: "done" }),
           });
+          if (object(value) && typeof value.error === "string")
+            throw Object.assign(Error(value.error), { payload: value });
+          if (
+            !object(value) ||
+            value.next_step_id !== id ||
+            value.status !== (done ? "done" : "open") ||
+            (done &&
+              (typeof value.change_id !== "number" ||
+                !Number.isSafeInteger(value.change_id) ||
+                value.change_id <= base_version))
+          )
+            throw Error("Task change could not be confirmed. Retry the same request.");
+          const snapshot = await read();
+          const item_id = items[0]?.item_id ?? "";
+          const item = snapshot.items.find((row) => row.item_id === item_id);
+          if (
+            !item ||
+            (done
+              ? item.source_state !== "done" || item.action_version !== value.change_id
+              : item.source_state !== "needs_attention")
+          )
+            return [{ item_id, ok: false, error: "intervening_change", ...(item && { current_item: item }), snapshot }];
+          const receipt =
+            done && typeof value.change_id === "number"
+              ? { engine: true as const, action_id: id, version: value.change_id, status: "done" as const }
+              : undefined;
+          return [{ item_id, ok: true, item, ...(receipt && { receipt }), snapshot }];
         }
         const receipt =
           request.action === "complete"

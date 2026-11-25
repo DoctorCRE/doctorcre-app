@@ -49,34 +49,11 @@ export function dashboardCards(items: readonly InboxItem[], today = day(new Date
       reminders.push(item);
   }
   return {
-    ...withoutRepeats(
-      reminders[0]?.dashboard_tile
-        ? reminders
-        : reminders.sort((a, b) => Number(Boolean(b.days_late)) - Number(Boolean(a.days_late))),
-    ),
+    reminders: reminders[0]?.dashboard_tile
+      ? reminders
+      : reminders.sort((a, b) => Number(Boolean(b.days_late)) - Number(Boolean(a.days_late))),
     waiting,
   };
-}
-
-// Jobs can save the same meeting follow-up on a record more than once; Home shows it once.
-const meetingFollowUp = /^Follow up on the [A-Z][a-z]{2} \d{1,2} meeting: /;
-const repeatKey = (item: InboxItem) =>
-  item.engine_marks && item.source_type === "next_action" && meetingFollowUp.test(item.title)
-    ? JSON.stringify([item.title, item.deal_id, item.context_label])
-    : null;
-
-function withoutRepeats(cards: readonly InboxItem[]) {
-  const leads = new Map<string, InboxItem>();
-  const repeats = new Map<string, InboxItem[]>();
-  const reminders = cards.filter((item) => {
-    const key = repeatKey(item);
-    const lead = key && leads.get(key);
-    if (key && !lead) leads.set(key, item);
-    if (!lead) return true;
-    repeats.set(cardKey(lead), [...(repeats.get(cardKey(lead)) ?? []), item]);
-    return false;
-  });
-  return { reminders, repeats };
 }
 
 export function HomeTile({
