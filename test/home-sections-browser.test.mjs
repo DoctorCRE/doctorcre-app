@@ -1086,7 +1086,7 @@ async function dashboard(t, width, theme, timezone) {
     }
     if (name === 'read-engine-home-draft') result = {
       ...(args.id === state.otherDraft?.draft_id ? state.otherDraft : state.draft), to: 'sender@example.test', cc: 'partner@example.test', attachments: [],
-      source_activity: mailSource, thread: state.draftThread ?? state.thread,
+      source_activity: state.draftSource ?? mailSource, thread: state.draftThread ?? state.thread,
     };
     if (name === 'edit-engine-home-draft') {
       state.draftWrites.push(args);
@@ -1458,6 +1458,25 @@ test('Home reveals earlier text only for the selected email message', async t =>
   assert.equal(await secondText.isVisible(), true);
 });
 
+for (const width of [390, 1280, 1440]) test(`Home names the person the reply answers above the draft at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  const draft = { ...draftCard(), title: 'Review the reply to Pat Example' };
+  state.dashboard = true;
+  state.items = [draft];
+  state.draftSource = { ...mailSource, id: mailThread[1].activity_id };
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Edit', exact: true }).waitFor();
+  const thread = review.getByRole('region', { name: 'Email thread' });
+  assert.deepEqual(await thread.getByRole('heading', { level: 5 }).allTextContents(), ['From Maya · Nov 2', 'From Pat · Nov 3']);
+  assert.equal(await review.getByText('Your reply to Pat', { exact: true }).isVisible(), true);
+  if (process.env.HOME_THREAD_SCREENSHOTS) {
+    await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
+    await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `reply-to-${width}.png`), fullPage: true });
+  }
+});
+
 test('Home separates Your reply from the email thread', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'dark');
   const draft = draftCard();
@@ -1516,14 +1535,18 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
+  const background = locator => locator.evaluate(node => getComputedStyle(node).backgroundColor);
+  const opener = page.getByRole('button', { name: 'Review reply', exact: true });
+  const accent = await background(opener);
   await page.getByRole('link', { name: draft.title }).click();
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
   const edit = review.getByRole('button', { name: 'Edit', exact: true });
   await edit.waitFor();
-  const background = locator => locator.evaluate(node => getComputedStyle(node).backgroundColor);
-  const accent = await background(page.getByRole('button', { name: 'Review reply', exact: true }));
   assert.equal(await background(review.getByRole('button', { name: 'Send reply', exact: true })), accent, 'Send reply is the primary button');
-  for (const name of ['Edit', 'Drop']) assert.notEqual(await background(review.getByRole('button', { name, exact: true }).first()), accent, name);
+  assert.notEqual(await background(opener), accent, 'the open card gives the primary look to Send reply');
+  const primaries = await page.getByRole('button').evaluateAll((nodes, accent) =>
+    nodes.filter(node => getComputedStyle(node).backgroundColor === accent).map(node => node.textContent), accent);
+  assert.deepEqual(primaries, ['Send reply'], 'one primary button in view');
   assert.equal(await review.getByRole('textbox', { name: 'Message' }).count(), 0);
   assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
   assert.equal(await review.getByText('Current saved reply').count(), 0);

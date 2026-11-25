@@ -626,7 +626,9 @@ export function ReviewCard<Item extends ReviewItem>({
             <legend className={engineReply ? "home-reply-label" : undefined}>
               {review.kind === "reply_draft"
                 ? engineReply
-                  ? "Your reply"
+                  ? review.replyTo
+                    ? `Your reply to ${review.replyTo}`
+                    : "Your reply"
                   : proposalLed
                     ? "Suggestions and reply draft"
                     : "Exact reply for review"
