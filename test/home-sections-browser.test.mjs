@@ -2043,7 +2043,7 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a gro
   state.dashboard = true;
   const card = (number, title, fields) => step(number, title, { card_id: `step:${id(number)}`, ...fields });
   const cover = (number, record_name) => ({ item_id: `next_action:${id(number)}`, base_version: '1:0:inbox',
-    action_id: id(number), action_version: 1, ...(record_name && { record_name }) });
+    action_id: id(number), action_version: 1, ...(record_name !== undefined && { record_name }) });
   const meeting = 'Follow up on the Oct 27 meeting';
   const grouped = (numbers, names = []) => ({ merged_source_ids: numbers.map(id),
     covers: numbers.map((number, index) => cover(number, names[index])) });
@@ -2051,7 +2051,9 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a gro
   state.items = [
     card(80, meeting, { due_on: '2026-10-30', days_late: 4, why: 'Send the site visit notes.', ...grouped([80, 81, 82, 83], names) }),
     card(84, 'Follow up with Pat Example', grouped([84, 85])),
-    ...Array.from({ length: 9 }, (_, index) => card(90 + index, `Send the sample lease summary ${index + 1}`)),
+    card(86, 'Send the tour notes', grouped([86, 87, 88], ['Maya Example', 'Sam Example', ''])),
+    card(100, 'Send the parking survey', grouped([100, 101, 102], ['Maya Example', '', null])),
+    ...Array.from({ length: 7 }, (_, index) => card(90 + index, `Send the sample lease summary ${index + 1}`)),
   ];
   await page.clock.install({ time: now });
   await open('/?mode=live');
@@ -2063,7 +2065,9 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a gro
   await row(meeting).getByText('Send the site visit notes.', { exact: true }).waitFor();
   await row('Follow up with Pat Example').getByText(/Covers 2 reminders/).waitFor();
   assert.equal(await row('Follow up with Pat Example').locator('.inbox-detail').count(), 0, 'covered steps without names list none');
-  assert.equal(await reminders.getByText(/Covers \d+ reminders/).count(), 2, 'a card without covers is one reminder');
+  await row('Send the tour notes').getByText('Maya Example, Sam Example and 1 more', { exact: true }).waitFor();
+  await row('Send the parking survey').getByText('Maya Example and 2 more', { exact: true }).waitFor();
+  assert.equal(await reminders.getByText(/Covers \d+ reminders/).count(), 4, 'a card without covers is one reminder');
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')]
     .every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   const tile = await reminders.boundingBox();
@@ -2096,7 +2100,7 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a gro
     'Retry resends each step under the key it was first sent with');
 });
 
-for (const [width, height] of [[1280, 800], [1440, 779]]) test(`the first-visit walkthrough sits beside the rail, clear of Home's card buttons at ${width}x${height}`, async t => {
+for (const [width, height] of [[1280, 720], [1440, 779], [1440, 900]]) test(`the first-visit walkthrough sits beside the rail and covers none of Home at ${width}x${height}`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme: 'light' })));
   await page.setViewportSize({ width, height });
@@ -2104,19 +2108,28 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`the first-visit 
   state.items = Array.from({ length: 8 }, (_, index) => step(90 + index, `Send the sample lease summary ${index + 1}`, { card_id: `step:${id(90 + index)}` }));
   await page.clock.install({ time: now });
   await open('/?mode=live');
-  await page.getByRole('dialog', { name: 'How DoctorCRE works', exact: true }).waitFor();
-  await page.locator('[data-inbox-row] button').first().waitFor();
-  const { covered, beside } = await page.evaluate(() => {
+  const guide = page.getByRole('dialog', { name: 'How DoctorCRE works', exact: true });
+  await guide.waitFor();
+  await page.getByRole('region', { name: 'Reminders', exact: true }).locator('[data-inbox-row] button').first().waitFor();
+  const placement = () => page.evaluate(() => {
     const box = document.querySelector('[data-walkthrough]').getBoundingClientRect();
     const target = document.querySelector('.app-walkthrough-target').getBoundingClientRect();
-    const covered = [...document.querySelectorAll('[data-inbox-row] button')].filter(node => {
-      const edge = node.getBoundingClientRect();
-      return edge.width > 0 && edge.left < box.right && edge.right > box.left && edge.top < box.bottom && edge.bottom > box.top;
-    }).map(node => node.textContent);
-    return { covered, beside: box.left > target.right && box.top === target.top };
+    const covered = ['.app-layout-topbar', '.app-layout-main'].filter(selector => {
+      const edge = document.querySelector(selector).getBoundingClientRect();
+      return edge.left < box.right && edge.right > box.left && edge.top < box.bottom && edge.bottom > box.top;
+    });
+    return { covered, beside: box.left > target.right && box.top === target.top, fits: box.bottom <= innerHeight };
   });
-  assert.deepEqual(covered, [], 'no card button sits under the walkthrough');
-  assert.equal(beside, true, 'the walkthrough sits beside its target');
+  assert.deepEqual(await placement(), { covered: [], beside: true, fits: true }, 'the first step sits beside Home in the rail');
+  for (let next = guide.getByRole('button', { name: 'Next', exact: true }); await next.count();) {
+    await next.click();
+    const { covered, fits } = await placement();
+    assert.deepEqual({ covered, fits }, { covered: [], fits: true }, 'no step covers the page');
+  }
+  assert.deepEqual(await page.evaluate(() => [document.scrollingElement].every(node => node.scrollWidth <= node.clientWidth)), true, 'the page makes room without scrolling sideways');
+  await page.keyboard.press('Escape');
+  await guide.waitFor({ state: 'detached' });
+  assert.equal(await page.locator('.app-layout-main').evaluate(node => node.getBoundingClientRect().left), 64, 'the page takes its room back');
 });
 
 const draftCard = () => ({

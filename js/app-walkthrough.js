@@ -37,12 +37,11 @@ export function openWalkthrough(root) {
     const gap = 12;
     for (const compact of [false, true]) {
       guide.toggleAttribute('data-compact', compact);
-      // Beside a rail target, so the first visit never covers the page's own buttons.
+      // On a computer the page moves over to make room beside the rail, so no step covers it.
       guide.dataset.position = 'beside';
-      const { width, height } = guide.getBoundingClientRect();
-      const left = edge.right + gap, top = Math.min(edge.top, win.innerHeight - height - gap);
-      if (left + width <= win.innerWidth - gap && top >= gap) {
-        guide.style.setProperty('--walkthrough-left', `${left}px`);
+      const { right, height } = guide.getBoundingClientRect();
+      const top = Math.max(gap, Math.min(edge.top, win.innerHeight - height - gap));
+      if (win.innerWidth - right >= 800 && top + height <= win.innerHeight - gap) {
         guide.style.setProperty('--walkthrough-top', `${top}px`);
         return;
       }

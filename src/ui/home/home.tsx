@@ -89,12 +89,14 @@ const SAVED: Record<Exclude<Command["action"], "cover">, string> = {
   unsnooze: "Back in your inbox",
   drop: "Dropped",
 };
-// A card covering one meeting's follow-ups for several people names them, up to three.
+// A card covering one meeting's follow-ups for several people names up to three and counts the rest, unnamed ones too.
 function coveredNames(covers: readonly Cover[]) {
   const names = [...new Set(covers.flatMap((entry) => (entry.record_name ? [entry.record_name] : [])))];
-  if (names.length < 2) return null;
-  const last = names.length > 3 ? `${names.length - 2} more` : names.at(-1);
-  return `${names.slice(0, names.length > 3 ? 2 : -1).join(", ")} and ${last}`;
+  const unnamed = covers.filter((entry) => !entry.record_name).length;
+  if (!names.length || (names.length === 1 && !unnamed)) return null;
+  if (!unnamed && names.length <= 3) return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  const shown = names.slice(0, 2);
+  return `${shown.join(", ")} and ${names.length + unnamed - shown.length} more`;
 }
 // Names the people whose reminders did not save when the card lists people, else counts them.
 function coverFailure(covers: readonly Cover[], results: readonly ItemResult[]) {
