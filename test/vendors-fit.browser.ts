@@ -24,13 +24,14 @@ function withoutHistory(url: string) {
   return payload;
 }
 
-async function openVendors(t: TestContext, width: number, height: number) {
+async function openVendors(t: TestContext, width: number, height: number, today?: "open") {
   const server = await startFixtureServer();
   t.after(() => server.stop());
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height } });
   await page.clock.install({ time: new Date("2026-10-01T18:00:00Z") });
+  if (today) await page.addInitScript((state) => localStorage.setItem("doctorcre:today:/vendors", state), today);
   await page.route("https://**", (r) => r.abort());
   await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: withoutHistory(r.request().url()) }));
   await page.route("**/mcp", (route) => {
@@ -70,6 +71,25 @@ for (const [width, height] of [
     assert.ok(fit.listTop <= 112, `the list starts near the top, not at ${fit.listTop}px`);
     assert.ok(fit.wholeRows >= 12, `at least twelve vendors show whole, not ${fit.wholeRows}`);
   });
+
+test("the Vendors list fits beside an open Today at 1280x800", async (t) => {
+  const page = await openVendors(t, 1280, 800, "open");
+  await page.screenshot({ path: `${shots}/vendors-1280-today.png` });
+  const fit = await firstScreen(page);
+  assert.equal(fit.pageScrolls, false, "the page itself does not scroll");
+  assert.equal(fit.sideways, false, "nothing scrolls sideways");
+  assert.ok(fit.listTop <= 160, `the toolbar takes at most two lines, list at ${fit.listTop}px`);
+  const broken = await page.evaluate(() =>
+    [...document.querySelectorAll(".record-row .fact-value")]
+      .filter((value) => {
+        const range = document.createRange();
+        range.selectNodeContents(value);
+        return range.getClientRects().length > 1;
+      })
+      .map((value) => value.textContent),
+  );
+  assert.deepEqual(broken, [], "every fact reads on one line");
+});
 
 test("Vendors stays usable on a phone", async (t) => {
   const page = await openVendors(t, 390, 844);
