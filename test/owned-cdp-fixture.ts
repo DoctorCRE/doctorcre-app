@@ -66,7 +66,7 @@ export async function ownedCdpFixture({
         "--no-first-run",
         "--no-default-browser-check",
         "--enable-automation",
-        // Chromium before 158 drops a page close that races a navigation commit (crbug 536385539).
+        // RenderDocument drops a tab close sent while a navigation commits, so the tab never closes (crbug 536385539).
         "--disable-features=RenderDocument",
         "--remote-debugging-port=0",
         `--user-data-dir=${profile}`,
