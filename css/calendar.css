@@ -98,6 +98,7 @@
 .cal-chip:active { background: var(--surface-3); }
 .cal-chip:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
 .cal-chip-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-grid[data-view="week"] .cal-chip-label { white-space: normal; overflow-wrap: anywhere; }
 .cal-chip:is([data-kind="late"], [data-band="overdue"]) .cal-chip-label { color: var(--status-danger-ink); }
 .cal-chip-deal { flex: 0 1 40%; overflow: hidden; color: var(--fg-muted); text-overflow: ellipsis; white-space: nowrap; }
 .cal-chip[data-band="settled"] { color: var(--fg-muted); }
@@ -196,8 +197,7 @@
   .cal-more, .cal-day-open, .cal-undated-chip { min-height: var(--touch); }
   .cal-grid[data-view="month"] .cal-chips > [data-overflow] { display: list-item; }
   .cal-grid[data-view="month"] .cal-more { display: none; }
-  .cal-grid:not([data-view="month"]) .cal-chip-label { white-space: normal; overflow-wrap: anywhere; }
-  .cal-chip-deal:empty { display: none; }
+  .cal-grid[data-view="day"] .cal-chip-label { white-space: normal; overflow-wrap: anywhere; }
 }
 /* --------------------------------------------------------- reduced motion
    The shared floor stops every animation and transition; this page also
@@ -240,5 +240,5 @@
 @media (max-width: 640px) {
   .cal-grid[data-view="day"] .cal-day > .cal-chips { padding-inline-start: 6px; }
   .cal-blocks .cal-chip { flex-direction: column; gap: 0; }
-  .cal-blocks .cal-chip-label { align-self: stretch; }
+  .cal-blocks .cal-chip-label { display: -webkit-box; flex: none; align-self: stretch; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 1); }
 }
