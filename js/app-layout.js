@@ -78,7 +78,7 @@ export function mountAppLayout(root, host, pathname) {
     else main.append(node);
   }
   root.body.classList.add('has-app-layout');
-  const pageRefresh = main.querySelector('[data-layout-slot="status"] [data-layout-refresh]');
+  const pageRefresh = layout.querySelector('[data-layout-slot="status"] [data-layout-refresh]');
   const pageMoves = layout.querySelector('[data-layout-slot="moves"]');
   const phone = win.matchMedia(pathname === "/leads" ? "(max-width:1023px)" : TOUCH_LAYOUT);
   // Desktop tabs share the top bar with the title; the phone gives them their own sticky row.
@@ -89,7 +89,7 @@ export function mountAppLayout(root, host, pathname) {
   placeTabs();
   phone.addEventListener('change', placeTabs);
   // Pages whose main view needs the width start with Today collapsed and remember their own choice.
-  const ownToday = pathname === '/vendors' || (pathname === '/deals' && root.body.classList.contains('dealroom-page'));
+  const ownToday = pathname === '/vendors' || pathname === '/relationships' || (pathname === '/deals' && root.body.classList.contains('dealroom-page'));
   const todayKey = ownToday ? `doctorcre:today:${pathname}` : 'doctorcre:today';
   let sidebar = false, today = !ownToday, drawer = null;
   let drawerOpener = null;

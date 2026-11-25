@@ -254,6 +254,7 @@ for (const width of [1440, 390])
       path: `out/test-artifacts/w14/referrals-${width}.png`,
       animations: "disabled",
     });
+    if (width === 390) await page.getByText("Filter", { exact: true }).click();
     await page.locator("#networkTerritory").selectOption("Demo Inland");
     assert.equal(await page.locator(".relationship-referral").count(), 0);
     await page.locator("#networkReset").click();
@@ -288,7 +289,7 @@ for (const width of [1440, 320])
       assert.equal(await page.getByRole("button", { name, exact: true }).count(), 1);
     }
     const search = page.getByRole("searchbox", { name: "Find a relationship" });
-    await search.fill("Demo Healthcare Lending North Partners (V-SUP-901)");
+    await search.fill("Demo Healthcare Lending North Partners");
     assert.equal(await page.locator('.relationship-node').count(), 1);
     assert.doesNotMatch(await page.locator('#networkCanvas').textContent(), /V-SUP-901/);
     await search.fill("");
