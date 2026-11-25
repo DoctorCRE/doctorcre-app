@@ -103,7 +103,7 @@ export function mountAppLayout(root, host, pathname) {
   // Moving the tabs never resizes the top bar, so watching it cannot loop; page scripts fill some tabs after mount.
   if (win.ResizeObserver) new win.ResizeObserver(placeTabs).observe(topbar);
   new win.MutationObserver(placeTabs).observe(pageViews, { childList: true, subtree: true, characterData: true });
-  if (phoneTabs.length) new win.MutationObserver(placeTabs).observe(slots.title, { attributeFilter: ['class'], subtree: true });
+  if (phoneTabs.length) new win.MutationObserver(() => phone.matches && placeTabs()).observe(slots.title, { attributeFilter: ['class'], subtree: true });
   // Today starts collapsed so each main view keeps the full width, and every page remembers its own choice.
   // National Accounts and Monday review share /deals with the board but are pages of their own.
   const view = pathname === '/deals' && { national: 'national', review: 'review', 'dropped-prospect': 'review' }[new URLSearchParams(win.location.search).get('view')];
