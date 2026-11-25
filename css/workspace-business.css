@@ -343,7 +343,7 @@ dialog.party-editor::backdrop { background: var(--scrim); }
   #secondaryFilters { flex: 0 1 auto; min-width: 0; }
   .filter-row { display: contents; }
   /* Filters apply as they change and "Clear all" sits with the chips, so Apply and Reset add nothing here. */
-  .filter-row-actions .filter-actions { display: none; }
+  body[data-directory="vendors"] .filter-actions { display: none; }
 }
 /* The count and owner chips sit in the top bar beside the page title. */
 .app-layout-tabs .result-heading { display: flex; align-items: center; margin: 0; }
@@ -363,3 +363,6 @@ body[data-directory="vendors"] .record-row .row-updated { display: none; }
 body:not([data-directory="vendors"]) #directoryViews { display: none; }
 body[data-directory-view="meetings"] :is(.search-dock, .quiet-vendors-host, #chipBar, .business-body),
 body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none; }
+@media (max-width: 760px) {
+  .app-layout-tabs .result-summary { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
