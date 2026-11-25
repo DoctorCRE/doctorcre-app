@@ -48,8 +48,10 @@ export async function mountTerritoryMap(root, selectLead, { signal, markets = op
   const locations = markets.map(market => marketLocation(market, places));
   if (locations.some(place => !place)) { shell.destroy(); throw new Error("Market location unavailable"); }
   const bounds = locations.length ? locations.reduce((bounds, place) => bounds.extend(place.position), new gl.LngLatBounds()) : null;
-  const frameTerritory = () => map.fitBounds(bounds, { padding, duration: 0 });
-  if (bounds) { frameTerritory(); map.on("resize", frameTerritory); }
+  // A resize refits only while the map still shows the whole territory, so a partner's zoom stays.
+  let framed = true;
+  const refit = () => { if (framed) map.fitBounds(bounds, { padding, duration: 0 }); };
+  if (bounds) { refit(); map.on("resize", refit); }
   // The paint reads theme tokens once; a theme switch repaints in place.
   const themes = view && new view.MutationObserver(() => { for (const [layer, property, name] of paint) map.setPaintProperty(layer, property, token(name)); });
   themes?.observe(doc.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-color-assist"] });
@@ -135,12 +137,13 @@ export async function mountTerritoryMap(root, selectLead, { signal, markets = op
   }
   // A marker shows its lead count. Markers that would touch merge, and a click zooms
   // in to them; a marker of one place also shows the place's name where it has room.
-  function label(button, { features, named }) {
+  const total = ({ features }) => features.reduce((sum, feature) => sum + feature.properties.count, 0);
+  function label(button, cluster) {
     const count = doc.createElement("b");
-    count.textContent = features.reduce((total, feature) => total + feature.properties.count, 0);
-    if (!named) return button.replaceChildren(count);
+    count.textContent = total(cluster);
+    if (!cluster.named) return button.replaceChildren(count);
     const name = doc.createElement("span");
-    name.textContent = features[0].properties.place;
+    name.textContent = cluster.features[0].properties.place;
     button.replaceChildren(name, count);
   }
   const probe = doc.createElement("button");
@@ -154,29 +157,61 @@ export async function mountTerritoryMap(root, selectLead, { signal, markets = op
     if (!sizes.has(text)) { const { width, height } = probe.getBoundingClientRect(); sizes.set(text, { width, height }); }
     return { ...cluster.position, ...sizes.get(text) };
   }
-  const touch = (a, b) => Math.abs(a.x - b.x) * 2 < a.width + b.width + 8 && Math.abs(a.y - b.y) * 2 < a.height + b.height + 8;
-  function mergeTouching(clusters) {
-    const boxes = clusters.map(box);
-    const pair = boxes.flatMap((a, i) => boxes.slice(i + 1).map((b, k) => [i, i + 1 + k, a, b])).find(([, , a, b]) => touch(a, b));
-    if (!pair) return clusters;
-    const [kept, merged] = pair;
-    return mergeTouching(clusters.map((item, index) => index === kept ? { ...item, features: [...item.features, ...clusters[merged].features] } : item).filter((_, index) => index !== merged));
+  const gap = 8, cell = 64;
+  const touch = (a, b) => Math.abs(a.x - b.x) * 2 < a.width + b.width + gap && Math.abs(a.y - b.y) * 2 < a.height + b.height + gap;
+  // Boxes bucketed by position, so a touch test reads only the boxes that could reach it.
+  function nearby(boxes) {
+    const cells = new Map(), widest = { width: 0, height: 0 }, at = value => Math.floor(value / cell);
+    const grow = ({ width, height }) => { widest.width = Math.max(widest.width, width); widest.height = Math.max(widest.height, height); };
+    boxes.forEach((b, index) => {
+      grow(b);
+      const key = `${at(b.x)},${at(b.y)}`;
+      cells.has(key) ? cells.get(key).push(index) : cells.set(key, [index]);
+    });
+    function near(b) {
+      const reachX = (b.width + widest.width + gap) / 2, reachY = (b.height + widest.height + gap) / 2, found = [];
+      for (let x = at(b.x - reachX); x <= at(b.x + reachX); x++)
+        for (let y = at(b.y - reachY); y <= at(b.y + reachY); y++) found.push(...cells.get(`${x},${y}`) || []);
+      return found;
+    }
+    return { near, grow };
+  }
+  // Merges the first touching pair in list order into the earlier marker until none touch.
+  // Only the growing marker can gain partners, so the search stays on it.
+  function mergeTouching(input) {
+    const clusters = [...input], boxes = clusters.map(box), index = nearby(boxes);
+    const merge = (kept, merged) => {
+      const before = boxes[kept];
+      clusters[kept] = { ...clusters[kept], features: [...clusters[kept].features, ...clusters[merged].features] };
+      clusters[merged] = null;
+      boxes[kept] = box(clusters[kept]); index.grow(boxes[kept]);
+      return boxes[kept].width !== before.width || boxes[kept].height !== before.height;
+    };
+    for (let start = 0; start < clusters.length; start++) {
+      let current = start;
+      search: while (clusters[current]) {
+        const partners = index.near(boxes[current]).filter(other => other !== current && clusters[other] && touch(boxes[current], boxes[other])).sort((a, b) => a - b);
+        if (partners.length && partners[0] < current) { merge(partners[0], current); current = partners[0]; continue; }
+        for (const partner of partners) if (merge(current, partner)) continue search;
+        break;
+      }
+    }
+    return clusters.filter(Boolean);
   }
   // Largest markets claim room for their names first.
   function nameWhereRoom(clusters) {
-    const boxes = clusters.map(box), { width, height } = root.getBoundingClientRect();
+    const boxes = clusters.map(box), index = nearby(boxes), { width, height } = root.getBoundingClientRect();
     const inside = ({ x, y, width: w, height: h }) => x - w / 2 >= 0 && x + w / 2 <= width && y - h / 2 >= 0 && y + h / 2 <= height;
-    return clusters.map((cluster, index) => {
+    return clusters.map((cluster, at) => {
       if (new Set(cluster.features.map(feature => feature.id)).size > 1) return cluster;
       const named = box({ ...cluster, named: true });
-      if (!inside(named) || boxes.some((other, at) => at !== index && touch(named, other))) return cluster;
-      boxes[index] = named;
+      if (!inside(named) || index.near(named).some(other => other !== at && touch(named, boxes[other]))) return cluster;
+      boxes[at] = named; index.grow(named);
       return { ...cluster, named: true };
     });
   }
   function draw() {
     root.append(probe); sizes = new Map();
-    const total = cluster => cluster.features.reduce((sum, feature) => sum + feature.properties.count, 0);
     const clusters = nameWhereRoom(mergeTouching(marketFeatures(latest).features.sort((a, b) => b.properties.count - a.properties.count)
       .map(feature => ({ position: map.project(feature.geometry.coordinates), features: [feature], named: false }))).sort((a, b) => total(b) - total(a)));
     probe.remove();
@@ -201,6 +236,7 @@ export async function mountTerritoryMap(root, selectLead, { signal, markets = op
             else openPicker(item);
             return;
           }
+          framed = false;
           const bounds=new gl.LngLatBounds();item.features.forEach(f=>bounds.extend(f.geometry.coordinates));
           map.fitBounds(bounds,{padding:65,maxZoom:11,duration:root.ownerDocument.defaultView.matchMedia("(prefers-reduced-motion: reduce)").matches?0:200});
         });
@@ -227,8 +263,8 @@ export async function mountTerritoryMap(root, selectLead, { signal, markets = op
       map.on("idle", ready); map.on("error", failed); signal?.addEventListener("abort", aborted, { once: true });
       if (signal?.aborted) aborted();
     });
-  } catch (error) { root.removeEventListener("mouseleave", leavePreview); doc.removeEventListener("keydown", dismissPreview); closePreview(); map.off("movestart", closePreview); map.off("moveend", draw); map.off("resize", frameTerritory); themes?.disconnect(); shell.destroy(); throw error; }
+  } catch (error) { root.removeEventListener("mouseleave", leavePreview); doc.removeEventListener("keydown", dismissPreview); closePreview(); map.off("movestart", closePreview); map.off("moveend", draw); map.off("resize", refit); themes?.disconnect(); shell.destroy(); throw error; }
   return { resize() { map.resize(); }, locate(lead) { return marketLocation(lead, places); },
     update(groups, leadId) { latest=groups;selected=leadId;draw(); },
-    dispose() {root.removeEventListener("mouseleave",leavePreview);doc.removeEventListener("keydown",dismissPreview);closePreview();closePicker(false);map.off("movestart",closePreview);map.off("moveend",draw);map.off("resize",frameTerritory);themes?.disconnect();for(const item of markers.values())item.marker.remove();shell.destroy();} };
+    dispose() {root.removeEventListener("mouseleave",leavePreview);doc.removeEventListener("keydown",dismissPreview);closePreview();closePicker(false);map.off("movestart",closePreview);map.off("moveend",draw);map.off("resize",refit);themes?.disconnect();for(const item of markers.values())item.marker.remove();shell.destroy();} };
 }
