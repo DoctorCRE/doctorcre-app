@@ -98,7 +98,7 @@ test('Calendar opens each owning deal and Back restores the selected period and 
         const undatedLink = page.locator('#calUndatedList a');
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-        const evidence = join(root, '.github/pr-evidence/WR636.S1.J11');
+        const evidence = join(root, 'out/test-artifacts/WR636.S1.J11');
         await mkdir(evidence, { recursive: true });
         await page.screenshot({ path: join(evidence, `calendar-${width}-${theme}.png`), fullPage: true });
         const period = await page.locator('#calPeriod').textContent();

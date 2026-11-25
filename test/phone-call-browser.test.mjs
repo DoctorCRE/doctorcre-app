@@ -319,8 +319,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`qu
   await page.locator('#phonePending').getByText('Uploaded — waiting for the Studio', { exact: true }).waitFor({ timeout: 3000 });
   await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
   await animationsSettled(page);
-  await mkdir('.github/pr-evidence/WR572.S8.J35', { recursive: true });
-  await page.screenshot({ path: `.github/pr-evidence/WR572.S8.J35/queued-${width}-${theme}.png`, fullPage: true });
+  await mkdir('out/test-artifacts/WR572.S8.J35', { recursive: true });
+  await page.screenshot({ path: `out/test-artifacts/WR572.S8.J35/queued-${width}-${theme}.png`, fullPage: true });
   await page.getByRole('button', { name: /Check status/ }).click();
   assert.equal(state.writes.filter(w => w.method === 'PUT').length, 1);
   await page.locator('#phoneCalls[aria-busy=false]').waitFor();
@@ -521,8 +521,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`re
   await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
   await animationsSettled(page);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await mkdir('.github/pr-evidence/WR572.S8.J45', { recursive: true });
-  await page.screenshot({ path: `.github/pr-evidence/WR572.S8.J45/${width}-${theme}.png`, fullPage: true });
+  await mkdir('out/test-artifacts/WR572.S8.J45', { recursive: true });
+  await page.screenshot({ path: `out/test-artifacts/WR572.S8.J45/${width}-${theme}.png`, fullPage: true });
 });
 
 test('older session reads without review questions leave the review unchanged', async t => {
@@ -562,8 +562,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`he
   await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
   await animationsSettled(page);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await mkdir('.github/pr-evidence/WR572.S8.J43', { recursive: true });
-  await page.screenshot({ path: `.github/pr-evidence/WR572.S8.J43/held-${width}-${theme}.png`, fullPage: true });
+  await mkdir('out/test-artifacts/WR572.S8.J43', { recursive: true });
+  await page.screenshot({ path: `out/test-artifacts/WR572.S8.J43/held-${width}-${theme}.png`, fullPage: true });
 });
 
 test('queued call shows a hold on status refresh and does not resend audio', async t => {

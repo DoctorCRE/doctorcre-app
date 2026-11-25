@@ -8,7 +8,7 @@ import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { chromium, waitForAsync } from './browser-harness.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
-const evidence = join(root, '.github/pr-evidence/WR39.S1.J6');
+const evidence = join(root, 'out/test-artifacts/WR39.S1.J6');
 let outDir, server, browser, origin;
 before(async () => {
   outDir = await temporaryDirectory('critical-date-evidence-');
