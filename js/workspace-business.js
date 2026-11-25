@@ -72,6 +72,9 @@ const dom = {
   panel: document.querySelector("#recordPanel"),
   panelTitle: document.querySelector("#recordTitle"),
   panelEyebrow: document.querySelector("#recordEyebrow"),
+  panelMeta: document.querySelector("#recordMeta"),
+  panelActions: document.querySelector("#recordActions"),
+  panelMore: document.querySelector("#recordMore"),
   panelBody: document.querySelector("#recordBody"),
   panelClose: document.querySelector("#recordClose"),
   navClients: document.querySelector("#navClients"),
@@ -690,11 +693,25 @@ function clientNote({ notes, record_links }) {
   return `<section class="record-section client-note"><h3>Notes</h3><p class="entry-detail">${linkRecordNames(note, record_links)}</p><details class="record-details" data-details-key="notes"><summary><span>More</span><span>Less</span></summary></details></section>`;
 }
 
+/** The header's status, owner and record actions; empty while nothing has loaded. */
+function paintPanelHead(meta = "", actions = "") {
+  if (dom.panelMeta) dom.panelMeta.innerHTML = meta;
+  if (dom.panelActions) dom.panelActions.innerHTML = actions;
+  dom.panelTitle?.removeAttribute("title");
+}
+
+/** On a phone the record actions open as a menu; it closes once one is chosen. */
+function closePanelMenu() {
+  if (dom.panelActions?.matches(":popover-open")) dom.panelActions.hidePopover();
+}
+
 function renderRecordPanel() {
   if (!dom.panel) return;
   const { record, dataset } = view;
   if (!view.signedOut) capturePanelState();
   if (!view.recordId) {
+    closePanelMenu();
+    dom.panelTitle?.classList.remove("full");
     dom.panel.hidden = true;
     dom.panel.classList.remove("open");
     applyPanelModality();
@@ -704,6 +721,10 @@ function renderRecordPanel() {
   dom.panel.classList.add("open");
   applyPanelModality();
   if (dom.panelEyebrow) dom.panelEyebrow.textContent = DATASET_SINGULAR[dataset];
+  // A redraw keeps focus on the record action that had it, such as Edit after a save.
+  const actions = () => [...(dom.panelActions?.querySelectorAll("button") ?? [])];
+  const action = actions().indexOf(document.activeElement);
+  paintPanelHead();
   // A known sign-out empties the panel before anything else can render from it.
   if (view.signedOut) {
     if (dom.panelTitle) dom.panelTitle.textContent = "Your session has ended";
@@ -728,7 +749,9 @@ function renderRecordPanel() {
   const owner = ownerPresentation(payload.record);
   const kind = partyKindText(payload.record.party_kind);
   const vendor = dataset === "vendors";
-  if (dom.panelTitle) dom.panelTitle.textContent = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
+  paintPanelHead(`${toneHtml(tone)}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, partyEditor?.actionsHtml() ?? "");
+  if (action >= 0) focusWithoutScrolling(actions()[action]);
+  if (dom.panelTitle) dom.panelTitle.textContent = dom.panelTitle.title = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
   const ref = recordedValue(payload.record.ref);
   const referenceDetails = !vendor && ref.known
     ? `<details class="record-details" data-details-key="reference"><summary>Details</summary><dl><div class="record-field"><dt>Internal reference</dt><dd>${escapeHtml(ref.text)}</dd></div></dl></details>`
@@ -750,13 +773,9 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    // A redraw keeps focus on the record action that had it, such as Edit after a save.
-    const actions = () => [...dom.panelBody.querySelectorAll(".party-record-actions button")];
-    const action = actions().indexOf(document.activeElement);
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}</p>${partyEditor?.actionsHtml() ?? ""}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    dom.panelBody.innerHTML = `${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
-    if (action >= 0) focusWithoutScrolling(actions()[action]);
     const note = dom.panelBody.querySelector(".client-note > p");
     if (note) note.nextElementSibling.hidden = !note.nextElementSibling.open && note.scrollHeight <= note.clientHeight;
   }
@@ -1161,7 +1180,14 @@ function wireControls() {
   });
 
   dom.panelClose?.addEventListener("click", () => closeRecord());
-  dom.panelBody?.addEventListener("click", (event) => {
+  // Every way the menu opens or closes ends here, so the button always says which.
+  dom.panelActions?.addEventListener("toggle", (event) => {
+    dom.panelMore?.setAttribute("aria-expanded", String(event.newState === "open"));
+  });
+  dom.panel?.addEventListener("click", (event) => {
+    // A long name is cut to one line; a tap shows all of it.
+    if (event.target.closest("#recordTitle")) dom.panelTitle.classList.toggle("full");
+    if (event.target.closest("#recordActions button")) closePanelMenu();
     const edit = event.target.closest("[data-party-edit]");
     if (edit) return partyEditor?.edit();
     if (event.target.closest("[data-party-link]")) return partyEditor?.link(view.record.payload?.record?.name ?? "");
@@ -1179,6 +1205,12 @@ function wireControls() {
     if (event.key !== "Escape" || !view.recordId) return;
     // Escape leaves the panel, never the page, and never the reader's place.
     event.preventDefault();
+    // An open menu is the innermost layer: Escape closes only it.
+    if (dom.panelActions?.matches(":popover-open")) {
+      closePanelMenu();
+      dom.panelMore?.focus();
+      return;
+    }
     closeRecord();
   });
 
