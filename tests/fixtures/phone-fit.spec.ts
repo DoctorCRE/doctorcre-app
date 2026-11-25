@@ -104,7 +104,7 @@ for (const width of [360, 390, 500]) {
       }
       await expectTouchTargets(page.locator("main :is(a, button, summary, input, select):visible"));
       await page.goto(`${server.url}/settings?mode=live`);
-      const optIn = page.getByRole("checkbox", { name: /Send a device push/ });
+      const optIn = page.getByRole("switch", { name: "Device push", exact: true });
       await expect(optIn).toBeEnabled();
       await expectTouchTargets(page.locator("main :is(a, button, summary, input:not(#deviceOptIn), select):visible"));
       const target = optIn.locator("..");

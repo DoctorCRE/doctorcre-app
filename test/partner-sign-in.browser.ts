@@ -1323,6 +1323,15 @@ test("Doc settings show each Mac status and keep link codes private", async (t) 
     await refresh.click();
     await settings.getByText(copy, { exact: true }).waitFor();
   }
+  const accentFilled = await settings.getByRole("button").evaluateAll((buttons) => {
+    const probe = document.createElement("i");
+    probe.style.background = "var(--accent)";
+    document.body.append(probe);
+    const accent = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return buttons.filter((button) => getComputedStyle(button).backgroundColor === accent).length;
+  });
+  assert.equal(accentFilled, 0, "Doc link buttons leave Save preferences the only accent button");
 
   await settings.getByRole("button", { name: "Revoke link code" }).click();
   await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
