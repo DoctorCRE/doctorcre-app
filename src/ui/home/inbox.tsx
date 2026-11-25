@@ -671,6 +671,7 @@ export function createInboxClient(
     }
     switch (target.kind) {
       case "steps":
+        // eslint-disable-next-line no-restricted-syntax -- Writes once per copy of the card's step and stops at the first refusal.
         for (const [index, step] of target.steps.entries())
           await confirm(
             "end-engine-home-step",
@@ -931,6 +932,7 @@ export function createInboxClient(
           const done = request.action === "complete";
           const steps = [{ item_id: items[0]?.item_id ?? "", id: action_id, version: base_version }, ...repeats];
           const changes: unknown[] = [];
+          // eslint-disable-next-line no-restricted-syntax -- Writes once per copy of the card's step and stops at the first refusal.
           for (const [index, { id, version }] of steps.entries()) {
             const value = await rpc(done ? "end-engine-home-step" : "reopen-engine-home-step", {
               id,
