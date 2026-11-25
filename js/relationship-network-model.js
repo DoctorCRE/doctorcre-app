@@ -1,3 +1,6 @@
+import { dealName } from "./pipeline-model.js";
+import { withoutRecordCodes } from "./visual-system.js";
+
 export const NODE_LABELS = { vendor: "Vendor", client: "Client", lead: "Lead", deal: "Deal", contact: "Contact" };
 
 const NETWORK_SCHEMA = "carr-relationship-network.v1";
@@ -148,6 +151,36 @@ export function introductionSuggestions(
 }
 export function introductionRouteLabel(path) {
   return path.map(node => node.name).join(" → ");
+}
+// Old record codes, such as C-013, L-9001 or V-CPA-006.
+const OLD_CODE = /\b(?:[CLP]|V-[A-Z]{2,4})-\d+\b/g;
+const CODE_ONLY = /^(?:[CLP]|V-[A-Z]{2,4})-\d+$/;
+// The old system left a bracketed note, a website or a number where a name belongs.
+const PLACEHOLDER = /^(?:\((.*)\)|(?:https?:\/\/)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\/?|\d[\d\s#.-]*)$/i;
+
+function readableName(node, names) {
+  const name = node.kind === "deal" ? dealName(node.name) : withoutRecordCodes(node.name.trim());
+  if (CODE_ONLY.test(name)) return names.has(name) ? { name: names.get(name) } : { name: "An old record", unnamed: true };
+  const placeholder = PLACEHOLDER.exec(name);
+  if (!placeholder) return { name };
+  return { name: `Unnamed ${NODE_LABELS[node.kind].toLowerCase()} (${placeholder[1] ?? name})`, unnamed: true };
+}
+
+// Every name reads as a name, records without one follow the named ones, and an
+// old code in a note reads as its record's name, else "an old record" (#1493).
+export function readableNetwork(network) {
+  const names = new Map(network.nodes.flatMap(node => {
+    const name = node.ref && withoutRecordCodes(node.name.trim());
+    return name && !CODE_ONLY.test(name) && !PLACEHOLDER.test(name) ? [[node.ref, name]] : [];
+  }));
+  const text = value => value?.replace(OLD_CODE, code => names.get(code) ?? "an old record") ?? value;
+  const nodes = network.nodes.map(node => ({ ...node, ...readableName(node, names) }));
+  return {
+    ...network,
+    nodes: [...nodes.filter(node => !node.unnamed), ...nodes.filter(node => node.unnamed)],
+    edges: network.edges.map(edge => ({ ...edge, summary: text(edge.summary), detail: text(edge.detail) })),
+    suggestions: network.suggestions.map(row => ({ ...row, reason: text(row.reason), detail: text(row.detail) })),
+  };
 }
 function compareIds(a, b) {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;

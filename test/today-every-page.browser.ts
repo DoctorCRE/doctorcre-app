@@ -103,6 +103,7 @@ async function open(
     localStorage.setItem("doctorcre:sidebar:/invoices", "open");
     localStorage.setItem("doctorcre:today:/deals", "open");
     localStorage.setItem("doctorcre:today:/vendors", "open");
+    localStorage.setItem("doctorcre:today:/relationships", "open");
   }, theme);
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
