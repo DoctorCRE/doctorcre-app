@@ -51,17 +51,17 @@ test("clause 1: the unread count is printed from the payload and never recompute
   assert.equal(validFeedPayload(feed), true);
   assert.equal(feed.unread_count, 5);
   assert.equal(feed.notifications.length, 6, "the fixture holds a read row too");
-  assert.equal(unreadLine(feed), "5 unread notifications");
+  assert.equal(unreadLine(feed), "5 unread");
 
   // The count and the visible rows are DIFFERENT numbers, and the line follows
   // the count. A capped list is the ordinary case, not an edge one.
   const capped = await client.notificationFeed({ limit: 2 });
   assert.equal(capped.notifications.length, 2);
   assert.equal(capped.unread_count, 5, "the fixture recomputed the count from the page");
-  assert.equal(unreadLine(capped), "5 unread notifications");
+  assert.equal(unreadLine(capped), "5 unread");
 
   assert.equal(unreadLine({ ok: true, unread_count: 0, notifications: [] }), "Nothing unread");
-  assert.equal(unreadLine({ ok: true, unread_count: 1, notifications: [] }), "1 unread notification");
+  assert.equal(unreadLine({ ok: true, unread_count: 1, notifications: [] }), "1 unread");
   assert.equal(unreadLine(null), "");
 
 });

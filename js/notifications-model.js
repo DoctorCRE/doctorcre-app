@@ -79,7 +79,7 @@ export function unreadLine(payload) {
   if (!validFeedPayload(payload)) return "";
   const count = payload.unread_count;
   if (count === 0) return "Nothing unread";
-  return count === 1 ? "1 unread notification" : `${count} unread notifications`;
+  return `${count} unread`;
 }
 
 /* ----------------------------------------------------------------- the cards */
