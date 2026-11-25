@@ -29,7 +29,7 @@ test.afterAll(async () => { await rm(output, { recursive: true, force: true }); 
 for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
   const floor = controlFloor(width);
   test.describe(`${width}px ${theme}`, () => {
-    test.use({ viewport: { width, height: 960 }, colorScheme: theme, reducedMotion: 'reduce' });
+    test.use({ viewport: { width, height: 960 }, hasTouch: width <= 760, colorScheme: theme, reducedMotion: 'reduce' });
     test.beforeEach(async ({ page }) => {
       await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
       const seed = JSON.parse(await readFile(join(output, 'site/data/board-seed.json'), 'utf8'));

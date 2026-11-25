@@ -3,7 +3,8 @@ import { mkdir } from 'node:fs/promises';
 import { routeLeads } from '../../test/leads-browser-fixture.mjs';
 import { controlFloor } from '../../test/control-floor.ts';
 
-for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
+for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test.describe(`${width} ${theme}`, () => {
+  test.use({ hasTouch: width <= 760 });
   test(`Leads has flat framing and reachable territory at ${width}px ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
@@ -62,4 +63,4 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     expect.soft(await page.getByRole('button', { name: 'Territory shown', exact: true }).isVisible(), 'loaded map does not leave a disabled heading action').toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
-}
+});

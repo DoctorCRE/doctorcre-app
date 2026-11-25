@@ -153,7 +153,8 @@ test('opening a deal replaces the board with a workspace and Back restores its s
   await expect(page.locator('#main')).toBeVisible();
 });
 
-for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test.describe(`${width} ${theme}`, () => {
+  test.use({ hasTouch: width <= 760 });
   test(`workspace tabs show recorded data at ${width} in ${theme}`, async ({ page }, testInfo) => {
     const evidenceRequests = [];
     page.on('request', request => { if (new URL(request.url()).pathname === '/mcp') evidenceRequests.push(request.postData()); });
@@ -265,7 +266,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
       await testInfo.attach(`${width}-${theme}-${tab}`, { path, contentType: 'image/png' });
     }
   });
-}
+});
 
 test('a direct deal link opens Overview and Back reaches the board', async ({ page }) => {
   await page.goto(`${server.url}/deals?deal=d14`);

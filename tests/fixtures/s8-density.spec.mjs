@@ -13,7 +13,7 @@ const board = { snapshot: { board_id: 'density-demo', version: 1, updated_at: at
 
 for (const width of [1440, 390]) for (const theme of ['dark', 'light']) {
   test.describe(`${width} ${theme}`, () => {
-    test.use({ viewport: { width, height: width === 390 ? 844 : 1000 }, colorScheme: theme, reducedMotion: 'reduce' });
+    test.use({ viewport: { width, height: width === 390 ? 844 : 1000 }, hasTouch: width <= 760, colorScheme: theme, reducedMotion: 'reduce' });
     test.beforeEach(async ({ page }) => {
       await page.clock.install({ time: new Date(at) });
       await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
