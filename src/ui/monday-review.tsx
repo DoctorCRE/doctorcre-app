@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { pageScroller } from "../../js/touch-layout.js";
 import { NoteField, type ProspectClient, ProspectFollowUp, ProspectNote } from "./prospect-saves";
 import { refreshWhileVisible } from "./visible-refresh";
 
@@ -384,7 +385,11 @@ function Item({
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
             const reviewUrl = new URL(location.href);
             reviewUrl.searchParams.set("item", key);
-            history.replaceState({ ...history.state, reviewScroll: scrollY, reviewLink: key }, "", reviewUrl);
+            history.replaceState(
+              { ...history.state, reviewScroll: pageScroller().scrollTop, reviewLink: key },
+              "",
+              reviewUrl,
+            );
           }}
         >
           {item.name}
@@ -506,7 +511,7 @@ function Review({ data }: { data: ReviewData }) {
   useEffect(() => {
     if (!Array.isArray(rows) || restored.current) return;
     restored.current = true;
-    scrollTo(0, history.state?.reviewScroll ?? 0);
+    pageScroller().scrollTo(0, history.state?.reviewScroll ?? 0);
     document.getElementById(history.state?.reviewLink)?.focus({ preventScroll: true });
   }, [rows]);
 

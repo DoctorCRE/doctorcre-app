@@ -353,12 +353,13 @@ test("partners see and manage prospects from Deals", async (t) => {
       if (width === 1440) {
         await page.setViewportSize({ width: 1280, height: 900 });
         const kanban = page.locator("#kanban");
+        await page.locator("#appTodayToggle").click();
         assert.equal(await page.locator("#appToday").isVisible(), true);
-        assert.equal(
-          await kanban.evaluate((element) => element.scrollWidth <= element.clientWidth),
-          true,
-          "board with Prospects fits beside Today at 1280px",
-        );
+        const columnsKeepWidth = () =>
+          kanban
+            .locator(".kanban-column[data-column]")
+            .evaluateAll((columns) => columns.every((column) => column.getBoundingClientRect().width >= 119.5));
+        assert.equal(await columnsKeepWidth(), true, "columns keep their minimum width beside Today at 1280px");
         const longName = "Example Electroencephalographyassociates";
         deals.push(
           ...["pending", "research", "site_selection", "negotiation", "legal", "due_diligence", "closing"].flatMap(
@@ -379,11 +380,7 @@ test("partners see and manage prospects from Deals", async (t) => {
           await page.setViewportSize({ width: narrow, height: 900 });
           assert.match((await headings.allTextContents()).join(" "), /Negotiating\s*12/);
           if (narrow === 1280)
-            assert.equal(
-              await kanban.evaluate((element) => element.scrollWidth <= element.clientWidth),
-              true,
-              "board with a two-digit count fits beside Today at 1280px",
-            );
+            assert.equal(await columnsKeepWidth(), true, "columns with a two-digit count keep their width at 1280px");
           assert.deepEqual(
             await headings.locator("button > span").evaluateAll(wordsSplitAcrossLines),
             [],
@@ -417,7 +414,7 @@ test("partners see and manage prospects from Deals", async (t) => {
         await page.reload();
         const retry = lane.getByRole("button", { name: "Try again" });
         await retry.waitFor();
-        assert.equal(await kanban.evaluate((element) => element.scrollWidth <= element.clientWidth), true);
+        assert.equal(await columnsKeepWidth(), true);
         for (const narrow of [1280, 1100]) {
           await page.setViewportSize({ width: narrow, height: 900 });
           const [laneBox, retryBox] = await Promise.all([lane.boundingBox(), retry.boundingBox()]);
@@ -446,7 +443,7 @@ test("partners see and manage prospects from Deals", async (t) => {
         await birch.waitFor();
         await settles(async () => assert.match((await headline.textContent()) ?? "", / · 2 prospects$/));
         assert.match((await lane.textContent()) ?? "", /Dell · Due Thu, Nov 12 \(6 days late\)/);
-        assert.match((await lane.textContent()) ?? "", /Doc \(assistant\) · Wed, Nov 18(?:,| at) 9:40 AM/);
+        assert.match((await lane.textContent()) ?? "", /Written by the assistant · Wed, Nov 18(?:,| at) 9:40 AM/);
         await chips.getByRole("button", { name: "Joe", exact: true }).click();
         await birch.waitFor({ state: "detached" });
         await open.waitFor();

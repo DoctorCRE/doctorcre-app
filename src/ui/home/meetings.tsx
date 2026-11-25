@@ -232,7 +232,7 @@ export function MeetingTile({
 
   const lastSync =
     (stale || data.partial || data.readDay !== today) && data.lastSync
-      ? `Last synced ${localDate.format(new Date(data.lastSync))} Central`
+      ? `Last synced ${localDate.format(new Date(data.lastSync))}`
       : null;
   if (!events.length)
     return (

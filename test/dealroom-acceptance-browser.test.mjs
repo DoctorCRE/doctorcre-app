@@ -750,7 +750,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`si
   await page.locator('.deal-updates').scrollIntoViewIfNeeded();
   await page.screenshot({path:join(evidence,`${width}-${theme}-summary.png`),animations:'disabled'});
   await page.locator('.updates-history > summary').click();
-  await page.evaluate(() => scrollTo(0,220));
+  await page.evaluate(() => { document.getElementById('appMainSlot').scrollTo(0,220); scrollTo(0,220); });
   await page.screenshot({ path: join(evidence, `${width}-${theme}-scrolled.png`), animations: 'disabled' });
   const titleHitTest = await page.locator('#panelTitle').evaluate(title => {
     const range = document.createRange(); range.selectNodeContents(title);
@@ -759,7 +759,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`si
       const hit = document.elementFromPoint(x, (rect.top + rect.bottom) / 2);
       return {x, visible: hit === title || title.contains(hit)};
     }));
-    return {scrollTop: scrollY, text: text.toJSON(), hits};
+    return {scrollTop: scrollY + document.getElementById('appMainSlot').scrollTop, text: text.toJSON(), hits};
   });
   await writeFile(join(evidence, `${width}-${theme}-hit-test.json`), JSON.stringify({...titleHitTest, header}, null, 2));
   assert.ok(titleHitTest.scrollTop > 100, 'exercise the sticky header after scrolling');
@@ -1234,7 +1234,7 @@ for (const width of [1440, 390]) test(`a fresh automatic call move shows its evi
     await mark.getByText('Moved automatically', { exact: true }).waitFor({ timeout: 5000 });
     assert.equal(await mark.count(), 1);
     assert.equal(await mark.locator('time[datetime="2026-10-19"]').innerText(), 'Mon, Oct 19, 2026');
-    assert.match(await mark.innerText(), /Oct 18, 9:30 PM CDT/);
+    assert.match(await mark.innerText(), /Oct 18, 9:30 PM/);
   };
   const card = page.locator(`.kanban-card[data-id="${deal.id}"]`);
   const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
@@ -2666,9 +2666,9 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   const earlier = await oldHistory.getByRole('listitem').allTextContents();
   assert.equal(earlier.length, 5);
   assert.match(earlier[0], /Deal kind: Lease.*Deal reason: Renewal/s);
-  assert.match(earlier[1], /Joe.*Jan 5, 2025.*6:00 PM CST.*Prepared a document.*Example lease <draft>.*Fields filled.*0.*Fields still needed.*2/s);
-  assert.match(earlier[2], /Automatically.*Jan 5, 2025.*6:00 PM CST.*Checked the address.*Result: Nothing found.*Feb 3, 2025/s);
-  assert.match(earlier[3], /Dell.*Jan 4, 2025.*6:00 PM CST.*Changed the next step date.*Next step date cleared.*Jan 6, 2025/s);
+  assert.match(earlier[1], /Joe.*Jan 5, 2025.*6:00 PM.*Prepared a document.*Example lease <draft>.*Fields filled.*0.*Fields still needed.*2/s);
+  assert.match(earlier[2], /Written by the assistant.*Jan 5, 2025.*6:00 PM.*Checked the address.*Result: Nothing found.*Feb 3, 2025/s);
+  assert.match(earlier[3], /Dell.*Jan 4, 2025.*6:00 PM.*Changed the next step date.*Next step date cleared.*Jan 6, 2025/s);
   assert.doesNotMatch(earlier.join(' '), /2025-01-|next_date|set-next-action|record-finding|expires_on|\[object Object\]/);
   assert.equal(await oldHistory.locator('a, button, input, select, textarea, [contenteditable]').count(), 0);
   assert.equal(await oldHistory.evaluate(el => el.scrollWidth <= el.clientWidth), true);
@@ -2683,11 +2683,11 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
     times.map(time => time.dateTime)), ['2025-01-03T10:00:00.000004Z', '2025-01-03T10:00:00.000002Z'],
     'Both notes remain visible when the event supplies no activity ID');
   assert.equal(contents.length, 9 + stepChanges.length + (dates.length - 1) + dealChanges.length);
-  assert.match(contents[0], /Automatically.*Nov 17.*7:00 PM.*Legal/);
+  assert.match(contents[0], /Written by the assistant.*Nov 17.*7:00 PM.*Legal/);
   assert.match(contents[1], /Dell.*Nov 17.*2:00 PM.*Tour plans confirmed/);
   assert.match(contents[2], /Dell.*Nov 17.*1:00 PM.*Due diligence.*Due Nov 19/);
   assert.match(contents[3], /Joe.*Check the floor plan$/);
-  assert.match(contents[5], /Automatically.*Nov 16.*Example plan\.pdf/);
+  assert.match(contents[5], /Mail filing.*Nov 16.*Example plan\.pdf/);
   const descriptions = await rows.locator('p').allTextContents();
   for (const [description, , state] of stepChanges) {
     assert.ok(descriptions.includes(`${description} · ${state} · Due Nov 19, 2026`), `Next step should say ${state}`);
@@ -2890,6 +2890,11 @@ for (const width of [1440, 390]) {
     const droppedItem = items.filter({ hasText: droppedRow.name });
     await droppedItem.getByRole('button', { name: 'Reviewed', exact: true }).waitFor();
     assert.equal(await droppedItem.getByLabel('Add note').count(), 0);
+    const reviewPlace = () => page.evaluate(() => scrollY + document.getElementById('appMainSlot').scrollTop);
+    await page.setViewportSize({ width, height: 420 });
+    await droppedItem.evaluate(node => node.scrollIntoView({ block: 'end', behavior: 'instant' }));
+    const place = await reviewPlace();
+    assert.ok(place > 0, 'the review list scrolls at this height');
     await droppedItem.getByRole('link').click();
     const archive = page.getByRole('main', { name: droppedRow.name });
     await archive.getByText('Dropped Mon, Nov 9: Plans changed', { exact: true }).waitFor();
@@ -2903,6 +2908,8 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
     assert.equal(await page.getByRole('checkbox', { name: 'Not reviewed' }).isChecked(), true);
     await page.getByRole('link', { name: droppedRow.name }).and(page.locator(':focus')).waitFor();
+    assert.ok(Math.abs((await reviewPlace()) - place) <= 2, 'Monday review returns to the same scroll place');
+    await page.setViewportSize({ width, height: 900 });
     await page.getByRole('button', { name: 'One at a time' }).click();
     await page.getByRole('link', { name: droppedRow.name }).waitFor();
     await page.getByRole('button', { name: 'As a list' }).click();
@@ -3146,9 +3153,9 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   await panel.getByText('Example Architect', { exact: false }).waitFor({ timeout: 5_000 });
   const rows = panel.getByRole('listitem');
   assert.equal(await rows.count(), 3);
-  assert.match(await rows.nth(0).innerText(), /Floor plan <draft>[\s\S]*Example Architect[\s\S]*Nov 19, 11:30 AM CST/);
-  assert.match(await rows.nth(1).innerText(), /^Review the floor plan[\s\S]*Nov 19, 10:00 AM CST/);
-  assert.match(await rows.nth(2).innerText(), /Floor plan <draft>[\s\S]*plans@example\.test[\s\S]*Nov 18, 9:00 AM CST/);
+  assert.match(await rows.nth(0).innerText(), /Floor plan <draft>[\s\S]*Example Architect[\s\S]*Nov 19, 11:30 AM/);
+  assert.match(await rows.nth(1).innerText(), /^Review the floor plan[\s\S]*Nov 19, 10:00 AM/);
+  assert.match(await rows.nth(2).innerText(), /Floor plan <draft>[\s\S]*plans@example\.test[\s\S]*Nov 18, 9:00 AM/);
   assert.equal(await panel.getByRole('region', { name: 'Deal notes' }).getByText('Bring the sample plan').count(), 1);
   assert.equal(await page.getByText('File email to this deal', { exact: true }).count(), 0);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -3241,9 +3248,9 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   assert.equal(await ownRow.locator('strong').textContent(), own.display_title);
   assert.equal(await steps.getByText(own.description, { exact: true }).count(), 1);
   await ownRow.getByText(/^Joe · Due/).waitFor();
-  await ownRow.getByText('Set by Example Partner · Oct 29, 8:51 AM CDT', { exact: true }).waitFor();
+  await ownRow.getByText('Set by Example Partner · Oct 29, 8:51 AM', { exact: true }).waitFor();
   await otherRow.getByText('Dell · No due date', { exact: true }).waitFor();
-  await otherRow.getByText('Set Oct 30, 9:30 AM CDT', { exact: true }).waitFor();
+  await otherRow.getByText('Set Oct 30, 9:30 AM', { exact: true }).waitFor();
   const capture = (region, stage) => region.screenshot({ path: join(evidence, `deal-step-${stage}-${width}-${theme}.png`), animations: 'disabled' });
   await capture(snapshot, 'open');
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
@@ -3537,7 +3544,7 @@ for (const width of [1440, 390]) {
         return rect.top >= 0 && rect.bottom <= innerHeight;
       }), true);
       if (!step.title) {
-        assert.match(await focused.textContent(), /Set by Example Partner · Nov 3.*10:00 AM CST · From a meeting/);
+        assert.match(await focused.textContent(), /Set by Example Partner · Nov 3.*10:00 AM · From a meeting/);
         await page.screenshot({ path: join(evidence, `home-step-${step.owner}-${width}.png`) });
       }
     }

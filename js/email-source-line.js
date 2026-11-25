@@ -25,7 +25,7 @@ export function sourceTime(occurredAt, now = new Date(), missing = 'Time unavail
   if (!sent) return missing;
   const year = date => date.toLocaleDateString('en-US', { timeZone: BUSINESS_TIME_ZONE, year: 'numeric' });
   return sent.toLocaleString('en-US', { timeZone: BUSINESS_TIME_ZONE, month: 'short', day: 'numeric',
-    ...(year(sent) === year(now) ? {} : { year: 'numeric' }), hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    ...(year(sent) === year(now) ? {} : { year: 'numeric' }), hour: 'numeric', minute: '2-digit' });
 }
 
 export function waitingDays(occurredAt, now = new Date()) {

@@ -197,7 +197,7 @@ for (const width of viewports)
       await page.clock.setFixedTime(new Date("2026-07-01T12:27:00Z"));
       await page.goto(updates);
       await page.getByRole("heading", { name: "No updates", exact: true }).waitFor({ timeout: 2500 });
-      assert.equal(await page.locator("#feedAsOf").textContent(), "As of 7:27 AM CDT");
+      assert.equal(await page.locator("#feedAsOf").textContent(), "As of 7:27 AM");
       assert.equal(await page.getByText("Nothing unread", { exact: true }).count(), 1);
       assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
       assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /\bunknown\b/i);
@@ -321,9 +321,9 @@ test("Updates lists the partner's engine updates with the unread count", async (
   ]);
   assert.deepEqual(verbs, []);
   const unreadCard = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: unread.title }) });
-  assert.equal(await unreadCard.getByText("9:00 AM CST", { exact: true }).count(), 1);
+  assert.equal(await unreadCard.getByText("9:00 AM", { exact: true }).count(), 1);
   assert.equal(await unreadCard.getByText("Unread", { exact: true }).count(), 1);
-  assert.equal(await page.getByText("Read at 10:00 AM CST", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("Read at 10:00 AM", { exact: true }).count(), 1);
   const today = page.waitForRequest("**/api/engine/home/today");
   await page.getByRole("button", { name: "Today sidebar" }).click();
   await today;
@@ -341,7 +341,7 @@ test("opening an unread update uses the saved read time and returned badge count
   const opened = page.waitForEvent("popup");
   await page.getByRole("link", { name: "Open checklist item" }).click();
   assert.equal(new URL((await opened).url()).searchParams.get("deal"), deal);
-  await page.getByText("Read at 6:00 AM CST", { exact: true }).waitFor();
+  await page.getByText("Read at 6:00 AM", { exact: true }).waitFor();
   assert.equal(await page.locator("#navUnreadBadge").getAttribute("aria-label"), "2 unread notifications");
   const [save] = sent.filter(({ key }) => key === "POST /api/engine/updates/read");
   assert.deepEqual(save?.body?.update_ids, [unread.source_id]);
@@ -409,13 +409,13 @@ test("checking a read outcome keeps the badge from counting an already read upda
   const check = page.getByRole("button", { name: "Check outcome" });
   await check.waitFor();
   await page.getByRole("link", { name: second.primary_action }).press("Enter");
-  await page.getByText("Read at 7:00 AM CST", { exact: true }).waitFor();
+  await page.getByText("Read at 7:00 AM", { exact: true }).waitFor();
   const badge = page.locator("#navUnreadBadge");
   assert.equal(await badge.getAttribute("aria-label"), null);
 
   await check.click();
-  await page.getByText("Read at 6:00 AM CST", { exact: true }).waitFor();
-  assert.equal(await page.getByText("Read at 7:00 AM CST", { exact: true }).count(), 1);
+  await page.getByText("Read at 6:00 AM", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Read at 7:00 AM", { exact: true }).count(), 1);
   assert.equal(await badge.getAttribute("aria-label"), null);
 });
 
@@ -555,10 +555,7 @@ test("Who did what shows the engine's first page and Show more follows next_befo
   });
   await page.goto(updatesPath);
   await page.getByRole("heading", { name: "Alex Example · moved the deal to LOI" }).waitFor();
-  assert.equal(
-    await page.locator("#activityList").getByText("Example Dental · 9:00 AM CST", { exact: true }).count(),
-    1,
-  );
+  assert.equal(await page.locator("#activityList").getByText("Example Dental · 9:00 AM", { exact: true }).count(), 1);
   assert.equal(
     await page.locator("#activityList").getByRole("link", { name: "Open deal" }).getAttribute("href"),
     `/deals?deal=${deal}`,

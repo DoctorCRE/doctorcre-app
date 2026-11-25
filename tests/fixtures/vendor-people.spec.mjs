@@ -19,12 +19,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`Ve
     return route.fulfill({ json: directoryFixture(route.request().url()) });
   });
   await page.goto('/vendors');
-  const tools = page.locator('.app-layout-page-tools');
-  await expect(tools).toBeVisible();
-  await expect(tools).not.toHaveAttribute('open', '');
-  await tools.locator('summary').click();
-  await expect(tools.locator('#appSidebarSlot')).toBeVisible();
-  await tools.locator('summary').click();
+  await expect(page.locator('#appToolsSlot #refreshList')).toBeVisible();
   const first = page.locator('.record-row').first();
   await first.click();
   const contacts = page.getByRole('region', { name: 'Vendor contacts' });

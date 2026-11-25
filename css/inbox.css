@@ -68,9 +68,8 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 }
 /* On a computer Home fits one screen: the page controls share one band and each tile scrolls its own overflow. */
 @media (min-width: 1000px) and (min-height: 600px) {
-  .app-layout-center:has(.home-inbox):not(:has(#appTabsSlot > [data-layout-slot="tabs"])) > .app-layout-topbar { position: absolute; z-index: 81; inset-block-start: 0; inset-inline-end: 0; min-height: var(--tabbar-height); }
   .has-app-layout main:has(.home-inbox) .inbox-shell { padding-bottom: 0; }
-  .home-sections { --home-fit: calc(100dvh - var(--tabbar-height) - 2 * var(--space-5)); }
+  .home-sections { --home-fit: calc(100dvh - var(--topbar-height) - 2 * var(--pad)); }
   .home-sections > .home-slice { max-height: calc((var(--home-fit) - var(--space-4)) / 2); overflow-y: auto; overscroll-behavior: contain; }
   .home-sections > .home-slice:first-child, .home-sections > .home-slice:nth-child(2):not(:has(~ .home-slice)) { max-height: var(--home-fit); }
   .home-sections > .home-tile-status { margin: 0; line-height: 20px; }

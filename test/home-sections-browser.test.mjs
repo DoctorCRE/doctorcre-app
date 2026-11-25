@@ -258,7 +258,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(door, enabled ? '/api/engine/home/marks' : 'snooze-home-inbox');
   if (enabled) {
     const snoozed = waiting.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /^Read the sample lease/ }) });
-    await snoozed.getByText(/^Snoozed until .* Central$/).waitFor();
+    await snoozed.getByText(/^Snoozed until .* [AP]M$/).waitFor();
     assert.deepEqual(await snoozed.getByRole('button').allTextContents(), ['Wake']);
     assert.equal(await snoozed.getByRole('checkbox').isDisabled(), true);
   }
@@ -920,7 +920,7 @@ for (const width of [390, 1440]) test(`Follow-up destinations retain exact steps
     } else await link.click();
     const dialog = page.getByRole('dialog', { name: isProspect ? 'Example Practice' : 'Example Contact' });
     const step = dialog.locator(':focus');
-    await step.getByText(/Set by Example Partner · Nov 3.*10:00 AM CST · From an? (email|meeting)/).waitFor();
+    await step.getByText(/Set by Example Partner · Nov 3.*10:00 AM · From an? (email|meeting)/).waitFor();
     assert.match(await step.innerText(), new RegExp(title));
     assert.match(await step.innerText(), isProspect ? /From an email/ : /From a meeting/);
     if (id === completedStep) assert.match(await step.innerText(), /Done/);
@@ -947,14 +947,14 @@ for (const fragment of ['homeCallTasks', 'homeEmailFollowups', 'homeOverdueRevie
   await page.locator(`#${fragment}`).waitFor({ state: 'attached' });
 });
 
-test('Calendar rail leaves page tools in the center at narrow desktop sizes', async t => {
+test('Calendar rail stays empty with no Page tools at narrow desktop sizes', async t => {
   const run = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: {} });
   const { page } = run;
   for (const width of [1024, 1280, 1440]) {
     await page.setViewportSize({ width, height: 700 });
     await run.open(`/calendar`);
     assert.equal(await page.locator('#appSidebar .app-layout-working, #appSidebar [data-layout-slot=sidebar], #appSidebar .calendar-panel-followup').count(), 0);
-    assert.equal(await page.locator('#appMainSlot .app-layout-page-tools').count(), 1);
+    assert.equal(await page.locator('.app-layout-page-tools').count(), 0);
     assert.ok(await page.locator('#appSidebar').evaluate(node => node.scrollHeight <= node.clientHeight));
   }
 });
@@ -1816,7 +1816,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
     assert.ok(first.width > 1.8 * second.width, 'Reminders takes the wide column');
     assert.equal(third.x, second.x);
     assert.ok(third.y >= second.y + second.height, 'the other tiles stack beside Reminders');
-    assert.equal(await page.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight), true, 'the page itself does not scroll');
+    const bar = await page.locator('.app-layout-topbar').boundingBox();
+    assert.ok(second.y >= bar.y + bar.height, 'the top bar never covers the In motion and waiting title');
+    assert.equal(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   }
   await reminders.getByRole('heading', { name: 'Late', exact: true }).waitFor();
   await reminders.getByText(/3 days late/).waitFor();
@@ -1874,11 +1876,12 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['
     await mkdir(process.env.HOME_GRID_SCREENSHOTS, { recursive: true });
     await page.screenshot({ path: join(process.env.HOME_GRID_SCREENSHOTS, `home-alone-${width}x${height}-${theme}.png`) });
   }
-  const [tile, grid, band] = await Promise.all([reminders, page.locator('.home-sections'), page.locator('.app-layout-tabbar')]
+  const [tile, grid, band] = await Promise.all([reminders, page.locator('.home-sections'), page.locator('.app-layout-topbar')]
     .map(node => node.boundingBox()));
   assert.equal(tile.width, grid.width, 'a lone Reminders tile fills the row');
   assert.ok(band.y + band.height <= 60, 'the page controls take one compact band');
-  assert.deepEqual(await page.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight), true, 'the page itself does not scroll');
+  assert.ok(tile.y >= band.y + band.height, 'the top bar never covers the tile title');
+  assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   assert.deepEqual(await reminders.evaluate(node => node.scrollHeight > node.clientHeight), true, 'the long list scrolls inside its tile');
   await reminders.getByRole('heading', { name: /^Reminders/ }).waitFor();
 });
@@ -2213,7 +2216,7 @@ for (const width of [390, 1440]) {
     await review.getByText('First draft.', { exact: true }).waitFor();
     await review.getByRole('region', { name: 'File this email', exact: true }).waitFor();
     assert.equal(await review.getByRole('button', { name: /^(Accept|Drop|Edit|Send reply)$/ }).count(), 0);
-    await page.getByText('Snoozed until Nov 4, 2026, 10:00 AM Central', { exact: true }).waitFor();
+    await page.getByText('Snoozed until Nov 4, 2026, 10:00 AM', { exact: true }).waitFor();
     assert.equal(await page.getByRole('link', { name: 'Back to Home' }).getAttribute('href'), '/');
   });
 
@@ -2230,7 +2233,7 @@ for (const width of [390, 1440]) {
     await review.getByText('First draft.', { exact: true }).waitFor();
     await review.getByRole('region', { name: 'File this email', exact: true }).waitFor();
     assert.equal(await review.getByRole('button', { name: /^(Choose deal|Choose vendor|Dismiss|Drop|Edit|Send reply)$/ }).count(), 0);
-    await page.getByText('Snoozed until Nov 4, 2026, 10:00 AM Central', { exact: true }).waitFor();
+    await page.getByText('Snoozed until Nov 4, 2026, 10:00 AM', { exact: true }).waitFor();
     assert.equal(await page.getByRole('link', { name: 'Back to Home' }).getAttribute('href'), '/');
   });
 
@@ -2349,8 +2352,11 @@ for (const save of ['single', 'bulk', 'review']) test(`Home keeps grouped cards 
   await unchanged.waitFor();
 });
 
-for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home polls in place at ${width}px in ${theme}`, async t => {
+for (const width of [390, 900, 1440]) for (const theme of ['light', 'dark']) test(`Home polls in place at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
+  // Safari has no scroll anchoring, so Home keeps the page's place itself.
+  if (width < 1000) await page.addInitScript(() => addEventListener('DOMContentLoaded', () =>
+    document.head.append(Object.assign(document.createElement('style'), { textContent: '* { overflow-anchor: none !important; }' }))));
   const draft = draftCard();
   const tasks = Array.from({ length: 10 }, (_, index) => ({
     ...step(21 + index, `Call about sample suite ${index + 1}`), card_id: `suite:${index}`,
@@ -2369,7 +2375,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const message = review.getByRole('textbox', { name: 'Message', exact: true });
   await message.fill('Unsaved edit for the floor plan.');
   await message.scrollIntoViewIfNeeded();
-  const before = await message.evaluate(node => ({ y: scrollY + node.closest('.home-slice').scrollTop, top: node.getBoundingClientRect().top }));
+  const before = await message.evaluate(node => ({ y: scrollY + document.getElementById('appMainSlot').scrollTop + node.closest('.home-slice').scrollTop, top: node.getBoundingClientRect().top }));
   assert.ok(before.y > 0 && before.top >= 0 && before.top < 760);
   const reads = state.dashboardReads;
   const added = { ...step(32, 'Confirm the site visit'), card_id: 'suite:new' };
@@ -2381,7 +2387,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(await draftTitle.evaluate((node, original) => node === original, originalCard), true);
   assert.equal(await message.inputValue(), 'Unsaved edit for the floor plan.');
   assert.equal(await message.evaluate(node => node === document.activeElement), true);
-  const after = await message.evaluate(node => ({ y: scrollY, top: node.getBoundingClientRect().top }));
+  const after = await message.evaluate(node => ({ y: scrollY + document.getElementById('appMainSlot').scrollTop, top: node.getBoundingClientRect().top }));
   assert.ok(Math.abs(after.top - before.top) <= 2, JSON.stringify({ before, after }));
   assert.deepEqual(await reminders.locator('article > .inbox-copy h3 a').allTextContents(),
     [...tasks.slice(1, 5), draft, ...tasks.slice(5), added].map(item => item.title));
@@ -2445,10 +2451,10 @@ test('Home meetings rolls over at Central midnight even when the refresh fails',
   calendar.unavailable = true;
   await page.clock.fastForward(20_000);
   await meetings.waitFor({ state: 'detached' });
-  await page.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
+  await page.getByText('Last synced Nov 3, 8:00 AM').waitFor();
   await page.clock.fastForward(60_000);
   await page.getByText('Meetings unavailable.', { exact: true }).waitFor();
-  await page.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
+  await page.getByText('Last synced Nov 3, 8:00 AM').waitFor();
 });
 
 test('Home keeps a review-only meeting after its outcome is saved and refreshed', async t => {
@@ -2468,7 +2474,7 @@ test('Home keeps a review-only meeting after its outcome is saved and refreshed'
   calendar.state = 'partial';
   calendar.observed_at = '2026-11-03T14:01:00Z';
   await page.clock.fastForward(60_000);
-  await meetings.getByText('Last synced Nov 3, 8:01 AM Central').waitFor();
+  await meetings.getByText('Last synced Nov 3, 8:01 AM').waitFor();
   await title.waitFor();
 });
 
@@ -2727,7 +2733,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
   await meetings.getByRole('heading', { name: "Today's meetings 6" }).waitFor();
   await reminders.getByRole('heading', { name: 'Reminders 5' }).waitFor();
-  await meetings.getByText('Last synced Nov 3, 8:00 AM Central').waitFor();
+  await meetings.getByText('Last synced Nov 3, 8:00 AM').waitFor();
   assert.equal(await meetings.getByText(current.title, { exact: true }).count(), 1);
   assert.equal(await meetings.getByText(laterDay.title, { exact: true }).count(), 0);
   assert.equal(await meetings.locator('summary').count(), 5);

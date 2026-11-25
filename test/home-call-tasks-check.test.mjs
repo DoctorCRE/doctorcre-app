@@ -280,8 +280,8 @@ test('follow-ups name and age their own call despite a newer call for the same d
   try {
     h.controller.update({ ...ready, tasks });
     const sources = [...h.host.querySelectorAll('.home-call-source')];
-    assert.match(sources[0].textContent, /pipeline call.*Oct 26.*9:00 AM CDT.*7d ago/);
-    assert.match(sources[1].textContent, /pipeline call.*Oct 31.*9:00 AM CDT.*2d ago/);
+    assert.match(sources[0].textContent, /pipeline call.*Oct 26.*9:00 AM.*7d ago/);
+    assert.match(sources[1].textContent, /pipeline call.*Oct 31.*9:00 AM.*2d ago/);
     assert.doesNotMatch(sources[0].textContent, /with Demo deal/);
     assert.equal(sources[0].querySelector('time').dateTime, '2026-10-26T14:00:00Z');
   } finally { h.close(); }

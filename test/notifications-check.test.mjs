@@ -338,7 +338,7 @@ test("the page is the shared shell, the activity panel is its own thing, and 44p
   ]);
   assert.equal(rows.length, 2);
   assert.equal(rows[0].actor, "Unattributed", "the newest event is not first");
-  assert.equal(rows[1].clock, "8:20 AM CST");
+  assert.equal(rows[1].clock, "8:20 AM");
   assert.equal(rows[1].subject, "Deal");
 
   // Mobile first: one column, a full-width target, and the 44px floor.
@@ -789,10 +789,20 @@ test('device delivery evidence distinguishes absence from unavailable without lo
   assert.equal(deliveryPhrases([{ channel: 'device', state: 'constructor' }])[0].phrase, 'Delivery status unavailable');
 });
 
-test('update times use the saved zone and default to Central', () => {
+test('an Updates change a job made names the job plainly', () => {
+  const row = { id: '1', who: null, job: 'agent', what: 'moved the deal to LOI', record: 'Example Deal',
+    changed_at: '2026-01-15T18:30:00Z', open_url: '/deals?deal=example' };
+  const { changes } = parseChangesPage({ changes: [row, { ...row, id: '2', who: 'Alex Example', job: null },
+    { ...row, id: '3', job: 'call_capture' }], next_before: null });
+  assert.deepEqual(changes.map(change => change.actor), ['Written by the assistant', 'Alex Example', 'Automatically']);
+  assert.equal(activityRows([{ actor: 'agent', verb: 'add-deal-note', recorded_at: '2026-01-15T18:30:00Z' }])[0].actor,
+    'Written by the assistant');
+});
+
+test('update times name only a zone other than Central', () => {
   const row = { id: '1', who: 'Partner', what: 'Updated', record: 'Example Deal',
     changed_at: '2026-01-15T18:30:00Z', open_url: '/deals?deal=example' };
   const { changes } = parseChangesPage({ changes: [row], next_before: null });
-  assert.equal(changeRows(changes)[0].clock, '12:30 PM CST');
+  assert.equal(changeRows(changes)[0].clock, '12:30 PM');
   assert.equal(changeRows(changes, 'America/New_York')[0].clock, '1:30 PM EST');
 });

@@ -72,7 +72,7 @@ const isWaitingCard = (item: InboxItem) =>
 
 function snoozeLabel(item: InboxItem) {
   return item.disposition === "snoozed" && item.snoozed_until
-    ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))} Central`
+    ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))}`
     : null;
 }
 
@@ -338,7 +338,6 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       hour: "numeric",
       minute: "2-digit",
       second: "2-digit",
-      timeZoneName: "short",
     });
     setSnooze({
       items,
@@ -717,14 +716,14 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           .join(" · "));
     const returns =
       item.returns_at && !item.hold_until && !item.snoozed_until
-        ? `Returns ${snoozeDate.format(new Date(item.returns_at))} Central`
+        ? `Returns ${snoozeDate.format(new Date(item.returns_at))}`
         : null;
     const hold =
       item.hold_until &&
       `On hold until ${
         item.hold_until.length === 10
           ? cardDate.format(new Date(item.hold_until))
-          : `${snoozeDate.format(new Date(item.hold_until))} Central`
+          : `${snoozeDate.format(new Date(item.hold_until))}`
       }`;
     const propertyFeedback =
       feedbackReview &&
@@ -848,7 +847,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           )}
           {emailAt && (
             <p className="inbox-detail">
-              Received <time dateTime={emailAt}>{snoozeDate.format(new Date(emailAt))} Central</time>
+              Received <time dateTime={emailAt}>{snoozeDate.format(new Date(emailAt))}</time>
             </p>
           )}
           {(detail || hold || waitingOn || returns || item.section === "held") && (
@@ -1002,7 +1001,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             {activity && !reviewClient && (
               <>
                 {typeof activity.contact === "string" && <p>Call with {activity.contact}</p>}
-                {activityAt && <time dateTime={activityAt}>{snoozeDate.format(new Date(activityAt))} Central</time>}
+                {activityAt && <time dateTime={activityAt}>{snoozeDate.format(new Date(activityAt))}</time>}
                 {typeof activity.summary === "string" && <p>{sourceExcerptText(activity.summary)}</p>}
                 {typeof activity.quote === "string" && <blockquote>{sourceExcerptText(activity.quote)}</blockquote>}
               </>
@@ -1327,7 +1326,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           aria-label="Snooze cards"
         >
           <h2>Snooze {snooze.items.length === 1 ? "card" : `${snooze.items.length} cards`}</h2>
-          <p>Choose when this returns to your inbox. All times are Central.</p>
+          <p>Choose when this returns to your inbox.</p>
           {snooze.error && <p role="alert">{snooze.error}</p>}
           {snooze.choices.map((choice) => (
             <button

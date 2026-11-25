@@ -85,7 +85,7 @@ test('phone invoice keeps its title and actions in view while details scroll', a
 });
 for (const width of [1440, 390, 320]) test(`invoice layout and wide detail at ${width}px`, async t => {
   const { page, errors } = await open(t, { width }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  assert.equal(await page.locator('#appMainSlot .app-layout-page-tools #invoiceSearch').count(), 1);
+  assert.equal(await page.locator('#appToolsSlot #invoiceSearch').count(), 1);
   assert.equal(await page.locator('#invoiceAging strong').evaluateAll(nodes=>nodes.every(node=>node.getBoundingClientRect().height<30)),true,'ordinary aging amounts stay on one line');
   await page.locator('[data-invoice]').first().click(); await page.waitForFunction(() => document.querySelector('#invoiceDetail').open);
   assert.equal(await page.getByRole('link', { name: 'Open deal', exact: true }).getAttribute('href'), '/deals?deal=demo-invoice-deal-4');
@@ -272,7 +272,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.match(await rows.innerText(), /Dell/);
     assert.doesNotMatch(await rows.innerText(), /Amount not recorded/);
     const pageTitle = await page.getByRole('heading', { level: 1, name: 'Invoices' }).boundingBox();
-    assert.ok(pageTitle.y < (await page.locator('#invoiceTabs').boundingBox()).y);
+    const tabs = await page.locator('#invoiceTabs').boundingBox();
+    assert.ok(pageTitle.y + pageTitle.height <= tabs.y || pageTitle.x + pageTitle.width <= tabs.x, 'Invoices title reads before its tabs');
 
     const evidence = new URL('out/test-artifacts/w15/', root);
     await mkdir(evidence, { recursive: true });

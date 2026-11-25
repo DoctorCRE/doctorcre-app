@@ -39,9 +39,13 @@ test("production drag proof missing stored session exits 78 on a containing rele
     return true;
   });
 });
-for (const width of [390, 1440])
+for (const [width, scroller] of [
+  [390, "page"],
+  [1440, "page"],
+  [1440, "main region"],
+] as const)
   for (const theme of ["light", "dark"] as const)
-    test(`embedded drag edge scroll keeps property hit testing aligned at ${width}px ${theme}`, async () => {
+    test(`embedded drag edge scroll of the ${scroller} keeps property hit testing aligned at ${width}px ${theme}`, async () => {
       const built = await build({
         entryPoints: ["src/ui/tour-stop-drag.ts"],
         bundle: true,
@@ -54,9 +58,15 @@ for (const width of [390, 1440])
       const browser = await chromium.launch();
       try {
         const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme: theme });
+        const iframe =
+          '<iframe title="Synthetic composer" style="border:0;width:350px;height:2600px" srcdoc="<ol id=list></ol>"></iframe>';
         await page.setContent(
-          '<iframe title="Synthetic composer" style="border:0;width:350px;height:2600px" srcdoc="<ol id=list></ol>"></iframe>',
+          scroller === "page"
+            ? iframe
+            : `<div id="appMainSlot" style="position:fixed;inset:48px 0 0;overflow:auto">${iframe}</div>`,
         );
+        const scrolled = () =>
+          page.evaluate(() => (document.getElementById("appMainSlot") ?? document.scrollingElement)?.scrollTop ?? 0);
         const frame = page.frames().find((f) => f !== page.mainFrame());
         assert.ok(frame);
         await frame.addScriptTag({ content: dragScript });
@@ -80,9 +90,12 @@ for (const width of [390, 1440])
         assert.ok(start);
         await page.mouse.move(start.x + 15, start.y + 15);
         await page.mouse.down();
-        const before = await page.evaluate(() => scrollY);
+        const before = await scrolled();
         await page.mouse.move(start.x + 15, 895);
-        await page.waitForFunction((y) => scrollY > y + 80, before);
+        await page.waitForFunction(
+          (y) => ((document.getElementById("appMainSlot") ?? document.scrollingElement)?.scrollTop ?? 0) > y + 80,
+          before,
+        );
         await frame.locator('[data-property-id="c"]').evaluate((el) => el.scrollIntoView({ block: "center" }));
         const target = await frame.locator('[data-property-id="c"]').boundingBox();
         assert.ok(target);

@@ -137,4 +137,4 @@ audio { width: 100%; max-width: 100%; margin: var(--space-3) 0; }
 .day-grid :is(button, a, summary) { scroll-margin-block: var(--space-3); }
 
 .has-app-layout:has(#tour-day) .app-layout { grid-template-columns: minmax(0, 1fr); }
-.has-app-layout:has(#tour-day) :is(#appSidebar, #appToday, .app-layout-tabbar) { display: none; }
+.has-app-layout:has(#tour-day) :is(#appSidebar, #appToday, .app-layout-tabbar, #appSidebarToggle, #appTodayToggle) { display: none; }

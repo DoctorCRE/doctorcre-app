@@ -90,10 +90,15 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
   const controls = host.querySelector(".app-shell-controls");
   const callButton = root.getElementById("callModeButton");
   const displayControls = [host.querySelector('[data-pref="theme"]'), host.querySelector("#colorAssistButton")];
-  topbar.append(host.querySelector(".app-shell-search"), host.querySelector("#askDocLink"));
+  const topbarEnd = root.getElementById("appTodayToggle");
+  topbar.insertBefore(host.querySelector(".app-shell-search"), topbarEnd);
+  topbar.insertBefore(host.querySelector("#askDocLink"), topbarEnd);
   const phone = root.defaultView.matchMedia(TOUCH_LAYOUT);
   const arrangeControls = () => {
-    (phone.matches ? workspace : topbar).append(...displayControls);
+    for (const control of displayControls) {
+      if (phone.matches) workspace.append(control);
+      else topbar.insertBefore(control, topbarEnd);
+    }
     if (phone.matches) workspace.append(callButton);
     else controls.prepend(callButton);
   };

@@ -19,6 +19,7 @@ import { mountNotificationBadge } from './shell.js';
 import { mountHomeCallTasks } from './home-call-tasks.js';
 import { mountHomeWeek } from './home-week-view.js';
 import { meetingDate, meetingTime } from './home-week.js';
+import { pageScroller } from './touch-layout.js';
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const E = escapeHtml;
@@ -130,7 +131,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     }).join('');
     const content = failed ? `<p class="home-meeting-failure" role="status">Meetings unavailable</p>`
       : count ? `<div class="home-meetings">${rows}</div>` : `<p class="home-empty">${meetings.state === 'empty' ? 'No upcoming meetings' : 'No meetings returned'}</p>`;
-    widget('homeMeetings', header + (!failed && count ? `<p class="home-week-zone">Meeting times · ${E(meetingTimeZone)}</p>` : '') + warnings + content);
+    widget('homeMeetings', header + (!failed && count && meetingTimeZone !== BUSINESS_TIME_ZONE ? `<p class="home-week-zone">Meeting times · ${E(meetingTimeZone)}</p>` : '') + warnings + content);
   };
   const renderCalendar = (agenda, today, signedOut) => {
     if (!workingWeek) return;
@@ -472,7 +473,9 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
     if (window.location.hash !== '#homeEmailFollowups') return;
     const anchor = () => $('homeEmailFollowups')?.scrollIntoView({ block: 'start', behavior: 'instant' });
     // Native smooth fragment scrolling can finish after the initial reads change the layout.
-    document.addEventListener('scrollend', () => {
+    // The viewport's scroll events fire on the document, not its scrolling element.
+    const scroller = pageScroller();
+    (scroller === document.scrollingElement ? document : scroller).addEventListener('scrollend', () => {
       if (!disposed && window.location.hash === '#homeEmailFollowups') anchor();
       cancelLanding();
     }, { once: true, signal: fragmentLanding.signal });

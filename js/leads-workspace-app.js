@@ -1,4 +1,5 @@
 import { phoneLabel, withoutRecordCodes } from './visual-system.js';
+import { scrollAtEdge } from './touch-layout.js';
 import { dealsSaveToEngine } from "./boot-mode.js";
 import { parseOpportunityTiming, timingMarkup } from './ui-lead-opportunity-timing.generated.js';
 import { parseReachability } from './ui-lead-reachability.generated.js';
@@ -848,9 +849,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     if (!touch) return;
     if (doc.visibilityState === 'hidden' || ++touch.frames >= 1800) { stopTouch(); return; }
     if (Math.hypot(touch.x-touch.startX, touch.y-touch.startY)>8) {
-      const edge = 72, height = win.innerHeight;
-      const delta = touch.y < edge ? -18 * (1-touch.y/edge) : touch.y > height-edge ? 18 * (1-(height-touch.y)/edge) : 0;
-      if (delta) win.scrollBy(0, delta);
+      scrollAtEdge(doc, touch.y);
       highlightDrop(touch.x, touch.y);
     }
     // eslint-disable-next-line no-restricted-syntax -- 1800 drag frames, then stopTouch. No reads or retries; browser frame cadence Stops when hidden, on pointer release/cancel, when touch is absent, or at the frame cap

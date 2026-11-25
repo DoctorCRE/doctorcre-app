@@ -164,12 +164,12 @@ export function BulkControls({
           onCancel={cancelPicker}
         >
           <h2>Snooze {picked.length} cards</h2>
-          <p>Return tomorrow at 9:00 AM Central, or choose a time.</p>
+          <p>Return tomorrow at 9:00 AM, or choose a time.</p>
           <button type="button" onClick={() => apply("snooze", centralInstant(tomorrowCentral(new Date())))}>
-            Not now · Tomorrow 9:00 AM Central
+            Not now · Tomorrow 9:00 AM
           </button>
           <label>
-            Return time · Central
+            Return time
             <input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} />
           </label>
           <button
@@ -178,7 +178,7 @@ export function BulkControls({
               try {
                 apply("snooze", centralInstant(when));
               } catch (error) {
-                setError(error instanceof Error ? error.message : "Choose a valid Central time.");
+                setError(error instanceof Error ? error.message : "Choose a valid time.");
               }
             }}
           >

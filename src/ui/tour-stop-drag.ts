@@ -1,3 +1,5 @@
+import { scrollAtEdge } from "../../js/touch-layout.js";
+
 type Stop = { property_id: string; stop_state: string; locked_appointment: boolean };
 
 export function reorderFlexibleStops<T extends Stop>(rows: T[], source: string, target: string): T[] {
@@ -35,9 +37,7 @@ export function mountStopDrag(
       return;
     }
     if (view && scrollingView) {
-      const delta = gesture.y < 56 ? -16 : gesture.y > scrollingView.innerHeight - 56 ? 16 : 0;
-      if (delta) {
-        scrollingView.scrollBy({ top: delta, behavior: "instant" });
+      if (scrollAtEdge(scrollingView.document, gesture.y, { edge: 56, speed: 16 })) {
         gesture.target?.classList.remove("stop-drop-target");
         const frameOffset = offset();
         gesture.target = targetAt({ clientX: gesture.x - frameOffset.left, clientY: gesture.y - frameOffset.top });

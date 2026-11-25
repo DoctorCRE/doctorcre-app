@@ -196,12 +196,13 @@ for (const width of [1440, 390])
     await page.goto("http://localhost/relationships?mode=live");
     await page.waitForSelector("#appTabsSlot #graphTab");
     const title = await page.getByRole("heading", { level: 1, name: "Relationships" }).boundingBox();
-    assert.ok(title.y < (await page.getByRole("tab", { name: "Network" }).boundingBox()).y, "Relationships title is above the Network tab");
+    const tab = await page.getByRole("tab", { name: "Network" }).boundingBox();
+    assert.ok(title.y + title.height <= tab.y || title.x + title.width <= tab.x, "Relationships title reads before the Network tab");
     await page.waitForSelector(width === 390 ? "#networkNodes button" : ".relationship-node");
     assert.equal(await page.locator("#appLayout").count(), 1);
     assert.equal(await page.locator("#appTabsSlot #graphTab").count(), 1);
     assert.equal(
-      await page.locator("#appSidebarSlot #networkSearch").count(),
+      await page.locator("#appToolsSlot #networkSearch").count(),
       1,
     );
     assert.equal(

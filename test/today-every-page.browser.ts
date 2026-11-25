@@ -101,6 +101,7 @@ async function open(
   await page.addInitScript((theme) => {
     localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
     localStorage.setItem("doctorcre:sidebar:/invoices", "open");
+    localStorage.setItem("doctorcre:today:/deals", "open");
   }, theme);
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
@@ -398,7 +399,7 @@ for (const width of [1440, 390])
     await today.getByText("Attendees: Example Attendee", { exact: true }).waitFor();
     assert.match(
       (await today.getByText("Example site visit", { exact: true }).locator("..").textContent()) ?? "",
-      /10:00 AM CST/,
+      /10:00 AM/,
     );
     assert.equal(
       await today.getByRole("link", { name: "Open deal", exact: true }).getAttribute("href"),

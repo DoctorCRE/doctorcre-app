@@ -324,3 +324,9 @@ test('note authors never resolve through the object prototype', async () => {
   assert.deepEqual(['joe', 'dell', 'joe-local', 'claude', 'constructor', 'toString'].map(authorLabel),
     ['Joe', 'Dell', 'Joe', 'Doc (assistant)', 'Doc (assistant)', 'Doc (assistant)']);
 });
+
+test('a job author says plainly who wrote it, never a partner', async () => {
+  const { authorLabel } = await import('../js/client.js');
+  assert.deepEqual(['agent', 'old_system', 'mail_capture'].map(authorLabel),
+    ['Written by the assistant', 'Copied from the old system', 'Mail filing']);
+});
