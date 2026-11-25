@@ -382,7 +382,6 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       happened_at: '2026-01-08T12:00:00Z', subject: null, body: null, summary: null } });
   await page.clock.fastForward(60_000);
   const cardFor = name => inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name }) });
-  await today.getByRole('button', { name: 'See all 8', exact: true }).click();
   const leadCard = inbox.locator(`[data-inbox-row="suggestion:${lead}"]`);
   await leadCard.getByRole('button', { name: 'Open', exact: true }).click();
   await leadCard.getByRole('heading', { name: 'Possible lead · New Example' }).waitFor();
@@ -821,7 +820,6 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   assert.equal(await propertyView.getByText('200 Other Suite', { exact: true }).count(), 0);
   assert.deepEqual(tourRequests, []);
   await open('/?mode=live');
-  await section('Reminders').getByRole('button', { name: /^See all/ }).click();
   await button(feedback).click();
   await feedbackReview.getByRole('button', { name: 'Done', exact: true }).click();
   await card(feedback).waitFor({ state: 'detached' });
@@ -1691,7 +1689,7 @@ for (const width of [390, 1440]) test(`Home keeps other cards usable while a rev
   await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
   const card = title => page.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title }) });
   const button = (title, name) => card(title).locator(':scope > .inbox-actions').getByRole('button', { name, exact: true });
-  for (const name of ['Snooze', 'Drop']) assert.equal(await button(draft.title, name).isDisabled(), true, `the card under review keeps ${name} locked`);
+  for (const name of ['Snooze', 'Drop']) assert.equal(await button(draft.title, name).count(), 0, `the card under review shows no ${name} of its own`);
   if (process.env.HOME_THREAD_SCREENSHOTS) {
     await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
     await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `review-open-${width}.png`), fullPage: true });
@@ -1708,6 +1706,148 @@ for (const width of [390, 1440]) test(`Home keeps other cards usable while a rev
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   await page.getByRole('status').filter({ hasText: `Snoozed: ${swiped.title}.` }).waitFor();
   assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
+});
+
+for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home keeps other cards usable while the open review saves at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  await page.setViewportSize({ width, height });
+  const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
+  const snoozed = step(30, 'Call the practice manager', { card_id: 'snoozed' });
+  const finished = step(31, 'Ask the surveyor for pricing', { card_id: 'finished' });
+  const dropped = step(32, 'Send the sample floor plan', { card_id: 'dropped' });
+  state.dashboard = true;
+  state.items = [draft, snoozed, finished, dropped];
+  state.filingWrites = [];
+  let decide;
+  const decided = new Promise(resolve => { decide = resolve; });
+  await page.route('**/mcp', async route => {
+    if (route.request().postDataJSON().params.name === 'decide-engine-home-proposal') await decided;
+    await route.fallback();
+  });
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  const card = title => page.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title }) });
+  const button = (title, name) => card(title).locator(':scope > .inbox-actions').getByRole('button', { name, exact: true });
+  for (const name of ['Snooze', 'Drop', 'Mark done'])
+    assert.equal(await button(draft.title, name).count(), 0, `the card under review shows no ${name} of its own`);
+  assert.equal(await card(draft.title).locator(':scope > .inbox-actions .inbox-guidance').count(), 0, 'no explainer under the card');
+
+  await review.getByRole('region', { name: 'Next step' }).getByRole('button', { name: 'Accept', exact: true }).click();
+  await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor();
+  const otherTitle = page.getByRole('link', { name: dropped.title });
+  assert.equal(await otherTitle.getAttribute('aria-disabled'), 'true', 'no other review replaces this one mid-save');
+  for (const other of [snoozed, finished, dropped]) for (const name of ['Snooze', 'Drop', 'Mark done'])
+    assert.equal(await button(other.title, name).isDisabled(), false, `${name} on ${other.title} stays usable while the review saves`);
+  await button(snoozed.title, 'Snooze').click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('status').filter({ hasText: `Snoozed: ${snoozed.title}.` }).waitFor();
+  await button(finished.title, 'Mark done').click();
+  await page.getByRole('status').filter({ hasText: `Marked done: ${finished.title}.` }).waitFor();
+  await button(dropped.title, 'Drop').click();
+  const reason = page.getByRole('dialog', { name: 'Drop with a reason' });
+  await reason.waitFor();
+  await page.keyboard.press('Escape');
+  await reason.waitFor({ state: 'detached' });
+
+  decide();
+  await review.getByText('Suggestion accepted.', { exact: true }).waitFor();
+  assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
+  assert.equal(await otherTitle.getAttribute('aria-disabled'), 'false');
+  assert.deepEqual(state.filingWrites.map(({ id: proposal, decision }) => [proposal, decision]), [[id(42), 'accept']]);
+  assert.equal(state.items.find(item => item.item_id === snoozed.item_id).section, 'snoozed');
+  assert.equal(state.items.find(item => item.item_id === finished.item_id).section, 'done');
+});
+
+test('Home pauses its minute refresh exactly while a review save runs', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
+  state.dashboard = true;
+  state.items = [draft, step(30, 'Call the practice manager', { card_id: 'other' })];
+  state.filingWrites = [];
+  await page.clock.install({ time: now });
+  let decide;
+  let decides = 0;
+  const decided = new Promise(resolve => { decide = resolve; });
+  await page.route('**/mcp', async route => {
+    if (route.request().postDataJSON().params.name !== 'decide-engine-home-proposal') return route.fallback();
+    if (++decides === 1) return route.abort('connectionreset');
+    await decided;
+    await route.fallback();
+  });
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('region', { name: 'Next step' }).getByRole('button', { name: 'Accept', exact: true }).click();
+  const retry = review.getByRole('button', { name: 'Retry same review request', exact: true });
+  await retry.waitFor();
+
+  const reads = state.dashboardReads;
+  // The counting route runs after the request event, so wait for the answer.
+  const dashboardRead = () => page.waitForResponse('**/api/engine/home/inbox?view=dashboard');
+  const read = dashboardRead();
+  await page.clock.fastForward(60_000);
+  await read;
+  assert.equal(state.dashboardReads, reads + 1, 'an uncertain review keeps the minute refresh');
+
+  // The save gives up after 10 seconds on this clock, so the minute mark is crossed inside that window.
+  await page.clock.fastForward(55_000);
+  await retry.click();
+  await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor();
+  await page.clock.fastForward(9_000);
+  assert.equal(state.dashboardReads, reads + 1, 'no minute refresh while the review saves');
+  const ownRead = dashboardRead();
+  decide();
+  await ownRead;
+  await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor({ state: 'detached' });
+  assert.equal(await retry.count(), 0, 'the retry confirmed');
+  assert.deepEqual(state.filingWrites.map(({ decision }) => decision), ['accept'], 'the retry saved');
+  assert.equal(state.dashboardReads, reads + 2, 'only the save\'s own read lands while the review saves');
+  const resumed = dashboardRead();
+  await page.clock.fastForward(60_000);
+  await resumed;
+  assert.equal(state.dashboardReads, reads + 3, 'the minute refresh resumes once after the save');
+});
+
+test('Home moves a snoozed card while the open review saves', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
+  const snoozed = step(30, 'Call the practice manager', { card_id: 'snoozed' });
+  state.dashboard = true;
+  state.items = [draft, snoozed];
+  state.filingWrites = [];
+  let release;
+  let hold;
+  let decide;
+  const decided = new Promise(resolve => { decide = resolve; });
+  await page.route('**/api/engine/home/inbox?view=dashboard', async route => {
+    await hold;
+    await route.fallback().catch(() => {});
+  });
+  await page.route('**/mcp', async route => {
+    if (route.request().postDataJSON().params.name === 'decide-engine-home-proposal') await decided;
+    await route.fallback();
+  });
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const snoozedRow = reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: snoozed.title }) });
+
+  hold = new Promise(resolve => { release = resolve; });
+  const followUp = page.waitForRequest('**/api/engine/home/inbox?view=dashboard');
+  await snoozedRow.locator(':scope > .inbox-actions').getByRole('button', { name: 'Snooze', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await followUp;
+  await review.getByRole('region', { name: 'Next step' }).getByRole('button', { name: 'Accept', exact: true }).click();
+  await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor();
+  release();
+  await reminders.getByRole('link', { name: snoozed.title }).waitFor({ state: 'detached' });
+  assert.equal(await review.getByText('Waiting for server confirmation…', { exact: true }).isVisible(), true, 'the review is still saving');
+  decide();
+  await review.getByText('Suggestion accepted.', { exact: true }).waitFor();
 });
 
 test('Inbox keeps Undo on another finished card usable while a review is open', async t => {
@@ -1957,15 +2097,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await waiting.getByText(/Snoozed until/).waitFor();
   const lease = reminders.getByRole('link', { name: 'Send the signed lease' });
   assert.match(await lease.getAttribute('href'), /focus=next-step&step=/);
-  const preview = reminders.locator('[data-inbox-row]');
-  const sixth = reminders.getByRole('link', { name: extra[1].title });
-  assert.equal(await preview.count(), 5);
-  assert.equal(await sixth.count(), 0);
-  await reminders.getByRole('button', { name: 'See all 6' }).click();
-  assert.equal(await preview.count(), 6);
-  await sixth.waitFor();
-  await reminders.getByRole('button', { name: 'Show less' }).click();
-  await sixth.waitFor({ state: 'detached' });
+  assert.equal(await reminders.locator('[data-inbox-row]').count(), 6, 'Reminders previews up to eight cards');
+  assert.equal(await reminders.getByRole('button', { name: /^See all/ }).count(), 0);
   await reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: 'Send the signed lease' }) }).getByRole('button', { name: 'Mark done' }).click();
   await lease.waitFor({ state: 'detached' });
   await reminders.getByRole('heading', { name: 'Late', exact: true }).waitFor({ state: 'detached' });
@@ -1989,7 +2122,7 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['
   await page.setViewportSize({ width, height });
   state.items = [
     ...state.items.filter(item => item.section === 'inbox'),
-    ...Array.from({ length: 8 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
+    ...Array.from({ length: 12 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
   ];
   await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
     ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe',
@@ -2020,7 +2153,7 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
   const { page, open, state } = await dashboard(t, width, 'dark');
   await page.setViewportSize({ width, height });
   state.items = [
-    ...Array.from({ length: 12 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
+    ...Array.from({ length: 16 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
     ...Array.from({ length: 12 }, (_, index) => step(110 + index, `Wait on the sample survey ${index + 1}`, { section: 'snoozed', disposition: 'snoozed', snoozed_until: '2026-11-04T16:00:00Z' })),
   ];
   await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
@@ -2044,6 +2177,101 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
     assert.ok(heading.y >= last.y, 'the meetings heading is not cut off');
   }
   for (const tile of [reminders, waiting]) assert.equal(await tile.evaluate(node => node.scrollHeight > node.clientHeight), true, 'each long list scrolls inside its tile');
+});
+
+for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a grouped reminder once and saves each step it covers at ${width}x${height}`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  await page.setViewportSize({ width, height });
+  state.dashboard = true;
+  const card = (number, title, fields) => step(number, title, { card_id: `step:${id(number)}`, ...fields });
+  const cover = (number, record_name) => ({ item_id: `next_action:${id(number)}`, base_version: '1:0:inbox',
+    action_id: id(number), action_version: 1, ...(record_name !== undefined && { record_name }) });
+  const meeting = 'Follow up on the Oct 27 meeting';
+  const grouped = (numbers, names = []) => ({ merged_source_ids: numbers.map(id),
+    covers: numbers.map((number, index) => cover(number, names[index])) });
+  const names = ['Maya Example', 'Sam Example', 'Lee Example', 'Ari Example'];
+  state.items = [
+    card(80, meeting, { due_on: '2026-10-30', days_late: 4, why: 'Send the site visit notes.', ...grouped([80, 81, 82, 83], names) }),
+    card(84, 'Follow up with Pat Example', grouped([84, 85])),
+    card(86, 'Send the tour notes', grouped([86, 87, 88], ['Maya Example', 'Sam Example', ''])),
+    card(100, 'Send the parking survey', grouped([100, 101, 102], ['Maya Example', '', null])),
+    ...Array.from({ length: 7 }, (_, index) => card(90 + index, `Send the sample lease summary ${index + 1}`)),
+  ];
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  await reminders.getByRole('heading', { name: 'Reminders 11', exact: true }).waitFor();
+  const row = title => reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+  await row(meeting).getByText('Maya Example, Sam Example and 2 more', { exact: true }).waitFor();
+  await row(meeting).getByText(/Covers 4 reminders/).waitFor();
+  await row(meeting).getByText('Send the site visit notes.', { exact: true }).waitFor();
+  await row('Follow up with Pat Example').getByText(/Covers 2 reminders/).waitFor();
+  assert.equal(await row('Follow up with Pat Example').locator('.inbox-detail').count(), 0, 'covered steps without names list none');
+  await row('Send the tour notes').getByText('Maya Example, Sam Example and 1 more', { exact: true }).waitFor();
+  await row('Send the parking survey').getByText('Maya Example and 2 more', { exact: true }).waitFor();
+  assert.equal(await reminders.getByText(/Covers \d+ reminders/).count(), 4, 'a card without covers is one reminder');
+  assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')]
+    .every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
+  const tile = await reminders.boundingBox();
+  const shown = await reminders.locator('[data-inbox-row]').evaluateAll((rows, bottom) => rows.filter(row => {
+    const box = row.getBoundingClientRect();
+    return box.height > 0 && box.bottom <= Math.min(bottom, innerHeight);
+  }).length, tile.y + tile.height);
+  assert.ok(shown >= 8, `${shown} cards fit on the first screen`);
+
+  const writes = [];
+  let refused = id(82);
+  await page.route('**/mcp', route => {
+    const request = route.request().postDataJSON();
+    const { name, arguments: args } = request.params;
+    if (name !== 'end-engine-home-step') return route.fallback();
+    writes.push(args);
+    if (args.id !== refused) return route.fallback();
+    const text = JSON.stringify({ error: 'version_conflict', http_status: 409 });
+    return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text }] } } });
+  });
+  await row(meeting).getByRole('button', { name: 'Mark done', exact: true }).click();
+  const notice = page.locator('.inbox-notice');
+  await notice.getByText('Saved 3 of 4. Not saved: Lee Example.', { exact: true }).waitFor();
+  assert.deepEqual(writes.map(args => [args.id, args.base_version]), names.map((_, index) => [id(80 + index), 1]));
+  assert.equal(new Set(writes.map(args => args.idempotency_key)).size, 4, 'each covered step has its own retry key');
+  refused = null;
+  await notice.getByRole('button', { name: 'Retry the rest', exact: true }).click();
+  await page.locator('.toast').getByText(`Marked done: ${meeting}.`, { exact: true }).waitFor();
+  assert.deepEqual(writes.slice(4).map(args => args.idempotency_key), writes.slice(0, 4).map(args => args.idempotency_key),
+    'Retry resends each step under the key it was first sent with');
+});
+
+for (const [width, height] of [[1280, 720], [1440, 779], [1440, 900]]) test(`the first-visit walkthrough sits beside the rail and covers none of Home at ${width}x${height}`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme: 'light' })));
+  await page.setViewportSize({ width, height });
+  state.dashboard = true;
+  state.items = Array.from({ length: 8 }, (_, index) => step(90 + index, `Send the sample lease summary ${index + 1}`, { card_id: `step:${id(90 + index)}` }));
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  const guide = page.getByRole('dialog', { name: 'How DoctorCRE works', exact: true });
+  await guide.waitFor();
+  await page.getByRole('region', { name: 'Reminders', exact: true }).locator('[data-inbox-row] button').first().waitFor();
+  const placement = () => page.evaluate(() => {
+    const box = document.querySelector('[data-walkthrough]').getBoundingClientRect();
+    const target = document.querySelector('.app-walkthrough-target').getBoundingClientRect();
+    const covered = ['.app-layout-topbar', '.app-layout-main'].filter(selector => {
+      const edge = document.querySelector(selector).getBoundingClientRect();
+      return edge.left < box.right && edge.right > box.left && edge.top < box.bottom && edge.bottom > box.top;
+    });
+    return { covered, beside: box.left > target.right && box.top === target.top, fits: box.bottom <= innerHeight };
+  });
+  assert.deepEqual(await placement(), { covered: [], beside: true, fits: true }, 'the first step sits beside Home in the rail');
+  for (let next = guide.getByRole('button', { name: 'Next', exact: true }); await next.count();) {
+    await next.click();
+    const { covered, fits } = await placement();
+    assert.deepEqual({ covered, fits }, { covered: [], fits: true }, 'no step covers the page');
+  }
+  assert.deepEqual(await page.evaluate(() => [document.scrollingElement].every(node => node.scrollWidth <= node.clientWidth)), true, 'the page makes room without scrolling sideways');
+  await page.keyboard.press('Escape');
+  await guide.waitFor({ state: 'detached' });
+  assert.equal(await page.locator('.app-layout-main').evaluate(node => node.getBoundingClientRect().left), 64, 'the page takes its room back');
 });
 
 const draftCard = () => ({

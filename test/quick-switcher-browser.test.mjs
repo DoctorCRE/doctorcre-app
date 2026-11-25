@@ -34,7 +34,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await nav.getByRole('link', { name: 'Home', exact: true }).waitFor();
     assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
     await nav.getByRole('button', { name: 'More', exact: true }).click();
-    for (const [name, href] of [['Clients', '/clients'], ['Calendar', '/calendar']]) {
+    for (const [name, href] of [['Clients', '/clients']]) {
       const link = nav.locator('.app-shell-more-list').getByRole('link', { name, exact: true });
       assert.equal(await link.isVisible(), true, `${name} is in More`);
       assert.equal(await link.getAttribute('href'), href);

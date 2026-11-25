@@ -21,10 +21,37 @@ const deals = Array.from({ length: 70 }, (_, n) => ({
   owner: n % 2 ? "joe" : "dell",
   phase: phases[n % phases.length],
   operating_state: "active",
-  open_actions: [],
+  attention: n % 5 === 0,
+  open_actions: [
+    {
+      id: `step-${n}`,
+      description: "Call the landlord about the lease draft",
+      owner: n % 2 ? "joe" : "dell",
+      due_on: n % 3 ? "2026-11-02" : "2027-01-15",
+    },
+  ],
+}));
+const prospects = Array.from({ length: 12 }, (_, n) => ({
+  party_id: `00000000-0000-4000-9000-${String(n + 1).padStart(12, "0")}`,
+  name: `Example Prospect Practice ${n + 1}`,
+  how_found: "referral",
+  owner: n % 3 ? "joe" : null,
+  needs_attention: n % 4 === 0,
+  follow_ups: [],
+  latest_note: null,
+  change_id: 1,
 }));
 
-async function openBoard(page: Page, view: "board" | "list" = "board") {
+const accounts = Array.from({ length: 9 }, (_, n) => ({
+  account_client_id: `00000000-0000-4000-a000-${String(n + 1).padStart(12, "0")}`,
+  account_name: `Example National Dental Partners ${n + 1}`,
+  account_owner: n % 2 ? "joe" : "dell",
+  open_deals: 12 - n,
+  overdue_deals: n % 3,
+  parked_deals: n % 2,
+}));
+
+async function openBoard(page: Page, view: "board" | "list" | "national" = "board") {
   const session = { actor: { slug: "joe" }, csrf_token: "synthetic-joe" };
   const env = {
     GIT_SHA: "0".repeat(40),
@@ -34,14 +61,14 @@ async function openBoard(page: Page, view: "board" | "list" = "board") {
     ENGINE: {
       fetch: async (request: Request) =>
         new URL(request.url).pathname.endsWith("/prospects")
-          ? Response.json({ count: 0, prospects: [] })
+          ? Response.json({ count: prospects.length, prospects })
           : Response.json({
               schema_version: "local-deals-board.v2",
               actor: "joe",
               deals,
               closed_deals: [],
               lost_deals: [],
-              accounts: [],
+              accounts,
             }),
     },
   };
@@ -64,11 +91,15 @@ async function openBoard(page: Page, view: "board" | "list" = "board") {
     });
   });
   await page.goto(`${server.origin}/deals?mode=live&view=${view}`);
-  await page.locator("#prospectsLane h3").waitFor();
   await page
-    .locator(view === "list" ? ".deal-list .kanban-card" : ".kanban-column[data-column] .kanban-card")
+    .locator(
+      { list: ".deal-list .kanban-card", board: ".kanban-column[data-column] .kanban-card", national: ".account-card" }[
+        view
+      ],
+    )
     .first()
     .waitFor();
+  if (view !== "national") await page.locator("#prospectsLane h3").waitFor();
   return server;
 }
 
@@ -151,6 +182,46 @@ test("the Deals board keeps deals in reach on a phone and fits one screen on lap
         await page.screenshot({ path: `${shots}/board-${width}-${theme}.png` });
 
         assert.deepEqual(await splitWords(page), [], "no deal or phase name breaks inside a word");
+        assert.equal(
+          await page.locator(".kanban-column[data-column] .kanban-card time").count(),
+          0,
+          "a deal card shows no due date or late count",
+        );
+        if (width > 760) {
+          const headers = await page
+            .locator("#prospectsLane > h3, .kanban-column[data-column] > h3")
+            .evaluateAll((headers) =>
+              headers.map((header) => {
+                const count = header.querySelector("small");
+                const name = document.createRange();
+                name.setStart(header, 0);
+                if (count) name.setEndBefore(count);
+                const gap = count ? count.getBoundingClientRect().left - name.getBoundingClientRect().right : 0;
+                return { bottom: Math.round(header.getBoundingClientRect().bottom), countFollowsName: gap <= 16 };
+              }),
+            );
+          assert.equal(
+            new Set(headers.map((h) => h.bottom)).size,
+            1,
+            "the Prospects header shares the phase headers' line",
+          );
+          if (width >= 1280)
+            assert.deepEqual(
+              await page.locator(".kanban-column[data-column] .kanban-card").evaluateAll((cards) =>
+                cards.flatMap((card) => {
+                  const badge = card.querySelector(".deal-board-badge")?.getBoundingClientRect();
+                  const owner = card.querySelector(".owner")?.getBoundingClientRect();
+                  return badge && owner && owner.top > badge.bottom ? [card.getAttribute("aria-label")] : [];
+                }),
+              ),
+              [],
+              "the badge and the owner share one row",
+            );
+          assert.ok(
+            headers.every((h) => h.countFollowsName),
+            "each count sits right after its name, Prospects as the phases",
+          );
+        }
         assert.ok(
           (await phaseLines(page)).every(([, oneLine]) => oneLine),
           "each phase name and count sit on one line",
@@ -228,6 +299,16 @@ test("the Deals list and the Prospects lane never cover each other", async (t) =
         });
       });
       assert.deepEqual(covered, [], "no deal row sits under the Prospects lane");
+      if (width > 760) {
+        const row = page.locator(".deal-list .kanban-card").first();
+        const size = (selector: string) =>
+          row.locator(selector).evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
+        assert.ok(
+          (await size(".deal-list-next-step")) < (await size(".work-card-title")),
+          "the next step is caption text under the deal's name size",
+        );
+        assert.ok(((await row.boundingBox())?.height ?? 99) <= 64, "a list row is at most 64px tall");
+      }
       const lane = page.locator("#prospectsLane");
       await lane.scrollIntoViewIfNeeded();
       assert.equal(
@@ -244,4 +325,44 @@ test("the Deals list and the Prospects lane never cover each other", async (t) =
           "the list fits the screen without page scrolling",
         );
     });
+});
+
+// Controls and the labels and stamps a partner taps, by name, when shorter than a 44px touch target.
+const shortTargets = (page: Page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll("button, a, input, select, label, [tabindex='0']")].flatMap((node) => {
+      const box = node.getBoundingClientRect();
+      return node.checkVisibility() && box.height > 0 && box.height < 44 ? [node.textContent?.trim()] : [];
+    }),
+  );
+
+test("on a phone National Accounts names itself once and every tap target is full size", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  t.after(() => context.close());
+  const page = await context.newPage();
+  const server = await openBoard(page, "national");
+  t.after(() => server.close());
+  await page.locator("#syncStatus", { hasText: "Updated" }).waitFor();
+  await page.screenshot({ path: "out/test-artifacts/deals-board-fit/national-390.png" });
+  const names = await page.evaluate(
+    () =>
+      [...document.querySelectorAll("body *")].filter(
+        (node) =>
+          node.checkVisibility() &&
+          node.getBoundingClientRect().width > 1 &&
+          [...node.childNodes].some(
+            (child) => child.nodeType === 3 && /^\s*National( Accounts)?\s*$/.test(child.textContent ?? ""),
+          ),
+      ).length,
+  );
+  assert.equal(names, 1, "the page names itself once");
+  assert.deepEqual(await shortTargets(page), [], "the list's controls and Updated are full touch targets");
+  await page.getByRole("button", { name: "Add national account" }).click();
+  assert.deepEqual(await shortTargets(page), [], "the form's labels are full touch targets");
+  await page.keyboard.press("Escape");
+  await page.locator(".account-card").first().click();
+  await page.locator("#dealFilter").waitFor();
+  assert.deepEqual(await shortTargets(page), [], "an account's Show label is a full touch target");
 });

@@ -2,7 +2,6 @@ import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-
 import { createDayStore } from '../tours/day-store.js';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { cardDueLabel } from './ui-card-due.generated.js';
 import { bindCardQuickMenu } from './ui-card-menu.generated.js';
 import {
   autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
@@ -187,11 +186,6 @@ function cardDue(deal) {
   const legacyDue = !state.boardFromEngine && !steps.length && noteText(deal.next_step).trim() ? deal.next_date : null;
   return dealDueDate(step?.due_on ?? legacyDue, businessDay());
 }
-function cardDueHtml(due) {
-  if (!due) return '';
-  const { text, tone } = cardDueLabel(due.day, businessDay());
-  return `<time class="card-due${tone ? ` card-due--${tone}` : ''}" datetime="${esc(due.day)}">${esc(text)}</time>`;
-}
 function ownerMarkHtml(name) {
   return `<span class="owner" title="Owner: ${esc(name)}"><span aria-hidden="true">${esc(name === 'Unassigned' ? '?' : name.slice(0, 1))}</span><span class="sr-only">Owner: ${esc(name)}</span></span>`;
 }
@@ -217,7 +211,7 @@ function cardHtml(deal) {
   return workCard({ variant: 'tile', className: `kanban-card${parked ? ' parked-card' : ''}`, heading: 'h4',
     attributes: `data-id="${esc(deal.id)}" data-shortcut-card ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}" data-shortcut-open>${esc(dealTitle(deal))}</button>`,
-    meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}${starHtml(deal)}` });
+    meta: `${badge}${ownerMarkHtml(actorName(deal.owner))}${starHtml(deal)}` });
 }
 function legacyRowStepHtml(deal) {
   const nextStep = noteText(deal.next_step);
@@ -1525,6 +1519,12 @@ function renderWorkspaceFacts(detail) {
     ${fromEngine ? renderNextCriticalDate(d.next_critical_date) : ''}
   </dl>`;
 }
+// Scrolls only the strip sideways; scrollIntoView would also move a phone page whose header scrolled away.
+function revealTab(tab) {
+  const strip = tab.parentElement.getBoundingClientRect();
+  const { left, right } = tab.getBoundingClientRect();
+  tab.parentElement.scrollLeft += Math.min(0, left - strip.left) + Math.max(0, right - strip.right);
+}
 function selectWorkspaceTab(id) {
   workspaceTab = id;
   requestedClientView = false;
@@ -1534,6 +1534,7 @@ function selectWorkspaceTab(id) {
     $(`tab-${tab.id}`).tabIndex = selected ? 0 : -1;
     if ($(`workspace-${tab.id}`)) $(`workspace-${tab.id}`).hidden = !selected;
   }
+  revealTab($(`tab-${id}`));
   if (id === 'market-terms') void marketTermsPanel?.load();
   if (id === 'documents') void dealDocumentsPanel?.load();
   if (id === 'tours') void dealToursPanel?.load();
@@ -2126,16 +2127,12 @@ async function refreshEvidence(detail, id, seq) {
   root.innerHTML = template.innerHTML;
   root.querySelectorAll('details').forEach(n => { if (expanded.has(n.querySelector('summary')?.textContent)) n.open = true; });
 }
-// An imported deal's market is often old city text that matches no terms; prefill only a market on the engine's list.
-async function engineMarket({ market, market_id }, signal) {
-  const recorded = market?.trim();
-  if (!market_id && !recorded) return null;
+async function engineMarkets(signal) {
   try {
     const response = await sessionFetch('/api/engine/markets', { headers: { accept: 'application/json' }, signal });
     const markets = response.ok ? await response.json() : [];
-    const match = Array.isArray(markets) ? markets.find(row => market_id ? row?.market_id === market_id : row?.name === recorded) : null;
-    return typeof match?.name === 'string' ? match.name : null;
-  } catch { return null; }
+    return Array.isArray(markets) ? markets.filter(row => typeof row?.name === 'string') : [];
+  } catch { return []; }
 }
 
 function paintPanel(detail) {
@@ -2178,10 +2175,13 @@ function paintPanel(detail) {
         let mounted;
         if (engineMode) {
           // A slow markets list costs the Market pre-fill, never the tab.
-          const prefill = readWithDeadline(() => engineMarket(detail.deal, marketRead.signal), { timeoutMs: 2000 }).catch(() => null);
-          const [{ mountCompareTerms }, market] = await Promise.all([import('./ui-compare-terms.generated.js'), prefill]);
+          const listed = readWithDeadline(() => engineMarkets(marketRead.signal), { timeoutMs: 2000 }).catch(() => []);
+          const [{ mountCompareTerms }, markets] = await Promise.all([import('./ui-compare-terms.generated.js'), listed]);
           if (marketDisposed) return;
-          mounted = mountCompareTerms(element, { request: sessionFetch, market });
+          const { id: dealId, market, market_id } = detail.deal;
+          // Imported city text often names no market; the tab prefills only a market on the engine's list.
+          const named = market_id ? markets.find(row => row.market_id === market_id)?.name ?? null : market ?? null;
+          mounted = mountCompareTerms(element, { request: sessionFetch, dealId, market: named, markets: markets.map(row => row.name) });
         } else {
           const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
             ? await import('./ui-market-cutover.generated.js') : await import('./ui-market.generated.js');

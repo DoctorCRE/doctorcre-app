@@ -169,10 +169,10 @@ test("Calendar month grid marks today, marks chips by kind, folds overflow and t
               const rows = await grid
                 .locator(".cal-week:has(.cal-day)")
                 .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
-              assert.equal(rows.length, 6);
+              assert.equal(rows.length, 5, "October 2026 spans five weeks");
               assert.equal(new Set(rows).size, 1, `rows are even: ${rows}`);
             });
-            await t.test("the grid has Sun-Sat headers, six weeks and muted outside days", async () => {
+            await t.test("the grid has Sun-Sat headers, October's five weeks and muted outside days", async () => {
               await expect(grid.getByRole("columnheader")).toHaveText([
                 "Sun",
                 "Mon",
@@ -182,7 +182,7 @@ test("Calendar month grid marks today, marks chips by kind, folds overflow and t
                 "Fri",
                 "Sat",
               ]);
-              await expect(grid.locator(".cal-day")).toHaveCount(42);
+              await expect(grid.locator(".cal-day")).toHaveCount(35);
               const outside = grid.locator('.cal-day[data-out-month="true"]').first();
               await expect(outside).toBeVisible();
               assert.notEqual(await tint(outside), await tint(grid.locator('.cal-day[data-day="2026-10-13"]')));

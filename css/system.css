@@ -100,12 +100,6 @@ small, .small { font-size: var(--font-size-1); color: var(--fg-muted); }
 .field-hint { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); line-height: 1.4; }
 .field.invalid input, .field.invalid textarea { border-color: var(--status-danger); }
 .field-error { margin: 0; color: var(--status-danger-ink); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
-.switch { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--touch); padding: 0 var(--space-1); border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
-.switch-track { position: relative; width: 40px; height: 22px; border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-round); background: var(--surface-2); transition: background-color var(--duration-hover) var(--ease-out); }
-.switch-track::after { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--fg-muted); content: ""; transition: transform var(--duration-hover) var(--ease-out); }
-.switch[aria-checked="true"] { color: var(--fg); }
-.switch[aria-checked="true"] .switch-track { background: var(--surface-3); border-color: var(--fg-muted); }
-.switch[aria-checked="true"] .switch-track::after { transform: translateX(18px); background: var(--fg); }
 
 /* ------------------------------------------------------------- status: colour + shape, held still */
 .status { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 32px; padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-round); background: var(--surface-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }

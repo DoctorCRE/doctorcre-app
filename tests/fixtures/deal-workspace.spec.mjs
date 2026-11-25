@@ -27,7 +27,7 @@ for (const width of [390, 1440]) {
     const card = page.locator('.kanban-column [data-id="d14"]');
     await expect(card.locator('.card-open')).toBeVisible();
     await expect(card.getByText(next, { exact: true })).toHaveCount(0);
-    await expect(card.locator(`time[datetime="${keyDate}"]`)).toHaveText('Due Nov 20');
+    await expect(card.locator('time')).toHaveCount(0);
     await card.locator('.card-open').click();
 
     const room = page.getByRole('main', { name: 'Deal Workspace' });

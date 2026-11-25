@@ -78,7 +78,7 @@ function parseStep(value: unknown) {
   return {
     next_step_id: value.next_step_id,
     owner: value.owner,
-    title: value.display_title ?? value.what,
+    title: value.display_title?.trim() || value.what,
     due_on: value.due_on,
     change_id: value.change_id,
     set_by: typeof value.set_by === "string" ? value.set_by : null,

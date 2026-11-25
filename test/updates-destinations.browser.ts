@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import type { Page, Request, Route } from "playwright";
+import type { Locator, Page, Request, Route } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
@@ -291,7 +291,9 @@ const screenFit = (page: Page) =>
       const node = document.querySelector(selector);
       return Boolean(node && node.scrollHeight > node.clientHeight);
     };
-    const rows = [...document.querySelectorAll("#feedList > li")].map((row) => row.getBoundingClientRect().height);
+    const rows = [...document.querySelectorAll("#feedList > .update-row")].map(
+      (row) => row.getBoundingClientRect().height,
+    );
     return {
       pageScrolls: scrolls("#appMainSlot") || document.documentElement.scrollHeight > innerHeight,
       sideways: document.documentElement.scrollWidth > innerWidth,
@@ -303,6 +305,8 @@ const screenFit = (page: Page) =>
       tallestRow: Math.round(Math.max(...rows)),
     };
   });
+
+const widthOf = async (locator: Locator) => (await locator.boundingBox())?.width ?? Number.NaN;
 
 for (const [width, height] of [
   [1280, 800],
@@ -329,7 +333,7 @@ for (const [width, height] of [
         assert.equal(fit.besideFeed, true, "Who did what sits beside the feed");
         assert.ok(fit.feedTop <= 112, `the feed starts near the top, not at ${fit.feedTop}px`);
         assert.ok(fit.feedBottom <= height, "the feed ends on screen");
-        assert.ok(fit.tallestRow <= 68, `rows are compact, not ${fit.tallestRow}px`);
+        assert.ok(fit.tallestRow <= 64, `a two-line row is at most 64px, not ${fit.tallestRow}px`);
         await capture(page, `updates-fit-${today === "open" ? "today" : "wide"}`, width, theme);
       });
 
@@ -363,7 +367,7 @@ test("an update row opens on click and with the keyboard, and marks read from th
     800,
   );
   await page.goto(updatesPath);
-  const row = page.locator("#feedList > li").first();
+  const row = page.locator("#feedList > .update-row").first();
   const toggle = row.getByRole("button", { name: unread.title });
   await toggle.waitFor({ timeout: 2500 });
   assert.equal(await toggle.getAttribute("aria-expanded"), "false");
@@ -373,7 +377,7 @@ test("an update row opens on click and with the keyboard, and marks read from th
   assert.equal(await toggle.getAttribute("aria-expanded"), "false", "Enter closes it again");
   await toggle.press("Space");
   assert.equal(await toggle.getAttribute("aria-expanded"), "true", "Space opens it");
-  const change_ = page.locator("#activityList > li").first();
+  const change_ = page.locator("#activityList > .update-row").first();
   await change_.getByRole("button", { name: "moved it" }).click();
   assert.equal(await change_.locator(".row-more").isVisible(), true, "Who did what rows open the same way");
 
@@ -399,15 +403,20 @@ test("Who did what leads with the record and folds a run of one change; an empty
   });
   await page.goto(updatesPath);
   await page.getByRole("heading", { name: "No notifications", exact: true }).waitFor({ timeout: 2500 });
-  const rows = page.locator("#activityList > li");
+  const rows = page.locator("#activityList > .update-row");
   assert.equal(await rows.nth(0).getByRole("heading").textContent(), "Example Dental · moved the deal to LOI");
   assert.equal(
     await rows.nth(0).getByRole("link", { name: "Example Dental" }).getAttribute("href"),
     `/deals?deal=${deal}`,
   );
-  assert.equal(await rows.nth(0).locator(".note-subject").textContent(), "Joe · 9:00 AM");
+  assert.equal(await rows.nth(0).locator(".note-subject").textContent(), "Joe");
+  assert.equal(
+    await rows.nth(0).locator(".row-meta").textContent(),
+    "9:00 AM",
+    "the time sits at the row's end, as in the feed",
+  );
   assert.equal(await rows.count(), 2, "the 24 notes read as one row");
-  assert.equal(await rows.nth(1).locator(".note-subject").textContent(), "Written by the assistant · 9:00 AM");
+  assert.equal(await rows.nth(1).locator(".note-subject").textContent(), "Written by the assistant");
   await rows.nth(1).getByRole("button", { name: "24 records · added a note", exact: true }).click();
   const records = rows.nth(1).locator(".fold-list a");
   assert.equal(await records.count(), 24, "it opens to every record");
@@ -416,6 +425,111 @@ test("Who did what leads with the record and folds a run of one change; an empty
     ["Clinic 1", `/deals?deal=${deal}`],
   );
   await capture(page, "updates-fold", 1280, "dark");
+});
+
+test("Updates groups rows by day, marks unread with a dot and keeps row controls quiet", async (t) => {
+  const at = (iso: string, n: number) => ({
+    ...unread,
+    source_id: `55555555-5555-4555-8555-${String(n).padStart(12, "0")}`,
+    title: `Update ${n}`,
+    activity_at: iso,
+  });
+  const days = [
+    "2026-11-25T15:00:00Z",
+    "2026-11-24T15:00:00Z",
+    "2026-11-20T15:00:00Z",
+    "2026-11-02T15:00:00Z",
+    "2025-12-01T15:00:00Z",
+  ];
+  const updates = [...days.map(at), { ...seen, activity_at: days[4] }];
+  const changes = days.map((changed_at, n) => ({ ...change("Joe", `moved the deal to phase ${n}`), changed_at }));
+  const { page } = await open(
+    t,
+    1280,
+    "light",
+    {
+      "GET /api/engine/updates": () => ({ json: { unread_count: 5, updates } }),
+      "GET /api/engine/updates/changes": () => ({ json: { changes, next_before: null } }),
+    },
+    true,
+    640,
+  );
+  await page.clock.setFixedTime(new Date("2026-11-25T18:00:00Z"));
+  await page.goto(updatesPath);
+  await page.getByRole("heading", { name: "Update 0", exact: true }).waitFor({ timeout: 2500 });
+  await page.locator("#activityList > .update-row").first().waitFor();
+  const headings = ["Today", "Yesterday", "Friday", "Nov 2", "Dec 1, 2025"];
+  assert.deepEqual(await page.locator("#feedList > .day-head").allTextContents(), headings);
+  assert.deepEqual(await page.locator("#activityList > .day-head").allTextContents(), headings);
+
+  assert.equal(
+    await page.locator("#feedList").getByText("Update", { exact: true }).count(),
+    0,
+    "no label repeats the page's name",
+  );
+  assert.equal(
+    await page
+      .locator("#feedList .severity-chip")
+      .allTextContents()
+      .then((all) => all.join()),
+    "Tour feedback",
+  );
+
+  const row = (title: string) =>
+    page.locator("#feedList > .update-row").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+  const edge = (title: string) => row(title).evaluate((node) => getComputedStyle(node).borderLeftColor);
+  const dot = (title: string) => row(title).locator(".row-meta .unread-dot");
+  assert.equal(await edge("Update 0"), "rgba(0, 0, 0, 0)", "unread is not a warning edge");
+  assert.notEqual(
+    await dot("Update 0").evaluate((node) => getComputedStyle(node).backgroundColor),
+    "rgba(0, 0, 0, 0)",
+    "unread shows a dot",
+  );
+  assert.equal(await dot(seen.title).count(), 0, "a read row has no dot");
+  assert.equal(
+    await row("Update 0").locator(".row-meta").getByText("Unread", { exact: true }).count(),
+    1,
+    "a screen reader hears the dot as Unread",
+  );
+  assert.equal(await row(seen.title).getByText("Unread", { exact: true }).count(), 0);
+
+  const clockEdges = (list: string) =>
+    page
+      .locator(`${list} > .update-row .row-clock`)
+      .evaluateAll((clocks) => clocks.map((clock) => Math.round(clock.getBoundingClientRect().right)));
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 640 });
+    for (const list of ["#feedList", "#activityList"]) {
+      const edges = await clockEdges(list);
+      assert.ok(edges.length > 1, `${list} has rows to compare`);
+      assert.equal(new Set(edges).size, 1, `at ${width} every ${list} time ends at one edge, not ${edges}`);
+    }
+    await capture(page, "updates-days", width, "light");
+  }
+  await page.setViewportSize({ width: 1280, height: 640 });
+
+  const markRead = await row("Update 0").getByRole("button", { name: "Mark read", exact: true }).boundingBox();
+  assert.ok(
+    markRead && markRead.height >= 28 && markRead.height <= 32 && markRead.width <= 32,
+    "Mark read is a small control",
+  );
+  const decoration = (locator: ReturnType<Page["locator"]>) =>
+    locator.first().evaluate((node) => getComputedStyle(node).textDecorationLine);
+  assert.equal(await decoration(row("Update 0").getByRole("link")), "none", "the row's link is quiet until hovered");
+  assert.equal(
+    await decoration(page.locator("#activityList a.row-lead")),
+    "none",
+    "a record name is quiet until hovered",
+  );
+  assert.equal(
+    await page
+      .locator("main")
+      .getByText(/^As of /)
+      .count(),
+    1,
+    "one As of for the page",
+  );
+  assert.equal(await page.getByRole("button", { name: "Refresh", exact: true }).textContent(), "↻");
 });
 
 test("Mark read by keyboard keeps focus on its row, or the next row when it leaves", async (t) => {
@@ -670,9 +784,13 @@ test("Settings opens from the account menu and saves without showing a time zone
   assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /America\/Denver/);
 });
 
-for (const width of [1280, 1440, 390])
-  test(`Settings shows unset quiet hours as empty boxes at ${width}`, async (t) => {
-    const { page } = await open(t, width, "dark");
+for (const [width, height] of [
+  [1280, 720],
+  [1440, 900],
+  [390, 844],
+] as const)
+  test(`Settings is one readable column with unset quiet hours empty at ${width}`, async (t) => {
+    const { page } = await open(t, width, "dark", {}, true, height);
     await page.goto(settingsPath);
     await page.locator("#prefForm").waitFor();
     await mkdir("out/test-artifacts/settings", { recursive: true });
@@ -680,8 +798,104 @@ for (const width of [1280, 1440, 390])
     for (const box of [page.getByLabel("Quiet hours start"), page.getByLabel("Quiet hours end")]) {
       assert.equal(await box.inputValue(), "");
       assert.equal(await box.getAttribute("placeholder"), "Not set", "an empty box does not show a time");
+      assert.ok((await widthOf(box)) <= 160, "a time box is sized for a time");
+      const height = (await box.boundingBox())?.height ?? Number.NaN;
+      if (width > 760) assert.equal(height, 32, "a time box is a computer-sized control");
+      else assert.ok(height >= 44, "a time box keeps its touch size on a phone");
     }
+    const push = page.getByRole("switch", { name: "Device push", exact: true });
+    assert.equal(await push.count(), 1, "the switch is named by its label alone");
+    const hint = await push.getAttribute("aria-describedby");
+    assert.equal(
+      await page.locator(`[id="${hint}"]`).textContent(),
+      "Send a device push when something is addressed to me",
+    );
+    assert.equal(
+      await page
+        .locator(".setting-text")
+        .first()
+        .evaluate((el) => getComputedStyle(el).rowGap),
+      "4px",
+    );
+    assert.equal(await page.getByRole("button", { name: "Clear quiet hours" }).isVisible(), false);
+    assert.equal(
+      await page
+        .locator("main")
+        .getByText(/^As of /)
+        .count(),
+      0,
+    );
+    const column = await widthOf(page.locator("#quietHoursBlock"));
+    assert.ok(column <= 720, `the settings column is ${column}px wide`);
+    assert.ok((await widthOf(saveButton(page))) < column / 2 || width < 560, "Save is a button, not a full-width bar");
+    const overflow = await page.evaluate(() => ({
+      x: document.documentElement.scrollWidth > innerWidth,
+      y: document.documentElement.scrollHeight > innerHeight,
+    }));
+    assert.equal(overflow.x, false, "no sideways scroll");
+    if (width > 760) assert.equal(overflow.y, false, "Settings fits one screen");
   });
+
+test("Settings offers Clear quiet hours only once quiet hours are saved", async (t) => {
+  const { page } = await open(
+    t,
+    1440,
+    "dark",
+    preferenceStore({ ...preferences, quiet_from: "22:00", quiet_until: "07:00" }),
+  );
+  await page.goto(settingsPath);
+  const clear = page.getByRole("button", { name: "Clear quiet hours" });
+  await clear.waitFor();
+  assert.equal(await page.getByLabel("Quiet hours start").inputValue(), "10:00 PM");
+  await clear.click();
+  await page.locator("#prefSummary").getByText("No quiet hours set · device push off", { exact: true }).waitFor();
+  assert.equal(await clear.isVisible(), false);
+  assert.equal(await page.getByLabel("Quiet hours start").inputValue(), "");
+});
+
+test("Settings rows answer the pointer", async (t) => {
+  const { page } = await open(t, 1440, "dark");
+  await page.goto(settingsPath);
+  await page.locator("#prefForm").waitFor();
+  const row = page.locator("label.setting-row");
+  const fill = () => row.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const rest = await fill();
+  await row.hover();
+  const fillIs = (same: boolean) =>
+    page.waitForFunction(
+      ([before, same]) => {
+        const row = document.querySelector("label.setting-row");
+        return !!row && (getComputedStyle(row).backgroundColor === before) === same;
+      },
+      [rest, same] as const,
+    );
+  await fillIs(false);
+  await page.mouse.move(0, 0);
+  await fillIs(true);
+});
+
+test("keyboard focus stays on the Settings control that saved", async (t) => {
+  const { page } = await open(
+    t,
+    1440,
+    "dark",
+    preferenceStore({ ...preferences, quiet_from: "22:00", quiet_until: "07:00" }),
+  );
+  await page.goto(settingsPath);
+  const activeId = () => page.evaluate(() => document.activeElement?.id ?? "");
+  const save = saveButton(page);
+  await save.focus();
+  await save.press("Enter");
+  await page.locator("#prefMessage").getByText("Saved", { exact: true }).waitFor();
+  assert.equal(await activeId(), "prefSave", "Save keeps focus once it answers");
+
+  const clear = page.getByRole("button", { name: "Clear quiet hours" });
+  await clear.focus();
+  await clear.press("Enter");
+  await page.locator("#prefSummary").getByText("No quiet hours set · device push off", { exact: true }).waitFor();
+  assert.equal(await clear.isVisible(), false);
+  assert.equal(await activeId(), "quietStart", "focus moves to the first time box when Clear hides");
+});
 
 test("checking a settings save outcome keeps newer preferences on screen", async (t) => {
   const saved = { ...preferences, quiet_from: "22:00", quiet_until: "07:00", base_version: 5 };
@@ -768,7 +982,7 @@ test("Who did what shows the engine's first page and Show more follows next_befo
   });
   await page.goto(updatesPath);
   await page.getByRole("heading", { name: "Example Dental · moved the deal to LOI" }).waitFor();
-  assert.equal(await page.locator("#activityList").getByText("Alex Example · 9:00 AM", { exact: true }).count(), 1);
+  assert.equal(await page.locator("#activityList").getByText("Alex Example", { exact: true }).count(), 1);
   assert.equal(
     await page.locator("#activityList").getByRole("link", { name: "Example Dental" }).getAttribute("href"),
     `/deals?deal=${deal}`,
@@ -838,7 +1052,7 @@ test("a conflict keeps the settings draft and notice visible when the refresh fa
   await draft.fill("10:00 PM");
   await page.getByLabel("Quiet hours end").fill("7:00 AM");
   await saveButton(page).click();
-  const panel = page.getByRole("region", { name: "Your notification preferences" });
+  const panel = page.getByRole("region", { name: "Notifications" });
   await panel.locator('#prefState[data-state="unavailable"]').waitFor();
   assert.equal(await draft.isVisible(), true, "the unsaved quiet hours remain visible");
   assert.equal(await draft.inputValue(), "10:00 PM");

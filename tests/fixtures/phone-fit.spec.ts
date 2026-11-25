@@ -104,7 +104,7 @@ for (const width of [360, 390, 500]) {
       }
       await expectTouchTargets(page.locator("main :is(a, button, summary, input, select):visible"));
       await page.goto(`${server.url}/settings?mode=live`);
-      const optIn = page.getByRole("checkbox", { name: /Send a device push/ });
+      const optIn = page.getByRole("switch", { name: "Device push", exact: true });
       await expect(optIn).toBeEnabled();
       await expectTouchTargets(page.locator("main :is(a, button, summary, input:not(#deviceOptIn), select):visible"));
       const target = optIn.locator("..");
@@ -137,27 +137,25 @@ for (const width of [360, 390, 500]) {
         "Documents",
       ]);
       const layout = await tabs.evaluate((nav) => {
-        const bounds = nav.getBoundingClientRect();
         const buttons = Array.from(nav.querySelectorAll('[role="tab"]')).filter((tab) => tab.checkVisibility());
         const clipped = buttons
           .filter((tab) => {
             const range = document.createRange();
             range.selectNodeContents(tab);
             const box = tab.getBoundingClientRect();
-            const left = Math.max(bounds.left, box.left, 0);
-            const right = Math.min(bounds.right, box.right, innerWidth);
-            return Array.from(range.getClientRects()).some((rect) => rect.left < left || rect.right > right);
+            const lines = range.getClientRects();
+            return lines.length > 1 || Array.from(lines).some((rect) => rect.left < box.left || rect.right > box.right);
           })
           .map((tab) => tab.textContent);
         return {
           clipped,
-          overflow: nav.scrollWidth - nav.clientWidth,
+          pageOverflow: document.documentElement.scrollWidth - innerWidth,
           rows: new Set(buttons.map((tab) => tab.getBoundingClientRect().top)).size,
         };
       });
       expect.soft(layout.clipped, `Deal tab labels at ${width}px`).toEqual([]);
-      expect.soft(layout.overflow, `Deal tab overflow at ${width}px`).toBeLessThanOrEqual(0);
-      expect.soft(layout.rows, `Deal tab rows at ${width}px`).toBeLessThanOrEqual(2);
+      expect.soft(layout.pageOverflow, `Page overflow at ${width}px`).toBeLessThanOrEqual(0);
+      expect.soft(layout.rows, `Deal tab rows at ${width}px`).toBe(1);
       await room.getByText(/^Deal watch settings/).click();
       const watch = room.getByRole("group", { name: "Watch settings" });
       const checkboxes = watch.getByRole("checkbox");

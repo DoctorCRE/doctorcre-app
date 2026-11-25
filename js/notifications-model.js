@@ -146,6 +146,7 @@ export function notificationCards(payload, routes = APP_ROUTE_PATHS, zone = BUSI
       reason: isText(row.reason) ? row.reason : "no reason recorded",
       subject: recordLabel(row.subject_type),
       details: { subjectType: row.subject_type || null, subjectRef: row.subject_ref || null },
+      at: row.created_at,
       clock: formatClock(row.created_at, zone),
       read: isText(row.read_at),
       readClock: formatClock(row.read_at, zone) || null,
@@ -163,9 +164,11 @@ export function notificationCards(payload, routes = APP_ROUTE_PATHS, zone = BUSI
 function updateCard(row, zone) {
   return {
     id: row.id,
-    severityLabel: row.label,
+    // Every row is an update, so only another kind, such as Tour feedback, is labeled.
+    severityLabel: row.label === "Update" ? null : row.label,
     reason: row.title,
     subject: row.why,
+    at: row.at,
     clock: formatClock(row.at, zone),
     reading: row.reading,
     readClock: row.reading.kind === "read" ? formatClock(row.reading.at, zone) : null,
@@ -303,6 +306,7 @@ export function activityRows(events, zone = BUSINESS_TIME_ZONE) {
       verb: changeAction(row),
       subject: recordLabel(row.subject_type),
       details: { actor: row.actor || null, verb: row.verb, subjectType: row.subject_type || null, subjectRef: row.subject_id || null },
+      at: row.recorded_at,
       clock: formatClock(row.recorded_at, zone),
     }));
 }
@@ -321,6 +325,32 @@ export function parseChangesPage(page) {
 
 export function changeRows(changes, zone = BUSINESS_TIME_ZONE) {
   return changes.map((row) => ({ ...row, clock: formatClock(row.at, zone) }));
+}
+
+const calendarDay = (value, zone) => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
+
+/** The day a row belongs to, as a partner says it: Today, Yesterday, a weekday this week, then the date. */
+export function dayHeading(value, zone = BUSINESS_TIME_ZONE, now = new Date()) {
+  if (!isDate(value)) return "Date not recorded";
+  const [day, today] = [calendarDay(value, zone), calendarDay(now, zone)];
+  const daysAgo = Math.round((Date.parse(today) - Date.parse(day)) / 86_400_000);
+  if (daysAgo === 0) return "Today";
+  if (daysAgo === 1) return "Yesterday";
+  const date = new Date(value);
+  if (daysAgo > 1 && daysAgo < 7) return new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "long" }).format(date);
+  const year = day.slice(0, 4) === today.slice(0, 4) ? {} : { year: "numeric" };
+  return new Intl.DateTimeFormat("en-US", { timeZone: zone, month: "short", day: "numeric", ...year }).format(date);
+}
+
+/** Newest-first rows split into runs that share a day, in the same order. */
+export function groupByDay(rows, zone = BUSINESS_TIME_ZONE, now = new Date()) {
+  const groups = [];
+  for (const row of rows) {
+    const day = dayHeading(row.at, zone, now);
+    if (groups.at(-1)?.day === day) groups.at(-1).rows.push(row);
+    else groups.push({ day, rows: [row] });
+  }
+  return groups;
 }
 
 /** Changes in a row by one actor with one action fold into one group, so a run of the same thing reads once. */
