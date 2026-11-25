@@ -172,7 +172,7 @@ test("Calendar month grid marks today, marks chips by kind, folds overflow and t
               assert.equal(rows.length, 5, "October 2026 spans five weeks");
               assert.equal(new Set(rows).size, 1, `rows are even: ${rows}`);
             });
-            await t.test("the grid has Sun-Sat headers, the five weeks holding October and muted outside days", async () => {
+            await t.test("the grid has Sun-Sat headers, October's five weeks and muted outside days", async () => {
               await expect(grid.getByRole("columnheader")).toHaveText([
                 "Sun",
                 "Mon",

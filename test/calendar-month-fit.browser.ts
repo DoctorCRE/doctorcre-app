@@ -118,7 +118,9 @@ test("The whole month fits on one screen, with or without the day sheet beside i
             await expect(page.locator(`#calGrid .cal-day[data-day="${fullDay}"] .cal-chip`)).toHaveCount(fullDayItems);
             const week = await page.evaluate(() => ({
               bottom: Math.max(
-                ...["#calGrid", "#calComing"].map((id) => document.querySelector(id)?.getBoundingClientRect().bottom ?? 0),
+                ...["#calGrid", "#calComing"].map(
+                  (id) => document.querySelector(id)?.getBoundingClientRect().bottom ?? 0,
+                ),
               ),
               pageHeight: document.documentElement.scrollHeight,
             }));
