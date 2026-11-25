@@ -1327,6 +1327,8 @@ test("On a phone the open chats keep Tab inside them and close on Escape whereve
   const older = list.getByRole("button", { name: "Older chats" });
   const pencil = list.getByRole("link", { name: "New chat" });
   await expect(chat).toBeFocused();
+  // Tab skips Older chats while the chat is still loading.
+  await expect(older).toBeEnabled();
   await page.keyboard.press("Tab");
   await expect(older).toBeFocused();
   await page.keyboard.press("Tab");
