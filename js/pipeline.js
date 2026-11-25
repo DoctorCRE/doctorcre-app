@@ -20,6 +20,7 @@ import { createCommandDock } from './command-dock.js';
 import { readWithDeadline } from './auto-refresh.mjs';
 import { fetchRead } from './current-read.mjs';
 import { preserveBoardFocus } from './board-focus.mjs';
+import { showScrollThumbs } from './ui-scroll-thumb.generated.js';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient, dealTypeLabel } from './live-client.js';
 import { emailSubject, emailPlaceholderText, loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
@@ -44,7 +45,7 @@ import {
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
-import { lostDeals, closedDeals, urgencyOrder, starredFirst, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
+import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime, stepOriginLabel } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates, askDateReason,
@@ -198,10 +199,6 @@ function cardAttentionHtml(deal) {
   return `<button class="deal-board-attention" type="button" aria-label="Needs attention: ${reason}" aria-expanded="false" aria-controls="${reasonId}"><span class="deal-board-badge">Needs attention</span></button>
     <span class="deal-board-reason" id="${reasonId}" hidden>${reason}</span>`;
 }
-function starHtml(deal) {
-  if (!state.nextDealSaves || typeof deal.starred !== 'boolean' || deal.operating_state === 'parked') return '';
-  return `<button class="deal-star" type="button" data-star="${esc(deal.id)}" aria-pressed="${deal.starred}" aria-label="Star ${esc(dealTitle(deal))}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg></button>`;
-}
 function cardHtml(deal) {
   const parked = deal.operating_state === 'parked';
   const pending = pendingCommand(state.fieldWrites, cellKey(deal.id, 'phase'));
@@ -211,7 +208,7 @@ function cardHtml(deal) {
   return workCard({ variant: 'tile', className: `kanban-card${parked ? ' parked-card' : ''}`, heading: 'h4',
     attributes: `data-id="${esc(deal.id)}" data-shortcut-card ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}" data-shortcut-open>${esc(dealTitle(deal))}</button>`,
-    meta: `${badge}${ownerMarkHtml(actorName(deal.owner))}${starHtml(deal)}` });
+    meta: `${badge}${ownerMarkHtml(actorName(deal.owner))}` });
 }
 function legacyRowStepHtml(deal) {
   const nextStep = noteText(deal.next_step);
@@ -229,7 +226,7 @@ function rowHtml(deal) {
   const move = automaticPhaseReceipt(deal, null, { showEngineMoves: state.boardFromEngine, canUndo: false });
   return workCard({ variant: 'row', className: `kanban-card deal-row${parked && !state.boardFromEngine ? ' parked-card' : ''}`, heading: 'h4', attributes: `data-id="${esc(deal.id)}" data-shortcut-card tabindex="0" data-attention="${attention}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}" data-shortcut-open>${esc(dealTitle(deal))}</button>`,
-    meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${dealAttentionHtml(deal)}${starHtml(deal)}`,
+    meta: `<span class="owner">${esc(actorName(deal.owner))}</span>${dealAttentionHtml(deal)}`,
     body: `<span class="deal-stage">${esc(columnLabel(deal.phase))}</span><div class="deal-row-next">${summary}${parking}${renderDealVendors(deal.vendors)}${website}${renderPhaseReceipt(deal, move, autoHtml(deal))}${revive}</div>` });
 }
 function parkingSummaryHtml(deal) {
@@ -410,7 +407,7 @@ function dealListHtml(rows, parked) {
   const fromEngine = state.boardFromEngine;
   const phase = fromEngine ? 'Phase' : 'Stage';
   const visible = !fromEngine && state.parkedOpen ? rows : rows.filter(deal => deal.operating_state !== 'parked');
-  const mainRows = starredFirst(urgencyOrder(visible)).map(rowHtml).join('');
+  const mainRows = urgencyOrder(visible).map(rowHtml).join('');
   const parkedGroup = fromEngine && state.parkedOpen ? `<section class="deal-list-parked" aria-labelledby="parkedListHeading">
     <h3 id="parkedListHeading">Parked · ${parked.length}</h3>${urgencyOrder(parked).map(rowHtml).join('')}</section>` : '';
   return `<div class="deal-list"><div class="deal-list-head" aria-hidden="true"><span>Deal</span><span>${phase}</span><span>Next step</span><span>Owner</span></div>${mainRows}${parkedGroup}</div>`;
@@ -461,7 +458,7 @@ function renderBoard() {
     for (const child of [...board.children]) if (child !== lane) child.remove();
     const insert = list ? 'beforebegin' : 'afterend';
     (lane ?? board).insertAdjacentHTML(lane ? insert : 'afterbegin', list ? dealListHtml(rows, grouped.parked) : grouped.columns.map((column) => {
-      const cards = starredFirst(urgencyOrder(column.deals));
+      const cards = urgencyOrder(column.deals);
       const collapsed = state.collapsedColumns.has(column.slug);
       const content = collapsed
         ? `<p class="stage-preview">${cards.slice(0,2).map(d => `<span>${esc(dealTitle(d))}</span>`).join('')}${cards.length > 2 ? `<span>${cards.length - 2} more</span>` : ''}</p>`
@@ -712,25 +709,6 @@ function confirmLocalWrite(dealId, patch) {
   state.boardSync.requestRefresh('after-write');
   if (state.panelDeal === dealId && Number.isSafeInteger(state.panelDetail?.deal?.seen)) void refreshPanel({ changed: true });
   return deal;
-}
-
-async function toggleDealStar(button) {
-  const id = button.dataset.star;
-  const deal = state.deals.get(id);
-  if (!deal) return;
-  const starred = deal.starred !== true;
-  button.disabled = true;
-  try {
-    await state.client.setDealStar(id, starred);
-  } catch {
-    button.disabled = false;
-    showToast(starred ? 'Could not star this deal. Try again.' : 'Could not unstar this deal. Try again.', { error: true });
-    return;
-  }
-  confirmLocalWrite(id, { starred });
-  renderBoard();
-  document.querySelector(`[data-star="${CSS.escape(id)}"]`)?.focus();
-  announce(`${dealTitle(deal)} ${starred ? 'starred' : 'unstarred'}.`);
 }
 
 async function sendPhaseWrite(dealId, value, extra = null) { return sendFieldWrite(dealId, 'phase', value, extra); }
@@ -2550,6 +2528,7 @@ function beginMove(dealId, toSlug, deal = state.deals.get(dealId), { wonOrLost =
 function wireBoard() {
   const board = $('kanban');
   if (!board) return;
+  showScrollThumbs(board, '.kanban, .kanban-column');
 
   const openAttention = () => board.querySelector('.deal-board-attention[aria-expanded="true"]');
   const setAttention = (button, expanded) => {
@@ -2596,17 +2575,16 @@ function wireBoard() {
   addEventListener('pointercancel', release, true);
 
   // Right-click or long-press on a card offers that card's own controls.
-  const starLabel = star => (star.getAttribute('aria-pressed') === 'true' ? 'Unstar' : 'Star');
   const quickControls = [
-    ['Open', '.card-open'], [starLabel, '[data-star]'], ['Revive', '[data-revive]'], ['Undo', '[data-undo-phase]'], ['Client website', '[data-open-client-website]'],
+    ['Open', '.card-open'], ['Revive', '[data-revive]'], ['Undo', '[data-undo-phase]'], ['Client website', '[data-open-client-website]'],
   ];
   bindCardQuickMenu(board, {
     card: '.kanban-card',
     name: card => card.querySelector('.card-open')?.textContent?.trim() || '',
-    actions: card => (card.classList.contains('deal-row') ? quickControls : quickControls.slice(0, 2))
+    actions: card => (card.classList.contains('deal-row') ? quickControls : quickControls.slice(0, 1))
       .map(([label, selector]) => [label, card.querySelector(selector)])
       .filter(([, control]) => control && control.getAttribute('aria-disabled') !== 'true')
-      .map(([label, control]) => ({ label: typeof label === 'function' ? label(control) : label, control })),
+      .map(([label, control]) => ({ label, control })),
   });
   board.addEventListener('quickmenuclose', () => {
     // eslint-disable-next-line no-restricted-syntax -- 1 deferred board paint after the quick menu closes, only when paintDeferred is set; 0 HTTP reads.
@@ -2724,8 +2702,6 @@ function wire() {
     }
     const item = event.target.closest('[data-deal-item]');
     if (item) { itemSheet.open(item.dataset.itemDeal,item.dataset.dealItem,item); return; }
-    const star = event.target.closest('button[data-star]');
-    if (star) { toggleDealStar(star); return; }
     const revive = event.target.closest('button[data-revive]');
     if (revive) { setOperatingState(revive.dataset.revive, {state:'active'}); return; }
     const open = event.target.closest('button[data-open]');

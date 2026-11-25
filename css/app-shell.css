@@ -208,24 +208,24 @@ body.has-app-layout { margin: 0; padding: 0 0 var(--layout-bottom) var(--layout-
 #appToolsSlot button { margin: 0; }
 /* The eyebrow and #pageTitle repeat the top bar title and the rail's Home link. */
 #appToolsSlot :is(.eyebrow, #pageTitle, p:empty) { display: none; }
-.app-layout-today h3 { font: var(--font-weight-strong) var(--font-size-1) var(--font-text); letter-spacing: 0; text-transform: none; color: var(--fg-muted); margin: var(--space-5) 0 var(--space-2); }
-.app-layout-today section { padding-bottom: var(--space-4); }
+.app-layout-today h3 { font: var(--font-weight-strong) var(--font-size-1) var(--font-text); letter-spacing: 0; text-transform: none; color: var(--fg); margin: 0 0 var(--space-2); }
+.app-layout-today section { padding-bottom: var(--space-5); }
 html[data-deals-from-engine] :is([data-layout-slot="moves"], #receiptsOpen, #receiptsJump) { display: none; }
 .app-layout-item { display: grid; justify-content: stretch; gap: var(--space-1); width: 100%; padding: var(--space-3); margin: 0 0 var(--space-2); text-align: left; border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out), border-color var(--duration-hover) var(--ease-out); font: var(--font-weight-regular) var(--font-size-1)/1.45 var(--font-text); }
 #appToday .app-layout-item { box-sizing: border-box; }
 /* These two set their own margins, so they take back the panel's side gutter. */
 .app-layout-today > :is(#appTodayRetry, .receipt-list) { width: auto; margin-inline: var(--space-4); }
-#appRemindersTitle ~ div h4 { font: var(--font-weight-strong) var(--font-size-1) var(--font-text); margin: var(--space-3) 0 var(--space-2); }
+#appRemindersTitle ~ div h4 { font: var(--font-weight-strong) var(--font-size-1) var(--font-text); color: var(--fg-muted); margin: var(--space-3) 0 var(--space-2); }
 #appRemindersTitle ~ div a.app-layout-item { text-decoration: none; }
-#appRemindersTitle ~ div a.app-layout-item strong { text-decoration: underline; }
 .home-meeting-decision:not([hidden]) { display: flex; flex: 1 0 100%; flex-wrap: wrap; gap: var(--space-2); }
 #appMeetingReviews .work-card-actions label { display: flex; align-items: center; gap: var(--space-2); width: 100%; }
 #appMeetingReviews :is(button, select) { min-height: var(--touch); max-width: 100%; padding: var(--space-2); font: inherit; color: var(--fg); background: var(--surface-2); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); }
 #appMeetingReviews select { flex: 1; min-width: 0; }
 #appMeetingReviews button:disabled { opacity: .5; }
-#appRemindersTitle + #appTodayOwners { margin-bottom: var(--space-2); }
-#appTodayOwners { flex-wrap: nowrap; gap: var(--space-1); }
-#appTodayOwners .chip { flex: 1 1 auto; justify-content: center; padding-inline: var(--space-2); white-space: nowrap; }
+#appTodayOwners { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; margin-bottom: var(--space-3); }
+#appTodayOwners button { min-width: 0; height: 32px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1)/1 var(--font-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out); }
+@media (hover: hover) { #appTodayOwners button:hover { background: var(--surface-2); color: var(--fg); } }
+#appTodayOwners button[aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
 .app-layout-item strong { font-weight: var(--font-weight-strong); overflow-wrap: anywhere; }
 #appTodayRetry { min-width: var(--touch); min-height: var(--touch); }
 #appTodayOwners[hidden], .app-layout-item[hidden], .app-layout-empty[hidden] { display: none; }
@@ -351,6 +351,7 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
   :root { --layout-rail: 0px; --layout-bottom: calc(56px + env(safe-area-inset-bottom)); }
   body.has-app-layout .toast { left: var(--space-3); right: var(--space-3); }
+  #appTodayOwners button { height: var(--touch); }
   body.has-app-layout:has(.app-layout[data-drawer=today]) :is(.toast, .receipt-dock) { display: none; }
   body.has-app-layout { padding: 0 0 var(--layout-bottom) !important; }
   .app-layout { display: block; min-height: calc(100dvh - var(--layout-bottom)); }
@@ -546,10 +547,9 @@ body.has-app-layout:has(> .app-walkthrough[data-position=beside]) { padding-left
 .contact-reasons .home-plain-link { white-space: nowrap; }
 
 .app-layout-sidebar { overflow: hidden; }
-.calendar-panel { min-width: 0; font-size: 12px; line-height: 1.6; padding-bottom: 20px; }
-.calendar-panel h3 { font-size: 14px; }
-.calendar-panel h4 { font-size: 12px; margin-bottom: 8px; }
+.calendar-panel { min-width: 0; }
+.calendar-panel h4 { font-size: var(--font-size-1); margin-bottom: var(--space-2); }
 .calendar-panel p { color: var(--fg-muted); }
 .calendar-panel a { color: var(--accent-ink); }
 .calendar-panel-meeting time, .calendar-panel-meeting a, .calendar-panel-meeting small { display: block; overflow-wrap: anywhere; }
-.calendar-panel-meeting time { font-size: 10px; }
+.calendar-panel-meeting time { margin-top: var(--space-1); color: var(--fg-muted); }
