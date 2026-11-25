@@ -49,7 +49,8 @@
 .section-heading time { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 #territoryMapFrame { position: relative; }
 #territoryMap { --map-border: var(--fg-muted); position: relative; height: 220px; overflow: hidden; border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: var(--surface-2); }
-.market-marker { min-width: var(--touch); min-height: var(--touch); padding: var(--space-1) var(--space-2); border: 2px solid var(--fg-muted); box-shadow: 0 0 0 2px var(--surface-1); border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
+.market-marker { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 28px; padding: 0 var(--space-2); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-round); background: var(--surface-1); color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.market-marker b { color: var(--fg); font-weight: var(--font-weight-strong); }
 .market-marker:hover { background: var(--surface-2); }
 .market-marker[aria-pressed="true"] { outline: var(--focus-width) solid var(--fg); outline-offset: 2px; }
 .map-lead-preview { position: absolute; z-index: 2; top: var(--space-2); width: 18rem; max-height: calc(100% - var(--space-4)); overflow: auto; display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font-size: var(--font-size-1); overflow-wrap: anywhere; }
@@ -253,6 +254,7 @@ dialog::backdrop { background: var(--scrim); }
   .stages-hidden { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0 0; color: var(--fg-muted); font-size: var(--font-size-1); }
   .stages-hidden button { min-height: var(--touch); padding: 0 var(--space-3); border: 0; background: transparent; color: var(--fg); font: inherit; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
   #territoryMap { height: 180px; }
+  .market-marker { min-height: var(--touch); }
   .map-place-members { position: static; width: auto; height: 280px; margin-top: var(--space-2); }
   .controls { grid-template-columns: 1fr 1fr; gap: var(--space-2); }
   .controls .search { grid-column: 1 / -1; }

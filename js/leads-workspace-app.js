@@ -945,7 +945,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     button.disabled = true; button.textContent = "Loading territory…";
     button.setAttribute("aria-expanded", "true"); root.hidden = false;
     try {
-      const map = await mapFactory(root, selectMarket, readDetail, { describeLead: id => leadTitle(leadById(id) || {}) });
+      const map = await mapFactory(root, readDetail, { describeLead: id => leadTitle(leadById(id) || {}) });
       if (disposed) { map.dispose(); return; }
       state.map = map; button.hidden = true;
       if (!state.drag && !touch) render();

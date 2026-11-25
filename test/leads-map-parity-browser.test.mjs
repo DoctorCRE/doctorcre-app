@@ -73,7 +73,20 @@ test(`shared market location membership is order independent at ${width}px (reve
   assert.deepEqual(located, [id(1)], 'only the located lead belongs to a marker');
   assert.equal(await page.locator('[data-market="Synthetic shared market"] b').innerText(), '2');
   assert.deepEqual(await page.locator('#leadBoard .lead-card').evaluateAll(nodes => nodes.map(node => node.dataset.leadId).sort()), [id(1), id(2)]);
-  assert.equal(await page.locator('.market-marker').innerText(), '1');
+  assert.equal(await page.locator('.market-marker b').innerText(), '1');
+});
+
+for (const width of [1440, 390]) test(`a lead served with a city and no state shows on the map with its market's count at ${width}px`, async t => {
+  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
+  const board = { ...workspace(), leads: [1, 2].map(n => lead(n, { city: 'Crestview', state: null })) };
+  await routeLeads(page, { getBoard: () => board });
+  await page.goto('http://localhost/leads');
+  await page.getByRole('button', { name: 'Show territory', exact: true }).click();
+  const marker = page.locator('.market-marker');
+  await marker.waitFor();
+  assert.deepEqual(await marker.evaluate(node => [node.querySelector('span')?.textContent, node.querySelector('b').textContent]), ['Crestview', '2']);
 });
 
 test('phone All stages count describes the destination membership', async t => {
@@ -233,7 +246,7 @@ for (const width of [1440,390]) test(`marker selection survives matching filters
   assert.equal(await page.locator('.lead-card:visible').count(), 1);
 });
 
-for (const width of [1440, 390]) test(`Leads opens the Mobile to Tallahassee working frame through Dothan at ${width}px`, async t => {
+for (const width of [1440, 390]) test(`Leads opens on all of the partners' markets, Mobile to Tallahassee and down the coast, at ${width}px`, async t => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
@@ -252,11 +265,14 @@ for (const width of [1440, 390]) test(`Leads opens the Mobile to Tallahassee wor
   await page.goto('http://localhost/leads');
   await page.getByRole('button', { name: 'Show territory', exact: true }).click();
   await page.locator('.market-marker').first().waitFor({ state: 'attached' });
-  assert.deepEqual(await page.evaluate(() => leadsInitialBounds), [[-88.107853, 30.453529], [-84.252272, 31.233698]]);
-  const frame = await page.evaluate(() => ({ bounds: leadsRenderer.getBounds().toArray(),
-    places: [[-88.107853, 30.668246], [-84.252272, 30.453529], [-85.406823, 31.233698]]
-      .map(point => { const p = leadsRenderer.project(point); return { x: p.x, y: p.y }; }),
-    width: leadsRenderer.getContainer().clientWidth, height: leadsRenderer.getContainer().clientHeight }));
+  assert.deepEqual(await page.evaluate(() => leadsInitialBounds), [[-88.107853, 30.233151], [-84.252272, 31.233698]]);
+  const markets = ['Mobile', 'Daphne', 'Fairhope', 'Orange Beach', 'Gulf Shores', 'Dothan', 'Pensacola', 'Pace', 'Milton', 'Gulf Breeze',
+    'Navarre', 'Crestview', 'Niceville', 'Fort Walton Beach', 'Destin', 'Miramar Beach', 'Freeport', 'Panama City Beach', 'Panama City', 'Tallahassee'];
+  const places = JSON.parse(await readFile(new URL('../data/leads-market-locations.json', import.meta.url), 'utf8'));
+  const points = markets.map(name => places.find(place => place.name === name && ['AL', 'FL'].includes(place.state)).position);
+  const frame = await page.evaluate(points => ({ bounds: leadsRenderer.getBounds().toArray(),
+    places: points.map(point => { const p = leadsRenderer.project(point); return { x: p.x, y: p.y }; }),
+    width: leadsRenderer.getContainer().clientWidth, height: leadsRenderer.getContainer().clientHeight }), points);
   assert.ok(frame.places.every(p => p.x >= 20 && p.x <= frame.width - 20 && p.y >= 20 && p.y <= frame.height - 20), JSON.stringify(frame));
   assert.ok(frame.bounds[1][1] < 34, 'the working frame does not default to northern Alabama and Georgia');
   const canvas = await page.locator('#territoryMap canvas').elementHandle();

@@ -1,10 +1,16 @@
 import { mountMarketMap } from "./market-map-shell.js";
 
-const operatingTerritory = [{ city: "Mobile", state: "AL" }, { city: "Tallahassee", state: "FL" }, { city: "Dothan", state: "AL" }];
+// The partners' 19 markets by their Census places: Daphne and Fairhope stand for the
+// Eastern Shore; 30A / Santa Rosa Beach has no place and lies inside this frame.
+const operatingTerritory = [["Mobile", "AL"], ["Daphne", "AL"], ["Fairhope", "AL"], ["Orange Beach", "AL"], ["Gulf Shores", "AL"],
+  ["Dothan", "AL"], ["Pensacola", "FL"], ["Pace", "FL"], ["Milton", "FL"], ["Gulf Breeze", "FL"], ["Navarre", "FL"],
+  ["Crestview", "FL"], ["Niceville", "FL"], ["Fort Walton Beach", "FL"], ["Destin", "FL"], ["Miramar Beach", "FL"],
+  ["Freeport", "FL"], ["Panama City Beach", "FL"], ["Panama City", "FL"], ["Tallahassee", "FL"]].map(([city, state]) => ({ city, state }));
 // One persistent MapLibre Search Mode component; counts come from the same
 // eligible lead projection as the board. Census points represent places only.
 export function marketLocation(lead, places) {
-  const matches = places.filter(item => item.name.toLowerCase() === String(lead.city || "").toLowerCase() && item.state === lead.state);
+  // The engine serves a lead's city without its state; a city name found once in the territory's states still places it.
+  const matches = places.filter(item => item.name.toLowerCase() === String(lead.city || "").toLowerCase() && (!lead.state || item.state === lead.state));
   const place = matches.length === 1 ? matches[0] : null;
   const position = place?.position;
   return Array.isArray(position) && position.length === 2 && position.every(Number.isFinite) &&
@@ -12,12 +18,10 @@ export function marketLocation(lead, places) {
 }
 export function marketFeatures(groups) {
   return { type: "FeatureCollection", features: groups.flatMap(group => group.locations.map(({ place, leadIds }) =>
-    ({ type: "Feature", id: place.id, properties: { key: group.key, count: leadIds.length, leadIds },
+    ({ type: "Feature", id: place.id, properties: { key: group.key, place: place.name, count: leadIds.length, leadIds },
       geometry: { type: "Point", coordinates: place.position } }))) };
 }
-// `areas` adds labelled, selectable market-area points (Census place points, never
-// a property); clicking one reports its key through selectMarket.
-export async function mountTerritoryMap(root, selectMarket, selectLead, { signal, markets = operatingTerritory, areas = [], padding = 24, describeLead = id => id, loadMapLibre, fetchImpl = fetch } = {}) {
+export async function mountTerritoryMap(root, selectLead, { signal, markets = operatingTerritory, padding = 32, describeLead = id => id, loadMapLibre, fetchImpl = fetch } = {}) {
   const [geometry, places] = await Promise.all([
     fetchImpl("/data/leads-territory.geojson", { signal }).then(r => { if (!r.ok) throw new Error("Map unavailable"); return r.json(); }),
     fetchImpl("/data/leads-market-locations.json", { signal }).then(r => { if (!r.ok) throw new Error("Map unavailable"); return r.json(); }),
@@ -42,50 +46,13 @@ export async function mountTerritoryMap(root, selectMarket, selectLead, { signal
   let latest = [], selected = "";
   let picker = null, preview = null;
   const locations = markets.map(market => marketLocation(market, places));
-  const areaPlaces = areas.map(area => marketLocation(area, places));
-  if ([...locations, ...areaPlaces].some(place => !place)) { shell.destroy(); throw new Error("Market location unavailable"); }
+  if (locations.some(place => !place)) { shell.destroy(); throw new Error("Market location unavailable"); }
   const bounds = locations.length ? locations.reduce((bounds, place) => bounds.extend(place.position), new gl.LngLatBounds()) : null;
-  if (bounds) map.fitBounds(bounds, { padding, duration: 0 });
+  const frameTerritory = () => map.fitBounds(bounds, { padding, duration: 0 });
+  if (bounds) { frameTerritory(); map.on("resize", frameTerritory); }
   // The paint reads theme tokens once; a theme switch repaints in place.
   const themes = view && new view.MutationObserver(() => { for (const [layer, property, name] of paint) map.setPaintProperty(layer, property, token(name)); });
   themes?.observe(doc.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-color-assist"] });
-  const areaMarkers = areas.map((area, index) => {
-    const button = doc.createElement("button"), label = doc.createElement("span");
-    button.type = "button"; button.className = "area-marker"; button.dataset.market = area.key;
-    button.setAttribute("aria-pressed", "false"); button.setAttribute("aria-label", `Choose ${area.label} on the map`);
-    label.textContent = area.label; button.append(label);
-    button.addEventListener("click", () => selectMarket(area.key));
-    return { button, label, marker: new gl.Marker({ element: button }).setLngLat(areaPlaces[index].position).addTo(map) };
-  });
-  // Labels go beside their own dot. Every combination of sides is scored (a few
-  // markets, eight sides each, pruned) and the one that keeps every label inside the map,
-  // clear of other labels and away from other dots, wins; ties prefer the earlier side.
-  const SIDES = ["right", "left", "top", "bottom", "top-right", "bottom-right", "top-left", "bottom-left"];
-  function placeLabels() {
-    const frame = root.getBoundingClientRect(), gap = 2;
-    const dots = areaMarkers.map(({ button }) => button.getBoundingClientRect());
-    const rects = areaMarkers.map(({ button, label }) => SIDES.map(side => { button.dataset.placement = side; return label.getBoundingClientRect(); }));
-    const inside = r => r.left >= frame.left + gap && r.right <= frame.right - gap && r.top >= frame.top + gap && r.bottom <= frame.bottom - gap;
-    const hits = (a, b, room = gap) => a.left < b.right + room && b.left < a.right + room && a.top < b.bottom + room && b.top < a.bottom + room;
-    // A label that brushes another market's dot reads as that market's name.
-    const near = (a, b) => hits(a, b, 14);
-    const own = rects.map((sides, index) => sides.map((rect, side) => (inside(rect) ? 0 : 100) + side / 10
-      + dots.filter((dot, other) => other !== index && hits(rect, dot)).length * 10
-      + dots.filter((dot, other) => other !== index && near(rect, dot)).length * 3));
-    let best = { cost: Infinity, choice: [] };
-    (function search(index, choice, cost) {
-      if (cost >= best.cost) return;
-      if (index === rects.length) { best = { cost, choice: [...choice] }; return; }
-      // eslint-disable-next-line no-restricted-syntax -- Label placement visits SIDES.length choices per finite label; search will stop when index reaches rects.length (1 pass per label).
-      for (let side = 0; side < SIDES.length; side++) {
-        const rect = rects[index][side];
-        const clash = choice.filter((other, previous) => hits(rect, rects[previous][other])).length * 10;
-        choice.push(side); search(index + 1, choice, cost + own[index][side] + clash); choice.pop();
-      }
-    })(0, [], 0);
-    areaMarkers.forEach(({ button }, index) => { button.dataset.placement = SIDES[best.choice[index]]; });
-  }
-  if (areaMarkers.length) { placeLabels(); map.on("resize", placeLabels); }
   function closePreview() {
     if (!preview) return;
     preview.item.button.removeAttribute("aria-describedby");
@@ -166,14 +133,53 @@ export async function mountTerritoryMap(root, selectMarket, selectLead, { signal
     updatePicker();
     picker?.list.querySelector("button")?.focus({ preventScroll: true });
   }
+  // A marker shows its lead count. Markers that would touch merge, and a click zooms
+  // in to them; a marker of one place also shows the place's name where it has room.
+  function label(button, { features, named }) {
+    const count = doc.createElement("b");
+    count.textContent = features.reduce((total, feature) => total + feature.properties.count, 0);
+    if (!named) return button.replaceChildren(count);
+    const name = doc.createElement("span");
+    name.textContent = features[0].properties.place;
+    button.replaceChildren(name, count);
+  }
+  const probe = doc.createElement("button");
+  probe.className = "market-marker"; probe.tabIndex = -1; probe.setAttribute("aria-hidden", "true");
+  probe.style.cssText = "position: absolute; visibility: hidden";
+  // A label's size depends only on its text, so each text is measured once per draw.
+  let sizes = new Map();
+  function box(cluster) {
+    label(probe, cluster);
+    const text = probe.textContent;
+    if (!sizes.has(text)) { const { width, height } = probe.getBoundingClientRect(); sizes.set(text, { width, height }); }
+    return { ...cluster.position, ...sizes.get(text) };
+  }
+  const touch = (a, b) => Math.abs(a.x - b.x) * 2 < a.width + b.width + 8 && Math.abs(a.y - b.y) * 2 < a.height + b.height + 8;
+  function mergeTouching(clusters) {
+    const boxes = clusters.map(box);
+    const pair = boxes.flatMap((a, i) => boxes.slice(i + 1).map((b, k) => [i, i + 1 + k, a, b])).find(([, , a, b]) => touch(a, b));
+    if (!pair) return clusters;
+    const [kept, merged] = pair;
+    return mergeTouching(clusters.map((item, index) => index === kept ? { ...item, features: [...item.features, ...clusters[merged].features] } : item).filter((_, index) => index !== merged));
+  }
+  // Largest markets claim room for their names first.
+  function nameWhereRoom(clusters) {
+    const boxes = clusters.map(box), { width, height } = root.getBoundingClientRect();
+    const inside = ({ x, y, width: w, height: h }) => x - w / 2 >= 0 && x + w / 2 <= width && y - h / 2 >= 0 && y + h / 2 <= height;
+    return clusters.map((cluster, index) => {
+      if (new Set(cluster.features.map(feature => feature.id)).size > 1) return cluster;
+      const named = box({ ...cluster, named: true });
+      if (!inside(named) || boxes.some((other, at) => at !== index && touch(named, other))) return cluster;
+      boxes[index] = named;
+      return { ...cluster, named: true };
+    });
+  }
   function draw() {
-    const clusters = [];
-    for (const feature of marketFeatures(latest).features.sort((a,b) => b.properties.count-a.properties.count)) {
-      const position = map.project(feature.geometry.coordinates);
-      const cluster = clusters.find(c => Math.abs(c.position.x-position.x)<48 && Math.abs(c.position.y-position.y)<48);
-      if (cluster) cluster.features.push(feature);
-      else clusters.push({ position, features: [feature] });
-    }
+    root.append(probe); sizes = new Map();
+    const total = cluster => cluster.features.reduce((sum, feature) => sum + feature.properties.count, 0);
+    const clusters = nameWhereRoom(mergeTouching(marketFeatures(latest).features.sort((a, b) => b.properties.count - a.properties.count)
+      .map(feature => ({ position: map.project(feature.geometry.coordinates), features: [feature], named: false }))).sort((a, b) => total(b) - total(a)));
+    probe.remove();
     const keys = new Set(clusters.map(c => c.features.map(f=>f.id).sort().join("/")));
     for (const [key,item] of markers) if (!keys.has(key)) { if (preview?.item === item) closePreview(); item.marker.remove(); markers.delete(key); }
     for (const cluster of clusters) {
@@ -201,9 +207,8 @@ export async function mountTerritoryMap(root, selectMarket, selectLead, { signal
         markers.set(key,item);
       }
       item.features=cluster.features;
-      const count=cluster.features.reduce((n,f)=>n+f.properties.count,0);
       const title=cluster.features.map(f=>`${f.properties.key}: ${f.properties.count}`).join(" · ");
-      item.button.textContent=count;
+      label(item.button, cluster);
       item.button.setAttribute("aria-label",new Set(cluster.features.map(feature => feature.id)).size>1 && map.getZoom()<11?`Zoom to markets · ${title}`:`${title} leads`);
       const leadIds = cluster.features.flatMap(f => f.properties.leadIds);
       item.button.dataset.leadIds = JSON.stringify(leadIds);
@@ -222,9 +227,8 @@ export async function mountTerritoryMap(root, selectMarket, selectLead, { signal
       map.on("idle", ready); map.on("error", failed); signal?.addEventListener("abort", aborted, { once: true });
       if (signal?.aborted) aborted();
     });
-  } catch (error) { root.removeEventListener("mouseleave", leavePreview); doc.removeEventListener("keydown", dismissPreview); closePreview(); map.off("movestart", closePreview); map.off("moveend", draw); map.off("resize", placeLabels); themes?.disconnect(); for (const { marker } of areaMarkers) marker.remove(); shell.destroy(); throw error; }
+  } catch (error) { root.removeEventListener("mouseleave", leavePreview); doc.removeEventListener("keydown", dismissPreview); closePreview(); map.off("movestart", closePreview); map.off("moveend", draw); map.off("resize", frameTerritory); themes?.disconnect(); shell.destroy(); throw error; }
   return { resize() { map.resize(); }, locate(lead) { return marketLocation(lead, places); },
     update(groups, leadId) { latest=groups;selected=leadId;draw(); },
-    select(key) { for (const { button } of areaMarkers) button.setAttribute("aria-pressed", String(button.dataset.market === key)); placeLabels(); },
-    dispose() {root.removeEventListener("mouseleave",leavePreview);doc.removeEventListener("keydown",dismissPreview);closePreview();closePicker(false);map.off("movestart",closePreview);map.off("moveend",draw);map.off("resize",placeLabels);themes?.disconnect();for(const item of [...markers.values(), ...areaMarkers])item.marker.remove();shell.destroy();} };
+    dispose() {root.removeEventListener("mouseleave",leavePreview);doc.removeEventListener("keydown",dismissPreview);closePreview();closePicker(false);map.off("movestart",closePreview);map.off("moveend",draw);map.off("resize",frameTerritory);themes?.disconnect();for(const item of markers.values())item.marker.remove();shell.destroy();} };
 }
