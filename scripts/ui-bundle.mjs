@@ -32,6 +32,7 @@ export const UI_ENTRIES = {
   'ui-keyboard-shortcuts': 'keyboard-shortcuts',
   'ui-record-links': 'record-links',
   'ui-card-menu': 'card-quick-menu',
+  'ui-scroll-thumb': 'scroll-thumb',
   'ui-quick-switcher': 'quick-switcher',
   'ui-switcher-history': 'switcher-history',
   'ui-email-actions': 'email-followup-actions',
