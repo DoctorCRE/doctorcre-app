@@ -127,13 +127,14 @@ type DispositionCommand = { engine_marks?: true } & (
 
 export type TaskReceipt = LegacyReceipt | { engine: true; action_id: string; version: number; status: "done" };
 
+type StepEnd = Readonly<{ item_id: string; id: string; version: number }>;
 type TaskCommand = Readonly<{
   action: "complete" | "reopen";
   engine_marks?: true;
-  args: CommandArgs & { action_id: string; base_version: number; completion_event_id?: string };
+  args: CommandArgs & { action_id: string; base_version: number; completion_event_id?: string; repeats?: StepEnd[] };
 }>;
 type DropTarget =
-  | { kind: "step"; id: string; version: number }
+  | { kind: "steps"; steps: StepEnd[] }
   | { kind: "draft"; id: string; version: number }
   | { kind: "suggestions"; ids: string[] }
   | { kind: "mark" };
@@ -156,25 +157,36 @@ export function dropTarget(item: InboxItem): DropTarget | null {
   const suggestionId = item.item_id.startsWith("suggestion:") ? item.item_id.slice("suggestion:".length) : null;
   const dropIds = ids.length ? ids : suggestionId && uuid(suggestionId) ? [suggestionId] : [];
   if (dropIds.length && item.home_proposal_drop) return { kind: "suggestions", ids: dropIds };
-  if (item.source_type === "next_action") return { kind: "step", id: item.action_id, version: item.action_version };
+  if (item.source_type === "next_action")
+    return { kind: "steps", steps: [{ item_id: item.item_id, id: item.action_id, version: item.action_version }] };
   if (dropIds.length) return null;
   return item.home_mark_drop && markDropTarget(item) ? { kind: "mark" } : null;
 }
 type DropCommand = { action: "drop"; args: CommandArgs; target: DropTarget; reason: string };
 export type Command = DispositionCommand | TaskCommand | DropCommand;
 
-export function dropCommand(item: InboxItem, reason: string): DropCommand {
+const stepEnds = (items: readonly InboxItem[]) =>
+  items.flatMap((item) =>
+    item.action_id ? [{ item_id: item.item_id, id: item.action_id, version: item.action_version }] : [],
+  );
+/** Repeats are other copies of the card's step; they end with it. */
+export function dropCommand(item: InboxItem, reason: string, repeats: readonly InboxItem[] = []): DropCommand {
   const target = dropTarget(item);
   reason = reason.trim();
   if (!target || !reason || reason.length > 500) throw Error("Enter a reason to drop this card.");
   return {
     action: "drop",
     args: { idempotency_key: crypto.randomUUID(), items: [{ item_id: item.item_id, base_version: item.base_version }] },
-    target,
+    target: target.kind === "steps" ? { kind: "steps", steps: [...target.steps, ...stepEnds(repeats)] } : target,
     reason,
   };
 }
-export function taskCommand(action: "complete" | "reopen", item: InboxItem, receipt?: TaskReceipt): TaskCommand {
+export function taskCommand(
+  action: "complete" | "reopen",
+  item: InboxItem,
+  receipt?: TaskReceipt,
+  repeats: readonly InboxItem[] = [],
+): TaskCommand {
   if (
     !item.action_id ||
     item.action_version === null ||
@@ -204,6 +216,7 @@ export function taskCommand(action: "complete" | "reopen", item: InboxItem, rece
       ...(action === "reopen" && receipt && "completion_event_id" in receipt
         ? { completion_event_id: receipt.completion_event_id }
         : {}),
+      ...(item.engine_marks && repeats.length > 0 && { repeats: stepEnds(repeats) }),
     },
   };
 }
@@ -358,7 +371,7 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   // Version-specific checks above validate the item before normalized optional fields are added.
   return {
     ...fields,
-    title: task && !presentation ? legacy.title.replace(/\*\*([^*]+)\*\*/g, "$1") : legacy.title,
+    title: task && !presentation ? legacy.title.replace(/\*\*([^*]+)\*\*/g, "$1") : stepTitle(legacy.title, value),
     ...(presentation && { presentation }),
     ...(engineMarks && text(checklist_item_ref) && { checklistItemRef: checklist_item_ref }),
     ...(engineMarks ? { engine_marks: true } : { explicit_unsettle, auto_settled: v3 ? auto_settled : false }),
@@ -377,6 +390,13 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
         }),
     completed_at: v4 ? value.completed_at : null,
   } as InboxItem;
+}
+// The engine titles a step by its record's name when the wording is too long; Home titles name the action.
+function stepTitle(title: string, { source_type, context_label, open_url }: Record<string, unknown>) {
+  const record = typeof context_label === "string" && context_label.trim();
+  if (!["next_action", "capture_post_call_action"].includes(String(source_type)) || title.trim() !== record)
+    return title;
+  return `Follow up ${String(open_url).startsWith("/relationships") ? "with" : "on"} ${record}`;
 }
 const inboxVersions = [
   { version: "v5", schema: "home-inbox.v5", settlement: true, completion: true, waiting: true },
@@ -650,14 +670,20 @@ export function createInboxClient(
         throw Error("Drop could not be confirmed. Retry the same request.");
     }
     switch (target.kind) {
-      case "step":
-        await confirm(
-          "end-engine-home-step",
-          { id: target.id, base_version: target.version, resolution: "cancelled" },
-          "next_step_id",
-          target.id,
-          "cancelled",
-        );
+      case "steps":
+        for (const [index, step] of target.steps.entries())
+          await confirm(
+            "end-engine-home-step",
+            {
+              id: step.id,
+              base_version: step.version,
+              resolution: "cancelled",
+              idempotency_key: cardKey(idempotency_key, index),
+            },
+            "next_step_id",
+            step.id,
+            "cancelled",
+          );
         break;
       case "draft":
         await confirm(
@@ -901,41 +927,48 @@ export function createInboxClient(
       if (request.action === "complete" || request.action === "reopen") {
         const { items, ...args } = request.args;
         if (request.engine_marks) {
-          const { action_id: id, base_version, idempotency_key } = args;
+          const { action_id, base_version, idempotency_key, repeats = [] } = args;
           const done = request.action === "complete";
-          const value = await rpc(done ? "end-engine-home-step" : "reopen-engine-home-step", {
-            id,
-            base_version,
-            idempotency_key,
-            ...(done && { resolution: "done" }),
-          });
-          if (object(value) && typeof value.error === "string")
-            throw Object.assign(Error(value.error), { payload: value });
-          if (
-            !object(value) ||
-            value.next_step_id !== id ||
-            value.status !== (done ? "done" : "open") ||
-            (done &&
-              (typeof value.change_id !== "number" ||
-                !Number.isSafeInteger(value.change_id) ||
-                value.change_id <= base_version))
-          )
-            throw Error("Task change could not be confirmed. Retry the same request.");
+          const steps = [{ item_id: items[0]?.item_id ?? "", id: action_id, version: base_version }, ...repeats];
+          const changes: unknown[] = [];
+          for (const [index, { id, version }] of steps.entries()) {
+            const value = await rpc(done ? "end-engine-home-step" : "reopen-engine-home-step", {
+              id,
+              base_version: version,
+              idempotency_key: cardKey(idempotency_key, index),
+              ...(done && { resolution: "done" }),
+            });
+            if (object(value) && typeof value.error === "string")
+              throw Object.assign(Error(value.error), { payload: value });
+            if (
+              !object(value) ||
+              value.next_step_id !== id ||
+              value.status !== (done ? "done" : "open") ||
+              (done &&
+                (typeof value.change_id !== "number" ||
+                  !Number.isSafeInteger(value.change_id) ||
+                  value.change_id <= version))
+            )
+              throw Error("Task change could not be confirmed. Retry the same request.");
+            changes.push(value.change_id);
+          }
           const snapshot = await read();
-          const item_id = items[0]?.item_id ?? "";
-          const item = snapshot.items.find((row) => row.item_id === item_id);
-          if (
-            !item ||
-            (done
-              ? item.source_state !== "done" || item.action_version !== value.change_id
-              : item.source_state !== "needs_attention")
-          )
-            return [{ item_id, ok: false, error: "intervening_change", ...(item && { current_item: item }), snapshot }];
-          const receipt =
-            done && typeof value.change_id === "number"
-              ? { engine: true as const, action_id: id, version: value.change_id, status: "done" as const }
-              : undefined;
-          return [{ item_id, ok: true, item, ...(receipt && { receipt }), snapshot }];
+          return steps.map(({ item_id, id }, index): ItemResult => {
+            const change = changes[index];
+            const item = snapshot.items.find((row) => row.item_id === item_id);
+            if (
+              !item ||
+              (done
+                ? item.source_state !== "done" || item.action_version !== change
+                : item.source_state !== "needs_attention")
+            )
+              return { item_id, ok: false, error: "intervening_change", ...(item && { current_item: item }), snapshot };
+            const receipt =
+              done && typeof change === "number"
+                ? { engine: true as const, action_id: id, version: change, status: "done" as const }
+                : undefined;
+            return { item_id, ok: true, item, ...(receipt && { receipt }), snapshot };
+          });
         }
         const receipt =
           request.action === "complete"

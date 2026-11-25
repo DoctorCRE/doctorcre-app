@@ -259,6 +259,27 @@ test('engine card Drop selects the reason-bearing door and confirms no Undo rece
   }
 });
 
+test('an engine card ends the repeats it covers with its own step, each under its own retry key', async () => {
+  const { dropCommand, taskCommand } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
+  const ids = ['00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000012'];
+  const [lead, repeat] = ids.map(id => item(`next_action:${id}`, { action_id: id, engine_marks: true }));
+  for (const [request, resolution] of [
+    [taskCommand('complete', lead, undefined, [repeat]), 'done'],
+    [dropCommand(lead, 'Work moved.', [repeat]), 'cancelled'],
+  ]) {
+    const calls = [];
+    const client = createInboxClient(async (name, args) => {
+      if (name === 'read-home-inbox-v5') return { ...snapshot([lead, repeat].map(card => ({ ...card, source_state: 'done', section: 'done', action_version: 8, completed_at: '2026-10-30T13:00:00Z', waiting_version: 0, waiting_on: null }))), schema_version: 'home-inbox.v5', engine_marks: true };
+      calls.push(args);
+      return { next_step_id: args.id, status: resolution, change_id: 8 };
+    });
+    const results = await client.run(request);
+    assert.deepEqual(calls.map(args => [args.id, args.resolution]), ids.map(id => [id, resolution]));
+    assert.equal(new Set(calls.map(args => args.idempotency_key)).size, 2);
+    assert.ok(results.every(result => result.ok));
+  }
+});
+
 test('engine inbox cards drop through the route the engine accepts, with no Drop on Tour feedback or Fact review', async () => {
   const { dropTarget } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
   const id = '00000000-0000-0000-0000-000000000001';

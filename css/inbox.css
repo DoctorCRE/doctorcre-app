@@ -38,6 +38,16 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-slice .inbox-context { margin: 0 0 var(--space-1); }
 .home-slice .inbox-actions { margin-left: 39px; width: calc(100% - 39px); gap: 6px; }
 .home-slice .inbox-actions button { padding-inline: 10px; font-size: 12px; flex: 0 1 auto; }
+/* On a computer a card is one compact row: its action title, one-line why and record beside its buttons. */
+@media (min-width: 701px) {
+  .home-slice .inbox-row { align-items: center; column-gap: var(--space-3); padding-block: 6px; }
+  .home-slice .inbox-copy { flex: 1 1 0; }
+  .home-slice .inbox-copy h3 { line-height: 1.4; }
+  .home-slice .inbox-copy h3 a { min-height: 0; }
+  .home-slice .inbox-why { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
+  .home-slice .inbox-context { margin: 0; line-height: 1.4; }
+  .home-slice .inbox-actions { flex: none; width: auto; margin-left: 0; }
+}
 .home-late { font-size: 12px; color: var(--status-danger-ink); margin: var(--space-2) 0 6px; }
 .home-meeting { border-top: 1px solid var(--hairline); padding: 6px 0; overflow-wrap: anywhere; }
 .home-meeting summary { cursor: pointer; align-content: center; min-height: 54px; padding: 5px 3px; }

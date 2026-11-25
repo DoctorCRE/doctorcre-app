@@ -382,7 +382,6 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       happened_at: '2026-01-08T12:00:00Z', subject: null, body: null, summary: null } });
   await page.clock.fastForward(60_000);
   const cardFor = name => inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name }) });
-  await today.getByRole('button', { name: 'See all 8', exact: true }).click();
   const leadCard = inbox.locator(`[data-inbox-row="suggestion:${lead}"]`);
   await leadCard.getByRole('button', { name: 'Open', exact: true }).click();
   await leadCard.getByRole('heading', { name: 'Possible lead · New Example' }).waitFor();
@@ -821,7 +820,6 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   assert.equal(await propertyView.getByText('200 Other Suite', { exact: true }).count(), 0);
   assert.deepEqual(tourRequests, []);
   await open('/?mode=live');
-  await section('Reminders').getByRole('button', { name: /^See all/ }).click();
   await button(feedback).click();
   await feedbackReview.getByRole('button', { name: 'Done', exact: true }).click();
   await card(feedback).waitFor({ state: 'detached' });
@@ -1851,15 +1849,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await waiting.getByText(/Snoozed until/).waitFor();
   const lease = reminders.getByRole('link', { name: 'Send the signed lease' });
   assert.match(await lease.getAttribute('href'), /focus=next-step&step=/);
-  const preview = reminders.locator('[data-inbox-row]');
-  const sixth = reminders.getByRole('link', { name: extra[1].title });
-  assert.equal(await preview.count(), 5);
-  assert.equal(await sixth.count(), 0);
-  await reminders.getByRole('button', { name: 'See all 6' }).click();
-  assert.equal(await preview.count(), 6);
-  await sixth.waitFor();
-  await reminders.getByRole('button', { name: 'Show less' }).click();
-  await sixth.waitFor({ state: 'detached' });
+  assert.equal(await reminders.locator('[data-inbox-row]').count(), 6, 'Reminders previews up to eight cards');
+  assert.equal(await reminders.getByRole('button', { name: /^See all/ }).count(), 0);
   await reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: 'Send the signed lease' }) }).getByRole('button', { name: 'Mark done' }).click();
   await lease.waitFor({ state: 'detached' });
   await reminders.getByRole('heading', { name: 'Late', exact: true }).waitFor({ state: 'detached' });
@@ -1883,7 +1874,7 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['
   await page.setViewportSize({ width, height });
   state.items = [
     ...state.items.filter(item => item.section === 'inbox'),
-    ...Array.from({ length: 8 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
+    ...Array.from({ length: 12 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
   ];
   await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
     ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe',
@@ -1914,7 +1905,7 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
   const { page, open, state } = await dashboard(t, width, 'dark');
   await page.setViewportSize({ width, height });
   state.items = [
-    ...Array.from({ length: 12 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
+    ...Array.from({ length: 16 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
     ...Array.from({ length: 12 }, (_, index) => step(110 + index, `Wait on the sample survey ${index + 1}`, { section: 'snoozed', disposition: 'snoozed', snoozed_until: '2026-11-04T16:00:00Z' })),
   ];
   await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
@@ -1938,6 +1929,48 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
     assert.ok(heading.y >= last.y, 'the meetings heading is not cut off');
   }
   for (const tile of [reminders, waiting]) assert.equal(await tile.evaluate(node => node.scrollHeight > node.clientHeight), true, 'each long list scrolls inside its tile');
+});
+
+for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home reminders are short, action-first and shown once at ${width}x${height}`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  await page.setViewportSize({ width, height });
+  state.dashboard = true;
+  const card = (number, title, fields) => step(number, title, { card_id: `step:${id(number)}`, ...fields });
+  const meeting = 'Follow up on the Oct 27 meeting: Site visit with A. Example | Example Co';
+  const repeats = [80, 81, 82, 83].map((number, index) => card(number, meeting, { due_on: '2026-10-30', days_late: 4 - index }));
+  const person = card(84, 'Maya Example', { context_label: 'Maya Example', deal_id: null,
+    open_url: `/relationships?node=party:${id(98)}&step=${id(84)}` });
+  const deal = card(85, 'Example Dental');
+  state.items = [...repeats, person, deal,
+    ...Array.from({ length: 9 }, (_, index) => card(90 + index, `Send the sample lease summary ${index + 1}`))];
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  await reminders.getByRole('heading', { name: 'Reminders 12', exact: true }).waitFor();
+  const titles = await reminders.locator('[data-inbox-row] h3').allTextContents();
+  assert.ok(titles.includes('Follow up with Maya Example'), 'a person-titled step names the action');
+  assert.ok(titles.includes('Follow up on Example Dental'), 'a record-titled step names the action');
+  assert.equal(titles.some(title => ['Maya Example', 'Example Dental'].includes(title)), false, 'no title is only a name');
+  const group = reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('heading', { name: meeting, exact: true }) });
+  assert.equal(await group.count(), 1, 'the repeated meeting follow-up shows once');
+  await group.getByText(/Covers 4 reminders/).waitFor();
+  assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')]
+    .every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
+  const tile = await reminders.boundingBox();
+  const shown = await reminders.locator('[data-inbox-row]').evaluateAll((rows, bottom) => rows.filter(row => {
+    const box = row.getBoundingClientRect();
+    return box.height > 0 && box.bottom <= Math.min(bottom, innerHeight);
+  }).length, tile.y + tile.height);
+  assert.ok(shown >= 8, `${shown} cards fit on the first screen`);
+  const ended = [];
+  page.on('request', request => {
+    const body = request.postDataJSON?.();
+    if (body?.params?.name === 'end-engine-home-step') ended.push(body.params.arguments.id);
+  });
+  await group.getByRole('button', { name: 'Mark done', exact: true }).click();
+  await group.waitFor({ state: 'detached' });
+  assert.deepEqual(ended, repeats.map(item => item.action_id), 'Mark done finishes every reminder the card covers');
+  await reminders.getByRole('heading', { name: 'Reminders 11', exact: true }).waitFor();
 });
 
 const draftCard = () => ({

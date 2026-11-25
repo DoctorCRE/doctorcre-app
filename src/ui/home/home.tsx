@@ -38,6 +38,7 @@ import {
   HomeGrid,
   lateDays,
   PlaceholderTile,
+  reminderPreviewCount,
 } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
 
@@ -87,7 +88,7 @@ const SAVED: Record<Command["action"] | "drop", string> = {
   drop: "Dropped",
 };
 const savedMessage = (action: keyof typeof SAVED, items: readonly InboxItem[]) =>
-  `${SAVED[action]}: ${items.length === 1 ? items[0]?.title : `${items.length} cards`}.`;
+  `${SAVED[action]}: ${new Set(items.map((item) => item.title)).size === 1 ? items[0]?.title : `${items.length} cards`}.`;
 // An Undo stays offered only while the card is still the version this save produced.
 function undoable(entry: Undo, items: readonly InboxItem[]) {
   if (!("mark" in entry)) return true;
@@ -236,7 +237,11 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }, []);
   const [failures, setFailures] = useState<ItemResult[]>([]);
   const [undo, setUndo] = useState<Undo[]>([]);
-  const [dropping, setDropping] = useState<{ item: InboxItem; opener: HTMLButtonElement } | null>(null);
+  const [dropping, setDropping] = useState<{
+    item: InboxItem;
+    repeats: readonly InboxItem[];
+    opener: HTMLButtonElement;
+  } | null>(null);
   const [snooze, setSnooze] = useState<SnoozePreview | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
   const root = useRef<HTMLElement>(null);
@@ -428,7 +433,11 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       if (!mounted.current) return;
       setFailures(failed);
       select(new Set(failed.map((result) => result.item_id)));
-      const fresh = operation.undoing
+      // A card that covers repeats saves them together, without an Undo that could restore only some.
+      const [lead, ...rest] = operation.before;
+      const keepsNoUndo =
+        operation.undoing || (lead && rest.length > 0 && tiles.repeats.get(cardKey(lead))?.length === rest.length);
+      const fresh = keepsNoUndo
         ? []
         : results.flatMap<Undo>((result) => {
             if (!result.ok) return [];
@@ -565,7 +574,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       void run({
         request:
           action === "complete" || action === "reopen"
-            ? taskCommand(action, first, receipt)
+            ? taskCommand(action, first, receipt, items.slice(1))
             : command(action, items, until),
         before: items,
         ...(undoing ? { undoing: true as const } : {}),
@@ -633,6 +642,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }, [home, openCard, openingLocked, placed.current, route.key]);
   function row(item: InboxItem) {
     if (home && reviewing && cardKey(reviewing) === cardKey(item)) item = reviewing;
+    const repeats = (home && tiles.repeats.get(cardKey(item))) || [];
+    const group = [item, ...repeats];
     const primary =
       item.disposition === "settled" ? "Show in inbox" : item.disposition === "snoozed" ? "Wake" : "Hide from inbox";
     const markAction = item.engine_marks ? "unsnooze" : item.disposition === "inbox" ? "settle" : "unsettle";
@@ -779,7 +790,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           if (touch.clientX > start.x && wakeable) act(markAction, [item]);
           else if (touch.clientX < start.x && snoozable) {
             snoozeOpener.current = event.currentTarget.querySelector("h3 a");
-            openSnooze([item]);
+            openSnooze(group);
           }
         }}
       >
@@ -792,8 +803,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             onChange={(event) =>
               select((previous) => {
                 const next = new Set(previous);
-                if (event.target.checked) next.add(item.item_id);
-                else next.delete(item.item_id);
+                for (const { item_id } of group) {
+                  if (event.target.checked) next.add(item_id);
+                  else next.delete(item_id);
+                }
                 return next;
               })
             }
@@ -840,7 +853,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             </p>
           )}
           {presentation && <p className="inbox-why">{presentation.why}</p>}
-          {(item.context_label || due) && (
+          {(item.context_label || due || repeats.length > 0) && (
             <p className="inbox-context">
               {item.context_label}
               {due && (
@@ -850,6 +863,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                   {dueCaption}
                 </>
               )}
+              {repeats.length > 0 && ` · Covers ${group.length} reminders`}
             </p>
           )}
           {callAt && !presentation && (
@@ -883,7 +897,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 aria-expanded={directUrl || namedAction === "Mark done" ? undefined : open}
                 disabled={openingLocked || (namedAction === "Mark done" && (!completable || open))}
                 onClick={(event) => {
-                  if (namedAction === "Mark done") act("complete", [item]);
+                  if (namedAction === "Mark done") act("complete", group);
                   else openDetails(event.currentTarget);
                 }}
               >
@@ -926,7 +940,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 type="button"
                 className="inbox-primary"
                 disabled={busy || open}
-                onClick={() => act(tourDone ? "done" : "complete", [item])}
+                onClick={() => act(tourDone ? "done" : "complete", group)}
               >
                 {tourDone ? "Done" : "Mark done"}
               </button>
@@ -949,7 +963,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 disabled={busy || open}
                 onClick={(event) => {
                   snoozeOpener.current = event.currentTarget;
-                  openSnooze([item]);
+                  openSnooze(group);
                 }}
               >
                 Snooze
@@ -959,7 +973,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               <button
                 type="button"
                 disabled={busy || !!pending || open || !online}
-                onClick={(event) => setDropping({ item, opener: event.currentTarget })}
+                onClick={(event) => setDropping({ item, repeats, opener: event.currentTarget })}
               >
                 Drop
               </button>
@@ -1215,6 +1229,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           <CardTile
             title="Reminders"
             showLate
+            preview={reminderPreviewCount}
             items={tiles.reminders}
             pinned={pinnedTile === "reminders" ? reviewing : null}
             current={reviewing?.item_id || item_id}
@@ -1321,9 +1336,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             setDropping(null);
           }}
           confirm={(reason) => {
-            const item = dropping.item;
+            const { item, repeats } = dropping;
             setDropping(null);
-            void run({ request: dropCommand(item, reason), before: [item] });
+            void run({ request: dropCommand(item, reason, repeats), before: [item, ...repeats] });
           }}
         />
       )}
