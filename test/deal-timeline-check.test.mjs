@@ -371,3 +371,15 @@ test('old deal history labels authors and facts in the words used on the deal pa
   assert.doesNotMatch(row.textContent, /C-123|C-456|old-notes\.md/);
  }
 });
+
+test('old deal history names partner owners and leaves out owners with no name', () => {
+ const facts = new_value => new JSDOM(view.renderImportedDealHistory([{ verb: 'set-lead', field: null, new_value,
+  imported: true, actor: 'joe', recorded_at: '2025-01-06T00:00:00Z' }])).window.document.querySelector('li').textContent;
+ assert.match(facts({ lead: 'dell-local' }), /Deal owner: Dell/);
+ assert.match(facts({ lead: 'joe-local', owner: 'dell' }), /Deal owner: Joe[\s\S]*Assigned to: Dell/);
+ for (const slug of ['claude', 'codex', 'constructor']) {
+  const text = facts({ lead: slug, assignee: 'dell' });
+  assert.doesNotMatch(text, /unavailable|Deal owner:/i, slug);
+  assert.match(text, /Changed the deal owner[\s\S]*Assigned to: Dell/, slug);
+ }
+});

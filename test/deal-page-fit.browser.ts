@@ -67,7 +67,7 @@ test("a deal page header is compact and every tab fits on laptops", async (t) =>
       });
 });
 
-test("Documents offers a file button styled like the app's buttons", async (t) => {
+test("Documents takes a file by keyboard, click or drop and names it", async (t) => {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
     env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
@@ -77,51 +77,74 @@ test("Documents offers a file button styled like the app's buttons", async (t) =
   t.after(() => browser.close());
   await mkdir(shots, { recursive: true });
 
-  for (const theme of ["light", "dark"] as const) {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, colorScheme: theme });
-    t.after(() => page.close());
-    await page.goto(`${server.origin}/deals?mode=fixture`);
-    await page.evaluate(async (theme) => {
-      document.documentElement.dataset.theme = theme;
-      const main = document.createElement("main");
-      main.className = "deal-workspace";
-      document.body.replaceChildren(main);
-      const path = "/js/ui-deal-documents.generated.js";
-      const { mountDealDocumentUpload } = await import(path);
-      mountDealDocumentUpload(main, {
-        dealId: "00000000-0000-4000-8000-000000000001",
-        documents: [],
-        request: async () => new Response(null, { status: 500 }),
-        refreshDocuments: async () => [],
+  const themes: ("light" | "dark")[] = ["light", "dark"];
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1280, height: 800 },
+    { width: 1440, height: 900 },
+  ])
+    for (const theme of themes)
+      await t.test(`${viewport.width} ${theme}`, async () => {
+        const { width } = viewport;
+        const page = await browser.newPage({ viewport, colorScheme: theme });
+        t.after(() => page.close());
+        await page.goto(`${server.origin}/deals?mode=fixture`);
+        await page.evaluate(async (theme) => {
+          document.documentElement.dataset.theme = theme;
+          const main = document.createElement("main");
+          main.className = "deal-workspace";
+          document.body.replaceChildren(main);
+          const sent: string[] = [];
+          Object.assign(window, { sent });
+          const path = "/js/ui-deal-documents.generated.js";
+          const { mountDealDocumentUpload } = await import(path);
+          mountDealDocumentUpload(main, {
+            dealId: "00000000-0000-4000-8000-000000000001",
+            documents: [],
+            request: async (path: string) => {
+              sent.push(path);
+              return new Response(null, { status: 500 });
+            },
+            refreshDocuments: async () => [],
+          });
+        }, theme);
+        const zone = page.locator(".deal-file-drop");
+        await zone.getByText("Drop a file here or choose one").waitFor();
+        const input = page.locator('input[type="file"]');
+        assert.equal(
+          await input.evaluate((input) => getComputedStyle(input).clip),
+          "rect(0px, 0px, 0px, 0px)",
+          "the browser's own file field is not shown",
+        );
+
+        await page.keyboard.press("Tab");
+        assert.equal(await input.evaluate((input) => input === document.activeElement), true, "Tab reaches the picker");
+        assert.notEqual(await zone.evaluate((zone) => getComputedStyle(zone).outlineStyle), "none", "focus shows");
+
+        await input.setInputFiles({
+          name: "Example lease.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from("%PDF"),
+        });
+        await zone.getByText("Example lease.pdf").waitFor();
+        await page.screenshot({ path: `${shots}/documents-upload-${width}-${theme}.png` });
+
+        await zone.evaluate((zone) => {
+          const files = new DataTransfer();
+          files.items.add(new File(["%PDF"], "Example counter.pdf", { type: "application/pdf" }));
+          for (const type of ["dragover", "drop"])
+            zone.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: files }));
+        });
+        await zone.getByText("Example counter.pdf").waitFor();
+        await page.getByLabel("Document type").selectOption("counter");
+        await page.getByRole("button", { name: "Upload to this deal" }).click();
+        await page.getByText("Could not confirm the upload. Try again.").waitFor();
+        const sent: unknown = await page.evaluate(() => Reflect.get(window, "sent"));
+        assert.ok(Array.isArray(sent));
+        assert.match(
+          sent[0] ?? "",
+          /^\/api\/engine\/files\/[0-9a-f]{64}$/,
+          "the dropped file goes through the same upload",
+        );
       });
-      const reference = document.createElement("button");
-      reference.className = "btn";
-      reference.id = "reference";
-      reference.textContent = "Reference";
-      document.body.append(reference);
-    }, theme);
-    const input = page.locator('input[type="file"]');
-    await input.waitFor();
-    await page.screenshot({ path: `${shots}/documents-upload-${theme}.png` });
-    const looks = await page.evaluate(() => {
-      const pick = (style: CSSStyleDeclaration) => ({
-        background: style.backgroundColor,
-        border: `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}`,
-        radius: style.borderTopLeftRadius,
-        color: style.color,
-        weight: style.fontWeight,
-        size: style.fontSize,
-      });
-      const input = document.querySelector('input[type="file"]');
-      const reference = document.querySelector("#reference");
-      if (!input || !reference) throw Error("upload form not shown");
-      return {
-        file: pick(getComputedStyle(input, "::file-selector-button")),
-        button: pick(getComputedStyle(reference)),
-        boxed: getComputedStyle(input).borderTopStyle !== "none",
-      };
-    });
-    assert.deepEqual(looks.file, looks.button, "the file button matches the app's buttons");
-    assert.equal(looks.boxed, false, "the file field has no box of its own");
-  }
 });

@@ -234,8 +234,10 @@ const OLD_HISTORY_ACTION = new Map(Object.entries({
 }));
 
 const historicalActor = slug => timelineActor(slug) || 'Author unavailable';
-const historicalPartner = slug => slug === 'joe-local' ? 'Joe'
-  : Object.hasOwn(ACTOR_LABEL, slug) ? ACTOR_LABEL[slug] : 'Name unavailable';
+// Old history names owners by sign-in slug; a partner's machine sign-in acts as that partner.
+const PARTNER_SLUG = { joe: 'joe', dell: 'dell', 'joe-local': 'joe', 'dell-local': 'dell' };
+/** A partner's name, or undefined for an old automation or door owner that has none. */
+const historicalPartner = slug => Object.hasOwn(PARTNER_SLUG, slug) ? ACTOR_LABEL[PARTNER_SLUG[slug]] : undefined;
 const words = value => value.replace(/(^|[_-]+)([a-z])/g, (_, separator, letter) =>
   separator ? ' ' + letter : letter.toUpperCase());
 function historicalDay(value) {
@@ -306,6 +308,7 @@ function importedFacts({ verb, old_value, new_value }) {
     if (!had && !has) return [];
     const oldText = historicalValue(before[key], format);
     const newText = historicalValue(after[key], format);
+    if ((had && oldText === undefined) || (has && newText === undefined)) return [];
     if (had && has && oldText !== newText) {
       return [after[key] === null ? `${label} cleared (was ${oldText})` : `${label}: ${oldText} to ${newText}`];
     }
