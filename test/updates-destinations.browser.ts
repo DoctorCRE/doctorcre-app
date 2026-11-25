@@ -291,7 +291,9 @@ const screenFit = (page: Page) =>
       const node = document.querySelector(selector);
       return Boolean(node && node.scrollHeight > node.clientHeight);
     };
-    const rows = [...document.querySelectorAll("#feedList > li")].map((row) => row.getBoundingClientRect().height);
+    const rows = [...document.querySelectorAll("#feedList > .update-row")].map(
+      (row) => row.getBoundingClientRect().height,
+    );
     return {
       pageScrolls: scrolls("#appMainSlot") || document.documentElement.scrollHeight > innerHeight,
       sideways: document.documentElement.scrollWidth > innerWidth,
@@ -329,7 +331,7 @@ for (const [width, height] of [
         assert.equal(fit.besideFeed, true, "Who did what sits beside the feed");
         assert.ok(fit.feedTop <= 112, `the feed starts near the top, not at ${fit.feedTop}px`);
         assert.ok(fit.feedBottom <= height, "the feed ends on screen");
-        assert.ok(fit.tallestRow <= 68, `rows are compact, not ${fit.tallestRow}px`);
+        assert.ok(fit.tallestRow <= 64, `a two-line row is at most 64px, not ${fit.tallestRow}px`);
         await capture(page, `updates-fit-${today === "open" ? "today" : "wide"}`, width, theme);
       });
 
@@ -363,7 +365,7 @@ test("an update row opens on click and with the keyboard, and marks read from th
     800,
   );
   await page.goto(updatesPath);
-  const row = page.locator("#feedList > li").first();
+  const row = page.locator("#feedList > .update-row").first();
   const toggle = row.getByRole("button", { name: unread.title });
   await toggle.waitFor({ timeout: 2500 });
   assert.equal(await toggle.getAttribute("aria-expanded"), "false");
@@ -373,7 +375,7 @@ test("an update row opens on click and with the keyboard, and marks read from th
   assert.equal(await toggle.getAttribute("aria-expanded"), "false", "Enter closes it again");
   await toggle.press("Space");
   assert.equal(await toggle.getAttribute("aria-expanded"), "true", "Space opens it");
-  const change_ = page.locator("#activityList > li").first();
+  const change_ = page.locator("#activityList > .update-row").first();
   await change_.getByRole("button", { name: "moved it" }).click();
   assert.equal(await change_.locator(".row-more").isVisible(), true, "Who did what rows open the same way");
 
@@ -399,15 +401,20 @@ test("Who did what leads with the record and folds a run of one change; an empty
   });
   await page.goto(updatesPath);
   await page.getByRole("heading", { name: "No notifications", exact: true }).waitFor({ timeout: 2500 });
-  const rows = page.locator("#activityList > li");
+  const rows = page.locator("#activityList > .update-row");
   assert.equal(await rows.nth(0).getByRole("heading").textContent(), "Example Dental · moved the deal to LOI");
   assert.equal(
     await rows.nth(0).getByRole("link", { name: "Example Dental" }).getAttribute("href"),
     `/deals?deal=${deal}`,
   );
-  assert.equal(await rows.nth(0).locator(".note-subject").textContent(), "Joe · 9:00 AM");
+  assert.equal(await rows.nth(0).locator(".note-subject").textContent(), "Joe");
+  assert.equal(
+    await rows.nth(0).locator(".row-meta").textContent(),
+    "9:00 AM",
+    "the time sits at the row's end, as in the feed",
+  );
   assert.equal(await rows.count(), 2, "the 24 notes read as one row");
-  assert.equal(await rows.nth(1).locator(".note-subject").textContent(), "Written by the assistant · 9:00 AM");
+  assert.equal(await rows.nth(1).locator(".note-subject").textContent(), "Written by the assistant");
   await rows.nth(1).getByRole("button", { name: "24 records · added a note", exact: true }).click();
   const records = rows.nth(1).locator(".fold-list a");
   assert.equal(await records.count(), 24, "it opens to every record");
@@ -416,6 +423,90 @@ test("Who did what leads with the record and folds a run of one change; an empty
     ["Clinic 1", `/deals?deal=${deal}`],
   );
   await capture(page, "updates-fold", 1280, "dark");
+});
+
+test("Updates groups rows by day, marks unread with a dot and keeps row controls quiet", async (t) => {
+  const at = (iso: string, n: number) => ({
+    ...unread,
+    source_id: `55555555-5555-4555-8555-${String(n).padStart(12, "0")}`,
+    title: `Update ${n}`,
+    activity_at: iso,
+  });
+  const days = [
+    "2026-11-25T15:00:00Z",
+    "2026-11-24T15:00:00Z",
+    "2026-11-20T15:00:00Z",
+    "2026-11-02T15:00:00Z",
+    "2025-12-01T15:00:00Z",
+  ];
+  const updates = [...days.map(at), { ...seen, activity_at: days[4] }];
+  const changes = days.map((changed_at, n) => ({ ...change("Joe", `moved the deal to phase ${n}`), changed_at }));
+  const { page } = await open(
+    t,
+    1280,
+    "light",
+    {
+      "GET /api/engine/updates": () => ({ json: { unread_count: 5, updates } }),
+      "GET /api/engine/updates/changes": () => ({ json: { changes, next_before: null } }),
+    },
+    true,
+    640,
+  );
+  await page.clock.setFixedTime(new Date("2026-11-25T18:00:00Z"));
+  await page.goto(updatesPath);
+  await page.getByRole("heading", { name: "Update 0", exact: true }).waitFor({ timeout: 2500 });
+  await page.locator("#activityList > .update-row").first().waitFor();
+  const headings = ["Today", "Yesterday", "Friday", "Nov 2", "Dec 1, 2025"];
+  assert.deepEqual(await page.locator("#feedList > .day-head").allTextContents(), headings);
+  assert.deepEqual(await page.locator("#activityList > .day-head").allTextContents(), headings);
+
+  assert.equal(
+    await page.locator("#feedList").getByText("Update", { exact: true }).count(),
+    0,
+    "no label repeats the page's name",
+  );
+  assert.equal(
+    await page
+      .locator("#feedList .severity-chip")
+      .allTextContents()
+      .then((all) => all.join()),
+    "Tour feedback",
+  );
+
+  const row = (title: string) =>
+    page.locator("#feedList > .update-row").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+  const edge = (title: string) => row(title).evaluate((node) => getComputedStyle(node).borderLeftColor);
+  const dot = (title: string) =>
+    row(title)
+      .locator(".row-meta")
+      .evaluate((node) => getComputedStyle(node, "::before").backgroundColor);
+  assert.equal(await edge("Update 0"), "rgba(0, 0, 0, 0)", "unread is not a warning edge");
+  assert.notEqual(await dot("Update 0"), "rgba(0, 0, 0, 0)", "unread shows a dot");
+  assert.equal(await dot(seen.title), "rgba(0, 0, 0, 0)", "a read row has no dot");
+
+  const markRead = await row("Update 0").getByRole("button", { name: "Mark read", exact: true }).boundingBox();
+  assert.ok(
+    markRead && markRead.height >= 28 && markRead.height <= 32 && markRead.width <= 32,
+    "Mark read is a small control",
+  );
+  const decoration = (locator: ReturnType<Page["locator"]>) =>
+    locator.first().evaluate((node) => getComputedStyle(node).textDecorationLine);
+  assert.equal(await decoration(row("Update 0").getByRole("link")), "none", "the row's link is quiet until hovered");
+  assert.equal(
+    await decoration(page.locator("#activityList a.row-lead")),
+    "none",
+    "a record name is quiet until hovered",
+  );
+  assert.equal(
+    await page
+      .locator("main")
+      .getByText(/^As of /)
+      .count(),
+    1,
+    "one As of for the page",
+  );
+  assert.equal(await page.getByRole("button", { name: "Refresh", exact: true }).textContent(), "↻");
+  await capture(page, "updates-days", 1280, "light");
 });
 
 test("Mark read by keyboard keeps focus on its row, or the next row when it leaves", async (t) => {
@@ -768,7 +859,7 @@ test("Who did what shows the engine's first page and Show more follows next_befo
   });
   await page.goto(updatesPath);
   await page.getByRole("heading", { name: "Example Dental · moved the deal to LOI" }).waitFor();
-  assert.equal(await page.locator("#activityList").getByText("Alex Example · 9:00 AM", { exact: true }).count(), 1);
+  assert.equal(await page.locator("#activityList").getByText("Alex Example", { exact: true }).count(), 1);
   assert.equal(
     await page.locator("#activityList").getByRole("link", { name: "Example Dental" }).getAttribute("href"),
     `/deals?deal=${deal}`,
