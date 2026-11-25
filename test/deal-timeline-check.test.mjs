@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import * as view from '../js/deal-timeline.js';
+import { activityRows } from '../js/notifications-model.js';
+import { activityState } from '../js/record-activity-model.js';
 import { prepareDealDetail } from '../js/local-deals-model.js';
 import { sourceTime } from '../js/email-source-line.js';
 const { countdown, renderCriticalDates, calendarDay, updateCountdowns } = view;
@@ -369,5 +371,39 @@ test('old deal history labels authors and facts in the words used on the deal pa
   assert.equal(row.querySelector('b').textContent, 'Mail filing');
   assert.ok(row.textContent.includes(expected), expected);
   assert.doesNotMatch(row.textContent, /C-123|C-456|old-notes\.md/);
+ }
+});
+
+test('old deal history names partner owners and leaves out owners with no name', () => {
+ const facts = new_value => new JSDOM(view.renderImportedDealHistory([{ verb: 'set-lead', field: null, new_value,
+  imported: true, actor: 'joe', recorded_at: '2025-01-06T00:00:00Z' }])).window.document.querySelector('li').textContent;
+ assert.match(facts({ lead: 'dell-local' }), /Deal owner: Dell/);
+ assert.match(facts({ lead: 'joe-local', owner: 'dell' }), /Deal owner: Joe[\s\S]*Assigned to: Dell/);
+ for (const slug of ['claude', 'codex', 'constructor']) {
+  const text = facts({ lead: slug, assignee: 'dell' });
+  assert.doesNotMatch(text, /unavailable|Deal owner:/i, slug);
+  assert.match(text, /Changed the deal owner[\s\S]*Assigned to: Dell/, slug);
+ }
+});
+
+test('old deal history keeps the named side of an owner change', () => {
+ const row = (event) => new JSDOM(view.renderImportedDealHistory([{ verb: 'set-lead', field: null, imported: true,
+  recorded_at: '2025-01-06T00:00:00Z', ...event }])).window.document.querySelector('li');
+ assert.match(row({ actor: 'joe', old_value: { lead: 'claude' }, new_value: { lead: 'dell' } }).textContent, /Deal owner: Dell/);
+ assert.doesNotMatch(row({ actor: 'joe', old_value: { lead: 'dell' }, new_value: { lead: 'claude' } }).textContent, /Deal owner/);
+});
+
+test('a partner machine sign-in names the partner as an owner and reads as the automation as an author', () => {
+ for (const [slug, name] of [['dell-local', 'Dell'], ['joe-local', 'Joe']]) {
+  const row = new JSDOM(view.renderImportedDealHistory([{ verb: 'set-lead', field: null, imported: true, actor: slug,
+   new_value: { lead: slug }, recorded_at: '2025-01-06T00:00:00Z' }])).window.document.querySelector('li');
+  assert.equal(row.querySelector('b').textContent, 'Automatically', slug);
+  assert.match(row.textContent, new RegExp(`Deal owner: ${name}`), slug);
+  const [live] = view.engineTimelineEntries({ thread: [{ id: slug, kind: 'note', created_at: '2026-01-05T18:00:00Z', actor: slug, text: 'Example note' }] });
+  assert.equal(live.actor, 'Automatically', slug);
+  assert.equal(activityRows([{ actor: slug, verb: 'set-next-step', subject_type: 'lead', subject_id: 'l1', recorded_at: '2026-01-14T14:22:00Z' }])[0].actor,
+   'Recorded actor', slug);
+  const answer = { state: 'completed', match: { target: 'V-1' }, catch_up: { timeline: [{ actor: slug, occurred_at: '2026-09-18T15:30:00.000Z', verb: 'log-call' }] } };
+  assert.equal(activityState({ ref: 'V-1' }, answer).rows[0].actor, null, slug);
  }
 });

@@ -218,12 +218,16 @@
 .deal-update-form { display:grid; gap:var(--space-2); margin-bottom:var(--space-4); }
 .deal-update-form textarea { min-height:80px; width:100%; box-sizing:border-box; }
 #dealUpdateStep { min-height:44px; field-sizing:content; resize:none; }
-.deal-update-form input { min-height:44px; width:100%; box-sizing:border-box; }
+.deal-update-form input:not([type="file"]) { min-height:44px; width:100%; box-sizing:border-box; }
 .deal-step-editor summary, .deal-update-form summary { cursor:pointer; min-height:var(--touch); line-height:var(--touch); }
 .deal-document-upload label { display:grid; gap:var(--space-1); min-width:0; }
 .deal-document-upload select { max-width:100%; width:100%; }
-.deal-document-upload input[type="file"] { min-height:var(--touch); padding:0; border:0; background:transparent; color:var(--fg-muted); font:inherit; font-size:var(--font-size-1); }
-.deal-document-upload input[type="file"]::file-selector-button { min-height:var(--touch); margin-inline-end:var(--space-3); padding:var(--space-2) var(--space-4); border:var(--hairline-width) solid var(--hairline-strong); border-radius:var(--radius-2); background:var(--surface-1); color:var(--fg); font-size:var(--font-size-1); font-weight:var(--font-weight-strong); cursor:pointer; }
+.deal-file-drop { position:relative; display:grid; justify-items:center; gap:var(--space-1); padding:var(--space-6) var(--space-4); border:var(--hairline-width) dashed var(--hairline-strong); border-radius:var(--radius-2); background:var(--surface-1); text-align:center; cursor:pointer; transition:border-color .15s, background-color .15s; }
+.deal-file-drop:hover, .deal-file-drop[data-dragging] { border-color:var(--accent); }
+.deal-file-drop[data-dragging] { background:var(--surface-2); }
+.deal-file-drop:has(input:focus-visible) { outline:var(--focus-width) solid var(--focus-ring); outline-offset:2px; }
+.deal-file-drop strong { max-width:100%; overflow-wrap:anywhere; font-weight:var(--font-weight-strong); }
+.deal-file-drop small { color:var(--fg-muted); }
 .deal-next-step-fields { display:grid; align-items:start; gap:var(--space-2); }
 .deal-update-form button { min-height:44px; justify-self:start; }
 .deal-update-form [role="status"]:empty { display:none; }
