@@ -493,3 +493,32 @@ test('Search holds still on a computer: one title, one-line rows, results scroll
   assert.ok(await page.locator('#saveViewButton').isVisible());
   assert.ok((await page.locator('#saveViewButton').boundingBox()).y + 32 <= 640);
 });
+
+for (const [width, height] of [[390, 844], [900, 700]]) {
+  test(`Search rows with long names stay inside a ${width}-wide window`, async t => {
+    const server = await fixtureServer();
+    t.after(() => server.close());
+    const browser = await chromium.launch();
+    t.after(() => browser.close());
+    const page = await browser.newPage({ viewport: { width, height } });
+    const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    const deals = [{ id: id(90), name: 'Demo Deal Alpha With A Very Long Linked Deal Name Here' }, { id: id(91), name: 'Demo Deal Beta With Another Long Name' }];
+    const parties = Array.from({ length: 4 }, (_, n) => ({ id: id(n + 1), name: `Demo Practice With A Long Made Up Name Number ${n + 1}`, kind: 'company', roles: ['client'], city: 'Demo City', lead_id: null, deals }));
+    await page.route('**/mcp', route => {
+      const { id: rid, params } = route.request().postDataJSON();
+      const payload = params.name === 'find' ? { schema_version: 'search.v1', parties, deals: [] } : {};
+      return route.fulfill({ json: { jsonrpc: '2.0', id: rid, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
+    });
+    await page.route('**/{auth/session,api/system-work/session}', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+    await page.goto(`${server.origin}/search?mode=live&q=Demo`);
+    await page.locator('#searchCount').filter({ hasText: '4 results' }).waitFor();
+    const fit = await page.evaluate(() => {
+      const results = document.querySelector('.search-results');
+      const link = document.querySelector('.search-row .search-deal-links li:nth-child(2)');
+      return { page: document.documentElement.scrollWidth, results: results.scrollWidth - results.clientWidth, linkRight: link.getBoundingClientRect().right, inner: innerWidth };
+    });
+    assert.ok(fit.page <= fit.inner, `the page does not scroll sideways (${fit.page} > ${fit.inner})`);
+    assert.equal(fit.results, 0, 'the results do not scroll sideways');
+    assert.ok(fit.linkRight <= fit.inner, 'the second linked deal sits inside the window');
+  });
+}
