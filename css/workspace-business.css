@@ -7,35 +7,33 @@
 :is(html, .app-layout-main):has(.business-shell) { --search-dock-top: calc(var(--tabbar-height) + var(--space-4)); scroll-padding-top: calc(var(--search-dock-top) + var(--search-dock-height, 0px) + 1px); }
 /* A sticky dock inside the main region sits below its padding; scroll padding does not. */
 .app-layout-main:has(.business-shell) { scroll-padding-top: calc(var(--pad) + var(--search-dock-top) + var(--search-dock-height, 0px) + 1px); }
-.business-shell { max-width: none; width: 100%; padding-top: var(--space-5); padding-inline: clamp(var(--space-4), 3vw, var(--space-7)); }
-.business-hero { position: relative; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
-.business-hero #pageTitle { margin: 0; font-size: var(--font-size-5); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
-.back-home { color: var(--fg-muted); text-decoration: none; }
-.back-home:hover { color: var(--fg); text-decoration: underline; }
-.hero-meta { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+/* Layout keys on the shell's own width, since Today can take a third of the window. */
+.business-shell { container-type: inline-size; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 var(--space-2); max-width: none; width: 100%; }
+.business-shell > * { flex: 1 0 100%; min-width: 0; }
+.hero-meta { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); margin-inline-start: auto; }
 .observed { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
-.business-hero .observed::after, .record-panel .observed::after { content: none; }
+.search-dock .observed::after, .record-panel .observed::after { content: none; }
 .refresh-icon { min-width: var(--touch); min-height: var(--touch); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font: inherit; font-size: var(--font-size-2); cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out); }
 .refresh-icon:hover { background: var(--surface-2); color: var(--fg); }
 
-/* --- search and filters --------------------------------------------------- */
-.search-dock { position: sticky; top: var(--search-dock-top); z-index: 20; margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-3); }
-.business-controls { display: grid; gap: var(--space-3); margin-bottom: var(--space-4); }
-/* One card: the sticky search. The filters sit under it as a plain row. */
+/* --- search and filters: one sticky toolbar row --------------------------- */
+.search-dock { position: sticky; top: var(--search-dock-top); z-index: 20; display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-3); }
+.search-dock .hero-meta { order: 1; }
+.field-search { flex: 1 1 10rem; max-width: 16rem; }
 #secondaryFilters > summary { display: none; }
-.filter-form { display: grid; gap: var(--space-3); padding: 0 var(--space-1); }
-.filter-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); align-items: end; }
-.filter-row-actions { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); }
-.filter-row-actions .scope-option { min-width: var(--touch); }
+.filter-form, .filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.filter-form .field { flex: 1 1 7rem; }
+.quiet-vendors-host { position: relative; }
+.quiet-vendors-idle .action { margin: 0; }
+.quiet-vendors.quiet-vendors-idle { margin-bottom: var(--space-2); }
 .field { display: grid; gap: var(--space-1); min-width: 0; }
 .field label { color: var(--fg-muted); font-size: var(--font-size-1); }
 .field input, .field select { width: 100%; min-height: var(--touch); padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: inherit; font-size: var(--font-size-1); transition: border-color var(--duration-hover) var(--ease-out); }
 .field input::placeholder { color: var(--fg-quiet); }
 .field input:hover, .field select:hover { border-color: var(--fg-quiet); }
 .field input:focus-visible, .field select:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
-.territory-field { flex: 1 1 180px; max-width: 340px; }
 .territory-field[hidden] { display: none; }
-.filter-actions { display: flex; gap: var(--space-2); margin-left: auto; }
+.filter-actions { display: flex; gap: var(--space-2); }
 .filter-actions .action { margin-top: 0; }
 
 .chip-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
@@ -198,14 +196,11 @@ body.record-open { overflow: hidden; }
 }
 @media (max-width: 767px) {
   .business-shell { padding-top: var(--space-3); padding-inline: var(--space-4); }
-  .business-hero { margin-bottom: var(--space-3); }
-  .business-hero #pageTitle { font-size: var(--font-size-4); }
   :is(html, .app-layout-main):has(.business-shell) { --search-dock-top: calc(var(--tabbar-height) + var(--space-2)); }
   .search-dock { padding: var(--space-2) var(--space-3); }
   .field input, .field select { font-size: var(--font-size-2); }
   .filter-form { gap: var(--space-2); padding: 0; }
   .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
-  .search-dock .field label, .filter-form .field label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .filter-row-actions { gap: var(--space-2); }
   .filter-row-actions .territory-field { order: -1; flex-basis: 100%; max-width: none; }
   .filter-row-actions .scope-switch { flex: 1 1 auto; width: auto; }
@@ -235,7 +230,6 @@ body.record-open { overflow: hidden; }
   body[data-directory="vendors"] #secondaryFilters[open] > summary { margin-bottom: var(--space-2); }
   body[data-directory="vendors"] .record-row { grid-template-areas: "head" "facts" "foot"; gap: var(--space-1); padding-block: var(--space-2); }
   body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-areas: "head" "facts" "note" "foot"; }
-  body[data-directory="vendors"] .record-row .row-updated { display: none; }
 }
 
 .quiet-vendors { overflow-wrap: anywhere; margin-bottom: var(--space-4); }
@@ -245,9 +239,6 @@ body.record-open { overflow: hidden; }
 .quiet-vendor-detail { display: inline-block; }
 .quiet-vendors time { white-space: nowrap; }
 .quiet-vendors [aria-disabled="true"] { opacity: .55; cursor: default; }
-@media (max-width: 767px) {
-  .quiet-vendors-idle { position: absolute; inset: 0 0 auto auto; z-index: 1; }
-}
 
 .quiet-vendors .action { scroll-margin-top: 12rem; }
 
@@ -258,14 +249,9 @@ body.record-open { overflow: hidden; }
 .vendor-meetings-list p { margin-block: 8px; }
 .vendor-meetings-list > li > a { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; font-size: 1.1rem; font-weight: 650; }
 
-.vendor-meetings:not([open]) > section { display: none; }
-.vendor-meetings > summary { min-height: 44px; align-content: center; cursor: pointer; }
-.vendor-meetings > summary h2 { display: inline; margin: 0; font-size: 1.1rem; }
+.vendor-meetings h2 { margin: 0 0 var(--space-2); font-size: var(--font-size-2); }
 @media (max-width: 767px) {
-  .vendor-meetings { padding: 0 12px; margin-block-end: 8px; }
-  .vendor-meetings[open] { padding-block-end: 12px; }
-  .vendor-meetings:not([open]) > summary { min-height: 60px; }
-  .vendor-meetings:not([open]) > summary h2 { font-size: var(--font-size-1); }
+  .vendor-meetings { padding: 12px; margin-block-end: 8px; }
 }
 .client-needs { overflow-wrap: anywhere; }
 .client-needs-list { list-style: none; margin: 0; padding: 0; }
@@ -340,4 +326,42 @@ dialog.party-editor::backdrop { background: var(--scrim); }
 @media (max-width: 767px) {
   dialog.party-editor { padding: var(--space-4); }
   .party-editor .party-actions button { width: 100%; }
+}
+
+@media (min-width: 768px) {
+  .app-layout-main:has(.business-shell) { --search-dock-top: 0px; }
+}
+@container (min-width: 40rem) {
+  .search-dock { margin-bottom: var(--space-2); padding: var(--space-1); }
+  :is(.search-dock, .quiet-vendors-idle) :is(input, select, button) { min-height: 36px; padding-block: var(--space-1); }
+  .quiet-vendors-host:has(.quiet-vendors-idle) { position: sticky; top: 0; z-index: 20; flex: none; padding-block: var(--space-1); }
+  .quiet-vendors.quiet-vendors-idle { margin: 0; }
+  /* The filters take the free width so the toolbar stays one line wherever it fits. */
+  .field-search { flex-grow: 0; }
+  #secondaryFilters { flex: 1 1 0; min-width: 0; }
+  .filter-row { display: contents; }
+  /* Filters and search apply as they change, so Apply adds nothing here. */
+  body[data-directory="vendors"] #applyFilters { display: none; }
+}
+/* The count and owner chips sit in the top bar beside the page title. */
+.app-layout-tabs .result-heading { display: flex; align-items: center; margin: 0; }
+.app-layout-tabs .scope-switch { flex: none; padding: 0; border: 0; background: none; }
+.app-layout-tabs .scope-option { min-width: 0; }
+.app-layout-main:has(.business-shell) { padding-top: var(--space-2); }
+/* One line per vendor at desktop, each fact in its own column so the rows line up. */
+@container (min-width: 66rem) {
+  body[data-directory="vendors"] .record-row, body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-columns: minmax(14rem, 1.2fr) minmax(0, 3fr) minmax(10rem, auto) minmax(5rem, auto); grid-template-areas: "head facts note foot"; align-items: center; min-height: 0; padding-block: var(--space-2); }
+  body[data-directory="vendors"] .row-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  body[data-directory="vendors"] [data-fact="Category"] { grid-column: 1; }
+  body[data-directory="vendors"] [data-fact="Territory"] { grid-column: 2; }
+  body[data-directory="vendors"] [data-fact="Location"] { grid-column: 3; }
+  body[data-directory="vendors"] :is([data-fact="Referred"], [data-fact="Worked"], [data-fact="Win rate"]) { grid-row: 2; }
+}
+body[data-directory="vendors"] .record-row .row-updated { display: none; }
+body:not([data-directory="vendors"]) #directoryViews { display: none; }
+body[data-directory-view="meetings"] :is(.search-dock, .quiet-vendors-host, #chipBar, .business-body),
+body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none; }
+/* The phone's one tab row has no room for the count beside the vendor views and owner chips. */
+@media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
+  body[data-directory="vendors"] .app-layout-tabs .result-summary { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }

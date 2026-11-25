@@ -90,14 +90,16 @@ export function mountAppLayout(root, host, pathname) {
   };
   placeTabs();
   phone.addEventListener('change', placeTabs);
-  const dealBoard = pathname === '/deals' && root.body.classList.contains('dealroom-page');
-  let sidebar = false, today = !deferToday && !dealBoard, drawer = null;
+  // Pages whose main view needs the width start with Today collapsed and remember their own choice.
+  const ownToday = pathname === '/vendors' || (pathname === '/deals' && root.body.classList.contains('dealroom-page'));
+  const todayKey = ownToday ? `doctorcre:today:${pathname}` : 'doctorcre:today';
+  let sidebar = false, today = !deferToday && !ownToday, drawer = null;
   let drawerOpener = null;
   const background = new Map();
   try {
     const saved = win.localStorage.getItem(`doctorcre:sidebar:${pageKey}`);
     if (!engineToday && saved !== null) sidebar = saved === 'open';
-    const savedToday = win.localStorage.getItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today');
+    const savedToday = win.localStorage.getItem(todayKey);
     if (!deferToday && savedToday !== null) today = savedToday !== 'closed';
   } catch {}
   const sidebarToggle = layout.querySelector('#appSidebarToggle'), todayToggle = layout.querySelector('#appTodayToggle');
@@ -139,7 +141,7 @@ export function mountAppLayout(root, host, pathname) {
   const toggle = region => {
     if (phone.matches) { if (drawer === region) closeDrawer(); else openRegion(region); return; }
     else if (region === 'sidebar') { sidebar = !sidebar; try { win.localStorage.setItem(`doctorcre:sidebar:${pageKey}`, sidebar ? 'open' : 'closed'); } catch {} }
-    else { today = !today; try { if (!deferToday) win.localStorage.setItem(dealBoard ? 'doctorcre:today:/deals' : 'doctorcre:today', today ? 'open' : 'closed'); } catch {} }
+    else { today = !today; try { if (!deferToday) win.localStorage.setItem(todayKey, today ? 'open' : 'closed'); } catch {} }
     paint();
     if (region === 'sidebar' && !sidebar) sidebarToggle.focus();
     if (region === 'today' && !today) todayToggle.focus();

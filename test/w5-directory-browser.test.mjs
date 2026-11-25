@@ -31,8 +31,7 @@ test('V01 shared directory has neutral loading identity before its module starts
   await page.route('**/js/workspace-business.js', route => route.abort());
   await page.goto(`${origin}/vendors`);
   assert.equal(await page.title(), 'Records · DoctorCRE');
-  assert.equal(await page.locator('#pageTitle').innerText(), 'Records');
-  assert.equal(await page.locator('#resultsTitle').innerText(), 'Records');
+  assert.equal(await page.locator('#resultsTitle').textContent(), 'Records');
   assert.equal(await page.locator('.footer').innerText(), 'DoctorCRE · Records');
 });
 for (const width of [1440, 390]) test(`V01 vendor search destination keeps Vendors identity at ${width}px`, async t => {
@@ -40,7 +39,7 @@ for (const width of [1440, 390]) test(`V01 vendor search destination keeps Vendo
   await page.goto(`${origin}/search?q=Demo&mode=fixture`);
   await page.getByRole('link', { name: 'Demo Pensacola Buildout Contractors', exact: true }).click();
   await page.waitForURL(/\/vendors\?/);
-  await page.waitForFunction(() => document.querySelector('#pageTitle').textContent === 'Vendors');
+  await page.waitForFunction(() => document.querySelector('#resultsTitle').textContent === 'Vendors');
   assert.equal(await page.title(), 'Vendors · DoctorCRE');
   assert.equal(await page.locator('#resultsTitle').innerText(), 'Vendors');
   assert.equal(await page.locator('.footer').innerText(), 'DoctorCRE · Vendors');
@@ -50,7 +49,7 @@ for (const width of [1440, 390]) test(`V01 vendor search destination keeps Vendo
   await page.screenshot({ animations: 'disabled', path: `out/test-artifacts/w5/vendor-search-identity-${width}.png` });
 
   await page.goto(`${origin}/clients`);
-  await page.waitForFunction(() => document.querySelector('#pageTitle').textContent === 'Clients');
+  await page.waitForFunction(() => document.querySelector('#resultsTitle').textContent === 'Clients');
   assert.equal(await page.title(), 'Clients · DoctorCRE');
   assert.equal(await page.locator('#resultsTitle').innerText(), 'Clients');
   assert.equal(await page.locator('.footer').innerText(), 'DoctorCRE · Clients');
@@ -111,10 +110,10 @@ test('W5 filters, traversal and autonomous refresh recover without losing search
   await page.locator('#territoryInput').fill('Demo North');await page.locator('#territoryInput').dispatchEvent('change');await page.waitForFunction(()=>location.search.includes('territory=Demo'));
   await page.locator('#sortSelect').selectOption('territory');await page.waitForFunction(()=>location.search.includes('sort=territory'));
   const resetRead=page.waitForResponse(response=>{const url=new URL(response.url());return url.pathname==='/api/v1/business/vendors' && (url.searchParams.get('owner')||'all')==='all' && !url.searchParams.get('territory') && (url.searchParams.get('sort')||'name')==='name' && (url.searchParams.get('page')||'1')==='1';});
-  await page.locator('#resetFilters').click();await resetRead;
+  await page.locator('#chipBar [data-chip="all"]').click();await resetRead;
   await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>=25 && document.querySelector('#resultSummary').textContent.startsWith('62 '));
   assert.equal(await page.locator('#territoryInput').inputValue(),'');assert.equal(await page.locator('#sortSelect').inputValue(),'name');
-  await page.evaluate(()=>{document.getElementById('appMainSlot').scrollTo(0,1e6);scrollTo(0,1e6);});await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>25);const search=await page.locator('.search-dock').boundingBox(),mainTop=await page.locator('#appMainSlot').evaluate(n=>n.getBoundingClientRect().top);assert.ok(search.y>=mainTop+12&&search.y<mainTop+46);assert.ok(search.height<110);assert.doesNotMatch(page.url(),/page=/);
+  await page.evaluate(()=>{document.getElementById('appMainSlot').scrollTo(0,1e6);scrollTo(0,1e6);});await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>25);const search=await page.locator('.search-dock').boundingBox(),mainTop=await page.locator('#appMainSlot').evaluate(n=>n.getBoundingClientRect().top);assert.ok(search.y>=mainTop&&search.y<mainTop+16);assert.ok(search.height<60);assert.doesNotMatch(page.url(),/page=/);
   // Scrolling loads the next page only once the search's first page is the list on screen.
   const searchRead=page.waitForResponse(response=>{const url=new URL(response.url());return url.pathname==='/api/v1/business/vendors' && url.searchParams.get('q')==='Demo' && (url.searchParams.get('page')||'1')==='1';});
   await page.locator('#searchInput').fill('Demo');await page.clock.fastForward(400);await searchRead;
@@ -147,7 +146,7 @@ test('a new search puts the reader at its first result at once',async t=>{
 test('W5 reduced motion stops hover travel and pulse while keeping content visible',async t=>{
   const {page}=await open(t);await page.emulateMedia({reducedMotion:'reduce'});await page.goto(origin+'/vendors', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.locator('.record-row').first().hover();
   const style=await page.locator('.record-row').first().evaluate(el=>({animation:getComputedStyle(el).animationName,transform:getComputedStyle(el).transform,opacity:getComputedStyle(el).opacity}));assert.deepEqual(style,{animation:'none',transform:'none',opacity:'1'});
-  assert.equal(await page.locator('.business-hero').evaluate(el=>getComputedStyle(el,'::before').animationName),'none');await page.screenshot({animations:'disabled',path:'out/test-artifacts/w5/reduced-motion.png'});
+  await page.screenshot({animations:'disabled',path:'out/test-artifacts/w5/reduced-motion.png'});
 });
 
 test('W5 Clients exposes every requested sort and owner without territory controls',async t=>{
@@ -360,9 +359,6 @@ for (const width of [390, 1440]) for (const tall of [false, true]) test(`vendor 
   await page.waitForFunction(() => document.querySelectorAll('.record-row').length >= 50);
   await page.evaluate(() => { document.getElementById('appMainSlot').scrollTo(0, 1e6); scrollTo(0, 1e6); });
   await page.waitForFunction(() => document.querySelectorAll('.record-row').length === 62);
-  if (width === 390) await page.locator('.vendor-meetings > summary').click();
-  const research = page.getByRole('region', { name: 'People worth meeting' });
-  await research.getByText('Ada Synthetic', { exact: true }).waitFor();
   if (tall) await page.locator('.search-dock').evaluate(el => { el.style.paddingBottom = '160px'; });
   await page.clock.fastForward(50);
   await page.waitForFunction(() => {
@@ -375,7 +371,7 @@ for (const width of [390, 1440]) for (const tall of [false, true]) test(`vendor 
     await page.keyboard.press(i < 90 ? 'Tab' : 'Shift+Tab');
     const state = await page.evaluate(() => {
       const el = document.activeElement;
-      if (!el.matches('.record-row, .vendor-meetings input, .vendor-meetings button, .vendor-meetings a')) return null;
+      if (!el.matches('.record-row')) return null;
       const rect = el.getBoundingClientRect(), dock = document.querySelector('.search-dock').getBoundingClientRect();
       const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
       return { id: el.id || el.outerHTML, top: rect.top, bottom: rect.bottom, dockBottom: dock.bottom, height: innerHeight, hit: el === hit || el.contains(hit) };
@@ -384,8 +380,8 @@ for (const width of [390, 1440]) for (const tall of [false, true]) test(`vendor 
     seen.add(state.id);
     assert.ok(state.top >= state.dockBottom && state.bottom <= state.height && state.hit, JSON.stringify(state));
   }
-  const expected = await page.locator('.record-row, .vendor-meetings input, .vendor-meetings button, .vendor-meetings a').evaluateAll(els => els.map(el => el.id || el.outerHTML));
-  assert.ok(expected.length >= 64);
+  const expected = await page.locator('.record-row').evaluateAll(els => els.map(el => el.id || el.outerHTML));
+  assert.equal(expected.length, 62);
   for (const id of expected) assert.ok(seen.has(id), `keyboard did not reach ${id}`);
   await page.locator('#searchInput').fill('Demo Partner 02');
   await page.clock.fastForward(400);

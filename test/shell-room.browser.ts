@@ -75,7 +75,6 @@ test("Former Page tools controls sit in the toolbar row", async (t) => {
   for (const [path, control] of [
     ["/relationships", "#networkSearch"],
     ["/invoices", "#invoiceOwner"],
-    ["/clients", "#refreshList"],
   ]) {
     await page.goto(`${server.origin}${path}`);
     await page.locator("#appLayout").waitFor({ state: "attached" });

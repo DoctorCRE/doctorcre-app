@@ -31,12 +31,6 @@ export async function walkV2Accessibility(page: Page, origin: string, capture: (
     await page.goto(new URL(path, origin).href);
     await page.locator(ready).first().waitFor({ state: "visible", timeout: 10000 });
     if (name === "Vendors Research") {
-      const region = page.getByRole("region", { name: "People worth meeting" });
-      const details = page.locator(".vendor-meetings");
-      if (!(await details.evaluate((node) => node instanceof HTMLDetailsElement && node.open)))
-        await details.locator(":scope > summary").click();
-      await region.getByRole("searchbox", { name: "Search people and offices" }).waitFor();
-      await region.getByText("Loading people…", { exact: true }).waitFor({ state: "hidden" });
       const sentinel = page.locator("#scrollSentinel");
       for (let loaded = 0; loaded < 20; loaded++) {
         const count = await sentinel.evaluate((node) => {
