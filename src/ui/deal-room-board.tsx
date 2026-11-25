@@ -119,7 +119,7 @@ function DealRoomBoard({ rows, phases, nationalAccountRows }: Props) {
                   {row.meta.map(([key, value], index) => (
                     <Fragment key={key}>
                       {index > 0 && <span>·</span>}
-                      <span>{value}</span>
+                      <span data-meta={key}>{value}</span>
                     </Fragment>
                   ))}
                 </div>

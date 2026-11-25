@@ -25,7 +25,6 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .deployment-badge { flex: 0 0 auto; padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-round); color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
 .deployment-badge[data-mode="live"] { border-color: var(--status-ok); color: var(--status-ok-ink); }
 .deployment-badge[data-mode="fixture"] { border-color: var(--status-warn); color: var(--status-warn-ink); }
-.top-actions { display: flex; align-items: center; gap: var(--space-2); }
 .sync { color: var(--fg-muted); font-size: var(--font-size-1); }
 .sync.offline { position: static; padding: 0; border: 0; background: transparent; }
 .capture { color: var(--fg); font-size: var(--font-size-1); }
@@ -82,12 +81,21 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 /* ------------------------------------------------------------ toolbar and table */
 .board-sticky { position: sticky; top: 0; z-index: 39; margin: 0 -2px; padding: var(--space-2) 2px 0; background: var(--ground); }
 .toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
-/* One toolbar row under the top bar: the account, the filter, search, the actions and freshness. */
+/* One toolbar row under the top bar: the account, the filter, search and the actions. */
 #appToolsSlot > #openDealToolbar { flex: 1 1 auto; }
-#openDealToolbar > :is(button, a, select) { flex: none; min-height: var(--touch); white-space: nowrap; }
+#openDealToolbar > :is(button, a), .deal-filter { flex: none; min-height: var(--touch); white-space: nowrap; }
 #openDealToolbar .secondary { display: inline-grid; place-items: center; padding-inline: var(--space-3); text-decoration: none; }
 .deal-filter { max-width: 10rem; padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font-size: var(--font-size-1); }
-#appToolsSlot #openDealToolbar > [data-layout-slot="status"] { margin-left: auto; }
+.deal-filter-field { display: flex; flex: none; align-items: center; gap: var(--space-2); }
+.deal-filter-field:has(> [hidden]) { display: none; }
+#appToolsSlot .deal-filter-field label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; color: var(--fg-muted); font-size: var(--font-size-1); }
+/* Any choice but Active narrows the list, so it must not look like the default. */
+.deal-filter:has(option:checked:not([value="active"])) { border-color: var(--accent); background: var(--surface-3); font-weight: var(--font-weight-strong); }
+/* The environment and update time sit in the top bar. An open Today already says when it updated, and the
+   phone's tab row has no room, so there only a connection problem shows. */
+.deal-status { color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
+:is(.app-layout[data-today="open"], .app-layout-tabbar) .deal-status .sync:not(.offline),
+.app-layout-tabbar .deal-status .deployment-badge { display: none; }
 #appToolsSlot #openDealToolbar .search-wrap input { width: 100%; max-width: none; }
 .search-wrap { position: relative; flex: 1 1 8rem; min-width: 8rem; max-width: 16rem; }
 .search-wrap input { width: 100%; min-height: var(--touch); padding: var(--space-2) var(--space-7) var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); }
@@ -129,6 +137,7 @@ tr.parked { color: var(--fg-muted); }
 .account-deal-row .auto-move button { min-height: var(--touch); padding-inline: var(--space-2); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: transparent; color: var(--fg); }
 .account-deal-row .auto-move button:hover { border-color: var(--hairline-strong); }
 .deal-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: 2px; color: var(--fg-muted); font-size: var(--font-size-1); }
+.deal-meta [data-meta="attention"] { color: var(--status-warn-ink); font-weight: var(--font-weight-strong); }
 .badge { display: inline-flex; align-items: center; padding: 0 var(--space-2); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-round); color: var(--fg-muted); font-size: var(--font-size-1); }
 .badge.account { color: var(--fg); }
 .cell-select { width: auto; min-width: 0; max-width: 100%; padding-inline: var(--space-2); min-height: var(--touch); border: var(--hairline-width) solid transparent; border-radius: var(--radius-2); background: transparent; color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
@@ -149,8 +158,13 @@ tr.parked { color: var(--fg-muted); }
 .park-button:hover, .park-button:focus { background: var(--surface-2); color: var(--fg); }
 tr.parked .park-button { border-color: var(--hairline-strong); color: var(--fg); }
 /* Quiet rows: a row's own controls show on hover or keyboard focus. Touch screens keep them. */
-#rows .row-actions { display: table-cell; text-align: right; white-space: nowrap; }
-#rows .row-actions > * + * { margin-left: var(--space-2); }
+/* Only while rows are a table: the phone and narrow card layouts keep the flex row and its gap. */
+@media (min-width: 681px) {
+  @container (min-width: 851px) {
+    #rows .row-actions { display: table-cell; text-align: right; white-space: nowrap; }
+    #rows .row-actions > * + * { margin-left: var(--space-2); }
+  }
+}
 @media (hover: hover) {
   #rows .row-actions > :not([data-retry-write]) { opacity: 0; transition: opacity var(--duration-hover) var(--ease-out); }
   #rows tr:is(:hover, :focus-within) .row-actions > * { opacity: 1; }

@@ -39,6 +39,11 @@
         <button class="chip" type="button" data-account-view="open" aria-controls="tableFrame" aria-pressed="true">Open deals</button>
         <button class="chip" type="button" data-account-view="closed" aria-controls="closedDealsView" aria-pressed="false">Closed deals</button>
       </div>
+      <div class="deal-status" data-layout-slot="tabs">
+        <span class="deployment-badge" id="deploymentBadge" data-mode="unknown" role="status" aria-live="polite">Checking environment…</span>
+        <span class="sync" id="syncStatus" role="status">Checking connection…</span>
+        <span class="capture" id="captureStatus" hidden>Capture inactive</span>
+      </div>
       <section id="closedDealsView" hidden aria-labelledby="closedDealsTitle">
         <h2 id="closedDealsTitle">Closed deals</h2>
         <div class="field"><label for="closedSearch">Search closed deals</label><input id="closedSearch" type="search" placeholder="Deal, client, kind, or close date"></div>
@@ -53,17 +58,19 @@
         <div id="openDealToolbar" data-layout-slot="sidebar" class="toolbar">
           <button type="button" class="back-link" id="accountBack" hidden>← All national accounts</button>
           <button type="button" class="secondary" id="ownerButton" hidden></button>
-          <label class="sr-only" for="dealFilter">Show</label>
-          <select id="dealFilter" class="deal-filter">
-            <option value="active">Active</option>
-            <option value="mine">Mine</option>
-            <option value="attention">Needs attention</option>
-            <option value="flagged">Flagged</option>
-            <option value="stale">Gone quiet</option>
-            <option value="missing">Missing next step</option>
-            <option value="delta">Changed since review</option>
-            <option value="parked">Parked</option>
-          </select>
+          <span class="deal-filter-field">
+            <label for="dealFilter">Show</label>
+            <select id="dealFilter" class="deal-filter">
+              <option value="active">Active</option>
+              <option value="mine">Mine</option>
+              <option value="attention">Needs attention</option>
+              <option value="flagged">Flagged</option>
+              <option value="stale">Gone quiet</option>
+              <option value="missing">Missing next step</option>
+              <option value="delta">Changed since review</option>
+              <option value="parked">Parked</option>
+            </select>
+          </span>
           <button type="button" class="receipts-jump" id="receiptsJump" aria-label="Go to recent changes" hidden>Recent changes<span class="receipts-count" id="receiptsCount">0</span></button>
           <label class="search-wrap">
             <span class="sr-only">Search deals</span>
@@ -73,17 +80,10 @@
           <button type="button" class="primary" id="agendaButton">Review deals</button>
           <a class="secondary" id="mondayReviewLink" href="/deals?view=review" hidden>Monday review</a>
           <button type="button" class="primary sticky-add-button" id="stickyAddButton" aria-label="Add deal">+ Add deal</button>
-          <div data-layout-slot="status">
-            <span class="deployment-badge" id="deploymentBadge" data-mode="unknown" role="status" aria-live="polite">Checking environment…</span>
-            <div class="top-actions">
-              <span class="sync" id="syncStatus" role="status">Checking connection…</span>
-              <span class="capture" id="captureStatus" hidden>Capture inactive</span>
-            </div>
-          </div>
         </div>
         <div class="sticky-table-header" aria-hidden="true">
           <span>Deal</span><span>Phase</span><span>Next step</span><span>Next date</span>
-          <span id="stickyAgentHeading">Owner</span><span>Actions</span>
+          <span>Market agent</span><span>Actions</span>
         </div>
       </div>
 
@@ -93,7 +93,7 @@
           <thead>
             <tr>
               <th>Deal</th><th>Phase</th><th>Next step</th><th>Next date</th>
-              <th id="agentHeading">Owner</th><th><span class="sr-only">Actions</span></th>
+              <th>Market agent</th><th><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>

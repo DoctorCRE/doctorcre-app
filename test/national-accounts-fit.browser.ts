@@ -72,7 +72,7 @@ for (const [width, height] of [
     const fit = await firstScreen(page);
     assert.equal(fit.pageScrolls, false, "the page itself does not scroll");
     assert.equal(fit.sideways, false, "nothing scrolls sideways");
-    assert.ok(fit.mainTop <= 160, `the toolbar takes at most two lines, deals at ${fit.mainTop}px`);
+    assert.ok(fit.mainTop <= 112, `the toolbar stays one row beside Today, deals at ${fit.mainTop}px`);
   });
 }
 
@@ -99,13 +99,22 @@ test("deal rows stay quiet until hovered or reached by keyboard, and Park still 
   await page.locator("#formDialog[open]").waitFor();
 });
 
-test("the Show filter narrows an account's deals to parked ones", async (t) => {
+test("the Show filter is labeled, narrows an account's deals to parked ones, and looks set while it narrows", async (t) => {
   const page = await openAccount(t, { width: 1280, height: 800 });
+  const show = page.getByLabel("Show", { exact: true });
+  const look = () => show.evaluate((node) => getComputedStyle(node).borderColor);
+  assert.ok(
+    await page.locator("#appToolsSlot").getByText("Show", { exact: true }).isVisible(),
+    "Show is a visible label",
+  );
   const active = await page.locator("#rows tr").count();
-  await page.getByLabel("Show", { exact: true }).selectOption({ label: "Parked" });
+  const plain = await look();
+  await show.selectOption({ label: "Parked" });
   await page.locator("#emptyState").getByText("No parked deals.").waitFor();
-  await page.getByLabel("Show", { exact: true }).selectOption({ label: "Active" });
+  assert.notEqual(await look(), plain, "a narrowing choice does not look like Active");
+  await show.selectOption({ label: "Active" });
   assert.equal(await page.locator("#rows tr").count(), active);
+  assert.equal(await look(), plain);
 });
 
 test("on a phone each deal keeps Park in reach without hover", async (t) => {

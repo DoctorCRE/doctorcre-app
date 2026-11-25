@@ -1745,9 +1745,13 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await show.selectOption({ label: 'Needs attention' });
   assert.equal(await row.count(), 0);
   await show.selectOption({ label: 'Active' });
+  assert.equal(await row.getByText('Needs attention', { exact: true }).count(), 0);
   await mark.click();
   const clear = row.getByRole('button', { name: `Clear needs attention on ${deal.name}`, exact: true });
   await clear.waitFor();
+  await page.mouse.move(0, 0);
+  assert.equal(await row.getByText('Needs attention', { exact: true }).isVisible(), true, 'the flag shows without hover');
+  assert.match(await row.locator('.due').innerText(), /late/, 'a flagged late row still says it is late');
   await show.selectOption({ label: 'Needs attention' });
   await clear.click();
   await row.waitFor({ state: 'detached' });
@@ -1767,6 +1771,80 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await page.reload();
   await page.getByRole('button', { name: /Example National Account/ }).waitFor();
 });
+
+for (const [width, height, today] of [[1280, 800, 'closed'], [1280, 800, 'open'], [1440, 900, 'closed'], [1440, 900, 'open'], [390, 844, 'closed']]) {
+  test(`a national account on the engine fits one screen at ${width}px with Today ${today}`, async t => {
+    const phone = width < 600;
+    const page = await browser.newPage({ viewport: { width, height }, reducedMotion: 'reduce', ...(phone ? { isMobile: true, hasTouch: true } : {}) });
+    t.after(() => page.close());
+    await page.addInitScript(today => localStorage.setItem('doctorcre:today:/deals', today), today);
+    await page.clock.setFixedTime(new Date('2026-11-19T18:00:00Z'));
+    await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `engine-national-fit-${width}-${today}`, viewer: 'joe', reset: true } });
+    const account = crypto.randomUUID();
+    const deal = (name, fields) => ({ id: crypto.randomUUID(), name, phase: 'research', seen: 1, owner: 'joe', account_client_id: account,
+      workspace_kind: 'national_account', market: 'Example City', next_step: 'Call the landlord', next_date: '2026-11-24', ...fields });
+    const flagged = deal('Example Flagged Late Deal', { attention: true, next_date: '2026-11-17' });
+    const deals = [flagged, deal('Example Quiet Deal'), deal('Example Closing Deal', { phase: 'closing' })];
+    const env = {
+      ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
+      ENGINE: { fetch: async () => Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe', deals,
+        accounts: [{ account_client_id: account, account_name: 'Example National Account', account_owner: 'dell' }] }) },
+    };
+    await page.route('**/mcp', async route => {
+      const request = route.request();
+      if (request.postDataJSON()?.params?.name !== 'deal-room-board') return route.continue();
+      const response = await handleDoctorcreRequest(new Request(request.url(), {
+        method: request.method(), headers: await request.allHeaders(), body: request.postDataBuffer(),
+      }), env);
+      return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
+    });
+    await page.goto(`${origin}/deals?view=national&mode=live&account=${account}`);
+    const row = page.getByRole('row').filter({ hasText: flagged.name });
+    await row.waitFor({ timeout: 5000 });
+    await page.mouse.move(0, height - 1);
+    await page.screenshot({ path: join(evidence, `national-account-engine-${width}-today-${today}.png`) });
+    const fit = await page.evaluate(() => {
+      const box = node => node.getBoundingClientRect();
+      const main = document.getElementById('appMainSlot');
+      const visible = selector => [...document.querySelectorAll(selector)].filter(node => node.checkVisibility()).map(node => node.textContent.trim());
+      const tabs = [...document.querySelectorAll('#appTabsSlot :is(a, button)')].filter(node => node.checkVisibility());
+      return {
+        pageScrolls: document.documentElement.scrollHeight > innerHeight,
+        sideways: document.documentElement.scrollWidth > innerWidth,
+        mainTop: Math.round(box(main).top + Number.parseFloat(getComputedStyle(main).paddingTop)),
+        tabs: tabs.map(node => node.textContent.trim()),
+        topBar: visible('#appTopbar :is(#syncStatus, [data-account-view])'),
+        topBarClipped: [...document.querySelectorAll('#appTabsSlot, #appTopbar .app-layout-title')].some(node => node.scrollWidth > node.clientWidth),
+        todayStamp: visible('#appSyncTime'),
+        toolbar: visible('#appToolsSlot :is(#mondayReviewLink, #ownerButton, #dealFilter)').length,
+        actions: (style => `${style.display} ${style.columnGap} ${style.rowGap}`)(getComputedStyle(document.querySelector('#rows tr:first-child .row-actions'))),
+      };
+    });
+    assert.equal(fit.sideways, false, 'nothing scrolls sideways');
+    assert.equal(fit.toolbar, 3, 'Monday review, the owner and Show sit in the toolbar');
+    if (phone) {
+      assert.deepEqual(fit.tabs, ['Local Deals', 'National Accounts', 'Open deals', 'Closed deals'], 'the phone tab bar holds the four views');
+      const closedTab = page.locator('#appTabsSlot').getByRole('button', { name: 'Closed deals', exact: true });
+      await closedTab.scrollIntoViewIfNeeded();
+      const closedBox = await closedTab.boundingBox();
+      assert.ok(closedBox.x >= 0 && closedBox.x + closedBox.width <= width, 'the tab row scrolls within itself to reach Closed deals');
+      assert.equal((await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)), false, 'nothing scrolls sideways');
+      assert.equal(fit.actions, 'flex 8px 8px', 'row buttons keep the phone card flex row and its gap, wrapped or not');
+      assert.equal(await row.locator('[data-operating-state]').isVisible(), true, 'touch keeps Park in reach');
+      return;
+    }
+    assert.equal(fit.pageScrolls, false, 'the page itself does not scroll');
+    assert.ok(fit.mainTop <= 112, `the deals start under one toolbar row, not at ${fit.mainTop}px`);
+    assert.equal(fit.topBarClipped, false, 'the account name and the views fit the top bar');
+    if (today === 'open') {
+      assert.deepEqual(fit.topBar, ['Open deals', 'Closed deals'], 'the views sit in the top bar');
+      assert.deepEqual(fit.todayStamp, ['Updated 12:00 PM'], 'Today says when it updated, once');
+    } else assert.deepEqual(fit.topBar, ['Open deals', 'Closed deals', 'Updated 12:00 PM'], 'the views and the update time sit in the top bar');
+    assert.equal(await row.locator('[data-operating-state]').evaluate(node => getComputedStyle(node).opacity), '0', 'the row stays quiet');
+    assert.equal(await row.getByText('Needs attention', { exact: true }).isVisible(), true, 'the flag shows without hover');
+    assert.match(await row.locator('.due').innerText(), /late/);
+  });
+}
 
 for (const width of [1440, 390]) test(`National Accounts saves inline changes and requires a closing outcome at ${width}px`, async t => {
   const page = await browser.newPage({ viewport: { width, height: 900 } });

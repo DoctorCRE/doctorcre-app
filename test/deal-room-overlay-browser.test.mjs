@@ -22,7 +22,8 @@ async function open(t, width, theme) {
   assert.ok(fixture.includes('let pendingConfirms = [];'));
   const proposal = { id: 'overlay-suggestion', label: 'Demo next step from call', deal_id: 'd23', verb: 'set-next-step', args: { deal: 'd23', text: 'Review the sample terms' } };
   await page.route('**/js/fixture-client.js', route => route.fulfill({ contentType: 'text/javascript', body: fixture.replace('let pendingConfirms = [];', `let pendingConfirms = ${JSON.stringify([proposal])};`) }));
-  await page.goto(`${server.origin}/index.html?mode=fixture`);
+  await page.goto(`${server.origin}/deals?view=national&mode=fixture`);
+  await page.locator('.account-card').first().click();
   await page.locator('#rows > tr').first().waitFor();
   await page.locator('.confirm-chip').waitFor();
   await animationsSettled(page);
@@ -65,7 +66,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     const targets = [];
     const row = page.locator('#rows > tr').last();
-    for (const selector of ['[data-owner]', '.park-button', '.row-menu']) {
+    for (const selector of ['[data-market-agent]', '.park-button', '.row-menu']) {
       const control = row.locator(selector);
       await control.scrollIntoViewIfNeeded();
       targets.push({ control: selector, ...await hit(control) });
