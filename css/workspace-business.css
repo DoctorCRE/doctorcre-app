@@ -367,3 +367,7 @@ body[data-directory="vendors"] .record-row .row-updated { display: none; }
 body:not([data-directory="vendors"]) #directoryViews { display: none; }
 body[data-directory-view="meetings"] :is(.search-dock, .quiet-vendors-host, #chipBar, .business-body),
 body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none; }
+/* The phone's one tab row has no room for the count beside the vendor views and owner chips. */
+@media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
+  body[data-directory="vendors"] .app-layout-tabs .result-summary { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
