@@ -132,7 +132,7 @@ for (const width of [390, 1440])
         "g then vGo to Vendors",
         "/Search this page, or open the quick switcher",
         "?Show keyboard shortcuts",
-        "⌘/Ctrl + Alt + KOpen the quick switcher",
+        "⌘/Ctrl + KOpen search",
         "jNext card (Home, Deals)",
         "kPrevious card (Home, Deals)",
         "EnterOpen the selected card",

@@ -62,24 +62,32 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
   });
 }
 
-for (const modifier of ['Meta', 'Control']) test(`${modifier}-Alt-K opens the global switcher`, async () => {
+for (const { platform, key, other, title, shortcut } of [
+  { platform: 'MacIntel', key: 'Meta', other: 'Control', title: 'Search (⌘K)', shortcut: 'Meta+K' },
+  { platform: 'Win32', key: 'Control', other: 'Meta', title: 'Search (Ctrl+K)', shortcut: 'Control+K' },
+]) test(`${key}-K opens search on ${platform} and ${other}-K is left to the page`, async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage();
   try {
+    await page.addInitScript(platform => Object.defineProperty(Navigator.prototype, 'platform', { get: () => platform }), platform);
     await page.goto(server.url);
     const opener = page.getByRole('button', { name: 'Quick switcher' });
     await opener.waitFor();
-    assert.equal(await opener.getAttribute('title'), 'Search (⌘/Ctrl+Alt+K)');
-    assert.equal(await opener.getAttribute('aria-keyshortcuts'), 'Meta+Alt+K Control+Alt+K');
-    await page.keyboard.press(`${modifier}+Alt+k`);
+    assert.equal(await opener.getAttribute('title'), title);
+    assert.equal(await opener.getAttribute('aria-keyshortcuts'), shortcut);
+    await page.evaluate(() => {
+      const field = document.createElement('input');
+      field.setAttribute('aria-label', 'Note field');
+      field.addEventListener('keydown', event => { field.dataset.reached = String(!event.defaultPrevented); });
+      document.body.append(field);
+    });
+    const field = page.getByRole('textbox', { name: 'Note field' });
+    await field.press(`${other}+k`);
+    assert.equal(await field.getAttribute('data-reached'), 'true');
+    await page.keyboard.press(`${key}+k`);
     const input = page.getByRole('combobox', { name: 'Jump to' });
     await input.waitFor({ timeout: 2000 });
     await input.press('Escape');
-    await page.evaluate(modifier => dispatchEvent(new KeyboardEvent('keydown', {
-      key: '˚', code: 'KeyK', altKey: true, metaKey: modifier === 'Meta',
-      ctrlKey: modifier === 'Control', bubbles: true, cancelable: true,
-    })), modifier);
-    await input.waitFor({ timeout: 2000 });
   } finally { await browser.close(); }
 });
 
@@ -101,13 +109,13 @@ test('switcher keyboard, recents, navigation and phone control', async () => {
     assert.ok(await input.getAttribute('aria-activedescendant'));
     await input.press('Escape');
     assert.equal(await opener.evaluate(el => el === document.activeElement), true);
-    await page.keyboard.press('Control+Alt+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await input.fill('calendar');
     await input.press('Enter');
     await page.waitForURL('**/calendar');
     await page.goto(`${server.url}/calendar?day=2026-11-03`);
     await page.getByRole('button', { name: 'Quick switcher' }).waitFor();
-    await page.keyboard.press('Meta+Alt+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await page.getByRole('heading', { name: 'Recent', exact: true }).waitFor();
     await page.getByRole('option', { name: 'Calendar Page' }).click();
     await page.waitForURL('**/calendar');
@@ -123,7 +131,7 @@ test('switcher keyboard, recents, navigation and phone control', async () => {
     });
     await page.keyboard.press('Control+Alt+k');
     assert.equal(await input.count(), 0);
-    await page.keyboard.press('Meta+Alt+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await input.waitFor();
     await input.press('Escape');
     assert.equal(await page.getByRole('textbox', { name: 'Parent field' }).evaluate(el => el === document.activeElement), true);
@@ -191,7 +199,7 @@ test('loading, retry, access narrowing, outside close and session retirement', a
       const { openQuickSwitcher } = await import('/js/ui-quick-switcher.generated.js');
       openQuickSwitcher({ opener: document.querySelector('.quick-switcher-toggle'), pages: [], read: () => new Promise(resolve => { window.finishSwitcherRead = resolve; }) });
     });
-    await page.getByText('Loading accessible items…').waitFor();
+    await page.getByText('Loading…').waitFor();
     await input.press('Escape');
     await page.evaluate(() => window.finishSwitcherRead({ board: { deals: [] }, network: { nodes: [] } }));
     assert.equal(await page.getByRole('combobox').count(), 0);
@@ -217,14 +225,13 @@ test('deal and contact choices navigate to the exact fixture records', async () 
     await deal.click();
     await page.waitForURL('**/deals?deal=*');
     await page.locator('#panelTitle').filter({ hasText: title }).waitFor();
-    await page.keyboard.press('Control+Alt+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await page.getByRole('heading', { name: 'Recent', exact: true }).waitFor();
     await page.getByRole('combobox', { name: 'Jump to' }).fill('Demo Coastal Dental');
     await page.getByRole('option', { name: 'Demo Coastal Dental Contact', exact: true }).click();
-    await page.waitForURL('**/relationships?node=party%3Ademo-client');
-    await page.locator('[data-node="party:demo-client"]').first().waitFor();
+    await page.waitForURL('**/clients?record=demo-client');
     await page.getByRole('button', { name: 'Quick switcher' }).waitFor();
-    await page.keyboard.press('Control+Alt+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await page.getByRole('combobox', { name: 'Jump to' }).waitFor();
     await page.getByRole('combobox', { name: 'Jump to' }).press('Escape');
   } finally { await browser.close(); }
@@ -241,7 +248,7 @@ for (const variant of ['AltGraph', 'printable input', 'printable textarea', 'pri
       if (variant.includes('contenteditable')) field.contentEditable = 'true';
       document.body.append(field); field.focus();
       const event = new KeyboardEvent('keydown', {
-        key: variant.startsWith('printable') || variant === 'AltGraph' ? 'ĸ' : 'k', code: 'KeyK', ctrlKey: true, altKey: true,
+        key: variant.startsWith('printable') || variant === 'AltGraph' ? 'ĸ' : 'k', code: 'KeyK', ctrlKey: true, altKey: variant.startsWith('printable') || variant === 'AltGraph',
         modifierAltGraph: variant === 'AltGraph', isComposing: variant === 'composing', keyCode: variant === '229' ? 229 : 0,
         bubbles: true, cancelable: true,
       });
@@ -324,7 +331,7 @@ for (const query of ['needle', 'absent']) test(`held read completes with ${query
     });
     const input = page.getByRole('combobox');
     await input.fill(query);
-    await page.getByText('Loading accessible items…').waitFor();
+    await page.getByText('Loading…').waitFor();
     await page.evaluate(() => window.finishSwitcherRead({ board: { deals: [{ id: 'needle', name: 'Needle deal' }] }, network: { nodes: [] } }));
     if (query === 'needle') await page.getByRole('option', { name: 'Needle deal Deal' }).waitFor();
     else await page.getByText('No matches. Try a deal, contact or page name.').waitFor();
@@ -348,10 +355,10 @@ for (const phase of ['loading', 'error', 'open_empty', 'typing', 'no_results']) 
     }, phase);
     const input = page.getByRole('combobox');
     await input.waitFor();
-    if (phase === 'loading') await page.getByText('Loading accessible items…').waitFor();
+    if (phase === 'loading') await page.getByText('Loading…').waitFor();
     else if (phase === 'error') await page.getByText('Deals and contacts unavailable. Pages are still available.').waitFor();
     else {
-      await page.getByText('1 destinations', { exact: true }).waitFor();
+      await page.getByText('1 result', { exact: true }).waitFor();
       if (phase === 'typing') await input.fill('calendar');
       if (phase === 'no_results') { await input.fill('absent'); await page.getByText('No matches. Try a deal, contact or page name.').waitFor(); }
     }
@@ -371,7 +378,7 @@ for (const phase of ['loading', 'error']) test(`${phase} page result navigates w
       const { openQuickSwitcher } = await import('/js/ui-quick-switcher.generated.js');
       openQuickSwitcher({ opener: document.querySelector('.quick-switcher-toggle'), pages: [{ label: 'Calendar', href: '/calendar' }], read: () => phase === 'loading' ? new Promise(() => {}) : Promise.reject(Error('Unavailable')) });
     }, phase);
-    await page.getByText(phase === 'loading' ? 'Loading accessible items…' : 'Deals and contacts unavailable. Pages are still available.').waitFor();
+    await page.getByText(phase === 'loading' ? 'Loading…' : 'Deals and contacts unavailable. Pages are still available.').waitFor();
     await page.getByRole('combobox').press('Enter');
     await page.waitForURL('**/calendar');
   } finally { await browser.close(); }

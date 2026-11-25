@@ -21,6 +21,12 @@ type Options = {
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
+const recordPages: Record<string, (id: string) => string> = {
+  lead: (id) => `/leads?lead=${encodeURIComponent(id)}`,
+  client: (id) => `/clients?record=${encodeURIComponent(id)}`,
+  vendor: (id) => `/vendors?record=${encodeURIComponent(id)}`,
+};
+const resultCount = (count: number) => `${count} ${count === 1 ? "result" : "results"}`;
 
 function boardDestinations(board: unknown): Destination[] {
   if (!record(board) || !Array.isArray(board.deals)) throw Error("Invalid board");
@@ -72,11 +78,12 @@ function contactDestinations(network: unknown): Destination[] {
     )
       throw Error("Invalid contact");
     if (node.kind === "deal" || node.contact_state === "retired") continue;
+    const page = recordPages[String(node.kind)];
     result.push({
       id: node.id,
       label: node.name,
       kind: "Contact",
-      href: `/relationships?node=${encodeURIComponent(node.id)}`,
+      href: page && text(node.record_id) ? page(node.record_id) : `/relationships?node=${encodeURIComponent(node.id)}`,
     });
   }
   return result;
@@ -104,7 +111,7 @@ function destinations({
   let inboxNotice = "";
   const tasks = admittedSection(() => {
     const snapshot = parseSnapshot(inbox);
-    if (snapshot.truncated) inboxNotice = "Home task snapshot is limited to 1,000 items. Some tasks may be absent.";
+    if (snapshot.truncated) inboxNotice = "Some Home tasks are not shown.";
     return snapshot.items
       .filter((item) => item.source_type === "next_action" || item.source_type === "capture_post_call_action")
       .map((item) => ({
@@ -115,7 +122,7 @@ function destinations({
       }));
   });
   if (inbox !== undefined && tasks === null)
-    inboxNotice = "Home tasks unavailable. Other accessible results are still available.";
+    inboxNotice = "Home tasks unavailable. Deals, contacts and pages are still available.";
   const items = new Map([...(deals ?? []), ...(contacts ?? []), ...(tasks ?? [])].map((item) => [item.id, item]));
   return {
     kind: "ready",
@@ -345,20 +352,13 @@ function Switcher({ pages, read, close }: Omit<Options, "opener"> & { close: () 
               setActive(0);
             }}
           >
-            {value === "All" ? "All destinations" : `${value}s`}
+            {value === "All" ? "All" : `${value}s`}
           </button>
         ))}
       </fieldset>
-      <p role="status">
-        {state.kind === "loading"
-          ? "Loading accessible items…"
-          : unavailable
-            ? unavailable
-            : `${results.length} destinations`}
-      </p>
+      <p role="status">{state.kind === "loading" ? "Loading…" : unavailable || resultCount(results.length)}</p>
       {inboxNotice && <p role="status">{inboxNotice}</p>}
-      <p>Searches loaded deals, contacts and up to 1,000 Home items.</p>
-      {unavailable && <p>{results.length} destinations</p>}
+      {unavailable && <p>{resultCount(results.length)}</p>}
       {state.kind !== "loading" && results.length === 0 && <p>No matches. Try a deal, contact or page name.</p>}
       {(unavailable || inboxNotice) && (
         <button type="button" onClick={() => setRequest({ read })}>

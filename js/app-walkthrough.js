@@ -85,7 +85,6 @@ export function openWalkthrough(root) {
   const keydown = event => {
     if (isTextEntry(event)) return;
     if (root.querySelector('dialog:modal')) { close('retire'); return; }
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { close(); return; }
     if (event.key !== 'Escape') return;
     event.preventDefault(); event.stopImmediatePropagation(); close();
   };
