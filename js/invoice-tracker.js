@@ -112,22 +112,23 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     const totals=invoiceSummary(owned);
     const hasOwedAmount = totals.unpaid > totals.unknown;
     paint($('invoiceTotals'), `
-      <div class="invoice-total owed glass">
+      <div class="invoice-total owed">
         <span>Owed to DoctorCRE</span>
         ${hasOwedAmount ? `<strong>${E(invoiceMoney(totals.owed))}</strong>`
           : '<strong class="invoice-missing-amount">No invoice amounts recorded yet</strong>'}
         <small>${totals.unpaid} unpaid${hasOwedAmount ? missingAmounts(totals.unknown) : ''}</small>
       </div>
-      <div class="invoice-total glass"><span>Awaiting invoice</span><strong>${totals.awaiting}</strong></div>
-      <div class="invoice-total glass"><span>Paid</span><strong>${totals.paid}</strong></div>`);
+      <div class="invoice-total"><span>Awaiting invoice</span><strong>${totals.awaiting}</strong></div>
+      <div class="invoice-total"><span>Paid</span><strong>${totals.paid}</strong></div>`);
     const ceiling = Math.max(1, ...totals.buckets.map(bucket => bucket.amount));
     paint($('invoiceAging'), totals.buckets.map(bucket => {
-      const hasAmount = bucket.count > bucket.unknown;
-      return `<button class="invoice-age" data-age="${bucket.index}" data-invoice-key="age:${bucket.index}" aria-pressed="${age===bucket.index}">
-        <span class="age-label">${bucket.label}</span>
-        ${hasAmount ? `<strong>${E(invoiceMoney(bucket.amount))}</strong>` : ''}
-        <svg class="age-track" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="age-base" width="100" height="8" rx="4"/><rect class="age-fill" width="${bucket.amount / ceiling * 100}" height="8" rx="4"/></svg>
-        <small>${bucket.count} ${bucket.count===1?'invoice':'invoices'}${hasAmount ? missingAmounts(bucket.unknown) : ''}</small>
+      const money = bucket.count > bucket.unknown ? invoiceMoney(bucket.amount) : '';
+      const count = `${bucket.count} ${bucket.count===1?'invoice':'invoices'}${money ? missingAmounts(bucket.unknown) : ''}`;
+      return `<button class="invoice-chip invoice-age" data-age="${bucket.index}" data-invoice-key="age:${bucket.index}" aria-pressed="${age===bucket.index}"
+        aria-label="${E([bucket.label, money, count].filter(Boolean).join(', '))}" title="${E(count)}">
+        <span class="age-label">${bucket.label}<b class="age-count">${bucket.count}</b></span>
+        ${money ? `<strong>${E(money)}</strong>` : ''}${money && bucket.unknown ? `<small>${missingAmounts(bucket.unknown)}</small>` : ''}
+        <svg class="age-track" viewBox="0 0 100 3" preserveAspectRatio="none" aria-hidden="true"><rect class="age-base" width="100" height="3"/><rect class="age-fill" width="${bucket.amount / ceiling * 100}" height="3"/></svg>
       </button>`;
     }).join(''));
     const term=$('invoiceSearch').value.trim().toLocaleLowerCase();
