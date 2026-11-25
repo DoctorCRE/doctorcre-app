@@ -28,38 +28,37 @@ body { background: var(--ground); color: var(--fg); }
 .invoice-tabs button { font-size: var(--font-size-1); padding: var(--space-2) var(--space-3); border-color: transparent; background: transparent; color: var(--fg-muted); white-space: nowrap; }
 .invoice-tabs button:hover { background: var(--surface-2); color: var(--fg); }
 .invoice-tabs button[aria-pressed="true"] { border-color: var(--hairline-strong); background: var(--surface-3); color: var(--fg); }
-.invoice-updated { display: flex; align-items: center; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
+.invoice-updated { display: flex; align-items: center; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .invoice-updated button { min-width: var(--touch); padding: 0; border-color: var(--hairline); background: transparent; color: var(--fg-muted); font-size: var(--font-size-2); }
 .invoice-updated button:hover { background: var(--surface-2); color: var(--fg); }
 #invoiceNotice { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border: var(--hairline-width) solid var(--hairline); border-left: 3px solid var(--status-warn); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); }
 [data-color-assist="on"] #invoiceNotice { border-left-style: dashed; }
 
-/* --- totals ----------------------------------------------------------------- */
-.invoice-totals { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: var(--space-3); margin-bottom: var(--space-4); }
+/* --- summary strip: totals, then the age chips that filter the table ---------- */
+.invoice-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin-bottom: var(--space-3); padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4); }
+.invoice-totals { display: flex; align-items: center; gap: var(--space-3); }
 .invoice-totals:empty { display: none; }
-.invoice-total { min-width: 0; padding: var(--space-4) var(--space-5); }
-.invoice-total span { display: block; color: var(--fg-muted); font-size: var(--font-size-1); }
-.invoice-total strong { display: block; max-width: 100%; margin-top: var(--space-1); font-size: var(--font-size-5); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.invoice-total small { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
-.invoice-total.owed { border-color: var(--hairline-strong); }
-
-/* --- outstanding by age ------------------------------------------------------ */
-.invoice-section-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-5); }
-.invoice-section-head h2 { font-size: var(--font-size-2); }
-.invoice-section-head button { min-height: 36px; padding: var(--space-1) var(--space-3); background: transparent; color: var(--fg-muted); }
-.invoice-section-head button[aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
-.invoice-section-head span { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
-.invoice-aging { margin-bottom: var(--space-4); }
-.invoice-aging-bars { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); padding: 0 var(--space-5) var(--space-5); }
-.invoice-age { --age: var(--data-1); display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-3) !important; border: var(--hairline-width) solid transparent !important; border-radius: var(--radius-2) !important; background: transparent !important; text-align: left; }
-.invoice-age:hover { border-color: var(--hairline) !important; background: var(--surface-2) !important; }
-.invoice-age[aria-pressed="true"] { border-color: var(--hairline-strong) !important; background: var(--surface-2) !important; }
-.invoice-age .age-label { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
-.invoice-age strong { display: block; max-width: 100%; font-size: var(--font-size-3); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.age-track { display: block; width: 100%; height: 8px; overflow: hidden; border-radius: var(--radius-round); background: var(--surface-3); }
+.invoice-total, .invoice-chip { min-width: 0; line-height: 1.3; }
+:is(.invoice-total, .invoice-chip) > span { display: block; color: var(--fg-muted); font-size: var(--font-size-1); }
+:is(.invoice-total, .invoice-chip) strong { min-width: 0; max-width: 100%; font-size: var(--font-size-2); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+:is(.invoice-total, .invoice-chip) small { margin-inline-start: var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
+/* An unpriced count gets its own line so it never widens the strip. */
+:is(.invoice-total, .invoice-chip) .invoice-missing { display: block; margin-inline-start: 0; white-space: nowrap; }
+.invoice-aging { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
+.invoice-aging-chips { display: contents; }
+/* The divider sits in the gap out of flow, so hiding it once the chips wrap cannot move them back. */
+.invoice-aging::before { content: ""; position: absolute; inset-block: 0; left: calc(var(--space-3) / -2); border-left: var(--hairline-width) solid var(--hairline); }
+.invoice-summary[data-wrapped] .invoice-aging::before { visibility: hidden; }
+.invoice-chip { --age: var(--data-1); position: relative; padding: var(--space-1) var(--space-2) var(--space-2) !important; border: var(--hairline-width) solid var(--hairline) !important; border-radius: var(--radius-2) !important; background: transparent !important; text-align: left; }
+.invoice-chip:hover { border-color: var(--hairline-strong) !important; background: var(--surface-2) !important; }
+.invoice-chip[aria-pressed="true"] { border-color: var(--accent) !important; background: var(--surface-3) !important; box-shadow: inset 0 0 0 1px var(--accent); }
+.invoice-chip[aria-pressed="true"] > span { color: var(--fg); }
+.invoice-age .age-label { display: flex; align-items: center; gap: var(--space-1); }
+.age-count { min-width: 18px; padding: 0 var(--space-1); border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg); font-weight: var(--font-weight-strong); line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
+.invoice-chip[aria-pressed="true"] .age-count { background: var(--surface-1); }
+.age-track { position: absolute; bottom: 3px; left: var(--space-2); width: calc(100% - 2 * var(--space-2)); height: 3px; overflow: hidden; border-radius: var(--radius-round); }
 .age-base { fill: var(--surface-3); }
 .age-fill { fill: var(--age); }
-.invoice-age small { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 [data-age="1"] { --age: var(--data-2); }
 [data-age="2"] { --age: var(--status-warn); }
 [data-age="3"] { --age: var(--status-danger); }
@@ -73,6 +72,11 @@ body { background: var(--ground); color: var(--fg); }
 [data-color-assist="on"] .invoice-age[data-age="3"] .age-track { outline: 3px double var(--age); outline-offset: 2px; }
 
 /* --- the ledger --------------------------------------------------------------- */
+.invoice-section-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) var(--space-2) var(--space-1) var(--space-5); }
+.invoice-section-head h2 { font-size: var(--font-size-2); white-space: nowrap; }
+.invoice-section-head span { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
+#invoiceFiltered:empty { display: none; }
+.invoice-column-head { position: sticky; top: 0; z-index: 1; background: var(--surface-1); }
 .invoice-column-head, .invoice-row { display: grid; grid-template-columns: minmax(0, 2fr) 1fr 1fr 1.15fr .85fr; align-items: center; gap: var(--space-4); }
 .invoice-column-head { padding: var(--space-2) var(--space-5); border-bottom: var(--hairline-width) solid var(--hairline); color: var(--fg-muted); font-size: var(--font-size-1); }
 .invoice-column-head span:nth-child(n+2):nth-child(-n+3), .invoice-column-head span:last-child { text-align: right; }
@@ -147,6 +151,23 @@ body { background: var(--ground); color: var(--fg); }
 .invoice-detail form button:disabled { opacity: .5; cursor: wait; }
 
 /* --- responsive ---------------------------------------------------------------- */
+/* Beside the phone layout the page does not scroll: the table takes the height left under the strip and scrolls inside itself (owner, 2026-11-24). */
+@media (width > 760px) {
+  .app-layout-center:has(.invoice-workspace) { display: flex; flex-direction: column; height: calc(100dvh - var(--layout-bottom)); }
+  .app-layout-center:has(.invoice-workspace) > .app-layout-main, .invoice-workspace, .invoice-ledger { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+  :is(.invoice-workspace, .invoice-ledger) > :not(.invoice-ledger, .invoice-table) { flex: none; }
+  .invoice-ledger > .invoice-table { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+}
+/* On a phone the totals share one row and the age chips wrap into equal columns under them. */
+@media (width <= 760px) {
+  .invoice-summary { display: grid; gap: var(--space-2); padding: var(--space-2); }
+  .invoice-totals { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--space-3); }
+  .invoice-aging { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: var(--space-2) 0 0; border-top: var(--hairline-width) solid var(--hairline); }
+  .invoice-aging::before { display: none; }
+  #allAges { grid-column: 1 / -1; }
+  .invoice-total.owed small { display: block; margin-inline-start: 0; }
+  .invoice-section-head { padding-left: var(--space-4); }
+}
 @media (max-width: 850px) {
   .invoice-column-head { display: none; }
   .invoice-row { grid-template-columns: minmax(0, 1.5fr) 1fr; gap: var(--space-1) var(--space-3); }
@@ -154,24 +175,12 @@ body { background: var(--ground); color: var(--fg); }
   .invoice-row .row-money { grid-column: 2; grid-row: 1; }
   .invoice-row .invoice-state { grid-column: 1; }
   .invoice-row .row-age { grid-column: 2; grid-row: 2 / 4; }
-  .invoice-totals { gap: var(--space-2); }
-  .invoice-total { padding: var(--space-4); }
-  .invoice-aging-bars { gap: var(--space-2); padding: 0 var(--space-3) var(--space-4); }
-  .invoice-section-head { padding: var(--space-3) var(--space-4); }
   .invoice-detail-facts { grid-template-columns: 1.5fr 1fr; }
   .invoice-detail-facts > div:last-child { grid-column: 1 / -1; }
   .invoice-detail-bottom { gap: var(--space-5); }
 }
 @media (max-width: 480px) {
-  .invoice-workspace { display: flex; flex-direction: column; }
-  .invoice-ledger { order: 1; margin-bottom: var(--space-4); }
-  .invoice-aging { order: 2; }
   .invoice-workspace { padding: var(--space-3) var(--space-4) calc(var(--tabbar-height) + var(--space-6)); }
-  .invoice-totals { grid-template-columns: 1fr 1fr; }
-  .invoice-total.owed { grid-column: 1 / -1; }
-  .invoice-total strong { font-size: var(--font-size-4); }
-  .invoice-aging-bars { grid-template-columns: 1fr 1fr; }
-  .invoice-age strong { font-size: var(--font-size-2); }
   .app-layout-tabs > .invoice-tabs { flex-wrap: nowrap; max-width: 100%; overflow-x: auto; scrollbar-width: none; gap: 0; }
   .app-layout-tabs .invoice-tabs button { flex: none; white-space: nowrap; font-size: var(--font-size-1); padding-inline: var(--space-1); }
   :where(.invoice-workspace, .invoice-controls, .invoice-detail) :is(input, select) { font-size: var(--font-size-2); }
@@ -184,7 +193,7 @@ body { background: var(--ground); color: var(--fg); }
   .invoice-detail-bottom { grid-template-columns: 1fr; }
   .invoice-timeline { gap: var(--space-2); }
 }
-.invoice-total .invoice-missing-amount, .invoice-detail-facts .invoice-missing-amount { font-size: var(--font-size-3); }
+.invoice-detail-facts .invoice-missing-amount { font-size: var(--font-size-3); }
 .invoice-row .invoice-missing-amount { color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-regular); }
 
 @media (prefers-reduced-motion: reduce) {
