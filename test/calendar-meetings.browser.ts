@@ -138,7 +138,7 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           await page.goto(`${app}/calendar?view=month&d=2026-10-01&day=2026-10-20`);
           await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
           await expect(page.locator("#calCount")).toHaveText("1 critical date · 3 meetings · 1 tour");
-          assert.deepEqual(ranges, ["?from=2026-09-27&to=2026-11-07"]);
+          assert.deepEqual(ranges, ["?from=2026-09-27&to=2026-10-31"]);
           await expect(page.locator("main")).not.toContainText("two weeks");
           await expect(page.locator("body")).not.toContainText(/\b(CST|CDT)\b/);
           await expect(page.locator("#calNotices")).toHaveText(staleNotice);

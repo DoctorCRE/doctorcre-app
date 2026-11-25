@@ -175,7 +175,11 @@
   .app-layout-center:has(.cal-grid:is([data-view="month"], [data-view="week"])) > .app-layout-main,
   .app-layout-main:has(.cal-grid:is([data-view="month"], [data-view="week"])) > main,
   .shell:has(> .cal-board > .cal-grid:is([data-view="month"], [data-view="week"])) > .cal-board { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
-  .shell:has(> .cal-board > .cal-grid[data-view="week"]) > .cal-extras { display: none; }
+  /* Under a week, Coming up is one short strip, its title beside up to five dates, scrolling inside itself. */
+  .shell:has(> .cal-board > .cal-grid[data-view="week"]) > .cal-extras { flex: none; margin-top: var(--space-3); }
+  .shell:has(> .cal-board > .cal-grid[data-view="week"]) .cal-coming { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: var(--space-4); }
+  .shell:has(> .cal-board > .cal-grid[data-view="week"]) .cal-agenda { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: var(--space-2); max-height: 88px; overflow-y: auto; }
+  .shell:has(> .cal-board > .cal-grid[data-view="week"]) .cal-agenda-item { grid-template-columns: minmax(0, 1fr); gap: 2px; min-height: 0; padding-block: 0; }
   .cal-grid[data-view="week"] { flex: 1 1 0; min-height: 240px; grid-template-rows: minmax(0, 1fr); }
   .cal-grid[data-view="week"] .cal-week { min-height: 0; }
   .cal-grid[data-view="week"] .cal-day { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
