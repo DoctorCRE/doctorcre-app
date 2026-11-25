@@ -452,6 +452,13 @@ function ProspectLane({
   const initial = query.get("prospect");
   const [opened, open] = useState(initial && uuid.test(initial) ? initial : null);
   const [adding, setAdding] = useState(false);
+  const addToggle = useRef<HTMLButtonElement>(null);
+  const closingAdd = useRef(false);
+  useEffect(() => {
+    if (adding || !closingAdd.current) return;
+    closingAdd.current = false;
+    addToggle.current?.focus();
+  }, [adding]);
   const returnToReview = initial === opened ? backToReview : null;
   const { value: rows, unavailable } = useProspectRead(client.prospectRequest, prospectsPath, revision, parseLane);
   const visible = rows?.filter(
@@ -463,19 +470,28 @@ function ProspectLane({
   return (
     <>
       <h3 id="prospects-title">Prospects {visible && <small>{visible.length}</small>}</h3>
-      {filters.canSave && (
+      {filters.canSave && !adding && (
         <button
+          ref={addToggle}
           type="button"
           className="column-add"
           aria-label="Add prospect"
-          aria-expanded={adding}
-          onClick={() => setAdding(!adding)}
+          onClick={() => setAdding(true)}
         >
           + Add prospect
         </button>
       )}
       {filters.canSave && adding && (
-        <AddProspect client={client} sources={howFound} refresh={refresh} addDeal={addDeal} />
+        <AddProspect
+          client={client}
+          sources={howFound}
+          refresh={refresh}
+          addDeal={addDeal}
+          close={() => {
+            closingAdd.current = true;
+            setAdding(false);
+          }}
+        />
       )}
       {unavailable ? (
         <p role="alert">

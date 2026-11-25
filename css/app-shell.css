@@ -175,6 +175,15 @@ body.has-app-layout { margin: 0; padding: 0 0 var(--layout-bottom) var(--layout-
 /* One 48px bar: workspace toggle and page title on the left, app controls and Today on the right. */
 .app-layout-topbar { display: flex; align-items: center; gap: var(--space-1); height: var(--topbar-height); box-sizing: border-box; padding-inline: var(--space-2); background: var(--ground); border-bottom: var(--hairline-width) solid var(--hairline); }
 .app-layout-topbar .app-layout-title { flex: 0 1 auto; min-width: 0; margin: 0 var(--space-2); overflow: hidden; color: var(--fg); font: var(--font-weight-strong) var(--font-size-2)/1.2 var(--font-text); letter-spacing: 0; white-space: nowrap; text-overflow: ellipsis; }
+/* The current Deals page is the top bar title; the other page sits beside it as a quieter link, and an open account follows. */
+.app-section-tabs, .app-section-tabs nav { display:flex; align-items:center; gap:var(--space-3); }
+.app-layout-topbar .app-section-tabs { overflow-x:auto; scrollbar-width:none; }
+.app-section-tabs a { display:flex; flex:none; align-items:center; min-height:var(--touch); color:var(--fg-muted); text-decoration:none; font-size:var(--font-size-1); white-space:nowrap; }
+.app-section-tabs a[aria-current=page], .app-section-tabs h1 { color:var(--fg); font-size:var(--font-size-2); }
+.app-section-tabs h1 { min-width:0; margin:0; font-weight:var(--font-weight-strong); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.app-section-tabs h1::before { content:"›" / ""; margin-inline-end:var(--space-3); color:var(--fg-muted); }
+/* A phone keeps the current page whole: the board shortens its link, and National Accounts leaves Local Deals to the Deals tab. */
+@media (max-width: 480px) { .app-section-tabs .wide-only { display:none; } }
 .app-layout-topbar :focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .app-layout-tabbar { position: sticky; top: 0; z-index: 80; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); background: var(--ground); border-bottom: var(--hairline-width) solid var(--hairline); }
 :is(.app-layout-tabbar, .app-layout-tools):not(:has(a, button, input, select, textarea)), #appSidebarToggle[hidden] { display: none; }

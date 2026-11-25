@@ -121,6 +121,19 @@ const clipped = (page: Page) =>
 const noSidewaysScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 const pagesWithToday = ["/leads", "/doc-chats", "/status", "/deals", "/deals?view=national"];
 
+for (const width of [360, 390])
+  test(`each Deals page's name shows whole in the phone top bar at ${width}px`, async (t) => {
+    for (const [path, name] of [
+      ["/deals", "Local Deals"],
+      ["/deals?view=national", "National Accounts"],
+    ]) {
+      const { page } = await open(t, path, width);
+      const current = page.getByRole("navigation", { name: "Deals pages" }).locator("[aria-current=page]");
+      assert.equal(await current.textContent(), name);
+      assert.deepEqual(await clipped(page), [], `${path} shows every control whole`);
+    }
+  });
+
 for (const width of [1280, 1440]) {
   test(`Today starts closed on every page and remembers each page's choice at ${width}px`, async (t) => {
     for (const path of pagesWithToday) {
@@ -140,9 +153,13 @@ for (const width of [1280, 1440]) {
     const national = await open(t, "/deals?view=national", width);
     await national.page.getByRole("button", { name: "Today sidebar", exact: true }).click();
     assert.equal(await todayState(national.page), "open");
-    const saved = await national.page.evaluate(() => ({ ...localStorage }));
+    const saved = await national.page.evaluate(() => Object.fromEntries(Object.entries(localStorage)));
     const board = await open(t, "/deals", width, saved);
-    assert.equal(await todayState(board.page), "closed", "opening Today on National Accounts leaves the board's closed");
+    assert.equal(
+      await todayState(board.page),
+      "closed",
+      "opening Today on National Accounts leaves the board's closed",
+    );
     const review = await open(t, "/deals?view=review", width, { ...saved, "doctorcre:today:/deals": "open" });
     assert.equal(await todayState(review.page), "closed", "Monday review keeps its own choice");
     const again = await open(t, "/deals?view=national", width, saved);
@@ -157,13 +174,20 @@ for (const width of [1280, 1440]) {
         if (path === "/deals") await page.getByRole("button", { name: "Parked", exact: true }).waitFor();
         assert.equal(await todayState(page), today);
         assert.deepEqual(await clipped(page), [], `${path} shows every control whole`);
-        assert.equal(
-          await page.getByRole("link", { name: "National Accounts" }).innerText(),
-          "National Accounts",
-          "the link reads National Accounts with its space",
-        );
         await mkdir(shots, { recursive: true });
-        await page.screenshot({ path: `${shots}/deals-top-bar-${path.slice(7) || "local"}-${width}-today-${today}.png` });
+        await page.screenshot({
+          path: `${shots}/deals-top-bar-${path.slice(7) || "local"}-${width}-today-${today}.png`,
+        });
+        if (path !== "/deals") continue;
+        const space = await page.getByRole("link", { name: "National Accounts" }).evaluate((link) => {
+          const words = link.querySelector(".wide-only")?.firstChild;
+          if (!words?.textContent?.startsWith(" ")) throw Error("no space before Accounts");
+          const range = document.createRange();
+          range.setStart(words, 0);
+          range.setEnd(words, 1);
+          return range.getBoundingClientRect().width;
+        });
+        assert.ok(space > 0, "the link reads National Accounts with its space");
       }
     });
 
@@ -222,7 +246,11 @@ for (const width of [1280, 1440]) {
     await page.screenshot({ path: `${shots}/deals-${width}.png` });
     await name.press("Escape");
     assert.equal(await name.count(), 0, "Esc closes the quick add");
-    assert.equal(await add.evaluate((button) => button === document.activeElement), true, "focus returns to Add prospect");
+    assert.equal(
+      await add.evaluate((button) => button === document.activeElement),
+      true,
+      "focus returns to Add prospect",
+    );
     await add.click();
     await lane.getByRole("button", { name: "Cancel", exact: true }).click();
     assert.equal(await name.count(), 0, "Cancel closes the quick add");

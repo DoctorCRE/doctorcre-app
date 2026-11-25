@@ -299,8 +299,9 @@ type AddProps = {
   sources: Record<string, string>;
   refresh: () => void;
   addDeal: (client: { id: string; name: string }) => void;
+  close: () => void;
 };
-export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
+export function AddProspect({ client, sources, refresh, addDeal, close }: AddProps) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<PartyKind>();
   const [found, setFound] = useState("");
@@ -358,7 +359,18 @@ export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
   }
 
   return (
-    <form ref={form} className="prospect-add field" onSubmit={submit} onFocus={() => setMessage("")}>
+    <form
+      ref={form}
+      className="prospect-add field"
+      onSubmit={submit}
+      onFocus={() => setMessage("")}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }}
+    >
       <input
         ref={nameInput}
         aria-label="Prospect name"
@@ -412,6 +424,9 @@ export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
       )}
       <button className="btn" type="submit" disabled={save.blocked}>
         Save prospect
+      </button>
+      <button className="btn" type="button" onClick={close}>
+        Cancel
       </button>
       {!picked && matches.length > 0 && (
         <ul aria-label="Matching people and companies">

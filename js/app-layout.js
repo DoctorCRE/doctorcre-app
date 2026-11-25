@@ -81,15 +81,26 @@ export function mountAppLayout(root, host, pathname) {
   const pageRefresh = layout.querySelector('[data-layout-slot="status"] [data-layout-refresh]');
   const pageMoves = layout.querySelector('[data-layout-slot="moves"]');
   const phone = win.matchMedia(pathname === "/leads" ? "(max-width:1023px)" : TOUCH_LAYOUT);
-  // Desktop tabs share the top bar with the title; the phone gives them their own sticky row.
+  // Desktop tabs share the top bar with the title until they would wrap or squeeze it; then, like the phone, they get their own row.
+  const topbar = layout.querySelector('#appTopbar');
   const tabbar = layout.querySelector('.app-layout-tabbar');
+  const crowded = node => node.scrollWidth > node.clientWidth + 1 || node.offsetHeight > topbar.clientHeight;
   const placeTabs = () => {
-    if (phone.matches) tabbar.prepend(pageViews); else slots.title.after(pageViews);
+    if (!phone.matches) {
+      slots.title.after(pageViews);
+      if (!crowded(slots.title) && !crowded(pageViews)) return;
+    }
+    tabbar.prepend(pageViews);
   };
   placeTabs();
   phone.addEventListener('change', placeTabs);
+  // Moving the tabs never resizes the top bar, so watching it cannot loop; page scripts fill some tabs after mount.
+  if (win.ResizeObserver) new win.ResizeObserver(placeTabs).observe(topbar);
+  new win.MutationObserver(placeTabs).observe(pageViews, { childList: true, subtree: true, characterData: true });
   // Today starts collapsed so each main view keeps the full width, and every page remembers its own choice.
-  const todayKey = `doctorcre:today:${pathname}`;
+  // National Accounts and Monday review share /deals with the board but are pages of their own.
+  const view = pathname === '/deals' && { national: 'national', review: 'review', 'dropped-prospect': 'review' }[new URLSearchParams(win.location.search).get('view')];
+  const todayKey = `doctorcre:today:${pathname}${view ? `?view=${view}` : ''}`;
   let sidebar = false, today = false, drawer = null;
   let drawerOpener = null;
   const background = new Map();

@@ -108,7 +108,8 @@ async function open(
       localStorage.setItem("doctorcre-session-binding-v1", binding);
       localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
       localStorage.setItem("doctorcre:sidebar:/invoices", "open");
-      localStorage.setItem(`doctorcre:today:${location.pathname}`, "open");
+      for (const page of [location.pathname, "/deals?view=national", "/deals?view=review"])
+        localStorage.setItem(`doctorcre:today:${page}`, "open");
     },
     { theme, binding },
   );

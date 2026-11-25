@@ -23,7 +23,7 @@ async function openAccount(t: TestContext, { width, height, theme = "light", tod
   await page.addInitScript(
     ([theme, today]) => {
       localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme }));
-      if (today) localStorage.setItem("doctorcre:today:/deals", today);
+      if (today) localStorage.setItem("doctorcre:today:/deals?view=national", today);
     },
     [theme, today],
   );

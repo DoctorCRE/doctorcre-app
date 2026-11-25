@@ -26,11 +26,7 @@
   <div class="offline" id="offlineBanner" role="status" hidden>You’re offline. Your current view is still readable; editing will resume when the connection returns.</div>
 
   <main id="main" class="shell">
-    <h1 id="workspaceTitle" data-layout-slot="title" tabindex="-1">Deals</h1>
-    <nav data-layout-slot="tabs" class="page-views" aria-label="Deals pages">
-      <a class="workspace" href="/deals">Local Deals</a>
-      <a class="workspace on" href="/deals?view=national" aria-current="page">National Accounts</a>
-    </nav>
+    <div class="app-section-tabs" data-layout-slot="title"><nav aria-label="Deals pages"><a class="wide-only" href="/deals">Local Deals</a><a href="/deals?view=national" aria-current="page">National Accounts</a></nav><h1 id="workspaceTitle" class="sr-only" tabindex="-1">National Accounts</h1></div>
 
     <section class="account-grid" id="accountGrid" aria-label="National accounts" hidden></section>
 
