@@ -6,7 +6,7 @@
 .leads-body, .leads-body *, .leads-body *::before, .leads-body *::after { box-sizing: border-box; }
 .leads-body { margin: 0; background: var(--ground); color: var(--fg); font-family: var(--font-text); font-size: var(--font-size-2); line-height: var(--line-height-body); }
 :where(.leads-workspace, .controls, .freshness, .detail-dialog, .stage-dialog) :is(button, input, select, textarea) { font: inherit; color: inherit; }
-:where(.leads-workspace, .controls, .freshness, .detail-dialog, .stage-dialog) button { min-height: var(--touch); padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out), border-color var(--duration-hover) var(--ease-out); }
+:where(.leads-workspace, .controls, .freshness, .detail-dialog, .stage-dialog) button { min-height: var(--touch); padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out), border-color var(--duration-hover) var(--ease-out); }
 :where(.leads-workspace, .controls, .freshness, .detail-dialog, .stage-dialog) button:hover { background: var(--surface-3); }
 :where(.leads-workspace, .controls, .freshness, .detail-dialog, .stage-dialog) button:disabled { opacity: .5; cursor: wait; }
 :where(.leads-workspace, .controls, .freshness, .detail-dialog, .stage-dialog) :is(input, select, textarea) { min-width: 0; min-height: var(--touch); padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); }
@@ -21,7 +21,7 @@
 :where(.leads-workspace, .controls, .freshness, .detail-dialog, .stage-dialog) h3 { font-size: var(--font-size-2); }
 :where(.leads-workspace, .controls, .freshness, .detail-dialog, .stage-dialog) p { margin: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.skip { position: fixed; top: -60px; left: var(--space-4); z-index: 100; padding: var(--space-2) var(--space-3); border-radius: var(--radius-2); background: var(--accent); color: var(--on-accent); }
+.skip { position: fixed; top: -60px; left: var(--space-4); z-index: 100; padding: var(--space-1) var(--space-3); border-radius: var(--radius-2); background: var(--accent); color: var(--on-accent); }
 .skip:focus { top: var(--space-3); }
 .glass { border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-3); background: var(--surface-1); }
 
@@ -35,7 +35,7 @@
 .freshness button:hover { background: var(--surface-2); color: var(--fg); }
 
 /* --- territory ------------------------------------------------------------ */
-.territory-entry { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--touch); padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; }
+.territory-entry { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--touch); padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; }
 .territory-entry:hover { background: var(--surface-1); }
 .territory-entry:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .territory { min-width: 0; margin-top: var(--space-5); padding-top: var(--space-4); border-top: var(--hairline-width) solid var(--hairline-strong); scroll-margin-top: calc(var(--touch) + var(--space-5)); }
@@ -245,7 +245,7 @@ dialog::backdrop { background: var(--scrim); }
   #leadBoard:not([data-touch-dragging]) .stage-column[data-mobile-current="false"] { display: none; }
   #leadBoard:not([data-touch-dragging]):not(:has(.dragging)) .stage-column[data-hide-empty="true"] { display: none; }
   .stages-hidden { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0 0; color: var(--fg-muted); font-size: var(--font-size-1); }
-  .stages-hidden button { min-height: var(--touch); padding: 0 var(--space-3); border: 0; background: transparent; color: var(--fg); font: inherit; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
+  .stages-hidden button { min-height: var(--touch); padding: var(--space-1) var(--space-3); border: 0; background: transparent; color: var(--fg); font: inherit; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
   #territoryMap { height: 180px; }
   .map-place-members { position: static; width: auto; height: 280px; margin-top: var(--space-2); }
   .controls { grid-template-columns: 1fr 1fr; gap: var(--space-2); padding: var(--space-3); }
@@ -314,4 +314,4 @@ dialog::backdrop { background: var(--scrim); }
 .lead-reachability { overflow-wrap: anywhere; font-size: var(--font-size-1); }
 
 .skip:not(:focus) { clip-path: inset(50%); }
-.skip:focus { min-width: 44px; min-height: 44px; align-content: center; }
+.skip:focus { min-width: var(--touch); min-height: var(--touch); align-content: center; }

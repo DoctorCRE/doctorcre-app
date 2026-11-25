@@ -258,7 +258,7 @@
 .deal-vendor-details > summary { cursor:pointer; min-height:var(--touch); min-width:var(--touch); line-height:var(--touch); }
 .deal-vendor-details p { display:grid; grid-template-columns:4em minmax(0,1fr); align-items:center; column-gap:var(--space-2); margin:0; }
 .deal-vendor-details p + p { margin-top:var(--space-2); }
-.deal-vendor-details a { display:block; box-sizing:border-box; min-height: var(--touch); min-width: var(--touch); overflow-wrap:anywhere; text-decoration:none; border:1px solid currentColor; border-radius:6px; padding:12px var(--space-2); }
+.deal-vendor-details a { display:block; box-sizing:border-box; min-height: var(--touch); min-width: var(--touch); overflow-wrap:anywhere; text-decoration:none; border:1px solid currentColor; border-radius:6px; padding:var(--space-1) var(--space-2); }
 .deal-detail .detail-grid { grid-template-columns:minmax(0,1fr); }
 .deal-updates { margin-bottom:var(--space-4); }
 .deal-updates .deal-note p { line-height:var(--line-height-body); }

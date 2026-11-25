@@ -8,6 +8,7 @@ import { createQaServer } from "../scripts/qa-fixture-server.mjs";
 import { temporaryDirectory } from "../scripts/temp-directory.mjs";
 import { walkV2Accessibility } from "../scripts/v2-accessibility-walk.ts";
 import { chromium } from "./browser-harness.mjs";
+import { controlFloor } from "./control-floor.ts";
 import { detail, tourId } from "./fixtures/tour-day.synthetic.mjs";
 
 test("V2 phone targets have zero undersized or covered controls in both themes", { timeout: 600_000 }, async (t) => {
@@ -90,7 +91,10 @@ test("V2 phone targets have zero undersized or covered controls in both themes",
           const graphic = await checkbox.boundingBox();
           assert.ok(graphic && graphic.width <= 22 && graphic.height <= 22, "Checkbox artwork stays compact");
           const label = await checkbox.locator("..").boundingBox();
-          assert.ok(label && label.width >= 44 && label.height >= 44, "Checkbox label owns the larger activation area");
+          assert.ok(
+            label && label.width >= controlFloor(width) && label.height >= controlFloor(width),
+            "Checkbox label owns the larger activation area",
+          );
         }
         if (width === 390 && name === "Tours library") {
           const layout = await page.locator('label[for="tour-filter"]').evaluate((label) => {
