@@ -212,8 +212,8 @@ dialog::backdrop { background: var(--scrim); }
   .reasons-strip[open] #contactReasons { max-height: 40dvh; overflow-y: auto; }
   .territory { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-3); margin-top: 0; padding-top: var(--space-2); }
   .territory .section-heading { flex-wrap: nowrap; margin: 0; }
-  /* One line of markets; the rest fold into the +N chip. */
-  #marketCounts { order: 1; flex: 1; min-width: 0; max-height: var(--touch); margin: 0; overflow: hidden; }
+  /* One line of markets; the rest fold into the +N chip. The padding keeps a chip's focus ring inside the clip. */
+  #marketCounts { --ring: calc(var(--focus-width) + 2px); order: 1; flex: 1; min-width: 0; max-height: calc(var(--touch) + 2 * var(--ring)); margin: calc(-1 * var(--ring)); padding: var(--ring); overflow: hidden; }
   .territory:has(#moreMarkets[aria-expanded="true"]) #marketCounts { max-height: none; }
   #marketCounts button { flex: none; }
   #moreMarkets { order: 1; flex: none; border-radius: var(--radius-round); }

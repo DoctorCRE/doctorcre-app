@@ -197,6 +197,48 @@ for (const width of [1280, 1440])
     assert.equal((await screen(page)).pageScroll, 0, "the page still does not scroll");
   });
 
+// Two markets: the strip has room for both, so nothing folds.
+function twoMarkets() {
+  const board = fullBoard();
+  for (const [n, lead] of board.leads.entries()) Object.assign(lead, { city: n % 2 ? "Mobile" : "Destin" });
+  return board;
+}
+
+test("Leads shows a focused market chip's whole focus ring", async (t) => {
+  const { browser, page } = await openBoard(1280, 800, twoMarkets);
+  t.after(() => browser.close());
+  await page.keyboard.press("Tab");
+  await page.locator("#marketCounts [data-market]").first().focus();
+  const ring = await page.evaluate(() => {
+    const strip = document.getElementById("marketCounts");
+    const chip = strip?.querySelector("[data-market]");
+    if (!strip || !chip) throw new Error("no market chip");
+    const style = getComputedStyle(chip);
+    const reach = Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset);
+    const box = chip.getBoundingClientRect();
+    const clip = strip.getBoundingClientRect();
+    return {
+      outline: style.outlineStyle,
+      ring: { top: box.top - reach, left: box.left - reach, bottom: box.bottom + reach, right: box.right + reach },
+      clip: {
+        top: clip.top + strip.clientTop,
+        left: clip.left + strip.clientLeft,
+        bottom: clip.top + strip.clientTop + strip.clientHeight,
+        right: clip.left + strip.clientLeft + strip.clientWidth,
+      },
+    };
+  });
+  assert.notEqual(ring.outline, "none", "the chip shows a focus ring");
+  const inside =
+    ring.ring.top >= ring.clip.top &&
+    ring.ring.left >= ring.clip.left &&
+    ring.ring.bottom <= ring.clip.bottom &&
+    ring.ring.right <= ring.clip.right;
+  assert.ok(inside, `the strip does not clip the ring: ${JSON.stringify(ring)}`);
+  assert.equal(await page.locator("#moreMarkets").isHidden(), true, "nothing folds");
+  assert.equal(await page.locator("#moreMarkets").getAttribute("aria-label"), null, "a hidden +N chip has no label");
+});
+
 test("Leads keeps a usable stacked layout at 390x844", async (t) => {
   const { browser, page } = await openBoard(390, 844);
   t.after(() => browser.close());

@@ -806,7 +806,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const folded = chips.filter(chip => chip.inert).length;
     more.hidden = !open && !folded;
     more.textContent = open ? "Fewer" : `+${folded}`;
-    more.setAttribute("aria-label", open ? "Show fewer markets" : `Show ${folded} more markets`);
+    if (open || folded) more.setAttribute("aria-label", open ? "Show fewer markets" : `Show ${folded} more markets`);
+    else more.removeAttribute("aria-label");
   }
   function selectMarket(key) { state.filters.market = state.filters.market === key ? "" : key; render(); }
   for (const [id, key] of [["leadSearch", "search"], ["ownerFilter", "owner"], ["marketFilter", "market"], ["specialtyFilter", "specialty"]]) {
