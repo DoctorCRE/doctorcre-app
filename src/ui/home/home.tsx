@@ -152,7 +152,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const { item_id: inboxItemId } = useParams();
   const item_id = home ? new URLSearchParams(route.search).get("card") || undefined : inboxItemId;
   const cache = useQueryClient();
-  const inFlight = useRef(false);
+  // Home pauses its refresh while any of these saves is in flight.
+  const inFlight = useRef(new Set<"card" | "batch" | "review">());
   const mounted = useRef(true);
   const query = useQuery({
     queryKey,
@@ -161,14 +162,14 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         const dashboard = await readDashboard(signal);
         if (dashboard) return dashboard;
         const current = cache.getQueryData<Snapshot | { grouped: true }>(queryKey);
-        if (inFlight.current && current && "grouped" in current)
+        if (inFlight.current.size && current && "grouped" in current)
           throw Error("Reminders and waiting items unavailable.");
       }
       return client.read(signal);
     },
     // eslint-disable-next-line no-restricted-syntax -- One read per 60000ms while visible and online; paused during writes and cleared on unmount by Query.
     refetchInterval: () =>
-      navigator.onLine && document.visibilityState === "visible" && !inFlight.current ? 60_000 : false,
+      navigator.onLine && document.visibilityState === "visible" && !inFlight.current.size ? 60_000 : false,
   });
   const meetings = useQuery({
     queryKey: ["home-meetings"],
@@ -207,7 +208,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
   const reviewFocus = useRef<{ opener: HTMLElement; tile: Element | null; preceding: Set<HTMLElement> }>(null);
-  const [reviewUncertain, setReviewUncertain] = useState(false);
+  const [switchingBlocked, blockSwitching] = useState(false);
   const openedLink = useRef<string | null>(null);
   useLayoutEffect(() => {
     const focus = reviewFocus.current;
@@ -283,7 +284,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       if (
         !navigator.onLine ||
         document.visibilityState !== "visible" ||
-        inFlight.current ||
+        inFlight.current.size ||
         cache.getQueryState(queryKey)?.fetchStatus === "fetching" ||
         Date.now() - lastRefresh < 1000
       )
@@ -394,7 +395,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     target?.scrollIntoView({ block: "center" });
   }
   async function run(operation: Pending) {
-    if (inFlight.current) return;
+    if (inFlight.current.has("card")) return;
     setPending(operation);
     if (!navigator.onLine) {
       showNotice("Offline. No change was sent. Reconnect and retry the same request.", true);
@@ -409,7 +410,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       ...visible.slice(0, index).reverse(),
       ...visible.slice(index, index + 1),
     ];
-    inFlight.current = true;
+    inFlight.current.add("card");
     setBusy(true);
     showNotice("Waiting for server confirmation…");
     try {
@@ -545,7 +546,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         );
     } finally {
       setBusy(false);
-      inFlight.current = false;
+      inFlight.current.delete("card");
     }
   }
   function act(
@@ -617,7 +618,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     reviewFocus.current = { opener, tile, preceding: new Set(links.slice(0, Math.max(0, index))) };
     setReviewing(item);
   }, []);
-  const openingLocked = busy || !!pending || reviewUncertain || !!dropping || !!snooze;
+  const openingLocked = busy || !!pending || switchingBlocked || !!dropping || !!snooze;
   useLayoutEffect(() => {
     const item = placed.current;
     if (!home || !item?.engine_marks || openingLocked || openedLink.current === route.key) return;
@@ -663,6 +664,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const namedAction = presentation?.primaryAction;
     const feedbackReview = namedAction === "Review feedback";
     const open = reviewing?.item_id === item.item_id;
+    const waitsForReview = open && (snoozable || droppable) ? `inbox-waits-${item.item_id}` : undefined;
     const reviewClient =
       reviewing &&
       (hasEngineReview(reviewing) || (reviewing.review_reference && reviewing.source_state === "needs_attention"))
@@ -881,7 +883,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 type="button"
                 className={open ? undefined : "inbox-primary"}
                 aria-expanded={directUrl || namedAction === "Mark done" ? undefined : open}
-                disabled={openingLocked || (namedAction === "Mark done" && (!completable || open))}
+                disabled={namedAction === "Mark done" ? busy || !completable || open : openingLocked}
                 onClick={(event) => {
                   if (namedAction === "Mark done") act("complete", [item]);
                   else openDetails(event.currentTarget);
@@ -947,6 +949,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               <button
                 type="button"
                 disabled={busy || open}
+                aria-describedby={waitsForReview}
                 onClick={(event) => {
                   snoozeOpener.current = event.currentTarget;
                   openSnooze([item]);
@@ -959,10 +962,16 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               <button
                 type="button"
                 disabled={busy || !!pending || open || !online}
+                aria-describedby={waitsForReview}
                 onClick={(event) => setDropping({ item, opener: event.currentTarget })}
               >
                 Drop
               </button>
+            )}
+            {waitsForReview && (
+              <p id={waitsForReview} className="inbox-detail inbox-guidance">
+                Close the review to snooze or drop this card.
+              </p>
             )}
           </div>
         )}
@@ -973,12 +982,13 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             readOnly={waitingCard || finishedElsewhere}
             client={reviewClient}
             drafts={drafts}
-            blockSwitching={setReviewUncertain}
+            blockSwitching={blockSwitching}
             close={() => setReviewing(null)}
             busy={(value) => {
-              inFlight.current = value;
-              setBusy(value);
-              if (value) void cache.cancelQueries({ queryKey });
+              if (value) {
+                inFlight.current.add("review");
+                void cache.cancelQueries({ queryKey });
+              } else inFlight.current.delete("review");
             }}
             confirmed={async (current, receipt, snapshot) => {
               await updateAfterSave(snapshot, current ? [current] : []);
@@ -1274,7 +1284,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           snapshot={updateAfterSave}
           prepare={() => cache.cancelQueries({ queryKey })}
           lock={(value) => {
-            inFlight.current = value;
+            if (value) inFlight.current.add("batch");
+            else inFlight.current.delete("batch");
             setBatchBusy(value);
           }}
         />

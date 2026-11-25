@@ -1695,6 +1695,62 @@ for (const width of [390, 1440]) test(`Home keeps other cards usable while a rev
   assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
 });
 
+for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home keeps other cards usable while the open review saves at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  await page.setViewportSize({ width, height });
+  const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
+  const snoozed = step(30, 'Call the practice manager', { card_id: 'snoozed' });
+  const finished = step(31, 'Ask the surveyor for pricing', { card_id: 'finished' });
+  const dropped = step(32, 'Send the sample floor plan', { card_id: 'dropped' });
+  state.dashboard = true;
+  state.items = [draft, snoozed, finished, dropped];
+  state.filingWrites = [];
+  let decide;
+  const decided = new Promise(resolve => { decide = resolve; });
+  await page.route('**/mcp', async route => {
+    if (route.request().postDataJSON().params.name === 'decide-engine-home-proposal') await decided;
+    await route.fallback();
+  });
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  const card = title => page.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title }) });
+  const button = (title, name) => card(title).locator(':scope > .inbox-actions').getByRole('button', { name, exact: true });
+  const why = 'Close the review to snooze or drop this card.';
+  for (const name of ['Snooze', 'Drop']) {
+    assert.equal(await button(draft.title, name).isDisabled(), true, `the card under review keeps ${name} waiting`);
+    assert.equal(await button(draft.title, name).evaluate(node => document.getElementById(node.getAttribute('aria-describedby'))?.textContent), why, `${name} says why it waits`);
+  }
+  await card(draft.title).getByText(why, { exact: true }).waitFor();
+  for (const other of [snoozed, finished, dropped]) assert.equal(await card(other.title).getByText(why).count(), 0);
+
+  await review.getByRole('region', { name: 'Next step' }).getByRole('button', { name: 'Accept', exact: true }).click();
+  await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor();
+  const otherTitle = page.getByRole('link', { name: dropped.title });
+  assert.equal(await otherTitle.getAttribute('aria-disabled'), 'true', 'no other review replaces this one mid-save');
+  for (const other of [snoozed, finished, dropped]) for (const name of ['Snooze', 'Drop', 'Mark done'])
+    assert.equal(await button(other.title, name).isDisabled(), false, `${name} on ${other.title} stays usable while the review saves`);
+  await button(snoozed.title, 'Snooze').click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('status').filter({ hasText: `Snoozed: ${snoozed.title}.` }).waitFor();
+  await button(finished.title, 'Mark done').click();
+  await page.getByRole('status').filter({ hasText: `Marked done: ${finished.title}.` }).waitFor();
+  await button(dropped.title, 'Drop').click();
+  const reason = page.getByRole('dialog', { name: 'Drop with a reason' });
+  await reason.waitFor();
+  await page.keyboard.press('Escape');
+  await reason.waitFor({ state: 'detached' });
+
+  decide();
+  await review.getByText('Suggestion accepted.', { exact: true }).waitFor();
+  assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
+  assert.equal(await otherTitle.getAttribute('aria-disabled'), 'false');
+  assert.deepEqual(state.filingWrites.map(({ id: proposal, decision }) => [proposal, decision]), [[id(42), 'accept']]);
+  assert.equal(state.items.find(item => item.item_id === snoozed.item_id).section, 'snoozed');
+  assert.equal(state.items.find(item => item.item_id === finished.item_id).section, 'done');
+});
+
 test('Inbox keeps Undo on another finished card usable while a review is open', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = draftCard();
