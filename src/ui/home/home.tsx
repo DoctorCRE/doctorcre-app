@@ -47,6 +47,7 @@ type SnoozePreview = Readonly<{
   error: string;
 }>;
 type Pending = { request: Command; before: readonly InboxItem[]; undoing?: true };
+type Save = "card" | "batch" | "review";
 type Undo = { items: readonly InboxItem[] } & (
   | { mark: MarkUndo }
   | { action: Action | "reopen"; until?: string; receipt?: TaskReceipt }
@@ -152,7 +153,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const { item_id: inboxItemId } = useParams();
   const item_id = home ? new URLSearchParams(route.search).get("card") || undefined : inboxItemId;
   const cache = useQueryClient();
-  const inFlight = useRef(false);
+  // Saves in flight, read synchronously; `saving` mirrors it so the refresh schedule pauses and resumes with it.
+  const inFlight = useRef(new Set<Save>());
+  const [saving, setSaving] = useState<ReadonlySet<Save>>(() => new Set());
   const mounted = useRef(true);
   const query = useQuery({
     queryKey,
@@ -161,14 +164,14 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         const dashboard = await readDashboard(signal);
         if (dashboard) return dashboard;
         const current = cache.getQueryData<Snapshot | { grouped: true }>(queryKey);
-        if (inFlight.current && current && "grouped" in current)
+        if (inFlight.current.size && current && "grouped" in current)
           throw Error("Reminders and waiting items unavailable.");
       }
       return client.read(signal);
     },
     // eslint-disable-next-line no-restricted-syntax -- One read per 60000ms while visible and online; paused during writes and cleared on unmount by Query.
     refetchInterval: () =>
-      navigator.onLine && document.visibilityState === "visible" && !inFlight.current ? 60_000 : false,
+      navigator.onLine && document.visibilityState === "visible" && !saving.size ? 60_000 : false,
   });
   const meetings = useQuery({
     queryKey: ["home-meetings"],
@@ -190,7 +193,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }, [home, query.isPending]);
   async function updateAfterSave(flat?: Snapshot | null, updates: readonly InboxItem[] = []) {
     if (query.data && "grouped" in query.data) {
-      await query.refetch({ cancelRefetch: false });
+      // A newer read replaces one that started before this save landed.
+      await query.refetch();
       return;
     }
     if (!flat && !updates.length) return;
@@ -207,7 +211,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
   const reviewFocus = useRef<{ opener: HTMLElement; tile: Element | null; preceding: Set<HTMLElement> }>(null);
-  const [reviewUncertain, setReviewUncertain] = useState(false);
+  const [switchingBlocked, blockSwitching] = useState(false);
   const openedLink = useRef<string | null>(null);
   useLayoutEffect(() => {
     const focus = reviewFocus.current;
@@ -225,9 +229,18 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }, [reviewing]);
   const [selected, select] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Pending | null>(null);
-  const [singleBusy, setBusy] = useState(false);
-  const [batchBusy, setBatchBusy] = useState(false);
-  const busy = singleBusy || batchBusy;
+  const busy = saving.has("card") || saving.has("batch");
+  function beginSave(save: Save) {
+    const alone = !inFlight.current.size;
+    inFlight.current.add(save);
+    setSaving(new Set(inFlight.current));
+    // A read running during another save is that save's own follow-up; cancelling it would strand its result.
+    return alone ? cache.cancelQueries({ queryKey }) : Promise.resolve();
+  }
+  function endSave(save: Save) {
+    inFlight.current.delete(save);
+    setSaving(new Set(inFlight.current));
+  }
   const [notice, setNotice] = useState("");
   const [noticeAlert, setNoticeAlert] = useState(false);
   const showNotice = useCallback((text: string, alert = false) => {
@@ -283,7 +296,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       if (
         !navigator.onLine ||
         document.visibilityState !== "visible" ||
-        inFlight.current ||
+        inFlight.current.size ||
         cache.getQueryState(queryKey)?.fetchStatus === "fetching" ||
         Date.now() - lastRefresh < 1000
       )
@@ -394,7 +407,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     target?.scrollIntoView({ block: "center" });
   }
   async function run(operation: Pending) {
-    if (inFlight.current) return;
+    if (inFlight.current.has("card")) return;
     setPending(operation);
     if (!navigator.onLine) {
       showNotice("Offline. No change was sent. Reconnect and retry the same request.", true);
@@ -409,11 +422,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       ...visible.slice(0, index).reverse(),
       ...visible.slice(index, index + 1),
     ];
-    inFlight.current = true;
-    setBusy(true);
+    const cancelled = beginSave("card");
     showNotice("Waiting for server confirmation…");
     try {
-      await cache.cancelQueries({ queryKey });
+      await cancelled;
       if (!mounted.current) return;
       const results = await client.run(operation.request);
       if (!mounted.current) return;
@@ -544,8 +556,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           true,
         );
     } finally {
-      setBusy(false);
-      inFlight.current = false;
+      endSave("card");
     }
   }
   function act(
@@ -617,7 +628,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     reviewFocus.current = { opener, tile, preceding: new Set(links.slice(0, Math.max(0, index))) };
     setReviewing(item);
   }, []);
-  const openingLocked = busy || !!pending || reviewUncertain || !!dropping || !!snooze;
+  const openingLocked = busy || !!pending || switchingBlocked || !!dropping || !!snooze;
   useLayoutEffect(() => {
     const item = placed.current;
     if (!home || !item?.engine_marks || openingLocked || openedLink.current === route.key) return;
@@ -876,12 +887,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         </div>
         {(!open || !finishedElsewhere) && (!waitingCard || wakeable) && (
           <div className="inbox-actions">
-            {!waitingCard && presentation && (
+            {!waitingCard && presentation && !(open && namedAction === "Mark done") && (
               <button
                 type="button"
                 className={open ? undefined : "inbox-primary"}
                 aria-expanded={directUrl || namedAction === "Mark done" ? undefined : open}
-                disabled={openingLocked || (namedAction === "Mark done" && (!completable || open))}
+                disabled={namedAction === "Mark done" ? busy || !completable : openingLocked}
                 onClick={(event) => {
                   if (namedAction === "Mark done") act("complete", [item]);
                   else openDetails(event.currentTarget);
@@ -912,16 +923,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 {reviewLabel}
               </button>
             )}
-            {reopenable && (
-              <button
-                type="button"
-                disabled={busy || !!pending || open}
-                onClick={() => act("reopen", [item], undefined, true)}
-              >
+            {reopenable && !open && (
+              <button type="button" disabled={busy || !!pending} onClick={() => act("reopen", [item], undefined, true)}>
                 Undo
               </button>
             )}
-            {!presentation && (completable || tourDone) && (
+            {!presentation && (completable || tourDone) && !open && (
               <button
                 type="button"
                 className="inbox-primary"
@@ -938,15 +945,15 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                   : "This reply didn't send. Send it from your email, then press Hide from inbox."}
               </p>
             )}
-            {wakeable && (
-              <button type="button" disabled={busy || open} onClick={() => act(markAction, [item])}>
+            {wakeable && !open && (
+              <button type="button" disabled={busy} onClick={() => act(markAction, [item])}>
                 {primary}
               </button>
             )}
-            {snoozable && (
+            {snoozable && !open && (
               <button
                 type="button"
-                disabled={busy || open}
+                disabled={busy}
                 onClick={(event) => {
                   snoozeOpener.current = event.currentTarget;
                   openSnooze([item]);
@@ -955,10 +962,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 Snooze
               </button>
             )}
-            {droppable && (
+            {droppable && !open && (
               <button
                 type="button"
-                disabled={busy || !!pending || open || !online}
+                disabled={busy || !!pending || !online}
                 onClick={(event) => setDropping({ item, opener: event.currentTarget })}
               >
                 Drop
@@ -973,13 +980,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             readOnly={waitingCard || finishedElsewhere}
             client={reviewClient}
             drafts={drafts}
-            blockSwitching={setReviewUncertain}
+            blockSwitching={blockSwitching}
             close={() => setReviewing(null)}
-            busy={(value) => {
-              inFlight.current = value;
-              setBusy(value);
-              if (value) void cache.cancelQueries({ queryKey });
-            }}
+            busy={(value) => (value ? void beginSave("review") : endSave("review"))}
             confirmed={async (current, receipt, snapshot) => {
               await updateAfterSave(snapshot, current ? [current] : []);
               if (!mounted.current) return;
@@ -1269,14 +1272,11 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           engine={query.data?.engine_marks === true}
           picked={picked}
           selected={selected}
-          locked={singleBusy || !!pending || !!reviewing || !online}
+          locked={saving.has("card") || !!pending || !!reviewing || !online}
           select={select}
           snapshot={updateAfterSave}
           prepare={() => cache.cancelQueries({ queryKey })}
-          lock={(value) => {
-            inFlight.current = value;
-            setBatchBusy(value);
-          }}
+          lock={(value) => (value ? void beginSave("batch") : endSave("batch"))}
         />
       ) : (
         !query.data?.engine_marks &&

@@ -223,13 +223,14 @@ export function ReviewCard<Item extends ReviewItem>({
       controller.abort();
     };
   }, [client]);
-  const uncertain = state.phase === "uncertain";
+  const waiting = state.phase === "submitting" || lock.current;
+  // Opening another review would replace this one while its save is unresolved.
+  const holding = waiting || state.phase === "uncertain";
   useLayoutEffect(() => {
-    if (!uncertain) return;
+    if (!holding) return;
     blockSwitching?.(true);
     return () => blockSwitching?.(false);
-  }, [uncertain, blockSwitching]);
-  const waiting = state.phase === "submitting" || lock.current;
+  }, [holding, blockSwitching]);
   const review = "review" in state ? state.review : null;
   const thread = review && "thread" in review ? review.thread : undefined;
   const proposals = review && "proposals" in review ? (review.proposals ?? []) : [];
@@ -578,7 +579,7 @@ export function ReviewCard<Item extends ReviewItem>({
       tabIndex={-1}
       aria-label={`Details for ${item.title}`}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && !drop && !waiting && state.phase !== "uncertain") {
+        if (event.key === "Escape" && !drop && !holding) {
           event.preventDefault();
           close();
         }
@@ -588,7 +589,7 @@ export function ReviewCard<Item extends ReviewItem>({
     >
       <header>
         <h4>{client ? "Review this card" : item.title}</h4>
-        <button type="button" disabled={waiting || state.phase === "uncertain"} onClick={close}>
+        <button type="button" disabled={holding} onClick={close}>
           {client && item.review_reference?.kind !== "action" ? "Close review" : "Close"}
         </button>
       </header>
