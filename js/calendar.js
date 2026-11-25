@@ -2,7 +2,7 @@ import { selectDocRecord, pageDocContext } from './doc-context.js';
 import { createLiveClient } from "./live-client.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge, mountPrefs } from "./shell.js";
-import { formatCalendarDate } from "./visual-system.js";
+import { formatCalendarDate, partnerName } from "./visual-system.js";
 import { BUSINESS_TIME_ZONE, meetingTime } from "./business-date.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import {
@@ -66,7 +66,7 @@ const typeLabel = entry => KINDS.find(kind => kind.type === entry.type).label;
 const entryTime = entry => entry.type !== "meeting" ? "" : entry.all_day ? "All day" : meetingTime(entry.at, BUSINESS_TIME_ZONE);
 const entryText = entry => [entryTime(entry), entry.label].filter(Boolean).join(" ");
 const ownerNames = entry => (entry.owners ?? [entry.owner]).filter(owner => typeof owner === "string" && owner)
-  .map(owner => owner[0].toUpperCase() + owner.slice(1)).join(" and ");
+  .map(partnerName).join(" and ");
 
 function chipHtml(entry, { withDeal, overflow, place }) {
   const near = approach(entry, view.today);

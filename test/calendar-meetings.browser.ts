@@ -16,7 +16,7 @@ const datesRead = "/api/engine/calendar/critical-dates";
 const meetingsRead = "/api/engine/calendar/meetings";
 // The engine sends its own wording too; Calendar words the stale line from observed_at, like Home.
 const engineStaleNote = "This calendar was last read from Outlook more than 18 hours ago.";
-const staleNotice = "Example Partner Two: Last synced Oct 19, 9:00 AM.";
+const staleNotice = "Dell: Last synced Oct 19, 9:00 AM.";
 
 const dates = {
   schema_version: "calendar-critical-dates.v1",
@@ -41,7 +41,7 @@ const meetings = {
   meetings: [
     {
       partner: "dell",
-      name: "Example Partner Two",
+      name: "Dell Example",
       state: "partial",
       reason: null,
       observed_at: "2026-10-19T14:00:00Z",
@@ -50,7 +50,7 @@ const meetings = {
     },
     {
       partner: "joe",
-      name: "Example Partner One",
+      name: "Joe Example",
       state: "ready",
       reason: null,
       notes: [],
@@ -243,7 +243,7 @@ const sharedMeetings = {
   meetings: [
     {
       partner: "dell",
-      name: "Example Partner Two",
+      name: "Dell Example",
       state: "partial",
       reason: null,
       notes: standingNotes,
@@ -262,7 +262,7 @@ const sharedMeetings = {
     },
     {
       partner: "joe",
-      name: "Example Partner One",
+      name: "Joe Example",
       state: "partial",
       reason: null,
       notes: standingNotes,
@@ -309,7 +309,7 @@ test("A meeting both partners attend shows once, standing notes stay quiet, and 
   await page.locator("#calRefresh").click();
   await expect(page.locator("#calCount")).toHaveText("1 critical date · 1 meeting");
   assert.equal(ranges.length, opened + 1, "Refresh reads the meetings again");
-  await expect(page.locator("#calNotices")).toHaveText("Example Partner Two: Calendar may be incomplete.");
+  await expect(page.locator("#calNotices")).toHaveText("Dell: Calendar may be incomplete.");
 
   const panel = page.locator("#dayPanelBody");
   const joint = panel.locator(".cal-day-entry").filter({ hasText: "Joint call" });
@@ -341,7 +341,7 @@ test("November meetings show Central standard time, all-day meetings say so, and
     meetings: [
       {
         partner: "joe",
-        name: "Example Partner One",
+        name: "Joe Example",
         state: "ready",
         reason: null,
         observed_at: "2026-11-09T14:00:00Z",

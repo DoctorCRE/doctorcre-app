@@ -1,5 +1,6 @@
 import { createPageBudget } from './read-budget.mjs';
 import { BUSINESS_TIME_ZONE, businessDay, meetingTime } from './business-date.js';
+import { partnerName } from './visual-system.js';
 // Calendar days use UTC arithmetic. Today uses America/Chicago.
 
 /** Widest to narrowest; a change toward the end zooms in. */
@@ -445,7 +446,7 @@ export async function readMeetings(client, range, now = Date.now()) {
     for (const section of answer.meetings) {
       if (!isText(section.partner) || !isText(section.name) || !SECTION_STATES.includes(section.state) || !Array.isArray(section.items))
         throw new Error("Meetings unreadable");
-      const who = section.name;
+      const who = partnerName(section.name);
       notes.push(...sectionNotes(section, who, now).map(note => named(who, note)));
       if (section.state === "unavailable") continue;
       for (const item of section.items) {

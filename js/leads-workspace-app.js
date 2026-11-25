@@ -1,4 +1,4 @@
-import { phoneLabel, withoutRecordCodes } from './visual-system.js';
+import { partnerName, phoneLabel, withoutRecordCodes } from './visual-system.js';
 import { scrollAtEdge } from './touch-layout.js';
 import { dealsSaveToEngine } from "./boot-mode.js";
 import { parseOpportunityTiming, timingMarkup } from './ui-lead-opportunity-timing.generated.js';
@@ -36,7 +36,7 @@ const shortDate = (value, calendarDate = false) => {
 };
 const stamp = value => Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("en-US", { timeZone: BUSINESS_TIME_ZONE, month: "short", day: "numeric", year: yearIfNeeded(new Date(value)), hour: "numeric", minute: "2-digit", hour12: true }) : "—";
 const summary = value => String(value || "").split(/\n\s*\n/)[0].slice(0, 230);
-const ownerName = owner => owner ? owner.charAt(0).toUpperCase() + owner.slice(1) : "Unclaimed";
+const ownerName = owner => owner ? partnerName(owner) : "Unclaimed";
 const claimButton = lead => !lead.owner && normalizedStage(lead) !== "archived" ? `<button data-claim="${esc(lead.id)}">Claim</button>` : "";
 const readOnlyMessage = "Can't edit right now. Refresh to try again.";
 const quietLeadIndex = proposals => new Map(proposals.filter(row => row.subject_type === "lead").flatMap(row =>
@@ -469,7 +469,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const scroll = intent?.scroll ?? $("leadDetail").scrollTop;
     $("detailTitle").textContent = leadTitle(detail);
     const fields = [
-      ["Owner", esc(detail.owner_label || ownerName(detail.owner))],
+      ["Owner", esc(ownerName(detail.owner_label || detail.owner))],
       ["Phone", detail.phone && `<a href="tel:${esc(detail.phone)}">${esc(phoneLabel(detail.phone))}</a>`],
       ["Email", detail.email && `<a href="mailto:${esc(detail.email)}">${esc(detail.email)}</a>`],
       ["Market", esc(leadMarket(detail))],

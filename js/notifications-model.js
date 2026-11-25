@@ -7,6 +7,7 @@ import { BUSINESS_TIME_ZONE, meetingTime } from "./business-date.js";
 import { REFUSAL_SENTENCE } from "./status-model.js";
 import { CONVERSATION_ID } from "./conversations-model.js";
 import { knownAuthor } from "./client.js";
+import { partnerName } from "./visual-system.js";
 import { changeAction } from "./change-receipts.mjs";
 
 export { REFUSAL_SENTENCE };
@@ -293,7 +294,7 @@ export function feedState(read = {}, { after = null, limit = null } = {}) {
 // A partner reads by name; another simple account slug reads as a word. Any
 // other actor reference is an identifier and stays in Details.
 const activityActor = (actor) => !isText(actor) ? "Unattributed"
-  : knownAuthor(actor) ?? (/^[a-z]+$/.test(actor) ? actor.charAt(0).toUpperCase() + actor.slice(1)
+  : knownAuthor(actor) ?? (/^[a-z]+$/.test(actor) ? partnerName(actor)
   : "Recorded actor");
 export function activityRows(events, zone = BUSINESS_TIME_ZONE) {
   return (Array.isArray(events) ? events : [])
@@ -317,7 +318,7 @@ export function parseChangesPage(page) {
     const link = deepLinkView(row?.open_url);
     if (![row?.id, row?.what, row?.record].every(isText) || !(isText(row.who) || isText(row.job)) || !link.href ||
         !isDate(row.changed_at)) throw new Error("Invalid change");
-    return { id: row.id, actor: isText(row.who) ? row.who : knownAuthor(row.job) ?? "Automatically", verb: row.what, subject: row.record, at: row.changed_at, link, details: {} };
+    return { id: row.id, actor: isText(row.who) ? partnerName(row.who) : knownAuthor(row.job) ?? "Automatically", verb: row.what, subject: row.record, at: row.changed_at, link, details: {} };
   });
   const cursor = page.next_before === null ? { kind: "end" } : { kind: "more", before: page.next_before };
   return { changes, cursor };
