@@ -348,8 +348,9 @@ dialog.party-editor::backdrop { background: var(--scrim); }
   #applyFilters { display: none; }
   /* Each Clients filter shows its value in the toolbar, and Clear undoes them all. */
   body[data-directory="clients"] #chipBar { display: none; }
-  /* Each select keeps its whole choice; the territory box takes what is left. */
+  /* Each select is as wide as its current choice; the territory box takes what is left. */
   body[data-directory="vendors"] .filter-form .field:has(> select) { flex: none; }
+  body[data-directory="vendors"] .filter-form select { field-sizing: content; }
 }
 body[data-directory="clients"] #applyFilters { display: none; }
 /* The count and owner chips sit in the top bar beside the page title. */

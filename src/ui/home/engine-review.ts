@@ -106,7 +106,7 @@ function emailThread(value: Record<string, unknown>): EmailThread {
           typeof body !== "string"
         )
           return [];
-        const { text, signature } = splitSignature(body);
+        const { text, signature } = splitSignature(body, string(sender_name));
         const earlier = string(message.folded);
         return [
           {

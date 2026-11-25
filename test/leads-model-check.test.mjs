@@ -22,6 +22,26 @@ test('title priority and smart titles discard referral decorations',()=>{
  assert.equal(leadTitle({entity_name:'Example Entity'}),'Example Entity');
  assert.equal(leadTitle({specialty:'Dental',city:'Gulf Breeze'}),'Dental startup in Gulf Breeze');
 });
+test('a name stored in all capitals reads in title case; mixed case reads as stored', () => {
+ for (const [stored, shown] of [
+  ['ACME CARE PARTNERS LLC', 'Acme Care Partners LLC'],
+  ['SAMPLE SMILES DDS, PLLC', 'Sample Smiles DDS, PLLC'],
+  ['JANE EXAMPLE MD', 'Jane Example MD'],
+  ['EXAMPLE FAMILY DENTISTRY, P.C.', 'Example Family Dentistry, P.C.'],
+  ['US DENTAL CARE OF EXAMPLE', 'US Dental Care of Example'],
+  ['THE EXAMPLE CENTER FOR SMILES', 'The Example Center for Smiles'],
+  ['MCDONALD FAMILY DENTAL', 'McDonald Family Dental'],
+  ['MCKAY-O\'BRIEN DDS', 'McKay-O\'Brien DDS'],
+  ['MACDONALD ORTHODONTICS', 'MacDonald Orthodontics'],
+  ['MACHADO PEDIATRICS', 'Machado Pediatrics'],
+  ['O\'NEIL AND D\'ANGELO', 'O\'Neil and D\'Angelo'],
+  ['SMITH\'S SMILES', 'Smith\'s Smiles'],
+  ['ÉCOLE DENTAIRE ÅSE', 'École Dentaire Åse'],
+  ['J EXAMPLE III', 'J Example III'],
+  ['Example McKay Dental', 'Example McKay Dental'],
+  ['ACME dental', 'ACME dental'],
+ ]) assert.equal(leadTitle({ doctor_name: stored }), shown, stored);
+});
 test('Leads search finds the displayed name and the original stored name', () => {
  const row = lead(1, { doctor_name: 'Example (V-SUP-901) Clinic' });
  for (const search of ['Example Clinic', 'Example (V-SUP-901) Clinic']) {

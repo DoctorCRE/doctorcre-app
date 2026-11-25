@@ -2,11 +2,12 @@ import { TOUCH_LAYOUT } from './touch-layout.js';
 import { resolveDealroomBoot } from './boot-mode.js';
 import { mountAutoRefresh } from './auto-refresh.mjs';
 
+const waiting = '<span class="skeleton-line"></span><span class="skeleton-line short"></span>';
 const time = value => { const date = new Date(value || ''); return Number.isFinite(date.valueOf()) ? date.toLocaleTimeString([], { hour:'numeric', minute:'2-digit', hour12:true }) : '—'; };
 
 function createAppLayout(root, title = '') {
-  const todayContent = `<section class="calendar-panel" aria-label="Meetings"><h3>Meetings</h3><div id="appScheduleSlot" role="status">Loading meetings…</div><div id="appMeetingReviews" hidden></div></section>
-      <section aria-labelledby="appRemindersTitle"><h3 id="appRemindersTitle">Dated reminders</h3><div id="appTodayOwners" hidden></div><div id="appTodayLate" hidden><h4>Late</h4><div id="appTodayNeeds"></div></div><div id="appTodayNext" role="status">Loading dated reminders…</div></section>
+  const todayContent = `<section class="calendar-panel" aria-label="Meetings"><h3>Meetings</h3><div id="appScheduleSlot" role="status" aria-busy="true">${waiting}</div><div id="appMeetingReviews" hidden></div></section>
+      <section aria-labelledby="appRemindersTitle"><h3 id="appRemindersTitle">Dated reminders</h3><div id="appTodayOwners" hidden></div><div id="appTodayLate" hidden><h4>Late</h4><div id="appTodayNeeds"></div></div><div id="appTodayNext" role="status" aria-busy="true">${waiting}</div></section>
       <button type="button" id="appTodayRetry" class="app-layout-item" hidden>Retry Today</button>`;
   const layout = root.createElement('div');
   layout.id = 'appLayout';
@@ -226,9 +227,11 @@ export function mountAppLayout(root, host, pathname) {
       const deals = scopedDeals(await client.getBoard({ workspace: 'all', signal }), 'team');
       if (!deals) throw new Error('Could not load meeting deals');
       return deals;
-    }, { hideEndedDealReminders: pathname === '/deals' })).catch(() => {
-      layout.querySelector('#appScheduleSlot').textContent = "Couldn't load meetings.";
-      layout.querySelector('#appTodayNext').textContent = "Couldn't load dated reminders.";
+    }, { hideEndedDealReminders: pathname === '/deals', waiting })).catch(() => {
+      for (const [slot, message] of [['#appScheduleSlot', "Couldn't load meetings."], ['#appTodayNext', "Couldn't load dated reminders."]]) {
+        layout.querySelector(slot).textContent = message;
+        layout.querySelector(slot).setAttribute('aria-busy', 'false');
+      }
       return null;
     });
   const connection = connected => {
