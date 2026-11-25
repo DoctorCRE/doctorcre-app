@@ -1751,7 +1751,7 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await clear.waitFor();
   await page.mouse.move(0, 0);
   assert.equal(await row.getByText('Needs attention', { exact: true }).isVisible(), true, 'the flag shows without hover');
-  assert.match(await row.locator('.due').innerText(), /late/, 'a flagged late row still says it is late');
+  assert.equal(await row.getByText('1 day late', { exact: true }).isVisible(), true, 'a flagged late row still says it is late');
   await show.selectOption({ label: 'Needs attention' });
   await clear.click();
   await row.waitFor({ state: 'detached' });
@@ -1783,7 +1783,9 @@ for (const [width, height, today] of [[1280, 800, 'closed'], [1280, 800, 'open']
     const account = crypto.randomUUID();
     const deal = (name, fields) => ({ id: crypto.randomUUID(), name, phase: 'research', seen: 1, owner: 'joe', account_client_id: account,
       workspace_kind: 'national_account', market: 'Example City', next_step: 'Call the landlord', next_date: '2026-11-24', ...fields });
-    const flagged = deal('Example Flagged Late Deal', { attention: true, next_date: '2026-11-17' });
+    const step = crypto.randomUUID();
+    const flagged = deal('Example Flagged Late Deal', { attention: true, next_date: '2026-11-17',
+      open_actions: [{ id: step, owner: 'joe', due_on: '2026-11-17', item_id: `next_action:${step}`, description: 'Call the landlord' }] });
     const deals = [flagged, deal('Example Quiet Deal'), deal('Example Closing Deal', { phase: 'closing' })];
     const env = {
       ENGINE_ROUTING: { get: async key => ['deals-from-engine', 'deals-saves-from-engine'].includes(key) ? 'on' : null },
@@ -1819,9 +1821,15 @@ for (const [width, height, today] of [[1280, 800, 'closed'], [1280, 800, 'open']
         toolbar: visible('#appToolsSlot :is(#mondayReviewLink, #ownerButton, #dealFilter)').length,
         toolbarStamp: visible('#appToolsSlot #syncStatus'),
         actions: (style => `${style.display} ${style.columnGap} ${style.rowGap}`)(getComputedStyle(document.querySelector('#rows tr:first-child .row-actions'))),
+        lineEnds: [...document.querySelectorAll('.deal-meta')].flatMap(meta => [...meta.children]
+          .filter((node, index, all) => !all[index + 1] || box(all[index + 1]).top > box(node).top)
+          .map(node => node.textContent.trim())),
       };
     });
     assert.equal(fit.sideways, false, 'nothing scrolls sideways');
+    assert.ok(fit.lineEnds.every(text => text !== '·'), `no line of row details ends in a separator: ${JSON.stringify(fit.lineEnds)}`);
+    assert.equal(await row.getByText('Needs attention', { exact: true }).isVisible(), true, 'the flag shows without hover');
+    assert.equal(await row.getByText('2 days late', { exact: true }).isVisible(), true, 'the flagged row still says its step is late');
     assert.equal(fit.toolbar, 3, 'Monday review, the owner and Show sit in the toolbar');
     if (phone) {
       assert.deepEqual(fit.tabs, ['Local Deals', 'National Accounts', 'Open deals', 'Closed deals'], 'the phone tab bar holds the four views');
@@ -1843,8 +1851,6 @@ for (const [width, height, today] of [[1280, 800, 'closed'], [1280, 800, 'open']
       assert.deepEqual(fit.todayStamp, ['Updated 12:00 PM'], 'Today says when it updated, once');
     } else assert.deepEqual(fit.topBar, ['Open deals', 'Closed deals', 'Updated 12:00 PM'], 'the views and the update time sit in the top bar');
     assert.equal(await row.locator('[data-operating-state]').evaluate(node => getComputedStyle(node).opacity), '0', 'the row stays quiet');
-    assert.equal(await row.getByText('Needs attention', { exact: true }).isVisible(), true, 'the flag shows without hover');
-    assert.match(await row.locator('.due').innerText(), /late/);
   });
 }
 
