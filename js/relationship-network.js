@@ -418,8 +418,10 @@ export function mountRelationshipNetwork({
   };
   $("networkRefresh").onclick = auto.refresh;
   $("networkMoreNodes").onclick = () => {
+    const firstNew = listed;
     listed += DIRECTORY_PAGE;
     render();
+    $("networkNodes").children[firstNew]?.focus();
   };
   $("networkMore").onclick = () => {
     limit += 12;

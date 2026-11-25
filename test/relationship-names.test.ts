@@ -20,6 +20,10 @@ test("placeholder names say what they are and follow the named records", () => {
       node("Demo Coded Dental", "client", "C-042"),
       node("Dr. Demo Lee"),
       node("120 Demo Main"),
+      node("Dr.Demo", "vendor"),
+      node("Demo.com", "vendor"),
+      node("(Demo) Dental (North)", "vendor"),
+      node("Demo Tagged Dental (C-913)", "client", "C-913"),
     ],
     edges: [],
     suggestions: [],
@@ -27,10 +31,14 @@ test("placeholder names say what they are and follow the named records", () => {
   assert.deepEqual(
     nodes.map(({ name, unnamed }) => (unnamed ? `${name} *` : name)),
     [
-      "Demo Coded Dental",
+      "Contact at Demo Coded Dental",
       "Demo Coded Dental",
       "Dr. Demo Lee",
       "120 Demo Main",
+      "Dr.Demo",
+      "Demo.com",
+      "(Demo) Dental (North)",
+      "Demo Tagged Dental",
       "Unnamed contact (new practice, moving north) *",
       "Unnamed contact (demo-site.com) *",
       "Unnamed client (4410) *",
@@ -49,4 +57,13 @@ test("an old code in a note reads as its record's name, else as an old record", 
   assert.deepEqual(suggestions, [
     { reason: "Knows Demo Coded Dental and an old record.", detail: "an old record offered." },
   ]);
+});
+
+test("suite, unit and lot numbers stay as written", () => {
+  const { edges } = readableNetwork({
+    nodes: [node("Demo Coded Dental", "client", "C-042")],
+    edges: [{ summary: "Toured Suite C-100, Unit P-2, Ste. C-3, #L-7 and lot L-12 with C-042.", detail: null }],
+    suggestions: [],
+  });
+  assert.equal(edges[0]?.summary, "Toured Suite C-100, Unit P-2, Ste. C-3, #L-7 and lot L-12 with Demo Coded Dental.");
 });

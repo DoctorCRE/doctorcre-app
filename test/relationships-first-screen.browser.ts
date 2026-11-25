@@ -38,6 +38,7 @@ function crowdedNetwork(now: string, more: number) {
     ...placeholders,
     ...network.nodes,
     node("party:demo-coded", "Demo Coded Dental", "client", "C-042"),
+    node("party:demo-tagged", "Demo Tagged Dental (C-913)", "client", "C-913"),
     ...many,
   ];
   const [offer] = network.suggestions;
@@ -86,6 +87,19 @@ const firstScreen = (page: Page) =>
     };
   });
 
+const clippedSelects = (page: Page) =>
+  page.evaluate(() => {
+    const ruler = document.createElement("canvas").getContext("2d");
+    if (!ruler) throw Error("no canvas");
+    return [...document.querySelectorAll<HTMLSelectElement>("#networkFilters select")].flatMap((select) => {
+      const style = getComputedStyle(select);
+      ruler.font = style.font;
+      const text = select.selectedOptions[0]?.text ?? "";
+      const room = select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 16;
+      return ruler.measureText(text).width > room ? [text] : [];
+    });
+  });
+
 for (const [width, height] of [
   [1280, 640],
   [1440, 900],
@@ -100,6 +114,7 @@ for (const [width, height] of [
     assert.ok(fit.graphBottom <= height, `the network ends on screen, not at ${fit.graphBottom}px`);
     assert.ok(fit.listBottom <= height, `the directory ends on screen, not at ${fit.listBottom}px`);
     assert.ok(fit.listScrolls, "the directory scrolls inside itself");
+    assert.deepEqual(await clippedSelects(page), [], "every filter shows its whole choice");
     const first = page.locator("#networkNodes [data-node]").first();
     const before = await first.boundingBox();
     await first.hover();
@@ -118,7 +133,7 @@ for (const [width, height] of [
 test("placeholder names do not lead and never read as people or companies", async (t) => {
   const page = await openRelationships(t, 1440, 900, 0);
   const names = await page.locator("#networkNodes [data-node] strong").allTextContents();
-  assert.equal(names.length, 14, "every record still shows");
+  assert.equal(names.length, 15, "every record still shows");
   assert.equal(names[0], "Demo Healthcare Lending", "a named record leads the directory");
   assert.deepEqual(
     names.slice(-5),
@@ -134,7 +149,13 @@ test("placeholder names do not lead and never read as people or companies", asyn
   const intros = await page.locator("#networkIntroductions").textContent();
   assert.match(intros ?? "", /Met Demo Coded Dental and an old record at the demo meetup\./);
   const shown = await page.locator("#main").textContent();
-  assert.doesNotMatch(shown ?? "", /V-CPA-901|C-042|L-777/, "no old record code shows");
+  assert.doesNotMatch(shown ?? "", /V-CPA-901|C-042|C-913|L-777/, "no old record code shows");
+  await page.locator('#networkNodes [data-node="party:demo-tagged"]').click();
+  assert.equal(
+    await page.locator("#relationshipTitle").textContent(),
+    "Demo Tagged Dental",
+    "the card names the record as the directory does",
+  );
 });
 
 test("Relationships stays usable on a phone", async (t) => {
@@ -147,5 +168,20 @@ test("Relationships stays usable on a phone", async (t) => {
   assert.equal(await rows.count(), 50, "the phone shows the directory a page at a time");
   await page.getByRole("button", { name: "Show more" }).click();
   assert.equal(await rows.count(), 100, "Show more adds the next page");
-  assert.equal(await page.locator("#networkCount").textContent(), "254", "the count still covers every record");
+  assert.equal(await page.locator("#networkCount").textContent(), "255", "the count still covers every record");
+});
+
+test("the keyboard carries on from the first row Show more adds", async (t) => {
+  const page = await openRelationships(t, 1440, 900, 60);
+  const more = page.locator("#networkMoreNodes");
+  await more.focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await more.isHidden(), true, "the last page hides Show more");
+  const focused = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll("#networkNodes > [data-node]")].findIndex((row) => row === document.activeElement),
+    );
+  assert.equal(await focused(), 50, "focus lands on the first new row");
+  await page.keyboard.press("Tab");
+  assert.equal(await focused(), 51, "Tab moves on to the next row");
 });

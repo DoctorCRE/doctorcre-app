@@ -200,6 +200,7 @@ dialog.introduction-review { width: min(620px, calc(100vw - 24px)); }
   .app-layout-main:has(> .relationship-page) { display: flex; flex-direction: column; }
   .relationship-page { flex: 1; display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; }
   .relationship-page h2 { margin-bottom: var(--space-2); font-size: var(--font-size-2); }
+  #appToolsSlot #networkKind { max-width: none; }
   #graphView:not([hidden]) { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem); grid-template-rows: auto minmax(0, 1fr); gap: var(--space-3); }
   :is(.relationship-graph-panel, .relationship-intros, .relationship-directory, #referralsView) { margin: 0; padding: var(--space-3); }
   .relationship-graph-panel { grid-row: 1 / -1; display: flex; flex-direction: column; min-height: 0; }
