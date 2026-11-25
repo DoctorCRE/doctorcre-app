@@ -355,6 +355,8 @@ function parseDraft(
       args: { ...args, subject, body, ...recipients },
     });
   const statusMessage = draftStatus(status, failure);
+  const thread = emailThread(value);
+  const sourceId = object(value.source_activity) ? value.source_activity.id : null;
   return {
     kind: "reply_draft",
     reference: {
@@ -368,7 +370,8 @@ function parseDraft(
     recipients,
     operations,
     sendUnavailableReason: statusMessage || "A reply needs the sender and the other partner’s work email.",
-    thread: emailThread(value),
+    thread,
+    replyTo: thread.messages.find(({ id }) => id === sourceId)?.sender ?? null,
     attachments,
     addresses: { to: string(to), cc: string(cc) },
     correctRecipients,
