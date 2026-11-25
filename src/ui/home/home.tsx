@@ -245,7 +245,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     );
     const target = visibleRow(opener)
       ? opener
-      : (links.find((link) => !preceding.has(link)) ?? links.at(-1) ?? tile?.querySelector<HTMLElement>("h2"));
+      : (links.find((link) => !preceding.has(link)) ??
+        links.at(-1) ??
+        tile?.querySelector<HTMLElement>("h2") ??
+        Array.from(root.current?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) ?? []).find(
+          visibleRow,
+        ));
     (target || root.current)?.focus({ preventScroll: true });
     reviewFocus.current = null;
   }, [reviewing]);
@@ -484,6 +489,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       const failed = results.filter((result) => !result.ok && !result.current_item);
       await updateAfterSave(results.find((result) => result.snapshot)?.snapshot, updates);
       if (!mounted.current) return;
+      if (reviewing && successes.some((result) => result.item_id === reviewing.item_id)) setReviewing(null);
       setFailures(failed);
       select(new Set(failed.map((result) => result.item_id)));
       const fresh = operation.undoing
@@ -866,6 +872,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             item.covers && `Covers ${item.covers.length} reminders`,
             covered,
             presentation?.why || detail,
+            emailAt && `Received ${snoozeDate.format(new Date(emailAt))}`,
           ];
     const deepLinked = item_id === item.item_id && !open && (
       <>
@@ -1109,7 +1116,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             {home && !waitingCard && !finishedElsewhere && (snoozeButton || dropButton) && (
               <div className="inbox-actions">
                 {snoozeButton}
-                {dropButton}
+                {/* A loaded review offers its own Drop for each decision. */}
+                {!reviewClient && dropButton}
               </div>
             )}
             {!finishedElsewhere && !item.engine_marks && due && <p>Due {due}</p>}

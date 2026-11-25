@@ -420,7 +420,7 @@ const vendorNote = value => withoutRecordCodes((value || '')
 const shortNote = value => typeof value === 'string' ? value.split(/\n/)[0].slice(0, 140) : '';
 function vendorContactDate(contactedAt) {
   const date = contactedAt && formatDay(contactedAt);
-  return date ? `<span class="contact-note"><span class="fact-label">Last contacted </span><time datetime="${escapeHtml(contactedAt)}">${escapeHtml(date)}</time></span>` : '';
+  return date ? `<span class="contact-note">Last contacted <time datetime="${escapeHtml(contactedAt)}">${escapeHtml(date)}</time></span>` : '';
 }
 
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
@@ -499,9 +499,9 @@ function rowFacts(dataset, row) {
     const stats = row.relationship;
     facts.push({ label: 'Territory', value: row.territory || 'Not recorded', known: Boolean(row.territory) });
     // The engine counts deal history and sends 0 when none is recorded, so a 0 says nothing.
-    facts.push({ label: 'Referred', value: metric(stats?.deals_referred), known: stats?.deals_referred > 0, history: true });
-    facts.push({ label: 'Worked', value: metric(stats?.deals_worked), known: stats?.deals_worked > 0, history: true });
-    facts.push({ label: 'Win rate', value: winRate(stats), known: stats?.win_rate != null, history: true });
+    facts.push({ label: 'Referred', value: metric(stats?.deals_referred), known: stats?.deals_referred > 0 });
+    facts.push({ label: 'Worked', value: metric(stats?.deals_worked), known: stats?.deals_worked > 0 });
+    facts.push({ label: 'Win rate', value: winRate(stats), known: stats?.win_rate != null });
   }
   const place = [row.city, row.state].filter(Boolean).join(", ");
   facts.push({ label: dataset === "clients" ? "Territory" : "Location", value: place || "Not recorded", known: Boolean(place) });
@@ -526,15 +526,8 @@ function rowHtml(dataset, row, selectedId) {
   const selected = row.id === selectedId;
   const vendor = dataset === "vendors";
   const facts = rowFacts(dataset, row).filter((fact) => fact.known).map((fact) =>
-    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}${fact.history ? " history" : ""}" data-fact="${escapeHtml(fact.label)}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${breakAfterSlashes(fact.value)}</span></span>`).join("");
-  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner"><span class="fact-label">Owner: </span>${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated"><span class="fact-label">Updated </span>${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
-}
-
-// Names the row columns once on a computer, where rows drop their inline labels; deal history keeps its own labels.
-function headHtml(dataset) {
-  const facts = rowFacts(dataset, {}).filter((fact) => !fact.history).map((fact) =>
-    `<span class="row-fact" data-fact="${escapeHtml(fact.label)}">${escapeHtml(fact.label)}</span>`).join("");
-  return `<li class="list-head" aria-hidden="true"><span class="row-head">Name</span><span class="row-facts">${facts}</span>${dataset === "vendors" ? '<span class="contact-note">Last contacted</span>' : ""}<span class="row-foot"><span class="row-owner">Owner</span><span class="row-updated">Updated</span></span></li>`;
+    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}" data-fact="${escapeHtml(fact.label)}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${breakAfterSlashes(fact.value)}</span></span>`).join("");
+  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
 }
 
 function paintList(html, { busy = false } = {}) {
@@ -549,7 +542,8 @@ function paintList(html, { busy = false } = {}) {
 }
 
 function renderEmpty(phase) {
-  paintList(`<li class="record-empty"><p class="empty-title">${escapeHtml(emptyCopy(view.dataset, phase))}</p>${hasActiveFilters(view.query) ? '<button type="button" class="action secondary-action" data-chip="all">Clear all filters</button>' : ""}</li>`);
+  const copy = emptyCopy(view.dataset, phase);
+  paintList(`<li class="record-empty"><p class="empty-title">${escapeHtml(copy.title)}</p><p class="empty-copy">${escapeHtml(copy.copy)}</p>${hasActiveFilters(view.query) ? '<button type="button" class="action secondary-action" data-chip="all">Clear all filters</button>' : ""}</li>`);
 }
 
 function renderPager(payload) {
@@ -596,7 +590,7 @@ function renderList() {
     if (dom.source) dom.source.textContent = "Checking…";
     if (dom.pager) dom.pager.hidden = true;
     renderNotices([]);
-    paintList('<li class="record-skeleton"><span class="skeleton-line"></span><span class="skeleton-line short"></span></li>'.repeat(8), { busy: true });
+    paintList('<li class="record-skeleton"><span class="skeleton-line"></span><span class="skeleton-line short"></span></li>'.repeat(3), { busy: true });
     return;
   }
 
@@ -629,7 +623,7 @@ function renderList() {
   if (payload.rows.length === 0) {
     renderEmpty(payload.out_of_range ? "out-of-range" : hasActiveFilters(query) ? "empty-no-matches" : "empty-no-records");
   } else {
-    paintList(headHtml(dataset) + (view.loadedRows || payload.rows).map((row) => rowHtml(dataset, row, view.recordId)).join(""));
+    paintList((view.loadedRows || payload.rows).map((row) => rowHtml(dataset, row, view.recordId)).join(""));
   }
   renderPager(payload);
 }

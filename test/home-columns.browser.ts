@@ -156,9 +156,13 @@ for (const [width, height] of [
     assert.deepEqual(await waiting.getByRole("button").allTextContents(), ["Wake"]);
     assert.equal(await page.getByRole("checkbox").count(), 0);
     assert.equal(await page.getByRole("button", { name: "Snooze selected" }).count(), 0);
-    const [left, middle, below, right] = await Promise.all(
-      [reminders, inbox, waiting, meetings].map(async (tile) => (await tile.boundingBox()) ?? assert.fail()),
-    );
+    const box = async (tile: typeof inbox) => (await tile.boundingBox()) ?? assert.fail("tile is not drawn");
+    const [left, middle, below, right] = [
+      await box(reminders),
+      await box(inbox),
+      await box(waiting),
+      await box(meetings),
+    ];
     assert.ok(left.x + left.width <= middle.x && middle.x + middle.width <= right.x, "three columns, left to right");
     assert.ok(Math.abs(below.x - middle.x) < 1 && below.y >= middle.y + middle.height, "waiting sits under Inbox");
     assert.equal(

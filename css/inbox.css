@@ -42,9 +42,13 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-slice .inbox-row > .inbox-copy h3 a { display: inline; min-height: 0; }
 .home-slice .inbox-row > .inbox-copy > .inbox-why { font-size: var(--font-size-1); line-height: 1.4; }
 .home-slice .inbox-row > .inbox-copy > .inbox-why:empty { display: none; }
-.home-slice .inbox-row > .inbox-copy > :is(h3, .inbox-why) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy { display: flex; align-items: baseline; gap: var(--space-2); }
-.home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy > .inbox-why { flex: 1 0 40%; min-width: 0; }
+.home-slice .inbox-row > .inbox-copy > .inbox-why { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* On a computer each waiting item is one line; a phone gives it two. */
+@media (min-width: 1000px) {
+  .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy { display: flex; align-items: baseline; gap: var(--space-2); }
+  .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy > :is(h3, .inbox-why) { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy > .inbox-why { flex: 1 0 40%; }
+}
 .home-slice .inbox-row > .inbox-actions { flex: none; width: auto; margin: 0; gap: var(--space-1); }
 .inbox-shell .home-slice .inbox-row > .inbox-actions button { min-height: var(--touch); padding: 0 var(--space-3); font-size: var(--font-size-1); }
 .inbox-shell .home-done { position: relative; flex: none; width: var(--touch); height: var(--touch); min-height: 0; margin: 0 calc(-1 * var(--space-2)); padding: 0; border: 0; background: transparent; }
@@ -62,6 +66,9 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
   .home-slice[aria-label="Reminders"] .inbox-row:is(:hover, :focus-within) > .home-edge { visibility: hidden; }
 }
 /* By touch, Snooze and Drop sit under the reminder's text. */
+@media (max-width: 999px), (hover: none) {
+  .home-slice .inbox-row > .inbox-copy h3 a { display: inline-flex; min-height: var(--touch); }
+}
 @media (hover: none) {
   .home-slice[aria-label="Reminders"] .inbox-row > .inbox-actions { flex-basis: 100%; padding-left: calc(var(--touch) - var(--space-4) + var(--space-3)); }
 }
