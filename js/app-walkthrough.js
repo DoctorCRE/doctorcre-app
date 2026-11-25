@@ -34,8 +34,17 @@ export function openWalkthrough(root) {
     avatar.setAttribute('aria-expanded', String(inAccount));
     target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     const edge = target.getBoundingClientRect();
+    const gap = 12;
     for (const compact of [false, true]) {
       guide.toggleAttribute('data-compact', compact);
+      // On a computer the page moves over to make room beside the rail, so no step covers it.
+      guide.dataset.position = 'beside';
+      const { right, height } = guide.getBoundingClientRect();
+      const top = Math.max(gap, Math.min(edge.top, win.innerHeight - height - gap));
+      if (win.innerWidth - right >= 800 && top + height <= win.innerHeight - gap) {
+        guide.style.setProperty('--walkthrough-top', `${top}px`);
+        return;
+      }
       for (const position of ['top', 'bottom']) {
         guide.dataset.position = position;
         const box = guide.getBoundingClientRect();

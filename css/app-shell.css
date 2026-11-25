@@ -466,6 +466,8 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
 
 .app-walkthrough { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; position: fixed; z-index: 1300; right: var(--space-4); width: min(360px, calc(100vw - 32px)); max-height: calc(100dvh - 160px); overflow-y: auto; box-sizing: border-box; padding: var(--space-4); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-3); background: var(--surface-2); color: var(--fg); box-shadow: var(--shadow-overlay); font-family: var(--font-text); }
 .app-walkthrough[data-position=top] { top: var(--space-4); bottom: auto; }
+.app-walkthrough[data-position=beside] { top: var(--walkthrough-top); left: calc(var(--layout-rail) + var(--space-3)); right: auto; bottom: auto; }
+body.has-app-layout:has(> .app-walkthrough[data-position=beside]) { padding-left: calc(var(--layout-rail) + 360px + 2 * var(--space-3)) !important; }
 .app-walkthrough[data-compact] { max-height: min(200px, calc(100dvh - 160px)); }
 .app-walkthrough[data-position=bottom] { top: auto; bottom: calc(var(--layout-bottom) + var(--space-4)); }
 .app-walkthrough > div { min-height: 0; overflow-y: auto; }
