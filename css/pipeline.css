@@ -80,11 +80,12 @@
   .dealroom-heading { margin-bottom: 0; }
   .kanban:has(#prospectsLane):not(:has(.deal-list)) { grid-template-columns: minmax(96px, 1fr) var(--phase-columns); }
 }
-.kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); }
+/* List: the board's screen-tall row and column cap would slide the list under Prospects or clip it. */
+.kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
 #prospectsLane .work-card { overflow-wrap: anywhere; }
 #prospectsLane [role="alert"] .btn { max-width: 100%; padding-inline: var(--space-2); }
 @media (min-width: 651px) {
-  .deal-list + #prospectsLane { padding-inline: 0; border-inline: 0; border-radius: 0; }
+  .deal-list + #prospectsLane { max-height: none; padding-inline: 0; border-inline: 0; border-radius: 0; }
   #prospectsLane .work-card--row .work-card-body { display: grid; grid-area: 1 / 3; }
 }
 .prospect-add.field { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-block: var(--space-2); }
@@ -239,6 +240,13 @@
 .deal-snapshot-facts div { min-width:0; }
 .deal-snapshot-facts dt { color:var(--fg-muted); font-size:var(--font-size-1); }
 .deal-snapshot-facts dd { margin:0; overflow-wrap:anywhere; }
+/* Facts sit beside the next steps so both fit the first screen on a computer. */
+@media (min-width:1100px) {
+  .deal-opening-snapshot { display:grid; grid-template-columns:minmax(0,1fr) minmax(12rem,16rem); column-gap:var(--space-6); align-items:start; }
+  .deal-opening-snapshot > * { grid-column:1; }
+  .deal-opening-snapshot > [data-detail-read="snapshot"] { grid-column:2; grid-row:1 / span 2; }
+  .deal-opening-snapshot .deal-snapshot-facts { flex-direction:column; }
+}
 .deal-vendors { display:grid; gap:var(--space-4); margin:var(--space-3) 0; min-width:0; overflow-wrap:anywhere; font-size:var(--font-size-1); }
 .deal-vendor-role { color:var(--fg-muted); font-weight:600; }
 .deal-vendors dd { margin:0; }
@@ -300,7 +308,7 @@ button.client-portal-link:disabled { cursor: wait; }
 .deal-workspace[hidden], .workspace-open #main { display: none; }
 .workspace-open #appTabsSlot .board-toolbar { display: none; }
 /* Outranks deal-timeline.css's `.deal-detail > header`, which would pin it under the tab bar. */
-.deal-detail > .workspace-header { position: sticky; top: var(--tabbar-height); z-index: 70; padding: var(--space-2) var(--space-3) 0; background: var(--ground); border-bottom: 1px solid var(--hairline); }
+.deal-detail > .workspace-header { position: sticky; top: var(--scroll-edge, var(--tabbar-height)); z-index: 70; padding: var(--space-2) var(--space-3) 0; background: var(--ground); border-bottom: 1px solid var(--hairline); }
 .workspace-heading { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: var(--space-3); }
 .workspace-heading > button { justify-self: start; }
 .workspace-heading h1 { margin: 0; font-size: var(--font-size-3); }
@@ -379,6 +387,9 @@ button.client-portal-link:disabled { cursor: wait; }
 .deal-tour-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-block: var(--space-3); }
 .deal-tours .btn { min-height: 44px; white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
 .deal-tours li, .deal-tours h3 { overflow-wrap: anywhere; }
+.deal-past-tours { margin-top: var(--space-5); }
+.deal-past-tours > ul { list-style: none; padding: 0; }
+.deal-past-tours h4 { margin: var(--space-3) 0 var(--space-1); }
 .tour-fields { display: grid; gap: var(--space-3); min-width: 0; padding: 0; border: 0; margin: var(--space-3) 0; }
 .tour-fields input, .tour-fields textarea { display: block; width: 100%; min-width: 0; }
 .tour-fields > .btn { justify-self: start; }

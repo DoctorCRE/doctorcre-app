@@ -22,9 +22,31 @@ const leadNames = lead => [lead.doctor_name, lead.practice_name, lead.entity_nam
 function cleanTitle(value) {
   return String(value || "").replace(/\s*\((?:via|referral|referred)[^)]*\)/gi, "").trim();
 }
-export function leadTitle(lead) {
+// Words an all-caps name keeps as spelled here: credentials, suffixes and acronyms stay upper, and
+// Mac names keep their inner capital (a general Mac rule would misread Machado or Macon).
+const SPELLINGS = new Map(
+  ["US", "USA", "LLC", "PLLC", "LLP", "LP", "PC", "PA", "PLC", "DDS", "DMD", "MD", "DO", "DVM", "OD", "DC", "DPM", "NP", "II", "III", "IV",
+    "MacArthur", "MacDonald", "MacGregor", "MacLeod", "MacMillan", "MacNeil", "MacPherson"].map(word => [word.toUpperCase(), word]),
+);
+const SMALL_WORDS = new Set(["of", "and", "the", "for"]);
+// Read-time only: a name typed in all capitals reads in title case.
+function titleCase(name) {
+  if (/\p{Ll}/u.test(name)) return name;
+  return name.replace(/\p{L}+(?:['’]\p{L}+)*/gu, (word, at) => {
+    const spelled = SPELLINGS.get(word);
+    if (spelled) return spelled;
+    const lower = word.toLowerCase();
+    if (at > 0 && SMALL_WORDS.has(lower)) return lower;
+    // MCDONALD reads McDonald, O'NEIL reads O'Neil, SMITH'S reads Smith's.
+    return lower.replace(/^(mc)?(\p{L}(?:['’]\p{L})?)/u, (_, mc, head) => (mc ? "Mc" : "") + head.toUpperCase());
+  });
+}
+export function leadName(lead) {
   const named = leadNames(lead).map(cleanTitle).find(Boolean);
-  return named ? withoutRecordCodes(named) : `${lead.specialty || lead.vertical || "Practice"} ${lead.plan_type || "startup"}${lead.city ? ` in ${lead.city}` : ""}`;
+  return named ? titleCase(withoutRecordCodes(named)) : null;
+}
+export function leadTitle(lead) {
+  return leadName(lead) ?? `${lead.specialty || lead.vertical || "Practice"} ${lead.plan_type || "startup"}${lead.city ? ` in ${lead.city}` : ""}`;
 }
 export const leadMarket = lead => lead.market?.trim() || [lead.city, lead.state].filter(Boolean).join(", ");
 export const marketKey = lead => leadMarket(lead) || "Leads without a market";

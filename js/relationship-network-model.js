@@ -1,3 +1,5 @@
+import { dealName } from "./pipeline-model.js";
+
 export const NODE_LABELS = { vendor: "Vendor", client: "Client", lead: "Lead", deal: "Deal", contact: "Contact" };
 
 const NETWORK_SCHEMA = "carr-relationship-network.v1";
@@ -148,6 +150,51 @@ export function introductionSuggestions(
 }
 export function introductionRouteLabel(path) {
   return path.map(node => node.name).join(" → ");
+}
+// Old record codes, such as C-013, L-9001 or V-CPA-006, as whole words.
+const CODE = String.raw`(?:[CLP]|V-[A-Z]{2,4})-\d+`;
+const OLD_CODE = new RegExp(String.raw`(?<![\w-])${CODE}(?![\w-])`, "g");
+const CODE_ONLY = new RegExp(`^${CODE}$`);
+const CODE_TAG = new RegExp(String.raw`\s*\(${CODE}\)`, "g");
+// "Suite C-100", "Unit P-2" and "lot L-12" are places, not old records.
+const PLACE_BEFORE = /(?:\b(?:suite|ste|unit|lot|bldg|building|apt|space)\.?|#)\s*$/i;
+// The old system left a bracketed note, a bare website or a number where a name belongs.
+// Anything else, such as "Dr.Lee" or "Realtor.com", is a real name.
+const PLACEHOLDER = /^(?:\(([^()]*)\)|(?:https?:\/\/)?(?:[a-z0-9-]+\.)+(?:com|net|org|io|co|us|biz|info)\/?|\d+)$/;
+
+const baseName = node => {
+  const name = node.kind === "deal" ? dealName(node.name) : node.name.trim();
+  return name.replace(CODE_TAG, "").trim() || name;
+};
+const resolveCodes = (text, names) =>
+  text.replace(OLD_CODE, (code, at) => PLACE_BEFORE.test(text.slice(0, at)) ? code : names.get(code) ?? "an old record");
+
+function readableName(node, names) {
+  const name = baseName(node), kind = NODE_LABELS[node.kind];
+  if (CODE_ONLY.test(name)) {
+    const owner = names.get(name);
+    return owner ? { name: `${kind} at ${owner}` } : { name: "An old record", unnamed: true };
+  }
+  const placeholder = PLACEHOLDER.exec(name);
+  if (!placeholder) return { name: resolveCodes(name, names) };
+  return { name: `Unnamed ${kind.toLowerCase()} (${resolveCodes(placeholder[1] ?? name, names)})`, unnamed: true };
+}
+
+// The one place a network name is shaped: every name reads as a name, records without one
+// follow the named ones, and an old code reads as its record's name, else "an old record" (#1493).
+export function readableNetwork(network) {
+  const names = new Map(network.nodes.flatMap(node => {
+    const name = node.ref && baseName(node);
+    return name && !CODE_ONLY.test(name) && !PLACEHOLDER.test(name) ? [[node.ref, name]] : [];
+  }));
+  const text = value => value == null ? value : resolveCodes(value, names);
+  const nodes = network.nodes.map(node => ({ ...node, ...readableName(node, names) }));
+  return {
+    ...network,
+    nodes: [...nodes.filter(node => !node.unnamed), ...nodes.filter(node => node.unnamed)],
+    edges: network.edges.map(edge => ({ ...edge, summary: text(edge.summary), detail: text(edge.detail) })),
+    suggestions: network.suggestions.map(row => ({ ...row, reason: text(row.reason), detail: text(row.detail) })),
+  };
 }
 function compareIds(a, b) {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;

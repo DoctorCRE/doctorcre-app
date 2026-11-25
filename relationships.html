@@ -22,21 +22,37 @@
     <div id="appShell"></div><script type="module" src="/js/app-shell.js"></script>
     <a class="skip" href="#main">Skip to relationships</a>
     <section data-layout-slot="sidebar" class="relationship-filters">
-      <div id="networkKindFilter"></div>
       <label for="networkSearch">Find a relationship</label
       ><input
         id="networkSearch"
         type="search"
         maxlength="160"
         placeholder="Name or practice"
-      /><label for="networkTerritory">Territory</label
-      ><select id="networkTerritory">
-        <option value="">All territories</option></select
-      ><label for="networkVertical">Vertical</label
-      ><select id="networkVertical">
-        <option value="">All verticals</option></select
-      ><button type="button" id="networkReset">Clear filters</button
-      ><a href="/vendors">Vendors ↗</a><a href="/clients">Clients ↗</a>
+      /><details id="networkFilters" open>
+        <summary>Filter</summary>
+        <div>
+          <div id="networkKindFilter"></div>
+          <label for="networkTerritory">Territory</label
+          ><select id="networkTerritory">
+            <option value="">All territories</option></select
+          ><label for="networkVertical">Vertical</label
+          ><select id="networkVertical">
+            <option value="">All verticals</option></select
+          ><button type="button" id="networkReset">Clear filters</button
+          ><a href="/vendors">Vendors ↗</a><a href="/clients">Clients ↗</a>
+        </div>
+      </details>
+      <div data-layout-slot="status">
+        <time id="networkUpdated">Updating…</time
+        ><button
+          type="button"
+          id="networkRefresh"
+          data-layout-refresh
+          aria-label="Refresh relationships"
+        >
+          ↻
+        </button>
+      </div>
     </section>
     <div
       data-layout-slot="tabs"
@@ -61,17 +77,6 @@
         tabindex="-1"
       >
         Referrals
-      </button>
-    </div>
-    <div data-layout-slot="status">
-      <time id="networkUpdated">Updating…</time
-      ><button
-        type="button"
-        id="networkRefresh"
-        data-layout-refresh
-        aria-label="Refresh relationships"
-      >
-        ↻
       </button>
     </div>
     <main id="main" class="relationship-page">
@@ -111,6 +116,7 @@
         <section class="relationship-directory" data-relationship-surface>
           <h2 tabindex="-1">Directory <span id="networkCount"></span></h2>
           <div id="networkNodes"></div>
+          <button id="networkMoreNodes" type="button" hidden>Show more</button>
         </section>
       </section>
       <section

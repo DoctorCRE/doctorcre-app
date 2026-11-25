@@ -36,6 +36,8 @@ const view = {
   /** Chip lines a month day holds under its number, measured from the grid; "+N more" sits beside the number. */
   monthLines: 3,
   byDay: new Map(),
+  /** Every late step; each sits on its own due day and today counts them all in one chip. */
+  late: [],
   sequence: 0,
   refreshFailed: false,
 };
@@ -72,7 +74,7 @@ function chipHtml(entry, { withDeal, overflow, place }) {
   return `<li${overflow ? ' data-overflow="true"' : ""}${place ? ` data-place="${place}"` : ""}><button class="cal-chip" type="button" data-entry="${escapeHtml(entry.key)}" data-day="${escapeHtml(entry.day)}" data-kind="${entry.type}" data-band="${near.band}" aria-label="${escapeHtml(text)}" title="${escapeHtml(entryText(entry))}">`
     + `<span class="cal-mark" data-kind="${entry.type}" aria-hidden="true"></span>`
     + `<span class="cal-chip-label">${escapeHtml(entryText(entry))}</span>`
-    + (withDeal ? `<span class="cal-chip-deal">${escapeHtml(recordName(entry))}</span>` : "")
+    + (withDeal && recordName(entry) ? `<span class="cal-chip-deal">${escapeHtml(recordName(entry))}</span>` : "")
     + "</button></li>";
 }
 
@@ -83,11 +85,14 @@ const lateChipHtml = (day, count) => count ? `<li><button class="cal-chip" type=
   + `<span class="cal-mark" data-kind="late" aria-hidden="true"></span><span class="cal-chip-label">${count} late</span>`
   + "</button></li>" : "";
 
+/** A day's late group, which only today has, and its own items. */
+const dayRows = day => ({ late: day === view.today ? view.late : [], rows: view.byDay.get(day) || [] });
+
 const HOURS = Array.from({ length: 24 }, (_, hour) => `<li data-hour="${hour}"><span>${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}</span></li>`).join("");
 
 /** Day view: untimed items in a band over an hour-by-hour timeline, meetings placed by start and length. */
 function timelineHtml(day, rows) {
-  const timed = timelineBlocks(rows.filter(entry => !entry.days_late));
+  const timed = timelineBlocks(rows);
   const blocks = timed.map(({ entry, start, end, column, columns }) =>
     chipHtml(entry, { withDeal: true, place: [start, end, column, columns].join(" ") })).join("");
   const now = day === view.today ? `<div class="cal-now" aria-hidden="true"></div>` : "";
@@ -97,15 +102,15 @@ function timelineHtml(day, rows) {
 /** A month cell shows the chips that fit and "+N more"; the rest stay for the phone agenda. A week shows every chip; a day puts timed ones on its timeline. */
 function dayHtml(cell) {
   const state = view.state;
-  const rows = cell.inMonth ? view.byDay.get(cell.day) || [] : [];
+  const { late, rows } = cell.inMonth ? dayRows(cell.day) : { late: [], rows: [] };
   const shape = state.view;
-  const lateCount = rows.filter(entry => entry.days_late > 0).length;
-  const dated = rows.filter(entry => !entry.days_late && (shape !== "day" || !entry.at || entry.all_day));
+  const lateCount = late.length;
+  const dated = rows.filter(entry => shape !== "day" || !entry.at || entry.all_day);
   const room = view.monthLines - Number(Boolean(lateCount));
   const selected = (state.day || view.today) === cell.day && cell.inMonth;
   const isToday = cell.day === view.today;
   const readable = formatCalendarDate(cell.day);
-  const count = rows.length ? ` · ${itemCount(rows)}` : "";
+  const count = lateCount + rows.length ? ` · ${itemCount([...late, ...rows])}` : "";
   const chips = dated.map((entry, at) => chipHtml(entry, { withDeal: shape !== "month", overflow: shape === "month" && at >= room })).join("");
   const band = lateCount + dated.length ? `<ul class="cal-chips">${lateChipHtml(cell.day, lateCount)}${chips}</ul>` : "";
   return `<div class="cal-day" role="gridcell" data-day="${cell.day}" data-today="${isToday}" data-out-month="${!cell.inMonth}" data-empty="${!rows.length}" aria-selected="${selected}">`
@@ -121,10 +126,11 @@ function dayHtml(cell) {
 const placeNow = () => $("calGrid").querySelector(".cal-now")?.style.setProperty("--at", String(centralMinutes(Date.now())));
 
 /**
- * Places each meeting and the now-line, then scrolls: a day opens at 7 AM, or
- * two hours before now when now would be off screen; a repaint of the same day
- * keeps its scroll unless the timeline changed height. Positions go through CSSOM because the Worker's CSP refuses
- * a `style` attribute in markup.
+ * Places each meeting and the now-line, ends each meeting's name on its last
+ * whole line, then scrolls: a day opens at 7 AM, or two hours before now when
+ * now would be off screen; a repaint of the same day keeps its scroll unless the
+ * timeline changed height. Positions go through CSSOM because the Worker's CSP
+ * refuses a `style` attribute in markup.
  */
 function placeTimeline(grid, kept) {
   const timeline = grid.querySelector(".cal-timeline");
@@ -133,6 +139,12 @@ function placeTimeline(grid, kept) {
     const [start, end, column, columns] = block.dataset.place.split(" ");
     Object.entries({ start, end, col: column, cols: columns }).forEach(([name, value]) => block.style.setProperty(`--${name}`, value));
   }
+  const fits = [...timeline.querySelectorAll(".cal-blocks .cal-chip-label")].map(label => {
+    const chip = getComputedStyle(label.parentElement);
+    const room = label.parentElement.clientHeight - Number.parseFloat(chip.paddingTop) - Number.parseFloat(chip.paddingBottom);
+    return [label, Math.max(1, Math.floor(room / Number.parseFloat(getComputedStyle(label).lineHeight)))];
+  });
+  fits.forEach(([label, lines]) => label.style.setProperty("--lines", String(lines)));
   placeNow();
   if (kept?.height === timeline.clientHeight) { timeline.scrollTop = kept.top; return; }
   const perMinute = timeline.querySelector(".cal-hours").offsetHeight / (24 * 60);
@@ -237,7 +249,7 @@ function dayList(rows) {
     const byline = [ownerNames(entry), entryTime(entry) && `<time datetime="${escapeHtml(entry.at)}">${escapeHtml(entryTime(entry))}</time>`]
       .filter(Boolean).map(part => ` · ${part}`).join("");
     const record = recordLinks(entry);
-    const late = entry.days_late ? `<span class="cal-late">${entry.days_late} ${entry.days_late === 1 ? "day" : "days"} late · Due ${shortDay(entry.due_on, view.today)}</span>` : "";
+    const late = entry.days_late ? `<span class="cal-late">${entry.days_late} ${entry.days_late === 1 ? "day" : "days"} late · Due ${shortDay(entry.day, view.today)}</span>` : "";
     return `<li class="cal-day-entry" data-focus="${entry.key === view.focusEntry}">
       <small><span class="cal-pulse" data-pulse="${near.pulse}" aria-hidden="true"></span> ${typeLabel(entry)}${byline}</small>
       <h3>${escapeHtml(entry.label)}</h3>
@@ -257,15 +269,13 @@ function paintDayPanel(day) {
       `<li><b>${escapeHtml(entry.label)}</b> · ${recordLinks(entry)} · Date unavailable</li>`).join("")}</ul>`;
     return;
   }
-  const rows = view.byDay.get(day) || [];
+  const { late, rows } = dayRows(day);
   if (phase === "unauthorized" || phase === "unavailable") {
     body.textContent = "Calendar temporarily unavailable.";
-  } else if (rows.length) {
-    const late = rows.filter(entry => entry.days_late > 0);
-    const dated = rows.filter(entry => !entry.days_late);
+  } else if (late.length || rows.length) {
     body.innerHTML = (phase === "partial" ? "<p>This day may be incomplete. Refresh to try again.</p>" : "") + (late.length
       ? `<section class="cal-day-late" aria-labelledby="calLateTitle"><h3 id="calLateTitle">Late</h3>${dayList(late)}</section>`
-      : "") + (dated.length ? dayList(dated) : "");
+      : "") + (rows.length ? dayList(rows) : "");
   } else {
     body.textContent = phase === "loading" || phase === "reading" ? "Reading Calendar…"
       : !day ? "Select a day to see its items."
@@ -273,8 +283,11 @@ function paintDayPanel(day) {
   }
 }
 
+const COMING_UP_DAYS = 14;
+
 function paintComingUp() {
-  const dates = [...view.byDay.keys()].filter(date => date > view.today).sort().slice(0, 5);
+  const last = addDays(view.today, COMING_UP_DAYS);
+  const dates = [...view.byDay.keys()].filter(date => date > view.today && date <= last).sort().slice(0, 5);
   $("calComing").hidden = dates.length === 0;
   $("calAgenda").innerHTML = dates.map(date => {
     const items = view.byDay.get(date).map(entry => `<span class="cal-agenda-detail">
@@ -338,10 +351,16 @@ function render() {
   const focused = focusAddress(document.activeElement);
   const phase = calendarPhase(view.result);
   const layout = calendarLayout(view.state);
-  view.byDay = ["ready", "partial", "reading", "empty"].includes(phase)
-    ? entriesByDay([...(view.result.entries || []), ...view.meetings.entries]) : new Map();
+  const shown = ["ready", "partial", "reading", "empty"].includes(phase);
+  view.byDay = shown ? entriesByDay([...(view.result.entries || []), ...view.meetings.entries]) : new Map();
+  view.late = shown ? (view.result.entries || []).filter(entry => entry.days_late > 0) : [];
   paintNotices(phase);
-  const periodRows = layout.days.flatMap(cell => cell.inMonth ? view.byDay.get(cell.day) || [] : []);
+  // A late step due before the period still counts once while today's chip shows it.
+  const periodRows = [...new Set(layout.days.flatMap(cell => {
+    if (!cell.inMonth) return [];
+    const { late, rows } = dayRows(cell.day);
+    return [...late, ...rows];
+  }))];
   const count = $("calCount");
   const total = ["ready", "partial", "empty"].includes(phase) ? itemCount(periodRows) : "";
   if (count.textContent !== total) count.textContent = total;
@@ -388,9 +407,9 @@ const inPeriod = day => settleOpenDay({ ...view.state, day }).day === day;
 
 function announceDay(day) {
   if (day === UNDATED) { announce(`${undatedText(view.result.undated?.length ?? 0)}.`); return; }
-  const rows = view.byDay.get(day) || [];
+  const { late, rows } = dayRows(day);
   const incomplete = calendarPhase(view.result) === "partial" ? " This day may be incomplete." : "";
-  announce(`${formatCalendarDate(day)}: ${itemCount(rows)}.${incomplete}`);
+  announce(`${formatCalendarDate(day)}: ${itemCount([...late, ...rows])}.${incomplete}`);
 }
 
 /** Every control that opens a day comes here. Opening replaces history unless the period moves. */

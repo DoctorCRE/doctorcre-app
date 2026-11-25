@@ -181,22 +181,18 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           });
           await expect(step).toContainText("Next step · Joe");
           await expect(step).toContainText("3 days late");
-          await t.test("late steps appear before today's dates and stay off the original due day", async () => {
+          await t.test("late steps appear before today's dates and also on their own due day", async () => {
             const late = panel.getByRole("region", { name: "Late" });
             await expect(late.getByRole("heading", { name: stepTitle })).toBeVisible();
             await expect(late.getByRole("heading", { name: "Confirm parking" })).toBeVisible();
             await expect(late.getByText(/1 day late/)).toBeVisible();
             await expect(late.getByText("LOI expiry")).toHaveCount(0);
             assert.equal(await panel.getByRole("heading").first().textContent(), "Late");
-            const dueDay = page.locator('[data-select-day="2026-10-17"]');
             await page.keyboard.press("Escape");
-            if (width === 390) await expect(dueDay, "the phone agenda leaves the empty due day out").toBeHidden();
-            else {
-              await dueDay.click();
-              await expect(late).toHaveCount(0);
-              await expect(panel.getByText(stepTitle)).toHaveCount(0);
-              await page.keyboard.press("Escape");
-            }
+            await page.locator('[data-select-day="2026-10-17"]').click();
+            await expect(late).toHaveCount(0);
+            await expect(panel.getByRole("heading", { name: stepTitle })).toBeVisible();
+            await page.keyboard.press("Escape");
             const lateChip = page.getByRole("button", { name: "2 late steps", exact: true });
             await expect(lateChip).toHaveCount(1);
             await expect(lateChip).toBeVisible();
@@ -219,7 +215,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await expect(total).toBeVisible();
             await expect(total).toHaveAttribute("aria-live", "polite");
           });
-          await expect(page.locator("#calGrid .cal-chip")).toHaveCount(7);
+          await expect(page.locator("#calGrid .cal-chip")).toHaveCount(9);
           if (width === 1440) {
             const chip = page.getByRole("button", { name: new RegExp(upcomingTitle) }).locator(".cal-chip-label");
             await expect(chip).toBeVisible();
@@ -282,7 +278,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           await week.click();
           await expect(week).toHaveAttribute("aria-pressed", "true");
           await expect(page.locator("#calCount")).toHaveText("4 next steps · 1 critical date");
-          await expect(page.locator("#calGrid .cal-chip")).toHaveCount(4);
+          await expect(page.locator("#calGrid .cal-chip")).toHaveCount(5);
           const lateChip = page.getByRole("button", { name: "2 late steps", exact: true });
           await expect(lateChip).toBeVisible();
           await expect(lateChip).toHaveCount(1);

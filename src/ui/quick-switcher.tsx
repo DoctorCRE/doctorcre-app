@@ -27,6 +27,10 @@ const recordPages: Record<string, (id: string) => string> = {
   vendor: (id) => `/vendors?record=${encodeURIComponent(id)}`,
 };
 const resultCount = (count: number) => `${count} ${count === 1 ? "result" : "results"}`;
+const nameKey = (name: string) => name.trim().toLocaleLowerCase();
+const taskLabel = (what: string, record: unknown) =>
+  text(record) && nameKey(record) !== nameKey(what) ? `${what} · ${record}` : what;
+const roleLabels: Record<string, string> = { vendor: "Vendor", client: "Client", lead: "Lead", contact: "Contact" };
 
 function boardDestinations(board: unknown): Destination[] {
   if (!record(board) || !Array.isArray(board.deals)) throw Error("Invalid board");
@@ -57,7 +61,7 @@ function boardDestinations(board: unknown): Destination[] {
         if (record(action) && text(action.item_id) && text(action.description))
           result.push({
             id: `task:${action.item_id}`,
-            label: `${action.description} · ${deal.name}`,
+            label: taskLabel(action.description, deal.name),
             kind: "Task",
             href: recordRoutes.card(action.item_id),
           });
@@ -68,7 +72,7 @@ function boardDestinations(board: unknown): Destination[] {
 
 function contactDestinations(network: unknown): Destination[] {
   if (!record(network) || !Array.isArray(network.nodes)) throw Error("Invalid contacts");
-  const result: Destination[] = [];
+  const contacts: { id: string; name: string; detail: string; href: string }[] = [];
   for (const node of network.nodes) {
     if (
       !record(node) ||
@@ -79,14 +83,21 @@ function contactDestinations(network: unknown): Destination[] {
       throw Error("Invalid contact");
     if (node.kind === "deal" || node.contact_state === "retired") continue;
     const page = recordPages[String(node.kind)];
-    result.push({
+    contacts.push({
       id: node.id,
-      label: node.name,
-      kind: "Contact",
+      name: node.name,
+      detail: [roleLabels[String(node.kind)], node.territory].filter(text).join(", "),
       href: page && text(node.record_id) ? page(node.record_id) : `/relationships?node=${encodeURIComponent(node.id)}`,
     });
   }
-  return result;
+  const named = new Map<string, number>();
+  for (const { name } of contacts) named.set(nameKey(name), (named.get(nameKey(name)) ?? 0) + 1);
+  // Ruling 35(6): people who share a name say which one they are.
+  return contacts.map(({ name, detail, ...contact }) => ({
+    ...contact,
+    kind: "Contact",
+    label: (named.get(nameKey(name)) ?? 0) > 1 ? `${name} · ${detail}` : name,
+  }));
 }
 
 function admittedSection(parse: () => Destination[]): Destination[] | null {
@@ -97,7 +108,7 @@ function admittedSection(parse: () => Destination[]): Destination[] | null {
   }
 }
 
-function destinations({
+export function destinations({
   board,
   network,
   inbox,
@@ -116,7 +127,7 @@ function destinations({
       .filter((item) => item.source_type === "next_action" || item.source_type === "capture_post_call_action")
       .map((item) => ({
         id: `task:${item.item_id}`,
-        label: item.context_label ? `${item.title} · ${item.context_label}` : item.title,
+        label: taskLabel(item.title, item.context_label),
         kind: "Task" as const,
         href: recordRoutes.card(item.item_id),
       }));

@@ -663,7 +663,6 @@ const VENDOR_SECTIONS = [
   ] },
   { title: "Working together", fields: [
     ["referral_active", "Sending referrals"],
-    ["is_target", "Target"],
     ["last_touch", "Last touch"],
     ["offers", "What they offer"], ["seeking", "What they are looking for"],
     ["rivalry_group", "Competes with"], ["originated", "Where we met"],
@@ -689,12 +688,15 @@ const HOW_FOUND = new Map([
   ["old_system", "Old system"], ["agent", "Assistant"],
 ]);
 
+const CONTACT_STATES = new Map([
+  ["active", "Active"], ["nurture", "Nurture"], ["paused", "Paused"], ["do_not_contact", "Do not contact"],
+]);
+
 function clientField(key, value) {
   if (typeof value !== "string") return value;
   if (key === "acquisition_source") return HOW_FOUND.get(value.trim().toLowerCase()) ?? value;
   if (key === "acquisition_detail" && /^Existing active Salesforce opportunity imported; original acquisition source unavailable\.?$/i.test(value.trim()))
     return "Imported from Salesforce. Original source not recorded.";
-  if (key === "contact_state" && value === "do_not_contact") return "Do not contact";
   if (key === "phone" || key === "cell") {
     const parts = /^(?:\+?1[ .-]?)?(?:\(([2-9]\d{2})\)|([2-9]\d{2}))[ .-]?([2-9]\d{2})[ .-]?(\d{4})( x\d+)?$/.exec(value);
     if (parts) return `(${parts[1] || parts[2]}) ${parts[3]}-${parts[4]}${parts[5] || ""}`;
@@ -712,7 +714,8 @@ export function recordSections(dataset, record) {
   return groups.map((group) => ({
     title: group.title,
     fields: group.fields.map(([key, label, labelKey]) => {
-      const value = dataset === "clients" ? clientField(key, record?.[key]) : record?.[key];
+      const value = key === "contact_state" ? CONTACT_STATES.get(record?.[key]) ?? record?.[key]
+        : dataset === "clients" ? clientField(key, record?.[key]) : record?.[key];
       const presented = labelKey ? recordedCode(value, record?.[labelKey]) : recordedValue(value);
       return {
         key, label, text: presented.text, known: presented.known,

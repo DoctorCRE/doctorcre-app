@@ -131,7 +131,8 @@ body.record-open { overflow: hidden; }
 .panel-close:hover { background: var(--surface-2); color: var(--fg); }
 .record-panel-body { display: grid; gap: var(--space-5); }
 .vendor-contacts { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
-.vendor-contacts > li { padding-block: var(--space-3); border-bottom: var(--hairline-width) solid var(--hairline); }
+.vendor-contacts > li { padding-block: var(--space-3); }
+.vendor-contacts > li + li { border-top: var(--hairline-width) solid var(--hairline); }
 .vendor-contacts h4 { margin: 0 0 var(--space-1); font-size: var(--font-size-2); }
 .vendor-contacts dd, .vendor-contacts .observed { overflow-wrap: anywhere; }
 .record-tone { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
@@ -347,8 +348,9 @@ dialog.party-editor::backdrop { background: var(--scrim); }
   #applyFilters { display: none; }
   /* Each Clients filter shows its value in the toolbar, and Clear undoes them all. */
   body[data-directory="clients"] #chipBar { display: none; }
-  /* Each select keeps its whole choice; the territory box takes what is left. */
+  /* Each select is as wide as its current choice; the territory box takes what is left. */
   body[data-directory="vendors"] .filter-form .field:has(> select) { flex: none; }
+  body[data-directory="vendors"] .filter-form select { field-sizing: content; }
 }
 body[data-directory="clients"] #applyFilters { display: none; }
 /* The count and owner chips sit in the top bar beside the page title. */

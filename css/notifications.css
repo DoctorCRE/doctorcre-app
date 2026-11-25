@@ -1,48 +1,97 @@
-/* Updates (notifications): page layer over css/system.css, on css/tokens.css.
+/* Updates (notifications) and Settings: page layer over css/system.css, on css/tokens.css.
  *
- *  1. One column of notification cards. Severity and clock share the first
- *     row, the reason is the sentence a person reads, and the acknowledge
- *     button is full width with a 44px floor.
- *  2. Severity rides on a word plus a border style (action required: solid;
+ *  1. Updates fits one screen on a computer: the feed and Who did what sit
+ *     side by side and each list scrolls inside itself. On a phone they stack
+ *     and the page scrolls.
+ *  2. Every notification and change is one compact row: a title line that
+ *     opens the row, one line of detail, and the row's own actions. Delivery,
+ *     quiet hours and Details stay folded until the row is opened.
+ *  3. Severity rides on a word plus a border style (action required: solid;
  *     failure: double), so it never rests on hue alone.
- *  3. Quiet hours are a state, not an error: a moon glyph and the warn role
+ *  4. Quiet hours are a state, not an error: a moon glyph and the warn role
  *     mark the quiet-now banner and each held row. A held row is marked,
- *     never hidden. When quiet hours are off, the form says so in one line.
- *  4. Accountable activity is not a notification: its panel is dashed and
- *     quieter, and sits under the feed.
+ *     never hidden.
  */
 
-.hero { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
-.hero-card { display: grid; gap: var(--space-3); }
-
-.headline { margin: 0; font: var(--font-weight-strong) var(--font-size-3)/var(--line-height-heading) var(--font-text); font-variant-numeric: tabular-nums; }
 .caption { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); line-height: var(--line-height-body); }
 .mono { font-family: var(--font-mono); overflow-wrap: anywhere; }
-
-.chip-bar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-.chip { min-height: var(--touch); overflow-wrap: anywhere; }
 .btn { min-height: var(--touch); }
+.as-of { white-space: nowrap; }
+.as-of:empty { display: none; }
+.title-count { color: var(--fg-muted); font-weight: var(--font-weight-regular); font-variant-numeric: tabular-nums; }
+.title-count:not(:empty)::before { content: "· "; }
 
-.headline:empty, .as-of:empty { display: none; }
+/* ------------------------------------------------------------- the panels */
+.updates-shell { display: grid; gap: var(--space-4); align-content: start; }
+.updates-panel { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.panel-head { display: flex; align-items: center; gap: var(--space-2); min-height: 32px; }
+.panel-head h2 { margin: 0 auto 0 0; color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1)/1.2 var(--font-text); }
+.panel-head .btn { min-height: 32px; padding: var(--space-1) var(--space-3); }
+.row-act .btn { min-height: 28px; padding: 2px var(--space-3); }
+.panel-more { display: flex; align-items: center; gap: var(--space-2); }
+.panel-more:not(:has(.btn:not([hidden]), .caption:not(:empty))) { display: none; }
 
-/* --------------------------------------------------------------- the feed */
-#feedBlock .card-heading { flex-wrap: wrap; }
-#feedList { grid-template-columns: minmax(0, 1fr); }
-#feedList .work-item { grid-template-columns: minmax(0, 1fr); background: var(--surface-2); border-color: var(--hairline); }
-#feedList .work-item[data-priority="overdue"] { border-left-color: var(--status-danger); border-left-style: double; border-left-width: 4px; }
-#feedList .work-item[data-priority="deadline"] { border-left-color: var(--status-warn); }
-.note-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
-.note-reason { margin: var(--space-2) 0 0; font: var(--font-weight-strong) var(--font-size-2)/1.3 var(--font-text); overflow-wrap: anywhere; }
-.note-subject { margin: var(--space-1) 0 0; color: var(--fg-muted); font-size: var(--font-size-1); overflow-wrap: anywhere; }
-.note-delivery { display: grid; gap: var(--space-1); margin: var(--space-2) 0 0; padding: 0; list-style: none; color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
-.note-link { margin: var(--space-2) 0 0; color: var(--fg-muted); font-size: var(--font-size-1); overflow-wrap: anywhere; }
-.note-act { margin-top: var(--space-3); }
-.note-act .btn { width: 100%; }
+/* ---------------------------------------------------------------- the rows */
+.update-list { margin: 0; padding: 0; list-style: none; border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-3); background: var(--surface-1); }
+.update-list:empty { display: none; }
+.update-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "title title meta" "chip detail act" "more more more"; align-items: center; gap: 2px var(--space-2); padding: 6px var(--space-3); border-left: 3px solid transparent; cursor: pointer; }
+.update-row + .update-row { border-top: var(--hairline-width) solid var(--hairline); }
+.update-row:not([data-row]) { cursor: default; }
+#feedList .update-row[data-priority="overdue"] { border-left: 4px double var(--status-danger); }
+#feedList .update-row[data-priority="deadline"] { border-left-color: var(--status-warn); }
+#feedList .update-row:not([data-unread]) { border-left-color: transparent; }
+@media (hover: hover) { .update-row[data-row]:hover { background: var(--surface-2); } }
 
-.severity-chip { display: inline-flex; align-items: center; min-height: 28px; padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-round); background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
+.row-title { grid-area: title; min-width: 0; margin: 0; font: var(--font-weight-regular) var(--font-size-2)/1.3 var(--font-text); }
+[data-unread] .row-title { font-weight: var(--font-weight-strong); }
+.row-toggle { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.row-toggle:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-1); }
+.row-meta { grid-area: meta; display: flex; align-items: center; gap: var(--space-2); color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.update-row > .severity-chip { grid-area: chip; }
+.note-subject { grid-area: detail; min-width: 0; margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.row-act { grid-area: act; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); }
+.update-row:not(:has(> .severity-chip)) .note-subject { grid-column: 1 / 3; }
+.note-link { color: var(--fg-muted); font-size: var(--font-size-1); overflow-wrap: anywhere; }
+.row-more { grid-area: more; display: grid; gap: var(--space-1); padding-top: var(--space-1); cursor: auto; }
+.row-more > * { margin: 0; }
+.update-row[data-open] .row-toggle, .update-row[data-open] .note-subject { white-space: normal; overflow-wrap: anywhere; }
+/* A change reads "record · action"; the action wraps to a second line instead of being cut. */
+#activityList .row-title { display: flex; align-items: baseline; }
+.row-lead { flex: 0 1 auto; max-width: 50%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.row-sep { flex: none; white-space: pre; }
+#activityList .row-toggle { flex: 1 1 0; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; }
+#activityList [data-open] .row-toggle { -webkit-line-clamp: none; }
+.fold-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; font-size: var(--font-size-1); }
+.fold-list > li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--space-2); }
+.fold-list .row-clock { color: var(--fg-quiet); font-variant-numeric: tabular-nums; }
+
+/* An empty list is one quiet line, never a card. */
+.update-list:has(> .empty-row) { border: 0; background: none; }
+.empty-row { padding: 0; }
+#feedState[data-state="empty"] { padding: 0; border: 0; background: none; }
+:is(#feedState[data-state="empty"], .empty-row) h3 { color: var(--fg-muted); font: var(--font-weight-regular) var(--font-size-2)/1.4 var(--font-text); }
+.note-delivery { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
+
+.severity-chip { display: inline-flex; align-items: center; padding: 0 var(--space-2); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-round); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); line-height: 1.5; white-space: nowrap; }
 .severity-chip[data-severity="action_required"] { border-color: var(--status-warn); color: var(--status-warn-ink); }
 .severity-chip[data-severity="failure"] { border: 3px double var(--status-danger); color: var(--status-danger-ink); }
 .read-mark { color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
+
+/* On a computer each list scrolls inside itself and the page never does. */
+@media (min-width: 761px) and (hover: hover), (min-width: 1024px) {
+  .has-app-layout .updates-shell { grid-template-columns: minmax(0, 1fr) minmax(260px, 36%); height: 100%; min-height: 0; }
+  .has-app-layout .updates-shell:has(> #activityBlock[hidden]) { grid-template-columns: minmax(0, 1fr); }
+  .has-app-layout .updates-panel { min-height: 0; }
+  .has-app-layout .update-list { flex: 0 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+}
+
+@media (max-width: 760px) {
+  .update-row { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "title title meta" "chip detail detail" "act act act" "more more more"; }
+  .row-act:empty { display: none; }
+  .panel-head .btn, .row-act .btn, .note-link a, .fold-list a { display: inline-flex; align-items: center; min-height: var(--touch); }
+  .row-lead { line-height: var(--touch); }
+  #feedList .row-toggle { white-space: normal; overflow-wrap: anywhere; }
+}
 
 /* ------------------------------------------------------------------ states
    The shared .state-block draws the frame; this page adds the second line
@@ -51,14 +100,11 @@
 .state-hint { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 .state-hint:empty { display: none; }
 
-[data-section="activity"] { border-style: dashed; background: transparent; }
-[data-section="activity"] .work-item { border-left-width: var(--hairline-width); background: transparent; color: var(--fg-muted); }
 
 /* ------------------------------------------------------------- quiet hours */
 .quiet-banner, .quiet-mark { display: flex; align-items: center; gap: var(--space-2); color: var(--status-warn-ink); font-size: var(--font-size-1); line-height: 1.45; overflow-wrap: anywhere; }
 .quiet-banner::before, .quiet-mark::before { content: "\263E"; flex: none; font-size: var(--font-size-2); line-height: 1; }
 .quiet-banner { margin: 0; padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--status-warn); border-left-width: 3px; border-radius: var(--radius-2); background: var(--surface-2); }
-.quiet-mark { display: inline-flex; margin-top: var(--space-2); padding: 2px var(--space-3); border: var(--hairline-width) dashed var(--status-warn); border-radius: var(--radius-round); font-weight: var(--font-weight-strong); }
 
 .pref-form { display: grid; gap: var(--space-3); margin-top: var(--space-3); scroll-margin-top: 80px; }
 .pref-grid { display: grid; gap: var(--space-3); grid-template-columns: minmax(0, 1fr); }
@@ -84,14 +130,6 @@
   .pref-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@media (max-width: 640px) {
-  .note-link a { display: inline-flex; align-items: center; min-height: var(--touch); }
-}
-
-@media (max-width: 480px) {
-  .hero { flex-direction: column; align-items: stretch; }
-  .note-top { flex-direction: column; align-items: flex-start; }
-}
 
 /* Details: collapsed by default, a 44px summary that
  * brightens on hover and focus. Opening is a state change, so the contents
@@ -107,8 +145,8 @@
 
 /* ------------------------------------------------------------ Color Assist */
 :root[data-color-assist="on"] .severity-chip[data-severity="action_required"] { border-style: dashed; }
-:root[data-color-assist="on"] #feedList .work-item[data-priority="overdue"] { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--status-danger) 14%, transparent) 0 2px, transparent 2px 7px); }
-:root[data-color-assist="on"] #feedList .work-item[data-priority="deadline"] { border-left-style: dashed; }
+:root[data-color-assist="on"] #feedList .update-row[data-priority="overdue"] { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--status-danger) 14%, transparent) 0 2px, transparent 2px 7px); }
+:root[data-color-assist="on"] #feedList .update-row[data-priority="deadline"] { border-left-style: dashed; }
 :root[data-color-assist="on"] .quiet-banner { border-style: dashed; }
 
 @keyframes details-reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }

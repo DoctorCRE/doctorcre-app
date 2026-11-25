@@ -425,24 +425,22 @@ function vendorContactDate(contactedAt) {
 
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
 function vendorContactsHtml(record) {
-  const statuses = { not_researched: 'Not researched', needs_review: 'Needs review', office_verified: 'Office verified' };
-  const contacts = (record.people || []).map(({ company, contact, office, research }) => `
+  const contacts = (record.people || []).map(({ company, contact, office }) => `
     <li>
       <h4>${escapeHtml(withoutRecordCodes(contact.name))}</h4>
       ${company ? `<p class="note-summary">${escapeHtml(withoutRecordCodes(company.name))}</p>` : ''}
       <dl>
         ${vendorField('Email', contact.email)}
-        ${vendorField('Phone', [contact.phone, contact.cell].filter(Boolean).map(phoneLabel).join(' · '))}
+        ${vendorField('Phone', contact.phone && phoneLabel(contact.phone))}
+        ${vendorField('Mobile', contact.cell && phoneLabel(contact.cell))}
         ${vendorField('Office', office && `${office.street_address}, ${office.city}, ${office.state}`)}
-        <div class="record-field"><dt>Office research</dt><dd>${escapeHtml(statuses[research.status])}</dd></div>
       </dl>
       ${office ? `<p class="observed">${escapeHtml(office.source)} · ${escapeHtml(formatMoment(office.observed_at))}${office.expires_on ? ` · Expires ${escapeHtml(office.expires_on)}` : ''}</p>` : ''}
     </li>`).join('');
-  if (!contacts && !record.territory) return "";
+  if (!contacts) return "";
   return `<section class="record-section" aria-label="Vendor contacts">
     <h3>Contacts & offices</h3>
-    ${record.territory ? `<dl>${vendorField("Territory", record.territory)}</dl>` : ""}
-    ${contacts ? `<ul class="vendor-contacts">${contacts}</ul>` : ''}
+    <ul class="vendor-contacts">${contacts}</ul>
   </section>`;
 }
 
@@ -460,9 +458,9 @@ function relationshipHtml(record) {
     ['Last contacted', stats.last_contacted_at && formatMoment(stats.last_contacted_at)],
   ].filter(([, value]) => value != null && value !== 0);
   const contactNote = shortNote(vendorNote(stats.last_contact_note));
-  return `<section class="record-section relationship-section" aria-label="Partnership">
+  return `${metrics.length || contactNote ? `<section class="record-section relationship-section" aria-label="Partnership">
     ${metrics.length ? `<div class="relationship-metrics">${metrics.map(([label, value]) => `<div class="relationship-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`).join('')}</div>` : ''}
-    ${contactNote ? `<p class="note-summary">${escapeHtml(contactNote)}</p>` : ''}</section>${record.offers || record.loan_programs?.length ? `<section class="record-section"><h3>Services & products</h3>${record.offers ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(record.offers)))}</p>` : ""}${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(record.offers))}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section>` : ''}${intro.length ? `<section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>` : ''}${stats.recent_entries?.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...stats.recent_entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li>${vendorNote(entry.summary) ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(entry.summary)))}</p>` : ''}${entry.when ? `<time>${escapeHtml(formatMoment(entry.when))}</time>` : ''}${vendorNote(entry.detail) ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(entry.detail))}</p></details>` : ''}</li>`).join('')}</ol></section>` : ''}`;
+    ${contactNote ? `<p class="note-summary">${escapeHtml(contactNote)}</p>` : ''}</section>` : ''}${record.offers || record.loan_programs?.length ? `<section class="record-section"><h3>Services & products</h3>${record.offers ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(record.offers)))}</p>` : ""}${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(record.offers))}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section>` : ''}${intro.length ? `<section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>` : ''}${stats.recent_entries?.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...stats.recent_entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li>${vendorNote(entry.summary) ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(entry.summary)))}</p>` : ''}${entry.when ? `<time>${escapeHtml(formatMoment(entry.when))}</time>` : ''}${vendorNote(entry.detail) ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(entry.detail))}</p></details>` : ''}</li>`).join('')}</ol></section>` : ''}`;
 }
 function capturePanelState() {
   const id = dom.panelBody.dataset.recordId;
@@ -731,6 +729,8 @@ function renderRecordPanel() {
     : "";
   const hiddenFields = ['ETL status', 'What this status means', 'Version', 'What this level means', 'Vendor reference', 'Client reference', 'What they offer', 'Last touch'];
   if (vendor) hiddenFields.push('Relationship level', 'Workable');
+  // A person vendor's only listed contact is themself, shown under Contacts & offices with their own phone and email.
+  if (vendor && payload.record.party_kind === 'person' && payload.record.people?.length) hiddenFields.push('Phone', 'Mobile', 'Email');
   const sections = recordSections(dataset, payload.record)
     .filter(section => !["About this record", "Status on the record", "What they offer and need", "Introduction notes", "Record", "Recorded state"].includes(section.title))
     .map(section => {
@@ -786,6 +786,15 @@ function activityHtml(recordId) {
   return `<section class="record-section" id="recordActivity" tabindex="-1" aria-labelledby="recordActivityTitle" aria-live="polite"><h3 id="recordActivityTitle">Recent activity</h3>${body}</section>`;
 }
 
+/** Arriving activity replaces only its own section, so the note a partner is reading or clicking stays put. */
+function paintActivity(id) {
+  const section = dom.panelBody?.querySelector("#recordActivity");
+  if (!section) return;
+  capturePanelState();
+  section.outerHTML = activityHtml(id);
+  restorePanelState();
+}
+
 /**
  * One activity read per opened record. The answer paints only while the same
  * record is still open and no newer read has started.
@@ -803,7 +812,7 @@ async function loadActivity(id, record) {
     view.activity.result = result;
     if(['ready','empty'].includes(result.state))pageDocContext?.finish(docTicket,{record,activities:result.rows.map(({what, when}) => ({what, when}))});
     else if (docTicket)pageDocContext?.fail(docTicket);
-    renderRecordPanel();
+    paintActivity(id);
     if (activityHadFocus) focusWithoutScrolling(dom.panelBody?.querySelector("[data-retry='activity']") || dom.panelBody?.querySelector("#recordActivity"));
   };
   if (!request) return settle({ state: "no_ref" });

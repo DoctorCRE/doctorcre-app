@@ -15,7 +15,7 @@ import {
   FEED_STATES, NO_PAGE_SENTENCE, PREFERENCE_OPERATION_KEY,
   PREFERENCE_REFUSALS, QUIET_NOW_BANNER,
   QUIET_SUPPRESSED_MARK, SEVERITIES, SEVERITY_LABELS, TIME_REFUSAL,
-  acknowledgeArgs, acknowledgeOperationKey, activityRows, preferenceTimeLabel, classifyPreferenceFailure,
+  acknowledgeArgs, acknowledgeOperationKey, activityRows, foldChanges, preferenceTimeLabel, classifyPreferenceFailure,
   classifyPreferenceReadFailure, classifyReadFailure, changeRows, parseChangesPage, deepLinkView, deliveryPhrases, feedState,
   notificationCards, preferenceState, preferenceSummary,
   preferenceView, quietNowBanner, setPreferenceArgs, toInputTime, unreadLine,
@@ -51,17 +51,17 @@ test("clause 1: the unread count is printed from the payload and never recompute
   assert.equal(validFeedPayload(feed), true);
   assert.equal(feed.unread_count, 5);
   assert.equal(feed.notifications.length, 6, "the fixture holds a read row too");
-  assert.equal(unreadLine(feed), "5 unread notifications");
+  assert.equal(unreadLine(feed), "5 unread");
 
   // The count and the visible rows are DIFFERENT numbers, and the line follows
   // the count. A capped list is the ordinary case, not an edge one.
   const capped = await client.notificationFeed({ limit: 2 });
   assert.equal(capped.notifications.length, 2);
   assert.equal(capped.unread_count, 5, "the fixture recomputed the count from the page");
-  assert.equal(unreadLine(capped), "5 unread notifications");
+  assert.equal(unreadLine(capped), "5 unread");
 
-  assert.equal(unreadLine({ ok: true, unread_count: 0, notifications: [] }), "Nothing unread");
-  assert.equal(unreadLine({ ok: true, unread_count: 1, notifications: [] }), "1 unread notification");
+  assert.equal(unreadLine({ ok: true, unread_count: 0, notifications: [] }), "", "the title has no count at zero");
+  assert.equal(unreadLine({ ok: true, unread_count: 1, notifications: [] }), "1 unread");
   assert.equal(unreadLine(null), "");
 
 });
@@ -787,6 +787,14 @@ test('device delivery evidence distinguishes absence from unavailable without lo
   assert.deepEqual(deliveryPhrases([{ channel: 'in_app', state: 'delivered' }, { channel: 'device', state: null }])[0], readable);
   assert.ok(!deliveryPhrases([{ channel: 'in_app', state: 'future' }]).some(row => row.phrase === DEVICE_OFF));
   assert.equal(deliveryPhrases([{ channel: 'device', state: 'constructor' }])[0].phrase, 'Delivery status unavailable');
+});
+
+test('Updates folds a run of one actor making one change, and keys old events by their id', () => {
+  const row = (id, actor, verb) => ({ id, actor, verb });
+  const groups = foldChanges([row('a', 'Joe', 'added a note'), row('b', 'Joe', 'added a note'), row('c', 'Dell', 'added a note'), row('d', 'Joe', 'added a note')]);
+  assert.deepEqual(groups.map(group => group.map(one => one.id)), [['a', 'b'], ['c'], ['d']]);
+  const events = [{ id: 'e1', actor: 'joe', verb: 'set-next-step', recorded_at: '2026-01-14T14:20:00Z' }, { id: 'e2', actor: 'joe', verb: 'add-deal-note', recorded_at: '2026-01-14T14:21:00Z' }];
+  assert.deepEqual(activityRows(events).map(one => one.id), ['e2', 'e1']);
 });
 
 test('an Updates change a job made names the job plainly', () => {

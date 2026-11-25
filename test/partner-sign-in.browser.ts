@@ -588,7 +588,8 @@ async function app(
         const documentResponse = await dealDocumentsResponse(input, csrfToken);
         if (documentResponse) return documentResponse;
         if (path === "/api/engine/deals") return Response.json(dealBoard);
-        if (path === tours && tourPlans) return Response.json({ tours: [{ id: tour, planned_on: "2026-11-24" }] });
+        if (path === tours && tourPlans)
+          return Response.json({ tours: [{ id: tour, planned_on: "2026-11-24" }], past_tours: [] });
         if (path === "/api/engine/calendar/critical-dates")
           return Response.json({
             schema_version: "calendar-critical-dates.v1",
@@ -872,6 +873,7 @@ test("Closing anniversaries shows all 21 engine matches and opens records with b
     await page.getByRole("link", { name: "Closing anniversaries", exact: true }).getAttribute("href"),
     "/leases",
   );
+  await page.keyboard.press("Escape");
   await panel.getByRole("link", { name: "Unnamed client", exact: true }).click();
   await page.getByRole("dialog", { name: anniversaryClientName }).waitFor({ timeout: 5000 });
   assert.equal(new URL(page.url()).searchParams.get("record"), anniversaryClientId);
@@ -1665,7 +1667,7 @@ async function followTourFeedbackLink(page: Page, origin: string, engineTours = 
     if (pathname.startsWith("/api/tours/property-evidence")) evidenceRequests.push(pathname);
   });
   if (engineTours) {
-    await page.route(origin + tours, (route) => route.fulfill({ json: { tours: [] } }));
+    await page.route(origin + tours, (route) => route.fulfill({ json: { tours: [], past_tours: [] } }));
     await page.route("**/deals?*", async (route) => {
       const response = await route.fetch();
       const body = (await response.text()).replace("<html", "<html data-deal-tours-from-engine");
@@ -1839,7 +1841,7 @@ function tourFixture(t: TestContext, planned = false, cancellationGates?: Readon
       if (path === tours) {
         const plans = saved && !meeting ? [{ id: tour, planned_on: saved.planned_on }] : [];
         if (cancellationGates) plans.push({ id: laterTour, planned_on: "2026-11-25" });
-        return route.fulfill({ json: { tours: plans.filter(({ id }) => !cancelledTours.has(id)) } });
+        return route.fulfill({ json: { tours: plans.filter(({ id }) => !cancelledTours.has(id)), past_tours: [] } });
       }
       if (path === `${tours}/${tour}/stop-list`) return route.fulfill({ json: { text: preview } });
       assert.ok(saved && (path === plan || (cancellationGates && path === `${tours}/${laterTour}`)));

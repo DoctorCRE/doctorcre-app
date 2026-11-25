@@ -97,6 +97,7 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-email-thread article p{margin:4px 0 0}
 .inbox-shell .home-email-thread button{padding:0;border:0;background:transparent;color:var(--fg-muted);font-size:12px;text-decoration:underline;text-underline-offset:2px}
 .home-email-thread .home-email-earlier-text{color:var(--fg-muted)}
+.home-draft-doc{align-items:center;margin-block:12px}
 .home-reply-label{width:100%;margin-block-start:12px;border-top:1px solid var(--hairline)}
 .home-draft-comparison{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}
 .home-draft-comparison > *{min-width:0;padding:12px;border:1px solid var(--hairline);border-radius:8px}

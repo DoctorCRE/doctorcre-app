@@ -165,7 +165,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     $("marketFilter").innerHTML = options(markets.map(k => [k, k]), state.filters.market, "All markets");
     $("specialtyFilter").innerHTML = options(specialties.map(k => [k, k]), state.filters.specialty, "All specialties");
     $("clearMarket").hidden = !state.filters.market;
-    $("marketCounts").innerHTML = groups.map(g => `<button data-market="${esc(g.key)}" aria-pressed="${g.key === state.filters.market}">${esc(g.key)}<b>${g.count}</b></button>`).join("") || (state.board ? '<p class="empty">No leads in these markets</p>' : "");
+    $("marketCounts").innerHTML = groups.map(g => `<button data-market="${esc(g.key)}" aria-pressed="${g.key === state.filters.market}"><span>${esc(g.key)}</span><b>${g.count}</b></button>`).join("") || (state.board ? '<p class="empty">No leads in these markets</p>' : "");
     foldMarkets();
     state.map?.update(groups, state.selectedId);
     const currentStage = state.filters.stage;
@@ -194,7 +194,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     } else {
       $("leadBoard").innerHTML = `<div class="stage-columns">${BOARD_STAGES.map(([key, text]) => {
         const rows = shown.filter(lead => normalizedStage(lead) === key), expanded = rows.length > 5 && expandedStages.has(key);
-        return `<section class="stage-column" data-expanded="${expanded}" data-mobile-current="${!currentStage || key === currentStage}"${!currentStage && !rows.length && !state.showEmptyStages ? ' data-hide-empty="true"' : ""} data-stage="${key}" aria-label="${text}"><h2 class="stage-head">${text}<span>${rows.length}</span>${rows.length > 5 ? `<button type="button" data-expand-stage="${key}" aria-expanded="${expanded}" aria-controls="leads-${key}" aria-label="${expanded ? `Collapse ${text} to 5 leads` : `Show all ${rows.length} ${text} leads`}">${expanded ? "Collapse" : "Show all"}</button>` : ""}</h2><div class="lead-stack" id="leads-${key}">${(expanded ? rows : rows.slice(0, 5)).map(card).join("") || `<p class="stage-empty">No leads in ${text}</p>`}</div></section>`;
+        return `<section class="stage-column" data-expanded="${expanded}" data-mobile-current="${!currentStage || key === currentStage}"${rows.length ? "" : " data-empty"}${!currentStage && !rows.length && !state.showEmptyStages ? ' data-hide-empty="true"' : ""} data-stage="${key}" aria-label="${text}"><h2 class="stage-head">${text}<span>${rows.length}</span>${rows.length > 5 ? `<button type="button" data-expand-stage="${key}" aria-expanded="${expanded}" aria-controls="leads-${key}" aria-label="${expanded ? `Collapse ${text} to 5 leads` : `Show all ${rows.length} ${text} leads`}">${expanded ? "Collapse" : "Show all"}</button>` : ""}</h2><div class="lead-stack" id="leads-${key}">${(expanded ? rows : rows.slice(0, 5)).map(card).join("") || `<p class="stage-empty">No leads in ${text}</p>`}</div></section>`;
       }).join("")}${emptyStagesNote(currentStage ? 0 : BOARD_STAGES.filter(([key]) => !shown.some(lead => normalizedStage(lead) === key)).length)}</div><button type="button" class="lane-cue" data-lane-step="-1" hidden>‹</button><button type="button" class="lane-cue" data-lane-step="1" hidden></button>`;
     }
 
@@ -802,7 +802,12 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const open = more.getAttribute("aria-expanded") === "true";
     const bottom = strip.getBoundingClientRect().bottom;
     const chips = [...strip.querySelectorAll("[data-market]")];
-    for (const chip of chips) chip.inert = !open && chip.getBoundingClientRect().top >= bottom;
+    for (const chip of chips) {
+      chip.inert = !open && chip.getBoundingClientRect().top >= bottom;
+      // The native tip, as Calendar's chips use, names a truncated market in full.
+      const name = chip.firstElementChild;
+      chip.title = name.scrollWidth > name.clientWidth ? chip.dataset.market : "";
+    }
     const folded = chips.filter(chip => chip.inert).length;
     more.hidden = !open && !folded;
     more.textContent = open ? "Fewer" : `+${folded}`;
