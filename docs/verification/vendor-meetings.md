@@ -8,11 +8,9 @@ The typed island owns the submitted search and one bounded five-person page. The
 
 Two designs considered: add meeting modes to the directory URL/list state, or isolate the bounded page in a typed island. The island keeps meeting cursors separate from company directory cursors and reuses record detail navigation. One request per submit/page/retry, no N+1, fan-out or automatic retry. At ten times today's usage CARR query/calendar reads become the first limit; the app still requests five people per page. Server keyset consistency is live and pages can change after record changes. Circuit breaker is one failed read with manual retry. Idempotency is n/a for reads.
 
-## Phone directory disclosure
+## People worth meeting tab
 
-People worth meeting follows the vendor list. Its disclosure starts collapsed at phone widths and open on desktop. Closing it retains the query and page. The native disclosure handles keyboard interaction.
-
-A separate meeting route was considered. The native disclosure keeps the existing directory context and avoids a second navigation state. `vendor-meetings-disclosure.mmd` models its independent visibility. The phone vendor-layout cases check that the disclosure starts closed. Open, close and keyboard reopen are covered by `phone disclosure restores directory and retains the Research search across close and reopen`. The entry and fit tests cover desktop entry. The chart abstracts native browser visibility and starts at phone entry; desktop starts expanded.
+People worth meeting is a tab beside the vendor list in the top bar, at every width. The list tab opens first. Switching tabs keeps the Research search and the list's query. `the List tab restores the directory and People worth meeting keeps its search` covers the switch and keyboard reopen, and `People worth meeting is a tab beside the list` covers desktop entry.
 
 ## Transition tests
 

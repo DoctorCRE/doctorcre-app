@@ -53,7 +53,7 @@ function VendorMeetings({ options }: { options: Options }) {
   const calendarUnavailable = state.kind === "ready" && state.page.calendar.state === "unavailable";
   return (
     <section aria-label="People worth meeting">
-      <h3>Research</h3>
+      <h2>Research</h2>
       <label className="field">
         Search people and offices
         <input
@@ -166,12 +166,9 @@ export function mountVendorMeetings(host: HTMLElement, options: Options) {
   window.addEventListener("doctorcre-session-invalidated", dispose);
   flushSync(() =>
     root.render(
-      <details className="module-card glass vendor-meetings" open={!window.matchMedia("(max-width: 767px)").matches}>
-        <summary>
-          <h2>People worth meeting</h2>
-        </summary>
+      <div className="module-card glass vendor-meetings">
         <VendorMeetings options={options} />
-      </details>,
+      </div>,
     ),
   );
   return { dispose };

@@ -43,11 +43,9 @@ const EXPIRY_TICK_MS = 5_000;
 const SEARCH_DEBOUNCE_MS = 350;
 
 const dom = {
-  title: document.querySelector("#pageTitle"),
   footer: document.querySelector("#pageFooter"),
   resultsTitle: document.querySelector("#resultsTitle"),
   intro: document.querySelector("#pageIntro"),
-  viewer: document.querySelector("#viewerWorkspace"),
   healthOrb: document.querySelector("#healthOrb"),
   healthLabel: document.querySelector("#healthLabel"),
   observedAt: document.querySelector("#observedAt"),
@@ -91,6 +89,12 @@ phoneFilters.addEventListener("change", event => {
   if (!event.matches) document.querySelector("#secondaryFilters").open = true;
 });
 
+const directoryViews = [...document.querySelectorAll("[data-directory-view]")];
+function showDirectoryView(name) {
+  document.body.dataset.directoryView = name;
+  for (const button of directoryViews) button.setAttribute("aria-pressed", String(button.dataset.directoryView === name));
+}
+
 const scopeButtons = dom.scopeSwitch ? [...dom.scopeSwitch.querySelectorAll("[data-owner]")] : [];
 
 // One place holds what this view believes. Every renderer reads it, and the
@@ -128,8 +132,8 @@ async function syncQuietVendors() {
   const host = document.createElement('div');
   quietVendorsHost = host;
   host.setAttribute('data-panel-background', '');
-  host.style.position = 'relative';
-  document.querySelector('.business-controls').before(host);
+  host.className = 'quiet-vendors-host';
+  document.querySelector('.search-dock').after(host);
   try {
     const { mountQuietVendors } = await import('./ui-quiet-vendors.generated.js');
     if (generation !== quietVendorsGeneration) return;
@@ -447,7 +451,7 @@ function relationshipHtml(record) {
     ['Deals worked', stats.deals_worked],
     [stats.win_rate == null ? 'Win rate' : `Win rate · ${stats.won} won / ${stats.won + stats.lost} resolved`, stats.win_rate == null ? null : winRate(stats)],
     ['Last contacted', stats.last_contacted_at && formatMoment(stats.last_contacted_at)],
-  ].filter(([, value]) => value != null);
+  ].filter(([, value]) => value != null && value !== 0);
   const contactNote = shortNote(vendorNote(stats.last_contact_note));
   return `<section class="record-section relationship-section" aria-label="Partnership">
     ${metrics.length ? `<div class="relationship-metrics">${metrics.map(([label, value]) => `<div class="relationship-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`).join('')}</div>` : ''}
@@ -489,8 +493,9 @@ function rowFacts(dataset, row) {
     facts.push({ label: "Category", value: category.text, known: category.resolved });
     const stats = row.relationship;
     facts.push({ label: 'Territory', value: row.territory || 'Not recorded', known: Boolean(row.territory) });
-    facts.push({ label: 'Referred', value: metric(stats?.deals_referred), known: stats?.deals_referred != null });
-    facts.push({ label: 'Worked', value: metric(stats?.deals_worked), known: stats?.deals_worked != null });
+    // The engine counts deal history and sends 0 when none is recorded, so a 0 says nothing.
+    facts.push({ label: 'Referred', value: metric(stats?.deals_referred), known: stats?.deals_referred > 0 });
+    facts.push({ label: 'Worked', value: metric(stats?.deals_worked), known: stats?.deals_worked > 0 });
     facts.push({ label: 'Win rate', value: winRate(stats), known: stats?.win_rate != null });
   }
   const place = [row.city, row.state].filter(Boolean).join(", ");
@@ -513,7 +518,7 @@ function rowHtml(dataset, row, selectedId) {
   const selected = row.id === selectedId;
   const vendor = dataset === "vendors";
   const facts = rowFacts(dataset, row).filter((fact) => fact.known).map((fact) =>
-    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("");
+    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}" data-fact="${escapeHtml(fact.label)}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("");
   return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
 }
 
@@ -600,9 +605,6 @@ function renderList() {
   const refreshing = phase === "refreshing";
   const stale = phase === "stale";
   setHealth(refreshing ? "refreshing" : stale ? "stale" : "available");
-  if (dom.viewer) {
-    dom.viewer.textContent = payload.viewer === "joe" ? "Joe’s workspace" : payload.viewer === "dell" ? "Dell’s workspace" : "Partner workspace";
-  }
   if (dom.observedAt) dom.observedAt.textContent = updatedLabel(payload.source.observed_at, BUSINESS_TIME_ZONE);
   if (dom.source) dom.source.textContent = updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE);
   if (dom.summary) dom.summary.textContent = `${payload.total} ${(payload.total === 1 ? DATASET_SINGULAR[dataset] : DATASET_LABEL[dataset]).toLowerCase()}`;
@@ -987,10 +989,9 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   view.dataset = parsed.dataset;
   view.query = parsed.query;
   view.recordId = parsed.recordId;
-  if (datasetChanged) clearQuietVendors();
+  if (datasetChanged) { clearQuietVendors(); showDirectoryView("list"); }
   quietVendors?.update();
   document.title = `${DATASET_LABEL[parsed.dataset]} · DoctorCRE`;
-  if (dom.title) dom.title.textContent = DATASET_LABEL[parsed.dataset];
   if (dom.footer) dom.footer.textContent = `DoctorCRE · ${DATASET_LABEL[parsed.dataset]}`;
   if (dom.resultsTitle) dom.resultsTitle.textContent = DATASET_LABEL[parsed.dataset];
   if (dom.intro) {
@@ -1082,6 +1083,7 @@ function wireControls() {
     });
   }
   dom.reset?.addEventListener("click", () => navigate(viewHref(defaultQuery(view.dataset), view.recordId)));
+  directoryViews.forEach(button => button.addEventListener("click", () => showDirectoryView(button.dataset.directoryView)));
 
   scopeButtons.forEach((button) => {
     button.addEventListener("click", () => updateQuery({ owner: button.dataset.owner, scope: "team" }));
