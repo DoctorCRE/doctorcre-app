@@ -99,6 +99,25 @@ async function open(t: TestContext, path: string, width: number, saved: Record<s
 }
 
 const todayState = (page: Page) => page.locator("#appLayout").getAttribute("data-today");
+// Every top bar and tab row control shows whole inside its own row, and no title or tab strip hides part of itself.
+const clipped = (page: Page) =>
+  page.evaluate(() => {
+    const rows = [...document.querySelectorAll<HTMLElement>("#appTopbar, .app-layout-tabbar")];
+    const controls = rows.flatMap((row) => {
+      const edge = row.getBoundingClientRect();
+      return [...row.querySelectorAll<HTMLElement>("a, button")]
+        .filter((node) => node.getClientRects().length)
+        .flatMap((node) => {
+          const box = node.getBoundingClientRect();
+          const whole = box.top >= edge.top - 1 && box.bottom <= edge.bottom + 1 && box.right <= edge.right + 1;
+          return whole ? [] : [node.textContent?.trim()];
+        });
+    });
+    const strips = [...document.querySelectorAll<HTMLElement>(".app-layout-title, #appTabsSlot")]
+      .filter((node) => node.scrollWidth > node.clientWidth + 1)
+      .map((node) => node.textContent?.trim().slice(0, 30));
+    return [...controls, ...strips];
+  });
 const noSidewaysScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 const pagesWithToday = ["/leads", "/doc-chats", "/status", "/deals", "/deals?view=national"];
 
@@ -115,6 +134,49 @@ for (const width of [1280, 1440]) {
     assert.equal(await leads.page.evaluate(() => localStorage.getItem("doctorcre:today:/leads")), "closed");
     const status = await open(t, "/status", width, { "doctorcre:today:/leads": "open" });
     assert.equal(await todayState(status.page), "closed", "another page keeps its own choice");
+  });
+
+  test(`Today on Local Deals, National Accounts and Monday review is each page's own at ${width}px`, async (t) => {
+    const national = await open(t, "/deals?view=national", width);
+    await national.page.getByRole("button", { name: "Today sidebar", exact: true }).click();
+    assert.equal(await todayState(national.page), "open");
+    const saved = await national.page.evaluate(() => ({ ...localStorage }));
+    const board = await open(t, "/deals", width, saved);
+    assert.equal(await todayState(board.page), "closed", "opening Today on National Accounts leaves the board's closed");
+    const review = await open(t, "/deals?view=review", width, { ...saved, "doctorcre:today:/deals": "open" });
+    assert.equal(await todayState(review.page), "closed", "Monday review keeps its own choice");
+    const again = await open(t, "/deals?view=national", width, saved);
+    assert.equal(await todayState(again.page), "open", "National Accounts remembers its own open Today");
+  });
+
+  for (const today of ["open", "closed"])
+    test(`the Deals top bar shows every control whole with Today ${today} at ${width}px`, async (t) => {
+      for (const path of ["/deals", "/deals?view=national"]) {
+        const { page } = await open(t, path, width, { [`doctorcre:today:${path}`]: today });
+        await page.getByRole("link", { name: "National Accounts" }).waitFor();
+        if (path === "/deals") await page.getByRole("button", { name: "Parked", exact: true }).waitFor();
+        assert.equal(await todayState(page), today);
+        assert.deepEqual(await clipped(page), [], `${path} shows every control whole`);
+        assert.equal(
+          await page.getByRole("link", { name: "National Accounts" }).innerText(),
+          "National Accounts",
+          "the link reads National Accounts with its space",
+        );
+        await mkdir(shots, { recursive: true });
+        await page.screenshot({ path: `${shots}/deals-top-bar-${path.slice(7) || "local"}-${width}-today-${today}.png` });
+      }
+    });
+
+  test(`National Accounts names itself once at ${width}px`, async (t) => {
+    const { page } = await open(t, "/deals?view=national", width);
+    await page.getByText("No national accounts yet", { exact: false }).waitFor();
+    const names = await page
+      .getByText("National Accounts", { exact: true })
+      .evaluateAll((nodes) => nodes.filter((node) => node.getBoundingClientRect().height > 1).length);
+    assert.equal(names, 1, "National Accounts shows once");
+    const pages = page.getByRole("region", { name: "App controls" }).getByRole("navigation", { name: "Deals pages" });
+    assert.equal(await pages.getByRole("link", { name: "Local Deals" }).isVisible(), true);
+    assert.equal(await page.getByRole("heading", { level: 1, name: "National Accounts" }).count(), 1);
   });
 
   test(`Today's partner filters sit on one row at ${width}px`, async (t) => {
@@ -154,10 +216,35 @@ for (const width of [1280, 1440]) {
     await name.fill("Example New Prospect");
     await lane.getByRole("button", { name: "Person", exact: true }).waitFor();
     await lane.getByLabel("How found").waitFor();
-    assert.equal(await lane.getByRole("button", { name: "Add prospect", exact: true }).count(), 1);
+    assert.equal(await add.count(), 0, "the form takes the Add prospect control's place");
     assert.equal(await noSidewaysScroll(page), true);
     await mkdir(shots, { recursive: true });
     await page.screenshot({ path: `${shots}/deals-${width}.png` });
+    await name.press("Escape");
+    assert.equal(await name.count(), 0, "Esc closes the quick add");
+    assert.equal(await add.evaluate((button) => button === document.activeElement), true, "focus returns to Add prospect");
+    await add.click();
+    await lane.getByRole("button", { name: "Cancel", exact: true }).click();
+    assert.equal(await name.count(), 0, "Cancel closes the quick add");
+    assert.equal(await add.count(), 1);
+  });
+
+  test(`the Prospects header lines up with the phase headers at ${width}px`, async (t) => {
+    const { page } = await open(t, "/deals", width);
+    await page.locator("#prospectsLane").getByRole("button", { name: "Example Prospect Clinic" }).waitFor();
+    const tops = await page.evaluate(() => {
+      const text = (node: Node | null | undefined) => {
+        if (!node) throw Error("no header text");
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return Math.round(range.getBoundingClientRect().top);
+      };
+      return {
+        prospects: text(document.getElementById("prospects-title")?.firstChild),
+        phase: text(document.querySelector(".kanban-column[data-column] > h3 button > span")),
+      };
+    });
+    assert.ok(Math.abs(tops.prospects - tops.phase) <= 1, `Prospects at ${tops.prospects}, phases at ${tops.phase}`);
   });
 
   test(`Ask Doc's question box and Recent chats share one left edge at ${width}px`, async (t) => {
