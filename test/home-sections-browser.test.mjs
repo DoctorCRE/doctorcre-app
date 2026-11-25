@@ -1692,7 +1692,7 @@ for (const width of [390, 1440]) test(`Home keeps other cards usable while a rev
   await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
   const card = title => page.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title }) });
   const button = (title, name) => card(title).locator(':scope > .inbox-actions').getByRole('button', { name, exact: true });
-  for (const name of ['Snooze', 'Drop']) assert.equal(await button(draft.title, name).isDisabled(), true, `the card under review keeps ${name} locked`);
+  for (const name of ['Snooze', 'Drop']) assert.equal(await button(draft.title, name).count(), 0, `the card under review shows no ${name} of its own`);
   if (process.env.HOME_THREAD_SCREENSHOTS) {
     await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
     await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `review-open-${width}.png`), fullPage: true });
@@ -1709,6 +1709,141 @@ for (const width of [390, 1440]) test(`Home keeps other cards usable while a rev
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   await page.getByRole('status').filter({ hasText: `Snoozed: ${swiped.title}.` }).waitFor();
   assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
+});
+
+for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home keeps other cards usable while the open review saves at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  await page.setViewportSize({ width, height });
+  const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
+  const snoozed = step(30, 'Call the practice manager', { card_id: 'snoozed' });
+  const finished = step(31, 'Ask the surveyor for pricing', { card_id: 'finished' });
+  const dropped = step(32, 'Send the sample floor plan', { card_id: 'dropped' });
+  state.dashboard = true;
+  state.items = [draft, snoozed, finished, dropped];
+  state.filingWrites = [];
+  let decide;
+  const decided = new Promise(resolve => { decide = resolve; });
+  await page.route('**/mcp', async route => {
+    if (route.request().postDataJSON().params.name === 'decide-engine-home-proposal') await decided;
+    await route.fallback();
+  });
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  const card = title => page.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title }) });
+  const button = (title, name) => card(title).locator(':scope > .inbox-actions').getByRole('button', { name, exact: true });
+  for (const name of ['Snooze', 'Drop', 'Mark done'])
+    assert.equal(await button(draft.title, name).count(), 0, `the card under review shows no ${name} of its own`);
+  assert.equal(await card(draft.title).locator(':scope > .inbox-actions .inbox-guidance').count(), 0, 'no explainer under the card');
+
+  await review.getByRole('region', { name: 'Next step' }).getByRole('button', { name: 'Accept', exact: true }).click();
+  await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor();
+  const otherTitle = page.getByRole('link', { name: dropped.title });
+  assert.equal(await otherTitle.getAttribute('aria-disabled'), 'true', 'no other review replaces this one mid-save');
+  for (const other of [snoozed, finished, dropped]) for (const name of ['Snooze', 'Drop', 'Mark done'])
+    assert.equal(await button(other.title, name).isDisabled(), false, `${name} on ${other.title} stays usable while the review saves`);
+  await button(snoozed.title, 'Snooze').click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('status').filter({ hasText: `Snoozed: ${snoozed.title}.` }).waitFor();
+  await button(finished.title, 'Mark done').click();
+  await page.getByRole('status').filter({ hasText: `Marked done: ${finished.title}.` }).waitFor();
+  await button(dropped.title, 'Drop').click();
+  const reason = page.getByRole('dialog', { name: 'Drop with a reason' });
+  await reason.waitFor();
+  await page.keyboard.press('Escape');
+  await reason.waitFor({ state: 'detached' });
+
+  decide();
+  await review.getByText('Suggestion accepted.', { exact: true }).waitFor();
+  assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
+  assert.equal(await otherTitle.getAttribute('aria-disabled'), 'false');
+  assert.deepEqual(state.filingWrites.map(({ id: proposal, decision }) => [proposal, decision]), [[id(42), 'accept']]);
+  assert.equal(state.items.find(item => item.item_id === snoozed.item_id).section, 'snoozed');
+  assert.equal(state.items.find(item => item.item_id === finished.item_id).section, 'done');
+});
+
+test('Home pauses its minute refresh exactly while a review save runs', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
+  state.dashboard = true;
+  state.items = [draft, step(30, 'Call the practice manager', { card_id: 'other' })];
+  state.filingWrites = [];
+  await page.clock.install({ time: now });
+  let decide;
+  let decides = 0;
+  const decided = new Promise(resolve => { decide = resolve; });
+  await page.route('**/mcp', async route => {
+    if (route.request().postDataJSON().params.name !== 'decide-engine-home-proposal') return route.fallback();
+    if (++decides === 1) return route.abort('connectionreset');
+    await decided;
+    await route.fallback();
+  });
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('region', { name: 'Next step' }).getByRole('button', { name: 'Accept', exact: true }).click();
+  const retry = review.getByRole('button', { name: 'Retry same review request', exact: true });
+  await retry.waitFor();
+
+  const reads = state.dashboardReads;
+  const read = page.waitForRequest('**/api/engine/home/inbox?view=dashboard');
+  await page.clock.fastForward(60_000);
+  await read;
+  assert.equal(state.dashboardReads, reads + 1, 'an uncertain review keeps the minute refresh');
+
+  await retry.click();
+  await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor();
+  await page.clock.fastForward(60_000);
+  await page.clock.fastForward(60_000);
+  decide();
+  await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor({ state: 'detached' });
+  assert.deepEqual(state.filingWrites.map(({ decision }) => decision), ['accept'], 'the retry saved');
+  assert.equal(state.dashboardReads, reads + 2, 'only the save\'s own read lands while the review saves');
+  const resumed = page.waitForRequest('**/api/engine/home/inbox?view=dashboard');
+  await page.clock.fastForward(60_000);
+  await resumed;
+  assert.equal(state.dashboardReads, reads + 3, 'the minute refresh resumes once after the save');
+});
+
+test('Home moves a snoozed card while the open review saves', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
+  const snoozed = step(30, 'Call the practice manager', { card_id: 'snoozed' });
+  state.dashboard = true;
+  state.items = [draft, snoozed];
+  state.filingWrites = [];
+  let release;
+  let hold;
+  let decide;
+  const decided = new Promise(resolve => { decide = resolve; });
+  await page.route('**/api/engine/home/inbox?view=dashboard', async route => {
+    await hold;
+    await route.fallback().catch(() => {});
+  });
+  await page.route('**/mcp', async route => {
+    if (route.request().postDataJSON().params.name === 'decide-engine-home-proposal') await decided;
+    await route.fallback();
+  });
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const snoozedRow = reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: snoozed.title }) });
+
+  hold = new Promise(resolve => { release = resolve; });
+  const followUp = page.waitForRequest('**/api/engine/home/inbox?view=dashboard');
+  await snoozedRow.locator(':scope > .inbox-actions').getByRole('button', { name: 'Snooze', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await followUp;
+  await review.getByRole('region', { name: 'Next step' }).getByRole('button', { name: 'Accept', exact: true }).click();
+  await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor();
+  release();
+  await reminders.getByRole('link', { name: snoozed.title }).waitFor({ state: 'detached' });
+  assert.equal(await review.getByText('Waiting for server confirmation…', { exact: true }).isVisible(), true, 'the review is still saving');
+  decide();
+  await review.getByText('Suggestion accepted.', { exact: true }).waitFor();
 });
 
 test('Inbox keeps Undo on another finished card usable while a review is open', async t => {

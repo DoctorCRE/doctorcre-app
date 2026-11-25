@@ -68,6 +68,7 @@ function parseStep(value: unknown) {
     !uuid.test(value.next_step_id) ||
     !partner(value.owner) ||
     typeof value.what !== "string" ||
+    !(value.display_title === undefined || typeof value.display_title === "string") ||
     !textOrNull(value.due_on) ||
     (value.due_on !== null && !Number.isFinite(Date.parse(value.due_on))) ||
     typeof value.change_id !== "number" ||
@@ -77,7 +78,7 @@ function parseStep(value: unknown) {
   return {
     next_step_id: value.next_step_id,
     owner: value.owner,
-    what: value.what,
+    title: value.display_title ?? value.what,
     due_on: value.due_on,
     change_id: value.change_id,
     set_by: typeof value.set_by === "string" ? value.set_by : null,
@@ -378,7 +379,7 @@ function ProspectDetail({
                       ref={linked ? linkedStep : undefined}
                       tabIndex={linked ? -1 : undefined}
                     >
-                      {label(item.owner)} · {item.what} · {item === row.completed ? "Done" : due(item.due_on)}
+                      {label(item.owner)} · {item.title} · {item === row.completed ? "Done" : due(item.due_on)}
                       {origin && <small> · {origin}</small>}
                     </li>
                   );
@@ -451,6 +452,14 @@ function ProspectLane({
   const query = new URLSearchParams(location.search);
   const initial = query.get("prospect");
   const [opened, open] = useState(initial && uuid.test(initial) ? initial : null);
+  const [adding, setAdding] = useState(false);
+  const addToggle = useRef<HTMLButtonElement>(null);
+  const closingAdd = useRef(false);
+  useEffect(() => {
+    if (adding || !closingAdd.current) return;
+    closingAdd.current = false;
+    addToggle.current?.focus();
+  }, [adding]);
   const returnToReview = initial === opened ? backToReview : null;
   const { value: rows, unavailable } = useProspectRead(client.prospectRequest, prospectsPath, revision, parseLane);
   const visible = rows?.filter(
@@ -462,7 +471,29 @@ function ProspectLane({
   return (
     <>
       <h3 id="prospects-title">Prospects {visible && <small>{visible.length}</small>}</h3>
-      {filters.canSave && <AddProspect client={client} sources={howFound} refresh={refresh} addDeal={addDeal} />}
+      {filters.canSave && !adding && (
+        <button
+          ref={addToggle}
+          type="button"
+          className="column-add"
+          aria-label="Add prospect"
+          onClick={() => setAdding(true)}
+        >
+          + Add prospect
+        </button>
+      )}
+      {filters.canSave && adding && (
+        <AddProspect
+          client={client}
+          sources={howFound}
+          refresh={refresh}
+          addDeal={addDeal}
+          close={() => {
+            closingAdd.current = true;
+            setAdding(false);
+          }}
+        />
+      )}
       {unavailable ? (
         <p role="alert">
           Could not load prospects.{" "}
@@ -498,7 +529,14 @@ function ProspectLane({
                   <small>{noteBy(row.latest_note, authorLabel)}</small>
                 </>
               )}
-              <p className="next-line">{next ? `${label(next.owner)} · ${due(next.due_on)}` : "No follow-up set"}</p>
+              {next ? (
+                <>
+                  <p className="next-line">{next.title}</p>
+                  <small>{`${label(next.owner)} · ${due(next.due_on)}`}</small>
+                </>
+              ) : (
+                <p className="next-line">No follow-up set</p>
+              )}
             </div>
           </article>
         );

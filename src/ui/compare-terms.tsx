@@ -28,7 +28,8 @@ type Row = {
   documents: { id: string; name: string }[];
 };
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
-type Options = { request: Request; market?: string | null };
+// A deal is never its own comparable, so the read always leaves out dealId.
+type Options = { request: Request; dealId: string; market: string | null; markets: readonly string[] };
 type Query = { market: string; use_type: string; as_of: string };
 type View = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; rows: Row[]; query: Query };
 
@@ -78,7 +79,14 @@ function figure({ term, value }: Row) {
 }
 const basisKey = (row: Row) => row.expense_structure ?? "";
 
-function CompareTerms({ request, market, refreshRef }: Options & { refreshRef: { current: () => void } }) {
+function CompareTerms({
+  request,
+  dealId,
+  market,
+  markets,
+  refreshRef,
+}: Options & { refreshRef: { current: () => void } }) {
+  const stored = (typed: string) => markets.find((name) => name.toLowerCase() === typed.trim().toLowerCase());
   const [view, setView] = useState<View>({ kind: "loading" });
   const [term, setTerm] = useState("");
   const [stage, setStage] = useState("");
@@ -91,11 +99,13 @@ function CompareTerms({ request, market, refreshRef }: Options & { refreshRef: {
     const current = ++sequence.current;
     const fields = form.current ? new FormData(form.current) : new FormData();
     const field = (name: keyof Query) => String(fields.get(name) ?? "").trim();
-    const query: Query = { market: field("market"), use_type: field("use_type"), as_of: field("as_of") };
+    const typed = field("market");
+    const query: Query = { market: stored(typed) ?? typed, use_type: field("use_type"), as_of: field("as_of") };
     const params = new URLSearchParams(Object.entries(query).filter(([, value]) => value));
+    params.set("exclude_deal_id", dealId);
     setView({ kind: "loading" });
     try {
-      const response = await request(`/api/engine/market-terms${params.size ? `?${params}` : ""}`, {
+      const response = await request(`/api/engine/market-terms?${params}`, {
         headers: { accept: "application/json" },
       });
       const rows = response.ok ? parseCompareTerms(await response.json()) : null;
@@ -126,7 +136,7 @@ function CompareTerms({ request, market, refreshRef }: Options & { refreshRef: {
       <form className="market-filters" ref={form} onSubmit={submit}>
         <label>
           Market
-          <input name="market" maxLength={200} defaultValue={market ?? ""} />
+          <input name="market" maxLength={200} defaultValue={(market && stored(market)) ?? ""} />
         </label>
         <label>
           Use type
@@ -181,8 +191,7 @@ function Results({ view, filters, set }: { view: Extract<View, { kind: "ready" }
   const heading = (
     <p>
       <strong>
-        {market ? "" : "Compared with all markets · "}
-        {as_of ? `Terms as of ${inWords(as_of)}` : "All recorded history"}
+        Compared with {market || "all markets"} · {as_of ? `Terms as of ${inWords(as_of)}` : "All recorded history"}
       </strong>
     </p>
   );

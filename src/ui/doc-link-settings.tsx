@@ -97,7 +97,7 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
       ) : (
         <div className="pref-act">
           {status && (
-            <button className="btn btn-primary" type="button" disabled={busy} onClick={() => void change("issue")}>
+            <button className="btn" type="button" disabled={busy} onClick={() => void change("issue")}>
               {status === "not_set_up" ? "Make link code" : "Replace link code"}
             </button>
           )}

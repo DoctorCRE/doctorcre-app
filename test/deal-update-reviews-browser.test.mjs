@@ -108,13 +108,13 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await panel.getByRole('button', { name: 'Undo' }).waitFor();
     await panel.scrollIntoViewIfNeeded();
     assert.match(await panel.innerText(), /Closed automatically.*Demo Harbor expansion.*Request revised terms.*The landlord sent/s);
-    await mkdir('.github/pr-evidence/WR433.S4.J20', { recursive: true });
-    await panel.screenshot({ path: `.github/pr-evidence/WR433.S4.J20/${width}-${theme}.png`, animations: 'disabled' });
+    await mkdir('out/test-artifacts/WR433.S4.J20', { recursive: true });
+    await panel.screenshot({ path: `out/test-artifacts/WR433.S4.J20/${width}-${theme}.png`, animations: 'disabled' });
     reviews = [row];
     await page.getByRole('button', { name: 'Refresh Home', exact: true }).click();
     await panel.getByRole('button', { name: 'Confirm' }).waitFor();
     if (width === 390) await panel.getByRole('button', { name: 'Show 1 more' }).click();
-    await panel.screenshot({ path: `.github/pr-evidence/WR433.S4.J20/${width}-${theme}-mixed.png`, animations: 'disabled' });
+    await panel.screenshot({ path: `out/test-artifacts/WR433.S4.J20/${width}-${theme}-mixed.png`, animations: 'disabled' });
 
     await panel.getByRole('button', { name: 'Undo' }).click();
     await panel.getByText('Task reopened.').waitFor();

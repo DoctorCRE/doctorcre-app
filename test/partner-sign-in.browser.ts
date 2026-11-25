@@ -615,7 +615,10 @@ async function app(
             ...tourDeal?.(),
           });
         if (path === "/api/engine/markets")
-          return Response.json([{ market_id: "00000000-0000-4000-8000-0000000000d1", name: "Example North" }]);
+          return Response.json([
+            { market_id: "00000000-0000-4000-8000-0000000000d1", name: "Example North" },
+            { market_id: "00000000-0000-4000-8000-0000000000d2", name: "Example South" },
+          ]);
         if (path === "/api/engine/market-terms") return Response.json({ schema_version: "compare-terms.v1", rows: [] });
         if (/^\/api\/engine\/(clients|vendors)(?:\/|$)/.test(path)) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
@@ -1320,6 +1323,15 @@ test("Doc settings show each Mac status and keep link codes private", async (t) 
     await refresh.click();
     await settings.getByText(copy, { exact: true }).waitFor();
   }
+  const accentFilled = await settings.getByRole("button").evaluateAll((buttons) => {
+    const probe = document.createElement("i");
+    probe.style.background = "var(--accent)";
+    document.body.append(probe);
+    const accent = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return buttons.filter((button) => getComputedStyle(button).backgroundColor === accent).length;
+  });
+  assert.equal(accentFilled, 0, "Doc link buttons leave Save preferences the only accent button");
 
   await settings.getByRole("button", { name: "Revoke link code" }).click();
   await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
@@ -1390,12 +1402,20 @@ const inMarket = "No offer rounds or signed leases are recorded on deals in this
 const anyMarket = "No offer rounds or signed leases are recorded yet.";
 for (const [dealMarket, dealMarketId, prefill, read, empty] of [
   ["Example North", undefined, "Example North", "/api/engine/market-terms?market=Example+North", inMarket],
+  ["example north", undefined, "Example North", "/api/engine/market-terms?market=Example+North", inMarket],
   ["Example City", undefined, "", "/api/engine/market-terms", anyMarket],
   [
     "Example City",
     "00000000-0000-4000-8000-0000000000d1",
     "Example North",
     "/api/engine/market-terms?market=Example+North",
+    inMarket,
+  ],
+  [
+    "Example Town",
+    "00000000-0000-4000-8000-0000000000d2",
+    "Example South",
+    "/api/engine/market-terms?market=Example+South",
     inMarket,
   ],
   ["Market unspecified", undefined, "", "/api/engine/market-terms", anyMarket],
@@ -1421,9 +1441,12 @@ for (const [dealMarket, dealMarketId, prefill, read, empty] of [
     const terms = room.getByRole("tabpanel", { name: "Compare terms" });
     await terms.getByText(empty, { exact: true }).waitFor({ timeout: 4000 });
     assert.equal(await terms.getByLabel("Market").inputValue(), prefill);
+    await terms
+      .getByText(`Compared with ${prefill || "all markets"} · All recorded history`, { exact: true })
+      .waitFor();
     assert.deepEqual(
       [...partnerReads.keys()].filter((path) => path.startsWith("/api/engine/market-terms")),
-      [read],
+      [`${read}${read.includes("?") ? "&" : "?"}exclude_deal_id=${dealId}`],
     );
     await room.getByRole("tab", { name: "Tours", exact: true }).click();
     await room
@@ -1463,7 +1486,7 @@ test("Compare terms opens without the markets list and closing the deal cancels 
   assert.equal(await terms.getByLabel("Market").inputValue(), "");
   assert.deepEqual(
     [...partnerReads.keys()].filter((path) => path.startsWith("/api/engine/market-terms")),
-    ["/api/engine/market-terms"],
+    [`/api/engine/market-terms?exclude_deal_id=${dealId}`],
   );
   assert.deepEqual(await page.evaluate(() => Reflect.get(window, "marketsRead")), { started: true, aborted: false });
   await page.locator("#panelClose").click();

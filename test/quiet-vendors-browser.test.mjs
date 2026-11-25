@@ -138,9 +138,9 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     }));
     assert.deepEqual({ focusFailures, wrappedDates }, { focusFailures: [], wrappedDates: [] });
     assert.equal(await section.evaluate(el => el.scrollWidth <= el.clientWidth), true);
-    await mkdir('.github/pr-evidence/WR647.S1.J32', { recursive: true });
+    await mkdir('out/test-artifacts/WR647.S1.J32', { recursive: true });
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({ path: `.github/pr-evidence/WR647.S1.J32/${width}-${theme}.png` });
+    await page.screenshot({ path: `out/test-artifacts/WR647.S1.J32/${width}-${theme}.png` });
     refuse = true;
     await section.getByRole('button', { name: 'Refresh quiet vendors' }).click();
     await section.getByRole('alert').waitFor();

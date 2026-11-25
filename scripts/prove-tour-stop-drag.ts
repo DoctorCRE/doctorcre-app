@@ -185,7 +185,6 @@ export async function prove(options: {
   } finally {
     clearTimeout(timer);
     controller.abort();
-    await page?.close().catch(() => {});
     await acquisition?.then(
       (owner) => owner.close(),
       () => {},

@@ -837,41 +837,42 @@ function DocChat() {
               </button>
             )}
           </div>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (canSend)
-                send({
-                  question,
-                  idempotency_key: crypto.randomUUID(),
-                  ...(id ? { conversation_id: id } : initialContext && { context: initialContext }),
-                });
-            }}
-          >
-            <label htmlFor="docQuestion">Question for Doc</label>
-            <textarea
-              id="docQuestion"
-              aria-describedby="docQuestionLength"
-              rows={3}
-              value={question}
-              disabled={(!ready && status !== "unavailable" && status !== "older") || !!pendingAsk}
-              readOnly={status === "unavailable" || status === "older"}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                privateDraft.current?.("doc-question", id ?? composerId).write(value);
-                setQuestion(value);
-              }}
-            />
-            <div className="doc-chat__actions">
-              <small id="docQuestionLength">
-                {questionLength.toLocaleString("en-US")} / {questionLimit.toLocaleString("en-US")}
-              </small>
-              <button className="btn btn-primary" type="submit" disabled={!canSend}>
-                Send
-              </button>
-            </div>
-          </form>
         </section>
+        <form
+          className="doc-chat__composer"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canSend)
+              send({
+                question,
+                idempotency_key: crypto.randomUUID(),
+                ...(id ? { conversation_id: id } : initialContext && { context: initialContext }),
+              });
+          }}
+        >
+          <label htmlFor="docQuestion">Question for Doc</label>
+          <textarea
+            id="docQuestion"
+            aria-describedby="docQuestionLength"
+            rows={3}
+            value={question}
+            disabled={(!ready && status !== "unavailable" && status !== "older") || !!pendingAsk}
+            readOnly={status === "unavailable" || status === "older"}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              privateDraft.current?.("doc-question", id ?? composerId).write(value);
+              setQuestion(value);
+            }}
+          />
+          <div className="doc-chat__actions">
+            <small id="docQuestionLength">
+              {questionLength.toLocaleString("en-US")} / {questionLimit.toLocaleString("en-US")}
+            </small>
+            <button className="btn btn-primary" type="submit" disabled={!canSend}>
+              Send
+            </button>
+          </div>
+        </form>
       </div>
     </>
   );
