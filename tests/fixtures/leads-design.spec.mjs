@@ -34,8 +34,12 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     expect.soft(accents, 'at most one visible primary action').toBeLessThanOrEqual(1);
     expect.soft(await page.locator('#hotLeads, .hot-row').count(), 'the board is the only ranked lead list').toBe(0);
     const entry = page.getByRole('link', { name: 'Territory', exact: true });
-    expect.soft(await entry.count(), 'territory has an obvious in-page entry').toBe(1);
-    if (await entry.count()) {
+    if (width >= 1024) {
+      const region = await page.locator('.territory').boundingBox();
+      expect.soft(region.y + Math.min(region.height, 120), 'desktop shows territory on the first screen, so it needs no entry link').toBeLessThanOrEqual(1000);
+      expect.soft(await entry.isVisible()).toBe(false);
+    } else {
+      expect.soft(await entry.count(), 'territory has an obvious in-page entry').toBe(1);
       const box = await entry.boundingBox();
       expect.soft(box.y).toBeGreaterThanOrEqual(0);
       expect.soft(box.y + box.height).toBeLessThanOrEqual(1000);
