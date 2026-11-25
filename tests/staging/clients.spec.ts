@@ -36,11 +36,12 @@ test("Clients apply owner and business filters, then return to all records", asy
   const scope = page.getByRole("group", { name: "Record scope", exact: true });
   await scope.getByRole("button", { name: "Joe", exact: true }).click();
   await expect(scope.getByRole("button", { name: "Joe", exact: true })).toHaveAttribute("aria-pressed", "true");
-  if ((await page.locator("#filterA option").count()) > 1) await page.locator("#filterA").selectOption({ index: 1 });
+  await page.locator("#filterA").selectOption({ index: 1 });
   await scope.getByRole("button", { name: "All", exact: true }).click();
   const today = page.getByRole("button", { name: "Today sidebar", exact: true });
   if ((await today.getAttribute("aria-expanded")) === "true") await today.click();
   const clear = page.getByRole("button", { name: "Clear", exact: true });
-  if (await clear.isVisible()) await clear.click();
+  await expect(clear).toBeVisible();
+  await clear.click();
   await expect(page.locator(".record-row").first()).toBeVisible();
 });
