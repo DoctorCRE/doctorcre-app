@@ -82,7 +82,7 @@
 .row-facts { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5); min-width: 0; }
 .row-fact { display: inline-flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
 .fact-label { color: var(--fg-muted); font-size: var(--font-size-1); }
-.fact-value { color: var(--fg); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fact-value { color: var(--fg); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; overflow-wrap: break-word; }
 .row-owner.unknown, .record-field.unknown dd { color: var(--fg-quiet); }
 .row-fact.unresolved .fact-value::after { content: " · recorded code, no label"; color: var(--status-warn-ink); }
 .row-foot { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1) var(--space-3); color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; text-align: right; }
@@ -347,6 +347,8 @@ dialog.party-editor::backdrop { background: var(--scrim); }
   #applyFilters { display: none; }
   /* Each Clients filter shows its value in the toolbar, and Clear undoes them all. */
   body[data-directory="clients"] #chipBar { display: none; }
+  /* Each select keeps its whole choice; the territory box takes what is left. */
+  body[data-directory="vendors"] .filter-form .field:has(> select) { flex: none; }
 }
 body[data-directory="clients"] #applyFilters { display: none; }
 /* The count and owner chips sit in the top bar beside the page title. */
@@ -354,14 +356,23 @@ body[data-directory="clients"] #applyFilters { display: none; }
 .app-layout-tabs .scope-switch { flex: none; padding: 0; border: 0; background: none; }
 .app-layout-tabs .scope-option { min-width: 0; }
 .app-layout-main:has(.business-shell) { padding-top: var(--space-2); }
-/* One line per vendor at desktop, each fact in its own column so the rows line up. */
-@container (min-width: 66rem) {
-  body[data-directory="vendors"] .record-row, body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-columns: minmax(14rem, 1.2fr) minmax(0, 3fr) minmax(10rem, auto) minmax(5rem, auto); grid-template-areas: "head facts note foot"; align-items: center; min-height: 0; padding-block: var(--space-2); }
+/* Vendor rows share the list's columns, and each fact has its own, so facts line up row to row. */
+@container (min-width: 52rem) {
+  body[data-directory="vendors"] .record-list { grid-template-columns: minmax(11rem, 1fr) minmax(0, 3fr) max-content; column-gap: var(--space-5); }
+  body[data-directory="vendors"] :is(.record-list > *, .record-row) { grid-column: 1 / -1; }
+  body[data-directory="vendors"] :is(.record-item, .record-row) { display: grid; grid-template-columns: subgrid; }
+  body[data-directory="vendors"] .record-row { grid-template-areas: "head facts foot"; }
+  body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-areas: "head facts foot" "head note foot"; }
   body[data-directory="vendors"] .row-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   body[data-directory="vendors"] [data-fact="Category"] { grid-column: 1; }
   body[data-directory="vendors"] [data-fact="Territory"] { grid-column: 2; }
   body[data-directory="vendors"] [data-fact="Location"] { grid-column: 3; }
   body[data-directory="vendors"] :is([data-fact="Referred"], [data-fact="Worked"], [data-fact="Win rate"]) { grid-row: 2; }
+}
+/* One line per vendor at desktop. */
+@container (min-width: 66rem) {
+  body[data-directory="vendors"] .record-list { grid-template-columns: minmax(14rem, 1.2fr) minmax(0, 3fr) max-content max-content; }
+  body[data-directory="vendors"] .record-row, body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-areas: "head facts note foot"; align-items: center; min-height: 0; padding-block: var(--space-2); }
 }
 body[data-directory="vendors"] .record-row .row-updated { display: none; }
 body:not([data-directory="vendors"]) #directoryViews { display: none; }

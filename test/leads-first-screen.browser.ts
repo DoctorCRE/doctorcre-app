@@ -153,6 +153,92 @@ test("Leads connection warning is a 32px banner that keeps the board on screen",
   assert.ok(layout.mainScroll <= 0 && layout.board.bottom <= 900, JSON.stringify(layout));
 });
 
+// Fourteen markets: more than one line of the territory strip holds at 1280 or 1440.
+function manyMarkets() {
+  const board = fullBoard();
+  for (const [n, lead] of board.leads.entries()) Object.assign(lead, { city: `Town ${(n % 14) + 1}`, state: "FL" });
+  return board;
+}
+
+const marketStrip = (page: Page) =>
+  page.evaluate(async () => {
+    // A resize reaches the "+N" label at the next frame; measure after it.
+    await new Promise((settled) => requestAnimationFrame(() => requestAnimationFrame(settled)));
+    const strip = document.getElementById("marketCounts")?.getBoundingClientRect() ?? new DOMRect();
+    const chips = [...document.querySelectorAll("#marketCounts [data-market]")].map((chip) =>
+      chip.getBoundingClientRect(),
+    );
+    const shown = chips.filter((chip) => chip.top < strip.bottom);
+    return {
+      sideways: (document.getElementById("marketCounts")?.scrollWidth ?? 0) > Math.ceil(strip.width),
+      cut: shown.filter((chip) => chip.left < strip.left - 0.5 || chip.right > strip.right + 0.5).length,
+      shown: shown.length,
+      folded: chips.length - shown.length,
+      more: document.getElementById("moreMarkets")?.checkVisibility()
+        ? document.getElementById("moreMarkets")?.textContent
+        : null,
+    };
+  });
+
+for (const width of [1280, 1440])
+  test(`Leads folds the markets that do not fit into a +N chip at ${width}`, async (t) => {
+    const { browser, page } = await openBoard(width, 800, manyMarkets);
+    t.after(() => browser.close());
+    await capture(page, `leads-markets-${width}`);
+    const strip = await marketStrip(page);
+    assert.equal(strip.sideways, false, "the strip does not scroll sideways");
+    assert.equal(strip.cut, 0, "no market chip is cut off");
+    assert.ok(strip.shown >= 3 && strip.folded > 0, JSON.stringify(strip));
+    assert.equal(strip.more, `+${strip.folded}`);
+    await page.locator("#moreMarkets").click();
+    await capture(page, `leads-markets-${width}-open`);
+    const open = await marketStrip(page);
+    assert.deepEqual([open.folded, open.cut, open.more], [0, 0, "Fewer"], "+N shows every market");
+    assert.equal((await screen(page)).pageScroll, 0, "the page still does not scroll");
+  });
+
+// Two markets: the strip has room for both, so nothing folds.
+function twoMarkets() {
+  const board = fullBoard();
+  for (const [n, lead] of board.leads.entries()) Object.assign(lead, { city: n % 2 ? "Mobile" : "Destin" });
+  return board;
+}
+
+test("Leads shows a focused market chip's whole focus ring", async (t) => {
+  const { browser, page } = await openBoard(1280, 800, twoMarkets);
+  t.after(() => browser.close());
+  await page.keyboard.press("Tab");
+  await page.locator("#marketCounts [data-market]").first().focus();
+  const ring = await page.evaluate(() => {
+    const strip = document.getElementById("marketCounts");
+    const chip = strip?.querySelector("[data-market]");
+    if (!strip || !chip) throw new Error("no market chip");
+    const style = getComputedStyle(chip);
+    const reach = Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset);
+    const box = chip.getBoundingClientRect();
+    const clip = strip.getBoundingClientRect();
+    return {
+      outline: style.outlineStyle,
+      ring: { top: box.top - reach, left: box.left - reach, bottom: box.bottom + reach, right: box.right + reach },
+      clip: {
+        top: clip.top + strip.clientTop,
+        left: clip.left + strip.clientLeft,
+        bottom: clip.top + strip.clientTop + strip.clientHeight,
+        right: clip.left + strip.clientLeft + strip.clientWidth,
+      },
+    };
+  });
+  assert.notEqual(ring.outline, "none", "the chip shows a focus ring");
+  const inside =
+    ring.ring.top >= ring.clip.top &&
+    ring.ring.left >= ring.clip.left &&
+    ring.ring.bottom <= ring.clip.bottom &&
+    ring.ring.right <= ring.clip.right;
+  assert.ok(inside, `the strip does not clip the ring: ${JSON.stringify(ring)}`);
+  assert.equal(await page.locator("#moreMarkets").isHidden(), true, "nothing folds");
+  assert.equal(await page.locator("#moreMarkets").getAttribute("aria-label"), null, "a hidden +N chip has no label");
+});
+
 test("Leads keeps a usable stacked layout at 390x844", async (t) => {
   const { browser, page } = await openBoard(390, 844);
   t.after(() => browser.close());
