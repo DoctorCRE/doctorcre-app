@@ -22,6 +22,14 @@ test('live board, archived rows and detail preserve explicit vendor cards', asyn
   assert.deepEqual((await client.getDeal(row.id)).deal.vendors, vendors);
 });
 
+test('live detail keeps where each named record in its notes opens', async () => {
+  const record_links = [{ text: 'Demo Dental', url: '/relationships?node=party:demo-party' }];
+  const client = createLiveClient({ fetchImpl: async () => new Response(JSON.stringify({ result: { content: [{
+    text: JSON.stringify({ deal_id: 'demo-deal', name: 'Demo Deal', phase: 'legal', record_links }),
+  }] } })) });
+  assert.deepEqual((await client.getDeal('demo-deal')).record_links, record_links);
+});
+
 test("synthetic and live adapters satisfy the same DealRoomClient interface", async () => {
   const fixtureText = await readFile(new URL("../data/board-seed.json", import.meta.url), "utf8");
   const fixture = await createFixtureClient({seedUrl:`data:application/json;base64,${Buffer.from(fixtureText).toString("base64")}`});

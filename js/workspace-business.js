@@ -3,6 +3,7 @@ import { phoneLabel, withoutRecordCodes } from './visual-system.js';
 import { mountLocalTicker } from './visibility-poll.mjs';
 import { createPageBudget } from './read-budget.mjs';
 import { compareInstants } from './change-receipts.mjs';
+import { linkRecordNames } from './ui-record-links.generated.js';
 import { pageDocContext, selectDocRecord, setDocFilters } from './doc-context.js';
 import { fetchRead, mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 // Clients and Vendors: the browser half of the Journey 1 business read.
@@ -668,10 +669,10 @@ function containPanelFocus(event) {
   focusWithoutScrolling(target === "first" ? stops[0] : stops[stops.length - 1]);
 }
 
-function clientNote(saved) {
-  const note = clientNoteText(saved);
+function clientNote({ notes, record_links }) {
+  const note = clientNoteText(notes);
   if (!note) return "";
-  return `<section class="record-section client-note"><h3>Notes</h3><p class="entry-detail">${escapeHtml(note)}</p><details class="record-details" data-details-key="notes"><summary><span>More</span><span>Less</span></summary></details></section>`;
+  return `<section class="record-section client-note"><h3>Notes</h3><p class="entry-detail">${linkRecordNames(note, record_links)}</p><details class="record-details" data-details-key="notes"><summary><span>More</span><span>Less</span></summary></details></section>`;
 }
 
 function renderRecordPanel() {
@@ -735,7 +736,7 @@ function renderRecordPanel() {
     // A redraw keeps focus on the record action that had it, such as Edit after a save.
     const actions = () => [...dom.panelBody.querySelectorAll(".party-record-actions button")];
     const action = actions().indexOf(document.activeElement);
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${partyEditor?.actionsHtml() ?? ""}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record.notes) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${partyEditor?.actionsHtml() ?? ""}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
     if (action >= 0) focusWithoutScrolling(actions()[action]);
