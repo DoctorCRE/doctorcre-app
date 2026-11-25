@@ -241,6 +241,8 @@ test('Back restores a typed search and scope, and clearing removes it', async t 
   const destination = await result.getAttribute('href');
   await page.route(`**${destination}`, route => route.fulfill({ contentType: 'text/html', body: '<title>Record</title>' }));
   await result.click();
+  // Back sent while the record page is still loading reaches a document Chromium is detaching.
+  await page.waitForURL(new URL(destination, server.origin).href);
   await page.goBack();
   await page.waitForFunction(() => document.querySelector('#searchQuery')?.value === 'Demo', null, { timeout: 3000 });
   await page.locator(`#searchChips [data-chip="${selected}"][aria-pressed="false"]`).waitFor();
@@ -461,4 +463,33 @@ test('The search control opens a lead in its Leads drawer', async t => {
   await page.getByRole('option', { name: `${lead.doctor_name} Contact`, exact: true }).click();
   await page.waitForURL(`${server.origin}/leads?lead=${lead.id}`);
   await page.locator('#leadDetail #detailTitle').and(page.getByRole('heading', { name: lead.doctor_name, exact: true })).waitFor();
+});
+
+test('Search holds still on a computer: one title, one-line rows, results scroll under the search box', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1280, height: 640 } });
+  const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const parties = Array.from({ length: 30 }, (_, n) => ({ id: id(n + 1), name: `Demo Practice ${n + 1}`, kind: 'company', roles: ['client'], city: 'Demo City', lead_id: null, deals: [] }));
+  await page.route('**/mcp', route => {
+    const { id: rid, params } = route.request().postDataJSON();
+    const payload = params.name === 'find' ? { schema_version: 'search.v1', parties, deals: [] } : {};
+    return route.fulfill({ json: { jsonrpc: '2.0', id: rid, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
+  });
+  await page.route('**/{auth/session,api/system-work/session}', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  await page.goto(`${server.origin}/search?mode=live&q=Demo`);
+  await page.locator('#searchCount').filter({ hasText: '30 results' }).waitFor();
+  const titles = await page.getByRole('heading', { name: 'Search', exact: true }).evaluateAll(nodes => nodes.filter(node => node.checkVisibility()).map(node => node.closest('#appTopbar') !== null));
+  assert.deepEqual(titles, [true], 'the title shows once, in the top bar');
+  const row = page.locator('.search-row').first();
+  const [name, meta] = await Promise.all([row.locator('h3').boundingBox(), row.locator('p').boundingBox()]);
+  assert.ok(Math.abs(name.y + name.height / 2 - (meta.y + meta.height / 2)) < 4, 'name and roles share one line');
+  const box = await page.locator('#searchQuery').boundingBox();
+  await page.locator('.search-row').last().scrollIntoViewIfNeeded();
+  assert.equal(await page.evaluate(() => document.scrollingElement.scrollTop), 0);
+  assert.deepEqual(await page.locator('#searchQuery').boundingBox(), box, 'the search box stays put');
+  assert.ok(await page.locator('#saveViewButton').isVisible());
+  assert.ok((await page.locator('#saveViewButton').boundingBox()).y + 32 <= 640);
 });
