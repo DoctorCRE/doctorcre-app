@@ -40,21 +40,33 @@ test("a signature with no sign-off folds below the sender's name line", () => {
 });
 
 test("a one-line body folds the contact details after the last sentence and the sender's name", () => {
-  const signature = `Senior Broker, Example Realty Group 100 Main St, Suite 200 Austin, TX 78701 ${contacts} pat@example.test`;
-  for (const signedOff of ["Thanks, Pat Example", "Thanks again, Pat", "Pat Example"])
+  const address = "100 Main St, Suite 200 Austin, TX 78701";
+  const signature = `${address} ${contacts} pat@example.test`;
+  for (const [signedOff, folded] of [
+    ["Thanks, Pat Example Senior Broker, Example Realty Group", signature],
+    ["Thanks again, Pat Senior Broker, Example Realty Group", signature],
+    ["Pat Example", `Senior Broker, Example Realty Group ${signature}`],
+  ])
     assert.deepEqual(
-      splitSignature(`Hi Joe, Can you send the east suite plan? ${signedOff} ${signature}`, "Pat Example"),
-      {
-        text: `Hi Joe, Can you send the east suite plan? ${signedOff}`,
-        signature,
-      },
+      splitSignature(`Hi Joe, Can you send the east suite plan? ${signedOff} ${folded}`, "Pat Example"),
+      { text: `Hi Joe, Can you send the east suite plan? ${signedOff}`, signature: folded },
     );
 });
 
-test("a one-line body folds the name too when it isn't the sender's", () => {
+test("a one-line body keeps every word after the sign-off up to the first contact detail", () => {
+  const signature = "555-010-0100 sender@example.test";
+  for (const [sender, text] of [
+    ["Rob Example", "Thanks, Robert"],
+    ["Rob Example", "The lease is signed. Thanks, Robert Example"],
+    ["Pat Example", "Done. Thanks, Patricia"],
+    ["Pat Example", "Best, Pat Q. Example VP"],
+    ["Pat Example", "Thanks, Pat Example-Smith"],
+  ] as const)
+    assert.deepEqual(splitSignature(`${text} ${signature}`, sender), { text, signature });
+  assert.equal(splitSignature(`Thanks, Pat Example | ${signature}`, "Pat Example").text, "Thanks, Pat Example");
   assert.deepEqual(splitSignature(`The lease is signed. Thanks, Robert Example ${contacts}`, "Rob Example"), {
-    text: "The lease is signed. Thanks,",
-    signature: `Robert Example ${contacts}`,
+    text: "The lease is signed. Thanks, Robert Example",
+    signature: contacts,
   });
 });
 

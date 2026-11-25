@@ -31,8 +31,13 @@ const signOff = new RegExp(String.raw`^(?:${signOffs.join("|")})(?:[,.!]|(?=[^\S
 const reachableSource = String.raw`\(?\b\d{3}\)?[\s.-]*\d{3}[\s.-]\d{4}\b|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?:\/\/|www\.)\S+|\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|co|io|us)\b(?:\/\S*)?`;
 const reachable = new RegExp(reachableSource, "i");
 const everyReachable = new RegExp(reachableSource, "gi");
-const contactLabel =
-  /\b(?:(?:phone|tel|cell|mobile|fax|office|direct|email|e-mail|web|ext|x)\b\s*[:.]?|[pfmcote]\s*[:.)])/gi;
+const contactLabelSource = String.raw`\b(?:(?:phone|tel|cell|mobile|fax|office|direct|email|e-mail|web|ext|x)\b\s*[:.]?|[pfmcote]\s*[:.)])`;
+const contactLabel = new RegExp(contactLabelSource, "gi");
+const streetAddress = String.raw`\b\d{1,6}(?:[^\S\n]+[\w'.-]+){1,4}?[^\S\n]+(?:st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|way|ct|court|pkwy|parkway|hwy|highway|pl|place|cir|circle)\b`;
+const firstContactDetail = new RegExp(
+  String.raw`(?:${contactLabelSource}[^\S\n]*)?(?:${reachableSource}|${streetAddress})`,
+  "i",
+);
 const lowercaseWord = /(?:^|[\s,|·•/(])(?!(?:of|and|the|at|for|in|on|by|de|la)\b)[a-z]/;
 // Bodies decoded before line breaks were kept are one line, so a sentence end also starts a new part.
 const sentenceOrLineBreak = /(?<=[.?!])\s+|\s*\n\s*/g;
@@ -50,18 +55,22 @@ function senderName(rest: string, sender: string | null) {
   );
 }
 
-function nameLength(rest: string, sender: string | null) {
+/** A sign-off's name and title: its whole line when contact details start below it, else the words before the first one. */
+function signerLength(rest: string) {
   const [line = ""] = rest.split("\n", 1);
-  if (line.length < rest.length && !reachable.test(line)) return line.length;
-  return senderName(rest, sender)?.length ?? 0;
+  const contact = line.search(firstContactDetail);
+  return contact === -1 ? line.length : line.slice(0, contact).replace(/[\s|·•,;:/(-]+$/u, "").length;
 }
 
 /** Where a signature that opens at `start` would fold: after its sign-off and name, or after the sender's name. */
 function anchorEnd(body: string, start: number, sender: string | null): number | null {
   const rest = body.slice(start);
   const signedOff = rest.match(signOff)?.[0].length;
-  if (signedOff !== undefined) return start + signedOff + nameLength(rest.slice(signedOff), sender);
-  return senderName(rest, sender) ? start + nameLength(rest, sender) : null;
+  if (signedOff !== undefined) return start + signedOff + signerLength(rest.slice(signedOff));
+  const name = senderName(rest, sender);
+  if (!name) return null;
+  const [line = ""] = rest.split("\n", 1);
+  return start + (line.length < rest.length && !reachable.test(line) ? line.length : name.length);
 }
 
 /** Folds the contact details after a message's sign-off or sender's name; with neither, or with writing after them, nothing folds. */
