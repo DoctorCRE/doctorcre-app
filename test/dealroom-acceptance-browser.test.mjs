@@ -1701,7 +1701,7 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   const openAccount = () => page.getByRole('button', { name: /Example National Account/ }).click();
   const row = page.getByRole('row').filter({ hasText: deal.name });
   await page.goto(accountUrl);
-  assert.ok(await page.getByRole('button', { name: 'Local Deals', exact: true }).isVisible());
+  assert.ok(await page.getByRole('link', { name: 'Local Deals', exact: true }).isVisible());
   await openAccount();
   assert.equal(await row.getByRole('button').first().getAttribute('aria-label'), `Flag for attention on ${deal.name}`);
   assert.match(await page.locator('#stats').innerText(), /2 active work · 1 overdue dates · 1 at closing/);
@@ -1741,17 +1741,17 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await page.reload();
   await row.waitFor({ timeout: 5000 });
   await page.locator('#boardSection').screenshot({ path: join(evidence, `national-account-${width}.png`) });
-  const attentionFilter = page.getByRole('button', { name: 'Needs attention', exact: true });
-  await attentionFilter.click();
+  const show = page.getByLabel('Show', { exact: true });
+  await show.selectOption({ label: 'Needs attention' });
   assert.equal(await row.count(), 0);
-  await page.getByRole('button', { name: 'Active', exact: true }).click();
+  await show.selectOption({ label: 'Active' });
   await mark.click();
   const clear = row.getByRole('button', { name: `Clear needs attention on ${deal.name}`, exact: true });
   await clear.waitFor();
-  await attentionFilter.click();
+  await show.selectOption({ label: 'Needs attention' });
   await clear.click();
   await row.waitFor({ state: 'detached' });
-  await page.getByRole('button', { name: 'Active', exact: true }).click();
+  await show.selectOption({ label: 'Active' });
   await mark.waitFor();
   assert.deepEqual(writes, [{ needs_attention: true }, { needs_attention: false }]);
   assert.equal(undoModuleReads, 0);
@@ -2151,7 +2151,7 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   await page.getByRole('button', { name: 'Add deal', exact: true }).click();
   await clientInput.fill('Example Pra');
   await dialog.getByRole('link', { name: 'Open account', exact: true }).click();
-  await page.locator('#accountContextName').getByText('Example National Account', { exact: true }).waitFor();
+  await page.locator('#workspaceTitle').getByText('Example National Account', { exact: true }).waitFor();
   assert.equal(writes.length, 7, 'opening an account does not save a deal');
 });
 
@@ -2245,7 +2245,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
   await page.getByLabel('Assigned local agent').waitFor();
   savesOn = true;
   await page.reload();
-  await page.locator('#accountContextName').getByText('Example National Account', { exact: true }).waitFor();
+  await page.locator('#workspaceTitle').getByText('Example National Account', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Previous Agent' }).click();
   assert.equal(await page.locator('#dialogTitle').textContent(), 'Market agent — Example Market Deal');
   assert.equal(await page.getByText('Current agent: Previous Agent', { exact: true }).isVisible(), true);

@@ -41,9 +41,9 @@ for (const width of [390, 1280]) for (const theme of ['dark', 'light']) {
     }));
     assert.ok(phases.length > 0);
     assert.ok(phases.every(phase => phase.width >= phase.needed), JSON.stringify(phases));
-    assert.equal(await page.locator('#boardSection h1').count(), 1, 'the main detail names the selected national account');
-    assert.equal(await page.locator('#boardSection h1').innerText(), accountName);
-    assert.equal(await page.locator('#accountContextOwner').innerText(), owner);
+    assert.equal(await page.locator('h1').count(), 1, 'the account is named once, in the top bar');
+    assert.equal(await page.locator('#workspaceTitle').innerText(), accountName);
+    assert.equal(await page.locator('#ownerButton').innerText(), owner);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   });
 }

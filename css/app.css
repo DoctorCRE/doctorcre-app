@@ -35,21 +35,12 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 
 /* ------------------------------------------------------------ page head */
 .shell { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-5) var(--space-7); }
-.hero { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-5); margin-bottom: var(--space-5); }
-.hero h1 { margin: 0; font-size: var(--font-size-4); }
-.subhead { margin: var(--space-1) 0 0; color: var(--fg-muted); font-size: var(--font-size-1); }
-.subhead:empty { display: none; }
-.hero-actions { display: flex; gap: var(--space-2); }
-.hero-actions > a { display: inline-grid; place-items: center; text-decoration: none; }
 .workspaces, .page-views { display: flex; gap: var(--space-1); }
 .workspace { min-height: var(--touch); padding: var(--space-2) var(--space-4); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
 .workspace:hover { color: var(--fg); background: var(--surface-2); }
 .workspace.on { background: var(--surface-3); color: var(--fg); }
-.back-link { padding: var(--space-2) 0; border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
+.back-link { min-height: var(--touch); padding: var(--space-2) 0; border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); white-space: nowrap; }
 .back-link:hover { color: var(--fg); }
-
-.account-context { margin-bottom: var(--space-5); }
-.account-context h1 { margin: 0; font-size: var(--font-size-4); overflow-wrap: anywhere; }
 .show-closed-deals > :is(#stats, #focusStrip, #boardSticky, #tableFrame) { display: none; }
 
 /* Buttons: one primary (the accent), a quiet secondary, a text button. */
@@ -91,11 +82,14 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 /* ------------------------------------------------------------ toolbar and table */
 .board-sticky { position: sticky; top: 0; z-index: 39; margin: 0 -2px; padding: var(--space-2) 2px 0; background: var(--ground); }
 .toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
-.filters { display: flex; gap: var(--space-1); min-width: 0; flex: 0 1 auto; padding: 2px; overflow: auto; }
-.filter { min-height: var(--touch); padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid transparent; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); white-space: nowrap; }
-.filter:hover { color: var(--fg); background: var(--surface-2); }
-.filter.on { border-color: var(--hairline-strong); background: var(--surface-3); color: var(--fg); }
-.search-wrap { position: relative; min-width: min(260px, 28vw); margin-left: auto; }
+/* One toolbar row under the top bar: the account, the filter, search, the actions and freshness. */
+#appToolsSlot > #openDealToolbar { flex: 1 1 auto; }
+#openDealToolbar > :is(button, a, select) { flex: none; min-height: var(--touch); white-space: nowrap; }
+#openDealToolbar .secondary { display: inline-grid; place-items: center; padding-inline: var(--space-3); text-decoration: none; }
+.deal-filter { max-width: 10rem; padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font-size: var(--font-size-1); }
+#appToolsSlot #openDealToolbar > [data-layout-slot="status"] { margin-left: auto; }
+#appToolsSlot #openDealToolbar .search-wrap input { width: 100%; max-width: none; }
+.search-wrap { position: relative; flex: 1 1 8rem; min-width: 8rem; max-width: 16rem; }
 .search-wrap input { width: 100%; min-height: var(--touch); padding: var(--space-2) var(--space-7) var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); }
 .search-wrap kbd { position: absolute; right: var(--space-3); top: 50%; transform: translateY(-50%); padding: 0 var(--space-1); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-1); color: var(--fg-muted); font: var(--font-size-1) var(--font-mono); }
 .sticky-add-button { flex: 0 0 auto; white-space: nowrap; }
@@ -154,6 +148,15 @@ tr.parked { color: var(--fg-muted); }
 .park-button { min-height: var(--touch); padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
 .park-button:hover, .park-button:focus { background: var(--surface-2); color: var(--fg); }
 tr.parked .park-button { border-color: var(--hairline-strong); color: var(--fg); }
+/* Quiet rows: a row's own controls show on hover or keyboard focus. Touch screens keep them. */
+#rows .row-actions { display: table-cell; text-align: right; white-space: nowrap; }
+#rows .row-actions > * + * { margin-left: var(--space-2); }
+@media (hover: hover) {
+  #rows .row-actions > :not([data-retry-write]) { opacity: 0; transition: opacity var(--duration-hover) var(--ease-out); }
+  #rows tr:is(:hover, :focus-within) .row-actions > * { opacity: 1; }
+  /* The hidden arrow keeps its room, so hovering a row does not shift it. */
+  #rows tr:not(:hover, :focus-within) .cell-select { appearance: none; padding-inline-end: calc(var(--space-2) + 20px); }
+}
 .empty { padding: var(--space-7) var(--space-5); color: var(--fg-muted); font-size: var(--font-size-1); text-align: center; }
 .parking-banner { display: grid; gap: var(--space-1); margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4); border-left: 3px solid var(--status-warn); border-radius: var(--radius-2); background: var(--surface-1); font-size: var(--font-size-1); }
 .parking-banner b { font-weight: var(--font-weight-strong); }
@@ -353,29 +356,24 @@ body.has-app-layout:has(#confirmDock:not([hidden])) .toast { bottom: calc(var(--
 
 /* ------------------------------------------------------------ phone */
 /* QA batch 1: at phone width the strips scroll inside their own regions, never the page. */
-.shell, .hero > div, .toolbar, .board-sticky, #boardSection { min-width: 0; max-width: 100%; }
-.focus, .filters, .table-frame, .app-section-tabs, .deal-page-views { max-width: 100%; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--hairline-strong) transparent; }
-.focus::-webkit-scrollbar, .filters::-webkit-scrollbar, .table-frame::-webkit-scrollbar { height: 8px; background: transparent; }
-.focus::-webkit-scrollbar-thumb, .filters::-webkit-scrollbar-thumb, .table-frame::-webkit-scrollbar-thumb { border-radius: 8px; background: var(--hairline-strong); }
+.shell, .toolbar, .board-sticky, #boardSection { min-width: 0; max-width: 100%; }
+.focus, .table-frame, .app-section-tabs, .deal-page-views { max-width: 100%; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--hairline-strong) transparent; }
+.focus::-webkit-scrollbar, .table-frame::-webkit-scrollbar { height: 8px; background: transparent; }
+.focus::-webkit-scrollbar-thumb, .table-frame::-webkit-scrollbar-thumb { border-radius: 8px; background: var(--hairline-strong); }
 
 @media (max-width: 900px) {
   .shell { padding-top: var(--space-4); }
   .stats { grid-template-columns: repeat(2, 1fr); }
-  .toolbar { flex-direction: column; align-items: stretch; }
-  .search-wrap { width: 100%; min-width: 0; margin: 0; }
   .sticky-table-header span { padding: var(--space-2); }
   .deal-summary { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 680px) {
   html, body { max-width: 100%; overflow-x: clip; }
   .shell { padding: var(--space-4) var(--space-4) 84px; }
-  .hero { flex-direction: column; align-items: stretch; }
-  .hero-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .stats { gap: var(--space-2); }
   .stat { padding: var(--space-3); }
   .stat strong { font-size: var(--font-size-3); }
   .board-sticky { margin-inline: calc(var(--space-4) * -1); padding: var(--space-2) var(--space-4) 0; }
-  .filters { margin: 0 -2px; }
   .focus-item { max-width: 80vw; }
   .sticky-table-header { display: none; }
   .table-frame { overflow: visible; border-radius: 0; background: transparent; }
@@ -404,7 +402,8 @@ body.has-app-layout:has(#confirmDock:not([hidden])) .toast { bottom: calc(var(--
   .toast { width: calc(100vw - 20px); text-align: center; }
   .agenda-panel { padding: var(--space-4); }
   .call-mode-starts { grid-template-columns: 1fr; }
-  .sticky-add-button { width: 100%; }
+  #openDealToolbar { gap: var(--space-2); padding-block: var(--space-2); }
+  .search-wrap { max-width: none; }
   .post-call { margin: 0 var(--space-3) var(--space-4); padding: var(--space-3); }
   .post-call-heading { align-items: center; }
   .post-call-status { align-items: flex-start; flex-wrap: wrap; }

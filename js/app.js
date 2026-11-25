@@ -365,29 +365,20 @@ function render() {
 }
 
 function renderChrome() {
-  $$('.workspace').forEach((button) => {
-    const active = button.dataset.workspace === state.workspace;
-    button.classList.toggle('on', active);
-    if (active) button.setAttribute('aria-current', 'page');
-    else button.removeAttribute('aria-current');
-  });
-  $$('.filter').forEach((button) => button.classList.toggle('on', button.dataset.filter === state.filter));
+  $('#dealFilter').value = state.filter;
   const selected = account();
   const isAccountHome = state.workspace === 'national_account' && !state.accountId && !state.query;
   $('#accountBack').hidden = !state.accountId;
-  $('#accountContext').hidden = !state.accountId || Boolean(state.query);
-  $('#accountContextName').textContent = selected?.account_name || 'National account';
-  $('#accountContextOwner').textContent = selected ? `Owned by ${actorName(selected.account_owner)}` : '';
   // Never print the partners' names as a label: the team is both partners by
   // definition, so the combined list is just "Deals". The team view carries no
   // description sentence under its title (2026-09-16 review).
   $('#workspaceTitle').textContent = state.query ? 'Search results' : state.workspace === 'team' ? 'Deals'
     : selected?.account_name || 'National Accounts';
-  $('#workspaceSubtitle').textContent = state.query ? 'Searching deals across the territory and every national account.' : '';
   const addLabel = state.workspace === 'national_account' ? (selected ? 'Add market deal' : 'Add national account') : 'Add deal';
   $('#stickyAddButton').textContent = `+ ${addLabel}`;
   $('#stickyAddButton').setAttribute('aria-label', addLabel);
-  $('#ownerButton').hidden = !selected;
+  $('#ownerButton').hidden = !selected || Boolean(state.query);
+  $('#ownerButton').textContent = selected ? `Owned by ${actorName(selected.account_owner)}` : '';
   renderAgendaView();
   const agentHeading = state.workspace === 'national_account' ? 'Market agent' : 'Owner';
   $('#agentHeading').textContent = agentHeading;
@@ -398,8 +389,9 @@ function renderChrome() {
   const closed = Boolean(showAccountViews && state.accountView === 'closed');
   $$('#accountDealViews button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.accountView === state.accountView)));
   $('#closedDealsView').hidden = !closed;
-  $('#openDealPageViews').hidden = closed;
-  $('#openDealToolbar').hidden = closed;
+  // The filter and search narrow open deals; account cards and closed deals do not use them.
+  $('#dealFilter').hidden = isAccountHome || closed;
+  $('#search').closest('.search-wrap').hidden = closed;
   $('#boardSection').hidden = isAccountHome;
   $('#boardSection').classList.toggle('show-closed-deals', closed);
 }
@@ -1768,17 +1760,10 @@ async function finishAgenda(status = 'completed') {
 function wireEvents() {
   document.addEventListener('click', async (event) => {
     try {
-    const workspace = event.target.closest('[data-workspace]');
-    if (workspace) {
-      state.workspace = workspace.dataset.workspace;
-      state.accountId = null; state.accountView = 'open'; state.filter = 'active'; state.deepLinkMine = false; state.query = ''; $('#search').value = '';
-      history.pushState({ dealView: state.workspace }, '', state.workspace === 'team' ? '/deals' : '/deals?view=national');
-      render(); return;
-    }
     if (event.target.closest('[data-clear-search]')) {
       state.query = ''; $('#search').value = '';
       render();
-      const target = state.accountId ? $('#accountContextName')
+      const target = state.accountId ? $('#workspaceTitle')
         : $('#accountGrid:not([hidden]) [data-account]') || $('#rows .deal-link') || $('#workspaceTitle');
       target.focus({ preventScroll: true });
       return;
@@ -1810,7 +1795,6 @@ function wireEvents() {
       return;
     }
     const agent = event.target.closest('[data-market-agent]'); if (agent) { marketAgentForm(agent.dataset.marketAgent); return; }
-    const filter = event.target.closest('[data-filter]'); if (filter) { state.filter=filter.dataset.filter; state.deepLinkMine = false; $$('.filter').forEach((b)=>b.classList.toggle('on',b===filter)); renderBoardOnly(); return; }
     if (event.target.closest('[data-close-deal]')) { $('#dealDialog').close(); return; }
     const undoButton = event.target.closest('[data-undo]'); if (undoButton) { await runUndo(undoButton.dataset.undo, undoButton); return; }
     const retry = event.target.closest('[data-screen-retry]'); if (retry) { await screenActions.get(retry.dataset.screenRetry)?.run(); return; }
@@ -1838,6 +1822,7 @@ function wireEvents() {
         await openDeal(id, { close: true });
       } else await patchField(id, 'phase', phase);
     }
+    if (event.target.id === 'dealFilter') { state.filter = event.target.value; state.deepLinkMine = false; renderBoardOnly(); }
     if (event.target.matches('[data-owner]')) await patchField(event.target.dataset.owner,'owner',event.target.value || null);
   });
 

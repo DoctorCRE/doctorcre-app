@@ -214,7 +214,7 @@ for (const width of [1440, 390]) {
       [national, "#syncStatus"],
     ] as const) {
       await page.goto(server.url + path);
-      const stamp = page.locator(`#appMainSlot ${footer}`);
+      const stamp = page.locator(`:is(#appMainSlot, #appToolsSlot) ${footer}`);
       await expect(stamp).toBeVisible();
       await expect(stamp).toHaveText(updated);
       if (process.env.DEALS_REFRESH_SCREENSHOTS) {

@@ -18,49 +18,24 @@
   <link rel="stylesheet" href="/css/app-shell.css">
   <link rel="stylesheet" href="/css/watches.css">
 </head>
-<body>
+<body class="dealroom-page">
   <script src="/js/theme-boot.js"></script>
   <div id="appShell"></div><script type="module" src="/js/app-shell.js"></script>
   <a class="skip" href="#main">Skip to deals</a>
-  <div data-layout-slot="status">
-    <span class="deployment-badge" id="deploymentBadge" data-mode="unknown" role="status" aria-live="polite">Checking environment…</span>
-    <div class="top-actions">
-      <span class="sync" id="syncStatus" role="status">Checking connection…</span>
-      <span class="capture" id="captureStatus" hidden>Capture inactive</span>
-    </div>
-  </div>
 
   <div class="offline" id="offlineBanner" role="status" hidden>You’re offline. Your current view is still readable; editing will resume when the connection returns.</div>
 
   <main id="main" class="shell">
-    <section data-layout-slot="sidebar" class="hero" aria-labelledby="workspaceTitle">
-      <div>
-        <h1 id="workspaceTitle" tabindex="-1">Deals</h1>
-        <nav data-layout-slot="tabs" class="page-views" aria-label="Deals pages">
-          <button type="button" class="workspace on" data-workspace="team" aria-current="page">Local Deals</button>
-          <button type="button" class="workspace" data-workspace="national_account">National Accounts</button>
-        </nav>
-        <p class="subhead" id="workspaceSubtitle"></p>
-      </div>
-      <div class="hero-actions">
-        <button type="button" class="secondary" id="ownerButton" hidden>Change owner</button>
-        <button type="button" class="primary" id="agendaButton">Review deals</button>
-        <a class="primary" id="mondayReviewLink" href="/deals?view=review" hidden>Monday review</a>
-      </div>
-    </section>
-
-    <div id="openDealPageViews" data-layout-slot="tabs" class="page-views" role="group" aria-label="Deal view">
-      <span class="deal-page-view-current" aria-current="page">List</span>
-      <a href="/deals?view=board">Board</a>
-    </div>
-
-    <button type="button" class="back-link" id="accountBack" hidden>← All national accounts</button>
+    <h1 id="workspaceTitle" data-layout-slot="title" tabindex="-1">Deals</h1>
+    <nav data-layout-slot="tabs" class="page-views" aria-label="Deals pages">
+      <a class="workspace" href="/deals">Local Deals</a>
+      <a class="workspace on" href="/deals?view=national" aria-current="page">National Accounts</a>
+    </nav>
 
     <section class="account-grid" id="accountGrid" aria-label="National accounts" hidden></section>
 
     <section id="boardSection">
-      <header class="account-context" id="accountContext" hidden><div><h1 id="accountContextName" tabindex="-1"></h1><p id="accountContextOwner" class="subhead"></p></div></header>
-      <div id="accountDealViews" class="chip-bar" role="group" aria-label="Account deal view" hidden>
+      <div id="accountDealViews" data-layout-slot="tabs" class="page-views" role="group" aria-label="Account deal view" hidden>
         <button class="chip" type="button" data-account-view="open" aria-controls="tableFrame" aria-pressed="true">Open deals</button>
         <button class="chip" type="button" data-account-view="closed" aria-controls="closedDealsView" aria-pressed="false">Closed deals</button>
       </div>
@@ -76,23 +51,35 @@
 
       <div class="board-sticky" id="boardSticky">
         <div id="openDealToolbar" data-layout-slot="sidebar" class="toolbar">
-          <div class="filters" role="group" aria-label="Filter deals">
-            <button type="button" class="filter on" data-filter="active">Active</button>
-            <button type="button" class="filter" data-filter="mine">Mine</button>
-            <button type="button" class="filter" data-filter="attention">Needs attention</button>
-            <button type="button" class="filter" data-filter="flagged">Flagged</button>
-            <button type="button" class="filter" data-filter="stale">Gone quiet</button>
-            <button type="button" class="filter" data-filter="missing">Missing next step</button>
-            <button type="button" class="filter" data-filter="delta">Changed since review</button>
-            <button type="button" class="filter" data-filter="parked">Parked</button>
-          </div>
+          <button type="button" class="back-link" id="accountBack" hidden>← All national accounts</button>
+          <button type="button" class="secondary" id="ownerButton" hidden></button>
+          <label class="sr-only" for="dealFilter">Show</label>
+          <select id="dealFilter" class="deal-filter">
+            <option value="active">Active</option>
+            <option value="mine">Mine</option>
+            <option value="attention">Needs attention</option>
+            <option value="flagged">Flagged</option>
+            <option value="stale">Gone quiet</option>
+            <option value="missing">Missing next step</option>
+            <option value="delta">Changed since review</option>
+            <option value="parked">Parked</option>
+          </select>
           <button type="button" class="receipts-jump" id="receiptsJump" aria-label="Go to recent changes" hidden>Recent changes<span class="receipts-count" id="receiptsCount">0</span></button>
           <label class="search-wrap">
             <span class="sr-only">Search deals</span>
             <input id="search" type="search" autocomplete="off" placeholder="Search deals…" data-slash-search>
             <kbd>/</kbd>
           </label>
+          <button type="button" class="primary" id="agendaButton">Review deals</button>
+          <a class="secondary" id="mondayReviewLink" href="/deals?view=review" hidden>Monday review</a>
           <button type="button" class="primary sticky-add-button" id="stickyAddButton" aria-label="Add deal">+ Add deal</button>
+          <div data-layout-slot="status">
+            <span class="deployment-badge" id="deploymentBadge" data-mode="unknown" role="status" aria-live="polite">Checking environment…</span>
+            <div class="top-actions">
+              <span class="sync" id="syncStatus" role="status">Checking connection…</span>
+              <span class="capture" id="captureStatus" hidden>Capture inactive</span>
+            </div>
+          </div>
         </div>
         <div class="sticky-table-header" aria-hidden="true">
           <span>Deal</span><span>Phase</span><span>Next step</span><span>Next date</span>
