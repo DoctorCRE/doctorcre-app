@@ -7,7 +7,8 @@
 :is(html, .app-layout-main):has(.business-shell) { --search-dock-top: calc(var(--tabbar-height) + var(--space-4)); scroll-padding-top: calc(var(--search-dock-top) + var(--search-dock-height, 0px) + 1px); }
 /* A sticky dock inside the main region sits below its padding; scroll padding does not. */
 .app-layout-main:has(.business-shell) { scroll-padding-top: calc(var(--pad) + var(--search-dock-top) + var(--search-dock-height, 0px) + 1px); }
-.business-shell { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 var(--space-2); max-width: none; width: 100%; }
+/* Layout keys on the shell's own width, since Today can take a third of the window. */
+.business-shell { container-type: inline-size; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 var(--space-2); max-width: none; width: 100%; }
 .business-shell > * { flex: 1 0 100%; min-width: 0; }
 .hero-meta { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); margin-inline-start: auto; }
 .observed { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
@@ -17,14 +18,11 @@
 
 /* --- search and filters: one sticky toolbar row --------------------------- */
 .search-dock { position: sticky; top: var(--search-dock-top); z-index: 20; display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-3); }
-/* Each control names itself by its placeholder or first option; the label stays for assistive tech. */
-.search-dock .field label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .search-dock .hero-meta { order: 1; }
-.search-dock .observed { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .field-search { flex: 1 1 10rem; max-width: 16rem; }
 #secondaryFilters > summary { display: none; }
 .filter-form, .filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.filter-form .field select, .territory-field input { width: auto; max-width: 9rem; }
+.filter-form .field { flex: 1 1 7rem; }
 .quiet-vendors-host { position: relative; }
 .quiet-vendors-idle .action { margin: 0; }
 .quiet-vendors.quiet-vendors-idle { margin-bottom: var(--space-2); }
@@ -34,7 +32,6 @@
 .field input::placeholder { color: var(--fg-quiet); }
 .field input:hover, .field select:hover { border-color: var(--fg-quiet); }
 .field input:focus-visible, .field select:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
-.territory-field { flex: 0 1 auto; }
 .territory-field[hidden] { display: none; }
 .filter-actions { display: flex; gap: var(--space-2); }
 .filter-actions .action { margin-top: 0; }
@@ -199,14 +196,11 @@ body.record-open { overflow: hidden; }
 }
 @media (max-width: 767px) {
   .business-shell { padding-top: var(--space-3); padding-inline: var(--space-4); }
-  .business-hero { margin-bottom: var(--space-3); }
-  .business-hero #pageTitle { font-size: var(--font-size-4); }
   :is(html, .app-layout-main):has(.business-shell) { --search-dock-top: calc(var(--tabbar-height) + var(--space-2)); }
   .search-dock { padding: var(--space-2) var(--space-3); }
   .field input, .field select { font-size: var(--font-size-2); }
   .filter-form { gap: var(--space-2); padding: 0; }
   .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
-  .search-dock .field label, .filter-form .field label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .filter-row-actions { gap: var(--space-2); }
   .filter-row-actions .territory-field { order: -1; flex-basis: 100%; max-width: none; }
   .filter-row-actions .scope-switch { flex: 1 1 auto; width: auto; }
@@ -340,11 +334,15 @@ dialog.party-editor::backdrop { background: var(--scrim); }
 
 @media (min-width: 768px) {
   .app-layout-main:has(.business-shell) { --search-dock-top: 0px; }
+}
+@container (min-width: 40rem) {
   .search-dock { margin-bottom: var(--space-2); padding: var(--space-1); }
   :is(.search-dock, .quiet-vendors-idle) :is(input, select, button) { min-height: 36px; padding-block: var(--space-1); }
   .quiet-vendors-host:has(.quiet-vendors-idle) { position: sticky; top: 0; z-index: 20; flex: none; padding-block: var(--space-1); }
   .quiet-vendors.quiet-vendors-idle { margin: 0; }
-  #secondaryFilters { flex: 0 1 auto; min-width: 0; }
+  /* The filters take the free width so the toolbar stays one line wherever it fits. */
+  .field-search { flex-grow: 0; }
+  #secondaryFilters { flex: 1 1 0; min-width: 0; }
   .filter-row { display: contents; }
   /* Filters and search apply as they change, so Apply adds nothing here. */
   #applyFilters { display: none; }
@@ -358,7 +356,7 @@ body[data-directory="clients"] #applyFilters { display: none; }
 .app-layout-tabs .scope-option { min-width: 0; }
 .app-layout-main:has(.business-shell) { padding-top: var(--space-2); }
 /* One line per vendor at desktop, each fact in its own column so the rows line up. */
-@media (min-width: 1101px) {
+@container (min-width: 66rem) {
   body[data-directory="vendors"] .record-row, body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-columns: minmax(14rem, 1.2fr) minmax(0, 3fr) minmax(10rem, auto) minmax(5rem, auto); grid-template-areas: "head facts note foot"; align-items: center; min-height: 0; padding-block: var(--space-2); }
   body[data-directory="vendors"] .row-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   body[data-directory="vendors"] [data-fact="Category"] { grid-column: 1; }
@@ -370,6 +368,3 @@ body[data-directory="vendors"] .record-row .row-updated { display: none; }
 body:not([data-directory="vendors"]) #directoryViews { display: none; }
 body[data-directory-view="meetings"] :is(.search-dock, .quiet-vendors-host, #chipBar, .business-body),
 body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none; }
-@media (max-width: 760px) {
-  .app-layout-tabs .result-summary { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-}

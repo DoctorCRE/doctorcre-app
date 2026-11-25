@@ -38,7 +38,7 @@
 
     <div class="search-dock glass" data-panel-background>
       <div class="field field-search">
-        <label for="searchInput">Search</label>
+        <label class="visually-hidden" for="searchInput">Search</label>
         <input id="searchInput" name="q" form="filterForm" type="search" autocomplete="off" spellcheck="false" maxlength="80" placeholder="Search by name">
       </div>
       <details id="secondaryFilters" open>
@@ -46,19 +46,19 @@
       <form id="filterForm" class="filter-form" novalidate aria-label="Search and filter">
         <div class="filter-row">
           <div class="field" data-field="a">
-            <label for="filterA" id="filterALabel">Status</label>
+            <label class="visually-hidden" for="filterA" id="filterALabel">Status</label>
             <select id="filterA" name="a"><option value="">Any status</option></select>
           </div>
           <div class="field" data-field="b">
-            <label for="filterB" id="filterBLabel">Type</label>
+            <label class="visually-hidden" for="filterB" id="filterBLabel">Type</label>
             <select id="filterB" name="b"><option value="">Any type</option></select>
           </div>
           <div class="field" data-field="c">
-            <label for="filterC" id="filterCLabel">Pipeline</label>
+            <label class="visually-hidden" for="filterC" id="filterCLabel">Pipeline</label>
             <select id="filterC" name="c"><option value="any">Any pipeline</option></select>
           </div>
           <div class="field">
-            <label for="sortSelect">Sort</label>
+            <label class="visually-hidden" for="sortSelect">Sort</label>
             <select id="sortSelect" name="sort">
               <option value="name">Alphabetical</option>
               <option value="vertical">Vertical</option>
@@ -75,7 +75,7 @@
             <button type="button" class="scope-option" data-owner="joe" aria-pressed="false">Joe</button>
             <button type="button" class="scope-option" data-owner="dell" aria-pressed="false">Dell</button>
           </div>
-<div class="field territory-field" id="territoryField" hidden><label for="territoryInput">Territory</label><input id="territoryInput" maxlength="80" placeholder="All territories" list="territories"><datalist id="territories"></datalist></div>
+<div class="field territory-field" id="territoryField" hidden><label class="visually-hidden" for="territoryInput">Territory</label><input id="territoryInput" maxlength="80" placeholder="All territories" list="territories"><datalist id="territories"></datalist></div>
           <div class="filter-actions">
             <button type="submit" class="action primary-action" id="applyFilters">Apply</button>
             <button type="button" class="action secondary-action" id="resetFilters">Reset</button>
@@ -84,7 +84,7 @@
       </form>
       </details>
       <div class="hero-meta" aria-label="Status">
-        <span id="observedAt" class="observed">Updating…</span><button type="button" class="refresh-icon" id="refreshList" aria-label="Refresh" title="Refresh">↻</button>
+        <span id="observedAt" class="observed visually-hidden">Updating…</span><button type="button" class="refresh-icon" id="refreshList" aria-label="Refresh" title="Refresh">↻</button>
       </div>
     </div>
     <div id="chipBar" class="chip-bar" role="group" aria-label="Active filters" data-panel-background></div>
