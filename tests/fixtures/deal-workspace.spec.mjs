@@ -89,8 +89,8 @@ test('a filed call item is the next step when its saved action has moved to the 
   await snapshot.getByRole('button', { name: item.title, exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText(savedStep);
   await page.keyboard.press('Escape');
-  await page.getByRole('tab', { name: 'Timeline', exact: true }).click();
-  await expect(page.locator(`#workspace-timeline time[datetime="${item.due_on}"]`)).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Activity', exact: true }).click();
+  await expect(page.locator(`#workspace-activity time[datetime="${item.due_on}"]`)).toHaveCount(0);
 });
 
 test('the other partner’s open step is listed once with its owner and date', async ({ page }) => {
@@ -118,8 +118,8 @@ test('the other partner’s open step is listed once with its owner and date', a
   await expect(otherStep.locator('time')).toHaveAttribute('datetime', '2026-11-23');
   await expect(snapshot.getByText(/Ask about demo parking.*No due date/)).toBeVisible();
   await expect(snapshot.getByText('Finish the demo survey')).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Timeline', exact: true }).click();
-  await expect(page.locator('#workspace-timeline').getByText('Check the demo site plan', { exact: false })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Activity', exact: true }).click();
+  await expect(page.locator('#workspace-activity').getByText('Check the demo site plan', { exact: false })).toHaveCount(0);
 });
 
 test('opening a deal replaces the board with a workspace and Back restores its scroll', async ({ page }) => {
@@ -185,18 +185,18 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await page.locator('.card-open:visible').first().click();
     const header = page.locator('.workspace-header');
     await expect(page.locator('#workspaceFacts')).toBeVisible();
-    await expect(header).toContainText('Demo Workspace Practice');
+    await expect(page.locator('#appTopbar')).toContainText('Demo Workspace Practice');
     await expect(header).toContainText('Demo Long Client Name Medical Practice Associates');
     await expect(header).toContainText('Legal');
     await expect(header).toContainText('Joe');
-    const workspaceTabs = await page.evaluate(async () => (await import('/js/pipeline.js')).workspaceTabs.filter(tab => tab.id !== 'client-view'));
+    const workspaceTabs = await page.evaluate(async () => (await import('/js/pipeline.js')).workspaceTabs.filter(tab => tab.id !== 'client-portal'));
     await expect(page.getByRole('tab')).toHaveText(workspaceTabs.map(tab => tab.label));
     await expect(page.locator('#workspace-overview')).toBeVisible();
     await expect(page.locator('.critical-dates')).toContainText('LOI');
     await expect(page.locator('#detailUpdateForm')).toBeVisible();
     await expect(page.getByRole('region',{name:'Deal snapshot',exact:true})).toContainText('Demo next action');
     await expect(page.locator('.deal-updates')).toContainText('Demo discovery meeting');
-    for (const {id:tab, label} of workspaceTabs.filter(tab => ['overview', 'timeline', 'correspondence'].includes(tab.id))) {
+    for (const {id:tab, label} of workspaceTabs.filter(tab => ['overview', 'activity'].includes(tab.id))) {
       await page.getByRole('tab', { name: label, exact: true }).click();
       await expect(page.getByRole('tab', { name: label, exact: true })).toHaveAttribute('aria-selected', 'true');
       await expect(page.locator(`#workspace-${tab}`)).toBeVisible();

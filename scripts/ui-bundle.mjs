@@ -39,7 +39,6 @@ export const UI_ENTRIES = {
   'ui-zoom': 'workspace-zoom',
   'ui-market': 'market-terms',
   'ui-market-cutover': 'market-terms-cutover',
-  'ui-compare-terms': 'compare-terms',
   'ui-limit': 'home-list-limit',
   'ui-reasons': 'contact-reasons',
   'ui-action': 'action-link',

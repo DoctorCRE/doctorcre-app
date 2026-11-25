@@ -128,14 +128,7 @@ for (const width of [360, 390, 500]) {
       const room = page.getByRole("main", { name: "Deal Workspace" });
       const tabs = room.getByRole("tablist", { name: "Deal workspace tabs" });
       await expect(room.getByRole("tabpanel", { name: "Overview" })).toBeVisible();
-      await expect(tabs.getByRole("tab")).toHaveText([
-        "Overview",
-        "Compare terms",
-        "Timeline",
-        "Correspondence & notes",
-        "Tours",
-        "Documents",
-      ]);
+      await expect(tabs.getByRole("tab")).toHaveText(["Overview", "Activity", "Tours", "Documents"]);
       const layout = await tabs.evaluate((nav) => {
         const buttons = Array.from(nav.querySelectorAll('[role="tab"]')).filter((tab) => tab.checkVisibility());
         const clipped = buttons

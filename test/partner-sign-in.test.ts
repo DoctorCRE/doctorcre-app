@@ -1143,7 +1143,7 @@ test("old client portal bookmarks move in engine mode regardless of routing KV",
       assert.equal(calls.assets.at(-1), "/client-website-moved.html");
       const linked = await send("/client-portal?deal=example", { method, headers: { cookie } });
       assert.equal(linked.status, 302);
-      assert.equal(linked.headers.get("location"), "/deals?deal=example&tab=client-view");
+      assert.equal(linked.headers.get("location"), "/deals?deal=example&tab=client-portal");
       assert.ok(!calls.assets.includes("/client-portal.html"));
     }
   }

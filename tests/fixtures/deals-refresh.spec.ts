@@ -104,7 +104,7 @@ const dealName = (page: Page) => page.locator('.kanban-card[data-id="d14"] .card
 const updated = /^Updated \d{1,2}:\d{2} [AP]M$/i;
 test.use({ locale: "en-US", timezoneId: "America/Chicago" });
 
-test("an old Client view link keeps Overview selected when the deal read fails", async ({ page }) => {
+test("a Client portal link keeps Overview selected when the deal read fails", async ({ page }) => {
   await mockReads(page, { engine: false });
   const detailRequested = Promise.withResolvers<void>();
   const releaseDetail = Promise.withResolvers<void>();
@@ -114,13 +114,13 @@ test("an old Client view link keeps Overview selected when the deal read fails",
     await releaseDetail.promise;
     return route.fulfill({ status: 503 });
   });
-  await page.goto(`${server.url}${local}&deal=d14&tab=client-view`);
+  await page.goto(`${server.url}${local}&deal=d14&tab=client-portal`);
   await detailRequested.promise;
   const room = page.getByRole("main", { name: "Deal Workspace" });
   const overview = room.getByRole("tab", { name: "Overview", selected: true });
   try {
     await expect.soft(overview).toBeVisible({ timeout: 1000 });
-    await expect.soft(room.getByRole("tab", { name: "Client view" })).toHaveCount(0, { timeout: 1000 });
+    await expect.soft(room.getByRole("tab", { name: "Client portal" })).toHaveCount(0, { timeout: 1000 });
   } finally {
     releaseDetail.resolve();
   }

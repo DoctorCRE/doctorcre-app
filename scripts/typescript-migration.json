@@ -630,7 +630,6 @@
     "tests/fixtures/inbox.spec.mjs",
     "tests/fixtures/lead-map-preview.spec.mjs",
     "tests/fixtures/leads-design.spec.mjs",
-    "tests/fixtures/market-terms.spec.mjs",
     "tests/fixtures/phone-width.spec.mjs",
     "tests/fixtures/place-chooser.spec.mjs",
     "tests/fixtures/regression-network.spec.mjs",
