@@ -615,7 +615,10 @@ async function app(
             ...tourDeal?.(),
           });
         if (path === "/api/engine/markets")
-          return Response.json([{ market_id: "00000000-0000-4000-8000-0000000000d1", name: "Example North" }]);
+          return Response.json([
+            { market_id: "00000000-0000-4000-8000-0000000000d1", name: "Example North" },
+            { market_id: "00000000-0000-4000-8000-0000000000d2", name: "Example South" },
+          ]);
         if (path === "/api/engine/market-terms") return Response.json({ schema_version: "compare-terms.v1", rows: [] });
         if (/^\/api\/engine\/(clients|vendors)(?:\/|$)/.test(path)) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
@@ -1398,6 +1401,13 @@ for (const [dealMarket, dealMarketId, prefill, read, empty] of [
     "/api/engine/market-terms?market=Example+North",
     inMarket,
   ],
+  [
+    "Example Town",
+    "00000000-0000-4000-8000-0000000000d2",
+    "Example South",
+    "/api/engine/market-terms?market=Example+South",
+    inMarket,
+  ],
   ["Market unspecified", undefined, "", "/api/engine/market-terms", anyMarket],
 ] as const)
   test(`Compare terms reads the engine for a deal in ${dealMarket}${dealMarketId ? " on a market record" : ""} and legacy deal features make no requests`, async (t) => {
@@ -1421,6 +1431,9 @@ for (const [dealMarket, dealMarketId, prefill, read, empty] of [
     const terms = room.getByRole("tabpanel", { name: "Compare terms" });
     await terms.getByText(empty, { exact: true }).waitFor({ timeout: 4000 });
     assert.equal(await terms.getByLabel("Market").inputValue(), prefill);
+    await terms
+      .getByText(`Compared with ${prefill || "all markets"} · All recorded history`, { exact: true })
+      .waitFor();
     assert.deepEqual(
       [...partnerReads.keys()].filter((path) => path.startsWith("/api/engine/market-terms")),
       [read],
