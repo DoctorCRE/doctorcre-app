@@ -400,8 +400,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       if (epoch !== state.epoch) return;
       state.readFailed = true;
       if (authorizationFailure(error)) return;
-      // A refused verification/read cannot leave the previous private snapshot visible.
-      if (!state.identityReady) state.board = null;
+      // A refused verification/read cannot leave the previous private snapshot visible, nor a board read that ran beside it.
+      if (!state.identityReady) { state.board = null; pageDocContext?.clear(); }
       state.identityReady = false; state.detail = null; state.detailId = null;
       ++state.detailEpoch; state.trigger = null;
       clearGuidance(); $("leadDetail").close(); $("detailTitle").textContent = ""; $("detailBody").replaceChildren();
