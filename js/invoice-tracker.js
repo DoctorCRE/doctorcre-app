@@ -105,6 +105,8 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     if(key)focusVisible([...target.querySelectorAll('[data-invoice-key]')].find(node=>node.dataset.invoiceKey===key));
   };
   const scoped=()=>rows?.filter(row=>!$('invoiceOwner').value || row.owner===$('invoiceOwner').value);
+  const summary=$('invoiceSummary'), totalsBox=$('invoiceTotals'), agingBox=summary.querySelector('.invoice-aging');
+  const markWrapped=()=>summary.toggleAttribute('data-wrapped',agingBox.offsetTop>=totalsBox.offsetTop+totalsBox.offsetHeight);
   function render() {
     const owned=scoped();
     $('invoiceRows').setAttribute('aria-busy',String(!rows));
@@ -132,6 +134,8 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
         <svg class="age-track" viewBox="0 0 100 3" preserveAspectRatio="none" aria-hidden="true"><rect class="age-base" width="100" height="3"/><rect class="age-fill" width="${bucket.amount / ceiling * 100}" height="3"/></svg>
       </button>`;
     }).join(''));
+    // The ResizeObserver reports a frame late; a reader right after this render must see the new row state.
+    markWrapped();
     const term=$('invoiceSearch').value.trim().toLocaleLowerCase();
     const visible=owned.filter(row=>(status==='all'||row.status===status)&&(age===null||(row.status==='unpaid'&&row.bucket===age))&&row.name.toLocaleLowerCase().includes(term));
     $('invoiceCount').textContent=`Invoices · ${visible.length}`;$('invoiceFiltered').textContent=age===null?'':AGES[age];
@@ -308,8 +312,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     renderDetail();
     if(refusalMessage){$('invoicePaymentNotice').hidden=false;$('invoicePaymentNotice').textContent=refusalMessage;}
   });
-  const summary=$('invoiceSummary'), totalsBox=$('invoiceTotals'), agingBox=summary.querySelector('.invoice-aging');
-  const rowWatch=window.ResizeObserver&&new window.ResizeObserver(()=>summary.toggleAttribute('data-wrapped',agingBox.offsetTop>=totalsBox.offsetTop+totalsBox.offsetHeight));
+  const rowWatch=window.ResizeObserver&&new window.ResizeObserver(markWrapped);
   rowWatch?.observe(summary);rowWatch?.observe(totalsBox);
   render();const ready=auto.refresh();
   return {ready,refresh:()=>auto.refresh(),dispose(){disposed=true;auto.dispose();rowWatch?.disconnect();}};

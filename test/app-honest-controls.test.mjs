@@ -363,7 +363,7 @@ test('shared Call Mode connects explicitly before showing an existing recording'
 test('held recording review keeps the next call available on desktop and phone in both themes', async () => {
   const server = await fixtureServer();
   const browser = await chromium.launch({ headless: true });
-  const evidence = new URL('../.github/pr-evidence/WR638.S1.J19/', import.meta.url);
+  const evidence = new URL('../out/test-artifacts/WR638.S1.J19/', import.meta.url);
   await mkdir(evidence, { recursive: true });
   try {
     for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {

@@ -158,8 +158,8 @@ for (const width of [390, 1440]) test(`use a company on file as a national accou
   for (const {id} of candidates) assert.equal(await matches.getByText(id,{exact:false}).count(),0);
   assert.equal(await missingRow.getByRole('button').evaluate(button => button.classList.contains('primary')),true);
   assert.equal(await page.getByRole('button',{name:'Create separate company',exact:true}).evaluate(button => button.classList.contains('secondary')),true);
-  await mkdir('.scratch/name-matches',{recursive:true});
-  await page.locator('#formDialog').screenshot({path:`.scratch/name-matches/national-${width}.png`});
+  await mkdir('out/test-artifacts/name-matches',{recursive:true});
+  await page.locator('#formDialog').screenshot({path:`out/test-artifacts/name-matches/national-${width}.png`});
   assert.equal(await page.locator('#formDialog').evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth),true);
   await missingRow.getByRole('button').click();
   await page.getByText('That company is no longer available.',{exact:false}).waitFor();

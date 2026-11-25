@@ -51,6 +51,7 @@ async function openInvoices(t, search, width = 1280) {
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   const bundleRequests = [];
   page.on('request', request => { if (new URL(request.url()).pathname === UI_BUNDLE) bundleRequests.push(request.url()); });
+  await page.addInitScript(() => localStorage.setItem('doctorcre:today:/invoices', 'open'));
   await page.goto(`${server.origin}/invoices${search}`);
   await page.locator('[data-invoice]').first().waitFor();
   return { page, bundleRequests };

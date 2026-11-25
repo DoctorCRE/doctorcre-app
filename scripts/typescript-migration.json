@@ -702,7 +702,6 @@
     "tests/journeys/w06-tours-drafts.e2e.ts": "68caeafbab7279edbb63a40dee53fe83e2279bf82e693e5dd8ef538669076034",
     "tests/journeys/w09-deal-timeline.e2e.ts": "43764e070e9be42483aa9942bacff187c4fdb8ddc5e66d85ea6d242292cd14f1",
     "tests/journeys/w15-invoices.e2e.ts": "e0c005443f3d0f6932bed3374b64473f86ee9fd0db22d5b6e04e214a5437ffa9",
-    "tests/journeys/w16-charts-map-vision.e2e.ts": "ec06265b33355eed6a2edc5f9d37995f150587c2ea061b575d498cb63aafba12",
     "tests/regressions/network-isolation.e2e.ts": "62cfb3ba12a83f864c6c2d1947d7abe1c9b190f7544b52c90f65b9c6d04d3236",
     "tests/regressions/qa-002-light-titles.e2e.ts": "68b49845bd98b3521f79b46e273e598077fa915b045c7b6cb62ea3003e1fdead",
     "tests/regressions/qa-003-deals-failure.e2e.ts": "c6012b43c76ec4369638767030814d69469d74ad1c2364c7b01b013e8e5a05cc",
