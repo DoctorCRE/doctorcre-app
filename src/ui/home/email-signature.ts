@@ -1,5 +1,33 @@
-const signOff =
-  /^(?:(?:(?:best|kind|warm|warmest) )?regards|best|thanks(?: so much| again)?|thank you|many thanks|sincerely|cheers|respectfully)\b[,.!]?\s*/i;
+const signOffs = [
+  "regards",
+  "best regards",
+  "kind regards",
+  "warm regards",
+  "warmest regards",
+  "best",
+  "thanks",
+  "thanks so much",
+  "thanks again",
+  "thank you",
+  "many thanks",
+  "sincerely",
+  "cheers",
+  "respectfully",
+  "saludos",
+  "un saludo",
+  "atentamente",
+  "cordialement",
+  "bien cordialement",
+  "bien à vous",
+  "mit freundlichen grüßen",
+  "freundliche grüße",
+  "viele grüße",
+  "beste grüße",
+  "cordiali saluti",
+  "atenciosamente",
+];
+// Punctuation or a line end after the phrase, so "Thanks for the tour." stays a sentence.
+const signOff = new RegExp(String.raw`^(?:${signOffs.join("|")})(?:[,.!]|(?=[^\S\n]*(?:\n|$)))\s*`, "iu");
 const reachableSource = String.raw`\(?\b\d{3}\)?[\s.-]*\d{3}[\s.-]\d{4}\b|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?:\/\/|www\.)\S+|\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|co|io|us)\b(?:\/\S*)?`;
 const reachable = new RegExp(reachableSource, "i");
 const everyReachable = new RegExp(reachableSource, "gi");
@@ -15,26 +43,37 @@ const contactShaped = (part: string) => {
   return !/[?!]$/.test(rest) && !lowercaseWord.test(rest);
 };
 
+function senderName(rest: string, sender: string | null) {
+  const full = sender?.trim();
+  return [full, full?.split(/\s+/, 1)[0]].find(
+    (candidate) => candidate && rest.startsWith(candidate) && !/[\p{L}\d]/u.test(rest.charAt(candidate.length)),
+  );
+}
+
 function nameLength(rest: string, sender: string | null) {
   const [line = ""] = rest.split("\n", 1);
   if (line.length < rest.length && !reachable.test(line)) return line.length;
-  const name = [sender, sender?.split(/\s+/, 1)[0]].find(
-    (name) => name && rest.toLowerCase().startsWith(name.toLowerCase()) && !/\w/.test(rest.charAt(name.length)),
-  );
-  return name?.length ?? 0;
+  return senderName(rest, sender)?.length ?? 0;
 }
 
-/** Splits the contact block after a message's last sentence from the text a person wrote, keeping the sign-off and name. */
+/** Where a signature that opens at `start` would fold: after its sign-off and name, or after the sender's name. */
+function anchorEnd(body: string, start: number, sender: string | null): number | null {
+  const rest = body.slice(start);
+  const signedOff = rest.match(signOff)?.[0].length;
+  if (signedOff !== undefined) return start + signedOff + nameLength(rest.slice(signedOff), sender);
+  return senderName(rest, sender) ? start + nameLength(rest, sender) : null;
+}
+
+/** Folds the contact details after a message's sign-off or sender's name; with neither, or with writing after them, nothing folds. */
 export function splitSignature(body: string, sender: string | null): { text: string; signature: string | null } {
   const breaks = [...body.matchAll(sentenceOrLineBreak)];
   const parts = [0, ...breaks.map(({ index, 0: gap }) => index + gap.length)].map((start, at) => ({
     start,
     text: body.slice(start, breaks[at]?.index),
   }));
-  const tail = parts[parts.map(({ text }) => contactShaped(text)).lastIndexOf(false) + 1]?.start;
-  if (tail === undefined) return { text: body, signature: null };
-  const named = tail + (body.slice(tail).match(signOff)?.[0].length ?? 0);
-  const foldAt = named + nameLength(body.slice(named), sender?.trim() || null);
+  const tail = parts.slice(parts.map(({ text }) => contactShaped(text)).lastIndexOf(false) + 1);
+  const foldAt = tail.map(({ start }) => anchorEnd(body, start, sender)).find((at): at is number => at !== null);
+  if (foldAt === undefined) return { text: body, signature: null };
   const signature = body.slice(foldAt).trim();
   if ((signature.match(everyReachable)?.length ?? 0) < 2) return { text: body, signature: null };
   return { text: body.slice(0, foldAt).trimEnd(), signature };
