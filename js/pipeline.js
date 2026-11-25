@@ -2,7 +2,6 @@ import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-
 import { createDayStore } from '../tours/day-store.js';
 import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
-import { cardDueLabel } from './ui-card-due.generated.js';
 import { bindCardQuickMenu } from './ui-card-menu.generated.js';
 import {
   autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
@@ -187,11 +186,6 @@ function cardDue(deal) {
   const legacyDue = !state.boardFromEngine && !steps.length && noteText(deal.next_step).trim() ? deal.next_date : null;
   return dealDueDate(step?.due_on ?? legacyDue, businessDay());
 }
-function cardDueHtml(due) {
-  if (!due) return '';
-  const { text, tone } = cardDueLabel(due.day, businessDay());
-  return `<time class="card-due${tone ? ` card-due--${tone}` : ''}" datetime="${esc(due.day)}">${esc(text)}</time>`;
-}
 function ownerMarkHtml(name) {
   return `<span class="owner" title="Owner: ${esc(name)}"><span aria-hidden="true">${esc(name === 'Unassigned' ? '?' : name.slice(0, 1))}</span><span class="sr-only">Owner: ${esc(name)}</span></span>`;
 }
@@ -217,7 +211,7 @@ function cardHtml(deal) {
   return workCard({ variant: 'tile', className: `kanban-card${parked ? ' parked-card' : ''}`, heading: 'h4',
     attributes: `data-id="${esc(deal.id)}" data-shortcut-card ${moveAttrs} aria-label="${esc(dealTitle(deal))}, ${esc(parked ? 'Parked' : columnLabel(deal.phase))}"`,
     title: `<button class="card-open" type="button" data-open="${esc(deal.id)}" data-shortcut-open>${esc(dealTitle(deal))}</button>`,
-    meta: `${cardDueHtml(parked ? null : cardDue(deal))}${badge}${ownerMarkHtml(actorName(deal.owner))}${starHtml(deal)}` });
+    meta: `${badge}${ownerMarkHtml(actorName(deal.owner))}${starHtml(deal)}` });
 }
 function legacyRowStepHtml(deal) {
   const nextStep = noteText(deal.next_step);

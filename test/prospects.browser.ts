@@ -988,3 +988,48 @@ test("an automatic check-in on a prospect says who to check in with", async (t) 
     }
   }
 });
+
+test("a follow-up with a blank display title shows its stored wording on the lane card", async (t) => {
+  const session = { actor: { slug: "joe" }, csrf_token: "synthetic-csrf" };
+  const CARR = { fetch: async () => Response.json(session) };
+  const server = await startWorkerFixture({ assets: await appAssetSnapshot(), env: { CARR } });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const step = {
+    next_step_id: "00000000-0000-4000-8000-000000000031",
+    owner: "dell",
+    what: "Call about the lease",
+    display_title: " ",
+    due_on: "2026-11-20",
+    change_id: 3,
+  };
+  const prospect = {
+    party_id: party,
+    name: "Example Elm Practice",
+    how_found: "referral",
+    owner: null,
+    needs_attention: false,
+    follow_ups: [step],
+    latest_note: null,
+    change_id: 1,
+  };
+  const env = {
+    GIT_SHA: "0".repeat(40),
+    APP_ENV: "fixture",
+    CARR,
+    ENGINE_ROUTING: { get: async () => "on" },
+    ENGINE: {
+      fetch: async (request: Request) =>
+        new URL(request.url).pathname === "/api/engine/prospects"
+          ? Response.json({ prospects: [prospect], count: 1 })
+          : Response.json({ schema_version: "local-deals-board.v2", actor: "joe", deals: [] }),
+    },
+  };
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  t.after(() => page.close());
+  await routeWorker(page, env);
+  await page.goto(`${server.origin}/deals?mode=live`);
+  const card = page.locator("#prospectsLane").getByRole("article");
+  await card.getByText(step.what, { exact: true }).waitFor();
+});

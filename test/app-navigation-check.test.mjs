@@ -41,7 +41,7 @@ test("Deals has one global Deals link and local views are labelled as views", ()
   assert.match(html, /<body class="dealroom-page">\s*<script src="\/js\/theme-boot\.js"><\/script>/, "theme lives on <html>; the body carries no theme class");
   assert.doesNotMatch(html, /<nav class="workspaces"/);
   assert.match(html, /href="\/deals">Local Deals<\/a>/);
-  assert.match(html, /href="\/deals\?view=national" aria-current="page">National Accounts<\/a>/);
+  assert.match(html, /href="\/deals\?view=national" aria-current="page" aria-label="National Accounts">/);
 });
 
 test('navigation has one public module; the app shell exports only app mounting', async () => {

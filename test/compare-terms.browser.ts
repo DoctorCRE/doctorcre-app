@@ -112,6 +112,11 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
         assert.equal(await page.getByLabel("Market").inputValue(), "Example North");
         await page.getByText("Compared with Example North · All recorded history", { exact: true }).waitFor();
         assert.equal(await count(page), "5 matching terms across 2 deals.");
+        assert.deepEqual(
+          await page.locator(".compare-terms > p").allTextContents(),
+          [],
+          "no sentence explains the tab under its title",
+        );
         const first = page.locator(".market-terms-table tbody tr").first();
         assert.deepEqual(await first.locator("td").allTextContents(), [
           "Fri, May 1, 2026",
