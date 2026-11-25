@@ -136,7 +136,7 @@ test('Calendar opens confirmed dates while another deal is pending and clears th
         failAll = false;
         slowFails = false;
         await page.getByRole('button', { name: 'Retry', exact: true }).click();
-        await expectDay('Nothing on this day.', '2026-10-21');
+        await expectDay('No events scheduled.', '2026-10-21');
       } else {
         await page.waitForURL('**/public-shell/session-ended.html');
         await expect(page.getByRole('heading',{name:'Session ended'})).toBeVisible();
