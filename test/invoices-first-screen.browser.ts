@@ -118,7 +118,9 @@ const measure = (page: Page) =>
         const { top, bottom } = node.getBoundingClientRect();
         return { top, bottom };
       }),
-      divider: getComputedStyle(document.querySelector(".invoice-aging") ?? document.body).borderLeftWidth,
+      divider: (({ content, visibility }) => (content === "none" ? "none" : visibility))(
+        getComputedStyle(document.querySelector(".invoice-aging") ?? document.body, "::before"),
+      ),
       tracks: [...document.querySelectorAll<HTMLElement>(".invoice-age")].map((chip) => {
         const outer = chip.getBoundingClientRect();
         const track = chip.querySelector(".age-track")?.getBoundingClientRect() ?? new DOMRect();
@@ -144,7 +146,7 @@ for (const [width, height, partial] of [
     const detail = JSON.stringify(layout);
     assert.equal(layout.today, "open", "Today is open beside the table");
     assert.ok(oneRow(layout.parts), `the totals and every age chip share one row: ${detail}`);
-    assert.notEqual(layout.divider, "0px", `a divider separates the totals from the age chips: ${detail}`);
+    assert.equal(layout.divider, "visible", `a divider separates the totals from the age chips: ${detail}`);
     assert.ok(
       layout.tracks.length === 4 &&
         layout.tracks.every(
@@ -186,8 +188,33 @@ test("Invoices summary strip wraps without a stray divider at 1024x768 with Toda
   const detail = JSON.stringify(layout);
   assert.equal(layout.today, "open", "Today is open beside the table");
   assert.equal(oneRow(layout.parts), false, `the age chips wrap under the totals: ${detail}`);
-  assert.equal(layout.divider, "0px", `no divider sits at the start of the wrapped row: ${detail}`);
+  assert.equal(layout.divider, "hidden", `no divider sits at the start of the wrapped row: ${detail}`);
 });
+
+for (const partial of [false, true])
+  test(`Invoices summary strip holds still at every width near its wrap point${partial ? " with unrecorded amounts" : ""}`, async (t) => {
+    const { browser, page } = await openInvoices(1240, 800, { partial });
+    t.after(() => browser.close());
+    const unsteady: string[] = [];
+    for (let width = 1240; width <= 1270; width++) {
+      await page.setViewportSize({ width, height: 800 });
+      const strip = await page.evaluate(async () => {
+        const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        for (let i = 0; i < 3; i++) await frame();
+        const summary = document.getElementById("invoiceSummary");
+        const states: boolean[] = [];
+        for (let i = 0; i < 8; i++) {
+          states.push(summary?.hasAttribute("data-wrapped") ?? false);
+          await frame();
+        }
+        const aging = document.querySelector(".invoice-aging")?.getBoundingClientRect();
+        const totals = document.getElementById("invoiceTotals")?.getBoundingClientRect();
+        return { states, wrapped: (aging?.top ?? 0) >= (totals?.bottom ?? 0) };
+      });
+      if (strip.states.some((state) => state !== strip.wrapped)) unsteady.push(`${width}: ${JSON.stringify(strip)}`);
+    }
+    assert.deepEqual(unsteady, [], "the strip keeps one wrapped state that matches its layout");
+  });
 
 test("Invoices age chips in the summary strip filter the table and mark the active chip", async (t) => {
   const { browser, page } = await openInvoices(1440, 900);
